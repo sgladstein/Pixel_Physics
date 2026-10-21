@@ -185,6 +185,11 @@ pub trait CellSurface {
     /// below? No default, for the same reason.
     fn soil_drains_around(&self) -> bool;
 
+    /// `World::soil_through_roots`: does soil water pass through plant
+    /// tissue to the soil on its far side, in both its drainage and its
+    /// capillary exchange? No default, for the same reason.
+    fn soil_through_roots(&self) -> bool;
+
     /// Clear a cell's moved flag once the sweep has skipped it. Always called
     /// on the position currently being visited.
     fn clear_moved(&mut self, x: i32, y: i32);

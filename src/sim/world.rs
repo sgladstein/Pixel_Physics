@@ -6364,6 +6364,16 @@ pub struct World {
     /// sheds its surplus to a soil cell diagonally below instead. Off unless
     /// a lab bed asks for patchy ground, for `soil_texture`'s reason.
     pub soil_drains_around: bool,
+    /// **Soil water passes through a root to the soil beyond it**
+    /// (`update::soil_partner`). Soil water moves only between cells that
+    /// hold it, so a mat of roots was a floor and a wall: the soil inside it
+    /// could neither drain nor spread, saturated, and turned away every drop
+    /// that landed on it -- the base of most of the water standing on a
+    /// grown bed (plant-community plan, "the bed has to look like plants").
+    /// A root one cell wide in a 2D slice is not a sheet spanning the bed's
+    /// depth, which is `update::drip_through_organism`'s own argument for
+    /// the liquid side.
+    pub soil_through_roots: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -6546,6 +6556,19 @@ pub struct World {
     /// Off, buds are paid for by this tick's income alone, and a plant that
     /// has lost every tip can never earn one back.
     pub bud_break_reserve: bool,
+    /// **Plants read their species' shade genes** (`Behavior::Grow::
+    /// shade_avoid` / `shade_tolerate`; A5 of
+    /// `Reports/plant-community-plan-2026-10-20.md`). Off, both genes are
+    /// ignored and a plant grows the same in shade as in sun, which is the
+    /// engine before A5.
+    pub shade_plasticity: bool,
+    /// **The light an unshaded leaf gets in this world** -- what the shade
+    /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
+    /// under the sky (noon sun, with the day divided out); the grow lamp's
+    /// `beam` in the lab, set by `LabBox`'s build. Without it a lamp-lit
+    /// plant read 40% shaded in the brightest place its world has, and a
+    /// tolerant one took the shade-leaf bonus there for free.
+    pub open_light: f32,
     /// Waiting seeds that left the slice from the top of a heap
     /// (`seed_pile_depth`). An effect count.
     pub seeds_spread: u64,
@@ -7485,6 +7508,7 @@ impl World {
             soil_capillary_levels: false,
             soil_texture: false,
             soil_drains_around: false,
+            soil_through_roots: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
@@ -7508,6 +7532,8 @@ impl World {
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
             seed_pile_depth: 0,
             bud_break_reserve: false,
+            shade_plasticity: false,
+            open_light: crate::sim::field::MAX_LIGHT,
             seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
@@ -12944,6 +12970,10 @@ impl CellSurface for World {
         self.soil_drains_around
     }
 
+    fn soil_through_roots(&self) -> bool {
+        self.soil_through_roots
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -13284,6 +13314,10 @@ impl CellSurface for MoistureView<'_> {
 
     fn soil_drains_around(&self) -> bool {
         self.world.soil_drains_around
+    }
+
+    fn soil_through_roots(&self) -> bool {
+        self.world.soil_through_roots
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

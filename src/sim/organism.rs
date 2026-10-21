@@ -802,6 +802,27 @@ pub enum Behavior {
         /// is zero, which is the state every species predating it is in.
         #[serde(default)]
         stem_stiffness: ByOrder<f32>,
+        /// **Shade avoidance: how far a tip in shade stretches its
+        /// internodes** (A5.1 of `Reports/plant-community-plan-2026-10-20.md`;
+        /// read only under `World::shade_plasticity`). In full shade a node
+        /// comes every `plastochron * (1 + shade_avoid)` steps instead of
+        /// every `plastochron`, so the stem gains height faster per leaf --
+        /// the elongation a real shade-avoider shows when neighbours dim
+        /// it. Its price is the leaves it does not grow. 0 (the default) is
+        /// no response, bit-identical to before the field existed.
+        #[serde(default)]
+        shade_avoid: f32,
+        /// **Shade tolerance: how much bigger and cheaper a leaf spray built
+        /// in shade gets, paid for in bright light** (A5.1/A5.2; read only
+        /// under `World::shade_plasticity`). In full shade a node's spray
+        /// may hold up to `leaf_cluster * (1 + shade_tolerate)` cells, each
+        /// built at `1 - shade_tolerate / 2` of the usual cost -- big, thin
+        /// shade leaves. Every leaf of the plant then earns
+        /// `1 - SHADE_LEAF_PRICE * shade_tolerate * light / MAX_LIGHT` of
+        /// its light, so a tolerant plant is slower in the open: the leaf
+        /// economics trade, and what keeps tolerance from being free.
+        #[serde(default)]
+        shade_tolerate: f32,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -2041,11 +2062,15 @@ pub enum ParamId {
     DivideCost,
     DivideDampChance,
     DivideDryChance,
+    /// `Behavior::Grow::shade_avoid` (A5.1).
+    ShadeAvoid,
+    /// `Behavior::Grow::shade_tolerate` (A5.1/A5.2).
+    ShadeTolerate,
 }
 
 /// Every address a mutation may draw from — the alphabet, exactly as
 /// `PLANT_CELL_TYPES` and `ALL_FATE_WHENS` are the fate genome's.
-pub const ALL_PARAM_IDS: [ParamId; 45] = [
+pub const ALL_PARAM_IDS: [ParamId; 47] = [
     ParamId::GrowCost,
     ParamId::BranchChance,
     ParamId::ContinuationWeight,
@@ -2091,6 +2116,8 @@ pub const ALL_PARAM_IDS: [ParamId; 45] = [
     ParamId::DivideCost,
     ParamId::DivideDampChance,
     ParamId::DivideDryChance,
+    ParamId::ShadeAvoid,
+    ParamId::ShadeTolerate,
 ];
 
 impl ParamId {
@@ -2111,6 +2138,8 @@ impl ParamId {
             ParamId::LeafCluster => "leaf_cluster",
             ParamId::OrganCluster => "organ_cluster",
             ParamId::LeafSpread => "leaf_spread",
+            ParamId::ShadeAvoid => "shade_avoid",
+            ParamId::ShadeTolerate => "shade_tolerate",
             ParamId::JuvenileSize => "juvenile_size",
             ParamId::JuvenilePlastochron => "juvenile_plastochron",
             ParamId::JuvenileBranch => "juvenile_branch",
@@ -2159,7 +2188,9 @@ impl ParamId {
             | ParamId::HeadingInertia
             | ParamId::GerminateLight
             | ParamId::GerminateWater
-            | ParamId::LeafSpread => ParamKind::Probability,
+            | ParamId::LeafSpread
+            | ParamId::ShadeAvoid
+            | ParamId::ShadeTolerate => ParamKind::Probability,
             ParamId::ContinuationWeight
             | ParamId::LightWeight
             | ParamId::WindWeight
@@ -2306,6 +2337,8 @@ fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
             turgor_source,
             turgor_yield,
             turgor_per_cell,
+            shade_avoid,
+            shade_tolerate,
             ..
         } => match o.param {
             ParamId::GrowCost => *cost = o.value,
@@ -2322,6 +2355,8 @@ fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
             ParamId::LeafCluster => *leaf_cluster = o.value.round().clamp(0.0, 255.0) as u8,
             ParamId::OrganCluster => *organ_cluster = o.value.round().clamp(0.0, 255.0) as u8,
             ParamId::LeafSpread => *leaf_spread = o.value,
+            ParamId::ShadeAvoid => *shade_avoid = o.value.clamp(0.0, 1.0),
+            ParamId::ShadeTolerate => *shade_tolerate = o.value.clamp(0.0, 1.0),
             ParamId::JuvenileSize => *juvenile_size = o.value.round().clamp(0.0, 4096.0) as u32,
             ParamId::JuvenilePlastochron => *juvenile_plastochron = o.value,
             ParamId::JuvenileBranch => *juvenile_branch = o.value,
@@ -2425,6 +2460,8 @@ pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> 
             turgor_source,
             turgor_yield,
             turgor_per_cell,
+            shade_avoid,
+            shade_tolerate,
             ..
         } => Some(match param {
             ParamId::GrowCost => *cost,
@@ -2441,6 +2478,8 @@ pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> 
             ParamId::LeafCluster => *leaf_cluster as f32,
             ParamId::OrganCluster => *organ_cluster as f32,
             ParamId::LeafSpread => *leaf_spread,
+            ParamId::ShadeAvoid => *shade_avoid,
+            ParamId::ShadeTolerate => *shade_tolerate,
             ParamId::JuvenileSize => *juvenile_size as f32,
             ParamId::JuvenilePlastochron => *juvenile_plastochron,
             ParamId::JuvenileBranch => *juvenile_branch,

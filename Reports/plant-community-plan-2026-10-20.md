@@ -692,12 +692,20 @@ the review (§12), **M1 runs in this order**:
    Also count contact split by seed, own kind and other kind, and light under
    each species' own leaf.
 
-   **Done, 2026-10-21.** This is the training world: the four roles,
-   patchy ground, the floor drain, spells (20,000 wet / 40,000 dry), load
+   **Done, 2026-10-21.** This is the training world: M0's four-kind mix
+   (`roles4`: shrub, creeper, herb, grass), patchy ground, the floor drain, spells (20,000 wet / 40,000 dry), load
    failure off, and all four heredity switches off, printed in each log's
    header. 4 seeds, 480,000 frames, `plant_m0` (`heredity=on` restores
    M0's bed). **This is the baseline A6, A3, A5 and A2 are compared
    against, paired by seed.**
+
+   **Correction, 2026-10-21:** `roles4` is M0's mix from before the review
+   remapped the roles (§12, M4). The remapped four are tree (canopy),
+   shrub (understory), herb (colonist) and creeper (ground cover), with
+   grass outside them. Every M1 community number here, A6 and A3
+   included, is on `roles4`, with grass in and no canopy. They stand as
+   measurements of that bed, but the training world is `plant_m0
+   mix=roles` from here on.
 
    **A grass sward with a few creepers and shrubs.**
    - grass about 1,000 plants (959-1,157), still recruiting;
@@ -800,8 +808,92 @@ the review (§12), **M1 runs in this order**:
      their own plants first.
    - Picture: `Reports/plant-community-2026-10-20/m1/a3-s1.png`. Data:
      `.../m1/a3/`.
+   - **But 480,000 frames was a transient** (`roles4`, everything above on,
+     4 seeds to 1,200,000; `.../m1/long/`). Kinds with 100+ leaf per seed:
+
+     | frame | per seed |
+     |---|---|
+     | 240,000 | 4, 4, 4, 4 |
+     | 480,000 | 3, 3, 4, 3 |
+     | 720,000 | 1, 3, 3, 2 |
+     | 1,200,000 | 1, 1, 1, 2 |
+
+     - Shrubs die of old age by 480,000-720,000 on all four seeds; they
+       recruit 0-2 per 100,000 frames.
+     - Herb fades on 3 of 4 seeds.
+     - Creeper declines without recruiting.
+     - Grass recruits 50-100 per 100,000 frames and takes the bed.
+
+     **The engine now lets each kind live; only grass replaces itself.**
+     That is what rungs 4-6 train for (hold ground, recruit into a stand,
+     invade from rare). It is also partly the bed: `roles4` carries grass,
+     the heaviest seeder, which the remapped roles leave out.
+   - **On the remapped roles it is a forest** (`mix=roles`: tree, shrub,
+     herb, creeper; same world, 4 seeds to 1,200,000; `.../m1/long/runs/
+     roles-s*.log`). Plants / leaf cells per kind:
+
+     | frame | creeper | herb | shrub | tree | kinds 100+ leaf |
+     |---|---|---|---|---|---|
+     | 20,000 | 8-15 / 204-318 | 30-52 / 742-1,272 | 8-17 / 502-776 | 12-24 / 1,524-4,871 | 4,4,4,4 |
+     | 120,000 | 0-2 / 0-41 | 22-52 / 386-1,313 | 1-13 / 1-977 | 8-15 / 3,429-6,234 | 3,3,2,3 |
+     | 720,000 | 0 | 0-16 / 0-437 | 0 | 12-32 / 4,018-7,992 | 2,2,1,2 |
+     | 1,200,000 | 0 | 0-29 / 0-609 | 0 | 16-34 / 3,873-6,603 | 1,2,1,2 |
+
+     The tree closes a canopy of 4,000-8,000 leaf cells within about
+     100,000 frames. Light at the tree's own leaves stays at 0.24-0.27 of
+     full; under it, too dark for the others. **The creeper is gone by
+     120,000-180,000 on every seed and the shrub by 120,000-720,000.** Herb
+     hangs on in gaps on 2-3 seeds. Nothing lives under the canopy, which is
+     the niche A5 exists to open.
 7. **A5.1–A5.2: shade avoidance against tolerance, sun and shade leaves.**
    These make an understory possible at all, and are priced.
+
+   **Built, measured, parked off, 2026-10-21. Tolerance alone does not open
+   the understory.**
+   - **What exists.** Two genes on `Grow`, both trainable (`ParamId::
+     ShadeAvoid`, `ShadeTolerate`; `train_plant::genome` LEVERS), read only
+     under `World::shade_plasticity` (off everywhere). Avoidance stretches
+     the node interval in shade. Tolerance sprays more, cheaper leaves in
+     shade, cuts the upkeep bill (up to half) and the shade-shedding roll;
+     its price is leaf light lost in bright light (`SHADE_LEAF_PRICE`).
+   - **The signal is shade against the world's own open light**
+     (`World::open_light`: full sun outdoors, the lamp's beam in the lab).
+     Against `MAX_LIGHT`, a lamp-lit plant read 40% shaded in the brightest
+     place the lab has, and the tolerant shrub took its leaf bonus there for
+     free (bright shoot 551 -> 664).
+   - **The first dim arm was dark, not dim** (`open-bugs-handoff.md`
+     §Z39). Lamps 66 apart with the founder midway read 0.26 of full light
+     in the air at the planting site; the seedling's own block read **0.00**,
+     because sideways light never enters a block holding a plant. Every
+     founder died before its first leaf, with or without the genes. The test
+     now dims the lamp instead (`dimlamp=`, 0.24 of full at the plant).
+   - **Lone plant, dimmed lamp, 8 seeds, 60,000 frames** (before the
+     open-light fix): the tolerant shrub is 59% bigger in dim light (shoot
+     268 -> 426) with more leaf share (0.24 -> 0.29), all alive either way.
+     Herb avoidance hurts in uniform dim light (5/8 alive -> 2/8), as it
+     should where stretching reaches nothing brighter.
+   - **The community test fails.** Four roles, 4 seeds, 720,000 frames,
+     shrub tolerance 0.7 against none, the genes-off arm byte-identical to
+     the earlier runs: the shrub lasts on **1 of 4 seeds with the gene
+     (3 plants, 78 leaf) against 0 of 4 without**. The tree still closes the
+     bed. Light under its canopy is 0.02-0.3 of full; a halved bill does not
+     pay for that.
+   - **What would, untested:** a tree that leaves gaps (lifespans
+     that open the canopy, which the tree has at 60,000), a shade-tolerant
+     species whose seedlings recruit under cover, and training (rungs 4-6),
+     which can move both genes. Off until then.
+
+7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
+   bed in these images looks crazy. It's a pile of water and seeds with
+   some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`
+   line): at 480,000 frames the grass bed is ~37% green; heaped soil 16%,
+   loose seed 10%, exposed root 9%, wood 7%, litter 4% and water 3% make the
+   rest. The forest bed is half wood (50-53%) and a quarter leaf.
+   The order: (1) trapped water, (2) heaped ground, (3) seed and litter
+   lying on top, (4) colour, by blind A/B only. **Then back here**: A5's
+   write-up stands, A2 (step 8) is next, then rungs 4-6 aimed at
+   recruitment and long-run coexistence -- the problem the long runs above
+   named.
 8. **A2, development keying.**
 
 **Rungs 4–6 and M4 wait** for three things:

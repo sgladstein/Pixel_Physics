@@ -1115,6 +1115,11 @@ impl LabBox {
         let textured = self.ground != Ground::Uniform;
         w.seed_pile_depth = self.seed_pile_depth;
         w.bud_break_reserve = self.bud_break_reserve;
+        // Under the lamps, the lamp is the sun: what the shade genes call
+        // open light (`World::open_light`).
+        if let Some(lamp) = w.materials.id_of("growlamp") {
+            w.open_light = w.materials.get(lamp).beam.max(f32::EPSILON);
+        }
         w.soil_texture = textured;
         w.soil_drains_around = textured;
         for x in 0..self.width {

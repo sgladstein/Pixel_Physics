@@ -31,7 +31,7 @@
 use pixel_physics::lab::rain::{Rain, Spells};
 use pixel_physics::lab::scenario::{Event, Placement, Scenario};
 use pixel_physics::lab::scene::{Ground, LabBox};
-use pixel_physics::sim::cell::OrganismId;
+use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::organism::{self, CellType, ParamId};
 use pixel_physics::sim::particle::ParticleSystem;
@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -62,7 +62,7 @@ fn get<T: std::str::FromStr>(m: &BTreeMap<String, String>, k: &str, default: T) 
     m.get(k).map_or(default, |v| v.parse().unwrap_or_else(|_| panic!("{k}={v} does not parse")))
 }
 
-/// The two beds of record. **mix7** is the mixed planted bed the grass
+/// The beds of record. **mix7** is the mixed planted bed the grass
 /// lifespan was measured on (`grass.ron`); **roles4** is the plan's four
 /// roles (§4.2): canopy perennial, shade-tolerant understory, annual
 /// colonist, clonal ground cover, starting from the shipped species.
@@ -70,7 +70,13 @@ fn mix(name: &str) -> Vec<&'static str> {
     match name {
         "mix7" => vec!["herb", "scrambler", "shrub", "creeper", "grass", "conifer", "tree"],
         "roles4" => vec!["shrub", "creeper", "herb", "grass"],
-        other => panic!("mix={other} is not mix7|roles4"),
+        // **The four roles as the review remapped them** (plan §12, M4):
+        // canopy perennial (tree), shade-tolerant understory (shrub), annual
+        // colonist (herb), clonal ground cover (creeper). Grass is outside
+        // the trained four. `roles4` above is M0's mix, from before the
+        // remap, and every M1 community run to 2026-10-21 used it.
+        "roles" => vec!["tree", "shrub", "herb", "creeper"],
+        other => panic!("mix={other} is not mix7|roles4|roles"),
     }
 }
 
@@ -208,6 +214,13 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
             w.species.get_mut(id).life_half_life = v.parse().expect("life frames");
         }
     }
+    apply_shade(m, &mut w);
+    // `level=1`: `World::soil_capillary_levels` (soil water levels sideways
+    // when saturated). `roots=1`: `World::soil_through_roots` (soil water
+    // passes through a root to the soil beyond). The standing-water arms.
+    w.soil_capillary_levels = get(m, "level", u8::from(w.soil_capillary_levels)) != 0;
+    w.soil_through_roots = get(m, "roots", u8::from(w.soil_through_roots)) != 0;
+    println!("plant_m0 soil_capillary_levels={} soil_through_roots={}", w.soil_capillary_levels, w.soil_through_roots);
     println!(
         "plant_m0 bud_break_reserve={} lifespans: {}",
         w.bud_break_reserve,
@@ -218,6 +231,28 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
         w.fate_mutation_chance, w.param_mutation_chance, w.mutation_sigma, w.founder_variant_chance
     );
     (w, bed, scenario, species, mix_name, placed.plants)
+}
+
+/// `shade=1` turns on `World::shade_plasticity` (A5), and
+/// `genes=SPECIES:avoid|tolerate:VALUE,...` sets a species' shade genes on
+/// this bed only -- the A/B the shade genes are measured on before any
+/// species file changes. Prints what it set.
+fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
+    w.shade_plasticity = get(m, "shade", u8::from(w.shade_plasticity)) != 0;
+    if let Some(spec) = m.get("genes") {
+        for item in spec.split(',') {
+            let parts: Vec<&str> = item.split(':').collect();
+            let [name, gene, value] = parts[..] else { panic!("genes=SPECIES:avoid|tolerate:VALUE,...") };
+            let id = w.species.id_of(name).unwrap_or_else(|| panic!("genes: no species {name}"));
+            let param = match gene {
+                "avoid" => ParamId::ShadeAvoid,
+                "tolerate" => ParamId::ShadeTolerate,
+                other => panic!("genes: {other} is not avoid|tolerate"),
+            };
+            assert!(w.species.set_param(id, CellType::GrowingTip, param, 0, value.parse().expect("gene value")), "genes: {name} has no Grow on its growing tip");
+        }
+    }
+    println!("plant_m0 shade_plasticity={} open_light={:.2} genes={}", w.shade_plasticity, w.open_light, m.get("genes").map_or("none", String::as_str));
 }
 
 fn community(m: &BTreeMap<String, String>) {
@@ -241,13 +276,21 @@ fn community(m: &BTreeMap<String, String>) {
     let shots: Vec<u64> = m.get("shots").map_or(vec![], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
     let out: String = get(m, "out", "plant_m0".to_string());
     let mut renderer = pixel_physics::render::Renderer::new();
+    // Soil-moisture writes a tick, per sample window: the churn
+    // `World::soil_capillary_levels` was held off for (`examples/waterstand`).
+    let (mut sw_changed, mut sw_ticks) = (0u64, 0u64);
     for f in 1..=frames {
         pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
+        sw_changed += w.soil_water_stats.changed;
+        sw_ticks += 1;
         if f % sample == 0 || f == frames {
             let row = census(&w, &bed, &species, &mut established, f, sample);
-            println!("{row}");
+            println!("{row} | sw={:.1}", sw_changed as f64 / sw_ticks.max(1) as f64);
+            (sw_changed, sw_ticks) = (0, 0);
         }
         if shots.contains(&f) {
+            println!("{}", screen_mix(&w, &bed, f));
+            println!("{}", water_why(&w, &bed, f));
             let (fw, fh) = (bed.width as u32, bed.height as u32);
             let mut frame = vec![0u8; (fw * fh * 4) as usize];
             let touched = w.take_touched_chunks();
@@ -268,6 +311,129 @@ fn community(m: &BTreeMap<String, String>) {
         }
     }
     println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
+}
+
+/// **What the picture is made of**: every cell in the window a shot draws
+/// (100 rows above the bed's original soil line, 20 below), tallied by
+/// material -- organism cells by what they are (`leaf`, `wood`, `root`,
+/// ...), soil above the original line as `heaped`, and empty or water below
+/// it as `hole`/`water-in-ground`. Percentages of the non-empty cells above
+/// the line, then the top 20 rows of ground. Paired with each shot, because
+/// "it looks like a pile of water and seeds" is a claim about these shares.
+fn screen_mix(w: &World, bed: &LabBox, frame: u64) -> String {
+    let mut above: BTreeMap<String, u64> = BTreeMap::new();
+    let mut below: BTreeMap<String, u64> = BTreeMap::new();
+    for y in (bed.ground_y - 100).max(0)..(bed.ground_y + 20) {
+        for x in 0..bed.width {
+            let c = w.get(x, y);
+            let mat = w.materials.get(c.material);
+            let ground = y >= bed.ground_y;
+            let label = if c.material == pixel_physics::sim::material::EMPTY {
+                if ground { "hole".to_string() } else { continue }
+            } else if c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|st| st.cells.contains_key(&(x, y))) {
+                match organism::cell_type(c.aux()) {
+                    Some(CellType::Leaf) => "leaf".to_string(),
+                    Some(CellType::RootTip) => "root-tip".to_string(),
+                    Some(CellType::Seed) => "seed(live)".to_string(),
+                    Some(CellType::Flower) | Some(CellType::Fruit) => "flower/fruit".to_string(),
+                    Some(t) => format!("{}:{t:?}", mat.name),
+                    None => format!("{}(organism)", mat.name),
+                }
+            } else if mat.kind == pixel_physics::sim::material::MaterialKind::Liquid {
+                if ground { "water-in-ground".to_string() } else { "water".to_string() }
+            } else if !ground && mat.water_capacity > 0 {
+                "heaped-soil".to_string()
+            } else {
+                mat.name.to_string()
+            };
+            *(if ground { &mut below } else { &mut above }).entry(label).or_default() += 1;
+        }
+    }
+    let fmt = |t: &BTreeMap<String, u64>| {
+        let n: u64 = t.values().sum::<u64>().max(1);
+        let mut v: Vec<(&String, &u64)> = t.iter().collect();
+        v.sort_by_key(|e| std::cmp::Reverse(*e.1));
+        format!("n={n} ") + &v.iter().map(|(k, c)| format!("{k}:{:.1}%", **c as f64 * 100.0 / n as f64)).collect::<Vec<_>>().join(" ")
+    };
+    format!("SCREEN f={frame} above[{}] || ground-top20[{}]", fmt(&above), fmt(&below))
+}
+
+/// **Why is the standing water standing?** Every water cell above the
+/// soil line by what it rests on, and for those on plant matter,
+/// `update::drip_through_organism`'s downward scan replayed (as
+/// `examples/waterstand` does it, reach 16) to name what refused the drop.
+/// `examples/waterstand`'s census, on this harness's beds.
+fn water_why(w: &World, bed: &LabBox, frame: u64) -> String {
+    use pixel_physics::sim::material::{self, MaterialKind};
+    use pixel_physics::sim::update;
+    let Some(water) = w.materials.id_of("water") else { return String::new() };
+    let mut t: BTreeMap<String, u64> = BTreeMap::new();
+    let plantish = |c: pixel_physics::sim::cell::Cell| c.organism_id() != 0 || w.materials.kind(c.material) == MaterialKind::Plant;
+    for y in 0..bed.ground_y {
+        for x in 0..bed.width {
+            let c = w.get(x, y);
+            if c.material != water {
+                continue;
+            }
+            let below = w.get(x, y + 1);
+            let key = if below.material == material::EMPTY {
+                "falling".to_string()
+            } else if below.material == water {
+                "on-water".to_string()
+            } else if plantish(below) {
+                let mut why = "on-plant:too-deep".to_string();
+                for probe in (y + 1)..(y + 17) {
+                    let here = w.get(x, probe);
+                    if here.material == material::EMPTY {
+                        why = "on-plant:can-drip".to_string();
+                        break;
+                    }
+                    if plantish(here) {
+                        continue;
+                    }
+                    if here.material == water {
+                        let room = (material::LIQUID_FULL + material::LIQUID_MAX_COMPRESS).saturating_sub(update::liquid_fill(here));
+                        why = if room > 0 && !here.managed() { "on-plant:can-drip" } else { "on-plant:held-by-full-water" }.to_string();
+                        break;
+                    }
+                    let cap = w.materials.get(here.material).water_capacity;
+                    why = if cap == 0 {
+                        format!("on-plant:held-by-{}", w.materials.get(here.material).name)
+                    } else if update::soil_moisture(here) >= cap {
+                        // What stops that soil draining: straight below,
+                        // and the two diagonals `soil_drains_around` tries.
+                        let held = |c: pixel_physics::sim::cell::Cell| {
+                            let m = w.materials.get(c.material);
+                            if c.material == material::EMPTY {
+                                "air"
+                            } else if plantish(c) {
+                                "plant"
+                            } else if m.water_capacity > 0 {
+                                if update::soil_moisture(c) >= m.water_capacity { "fullsoil" } else { "soil" }
+                            } else {
+                                "other"
+                            }
+                        };
+                        *t.entry(format!("  satsoil-under:{}/{}/{}", held(w.get(x - 1, probe + 1)), held(w.get(x, probe + 1)), held(w.get(x + 1, probe + 1)))).or_default() += 1;
+                        "on-plant:held-by-saturated-soil".to_string()
+                    } else {
+                        "on-plant:can-drip".to_string()
+                    };
+                    break;
+                }
+                why
+            } else if w.materials.get(below.material).water_capacity > 0 {
+                if update::soil_moisture(below) >= w.materials.get(below.material).water_capacity { "on-saturated-soil" } else { "on-soil-with-room" }.to_string()
+            } else {
+                format!("on-{}", w.materials.get(below.material).name)
+            };
+            *t.entry(key).or_default() += 1;
+        }
+    }
+    let n: u64 = t.values().sum();
+    let mut v: Vec<(String, u64)> = t.into_iter().collect();
+    v.sort_by_key(|e| std::cmp::Reverse(e.1));
+    format!("WATER f={frame} standing={n} {}", v.iter().map(|(k, c)| format!("{k}:{c}")).collect::<Vec<_>>().join(" "))
 }
 
 fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(OrganismId, u64), u64>, frame: u64, sample: u64) -> String {
@@ -703,6 +869,100 @@ fn mean_sd(v: &[f32]) -> (f32, f32) {
 /// off, over `seeds` world seeds each; its form at `frames`. For each trait,
 /// the shift between arms divided by the spread inside an arm (which here
 /// includes the soil's texture, so it is the noise a trainer would face).
+/// Render the whole bed once and save a `w x h` cell window at `(x0, y0)`,
+/// each cell `scale` pixels square.
+#[allow(clippy::too_many_arguments)]
+fn crop_shot(w: &World, particles: &ParticleSystem, bw: i32, bh: i32, x0: i32, y0: i32, cw: i32, ch: i32, scale: usize, path: &str) {
+    let (fw, fh) = (bw as u32, bh as u32);
+    let mut frame = vec![0u8; (fw * fh * 4) as usize];
+    let mut renderer = pixel_physics::render::Renderer::new();
+    renderer.draw(w, particles, &Default::default(), &mut frame, (fw, fh), true);
+    let (tw, th) = (cw as usize * scale, ch as usize * scale);
+    let mut img = vec![0u8; tw * th * 4];
+    for y in 0..th {
+        for x in 0..tw {
+            let (sx, sy) = (x0 + (x / scale) as i32, y0 + (y / scale) as i32);
+            if (0..bw).contains(&sx) && (0..bh).contains(&sy) {
+                let src = (sy as usize * fw as usize + sx as usize) * 4;
+                img[(y * tw + x) * 4..(y * tw + x) * 4 + 4].copy_from_slice(&frame[src..src + 4]);
+            }
+        }
+    }
+    image::save_buffer(path, &img, tw as u32, th as u32, image::ColorType::Rgba8).expect("write png");
+}
+
+/// Scale every grow lamp's `beam` by `factor`, and rewrite each fixture so
+/// its field block is rescanned with the new value (`rebuild_blocked` reads
+/// `beam` only from blocks written since their last scan).
+fn dim_lamps(w: &mut World, factor: f32, width: i32, height: i32) {
+    let Some(lamp) = w.materials.id_of("growlamp") else {
+        return;
+    };
+    if factor == 1.0 {
+        return;
+    }
+    w.materials.get_mut(lamp).beam *= factor;
+    for y in 0..height {
+        for x in 0..width {
+            let c = w.get(x, y);
+            if c.material == lamp {
+                w.set(x, y, Cell::EMPTY);
+                w.set(x, y, c);
+            }
+        }
+    }
+}
+
+/// One line of a founder's ledger (`plastic axis=shade trace=N`).
+fn trace_founder(w: &World, id: OrganismId, label: &str) {
+    let Some(st) = w.organism(id) else {
+        println!("    TRACE {label} dead");
+        return;
+    };
+    // A founder still one cell is a seed that has not sprouted: print what
+    // `Behavior::Germinate` reads -- light at the seed, and what is below it.
+    if st.cells.len() == 1 {
+        let &(x, y) = st.cells.keys().next().expect("one cell");
+        let (here, below) = (w.get(x, y), w.get(x, y + 1));
+        println!(
+            "    TRACE {label} seed at ({x},{y}) {} type {:?} light {:.2} | below {} holds {} available {:.2}",
+            w.materials.get(here.material).name,
+            organism::cell_type(here.aux()),
+            pixel_physics::sim::plant::ambient_light_above(w, x, y),
+            w.materials.get(below.material).name,
+            w.materials.get(below.material).water_capacity,
+            pixel_physics::sim::update::plant_available_fraction(below)
+        );
+    }
+    let (mut leaves, mut tips, mut buds, mut carbon, mut light) = (0, 0, 0, 0.0f32, 0.0f32);
+    for &(x, y) in st.cells.keys() {
+        carbon += w.carbon_at(x, y);
+        match organism::cell_type(w.get(x, y).aux()) {
+            Some(CellType::Leaf) => {
+                leaves += 1;
+                light += pixel_physics::sim::plant::ambient_light_above(w, x, y) / pixel_physics::sim::field::MAX_LIGHT;
+            }
+            Some(CellType::GrowingTip) => tips += 1,
+            Some(CellType::DormantBud) => buds += 1,
+            _ => {}
+        }
+    }
+    println!(
+        "    TRACE {label} cells {} leaves {leaves} light {:.2} tips {tips} buds {buds} roots {} | income {:.2} bill {:.2} unpaid {:.2} starving {} | carbon {carbon:.1} endow {:.2} water {:.2} nut {:.2} senescent {}",
+        st.cells.len(),
+        if leaves > 0 { light / leaves as f32 } else { 0.0 },
+        st.root_cells,
+        st.income,
+        st.maintenance,
+        st.maintenance_unpaid,
+        st.starving_ticks,
+        st.endowment,
+        st.water_status,
+        st.nutrient_status,
+        st.senescent
+    );
+}
+
 fn plastic(m: &BTreeMap<String, String>) {
     use pixel_physics::train_plant::arena::{self, BedSpec, Layout, Offset};
     let sp: String = get(m, "species", "herb".to_string());
@@ -713,6 +973,124 @@ fn plastic(m: &BTreeMap<String, String>) {
     // that is all sandy, all loam or all rich (`Ground`), with the spells
     // the training world runs. The question is whether the ground moves a
     // plant more than its own dice do.
+    // `axis=shade` (M1 A5): the same founder under the same lamp, bright
+    // and dimmed (`dimlamp=`, the lamp's `beam` scaled), with the shade
+    // genes ignored and read. The light at its own leaves is printed, the
+    // control that "dim" is dim -- M0's between-lamps arm was not.
+    //
+    // **Dimmed, not moved between lamps, and the first version did the
+    // latter.** With lamps 66 apart and the founder midway, the bed read
+    // 0.26 of full at the planting site and every founder died -- with or
+    // without the genes. A per-plant trace (`trace=`) showed why: the
+    // seedling's tip read light **0.00** from its first tick, because
+    // between beams the only light is `field::step_diffusion`'s sideways
+    // bleed, and that skips any block holding a `Plant` or `Solid` cell
+    // (`rebuild_blocked`). Empty air beside the plant reads 0.26; the plant
+    // reads nothing. The probe measured the air, the plant lived in the
+    // block. At the played spacing (33) the beams overlap and a founder
+    // between them reads 0.45, so the game is not dark; a gap beyond the
+    // beams is. Light through a canopy arrives from above, so a dimmer lamp
+    // is the honest dim.
+    if get(m, "axis", "light".to_string()) == "shade" {
+        println!("plant_m0 plastic axis=shade: species={sp} frames={frames} seeds={n} genes={}", m.get("genes").map_or("none", String::as_str));
+        let mut table: Vec<Vec<[f32; 6]>> = Vec::new();
+        // `dimlamp=`: the dim arm's lamps at this fraction of their beam.
+        // `dimspacing=N` instead puts the dim founder midway between full
+        // lamps N apart -- kept as the reproduction of
+        // `open-bugs-handoff.md` §Z39 (66 is dark to a plant), not as a dim.
+        let dim: f32 = get(m, "dimlamp", 0.4);
+        let gap: Option<i32> = m.get("dimspacing").and_then(|v| v.parse().ok());
+        let (dim_off, dim_spacing, dim_lamp) = match gap {
+            Some(g) => (Offset::Between, g, 1.0),
+            None => (Offset::Under, 33, dim),
+        };
+        for (label, off, spacing, plastic, lamp) in [
+            ("bright, off", Offset::Under, 33, false, 1.0),
+            ("dim, off", dim_off, dim_spacing, false, dim_lamp),
+            ("bright, on", Offset::Under, 33, true, 1.0),
+            ("dim, on", dim_off, dim_spacing, true, dim_lamp),
+        ] {
+            let (mut rows, mut lights) = (Vec::new(), Vec::new());
+            // Wide enough for the dim column (half of 132 from the nearest
+            // lamp) to exist, and the same in both arms.
+            let wide = BedSpec { width: 288, ..spec };
+            for s in 0..n {
+                let mut bed = arena::bed_for(None, &sp, Layout { seed: 5_000_000 + s, offset: off }, &wide);
+                bed.lamp_spacing = spacing;
+                bed.founder_at = Some(vec![arena::founder_column(&bed, off)]);
+                let (mut w, id) = arena::build(&bed, &wide);
+                dim_lamps(&mut w, lamp, bed.width, bed.height);
+                if s == 0 {
+                    let fx = arena::founder_column(&bed, off);
+                    for _ in 0..30 {
+                        pixel_physics::sim::field::step(&mut w);
+                    }
+                    println!("    {label}: light at the planting site (3 rows up) {:.2} of full", pixel_physics::sim::plant::ambient_light_above(&w, fx, bed.ground_y - 3) / pixel_physics::sim::field::MAX_LIGHT);
+                }
+                let mut args = m.clone();
+                args.insert("shade".into(), u8::from(plastic).to_string());
+                apply_shade(&args, &mut w);
+                let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
+                // `trace=N`: the first seed's founder every N frames -- its
+                // organs, its earnings against its bill, and its stores.
+                // Why a plant dies in the shade is a question about one
+                // plant's ledger over its life, not about the census.
+                let trace: u64 = get(m, "trace", 0);
+                for f in 0..frames {
+                    pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
+                    if trace > 0 && s == 0 && f % trace == 0 {
+                        trace_founder(&w, id, &format!("{label} f={f}"));
+                    }
+                }
+                // `pics=N`: the founder's patch for the first N seeds,
+                // `{out}_{arm}_s{seed}.png`, ground line 3/4 of the way down.
+                if s < get(m, "pics", 0u64) {
+                    let out: String = get(m, "out", "plant_m0".to_string());
+                    let fx = arena::founder_column(&bed, off);
+                    let path = format!("{out}_{}_s{s}.png", label.replace(", ", "-"));
+                    crop_shot(&w, &particles, bed.width, bed.height, fx - 40, bed.ground_y - 66, 80, 88, 3, &path);
+                }
+                if s == 0 {
+                    let causes: Vec<String> = w
+                        .deaths_by_cause
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| **n > 0)
+                        .map(|(i, n)| format!("{}:{n}", organism::DEATH_CAUSE_LIST[i].label()))
+                        .collect();
+                    println!("    {label}: founder {} at the end; deaths in the bed by cause {:?}", if w.organism(id).is_some() { "alive" } else { "dead" }, causes);
+                }
+                if let Some(f) = form(&w, id, bed.ground_y) {
+                    rows.push(f);
+                    if let Some(st) = w.organism(id) {
+                        let ls: Vec<f32> = st.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).map(|&(x, y)| pixel_physics::sim::plant::ambient_light_above(&w, x, y) / pixel_physics::sim::field::MAX_LIGHT).collect();
+                        if !ls.is_empty() {
+                            lights.push(ls.iter().sum::<f32>() / ls.len() as f32);
+                        }
+                    }
+                }
+            }
+            let (lm, _) = mean_sd(&lights);
+            print!("  {label:<12} alive {}/{n} leaf light {lm:.2} |", rows.len());
+            for (i, name) in FORM.iter().enumerate() {
+                let (mu, sd) = mean_sd(&rows.iter().map(|r| r[i]).collect::<Vec<_>>());
+                print!(" {name} {mu:.2}+-{sd:.2}");
+            }
+            println!();
+            table.push(rows);
+        }
+        for (axis, a, b) in [("dim - bright, genes ignored", 1usize, 0usize), ("dim - bright, genes read", 3, 2)] {
+            print!("  {axis:<28}");
+            for (i, name) in FORM.iter().enumerate() {
+                let (ma, sa) = mean_sd(&table[a].iter().map(|r| r[i]).collect::<Vec<_>>());
+                let (mb, sb) = mean_sd(&table[b].iter().map(|r| r[i]).collect::<Vec<_>>());
+                let pooled = ((sa * sa + sb * sb) / 2.0).sqrt().max(1e-6);
+                print!(" {name} {:+.2}", (ma - mb) / pooled);
+            }
+            println!("   (shift in units of the spread inside an arm)");
+        }
+        return;
+    }
     if get(m, "axis", "light".to_string()) == "ground" {
         // The fourth arm is the control: loam again on different dice, so
         // "loam B - loam" is what a shift reads when the ground is the same.

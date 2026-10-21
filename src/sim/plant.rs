@@ -5467,6 +5467,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 branch_angle,
                 internode,
                 stem_stiffness,
+                shade_avoid,
+                shade_tolerate,
             } => {
                 // So a way out of this arm that no exit labels shows in the
                 // census as `NotAsked` instead of vanishing from it. A flag,
@@ -5655,7 +5657,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // reads identically where the child-creation code below uses
                 // them again.
                 let lineage_step = plastochron.saturating_add(1);
-                let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                // **How shaded this tip is**, for the two shade genes
+                // (`World::shade_plasticity`, A5). 0 in open light.
+                let shade_here = if world.shade_plasticity && (shade_avoid > 0.0 || shade_tolerate > 0.0) { shade_at(world, x, y) } else { 0.0 };
+                // **Shade avoidance stretches the internode**: a node every
+                // `plastochron * (1 + shade_avoid * shade)` steps, so the
+                // stem gains height faster per leaf in shade. Only the
+                // node's spacing moves; the metamer count below keeps the
+                // base interval, so a fate authored "after N metamers"
+                // still means N of the species' own nodes.
+                let node_interval = if shade_here > 0.0 && shade_avoid > 0.0 && plastochron_interval > 0 {
+                    ((plastochron_interval as f32 * (1.0 + shade_avoid * shade_here)).round() as u8).max(plastochron_interval)
+                } else {
+                    plastochron_interval
+                };
+                let leaf_due = node_interval > 0 && lineage_step.is_multiple_of(node_interval);
                 // Nodes passed, not cells laid -- the unit `after_metamers`
                 // is authored in. Zero where the species has no plastochron
                 // at all (a root), which is right: an axis with no metamers
@@ -6828,18 +6844,26 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // lineage carries on. An all-or-nothing gate here
                         // would put a cliff exactly where the old
                         // subtractive `crowding_weight` had one.
-                        let leaf_construction_cost = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE;
+                        // **Shade leaves** (`shade_tolerate`, A5): in shade the
+                        // spray may grow to `leaf_cluster * (1 + tolerate *
+                        // shade)` cells, each built at `1 - tolerate * shade
+                        // / 2` of the cost -- bigger, thinner, cheaper, as a
+                        // real shade leaf is. Their price is in
+                        // `leaf_light_used`. 0 or open light: as before.
+                        let shade_leaf = shade_tolerate * shade_here;
+                        let spray_max = ((leaf_cluster as f32) * (1.0 + shade_leaf)).round() as usize;
+                        let leaf_construction_cost = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE * (1.0 - 0.5 * shade_leaf);
                         let affordable = if leaf_construction_cost > 0.0 {
                             (resource / leaf_construction_cost).floor().max(0.0) as usize
                         } else {
-                            leaf_cluster as usize
+                            spray_max
                         };
-                        let budget = (leaf_cluster as usize).min(affordable);
+                        let budget = spray_max.min(affordable);
                         // The effect counter for the charge -- see
                         // `World::leaf_cells_unaffordable`. Pure
                         // observation: it reads the same two numbers the
                         // line above already computed and touches no RNG.
-                        world.leaf_cells_unaffordable += (leaf_cluster as usize - budget) as u64;
+                        world.leaf_cells_unaffordable += spray_max.saturating_sub(budget) as u64;
                         let mut cluster: Vec<(i32, i32)> = Vec::new();
                         let mut frontier: Vec<(i32, i32)> = Vec::new();
                         if budget > 0 {
@@ -7000,6 +7024,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     let mut shed: Option<organism::DeathCause> = None;
                     if shade_death > 0.0 {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                        // A shade-tolerant leaf keeps its place in the dark
+                        // (`shade_tolerate`, A5).
+                        let shade_death = shade_death * (1.0 - plant_shade_tolerate(world, organism_id));
                         if rng.chance(shade_death * darkness * darkness * darkness) {
                             shed = Some(organism::DeathCause::ShadedOut);
                         }
@@ -10927,6 +10954,57 @@ fn bud_trace(
     }
 }
 
+/// **How shaded a cell is**, 0 in open light and 1 in the dark: the
+/// signal both shade genes answer (A5; `World::shade_plasticity`). The
+/// engine has no light quality, so this is plain light lost -- to a
+/// neighbour's leaves or the plant's own -- read with the day divided out
+/// (`ambient_light_above`), **against the world's own open light**
+/// (`World::open_light`), not against `MAX_LIGHT`. Against `MAX_LIGHT`, a
+/// plant under a grow lamp (`beam` 2.4) read 0.4 shaded in the brightest
+/// place the lab has: the tolerant shrub's leaf bonus came free there, and
+/// a lone-plant test found tolerance costing nothing in "bright" light
+/// (shoot 551 -> 664, 8 seeds; `plant-community-plan` M1 step 7).
+fn shade_at(world: &World, x: i32, y: i32) -> f32 {
+    (1.0 - ambient_light_above(world, x, y) / world.open_light).clamp(0.0, 1.0)
+}
+
+/// How much of its upkeep a fully shade-tolerant plant is spared (A5): a
+/// tolerant plant's bill is `1 - SHADE_UPKEEP_CUT * shade_tolerate` of the
+/// usual. Half, at the top, so tolerance roughly halves the light a plant
+/// needs to stand still.
+const SHADE_UPKEEP_CUT: f32 = 0.5;
+
+/// What a shade-tolerant leaf gives up in bright light: at full light a
+/// fully tolerant plant's leaves earn `1 - SHADE_LEAF_PRICE` of it. The
+/// price that keeps tolerance from being free (A5.2, the leaf economics
+/// trade: thin cheap leaves saturate early).
+const SHADE_LEAF_PRICE: f32 = 0.35;
+
+/// The light a leaf at `(x, y)` earns from, after its plant's shade
+/// tolerance is priced (`SHADE_LEAF_PRICE`). Plain light when the world does
+/// not read shade genes or the plant has none.
+fn leaf_light_used(world: &World, x: i32, y: i32, shade_tolerate: f32) -> f32 {
+    let light = ambient_light_above(world, x, y);
+    if shade_tolerate > 0.0 {
+        light * (1.0 - SHADE_LEAF_PRICE * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0))
+    } else {
+        light
+    }
+}
+
+/// This plant's `shade_tolerate`, or 0 where the world does not read shade
+/// genes (`World::shade_plasticity`).
+fn plant_shade_tolerate(world: &World, organism_id: OrganismId) -> f32 {
+    if !world.shade_plasticity {
+        return 0.0;
+    }
+    individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { shade_tolerate, .. } => Some(*shade_tolerate),
+        _ => None,
+    })
+    .unwrap_or(0.0)
+}
+
 /// How many growth steps' carbon a plant with no growing tip must hold,
 /// summed over every cell, before `World::bud_break_reserve` lets it break a
 /// bud from store. Enough to build the shoot a few cells, so a plant does
@@ -10964,6 +11042,7 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     let (collar, shoot_top) = (state.collar_y, state.shoot_top_y);
 
     let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     let mut intercepted = 0.0f32;
     let mut tips = 0usize;
     let mut buds: Vec<(i32, i32, f32)> = Vec::new();
@@ -10987,7 +11066,7 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
             // `SecondaryThicken`, and `plastochron: 0` means a tip never
             // reaches `Node`), so this is kept in step rather than relied on.
             Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
-                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y)
+                intercepted += leaf_light_used(world, x, y, shade_tolerate) * water_status(world, x, y)
             }
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
@@ -11362,6 +11441,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     let mut frontier: Vec<(i32, i32)> = Vec::new();
     let mut frontier_is_root: Vec<bool> = Vec::new();
     let mut donors: Vec<(i32, i32)> = Vec::new();
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     let mut intercepted = 0.0f32;
     for &(x, y) in &cells {
         let cell = world.get(x, y);
@@ -11421,7 +11501,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
                 // needs it: income is bounded by whichever of light and
                 // water is scarcer, so a rootless plant in full sun earns
                 // nothing at all however much light it intercepts.
-                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y);
+                intercepted += leaf_light_used(world, x, y, shade_tolerate) * water_status(world, x, y);
                 donors.push((x, y));
             }
             Some(_) => donors.push((x, y)),
@@ -12048,6 +12128,9 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         return;
     };
     let species_id = state.species;
+    // This plant's shade tolerance (A5; 0 unless `World::shade_plasticity`):
+    // read once, for the shade-shedding roll and the upkeep bill below.
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     if state.cells.is_empty() {
         return;
     }
@@ -12792,7 +12875,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         && organism::cell_type(world.get(cx, cy).aux()).is_some_and(|t| is_foliage(world, cx, cy, t, species_id, has_leaf_stage))
                     {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
-                        if rng.chance(shade_death * darkness * darkness * darkness) {
+                        if rng.chance(shade_death * (1.0 - shade_tolerate) * darkness * darkness * darkness) {
                             world.shed_shade += 1;
                             shed_to_litter(world, cx, cy, organism::DeathCause::ShadedOut);
                             // Reclaim any spray this stranded. NOT a
@@ -12995,7 +13078,12 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // crown recession.
         let root_tissue = world.materials.get(cell.material).reinforces_powder || cell_type == CellType::RootTip;
         let q_peak = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
-        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue);
+        // **A shade-tolerant plant runs on less** (A5): slow tissue that
+        // respires less is what lowers a real shade plant's light
+        // compensation point. Measured before this: at a quarter of full
+        // light every founder of every species lost its tissue and died
+        // within 60,000 frames, genes or no genes.
+        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - SHADE_UPKEEP_CUT * shade_tolerate);
         if !root_tissue {
             basis += maintenance_basis(q_peak, l_node(upkeep_leaf_cluster));
         }
@@ -24767,6 +24855,36 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             let flushed = w.buds_flushed - before;
             assert_eq!(flushed, u32::from(on), "reserve {on}: a tipless, unlit tree with full stores flushed {flushed} buds");
         }
+    }
+
+    /// **The shade genes are read only under `World::shade_plasticity`, and a
+    /// tolerant leaf pays its price in bright light** (A5). A tree given
+    /// `shade_tolerate` 1.0 through the parameter-override path a mutation
+    /// or the trainer would use: off, `plant_shade_tolerate` reads 0; on, it
+    /// reads the gene. `leaf_light_used` at full light is
+    /// `1 - SHADE_LEAF_PRICE` of the light for that plant and all of it for
+    /// a plant with no tolerance.
+    #[test]
+    fn shade_genes_are_read_only_when_plasticity_is_on_and_tolerance_costs_in_full_light() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        let tree = w.organism(id).expect("planted").species;
+        assert!(w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::ShadeTolerate, 0, 1.0), "test setup: the tree should have a Grow to set");
+        w.shade_plasticity = false;
+        assert_eq!(plant_shade_tolerate(&w, id), 0.0, "off: the gene must not be read");
+        w.shade_plasticity = true;
+        assert_eq!(plant_shade_tolerate(&w, id), 1.0, "on: the gene must be read through the override path");
+        // Away from the tree, after the light channel has been solved --
+        // `test_world` starts with no light until a field step runs.
+        run_with_fields(&mut w, 30);
+        let (x, y) = (160, 30);
+        let light = ambient_light_above(&w, x, y);
+        assert!(light > 0.0, "test setup: open air should be lit");
+        let full = (light / w.open_light).clamp(0.0, 1.0);
+        let used = leaf_light_used(&w, x, y, 1.0);
+        assert!((used - light * (1.0 - SHADE_LEAF_PRICE * full)).abs() < 1e-5, "a fully tolerant leaf at light {light} used {used}");
+        assert_eq!(leaf_light_used(&w, x, y, 0.0), light, "no tolerance, no price");
     }
 
     struct SeedBed {
