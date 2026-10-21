@@ -1686,16 +1686,126 @@ fn water_tank_contact_cap() -> u32 {
 /// `settle_water_keeps_desiccation_and_status_identical_without_a_reserve`
 /// and it is what says this change was free for every species that has
 /// not opted in.
-fn settle_water(stock: f32, capacity: f32, demand: f32, reserve: f32) -> (f32, f32, f32) {
+///
+/// `soil_open` is the second closure signal, the roots' own
+/// (`soil_water_factor`): the tighter of the two sets how far the
+/// stomata open. At `soil_open >= 1` the function is exactly what it was
+/// before that signal existed, which is what keeps the identity above.
+fn settle_water(stock: f32, capacity: f32, demand: f32, reserve: f32, soil_open: f32) -> (f32, f32, f32) {
     // Openness ramps linearly from shut at an empty tank to fully open at
     // the reserve line; `reserve <= 0` is the pre-closure engine exactly,
     // not an approximation of it.
-    let openness = if reserve <= 0.0 { 1.0 } else { ((stock / capacity.max(f32::EPSILON)) / reserve).clamp(0.0, 1.0) };
+    let tank_open = if reserve <= 0.0 { 1.0 } else { ((stock / capacity.max(f32::EPSILON)) / reserve).clamp(0.0, 1.0) };
+    let openness = tank_open.min(soil_open.clamp(0.0, 1.0));
     let open_drawn = stock.min(demand);
     let drawn = stock.min(demand * openness);
     let status = if demand > 0.0 { drawn / demand } else { 1.0 };
     let desiccation = if demand > 0.0 { 1.0 - open_drawn / demand } else { 0.0 };
     (drawn, status, desiccation)
+}
+
+/// **How much the soil a plant's roots stand in lets it grow**, `0.0..=1.0`
+/// -- the closure signal that comes from the *soil*, not from the tank, read
+/// as stomatal openness in `settle_water`.
+///
+/// **Why it exists: soil water above the germination floor did not grade
+/// growth at all.** `settle_water`'s stomatal term is supply against demand,
+/// and a root's supply is `rate x available` per wet face, so any soil a
+/// seed would start in fills a young plant's tank many times over.
+/// Measured on the plant-community trainer's dry station (`plantrain
+/// mode=rungs stations=dry drysoil=F`, 12 layouts, 10,000 frames, no
+/// mister), 2026-10-21: the herb's end shoot p50 read **108, 106, 106, 106,
+/// 102** at soil 1.0, 0.5, 0.35, 0.25, 0.18 of the way from wilting point
+/// to field capacity, and the tree's 574, 581, 581, 688 -- then nothing at
+/// all below each species' germination threshold. A cliff with no middle.
+/// `Reports/plant-water-scarcity-2026-08-30.md` §2 had already found the
+/// same thing by another road ("a bed cannot be dried into drought"): the
+/// headroom between uptake and demand is still 7.6x in the driest bed a
+/// seed starts in.
+///
+/// **What a real plant does instead.** Stomata close as the soil dries,
+/// long before the plant runs out: roots in drying soil send a chemical
+/// signal (ABA) up the xylem and leaf conductance falls with it, so growth
+/// slows in soil that could still meet demand. The agronomic form is FAO-56's
+/// water-stress coefficient: no stress while less than a fraction `p` of the
+/// plant-available water is gone, then a linear fall to zero at the wilting
+/// point, with `p ~ 0.5` for most plants. That is this function, read on
+/// `root_zone_water` -- the mean available fraction at the plant's own
+/// drinkable root faces, so a plant feels the soil its roots are *in*, its
+/// own depletion zone included, and not the bed's average.
+///
+/// **It closes stomata, it does not dry leaves.** It enters `settle_water`
+/// as openness, so it lowers `status` (income, and through
+/// `allocate_to_frontier`'s `1 - status` it shifts carbon toward roots, the
+/// functional-balance answer to dry soil) and lowers what is drawn from the
+/// tank, while `desiccation` -- the open-stomata shortfall `drought_death`
+/// sheds on -- is untouched. A plant in dry soil grows slowly; it does not
+/// start dropping leaves until it actually cannot drink.
+///
+/// `1.0` for a plant with no drinkable root face (`root_zone_water`'s own
+/// "nothing to say" default), so a seedling living on its seed's water is
+/// not read as droughted.
+///
+/// **Measured, 2026-10-21, against `PIXEL_PHYSICS_SOIL_STRESS=0`:**
+/// - The trainer's dry station, herb end shoot p50: **108, 100, 84, 67,
+///   59, 29** at soil 1.0, 0.5, 0.35, 0.25, 0.18, 0.15 (12 layouts each),
+///   against 108 to 102 flat before. The tree: 616, 574, 85, 58. The wet
+///   bright station is digit-identical (herb 102, tree 599, shrub 318,
+///   creeper 95): its root zones never fall to the onset.
+/// - Dry plants carry far fewer leaves (16, 10 and 3 against 52-56 in wet
+///   soil on one layout) and *no* extra shedding -- every shed counter
+///   reads 0. They build fewer leaves, they do not drop them.
+/// - The lab box through `lab::tick_world` (mister on), three seeds, total
+///   plant cells averaged over frames 30,000-120,000: 12,516 -> 11,252,
+///   11,731 -> 11,901, 11,708 -> 10,963, about -5%, inside the stand's own
+///   swing within one run. Its root zones sit at a median 0.75-0.8.
+///   **`labshot` never runs the mister** (it calls `frame::step`, not
+///   `tick_world`), and through it the box dries to 0.16 at the surface by
+///   120,000 frames and this rule strips the stand (8,060 -> 2,576 cells):
+///   that is a picture of a box with no water, not of the lab.
+/// - The outdoor world (`flora_census seeds=3 frames=30000`): plant cells
+///   40,145 -> 32,344, 7,369 -> 8,889, 7,922 -> 4,873. Trees lose most,
+///   grass gains.
+///
+/// **The root zone reads wetter than the bed around it**, and that is why
+/// an established plant rarely closes: on a deep walled bed with no rain a
+/// young tree's faces read 0.70 in a bed at 0.38 and 0.85 in one at 0.50.
+/// `displace_soil_water` hands a growing root's water to the *first*
+/// neighbour with room rather than spreading it, and capillary rest leaves
+/// the bow wave standing. So this mostly grades establishment and the
+/// seedling stretch, which is the question it was built for; a fix to the
+/// displacement would make it reach established plants too, and would
+/// move every root's uptake, so it is a separate change.
+///
+/// **Tried with it, and taken out the same day:** scaling the `Grow` height
+/// bound's turgor range by this factor too (Lockhart's `P` set by soil
+/// water), because the dry herbs read as tall bare stalks rather than
+/// stunted plants. It was far too harsh: at soil 0.25 establishment fell to
+/// tree 4 of 12, creeper 4 of 12, herb 8 of 12 (all 12 before), because a
+/// seedling's tips stall on the bound and retire. See `Reports/dead-ends.md`.
+fn soil_water_factor(root_zone_water: f32) -> f32 {
+    let onset = soil_stress_onset();
+    if onset <= 0.0 {
+        return 1.0;
+    }
+    (root_zone_water / onset).clamp(0.0, 1.0)
+}
+
+/// The root-zone available fraction at and above which soil water does not
+/// close stomata at all -- FAO-56's `1 - p` at `p = 0.5`.
+///
+/// **On by default** (features default on). `PIXEL_PHYSICS_SOIL_STRESS=0`
+/// is the ablation and restores the engine before soil closure exactly
+/// (`soil_water_factor` reads 1.0 everywhere); any other value sets the
+/// onset, read once per process.
+pub(crate) const SOIL_STRESS_ONSET: f32 = 0.5;
+
+fn soil_stress_onset() -> f32 {
+    use std::sync::OnceLock;
+    static ONSET: OnceLock<f32> = OnceLock::new();
+    *ONSET.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SOIL_STRESS").ok().and_then(|v| v.parse().ok()).unwrap_or(SOIL_STRESS_ONSET)
+    })
 }
 
 /// Add to the organism's water stock, bounded by `water_capacity_of`.
@@ -13766,6 +13876,10 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // its one-cell floor, so a seedling with no root system still has
         // somewhere to put its first drink.
         let capacity = water_capacity_of(state.contact_root_cells);
+        // The roots' closure signal, read on this tick's root-zone look
+        // (written earlier in this same function, so it is fresh). A plant
+        // with no drinkable root face reads 1.0 there and is not closed.
+        let soil_open = soil_water_factor(state.root_zone_water);
         #[cfg(test)]
         {
             // **Where closure actually fires**, bucketed by shoot size.
@@ -13791,7 +13905,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                 S8E[bucket * 2 + 1].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
-        let (drawn, mut status, mut desiccation) = settle_water(state.water, capacity, demand, stomatal_reserve);
+        let (drawn, mut status, mut desiccation) = settle_water(state.water, capacity, demand, stomatal_reserve, soil_open);
         // **No demand is not the same as no thirst when nothing drinks.**
         // `settle_water` reads a zero demand as fully supplied, which is
         // right for a plant that has roots in the ground and nothing asking
@@ -24466,7 +24580,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             let stock = stock_i as f32 * 0.5;
             for demand_i in 0..=20 {
                 let demand = demand_i as f32 * 0.5;
-                let (drawn, status, desiccation) = settle_water(stock, capacity, demand, 0.0);
+                let (drawn, status, desiccation) = settle_water(stock, capacity, demand, 0.0, 1.0);
                 assert_eq!(
                     desiccation,
                     1.0 - status,
@@ -24493,8 +24607,8 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             for demand_i in 0..=20 {
                 let demand = demand_i as f32 * 0.5;
                 for reserve in [0.1, 0.2, 0.5, 1.0] {
-                    let (_, status, desiccation) = settle_water(stock, capacity, demand, reserve);
-                    let (_, open_status, open_desiccation) = settle_water(stock, capacity, demand, 0.0);
+                    let (_, status, desiccation) = settle_water(stock, capacity, demand, reserve, 1.0);
+                    let (_, open_status, open_desiccation) = settle_water(stock, capacity, demand, 0.0, 1.0);
                     assert!(
                         desiccation <= 1.0 - status + 1e-6,
                         "prudence read as thirst: reserve {reserve}, stock {stock}, demand {demand} gave status {status}, desiccation {desiccation}"
@@ -24510,6 +24624,108 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         // The vacuity check `CLAUDE.md` asks for: an inequality that no
         // case ever exercises passes for the wrong reason.
         assert!(closure_ever_bit, "no grid point actually closed any stomata -- this test would pass on a dead lever");
+    }
+
+    /// **Soil closure is the same kind of closure, and keeps the same seam.**
+    /// `soil_water_factor` enters `settle_water` as openness, so it may
+    /// only ever lower what is earned and drawn: desiccation -- the
+    /// open-stomata shortfall `drought_death` sheds on -- must not move, or a
+    /// plant in merely dry soil would start dropping leaves it can still
+    /// supply. And it must be graded: fully open at and above the onset,
+    /// shut at the wilting point, strictly between in between.
+    #[test]
+    fn soil_closure_is_graded_and_costs_earnings_without_adding_thirst() {
+        let onset = soil_stress_onset();
+        assert!(onset > 0.0, "PIXEL_PHYSICS_SOIL_STRESS=0 in the environment: this guard needs the shipped mechanism");
+        assert_eq!(soil_water_factor(1.0), 1.0, "a root zone at field capacity is not stressed");
+        assert_eq!(soil_water_factor(onset), 1.0, "no stress until the onset");
+        assert_eq!(soil_water_factor(0.0), 0.0, "a root zone at the wilting point shuts the stomata");
+        let mut last = 0.0;
+        for i in 1..10 {
+            let open = soil_water_factor(onset * i as f32 / 10.0);
+            assert!(open > last && open < 1.0, "below the onset openness must rise strictly with soil water: {open} after {last}");
+            last = open;
+        }
+        let capacity = 10.0;
+        let mut closure_ever_bit = false;
+        for stock_i in 0..=20 {
+            let stock = stock_i as f32 * 0.5;
+            for demand_i in 0..=20 {
+                let demand = demand_i as f32 * 0.5;
+                for reserve in [0.0, 0.2] {
+                    let (open_drawn, open_status, open_desiccation) = settle_water(stock, capacity, demand, reserve, 1.0);
+                    for soil in [0.0, 0.25, 0.5, 0.75] {
+                        let (drawn, status, desiccation) = settle_water(stock, capacity, demand, reserve, soil);
+                        assert_eq!(desiccation, open_desiccation, "dry soil read as a drying leaf: soil {soil}, stock {stock}, demand {demand}");
+                        assert!(status <= open_status + 1e-6 && drawn <= open_drawn + 1e-6, "soil closure must never earn or spend *more*");
+                        if status < open_status - 1e-6 {
+                            closure_ever_bit = true;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(closure_ever_bit, "no grid point closed on soil -- this test would pass on a dead lever");
+    }
+
+    /// **Drier soil grows a smaller plant, and still a living one** -- the
+    /// owner's rule that an outcome is a distribution, applied to water.
+    /// Before `soil_water_factor` a young plant's growth ignored soil
+    /// water everywhere above its germination threshold (the trainer's dry
+    /// station: herb end shoot 108 / 106 / 106 at soil 1.0 / 0.35 / 0.25),
+    /// so a dry bed and a wet one grew the same plant and the only effect of
+    /// water was the cliff below which nothing germinated.
+    ///
+    /// Twelve seeds and the median, because one genome's plants spread widely
+    /// on any bed. `soil_bed_run`'s deep walled bed with no rain, so the
+    /// moisture a seed starts on is still roughly the moisture it grows in.
+    #[test]
+    fn drier_soil_grows_a_smaller_plant_not_a_dead_one() {
+        let dry_moisture = soil_moisture_at(0.2);
+        let (mut wet, mut dry) = (Vec::new(), Vec::new());
+        for seed in 1u64..=12 {
+            wet.push(soil_bed_run(seed, "herb", material::SOIL_FIELD_CAPACITY, 8_000));
+            dry.push(soil_bed_run(seed, "herb", dry_moisture, 8_000));
+        }
+        println!("wet {wet:?}\ndry {dry:?}");
+        wet.sort_unstable();
+        dry.sort_unstable();
+        let (wet_mid, dry_mid) = ((wet[5] + wet[6]) / 2, (dry[5] + dry[6]) / 2);
+        assert!(dry_mid * 10 < wet_mid * 8, "dry soil grew nearly as much as wet: median shoot {dry_mid} against {wet_mid}");
+        assert!(dry.iter().filter(|&&c| c > 10).count() >= 10, "dry soil is meant to grow a smaller plant, not kill it: {dry:?}");
+    }
+
+    /// The soil moisture (`aux`) that reads `fraction` of the way from the
+    /// wilting point to field capacity on `plant_available_fraction`.
+    fn soil_moisture_at(fraction: f32) -> u16 {
+        let wp = f32::from(material::SOIL_WILTING_POINT);
+        (wp + fraction * (f32::from(material::SOIL_FIELD_CAPACITY) - wp)).round() as u16
+    }
+
+    /// One plant of `species` on a deep walled 61x30 soil bed at `moisture`,
+    /// no rain, `frames` frames. Returns its shoot cells (0 if it died).
+    fn soil_bed_run(seed: u64, species: &str, moisture: u16, frames: usize) -> u32 {
+        let mut w = test_world();
+        w.seed = seed;
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        const HALF: i32 = 30;
+        const ROWS: i32 = 30;
+        let (x, y) = (100, 40);
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(moisture));
+            }
+        }
+        assert!(w.plant_tree_species(x, y, species), "test setup: {species} should plant");
+        let id = w.get(x, y).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+        run_with_fields(&mut w, frames);
+        w.organism(id).map_or(0, |s| s.shoot_cells)
     }
 
     /// **Hard ground is expensive ground** -- the bill that makes
