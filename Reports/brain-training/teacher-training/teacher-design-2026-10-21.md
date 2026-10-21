@@ -191,7 +191,16 @@ reaches the hole. That cascade is the delayed hazard no ant can see; `ROOF_DROP`
 **Geometry with the engine's real angles**: loose soil runs at 33°, so a slumped mound of height h runs out about 1.54
 h; r_crest ≥ half the mouth + 2 + 1.54 h.
 
-**Ring or crescent: the owner's call, shown not argued.** A paired render of the same nest with a ring and with a
+**Decided by the owner, 2026-10-21: a ring**, after the paired render (`measurements/blueprints/ringcrescent.png`,
+card `20261021T054209047Z-78f707`: the ring puts an 8-11-row climb on every food trip, the crescent none). So the ring
+is the goal, and what keeps it from being the wall the record warns about is the passage rule: **cuts through the
+ring's food-side flank that open a way between door and food are the colony's road and are never discouraged**; only
+dead-end hollows are. The soil planner's lesson places pellets beyond the crest on both sides, more on the side away
+from the food (a lopsided ring), so the road side stays lowest. And with **`PIXEL_PHYSICS_SPOIL_ROLL`** (owner, same
+day: "go with your suggestion"), a pellet put down on the outer flank rolls up to two cells down it, away from the door,
+before it is tamped -- built and tested in `creature.rs` (`spoil_rest`), off until measured.
+
+**How the choice was put (kept for the record).** A paired render of the same nest with a ring and with a
 one-sided crescent away from the food, the foragers' route drawn on, and the dead-ends record beside it (`MOUND_DIG`:
 refusing mound cuts starved colonies; `SPOIL_RING=1,2`: the mound arm was the worst at keeping the door in use, 30 of
 72 samples against 54; a ring 21 columns out lost 2 of 4 colonies). **Digging through the mound is real biology** --
@@ -397,7 +406,7 @@ All local unless the owner says otherwise (no VM without the owner's go).
 
 ## Questions for the owner
 
-1. **Ring or crescent?** To be shown as a paired render with the foragers' route; the record says a 2D ring is a wall
-   across the road to food.
-2. **Should a freshly placed surface pellet settle a cell or two before it packs?** It would make the real ants' "loads
-   roll outward" true here, and is visible feedback; the cost is the record against loose pellets near galleries.
+1. ~~Ring or crescent?~~ **Ring** (owner, 2026-10-21), with the passage rule above.
+2. ~~Should a freshly placed surface pellet settle a cell or two before it packs?~~ **Yes, as a roll decided at
+   placement, never as loose soil** (owner, 2026-10-21): `PIXEL_PHYSICS_SPOIL_ROLL`, measured before it defaults on in
+   the games, and kept off in the training arenas until the brain lane agrees.

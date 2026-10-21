@@ -4197,6 +4197,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [spoil-roll-2026-10-21/README.md](spoil-roll-2026-10-21/README.md) — **built, off by
+  default (2026-10-21):** a pellet put down on the mound rolls up to two 1:1
+  steps down its flank away from the door before it is tamped
+  (`PIXEL_PHYSICS_SPOIL_ROLL`, `World::spoil_roll`), decided at placement so
+  no loose soil ever exists. Shipped colony, 4 seeds x 100k frames: rolls on
+  ~2% of put-downs, door open in all runs, mound overhang down on 3 of 4,
+  nest score mixed; safe and barely visible there. Default stays off until
+  the brain lane pins its training arenas.
 - [nest-door-2026-10-03.md](nest-door-2026-10-03.md) — **measurement and
   two switches, 2026-10-03, both shipped on as genes. `engine`/`lab`.** Why
   the lab colony's door filled in and stayed shut (20 of 20 runs): food the

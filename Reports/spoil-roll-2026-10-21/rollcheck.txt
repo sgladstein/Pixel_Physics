@@ -1,0 +1,57 @@
+{"arm": "off", "seed": 1, "frame": 25000, "score": 77.6, "dug": 248, "rooms": 1, "door_open": true, "mound": 116, "overhang": 2, "tallest": 8, "at_door": 29}
+{"arm": "off", "seed": 1, "frame": 50000, "score": 80.5, "dug": 336, "rooms": 1, "door_open": true, "mound": 180, "overhang": 8, "tallest": 11, "at_door": 38}
+{"arm": "off", "seed": 1, "frame": 75000, "score": 111.2, "dug": 374, "rooms": 1, "door_open": true, "mound": 203, "overhang": 18, "tallest": 13, "at_door": 42}
+{"arm": "off", "seed": 1, "frame": 100000, "score": 128.8, "dug": 422, "rooms": 1, "door_open": true, "mound": 173, "overhang": 54, "tallest": 18, "at_door": 27}
+{"arm": "off", "seed": 1, "frame": -1, "dumped": 1555, "rolled": 0}
+{"arm": "off", "seed": 2, "frame": 25000, "score": 64.5, "dug": 266, "rooms": 1, "door_open": true, "mound": 132, "overhang": 3, "tallest": 9, "at_door": 32}
+{"arm": "off", "seed": 2, "frame": 50000, "score": 87.6, "dug": 321, "rooms": 1, "door_open": true, "mound": 193, "overhang": 6, "tallest": 11, "at_door": 43}
+{"arm": "off", "seed": 2, "frame": 75000, "score": 99.7, "dug": 347, "rooms": 1, "door_open": true, "mound": 173, "overhang": 30, "tallest": 12, "at_door": 27}
+{"arm": "off", "seed": 2, "frame": 100000, "score": 138.5, "dug": 409, "rooms": 1, "door_open": true, "mound": 205, "overhang": 63, "tallest": 16, "at_door": 41}
+{"arm": "off", "seed": 2, "frame": -1, "dumped": 1678, "rolled": 0}
+{"arm": "off", "seed": 3, "frame": 25000, "score": 72.7, "dug": 272, "rooms": 1, "door_open": true, "mound": 148, "overhang": 1, "tallest": 10, "at_door": 38}
+{"arm": "off", "seed": 3, "frame": 50000, "score": 97.2, "dug": 341, "rooms": 1, "door_open": true, "mound": 193, "overhang": 18, "tallest": 13, "at_door": 37}
+{"arm": "off", "seed": 3, "frame": 75000, "score": 126.4, "dug": 383, "rooms": 1, "door_open": true, "mound": 227, "overhang": 32, "tallest": 15, "at_door": 43}
+{"arm": "off", "seed": 3, "frame": 100000, "score": 150.9, "dug": 419, "rooms": 1, "door_open": true, "mound": 209, "overhang": 49, "tallest": 16, "at_door": 38}
+{"arm": "off", "seed": 3, "frame": -1, "dumped": 1730, "rolled": 0}
+{"arm": "off", "seed": 4, "frame": 25000, "score": 88.7, "dug": 278, "rooms": 1, "door_open": true, "mound": 134, "overhang": 9, "tallest": 11, "at_door": 20}
+{"arm": "off", "seed": 4, "frame": 50000, "score": 94.8, "dug": 335, "rooms": 1, "door_open": true, "mound": 153, "overhang": 42, "tallest": 12, "at_door": 33}
+{"arm": "off", "seed": 4, "frame": 75000, "score": 107.2, "dug": 361, "rooms": 1, "door_open": true, "mound": 171, "overhang": 46, "tallest": 12, "at_door": 33}
+{"arm": "off", "seed": 4, "frame": 100000, "score": 117.2, "dug": 379, "rooms": 1, "door_open": true, "mound": 185, "overhang": 63, "tallest": 12, "at_door": 34}
+{"arm": "off", "seed": 4, "frame": -1, "dumped": 2220, "rolled": 0}
+{"arm": "on", "seed": 1, "frame": 25000, "score": 50.5, "dug": 262, "rooms": 1, "door_open": true, "mound": 142, "overhang": 4, "tallest": 10, "at_door": 32}
+{"arm": "on", "seed": 1, "frame": 50000, "score": 107.9, "dug": 356, "rooms": 1, "door_open": true, "mound": 214, "overhang": 17, "tallest": 14, "at_door": 45}
+{"arm": "on", "seed": 1, "frame": 75000, "score": 145.5, "dug": 395, "rooms": 1, "door_open": true, "mound": 232, "overhang": 16, "tallest": 13, "at_door": 41}
+{"arm": "on", "seed": 1, "frame": 100000, "score": 155.9, "dug": 419, "rooms": 1, "door_open": true, "mound": 194, "overhang": 52, "tallest": 15, "at_door": 33}
+{"arm": "on", "seed": 1, "frame": -1, "dumped": 1642, "rolled": 24}
+{"arm": "on", "seed": 2, "frame": 25000, "score": 60.8, "dug": 273, "rooms": 1, "door_open": true, "mound": 153, "overhang": 3, "tallest": 10, "at_door": 28}
+{"arm": "on", "seed": 2, "frame": 50000, "score": 98.7, "dug": 352, "rooms": 1, "door_open": true, "mound": 176, "overhang": 29, "tallest": 13, "at_door": 24}
+{"arm": "on", "seed": 2, "frame": 75000, "score": 119.5, "dug": 384, "rooms": 1, "door_open": true, "mound": 187, "overhang": 43, "tallest": 13, "at_door": 38}
+{"arm": "on", "seed": 2, "frame": 100000, "score": 132.9, "dug": 408, "rooms": 1, "door_open": true, "mound": 196, "overhang": 48, "tallest": 15, "at_door": 45}
+{"arm": "on", "seed": 2, "frame": -1, "dumped": 1929, "rolled": 33}
+{"arm": "on", "seed": 3, "frame": 25000, "score": 85.0, "dug": 298, "rooms": 1, "door_open": true, "mound": 151, "overhang": 6, "tallest": 11, "at_door": 25}
+{"arm": "on", "seed": 3, "frame": 50000, "score": 105.0, "dug": 347, "rooms": 1, "door_open": true, "mound": 192, "overhang": 38, "tallest": 13, "at_door": 37}
+{"arm": "on", "seed": 3, "frame": 75000, "score": 130.6, "dug": 400, "rooms": 1, "door_open": true, "mound": 203, "overhang": 55, "tallest": 14, "at_door": 33}
+{"arm": "on", "seed": 3, "frame": 100000, "score": 135.0, "dug": 432, "rooms": 1, "door_open": true, "mound": 199, "overhang": 53, "tallest": 13, "at_door": 32}
+{"arm": "on", "seed": 3, "frame": -1, "dumped": 1903, "rolled": 32}
+{"arm": "on", "seed": 4, "frame": 25000, "score": 66.0, "dug": 276, "rooms": 1, "door_open": true, "mound": 154, "overhang": 9, "tallest": 13, "at_door": 32}
+{"arm": "on", "seed": 4, "frame": 50000, "score": 104.7, "dug": 352, "rooms": 1, "door_open": true, "mound": 190, "overhang": 35, "tallest": 13, "at_door": 39}
+{"arm": "on", "seed": 4, "frame": 75000, "score": 128.8, "dug": 392, "rooms": 1, "door_open": true, "mound": 188, "overhang": 55, "tallest": 12, "at_door": 36}
+{"arm": "on", "seed": 4, "frame": 100000, "score": 143.1, "dug": 416, "rooms": 1, "door_open": true, "mound": 196, "overhang": 50, "tallest": 13, "at_door": 36}
+{"arm": "on", "seed": 4, "frame": -1, "dumped": 2251, "rolled": 39}
+
+paired at frame 100000
+  score      s1: 128.8 -> 155.9  s2: 138.5 -> 132.9  s3: 150.9 -> 135.0  s4: 117.2 -> 143.1
+  dug        s1: 422 -> 419  s2: 409 -> 408  s3: 419 -> 432  s4: 379 -> 416
+  mound      s1: 173 -> 194  s2: 205 -> 196  s3: 209 -> 199  s4: 185 -> 196
+  overhang   s1: 54 -> 52  s2: 63 -> 48  s3: 49 -> 53  s4: 63 -> 50
+  tallest    s1: 18 -> 15  s2: 16 -> 15  s3: 16 -> 13  s4: 12 -> 13
+  at_door    s1: 27 -> 33  s2: 41 -> 45  s3: 38 -> 32  s4: 34 -> 36
+  door_open  s1: True -> True  s2: True -> True  s3: True -> True  s4: True -> True
+  off-s1: pellets put down 1555, rolled 0
+  off-s2: pellets put down 1678, rolled 0
+  off-s3: pellets put down 1730, rolled 0
+  off-s4: pellets put down 2220, rolled 0
+  on-s1: pellets put down 1642, rolled 24
+  on-s2: pellets put down 1929, rolled 33
+  on-s3: pellets put down 1903, rolled 32
+  on-s4: pellets put down 2251, rolled 39
