@@ -345,6 +345,19 @@ fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
     n
 }
 
+/// **Every training world holds the soil's placement rule where the ladder
+/// was measured**: pellets put down stay where they are put
+/// (`World::spoil_roll` 0), whatever `PIXEL_PHYSICS_SPOIL_ROLL` or its
+/// default says. The roll-on-placement rule (owner-approved for the games,
+/// teacher lane PR 753) changes where a put-down pellet comes to rest, so
+/// what S3 credits and what falls back into the hole; turned on mid-step it
+/// would move every baseline the dig ladder is judged against (s161, s171,
+/// the pace bar). It comes into the arenas at a rung boundary, baselines
+/// re-measured -- brain lane and teacher lane, 2026-10-21.
+pub(crate) fn hold_training_world(w: &mut World) {
+    w.spoil_roll = Some(0);
+}
+
 impl Challenge for Forage {
     fn name(&self) -> &'static str {
         if self.far {
@@ -382,6 +395,7 @@ impl Challenge for Forage {
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
         let sc = bed_at(layout.seed, self.ants, &extra, 40, 33, width, nest_x);
         let (mut w, _, _) = sc.build();
+        hold_training_world(&mut w);
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
         // **`taken` stops short of home**: at 45 columns a window of
@@ -629,6 +643,7 @@ impl Challenge for Scarce {
         let (nest_x, food_x, dist) = self.geometry(layout);
         let sc = self.bed(layout);
         let (mut w, _, _) = sc.build();
+        hold_training_world(&mut w);
         w.food_brake = self.brake;
         // Every death, by ant, so `kept` can count founders' old age only.
         w.death_log = Some(Vec::new());
@@ -1045,6 +1060,7 @@ impl Trail {
     fn run_ants(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let (ww, h) = (BED_W, 64);
         let mut w = World::new(Rect::new(0, 0, ww - 1, h - 1));
+        hold_training_world(&mut w);
         w.seed = layout.seed;
         let floor = h - 8;
         let head_y = floor - 1;
@@ -1241,6 +1257,7 @@ impl Challenge for Dig {
         let shape = DigBed::of(layout);
         let sc = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp);
         let (mut w, _, _) = sc.build();
+        hold_training_world(&mut w);
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         if let Some(t) = w.targets.as_mut() {
             t.free = self.free;
@@ -1810,6 +1827,7 @@ impl Soil {
     fn world(&self, layout: Layout, genome: &[f32]) -> (World, Scenario, SpeciesId, f32) {
         let sc = self.bed(layout);
         let (mut w, _) = sc.bed.build_counted();
+        hold_training_world(&mut w);
         // **The build split** (review R4): the founding shaft is cut inside
         // `apply`, so what it reads is set before it.
         w.nest_shaft = Some(self.shaft);
@@ -3966,6 +3984,19 @@ mod tests {
             let (w3, sc3, _, _) = world(3);
             assert_eq!(census::surface_of(&w3, &sc3.bed, inside), GROUND_Y, "k={k}: step 3's bed is flat");
         }
+    }
+
+    /// **The soil arena's world never rolls a pellet** ([`hold_training_world`]):
+    /// its world reads `spoil_roll` 0 whatever the process says; the control,
+    /// the same bed built plainly, leaves it to the process (`None`).
+    #[test]
+    fn training_worlds_hold_pellets_where_they_are_put() {
+        let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget: None, foot: true, step_near: 0.0 };
+        let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
+        let (w, _, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
+        assert_eq!(w.spoil_roll, Some(0));
+        assert_eq!(creature::spoil_roll_of(&w), 0);
+        assert_eq!(soil.bed(lay).bed.build_counted().0.spoil_roll, None, "the control: a plain build leaves it to the process");
     }
 
     /// **`stepnear=` forces the step near the shaft on its share of pairs,
