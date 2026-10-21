@@ -7,7 +7,7 @@ per vCPU, through scratch/inrun/rounds.sh, and put each finished job's folder to
 
   start  NAME jobs=scratch/inrun/jobs/X.txt --ref BRANCH [--type c4d-highcpu-48] [--hours 2]
   status NAME          VM state and log lines
-  pull   NAME DEST     download progress.txt and every finished job from the bucket and unpack them into DEST
+  pull   NAME DEST [--which jobs]   download progress, ARMSUM.txt and every finished job's small copy (or full copy) into DEST
   delete NAME          delete the VM (only after pull shows DONE)
 
 A jobs line is: OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]  (the rounds.sh arguments, OUT a bare name).
@@ -61,6 +61,8 @@ run_one() {
   cd $W/repo; o=$1; shift
   bash scratch/inrun/rounds.sh $W/out/$o "$@"
   tar -C $W/out -czf $W/tgz/$o.tgz $o && put $W/tgz/$o.tgz jobs/$o.tgz && rm -f $W/tgz/$o.tgz
+  # the small copy pull fetches: everything but the event log and the 4k-frame maps and ant lists (last one of each kept)
+  tar -C $W/out -czf $W/tgz/$o-s.tgz --exclude=events.csv --exclude='map_f0[01]*' --exclude='ants_f0[01]*' $o && put $W/tgz/$o-s.tgz small/$o.tgz && rm -f $W/tgz/$o-s.tgz
   echo $o >> $W/done.list
 }
 export -f run_one
@@ -71,6 +73,7 @@ log "batch start: $(wc -l < $W/jobs.txt) jobs on $(nproc) vcpus"
 xargs -P $(nproc) -L 1 bash -c 'run_one "$@"' _ < $W/jobs.txt
 kill $PP 2>/dev/null
 progress
+python3 -I $W/repo/scratch/inrun/armsum.py $W/out > $W/ARMSUM.txt 2>&1; put $W/ARMSUM.txt ARMSUM.txt
 log "batch done in $(( $(date +%s) - T0 )) s"
 echo 0 > $W/done.txt; put $W/done.txt DONE
 echo "@@DONE 0" | tty
@@ -89,8 +92,8 @@ def cmd_pull(a):
         r = s.get(f"{g.GCS}/{g.BUCKET}/o", params=params, timeout=60).json()
         for it in r.get("items", []):
             rel = it["name"][len(pre):]
-            if rel.startswith("jobs/") and rel.endswith(".tgz"):
-                job = rel[5:-4]
+            if rel.startswith(a.which + "/") and rel.endswith(".tgz"):
+                job = rel[len(a.which) + 1:-4]
                 if os.path.isdir(f"{a.dest}/{job}"):
                     continue
                 raw = g.bucket_get(a.name, rel)
@@ -100,7 +103,7 @@ def cmd_pull(a):
                             sys.exit(f"refusing member {m.name!r}")
                     t.extractall(a.dest)
                 got += 1
-            elif rel in ("progress.txt", "DONE", "build-tail.log", "jobs.txt"):
+            elif rel in ("progress.txt", "DONE", "build-tail.log", "jobs.txt", "ARMSUM.txt"):
                 open(f"{a.dest}/{rel}", "wb").write(g.bucket_get(a.name, rel))
         token = r.get("nextPageToken")
         if not token:
@@ -118,6 +121,7 @@ def main():
     s.add_argument("--ref", required=True); s.add_argument("--type", default="c4d-highcpu-48")
     s.add_argument("--hours", type=float, default=2); s.add_argument("--seed", default=None)
     pl = sub.add_parser("pull"); pl.add_argument("name"); pl.add_argument("dest")
+    pl.add_argument("--which", default="small", choices=("small", "jobs"), help="small: no event logs (default); jobs: everything")
     for c in ("status", "delete"):
         sub.add_parser(c).add_argument("name")
     a = p.parse_args()
