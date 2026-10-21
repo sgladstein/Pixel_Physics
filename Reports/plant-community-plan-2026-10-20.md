@@ -913,7 +913,10 @@ the review (§12), **M1 runs in this order**:
    (240k and 480k). The sideways-levelling dial (`soil_capillary_levels`)
    was the third arm: less effective and dearer. An independent review
    found a stall (a pair across roots woken from one end only) and two
-   risks; all fixed before shipping.
+   risks; all fixed before shipping. **Cost: about +11% of a bed's run
+   time** on the grass bed (one thread, alternated, 160k frames: 182-183 s
+   -> 199-205 s), partly a different world's plant activity. If that is too
+   dear, the backward walks can be gated to cells beside tissue.
    **(2) Heaps: diagnosed, not shipped.** They are rot: 5% of rotted
    litter, seed, fruit and corpses lands as soil on the surface
    (`DECAY_YIELD=0` takes heaps from 5-17% of the picture to 0-2.4%). But
