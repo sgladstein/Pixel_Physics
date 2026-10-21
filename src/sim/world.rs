@@ -5884,6 +5884,9 @@ pub struct World {
     /// scheduled -- `supportable` is a budget and spending none of it is the
     /// outcome the defect produces.
     pub buds_flushed: u32,
+    /// Of `buds_flushed`, how many were a plant sprouting from its base with
+    /// no bud left (`World::collar_sprout`).
+    pub collar_sprouts: u32,
     /// **Root cells taken by fine-root turnover** — `plant.rs`'s
     /// `ROOT_TURNOVER_PER_TICK`, the did-it-fire counter for a mechanism
     /// that ships at zero.
@@ -6454,6 +6457,11 @@ pub struct World {
     pub node_keyed_growth: bool,
     /// **Laterals at nodes, not by coin** (A3; `plant::branch_due`).
     pub branch_by_node: bool,
+    /// **A plant with no tip and no bud left sprouts from its base**
+    /// (`plant::break_buds`, the collar sprout). Off, a plant whose last
+    /// tip has retired and whose buds have all been thickened over is
+    /// frozen for good, whatever carbon it holds.
+    pub collar_sprout: bool,
     /// **The deepest generation any lineage has ever reached** — a high-water
     /// mark, never decremented, and the reason it exists is that every other
     /// generation readout in this repo cannot answer the question.
@@ -7549,6 +7557,7 @@ impl World {
             roots_shed: 0,
             shed_stranded: 0,
             buds_flushed: 0,
+            collar_sprouts: 0,
             fields_settled: false,
             touched_chunks: ChunkSet::default(),
             creature_par: crate::sim::creature::ParTuning::default(),
@@ -7592,6 +7601,7 @@ impl World {
             developmental_key: super::organism::DevelopmentalKey::default(),
             node_keyed_growth: super::plant::node_key_default(),
             branch_by_node: super::plant::branch_node_default(),
+            collar_sprout: super::plant::collar_sprout_default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
             deepest_breeder_generation: 0,

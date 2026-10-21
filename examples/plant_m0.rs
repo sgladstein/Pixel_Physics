@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -1166,12 +1166,29 @@ fn plastic(m: &BTreeMap<String, String>) {
                 // Why a plant dies in the shade is a question about one
                 // plant's ledger over its life, not about the census.
                 let trace: u64 = get(m, "trace", 0);
+                // `whys=1`: under each trace row, why the founder's shoot
+                // tips did or did not grow since the last one (`GrowWhy`,
+                // from `World::grow_log`) -- a stalled seedling's tip that
+                // never retires is counted, so the census says what holds it.
+                let whys = get(m, "whys", 0u8) != 0;
+                let traced = |s: u64| trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0);
+                if whys && traced(s) {
+                    w.grow_log = Some(Vec::new());
+                }
                 for f in 0..frames {
                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
                     // `traceall=1`: every seed's founder, not only seed 0 --
                     // the per-individual trace the stall lottery needs.
-                    if trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0) && f % trace == 0 {
+                    if traced(s) && f % trace == 0 {
                         trace_founder(&w, id, &format!("{label} s={s} f={f}"));
+                        if let Some(log) = w.grow_log.as_mut() {
+                            let mut by: BTreeMap<String, u32> = BTreeMap::new();
+                            for r in log.iter().filter(|r| r.organism == id && !r.root) {
+                                *by.entry(format!("{:?}", r.why)).or_default() += 1;
+                            }
+                            log.clear();
+                            println!("    WHYS {label} s={s} f={f} {by:?}");
+                        }
                     }
                 }
                 // `pics=N`: the founder's patch for the first N seeds,
@@ -1195,7 +1212,11 @@ fn plastic(m: &BTreeMap<String, String>) {
                 // One line per seed, so the arms can be compared paired
                 // within seed rather than by mean of survivors: a shoot's
                 // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
-                println!("    SEED {label} s={s} shoot {}", form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])));
+                println!(
+                    "    SEED {label} s={s} shoot {} sprouts {}",
+                    form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])),
+                    w.collar_sprouts
+                );
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);
                     if let Some(st) = w.organism(id) {
@@ -1215,7 +1236,12 @@ fn plastic(m: &BTreeMap<String, String>) {
             println!();
             table.push(rows);
         }
+        // Only when every arm ran: under `arm=` the table holds a subset,
+        // and its positions no longer name the arms below.
         for (axis, a, b) in [("dim - bright, genes ignored", 1usize, 0usize), ("dim - bright, genes read", 3, 2)] {
+            if table.len() < 4 {
+                continue;
+            }
             print!("  {axis:<28}");
             for (i, name) in FORM.iter().enumerate() {
                 let (ma, sa) = mean_sd(&table[a].iter().map(|r| r[i]).collect::<Vec<_>>());

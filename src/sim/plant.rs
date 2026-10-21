@@ -2500,6 +2500,15 @@ pub(crate) fn branch_node_default() -> bool {
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BRANCH_NODE").as_deref(), Ok("1")))
 }
 
+/// `World::collar_sprout`'s default: off, unless
+/// `PIXEL_PHYSICS_COLLAR_SPROUT=1` -- the harness switch, as
+/// `branch_node_default`, until it is measured.
+pub(crate) fn collar_sprout_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_COLLAR_SPROUT").as_deref(), Ok("1")))
+}
+
 /// `World::node_keyed_growth`'s default: off, unless
 /// `PIXEL_PHYSICS_NODE_KEY=1` -- the instrument that lets every harness
 /// (`clone_variance`, `plant_m0`) run the A2 arm without a flag of its own.
@@ -11360,6 +11369,48 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
             richest = Some((x, y, held));
         }
     }
+    // **A plant with no tip and no bud left sprouts from its base**
+    // (`World::collar_sprout`). Buds are laid down only by a tip as it
+    // extends, and thickening wood buries them, so a plant whose last tip
+    // retires slowly loses every way to grow: traced on twelve lone shrubs
+    // under the lamp (`plant_m0 axis=shade whys=1`), 7 of 12 ended the run
+    // with no tip and no bud, frozen from frame 11,500 to 58,000 -- one at
+    // 278 cells holding ~700 carbon for 48,000 frames -- and *when* each
+    // froze set much of the spread in final size. Real shrubs keep a bank of
+    // buds at the root collar and resprout from it; that is most of what
+    // makes a shrub a shrub (Bond & Midgley 2001, "Ecology of sprouting in
+    // woody plants", cited from memory). `break_tillers` is the same answer
+    // for grass, which has no buds at all.
+    //
+    // The lowest stem cell with open air beside or above it becomes the one
+    // candidate bud, and everything after this is the ordinary flush: the
+    // same gate (`bud_break_reserve`'s one tip for a tipless plant, or
+    // income), paid from the richest cell, so no carbon is made. It keeps
+    // its own short path from the collar, so the new stem has the whole
+    // turgor budget a basal shoot has. One at a time, only with no tip: a
+    // stand cannot run away through it any faster than one stem per plant.
+    let mut sprouting = false;
+    if buds.is_empty() && tips == 0 && world.collar_sprout && reserve >= BUD_RESERVE_STEPS * cost * wood_density_mult(world, organism_id) {
+        let mut crown: Option<(i32, i32)> = None;
+        for &(x, y) in &cells {
+            let cell = world.get(x, y);
+            if cell.organism_id() != organism_id
+                || organism::cell_type(cell.aux()) != Some(CellType::MatureBody)
+                || world.materials.get(cell.material).reinforces_powder
+            {
+                continue;
+            }
+            let open = [(0, -1), (-1, 0), (1, 0)].iter().any(|&(dx, dy)| growable(world, x + dx, y + dy, 0.0, false));
+            // `cells` is sorted by row, so the last open one is lowest.
+            if open && crown.is_none_or(|(_, cy)| y >= cy) {
+                crown = Some((x, y));
+            }
+        }
+        if let Some((x, y)) = crown {
+            buds.push((x, y, 1.0));
+            sprouting = true;
+        }
+    }
     if buds.is_empty() {
         return;
     }
@@ -11519,6 +11570,9 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // defect `plants:124` is about is exactly the case where the first is
     // positive and the second is zero.
     world.buds_flushed = world.buds_flushed.saturating_add(1);
+    if sprouting {
+        world.collar_sprouts = world.collar_sprouts.saturating_add(1);
+    }
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
@@ -25251,6 +25305,54 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             break_buds(&mut w, id);
             let flushed = w.buds_flushed - before;
             assert_eq!(flushed, u32::from(on), "reserve {on}: a tipless, unlit tree with full stores flushed {flushed} buds");
+        }
+    }
+
+    /// **A plant with no tip and no bud left sprouts from its base, with
+    /// `World::collar_sprout` on, and only then.** The reserve test's tree,
+    /// with every bud also buried (made `MatureBody`, as thickening does):
+    /// off, `break_buds` has nothing to flush; on, the lowest open stem cell
+    /// becomes a tip, and it is counted in `collar_sprouts`. The guard's
+    /// positive control is the off arm: the same tree, the same stores,
+    /// nothing happens.
+    #[test]
+    fn a_plant_with_no_tip_and_no_bud_sprouts_from_its_base_only_when_on() {
+        for on in [false, true] {
+            let mut w = test_world();
+            w.seed = 1;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            run_with_fields(&mut w, 4_000);
+            let cells: Vec<(i32, i32)> = w.organism(id).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
+            for &(x, y) in &cells {
+                let c = w.get(x, y);
+                if matches!(organism::cell_type(c.aux()), Some(CellType::GrowingTip | CellType::DormantBud)) {
+                    w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+                }
+            }
+            for &(x, y) in &cells {
+                write_carbon(&mut w, x, y, 1.0);
+            }
+            w.bud_break_reserve = true;
+            w.collar_sprout = on;
+            let (before, sprouts_before) = (w.buds_flushed, w.collar_sprouts);
+            break_buds(&mut w, id);
+            let flushed = w.buds_flushed - before;
+            let sprouts = w.collar_sprouts - sprouts_before;
+            assert_eq!((flushed, sprouts), (u32::from(on), u32::from(on)), "sprout {on}: a tree with no tip, no bud and full stores flushed {flushed}, sprouted {sprouts}");
+            if on {
+                let tip = cells.iter().find(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip)).copied();
+                let lowest_stem = cells
+                    .iter()
+                    .filter(|&&(x, y)| {
+                        let c = w.get(x, y);
+                        !w.materials.get(c.material).reinforces_powder && organism::cell_type(c.aux()) != Some(CellType::Leaf)
+                    })
+                    .map(|&(_, y)| y)
+                    .max();
+                let (tip, lowest) = (tip.expect("on: a tip should exist"), lowest_stem.expect("a stem"));
+                assert!(lowest - tip.1 <= 2, "the sprout should be at the base: tip at row {}, lowest stem row {lowest}", tip.1);
+            }
         }
     }
 
