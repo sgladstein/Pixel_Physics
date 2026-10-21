@@ -2070,7 +2070,10 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
     let particles = crate::sim::particle::ParticleSystem::new();
     let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
     ch.run(layout, &gs, &mut |f, w| {
-        if !shots.contains(&f) && f <= frames {
+        // SCRATCH GIF FRAMES (not for main): PP_GIF_EVERY=n PP_GIF_DIR=d saves every n-th frame alone.
+        let gif_every: u64 = std::env::var("PP_GIF_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let gif_frame = gif_every > 0 && f % gif_every == 0;
+        if !gif_frame && !shots.contains(&f) && f <= frames {
             return;
         }
         let Some(b) = w.bounds() else { return };
@@ -2106,6 +2109,13 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
                     let i = ((y as u32 * vw + x as u32) * 4) as usize;
                     buf[i..i + 4].copy_from_slice(&[255, 0, 255, 255]);
                 }
+            }
+        }
+        if gif_frame {
+            let dir = std::env::var("PP_GIF_DIR").unwrap_or_else(|_| ".".into());
+            let _ = image::save_buffer(format!("{dir}/f{f:06}.png"), &buf, vw, vh, image::ColorType::Rgba8);
+            if !shots.contains(&f) {
+                return;
             }
         }
         sheet.extend_from_slice(&buf);

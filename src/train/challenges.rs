@@ -1952,11 +1952,42 @@ impl Challenge for Soil {
         let founding = founding_cut(&w, &sc.bed);
         let datum: Vec<Option<i32>> = xs.clone().map(|x| w.room_surface_at(x)).collect();
         let deep = |x: i32, y: i32| depth_below_ground(&datum, x0, x, y);
+        // SCRATCH (teacher-training measurement 2): the privileged facts a teacher reads, once a world: extents, the
+        // depth datum per column, the founding hole, the ground at frame 0.
+        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
+            let dat: Vec<String> = datum.iter().map(|d| d.map_or("x".into(), |v| v.to_string())).collect();
+            let fc: Vec<String> = founding.iter().map(|(x, y)| format!("{x}:{y}")).collect();
+            let g0: String = ground0.iter().map(|&b| if b { '1' } else { '0' }).collect();
+            let row = format!("G,{},{x0},{y0},{nw},{},{},{},{},{g0}", w.seed, ground0.len() / nw, self.shaft, dat.join(" "), fc.join(" "));
+            creature::mind::scratch_log::cline(&row);
+            creature::mind::scratch_log::line(row);
+        }
+        // SCRATCH (teacher-training ceiling test): hand the teacher its facts for the run's frames only.
+        if creature::mind::scratch_log::teach_on() || creature::mind::scratch_log::label_on() {
+            let top = founding.iter().map(|c| c.1).min().unwrap_or(0);
+            let mouth: Vec<i32> = founding.iter().filter(|c| c.1 == top).map(|c| c.0).collect();
+            let ctx = creature::mind::scratch_log::TeachCtx {
+                x0,
+                y0,
+                nw,
+                nh: ground0.len() / nw,
+                ground0: ground0.clone(),
+                datum: datum.clone(),
+                founding: founding.clone(),
+                shaft: self.shaft,
+                mouth_x: mouth.iter().sum::<i32>() as f32 / mouth.len().max(1) as f32,
+                clear: SOIL_AWAY - 1 + creature::mind::scratch_log::arms().3,
+            };
+            creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = Some(ctx));
+        }
         let dig_j0 = w.creature_stats.dig_energy;
         for f in 0..self.frames {
             frame(&mut w, true);
             look(f + 1, &w);
         }
+        // The settle that follows is scored: the teacher must not act in it.
+        creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = None);
+        creature::mind::scratch_log::SETTLE.with(|s| s.set(true));
         let alive = ants_of(&w, sp);
         let holding = alive.iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
         let energy_left = alive.iter().filter_map(|&id| w.organism(id).map(|s| s.energy as f64)).sum::<f64>() / placed.len().max(1) as f64;
@@ -1981,6 +2012,24 @@ impl Challenge for Soil {
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+        creature::mind::scratch_log::SETTLE.with(|s| s.set(false));
+        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline -- into the
+        // decision log, and the copy log (world-tagged) when that is on.
+        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
+            let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
+            let mut rows = Vec::new();
+            for &(x, y, f, id) in &cuts {
+                rows.push(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
+            }
+            for &(x, y, f, id) in &dumps {
+                rows.push(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
+            }
+            rows.push(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
+            for r in rows {
+                creature::mind::scratch_log::cline(&r);
+                creature::mind::scratch_log::line(r);
+            }
+        }
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         vec![Score {
             fit: trip.score,
