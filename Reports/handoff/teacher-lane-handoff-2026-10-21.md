@@ -1,8 +1,9 @@
 # Handoff: the teacher lane (teaching the ant brain by copying), for the next session
 
-*Written 2026-10-21 ~08:30 UTC by the teacher-approach session (`session_0155kwr6ZPrC8bXE2JopsdJ4`), at the owner's
-request, at a natural stopping point. Read this, then `CLAUDE.md`, then the two documents named in "Where things
-are". Everything below is on `main` unless it says otherwise.*
+*Written 2026-10-21 by the teacher-approach session (`session_0155kwr6ZPrC8bXE2JopsdJ4`), at the owner's request, at a
+natural stopping point. Read this, then `CLAUDE.md`, then `step05-why-copies-fail-2026-10-21.md` and the design
+(`teacher-design-2026-10-21.md`). Everything below is on `main` (merged via PRs #753, #757, #759) unless it says
+otherwise.*
 
 ## What this lane is for
 
@@ -31,10 +32,88 @@ Google runs; a research lane answers literature questions and sends findings by 
 The logs the copier trains on are not in git (hundreds of MB). Regenerate with the patch's `copylog`:
 `PP_COPY_LOG=<file> PP_TEACH_LABEL=1 copylog soil <genome> 9101 48 out.csv 2`, `copylog fetch <genome> 9301 16`,
 `copylog trail <genome> 9401 8` (the run seeds every config here used; s171's extra fetch anchors: 9311 x64 for s171,
-9321 x48 for the copy's own runs). Evaluation worlds: `reliab 8 12000 out.csv <genomes...>` from a directory with
-the `m1` layout (run sets 9001+9002, 96 worlds, 48 seed pairs; s.e. clustered by seed with `arms.py`). Kept skills:
+9321 x48 for the copy's own runs). Evaluation worlds: `reliab 8 12000 out.csv <genomes...>`, run from any scratch
+folder (the old `/home/user/m1` was only an output folder): run sets 9001+9002, 96 worlds, 48 seed pairs; s.e.
+clustered by seed with `arms.py`. Kept skills:
 `copylog fetch|trail <genome> 9801 48`, **but judge any genome bound for the trainer with the trainer's own harness**
 (below).
+
+## Getting the scratch code running
+
+The scratch Rust code and the Python copier are not on `main`. To use them:
+
+1. `git worktree add ../tp eae65c7057e9bbe3f749c5e524f73a41d2849172`, then in `../tp`, run
+   `git apply <repo>/Reports/brain-training/teacher-training/measurements/teacher-probes-2026-10-21.patch`.
+   Copy `measurements/copier/*.rs.txt` to `../tp/examples/*.rs`; the patch already carries the tracked files. Rebase
+   onto current `main` if you need the roof touch rule (PR 754) or the spoil roll.
+2. Build: `cargo build --release --example copylog --example copyreplay --example reliab --example mutants`. The
+   floor checks use `examples/train`, from either tree. The patch only adds the `PP_GIF_SEALED` picture switch to it.
+3. Python: numpy and autograd. Run scripts with `python3 -I`.
+
+**The scratch switches** (environment variables, read by the patched `mind.rs` / `challenges.rs`):
+
+| Switch | What it does |
+|---|---|
+| `PP_COPY_LOG=<file>` | Full-precision log of every option of every decision: Q rows, plus G/C/D/E rows for ground, cuts, put-downs and results |
+| `PP_TEACH_LABEL=1` | Adds the three-rule teacher's labels to that log, soil arena only |
+| `PP_TEACH=dig,down,home` | The acting teacher: the rules drive the ant. This is the ceiling test |
+| `PP_TEACH_Q=<p>` | Each teacher call applied with probability p |
+| `PP_TEACH_FLOOR=1\|2` | Floor-limited arms |
+| `PP_TEACH_SAT` | Score saturation for the floor-limited arms |
+| `PP_GENOME_OUT=<file>` | Save the genome as loaded through the suite. This is the copier's starting point |
+| `PP_MIND_LOG`, `PP_ABLATE`, `PP_GIF_*` | From the 2026-10-20 investigation: decision log, sense switch, GIF frames |
+
+**The copier** (`copier.py`):
+
+| Command | Does |
+|---|---|
+| `train CFG.json` | The copy |
+| `replaycheck LOG GENOME OUT` | Checks the forward pass against Rust's `decide` |
+| `memcheck LOG GENOME` | Checks the memory path |
+| `roundtrip IN OUT` | Reads and rewrites a genome |
+| `quiet IN OUT` | Zeroes unread units' input links |
+| `perturb GENOME OUT SEED SIGMA [1]` | Jitters a genome; 1 = trainable slots only |
+
+Config keys:
+
+| Group | Keys |
+|---|---|
+| Start, data and target | `start`, `soil_logs`, `keep_logs` (`[[arena, path]]`), `arm` (`teacher`, `imitate`, `shuffle`, `sil`), `target_genome`, `rules` |
+| Groups | `group_weights` and `caps` per group: `digM`, `digN`, `down`, `home`, `none`, `keep`, `keepL` |
+| Optimiser | `steps`, `every`, `batch`, `lr`, `seed`, `patience`, `holdout_frac` |
+| Model | `mempath`, `quiet_unread`, `depth_into_live_units`, `allow` |
+| Added tonight | `freeze` (`["roof_drop"]` or slot numbers), `revive_units`, `revive_sigma`, `all_slots`, `arena_bit`, `keep_lookalike` (`"below"`) |
+| Self-imitation only | `t_down`, `t_home` |
+
+**The configs in `measurements/genomes/*.json` use this container's absolute paths** (`/home/user/...`). Rewrite
+`start`, `soil_logs`, `keep_logs` and `out` before reusing them.
+
+## Reference numbers (so nobody re-derives them)
+
+| What | Number | Where measured |
+|---|---|---|
+| s161 alone, full loads (as loaded / quieted) | 6.80 / 6.42 | 96 eval worlds. Quieting zeroes 184 unread links, 706 -> 522 live |
+| Teacher acting on s161 (dig + down + home) | 20.66 +- 0.37 | Memory-consistent ceiling |
+| s171 alone / teacher acting on s171 | 9.47 / 20.50 | 96 eval worlds |
+| Fetch / trail, s91 / s161 / s171 (my 48-world sets) | 24.23 / 16.66 / 19.64 and 0.864 / 0.640 / 0.796 | `copylog ... 9801 48` |
+| Fetch worse side, trainer's harness: s171 / copy v2; floor | 19.34 / 19.83; 17.61 (0.8 x keepref 22.015) | 96 worlds, 48 mirrored pairs |
+| One 12,000-frame soil world | ~0.7 CPU-s | -- |
+
+## Started, planned, or never run
+
+- **Step 0.5 items 4 and 5** (the design's §4): the tau retrofit (regularised against hard targets) and DAgger anchored
+  to the current student. Not run.
+- **The self-imitation arm.** Its labels are built and checked (`sil.py`), but it has never been trained. The research
+  lane's Q3e says never pool across arenas, and reweight the brain's own odds per arena.
+- **DAgger with failed trips only** (Li et al. 2020, from the research lane). Not run.
+- **Dig + go-down copied into s171.** Only go-down was copied into s171. The step-0.5 dig results are on s161.
+- **The "bottom of the hole" sense.** Proposed only; no probe yet.
+
+## Review cards still open in the owner's queue
+
+These were answered in chat. Mark them answered or let them lapse; don't treat them as pending:
+- `20261021T051824537Z-683876`: nest blueprints. Answered: harvester; chambers bigger, then 7 cells.
+- `20261021T054209047Z-78f707`: ring against crescent. Answered: ring.
 
 ## State at handoff
 
@@ -110,7 +189,9 @@ the `m1` layout (run sets 9001+9002, 96 worlds, 48 seed pairs; s.e. clustered by
    - Rust port of `nestscore.py` beside `src/lab/nestcensus.rs`.
    - The harvester-profile plan generator.
    - The nest planner on the roof and chamber rungs.
-   - The ring mound (owner's choice), with mound cuts never labelled "no" (see the `MOUND_DIG` dead end).
+   - The ring mound (owner's choice), with mound cuts never labelled "no" (see the `MOUND_DIG` dead end). The shipped
+     game already has `PIXEL_PHYSICS_SPOIL_SIDE=trail` on, which drops a carrier's pellet on the side of the door with
+     less food trail -- a lopsided ring. Build on it rather than beside it.
 5. **Walk home**: decide with the owner. Either leave the empty return trip to selection, or teach it only in an arena
    where diggers and foragers share the world.
 
