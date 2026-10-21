@@ -63,7 +63,7 @@
 //! so printing it cannot move a run (the brain lane's guards compare runs bit
 //! for bit).
 
-use crate::lab::census::{extents, surface_of};
+use crate::lab::census::{extents, surface_of, MOUND_REACH};
 use crate::lab::scene::LabBox;
 use crate::sim::cell::Cell;
 use crate::sim::creature::food_value;
@@ -673,10 +673,27 @@ fn openings(cells: &[(usize, usize)], nest: &[bool], w: usize, h: usize) -> usiz
 /// ground row is the world's frozen datum ([`surface_of`]). `door_x` is the
 /// door's world column. Returns the score and each cell's class over the
 /// world's extents (row-major, `extents`' order).
+///
+/// **The grid starts [`MOUND_REACH`] rows above the highest ground**, not at
+/// the top of the box. The score's sky is an unbroken open column from the
+/// grid's top row down, and a lab box has a lid: read from the lid, no
+/// column was ever open to the sky, so a crater read as nest and its pit as
+/// 0 (the teacher lane's in-run colony at 200k frames, seed 6: pit 0, dug 55,
+/// score -61.9 read from the lid; pit 59, dug 25, score -81.8 read from its
+/// map, which starts in the air). `MOUND_REACH` is the census's own line
+/// between the bed's mound and the box's lid or a lamp (`joined_room` seeds
+/// its sky the same way).
 pub fn of_world(world: &World, spec: &LabBox, door_x: i32, p: &Profile) -> (NestScore, Vec<Class>) {
     let (xs, ys) = extents(world, spec);
-    let (x0, y0) = (*xs.start(), *ys.start());
+    let x0 = *xs.start();
     let w = (xs.end() - x0 + 1).max(0) as usize;
+    let datum: Vec<i32> = xs.clone().map(|x| surface_of(world, spec, x)).collect();
+    let top = datum.iter().copied().min().unwrap_or(*ys.start()) - MOUND_REACH;
+    let (y0, skip) = if top > *ys.start() {
+        (top, (top - ys.start()) as usize)
+    } else {
+        (*ys.start(), 0)
+    };
     let h = (ys.end() - y0 + 1).max(0) as usize;
     let solid: Vec<bool> = (0..world.materials.len())
         .map(|i| {
@@ -686,15 +703,18 @@ pub fn of_world(world: &World, spec: &LabBox, door_x: i32, p: &Profile) -> (Nest
         })
         .collect();
     let mut open = vec![false; w * h];
-    for y in ys.clone() {
+    for y in y0..=*ys.end() {
         for x in xs.clone() {
             let c = world.get(x, y);
             open[(y - y0) as usize * w + (x - x0) as usize] = c.organism_id() != 0 || !solid[c.material.0 as usize];
         }
     }
-    let ground: Vec<i32> = xs.clone().map(|x| surface_of(world, spec, x) - y0).collect();
+    let ground: Vec<i32> = datum.iter().map(|g| g - y0).collect();
     let door = (door_x - x0).clamp(0, w as i32 - 1) as usize;
-    score(&open, w, h, &ground, door, p)
+    let (s, class) = score(&open, w, h, &ground, door, p);
+    let mut full = vec![Class::Not; skip * w];
+    full.extend(class);
+    (s, full)
 }
 
 #[cfg(test)]
@@ -999,6 +1019,23 @@ mod tests {
         assert!(
             new.niches.len() == 1 && class.contains(&Class::Niche) && new.score > s.score,
             "with niches it is a niche: {new:?}"
+        );
+        // A crater open to the sky away from the door is pit, under the box's
+        // lid as on the grid: read from the lid down it was nest (pit 0).
+        carve(&mut world, door - 30, door - 15, 0, 3);
+        let (crater, class) = of_world(&world, &spec, door, &HARVESTER);
+        assert_eq!(crater.pit, 16 * 4, "{crater:?}");
+        let (xs, ys) = extents(&world, &spec);
+        assert_eq!(
+            class.len(),
+            ((xs.end() - xs.start() + 1) * (ys.end() - ys.start() + 1)) as usize,
+            "a class a cell"
+        );
+        assert!(
+            crater.score < new.score - 60.0,
+            "a crater costs: {} -> {}",
+            new.score,
+            crater.score
         );
     }
 
