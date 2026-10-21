@@ -444,6 +444,14 @@ const _: () = assert!(ROOT_PASS_REACH <= MAX_REACH, "a soil write beyond MAX_REA
 /// **Tissue is `MaterialKind::Plant`, not "has an organism id"**: an ant, a
 /// worm or brood standing in a one-cell gallery carries an id too, and must
 /// not bridge soil water across the tunnel it is standing in.
+///
+/// **Inlined by force** (2026-10-21): left to the compiler it stayed a real
+/// call, and a call returning `Option<(i32, i32, Cell)>` through memory cost
+/// ~70 instructions of prologue and return, 3.5 times per visited soil cell.
+/// On the plant trainer's rung-2 bed this attribute and `MoistureView::
+/// is_inner` together cut the bed's instructions 10.5% (30.72G -> 27.51G,
+/// `plantcost scene=rung layouts=1 cg=1`), every hash unchanged.
+#[inline(always)]
 fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, through_roots: bool, direct: bool) -> Option<(i32, i32, Cell)> {
     let n = surface.get(x + dx, y + dy);
     if surface.materials().get(n.material).water_capacity > 0 {

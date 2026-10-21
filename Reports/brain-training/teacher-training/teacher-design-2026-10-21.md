@@ -275,6 +275,13 @@ the sky (100 stray cells before the connectivity fix; 7 pit cells charged after)
 scored next (section 6.4); grade chambers by what is in them (brood or food on a flat floor, the biology review's
 suggestion); or run inside an arena (a Rust port beside `nestcensus`).
 
+**Ported, 2026-10-21** (owner's go, printed and never paid): `src/lab/nestscore.rs`, held to this prototype on all
+the controls above, and printed as the soil trip's last part (`nest`) under `score=` and `noise=1`. The port also
+fixes the **climb** this score had: as built, a chamber dug floor first paid nothing until its fifth row (24, 10, -4,
+23, 22, then 125), so `HARVESTER` adds *niches*, rooms being dug, told from corridors by their openings (at most
+two) and capped so a comb of shelves cannot win; the prototype stays as `PROTOTYPE`. Measurements and rejected
+tries in the module doc and `dead-ends.md`.
+
 ### 6.2 The planner generates the plan
 
 The owner's pick, the **harvester stack**, is the default **species profile**: chambers 7 cells tall and at least 3×
