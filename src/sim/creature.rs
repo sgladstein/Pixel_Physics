@@ -554,10 +554,20 @@ pub enum DecisionOutcome {
     /// A trip's carrier stood beside far food to take another mouthful
     /// ([`CarryHome`]'s `fill`): the walk was not asked.
     Filling = 10,
+    /// An encased carrier cut the cell ahead, stepped into it and packed its
+    /// pellet into the cell its tail left ([`pack_behind`]: `NeedsFirst`'s
+    /// `pack`, the needs walk's escapes, or the player's G): the walk was not
+    /// asked. Its body step is [`commit_step`]'s, so it counts in `moves` as
+    /// a `Stepped` row does, but no cone picked it and no move roll was drawn. **Booked as `Stepped`
+    /// until 2026-10-21**, which misattributed every walled-in ant's pack as a
+    /// cone step; `every_traced_decision_agrees_with_the_counters_and_the_positions`
+    /// went red on it once the spoil roll moved that test colony onto a
+    /// walled-in hungry ant. Last, so every earlier index keeps its meaning.
+    Packed = 11,
 }
-pub const DECISION_OUTCOMES: usize = 11;
+pub const DECISION_OUTCOMES: usize = 12;
 pub const DECISION_OUTCOME_NAMES: [&str; DECISION_OUTCOMES] =
-    ["stepped", "fell", "launched", "swapped", "crossing", "reversed", "blocked_tumbled", "roll_failed_tumbled", "roll_failed_idle", "no_body", "filling"];
+    ["stepped", "fell", "launched", "swapped", "crossing", "reversed", "blocked_tumbled", "roll_failed_tumbled", "roll_failed_idle", "no_body", "filling", "packed"];
 
 /// Why the homeward re-roll did or did not aim a tumble -- one value per
 /// call to `home_weighted_pick_why`, in the order its gates are tested.
@@ -14559,6 +14569,8 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     let tail_parted = parted_under(world, v);
     let (vx, vy) = v;
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
+    // `commit_step` noted the walk's `Stepped`; this step was the pack's.
+    note_outcome(world, DecisionOutcome::Packed);
     // Only a parted cell, or another animal handed the cell (a nestmate
     // riding it, or its owner where this ant only rode), may leave it full:
     // not this ant's own cell left uncleared, and not a plant's.
@@ -17252,9 +17264,11 @@ pub const SPOIL_ROLL_CELLS: u8 = 2;
 
 /// **`PIXEL_PHYSICS_SPOIL_ROLL=on|off|<cells>`: a pellet put down on the
 /// mound rolls a cell or two down its outer flank before it settles.**
-/// Off when unset, until measured (owner, 2026-10-21: "go with your
-/// suggestion"); `World::spoil_roll` overrides it per world, which is how a
-/// training arena keeps its physics while a game turns it on.
+/// **On when unset since 2026-10-21** (owner: "go with your suggestion";
+/// measured neutral-or-better on the shipped colony, so on by the house
+/// rule). `World::spoil_roll` overrides it per world, and every training
+/// arena pins it off (`train::challenges::hold_training_world`, PR 756) so
+/// the brain ladder's baselines stay comparable until a rung boundary.
 ///
 /// **Why placement and not physics.** Placed spoil is `self_supporting`: it
 /// stands wherever it has footing, at any slope, so the real ants' self-
@@ -17274,7 +17288,7 @@ pub fn spoil_roll_of(world: &World) -> u8 {
     world.spoil_roll.unwrap_or_else(|| {
         static V: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
         *V.get_or_init(|| {
-            std::env::var("PIXEL_PHYSICS_SPOIL_ROLL").map_or(0, |v| match v.as_str() {
+            std::env::var("PIXEL_PHYSICS_SPOIL_ROLL").map_or(SPOIL_ROLL_CELLS, |v| match v.as_str() {
                 "on" => SPOIL_ROLL_CELLS,
                 "off" => 0,
                 n => n.parse::<u8>().unwrap_or(0).min(8),
@@ -43566,7 +43580,14 @@ mod tests {
         assert_eq!(after.decision_census, from_rows, "the census and the rows it summarises disagree");
 
         // Rows against the legacy counters.
-        assert_eq!(count(&|r| matches!(r.outcome, D::Stepped | D::SwappedKin)), after.moves - before.moves, "stepped+swapped rows against `moves`");
+        // A pack's body step is `commit_step`'s, so it books a move too.
+        assert_eq!(count(&|r| matches!(r.outcome, D::Stepped | D::SwappedKin | D::Packed)), after.moves - before.moves, "stepped+swapped+packed rows against `moves`");
+        // No needs walk here, so every pack is `NeedsFirst`'s, which books
+        // the pellet's `Packed` in the same row. Not gated on a pack
+        // happening: whether one does depends on the colony's path (the
+        // spoil roll's default brought the first one, frame 5,676).
+        assert_eq!(count(&|r| r.outcome == D::Packed), count(&|r| r.spoil_why == SpoilWhy::Packed), "packed rows against packed pellets");
+        eprintln!("packed rows: {}", count(&|r| r.outcome == D::Packed));
         assert_eq!(count(&|r| r.outcome == D::Fell), after.falls - before.falls, "fell rows against `falls`");
         assert_eq!(count(&|r| r.outcome == D::Reversed), after.reversals - before.reversals, "reversed rows against `reversals`");
         assert_eq!(count(&|r| r.outcome == D::Crossing), after.crossings - before.crossings, "crossing rows against `crossings`");
@@ -43680,7 +43701,9 @@ mod tests {
             match r.outcome {
                 D::Stepped => assert!(DIRS.contains(&(dx, dy)), "a step moved the head by ({dx}, {dy}): {r:?}"),
                 D::Fell => assert_eq!((dx, dy), (0, 1), "a fall moved the head by ({dx}, {dy}): {r:?}"),
-                D::RollFailedIdle | D::RollFailedTumbled | D::BlockedTumbled | D::Crossing => {
+                // A pack steps inside `act`, before the row's `head` is read,
+                // so the row sees no motion.
+                D::RollFailedIdle | D::RollFailedTumbled | D::BlockedTumbled | D::Crossing | D::Packed => {
                     assert_eq!((dx, dy), (0, 0), "{:?} moved the head: {r:?}", r.outcome)
                 }
                 _ => {}
@@ -43688,7 +43711,11 @@ mod tests {
             assert_eq!(r.moved, matches!(r.outcome, D::Stepped | D::Fell | D::SwappedKin), "`moved` disagrees with the outcome: {r:?}");
             let tumbled = matches!(r.outcome, D::RollFailedTumbled | D::BlockedTumbled);
             assert_eq!(r.homeward != HomewardWhy::NotAsked, tumbled, "the homeward reason is set exactly when a tumble happened: {r:?}");
-            assert_eq!(r.roll_tumble.is_nan(), r.roll_move < r.p_move, "a tumble roll is taken exactly when the move roll fails: {r:?}");
+            if r.outcome == D::Packed {
+                assert!(r.roll_move.is_nan() && r.roll_tumble.is_nan(), "a pack draws no move or tumble roll: {r:?}");
+            } else {
+                assert_eq!(r.roll_tumble.is_nan(), r.roll_move < r.p_move, "a tumble roll is taken exactly when the move roll fails: {r:?}");
+            }
             if r.outcome == D::RollFailedIdle {
                 // The things that may have turned it are `act`'s dig-down
                 // turn and, after it, the face turn ([`dig_face_turn`],
