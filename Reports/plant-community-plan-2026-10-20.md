@@ -592,7 +592,12 @@ This session cannot launch anything.
 >    its upkeep and is sized by development, not carbon. The cost belongs
 >    where light is contested, so judge it on rung 4; and rungs 1-3 cannot
 >    see a leaf-economics trait in their bright stations.
-> 4. **A2, development keying**, then the rest of A3 and A4 (§3.3).
+> 4. **A2, development keying: built, parked off, 2026-10-21**
+>    (`World::node_keyed_growth`; `.../m1/a2-node-key/`). It does not shrink
+>    the spread: grass tightens, herb and shrub widen, because the spread is
+>    the seedling stall lottery, which keying reshuffles. **So the rest of
+>    A3 comes first** (tip survival, the taper as a carried fraction), and
+>    A2 is re-measured after it; then A4.
 > 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
