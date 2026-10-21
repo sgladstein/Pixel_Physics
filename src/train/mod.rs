@@ -773,6 +773,14 @@ pub struct Settings {
     /// ([`race`]). Off until an A/B run measures it (investigation
     /// 2026-10-20, part 5).
     pub race: usize,
+    /// **Slots selection may tune but never prune** (`noprune=`, empty by
+    /// default; owner, 2026-10-21, for a selection run from a copied
+    /// brain): a copy by gradient descent revives links selection had
+    /// pruned (the teacher lane's slot 1498 and `DEPTH` into live scorer
+    /// units), and `mutate` would prune them again. Each still steps by
+    /// `sigma` when it mutates; it is never set to 0. A listed scorer-unit
+    /// input brings that unit's output weight with it ([`no_prune_mask`]).
+    pub no_prune: Vec<usize>,
     /// **The arena's own arguments**, as the command line gave them
     /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
     /// budget and the rest), for [`RunState`]: a resume under another
@@ -860,6 +868,7 @@ impl Default for Settings {
             resume: false,
             protect: true,
             race: 0,
+            no_prune: vec![],
             arena: String::new(),
         }
     }
@@ -1134,6 +1143,42 @@ pub fn score_rows(ch: &dyn Challenge, rows: &[(&[f32], &[Layout])], threads: usi
     score_each_rows(ch, rows, threads).iter().zip(rows).map(|(each, r)| fold(ch, each, r.1)).collect()
 }
 
+/// **The no-prune mask** ([`Settings::no_prune`]) for `start`, indexed by
+/// slot: every listed slot, and for a listed scorer-unit input that unit's
+/// output weight (`mind::scorer_unit`; without it a pruned output leaves the
+/// kept input live, billed and moving nothing). Refused if a slot is out of
+/// range or reads 0 in `start` as `train` receives it (after any layout
+/// pad or rung entry), since a dead slot protects nothing; a listed slot
+/// outside `slots` is frozen, not tuned, and said so. Empty for no list.
+pub fn no_prune_mask(start: &[f32], list: &[usize], slots: &[usize]) -> Vec<bool> {
+    if list.is_empty() {
+        return vec![];
+    }
+    let mut keep = vec![false; start.len()];
+    let mut added = vec![];
+    for &s in list {
+        assert!(s < start.len(), "noprune={s}: the genome has {} slots", start.len());
+        keep[s] = true;
+        if is_mind(start.len()) {
+            if let Some(u) = mind::scorer_unit(s) {
+                let o = mind::scorer_output(u);
+                if !list.contains(&o) && !added.contains(&o) {
+                    added.push(o);
+                }
+                keep[o] = true;
+            }
+        }
+    }
+    for (s, _) in keep.iter().enumerate().filter(|(_, &k)| k) {
+        assert!(start[s] != 0.0, "noprune: slot {s} reads 0 in the start genome -- a dead slot protects nothing (wrong list, or a layout that zeroed it)");
+        if !slots.contains(&s) {
+            println!("noprune: slot {s} is not trainable here, so it is frozen, not tuned");
+        }
+    }
+    println!("noprune: {} slots never pruned ({} listed; scorer outputs added: {added:?})", keep.iter().filter(|&&k| k).count(), list.len());
+    keep
+}
+
 /// The mutation operator: each trainable slot moves with probability `pm`
 /// by a uniform step of standard deviation `sigma` ([`Rng::step`]), clamped
 /// to the range the hand-written genomes use; a live weight is set to 0
@@ -1145,7 +1190,13 @@ pub fn score_rows(ch: &dyn Challenge, rows: &[(&[f32], &[Layout])], threads: usi
 /// it in one go, and at a weight's `pm` a twelve-gene block would see one
 /// move every third child. The reserve is held to `0..=1`, the rest to
 /// `±1`, where the walk itself clamps a gain (`creature::walk_gain`).
-pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, grow: f32, rng: &mut Rng) -> Vec<f32> {
+///
+/// **`keep`** (indexed by slot; empty for none, [`no_prune_mask`]): a kept
+/// slot is never pruned, and a step that would leave it under the live
+/// threshold leaves it where it was. With `keep` empty every draw is as it
+/// was before it existed (`an_empty_no_prune_list_mutates_as_before`).
+#[allow(clippy::too_many_arguments)]
+pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, grow: f32, keep: &[bool], rng: &mut Rng) -> Vec<f32> {
     let mut c = g.to_vec();
     let walk = blocks(g.len()).walk;
     for &i in slots {
@@ -1159,12 +1210,18 @@ pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, grow:
             // switch goes to 0, which is off. The lean trail champion's
             // resting switch reads exactly 0, which only this writes
             // (`mind::FIRST_LINK`). They mutate as any slot does.
-            if prune > 0.0 && c[i] != 0.0 && rng.unit() < prune && (!is_mind(g.len()) || i >= mind::FIRST_LINK) {
+            let kept = keep.get(i).copied().unwrap_or(false);
+            if !kept && prune > 0.0 && c[i] != 0.0 && rng.unit() < prune && (!is_mind(g.len()) || i >= mind::FIRST_LINK) {
                 c[i] = 0.0;
             } else if grow < 1.0 && c[i] == 0.0 && rng.unit() >= grow {
                 // A connection not made: the slot stays empty.
             } else {
-                c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+                let w = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+                // A kept link stays live: a step onto (or next to) 0 is
+                // not taken (the live threshold, `mind::W_EPS`).
+                if !(kept && w.abs() < 1e-6) {
+                    c[i] = w;
+                }
             }
         }
     }
@@ -1365,6 +1422,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         }
     }
     let slots = slots;
+    let keep = no_prune_mask(&start, &set.no_prune, &slots);
     assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
@@ -1423,10 +1481,10 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 (vetoed_pop, vetoed_hold) = (r.vetoed_pop, r.vetoed_hold);
             }
             top_under = gates.iter().filter(|g| r.top_under.iter().any(|n| n == g.1)).map(|g| g.1).collect();
-            breed(&r.parents, set, &slots, &mut rng)
+            breed(&r.parents, set, &slots, &keep, &mut rng)
         }
         None => (0..set.pop)
-            .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng) })
+            .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, set.grow, &keep, &mut rng) })
             .collect(),
     };
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
@@ -1559,7 +1617,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
             ran = gen + 1;
             break;
         }
-        popn = breed(&state.parents, set, &slots, &mut rng);
+        popn = breed(&state.parents, set, &slots, &keep, &mut rng);
     }
     save_genome(&out.join("best.txt"), &champion)?;
     save_genome(&out.join("hold-best.txt"), &top_genome)?;
@@ -1598,7 +1656,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
 /// **The next generation from its parents**: the parents themselves, then
 /// children -- each a parent, or a uniform cross of two with probability
 /// `cross`, mutated -- until the population is full.
-fn breed(parents: &[Vec<f32>], set: &Settings, slots: &[usize], rng: &mut Rng) -> Vec<Vec<f32>> {
+fn breed(parents: &[Vec<f32>], set: &Settings, slots: &[usize], keep: &[bool], rng: &mut Rng) -> Vec<Vec<f32>> {
     let elites = parents.len();
     let mut popn = parents.to_vec();
     while popn.len() < set.pop {
@@ -1609,7 +1667,7 @@ fn breed(parents: &[Vec<f32>], set: &Settings, slots: &[usize], rng: &mut Rng) -
         } else {
             a.clone()
         };
-        popn.push(mutate(&child, slots, set.pm, set.sigma, set.prune, set.grow, rng));
+        popn.push(mutate(&child, slots, set.pm, set.sigma, set.prune, set.grow, keep, rng));
     }
     popn
 }
@@ -1671,9 +1729,19 @@ impl RunState {
     /// so the hold-out's size is checked from the settings line instead
     /// ([`RunState::load`]).
     fn arena(ch: &dyn Challenge, set: &Settings) -> String {
-        format!("challenge={} unit={:?} ants={} frames={} banned={:?} {}", ch.name(), ch.unit(), ch.ants(), ch.frames(), ch.banned(), set.arena)
+        let mut a = format!("challenge={} unit={:?} ants={} frames={} banned={:?} {}", ch.name(), ch.unit(), ch.ants(), ch.frames(), ch.banned(), set.arena)
             .trim_end()
-            .to_string()
+            .to_string();
+        // Only with a list, so every state saved before it still resumes;
+        // a list changes which children live, so a resume must keep it.
+        if !set.no_prune.is_empty() {
+            let mut l = set.no_prune.clone();
+            l.sort_unstable();
+            l.dedup();
+            let h = l.iter().flat_map(|s| (*s as u64).to_le_bytes()).fold(0xCBF2_9CE4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01B3));
+            a += &format!(" noprune={}:{h:016x}", l.len());
+        }
+        a
     }
 
     /// The settings that make a run this run: all but `gens`, `patience`,
@@ -2099,6 +2167,109 @@ mod tests {
         }
     }
 
+    /// **An empty no-prune list leaves `mutate` as it was, draw for draw**
+    /// ([`Settings::no_prune`]): 40 children of a fixed mind genome, half its
+    /// slots live, at prune 0.3 / grow 0.1, hash to the value recorded on
+    /// `main` before the list existed (`fingerprint` of each child, folded).
+    #[test]
+    fn an_empty_no_prune_list_mutates_as_before() {
+        let n = mind::GENOME_LEN;
+        let g: Vec<f32> = (0..n).map(|i| if i % 2 == 0 { ((i * 37) % 11) as f32 * 0.5 - 2.5 } else { 0.0 }).collect();
+        let slots: Vec<usize> = (0..n).collect();
+        let mut rng = Rng(77);
+        let mut h = 0u64;
+        for _ in 0..40 {
+            let c = mutate(&g, &slots, 0.03, 0.3, 0.3, 0.1, &[], &mut rng);
+            h = h.rotate_left(7) ^ fingerprint(&c);
+        }
+        assert_eq!(h, 0x9a95_a9d9_bd2d_24b6, "an empty list must leave every draw as it was");
+    }
+
+    /// **An arena that pays for pruning two slots**: fit is minus their
+    /// magnitudes, so selection keeps whichever children zeroed them.
+    struct Shun {
+        a: usize,
+        b: usize,
+    }
+    impl Challenge for Shun {
+        fn name(&self) -> &'static str {
+            "shun"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn minds(&self) -> bool {
+            true
+        }
+        fn verbs(&self) -> &'static [Verb] {
+            &[Verb::Walk, Verb::Rest]
+        }
+        fn run(&self, _: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: -f64::from(g[0][self.a].abs() + g[0][self.b].abs()), parts: vec![] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **`noprune=` survives a whole run** ([`Settings::no_prune`], review of
+    /// its design, 2026-10-21): an arena that pays for zeroing a scorer
+    /// unit's `DEPTH` input (slot 654, the teacher lane's) and that unit's
+    /// output, at `pm` 1, `prune` 1 and `cross` 1 over four generations.
+    /// Listed, both are live in every parent saved and in the champion --
+    /// the output added without being listed -- and a resume keeps them
+    /// live. The control: the same run without the list zeroes both.
+    #[test]
+    fn no_prune_slots_survive_a_run_that_pays_for_pruning_them() {
+        let (feat, unit) = (654, mind::scorer_unit(654).expect("654 is a scorer input"));
+        let out = mind::scorer_output(unit);
+        let mut start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        start[feat] = 1.0;
+        start[out] = 1.0;
+        let shun = Shun { a: feat, b: out };
+        let slots = trainable_for(&shun, start.len());
+        assert!(slots.contains(&feat) && slots.contains(&out), "both slots are trainable here");
+        let set = Settings { gens: 4, pop: 8, layouts: 2, holdout: 2, seed: 3, threads: 2, pictures: false, patience: 0, wire: 0.0, pm: 1.0, prune: 1.0, cross: 1.0, ..Settings::default() };
+        let live = |dir: &Path, set: &Settings| {
+            let st = RunState::load(&dir.join(STATE_FILE), &shun, set, &start);
+            let mut all = st.parents.clone();
+            all.push(st.champion.clone());
+            all.iter().all(|g| g[feat] != 0.0 && g[out] != 0.0)
+        };
+        let base = std::env::temp_dir().join(format!("train-noprune-{}", std::process::id()));
+        let (kept_dir, free_dir) = (base.join("kept"), base.join("free"));
+        let kept = Settings { no_prune: vec![feat], ..set.clone() };
+        train(&shun, start.clone(), &Settings { gens: 2, ..kept.clone() }, &kept_dir).unwrap();
+        train(&shun, start.clone(), &Settings { resume: true, ..kept.clone() }, &kept_dir).unwrap();
+        assert!(live(&kept_dir, &kept), "a listed slot or its unit's output was pruned");
+        train(&shun, start.clone(), &set, &free_dir).unwrap();
+        let st = RunState::load(&free_dir.join(STATE_FILE), &shun, &set, &start);
+        assert!(st.parents.iter().all(|g| g[feat] == 0.0 && g[out] == 0.0), "the control: unlisted, selection prunes both");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// **A dead or out-of-range `noprune=` slot is refused** ([`no_prune_mask`]):
+    /// a list naming a slot that reads 0 in the genome `train` receives would
+    /// protect nothing.
+    #[test]
+    #[should_panic(expected = "reads 0 in the start genome")]
+    fn a_dead_no_prune_slot_is_refused() {
+        let g = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let mut live = g.clone();
+        live[654] = 1.0;
+        // The listed slot is live; its unit's output, added, reads 0.
+        no_prune_mask(&live, &[654], &[]);
+    }
+
     /// **A ruler**: a genome's first weight on every layout, plus a small
     /// layout term, counting every run, so racing's cut, cost and scores can
     /// be checked exactly.
@@ -2280,6 +2451,8 @@ mod tests {
         let whole = load(&text, &set).expect("the whole state loads");
         assert_eq!(whole.parents.len(), 2);
         assert!(load(&text, &Settings { arena: "step=3 shaft=4".into(), ..set.clone() }).is_err(), "another arena");
+        assert!(load(&text, &Settings { no_prune: vec![654], ..set.clone() }).is_err(), "a no-prune list it was not saved with");
+        assert_ne!(RunState::arena(&bowl, &Settings { no_prune: vec![654], ..set.clone() }), RunState::arena(&bowl, &Settings { no_prune: vec![699], ..set.clone() }), "two lists");
         assert!(why(load(&text, &Settings { holdout: 4, ..set.clone() })).contains("another hold-out"), "another hold-out");
         assert!(load(&text, &Settings { pop: 12, ..set.clone() }).is_ok(), "another population only warns");
         assert!(load(&text.replace("\nparts seed\n", "\nparts seed,loads\n"), &set).is_err(), "other parts");
@@ -2512,7 +2685,7 @@ mod tests {
             let mut rng = Rng(7);
             let (mut eat_changed, mut other_changed) = (0, 0);
             for _ in 0..1000 {
-                let c = mutate(&g, slots, 0.03, 0.3, 0.3, 0.1, &mut rng);
+                let c = mutate(&g, slots, 0.03, 0.3, 0.3, 0.1, &[], &mut rng);
                 eat_changed += eat.iter().filter(|&&i| c[i] != g[i]).count();
                 other_changed += dig.iter().filter(|&&i| c[i] != g[i]).count();
             }
@@ -2529,8 +2702,8 @@ mod tests {
     fn mutation_touches_only_trainable_slots_and_is_seeded() {
         let slots = trainable(&[BrainOutput::Fly]);
         let g = vec![0.0; brain::GENOME_LEN];
-        let a = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &mut Rng(3));
-        let b = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &mut Rng(3));
+        let a = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &[], &mut Rng(3));
+        let b = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &[], &mut Rng(3));
         assert_eq!(a, b, "same seed, same child");
         for (i, &w) in a.iter().enumerate() {
             if w != 0.0 {
@@ -2569,7 +2742,7 @@ mod tests {
         let mut moved = [false; WALK];
         let mut rng = Rng(5);
         for _ in 0..400 {
-            g = mutate(&g, &slots, 0.0, 1.0, 0.0, 1.0, &mut rng);
+            g = mutate(&g, &slots, 0.0, 1.0, 0.0, 1.0, &[], &mut rng);
             for (k, m) in moved.iter_mut().enumerate() {
                 let v = g[w + k];
                 let lo = if k == WALK - 1 { 0.0 } else { -1.0 };
@@ -2613,7 +2786,7 @@ mod tests {
     fn grow_leaves_empty_slots_empty_and_costs_nothing_at_one() {
         let slots = trainable(&[]);
         let g = vec![0.0; brain::GENOME_LEN];
-        let made = |grow: f32| mutate(&g, &slots, 1.0, 1.0, 0.0, grow, &mut Rng(9)).iter().filter(|&&w| w != 0.0).count();
+        let made = |grow: f32| mutate(&g, &slots, 1.0, 1.0, 0.0, grow, &[], &mut Rng(9)).iter().filter(|&&w| w != 0.0).count();
         // Every slot hit: all made at 1, about a tenth at 0.1, none at 0.
         let n = slots.len();
         assert!(made(1.0) > n * 9 / 10, "{} of {n}", made(1.0));
@@ -2623,7 +2796,7 @@ mod tests {
         // A live weight still steps whatever `grow` says.
         let mut l = g.clone();
         l[slots[0]] = 2.0;
-        assert_ne!(mutate(&l, &slots, 1.0, 1.0, 0.0, 0.0, &mut Rng(9))[slots[0]], 2.0);
+        assert_ne!(mutate(&l, &slots, 1.0, 1.0, 0.0, 0.0, &[], &mut Rng(9))[slots[0]], 2.0);
     }
 
     /// **Prune zeroes live weights, and at 0 is the operator before it**,
@@ -2635,7 +2808,7 @@ mod tests {
         for &i in slots.iter().step_by(2) {
             g[i] = 3.0;
         }
-        let c = mutate(&g, &slots, 1.0, 1.0, 1.0, 1.0, &mut Rng(4));
+        let c = mutate(&g, &slots, 1.0, 1.0, 1.0, 1.0, &[], &mut Rng(4));
         for &i in slots.iter().step_by(2) {
             assert_eq!(c[i], 0.0, "live slot {i} was not pruned");
         }
@@ -2648,7 +2821,7 @@ mod tests {
             }
             c
         };
-        assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, 1.0, &mut Rng(4)), before(&g, &mut Rng(4)));
+        assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, 1.0, &[], &mut Rng(4)), before(&g, &mut Rng(4)));
     }
 
     /// **The trim never switches a mind's verb off** (`mind::FIRST_LINK`):
@@ -2664,7 +2837,7 @@ mod tests {
         for &i in slots.iter().filter(|&&i| i >= mind::FIRST_LINK).step_by(3) {
             g[i] = 3.0;
         }
-        let c = mutate(&g, &slots, 1.0, 0.0, 1.0, 1.0, &mut Rng(4));
+        let c = mutate(&g, &slots, 1.0, 0.0, 1.0, 1.0, &[], &mut Rng(4));
         for &i in &slots {
             if i >= mind::FIRST_LINK {
                 assert_eq!(c[i], 0.0, "live connection {i} was not trimmed");

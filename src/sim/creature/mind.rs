@@ -175,6 +175,23 @@ const S_CTX: usize = RATE + MEMORY;
 /// costs nothing and is never counted ([`MindGenome::live`]), so trimming
 /// connections must not touch it (`train::mutate`).
 pub const FIRST_LINK: usize = S_CTX;
+/// **Which scorer unit a slot feeds**, if it is one of a unit's inputs
+/// (context and memory, option features, verb), and [`scorer_output`] that
+/// unit's output weight: a unit's inputs move a score only through it
+/// (`train::no_prune_mask`, review of the `noprune=` design, 2026-10-21).
+pub fn scorer_unit(slot: usize) -> Option<usize> {
+    match slot {
+        s if (S_CTX..S_FEAT).contains(&s) => Some((s - S_CTX) / S_IN),
+        s if (S_FEAT..S_VERB).contains(&s) => Some((s - S_FEAT) / FEATURES),
+        s if (S_VERB..S_OUT).contains(&s) => Some((s - S_VERB) / VERBS),
+        _ => None,
+    }
+}
+/// The output weight of scorer unit `u` ([`scorer_unit`]).
+pub fn scorer_output(u: usize) -> usize {
+    assert!(u < UNITS, "scorer unit {u}: there are {UNITS}");
+    S_OUT + u
+}
 const S_IN: usize = CONTEXT + MEMORY + 1;
 /// The scorer's per-option part: the option's features into each unit...
 const S_FEAT: usize = S_CTX + UNITS * S_IN;
