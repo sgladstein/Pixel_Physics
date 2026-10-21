@@ -2645,6 +2645,130 @@ impl Challenge for Suite {
     }
 }
 
+/// SCRATCH (teacher lane, in-run selection pilot, 2026-10-21; never for main):
+/// one colony on the training bed with Dig on and surface food dripped at
+/// `dist` columns, every ant given its own mind, the body's egg-laying off.
+pub mod inrun {
+    use super::*;
+
+    pub const NEST: i32 = NEST_X;
+
+    /// The scarce-dig arena's emits: what its minds may signal.
+    pub fn emits() -> [bool; creature::mind::EMITS] {
+        Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits()
+    }
+
+    pub fn mind(genome: &[f32]) -> std::sync::Arc<creature::mind::MindGenome> {
+        arena_mind(genome, SOIL_VERBS, emits())
+    }
+
+    /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
+    /// (founders in id order).
+    pub fn colony(seed: u64, ants: usize, dist: i32, drip: u32, every: u64, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
+        // Food is topped up by the harness ([`top_up`]), capped, on both sides:
+        // an uncapped drip buried the nest under provisions by frame 20,000
+        // (two heaps of 50 cells every 500 frames, 88 ants eating ~35 cells a
+        // thousand frames), and one-sided food starved the founders standing
+        // on the other side (60 founders, food east: 27 of 60 by frame 1,500).
+        let _ = (dist, drip, every);
+        let sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        let (mut w, _, _) = sc.build();
+        w.births_paused = true;
+        let sp = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.reproduce_threshold = 1.0e30;
+        // No old age (owner, 2026-10-21): selection's removals are the only deaths but starvation.
+        def.life_half_life = 0;
+        w.species.set_creature(sp, def);
+        for (k, id) in ants_of(&w, sp).into_iter().enumerate() {
+            creature::mind::give(&mut w, id, genome_of(k));
+        }
+        (w, sc, sp)
+    }
+
+    /// Provisions within `reach` columns of `x`, at or above the datum's
+    /// lowest row there plus `below` (the heap and what rolled off it).
+    pub fn food_near(w: &World, x: i32, reach: i32) -> usize {
+        let Some(p) = w.materials.id_of("provisions") else { return 0 };
+        let mut n = 0;
+        for cx in (x - reach)..=(x + reach) {
+            for y in 0..128 {
+                if w.get(cx, y).material == p {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// Top the heap at `x` up towards `cap` cells, at most `drip` at a time.
+    pub fn top_up(w: &mut World, sc: &Scenario, x: i32, cap: usize, drip: usize, spread: i32) -> usize {
+        let have = food_near(w, x, 8 + spread);
+        if have >= cap {
+            return 0;
+        }
+        let add = (cap - have).min(drip) as i32;
+        // spread>0 scatters the food over x±spread instead of one heap (a 90-ant
+        // colony jammed in two clumps a few columns short of single heaps).
+        let heap = if spread > 0 {
+            crate::lab::scenario::Placement::Scatter { material: "provisions".into(), x0: x - spread, x1: x + spread, cells: add }
+        } else {
+            crate::lab::scenario::Placement::Heap { material: "provisions".into(), x, cells: add }
+        };
+        crate::lab::scenario::apply_placements(w, &[heap], &sc.bed);
+        add as usize
+    }
+
+    pub fn step(w: &mut World, sc: &Scenario) {
+        frame_timed(w, sc, true);
+    }
+
+    pub fn ants(w: &World, sp: SpeciesId) -> Vec<OrganismId> {
+        ants_of(w, sp)
+    }
+
+    /// Every founder on `grants` full grants (the founding deals staggered reserves).
+    pub fn flat_reserves(w: &mut World, sp: SpeciesId, grants: f32) {
+        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
+        for id in ants_of(w, sp) {
+            if let Some(s) = w.organism_mut(id) {
+                s.energy = full;
+            }
+        }
+    }
+
+    /// The frozen ground datum of column `x` (the dig arena's).
+    pub fn surface(w: &World, sc: &Scenario, x: i32) -> i32 {
+        census::surface_of(w, &sc.bed, x)
+    }
+
+    /// Open to an ant: empty, or an animal's body (the dig arena's `open`).
+    pub fn open(w: &World, x: i32, y: i32) -> bool {
+        let m = w.get(x, y).material;
+        m == material::EMPTY || w.materials.kind(m) == material::MaterialKind::Creature
+    }
+
+    /// One cell for a picture: `.` open, `a` an animal, `f` provisions, `#` anything else.
+    pub fn cell_char(w: &World, x: i32, y: i32) -> char {
+        let m = w.get(x, y).material;
+        if m == material::EMPTY {
+            '.'
+        } else if w.materials.kind(m) == material::MaterialKind::Creature {
+            'a'
+        } else if Some(m) == w.materials.id_of("provisions") {
+            'f'
+        } else {
+            '#'
+        }
+    }
+
+    /// Ground as the dig arena counts it: powder or solid, not a body.
+    pub fn ground(w: &World, x: i32, y: i32) -> bool {
+        let c = w.get(x, y);
+        c.material != material::EMPTY && matches!(w.materials.kind(c.material), material::MaterialKind::Powder | material::MaterialKind::Solid) && c.organism_id() == 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

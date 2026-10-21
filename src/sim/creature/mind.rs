@@ -2032,6 +2032,8 @@ fn pick_up(
         world.bare_seeds_carried += 1;
     }
     crop_take(world, organism, food, bite.shade, worth, passenger);
+    // SCRATCH (teacher lane, in-run pilot): the harness's food ledger.
+    super::note_food(world, organism, (fx, fy), super::FOOD_SWALLOW, worth, at_home);
     let fresh = crop.is_none_or(|c| c.worth() <= 0.0);
     if let Some(state) = world.organism_mut(organism) {
         state.life.bites += 1;
@@ -2189,6 +2191,8 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         st.forage_returns += u64::from(returned);
     }
     note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
+    // SCRATCH (teacher lane, in-run pilot): flag = a trip cell put down at the nest, the game's own delivery.
+    super::note_food(world, organism, (dx, dy), super::FOOD_DROP, 0.0, trip_cell && at_nest);
     if let Some(m) = world.minds.as_mut() {
         m.counts.put_down += 1;
         m.counts.delivered += u64::from(at_nest);
