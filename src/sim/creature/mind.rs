@@ -454,6 +454,38 @@ pub fn trainable(verbs: &[Verb], emits: [bool; EMITS]) -> Vec<usize> {
         .collect()
 }
 
+/// **Every slot that serves verb `v` alone**: its switch, its job row
+/// (context, memory, best target, constant), its row from the hidden units,
+/// each scorer unit's weight on it, and each memory unit's weight on "this
+/// verb was just chosen". Nothing else reads them, so in a world where `v`
+/// never has a target they cannot change a single decision.
+pub fn verb_slots(v: Verb) -> Vec<usize> {
+    let v = v as usize;
+    let mut out = vec![SWITCH + v];
+    out.extend(JOB + v * J_IN..JOB + (v + 1) * J_IN);
+    out.extend(HID_OUT + v * HIDDEN..HID_OUT + (v + 1) * HIDDEN);
+    out.extend((0..UNITS).map(|u| S_VERB + u * VERBS + v));
+    out.extend((0..MEMORY).map(|m| MEM + m * M_IN + CONTEXT + 2 + v));
+    out
+}
+
+/// **Leave untestable verbs alone** (owner, 2026-10-20): drop from `slots`
+/// every slot that serves only a verb in `verbs`, so mutation and pruning
+/// never touch it. **Why**: a suite's kept arenas offer verbs its learning
+/// arena never can (Eat while digging, with no food in the soil box), and
+/// those verbs' links are then judged only by the kept arena's 0.8 floor
+/// while the per-connection cost pays for deleting them. That is how s161's
+/// run zeroed the eat job's constant of -10 ("don't eat the cargo") and
+/// its fetch fell to 0.75 of s91's (investigation 2026-10-20, part 3).
+/// Returns how many slots it took out.
+pub fn protect(slots: &mut Vec<usize>, verbs: &[Verb]) -> usize {
+    let mut keep: Vec<usize> = verbs.iter().flat_map(|&v| verb_slots(v)).collect();
+    keep.sort_unstable();
+    let before = slots.len();
+    slots.retain(|i| keep.binary_search(i).is_err());
+    before - slots.len()
+}
+
 /// Hold an arena's bans on `g`: the verbs it does not allow off, the scents
 /// it bans silent.
 pub fn apply_bans(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) {
@@ -1247,6 +1279,12 @@ pub struct MindCounts {
     /// Options built, and the verbs chosen.
     pub options: u64,
     pub chose: [u64; VERBS],
+    /// **Decisions at which each verb had at least one target**: the verbs
+    /// that can act at all in this world. A verb an arena lists but never
+    /// offers (Eat in the soil box, which has no food) cannot be tested
+    /// there, so the trainer leaves its connections alone
+    /// (`train::Challenge::acting_verbs`, `Settings::protect`).
+    pub offered: [u64; VERBS],
     /// Picks whose act did nothing (a step the body could not take after
     /// all). Should stay 0: the list is built from the body's own checks.
     pub failed: u64,
@@ -1732,10 +1770,18 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
             mind.state.last = Some(now);
-            d.map(|d| (opts[d.pick], d.emits, opts.len()))
+            let mut offered = [false; VERBS];
+            for o in opts.iter() {
+                offered[o.verb as usize] = true;
+            }
+            (d.map(|d| (opts[d.pick], d.emits, opts.len())), offered)
         });
+        let (decided, offered) = decided;
         if let Some(m) = world.minds.as_mut() {
             m.counts.decisions += 1;
+            for (n, &o) in m.counts.offered.iter_mut().zip(&offered) {
+                *n += u64::from(o);
+            }
             if let Some(slot) = m.ants.get_mut(&organism) {
                 slot.state = mind.state;
             }
