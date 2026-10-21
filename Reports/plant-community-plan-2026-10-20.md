@@ -549,11 +549,9 @@ This session cannot launch anything.
 > #747 (branch `claude/ant-evolution-plant-inspiration-24mykv`), green at
 > `8d0b0cc5`; merge it before starting the next step, which should begin
 > from `main`. M1 steps 1-7 and the 7a detour are done and recorded below.
-> **Waiting on the owner:** (a) the closed soil budget,
-> `LabBox::rot_makes_soil = false` -- heaps roughly halve and grass loses
-> its monopoly, at less green (step 7a, `m1/looks/2-heaps-tradeoff.png`);
-> (b) the colour arm, A / B / C (`m1/looks/3-colour-*.png`, `plant_m0
-> altpal=2`). **Next, in order:** (1) whatever the owner picks; (2)
+> **Owner's picks (2026-10-21):** the closed soil budget ships
+> (`LabBox::rot_makes_soil` off by default), and colour A -- today's
+> palettes, unchanged. **Next, in order:** (1) done; (2)
 > texture-aware available water -- `update::plant_available_fraction` maps
 > 180..620 for every texture, so sand reads two-thirds dry at its own field
 > capacity (`Reports/soil-physics-realism-2026-10-21.md` §6.2 rank 1, PR
@@ -949,9 +947,12 @@ the review (§12), **M1 runs in this order**:
    grass, and it reads the other way for the goal**: grass plants 446-725
    -> 161-283 per bed, and kinds with 100+ leaf 2,3,2,4 -> 4,3,3,3. Rot's
    soil was subsidising grass recruitment, part of its monopoly. The forest
-   beds are mixed (2,2,3,3 -> 2,3,2,2). Held as a switch for the owner
-   (looks, and now diversity); `dead-ends.md` has the entry. Also worth
-   trying: seeds that can sprout in litter, or a soil sink (bioturbation).
+   beds are mixed (2,2,3,3 -> 2,3,2,2). **Shipped, owner 2026-10-21:**
+   *"Rotting can stop heaping soil"* -- `LabBox::rot_makes_soil` is off by
+   default in every lab bed. `dead-ends.md` keeps yield 0 *alone* as the
+   dead end. Still worth trying: seeds that sprout in litter, or a soil sink
+   (bioturbation). **Colour: the owner picked A, today's colours**; the
+   `altpal` arm stays in the harness and nothing in the palettes changed.
    **(3) Seeds and litter, and (4) colour:** a render-only colour arm
    (`plant_m0 altpal=1|2`) draws the same world at the same frame with
    brighter foliage and seed, litter -- and in `altpal=2` roots -- toned

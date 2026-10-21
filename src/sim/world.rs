@@ -6386,7 +6386,8 @@ pub struct World {
     /// lab training beds, soil standing above the original surface reached
     /// 5-17% of the picture by 480,000 frames, and 0-2.4% with this at 0 --
     /// but 0 alone eats the ground from inside (`root_mats_repay`). The lab
-    /// sets it from `LabBox::rot_makes_soil`, which keeps it at 1.0.
+    /// sets it from `LabBox::rot_makes_soil`: 0 by default since 2026-10-21,
+    /// with `root_mats_repay` on beside it.
     pub rot_soil_yield: f32,
     /// **A dead root inside a root mat gives back the soil it displaced**
     /// (`plant::shed_to_litter`'s repayment, `walled_in`). Off, only a
