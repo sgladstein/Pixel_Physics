@@ -84,6 +84,7 @@ own figure. The cut classes reproduce theirs too (7.5 foot and 10.6 wall cuts a 
 | **D3** empty on the surface: step towards the mouth | 21,107 | 0.399 | **0.531** | 0.995 | **0.998** | 1.000 / 1.000 | 0.492 / 0.493 (0.399) |
 | **D1b** dig only with a foot cell in reach | 32,613 | 0.971 | 0.966 | 0.999 | 1.000 | 0.959 / 0.972 | 0.972 / 0.972 (0.972) |
 | D1 which cell, given a dig | 9 | -- | -- | -- | -- | -- | too few to fit |
+| **D4** go down: empty below ground, no foot cell in reach, take the deepest step (added 2026-10-21) | 5,192 | 0.406 | 0.619 | 1.000 | 1.000 | 1.000 / 1.000 | 0.982 / 0.993 (0.406) -- **invalid, see below**; within-decision 0.401 / 0.405 (0.406) |
 
 Floor: a uniform pick (D3) or the commoner answer (D1b, D2). Positive control: a label that is a pure function of the
 inputs (D3: the option with the largest `UP`; D1b and D2: `home_dist` > 0.2). Negative control: the teacher's labels moved
@@ -104,6 +105,11 @@ sees them only through one number, the best option's score. With the narrower ch
 So "dig here?" needs the target scorer to pass depth on through its best score (part 2: today **no live link carries
 `DEPTH` into the scorer** -- copying would have to revive one, guideline T4), and "put down now?" is mostly in the senses
 already, chiefly `home_dist`.
+
+**The cross-world negative control is invalid for step choices** (found on D4, 2026-10-21). It moves a decision's labels
+to a same-size decision from another world, which keeps each label's position in the option list; in the shaft the
+steps come in the same order almost every time, so position alone predicts the moved labels (0.98-0.99). The
+replacement shuffles each decision's labels among its own options; it reads at the floor for D4. D3 is re-run with it.
 
 **Two control readings to keep in view.** D1b's positive control reads 0.96-0.97, not 1: a sharp threshold on one
 standardised input among 124 is fitted slightly soft in 600 steps, so ~0.97 is this probe's ceiling for such labels. D3's

@@ -41,12 +41,18 @@ brain's own senses, memory and option features; both controls passed):
 | Rule | Probe's question | Floor | Brain now | Linear | 16 units |
 |---|---|---|---|---|---|
 | dig (veto + force) | is a foot cell in reach? | 0.971 | 0.966 | recall 0.98, precision 0.99 | 1.000 |
-| down | which step is deepest? | *see 1a* | | | |
+| down | which step is deepest? | 0.406 | 0.619 | 1.000 | 1.000 |
 | home | which step is nearest the mouth? | 0.399 | 0.531 | 0.995 | 0.998 |
 
-### 1a. The go-down probe
+### 1a. The go-down probe, and a control that had to be replaced
 
-*(Filled in from `probe.py ... D4`; see the measurements report.)*
+"Go down" was added after the probe ran, so it was probed separately (D4: 5,192 decisions, 24 worlds): 1.000 held out,
+linear and 16 units, against a floor of 0.41; the brain takes the deepest step 62% of the time today. **The original
+negative control failed here** -- labels moved to another world's same-size decision still scored 0.98-0.99 -- because
+in the shaft the step options come in the same order almost every time, so a label's *position* predicts it wherever
+it lands. That control is replaced by a within-decision one (each decision's labels shuffled among its own options),
+which reads 0.401 / 0.405 against the 0.406 floor. Walk-home's control (0.49 against 0.40) had the same cause and is
+re-run the same way (measurements report).
 
 **T1 audit (privileged computation, never privileged information).** Every fact the teacher reads is in the ant's own
 inputs or computed from them: foot-in-reach is the target's depth and whether it was ground (each option's `DEPTH`,

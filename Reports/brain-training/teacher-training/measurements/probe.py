@@ -287,10 +287,17 @@ def choice_report(name, data, labkey="lab"):
     for i, d in enumerate(data):
         pool = [j for j in by_k[len(d["F"])] if ws[j] != ws[i]] or by_k[len(d["F"])]
         Lneg[i] = L[rng.choice(pool)]
+    # a second negative control: each decision's labels shuffled among its OWN options. Moving labels to another
+    # world's same-size decision keeps their position in the option list, and where the list's order is stereotyped
+    # (the shaft's steps) position alone predicts them -- that control then reads high for a reason that is not a leak.
+    Lwithin = np.zeros_like(L)
+    for i, d in enumerate(data):
+        k = len(d["F"])
+        Lwithin[i, :k] = L[i, :k][rng.permutation(k)]
     floor = np.mean([L[i].sum() / M[i].sum() for i in range(len(data))])
     brain = np.mean([d["brain"] >= 0 and d[labkey][d["brain"]] for d in data])
     out = {}
-    for lab_name, LL in (("teacher", L), ("POSITIVE ctrl", Lpos), ("NEGATIVE ctrl", Lneg)):
+    for lab_name, LL in (("teacher", L), ("POSITIVE ctrl", Lpos), ("NEGATIVE ctrl", Lneg), ("NEG within", Lwithin)):
         for model, h in (("linear", 0), ("mlp16", 16)):
             hits = []
             for te in folds_of(ws):
@@ -307,6 +314,8 @@ def choice_report(name, data, labkey="lab"):
     print(f"  teacher        floor {floor:.3f}   brain now {brain:.3f}   linear {out[('teacher', 'linear')]:.3f}   mlp16 {out[('teacher', 'mlp16')]:.3f}")
     print(f"  POSITIVE ctrl  floor {fl_pos:.3f}   linear {out[('POSITIVE ctrl', 'linear')]:.3f}   mlp16 {out[('POSITIVE ctrl', 'mlp16')]:.3f}   (must be near 1)")
     print(f"  NEGATIVE ctrl  floor {fl_neg:.3f}   linear {out[('NEGATIVE ctrl', 'linear')]:.3f}   mlp16 {out[('NEGATIVE ctrl', 'mlp16')]:.3f}   (must be near its floor)")
+    fl_w = np.mean([Lwithin[i].sum() / M[i].sum() for i in range(len(data))])
+    print(f"  NEG within     floor {fl_w:.3f}   linear {out[('NEG within', 'linear')]:.3f}   mlp16 {out[('NEG within', 'mlp16')]:.3f}   (labels shuffled among the decision's own options: must be near its floor)")
 
 
 def binary_report(name, data):
