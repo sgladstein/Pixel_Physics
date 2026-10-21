@@ -625,6 +625,67 @@ the review (§12), **M1 runs in this order**:
    patches, gentle relief, nutrient patches, shown to the owner as a lab bed
    option. Judged by the spread of each signal and by clones that differ by
    place more than by dice.
+
+   **Built, 2026-10-21: `Ground::Patchy`, a lab bed option, off by default.**
+   - **Texture with no new materials.** Soil already ships three colour
+     families: loam, a dark rich wetland soil and a pale dry one. A cell's
+     family is now its texture (`material::SoilTexture`). It is data on the
+     cell, it moves with the cell, and it is drawn already, so about 170
+     name-keyed `id_of("soil")` rules need nothing new.
+   - **What each texture does** (`World::soil_texture`):
+
+     | texture | water held (field capacity) | drainage | nutrient share | rooting cost |
+     |---|---|---|---|---|
+     | sand | 470 | 2.5x | 0.4 | 1.0 |
+     | loam | 620 | 1.0 | 0.75 | 1.0 |
+     | rich clay-loam | 740 | 0.4 | 1.0 | 1.3 |
+
+     Water evens out by wetness relative to each cell's own capacity, not by
+     amount (`update::loam_level`).
+   - **Water runs down beside roots and stones** (`World::soil_drains_around`).
+   - **The bed lays the textures out** in patches tens of cells across, with
+     hollows up to 8 deep whose top rows are rich.
+   - `Ground::Sandy/Loam/Rich` fill a bed with one texture, as the clone
+     test's arms.
+   - Off, nothing changes: a uniform bed reproduces the step-2 run row for
+     row.
+
+   **Measured** (4 seeds, 480,000 frames, drain and spells on):
+   - **Moisture signal.** Spread of soil water across columns: patchy
+     **0.09-0.12 at every 10-row band**, all run. Uniform: 0.13-0.20 in the
+     top band, 0.06-0.08 in the next, 0.00-0.03 below that.
+   - **Nutrient signal.** The nutrient share's spread is 0.20-0.22, against
+     0.08-0.12 on uniform ground. The plant's response curve saturates
+     (Km 0.05), so the share bites mainly where soil is spent. The patchy
+     bed's mean share is 0.69 against 0.94, worth about 2% of availability.
+   - **Water at shallow (grass) roots** after a dry spell: 0.46 on patchy
+     ground against 0.52 on uniform.
+   - **Deepest roots:** shrub 9.1 rows against 5.8; herb 7.9 against 0.
+   - **Standing water** after a wet spell: 1,095-1,750 against 1,670-2,067.
+     The pool over the shrub's root mat is gone.
+   - **Herb** persists and recruits on 1 of 4 seeds (7 plants), against 0-1
+     plants on uniform ground. Other kinds are within seed spread.
+   - **Clone test** (`plant_m0 mode=plastic axis=ground`; one founder under a
+     lamp, 8 sets of dice, 60,000 frames):
+     - On rich ground, compared with sand, every one of the four species
+       builds a smaller, shallower root system: roots -1.6, -0.6, -1.1 and
+       -1.0 spreads for creeper, grass, herb and shrub. That is optimal
+       partitioning's direction.
+     - The noise floor (loam against loam on other dice) reaches 1.3
+       spreads, so **the signal is real but no bigger than the dice yet**.
+       Shrinking the dice is A2 and A3's job.
+   - **Frame cost**, paired on one thread on a quiet machine: **+7.2%**
+     (2,253 -> 2,415 us/tick). Texture is 5.5% and drain-around 1.6%. The
+     cost is the signal itself: more water moving.
+   - **A first version** evened water out by amount across texture edges.
+     Clay fed sand and sand drained it, for ever: soil-water changes went
+     988 -> 2,521 a tick. Fixed before the numbers above; guarded by
+     `sand_and_clay_each_at_field_capacity_exchange_nothing`, red with the
+     old comparison put back.
+   - **Owner's call:** patchy ground in the played lab. It changes how the
+     soil looks, for +7% frame cost. The training world uses it either way.
+   - Data and picture: `Reports/plant-community-2026-10-20/m1/ground/`,
+     `.../m1/ground-s1.png`.
 4. **Re-baseline the community** with in-bed heredity truly off. That means
    `mutation_off_for_measuring` plus founder variants at 0, printed in the
    log header (M0 left per-birth jitter and founder variants on; §12, M7).

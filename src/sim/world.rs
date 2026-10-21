@@ -6344,6 +6344,26 @@ pub struct World {
     /// animals all sit at a paired median of ~1.0 with the sign split down
     /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
     pub soil_capillary_levels: bool,
+    /// **Soil has texture**: a soil cell's palette family sets how much
+    /// water it holds against gravity, how fast the rest drains, what share
+    /// of its nutrient a root can use, and how hard it is to root through
+    /// (`material::SoilTexture`, read by `update::update_soil_water`,
+    /// `Self::soil_nutrient_fraction` and `plant::penetration_cost_mult`).
+    ///
+    /// Off everywhere unless a lab bed asks for patchy ground
+    /// (`lab::scene::Ground::Patchy`), so the outdoor game, whose soil
+    /// families are painted by region aridity, does not change: turning it
+    /// on there would make every dry region's soil sandy, which may well be
+    /// right and has not been measured. Step E of
+    /// `Reports/plant-community-plan-2026-10-20.md`.
+    pub soil_texture: bool,
+    /// **Water runs down beside a root.** Soil water moves only between
+    /// cells that hold it, so a wet cell over a root mat or a stone had
+    /// nowhere to drain, and a pool stood over a shrub's roots through a
+    /// whole dry spell (M1 step 2, measured). With this on, such a cell
+    /// sheds its surplus to a soil cell diagonally below instead. Off unless
+    /// a lab bed asks for patchy ground, for `soil_texture`'s reason.
+    pub soil_drains_around: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -7442,6 +7462,8 @@ impl World {
             seed_dry_keeps: super::plant::seed_bank_default().0,
             seed_dormant_rest: super::plant::seed_bank_default().1,
             soil_capillary_levels: false,
+            soil_texture: false,
+            soil_drains_around: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
@@ -12077,7 +12099,18 @@ impl World {
             return 1.0;
         }
         let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_period());
-        f32::from(initial.saturating_sub(deficit)) / f32::from(initial)
+        let fraction = f32::from(initial.saturating_sub(deficit)) / f32::from(initial);
+        // **A sandy patch carries less, whatever its deficit** -- the share
+        // a root can use, by texture, on a world that reads texture. On the
+        // read and not on the deficit, because recovery is booked per chunk
+        // (`Chunk::nutrient_recovered_at`) and a per-cell recovery rate
+        // would break that stamp.
+        if self.soil_texture {
+            let cell = self.get(x, y);
+            fraction * self.materials.get(cell.material).texture_of(cell.shade).nutrient
+        } else {
+            fraction
+        }
     }
 
     /// Take nutrient from the soil at `(x, y)`; returns what was there to
@@ -12879,6 +12912,14 @@ impl CellSurface for World {
         self.soil_capillary_levels
     }
 
+    fn soil_texture(&self) -> bool {
+        self.soil_texture
+    }
+
+    fn soil_drains_around(&self) -> bool {
+        self.soil_drains_around
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -13211,6 +13252,14 @@ impl CellSurface for MoistureView<'_> {
 
     fn soil_capillary_levels(&self) -> bool {
         self.world.soil_capillary_levels
+    }
+
+    fn soil_texture(&self) -> bool {
+        self.world.soil_texture
+    }
+
+    fn soil_drains_around(&self) -> bool {
+        self.world.soil_drains_around
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

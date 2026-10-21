@@ -138,6 +138,7 @@ fn spec_from_args() -> LabBox {
         // nothing reaches the floor to drain anyway.
         drain: false,
         spells: None,
+        ground: pixel_physics::lab::scene::Ground::Uniform,
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they

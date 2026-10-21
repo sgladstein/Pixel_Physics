@@ -241,6 +241,75 @@ pub struct LabBox {
     /// is the steady mister.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spells: Option<super::rain::Spells>,
+    /// **What the ground is made of** -- [`Ground`]. `Uniform` (the
+    /// default, and never written) is the bed as it always was.
+    #[serde(default, skip_serializing_if = "Ground::is_uniform")]
+    pub ground: Ground,
+}
+
+/// **What the bed's ground is made of** (step E of
+/// `Reports/plant-community-plan-2026-10-20.md`).
+///
+/// The owner, 2026-10-20: *"If our soil bed is fully uniform (uniform
+/// density, uniform moisture, uniform nutrients, etc.) then there is no
+/// signal for the plant to respond in interesting ways."* It was: one soil,
+/// at one wetness, under a flat surface, so two plants a few cells apart
+/// could only differ by their dice.
+///
+/// `Patchy` lays the same soil out in patches of three textures -- sandy,
+/// loam, and a dark rich clay-loam -- carried by the palette family each
+/// cell's shade picks, so the patches are visible as soil colour and move
+/// with the soil (`material::SoilTexture`). It cuts gentle hollows into the
+/// surface, where rain collects and the top rows are the rich, wet soil a
+/// basin gathers. It turns on `World::soil_texture` and
+/// `World::soil_drains_around`. Patches are tens of cells across, for §2.4's
+/// reason: the bed is a thin slice through a 3D stand, and a patch in the
+/// slice is a patch in the ground it cuts through, so single-cell noise
+/// would be no signal at all.
+///
+/// `Sandy`, `Loam` and `Rich` fill the whole bed with one texture, with the
+/// same rules on and a flat surface. They are the clone test's arms: the
+/// same plant on each, so a difference between them is the ground's and
+/// not the patch layout's (`examples/plant_m0.rs mode=plastic axis=ground`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Ground {
+    #[default]
+    Uniform,
+    Patchy,
+    Sandy,
+    Loam,
+    Rich,
+}
+
+impl Ground {
+    fn is_uniform(&self) -> bool {
+        *self == Ground::Uniform
+    }
+}
+
+/// Separates patchy ground's noise from every other `rng::stream` caller.
+const GROUND_PATCH_SALT: u64 = 0x4772_6F75_6E64_5054; // "GroundPT"
+const GROUND_HOLLOW_SALT: u64 = 0x4772_6F75_6E64_484F; // "GroundHO"
+
+/// Smooth value noise in `0..1` at a real position on an integer lattice,
+/// keyed on the bed seed: the four surrounding lattice values, eased.
+fn value_noise(seed: u64, salt: u64, x: f32, y: f32) -> f32 {
+    let (x0, y0) = (x.floor(), y.floor());
+    let ease = |t: f32| t * t * (3.0 - 2.0 * t);
+    let (u, v) = (ease(x - x0), ease(y - y0));
+    let at = |i: f32, j: f32| crate::sim::rng::stream(seed ^ salt, i as i64 as u64, j as i64 as u64, 0).unit_f32();
+    let top = at(x0, y0) * (1.0 - u) + at(x0 + 1.0, y0) * u;
+    let bottom = at(x0, y0 + 1.0) * (1.0 - u) + at(x0 + 1.0, y0 + 1.0) * u;
+    top * (1.0 - v) + bottom * v
+}
+
+/// A soil shade in `family`, keeping the jitter byte's tone and its high
+/// grain bits (`render::GrainMode::Cell` keys on those): soil's palette is
+/// three families of four (`soil.ron`), entry `family * 4 + tone`, and the
+/// renderer reads `shade % 12`.
+fn patch_shade(byte: u8, family: usize) -> u8 {
+    let grain = (byte as u32 / 12).min(20) * 12;
+    (grain + family as u32 * 4 + byte as u32 % 4) as u8
 }
 
 /// `LabBox::drain`'s default, on: see that field.
@@ -373,6 +442,7 @@ impl Default for LabBox {
             species_ron: None,
             drain: drain_default(),
             spells: None,
+            ground: Ground::Uniform,
         }
     }
 }
@@ -470,6 +540,35 @@ const LAMP_ROWS: i32 = 4;
 const LAMP_REACH_FRACTION: f32 = 0.62;
 
 impl LabBox {
+    /// How far below `ground_y` the surface of column `x` sits on patchy
+    /// ground: 0 over about half the bed, down to 8 in wide hollows. Never
+    /// above `ground_y`, because founders and colonies are placed two rows
+    /// above it.
+    fn hollow_depth(&self, x: i32) -> i32 {
+        let n = value_noise(self.seed, GROUND_HOLLOW_SALT, x as f32 / 60.0, 0.5);
+        ((n - 0.45).max(0.0) / 0.35 * 8.0).min(8.0).round() as i32
+    }
+
+    /// The soil family at `(x, y)` on patchy ground, under a surface at
+    /// `top`: index into `material::SOIL_TEXTURES` (0 loam, 1 rich, 2 sandy).
+    /// Two octaves of value noise, wide and flat-ish (48 x 24 cells, then 16
+    /// x 8 for ragged edges), cut into thirds; and the top six rows of a
+    /// hollow two or more deep are rich, the dark wet soil a basin gathers.
+    fn soil_family_at(&self, x: i32, y: i32, top: i32) -> usize {
+        if top - self.ground_y >= 2 && y - top < 6 {
+            return 1;
+        }
+        let n = 0.7 * value_noise(self.seed, GROUND_PATCH_SALT, x as f32 / 48.0, y as f32 / 24.0)
+            + 0.3 * value_noise(self.seed, GROUND_PATCH_SALT ^ 1, x as f32 / 16.0, y as f32 / 8.0);
+        if n < 0.42 {
+            2
+        } else if n > 0.58 {
+            1
+        } else {
+            0
+        }
+    }
+
     /// Where the parameters page persists the bed spec.
     ///
     /// Gitignored, like the specimen shelf (`sim::specimen::SHELF_DIR`) and
@@ -963,10 +1062,33 @@ impl LabBox {
         // a band of nothing. Confined stone: `structural` anchors a cell
         // walled in on every side outright, so this is a foundation and not
         // a slab waiting to come down.
+        //
+        // **Patchy ground** (`Ground::Patchy`) lays the same soil out as
+        // sandy, loamy and rich patches with hollows in its surface, and
+        // turns on the two rules that make the patches matter; see
+        // `Ground`. Uniform is the bed exactly as it was.
+        let patchy = self.ground == Ground::Patchy;
+        let only = match self.ground {
+            Ground::Sandy => Some(2),
+            Ground::Loam => Some(0),
+            Ground::Rich => Some(1),
+            Ground::Uniform | Ground::Patchy => None,
+        };
+        let textured = self.ground != Ground::Uniform;
+        w.soil_texture = textured;
+        w.soil_drains_around = textured;
         for x in 0..self.width {
-            for y in self.ground_y..(self.ground_y + self.soil_depth) {
-                w.set(x, y, Cell::new(soil, (crate::sim::rng::jitter(x, y) * 255.0) as u8)
-                    .with_aux(material::SOIL_FIELD_CAPACITY));
+            let top = self.ground_y + if patchy { self.hollow_depth(x) } else { 0 };
+            for y in top..(self.ground_y + self.soil_depth) {
+                let byte = (crate::sim::rng::jitter(x, y) * 255.0) as u8;
+                if textured {
+                    let family = only.unwrap_or_else(|| self.soil_family_at(x, y, top));
+                    let shade = patch_shade(byte, family);
+                    let held = material::SOIL_TEXTURES[family].field_capacity;
+                    w.set(x, y, Cell::new(soil, shade).with_aux(held));
+                } else {
+                    w.set(x, y, Cell::new(soil, byte).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
             }
             for y in (self.ground_y + self.soil_depth)..bed_bottom {
                 w.set(x, y, Cell::new(material::STONE, 0));
@@ -1331,6 +1453,50 @@ mod tests {
     /// `lab::tests`' `SHELF_LOCK`: [`LabBox::ASSET_PATH_ENV`] resolves
     /// through process-global state, and `cargo test` runs in parallel.
     static BED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// **Patchy ground is patchy, and uniform ground is the bed as it was**
+    /// (`Ground`, step E of the plant community plan). Patchy: all three
+    /// textures present in real shares, some columns' surface below
+    /// `ground_y`, never above it, and both soil rules on. Uniform: one
+    /// flat surface at `ground_y`, rules off.
+    #[test]
+    fn patchy_ground_has_three_textures_and_hollows_and_uniform_has_neither() {
+        for ground in [Ground::Uniform, Ground::Patchy] {
+            let bed = LabBox { founders: 0, colonies: 0, predators: 0, ground, ..LabBox::default() };
+            let w = bed.build();
+            let soil = w.materials.id_of("soil").expect("soil ships");
+            let mut families = [0usize; 3];
+            let mut hollows = 0;
+            for x in 0..bed.width {
+                assert_ne!(w.get(x, bed.ground_y - 1).material, soil, "{ground:?}: soil above ground_y at x {x}; founders are placed two rows up");
+                // Air at the soil line, not a wall: the box's side walls are
+                // stone and are not hollows.
+                if w.get(x, bed.ground_y).material == material::EMPTY {
+                    hollows += 1;
+                }
+                for y in bed.ground_y..bed.ground_y + bed.soil_depth {
+                    let c = w.get(x, y);
+                    if c.material == soil {
+                        families[w.materials.get(soil).family_of(c.shade).min(2)] += 1;
+                    }
+                }
+            }
+            let total: usize = families.iter().sum();
+            match ground {
+                Ground::Patchy => {
+                    assert!(w.soil_texture && w.soil_drains_around, "patchy ground must turn both soil rules on");
+                    for (f, n) in families.iter().enumerate() {
+                        assert!(*n * 10 > total, "family {f} is {n} of {total} soil cells -- a patch texture this rare is no signal");
+                    }
+                    assert!(hollows > bed.width / 10, "only {hollows} of {} columns are hollowed", bed.width);
+                }
+                _ => {
+                    assert!(!w.soil_texture && !w.soil_drains_around, "uniform ground must leave both soil rules off");
+                    assert_eq!(hollows, 0, "uniform ground must be flat");
+                }
+            }
+        }
+    }
 
     fn scratch_path(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("pixel_physics_lab_{tag}_{}.ron", std::process::id()))

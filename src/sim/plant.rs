@@ -1406,9 +1406,13 @@ const PENETRATION_COST_BASELINE: f32 = 0.8;
 /// 1.0; penetrated ground scales by its resistance against loose soil's,
 /// so tree roots pay ~1x in soil, ~1.75x in sand, ~4.4x in gravel.
 fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
-    let m = world.materials.get(world.get(x, y).material);
+    let cell = world.get(x, y);
+    let m = world.materials.get(cell.material);
     if m.kind == MaterialKind::Powder && m.penetration_resistance > 0.0 {
-        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0)
+        // Clay-heavy ground is dearer to root through, on a world that reads
+        // soil texture (`World::soil_texture`, `material::SoilTexture`).
+        let texture = if world.soil_texture { m.texture_of(cell.shade).penetration } else { 1.0 };
+        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0) * texture
     } else {
         1.0
     }

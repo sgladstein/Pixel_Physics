@@ -1,0 +1,9 @@
+plant_m0 plastic axis=ground: species=herb frames=60000 seeds=8 (founder alone under a lamp, in-bed heredity off, drain on, spells 20k/40k)
+  sandy  alive 7/8 | shoot 95.14+-44.18 height 38.29+-11.32 width 15.00+-5.32 leaf_share 0.44+-0.09 root 74.00+-48.43 root_depth 11.00+-6.30
+  loam   alive 6/8 | shoot 107.17+-42.72 height 41.17+-13.03 width 13.00+-4.24 leaf_share 0.45+-0.09 root 82.50+-51.41 root_depth 18.33+-15.91
+  rich   alive 6/8 | shoot 111.50+-45.99 height 40.83+-11.50 width 14.50+-2.74 leaf_share 0.45+-0.08 root 30.83+-26.71 root_depth 7.33+-4.80
+  loam B alive 7/8 | shoot 109.00+-53.79 height 40.29+-18.22 width 13.43+-7.74 leaf_share 0.50+-0.23 root 119.86+-39.64 root_depth 24.00+-19.98
+  rich - sandy   shoot +0.36 height +0.22 width -0.12 leaf_share +0.09 root -1.10 root_depth -0.65   (shift in units of the spread inside an arm)
+  loam - sandy   shoot +0.28 height +0.24 width -0.42 leaf_share +0.12 root +0.17 root_depth +0.61   (shift in units of the spread inside an arm)
+  rich - loam    shoot +0.10 height -0.03 width +0.42 leaf_share -0.04 root -1.26 root_depth -0.94   (shift in units of the spread inside an arm)
+  loam B - loam  shoot +0.04 height -0.06 width +0.07 leaf_share +0.29 root +0.81 root_depth +0.31   (shift in units of the spread inside an arm)

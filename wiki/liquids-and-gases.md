@@ -1,6 +1,9 @@
 # Liquids & Gases
 
-*Current as of: 2026-10-03 (water sinks through a floor of light powder --
+*Current as of: 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
+loamy and rich clay soils hold and shed water differently, and water runs
+down beside a root instead of standing on it; the lab's bed drains through
+its floor). Before that, 2026-10-03 (water sinks through a floor of light powder --
 food crumbs, litter, seeds -- instead of standing on it, see
 [Powders](powders.md)). Before that, 2026-09-11 (water on a low plant soaks into the ground
 under it, not just off a branch into open air; a wet roof over a dug tunnel
@@ -67,6 +70,26 @@ rather than a level sheet. The bed has a switch for it (`water_levels_sideways`
 on the parameters page, off as it ships): turn it on and the columns merge and
 the water table goes flat, at the price of the soil doing about twice as much
 bookkeeping every tick.
+
+**Not all ground holds water alike -- in a lab bed with patchy ground.**
+Choose patchy ground and the soil comes in three kinds you can tell by
+colour. Pale sandy soil holds the least, lets the rest run through
+quickly, and dries first in a drought. Mid-brown loam is the ordinary
+ground. Dark rich clay-loam holds the most, gives it up slowly, and is hard
+for a root to push through. After rain each settles at its own wetness and
+stays there; water does not creep out of the clay into the sand beside it.
+Under a dry spell the sandy patches parch while the clay stays damp, so two
+plants a few cells apart live through different droughts. The bed's
+surface dips into shallow hollows, where rain gathers and the soil is
+darkest. Water reaching a root or a stone runs down beside it rather than
+pooling on top. Everywhere else, and in the bed as it ships, the ground is
+the one ordinary kind.
+
+**A lab bed drains through its floor.** Watered from above with nowhere to
+go, a sealed bed used to fill from the bottom until it stood under a lake.
+Now the lowest soil lets go of whatever it holds past the point it can keep
+against gravity, as a pot drains, so steady rain wets the bed and then
+runs away below.
 
 **Moving water runs white.** Water in motion — falling, pouring, spreading,
 splashing — draws pale and foamy, and goes back to its deep still colour

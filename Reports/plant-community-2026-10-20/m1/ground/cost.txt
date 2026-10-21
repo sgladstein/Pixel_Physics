@@ -1,0 +1,4 @@
+Paired cost, one thread, quiet machine, grown patchy bed (seed 1, 120k), 20,000 ticks each way:
+  all soil rules off 2,253 us/tick; texture on, drain-around off 2,377; both on 2,415 (+7.2%)
+  soil-water cells walked/tick 5,480 / 6,950 / 7,632; changed/tick 1,056 / 1,569 / 1,791
+v1 (water evened out by amount across texture edges): changed/tick 988 -> 2,521 on the same bed; runs_v1_pump/.

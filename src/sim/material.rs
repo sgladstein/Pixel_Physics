@@ -66,6 +66,59 @@ pub const SOIL_FIELD_CAPACITY: u16 = 620;
 /// 58:1775-1781, refining Letey (1985).
 pub const SOIL_WILTING_POINT: u16 = 180;
 
+/// **What a soil's texture does, on a world that reads texture at all**
+/// (`World::soil_texture`; step E of `Reports/plant-community-plan-2026-10-20.md`).
+///
+/// **Why there is texture.** The owner, 2026-10-20: *"If our soil bed is
+/// fully uniform (uniform density, uniform moisture, uniform nutrients,
+/// etc.) then there is no signal for the plant to respond in interesting
+/// ways."* Real ground is a patchwork of sandy, loamy and clay-rich soil,
+/// and each holds water, drains, feeds and resists a root differently --
+/// which is most of why one plant grows differently from its twin a few
+/// metres away.
+///
+/// **Carried by the palette family the cell's shade already picks**, not by
+/// new materials. Soil ships three families (`soil.ron`): the reference
+/// loam, a dark rich wetland soil and a pale dry one. The family is data
+/// on the cell, it moves with the cell (a dug or fallen grain keeps its
+/// texture), the renderer already draws it, and no name-keyed rule
+/// anywhere -- there are about 170 `id_of("soil")` sites -- has to learn a
+/// second soil. Off, every family reads as loam, which is exactly the
+/// engine before this existed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoilTexture {
+    /// What the soil holds against gravity; drainage takes only the water
+    /// above this. Loam is `SOIL_FIELD_CAPACITY`.
+    pub field_capacity: u16,
+    /// Multiplies `update::SOIL_DRAINAGE_RATE`: how fast the surplus above
+    /// field capacity sinks.
+    pub drainage: f32,
+    /// Multiplies the share of the soil's nutrient a root can use
+    /// (`World::soil_nutrient_fraction`).
+    pub nutrient: f32,
+    /// Multiplies a root's penetration cost (`plant::penetration_cost_mult`).
+    pub penetration: f32,
+}
+
+/// Indexed by palette family. Values are the textbook ordering at the
+/// textbook signs -- sand holds least and drains fastest, clay holds most,
+/// drains slowest and is hardest to root through, organic loam feeds best
+/// -- at sizes picked to make each difference legible in a bed, not
+/// measured from a soil. See [`SoilTexture`].
+pub const SOIL_TEXTURES: [SoilTexture; 3] = [
+    // 0: the reference loam.
+    SoilTexture { field_capacity: SOIL_FIELD_CAPACITY, drainage: 1.0, nutrient: 0.75, penetration: 1.0 },
+    // 1: the dark wetland family -- a rich, clay-heavy loam.
+    SoilTexture { field_capacity: 740, drainage: 0.4, nutrient: 1.0, penetration: 1.3 },
+    // 2: the pale dry family -- sandy.
+    SoilTexture { field_capacity: 470, drainage: 2.5, nutrient: 0.4, penetration: 1.0 },
+];
+
+/// The texture every soil reads as on a world that does not read texture:
+/// loam, with the nutrient share at 1.0 so nothing changes.
+pub const SOIL_TEXTURE_OFF: SoilTexture =
+    SoilTexture { field_capacity: SOIL_FIELD_CAPACITY, drainage: 1.0, nutrient: 1.0, penetration: 1.0 };
+
 /// **Waterlogged: enough water in the pore space that grain contact stops
 /// holding.** The line a worked wall (`Material::slumps_into`) gives way at,
 /// and it is deliberately *not* field capacity.
@@ -2036,6 +2089,21 @@ pub struct Reaction {
 }
 
 impl Material {
+    /// The palette family `shade` picks: `render.rs` reads entry
+    /// `shade % palette.len()`, and families are runs of `base_shades`.
+    #[inline]
+    pub fn family_of(&self, shade: u8) -> usize {
+        (shade as usize % self.palette.len().max(1)) / self.base_shades.max(1)
+    }
+
+    /// This cell's soil texture by its family, on a world that reads
+    /// texture ([`SoilTexture`]). A material with one family, or a family
+    /// past the table, reads as loam.
+    #[inline]
+    pub fn texture_of(&self, shade: u8) -> SoilTexture {
+        SOIL_TEXTURES.get(self.family_of(shade)).copied().unwrap_or(SOIL_TEXTURES[0])
+    }
+
     /// **Whether `Cell::aux` holds what a cell of this is worth to eat**:
     /// meat (`worth_in_aux`) or a carried remainder (`carries_worth`). The
     /// question `food_value`, the drop and a landing particle ask. Ask

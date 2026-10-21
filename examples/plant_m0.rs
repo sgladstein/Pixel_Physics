@@ -30,7 +30,7 @@
 
 use pixel_physics::lab::rain::{Rain, Spells};
 use pixel_physics::lab::scenario::{Event, Placement, Scenario};
-use pixel_physics::lab::scene::LabBox;
+use pixel_physics::lab::scene::{Ground, LabBox};
 use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::organism::{self, CellType, ParamId};
@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -152,6 +152,14 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
             Spells { wet: wet.parse().expect("wet frames"), dry: dry.parse().expect("dry frames") }
         }),
         species_ron: cripple.as_deref().map(|c| crippled(c, 0.1)),
+        ground: match m.get("ground").map(String::as_str) {
+            None | Some("uniform") => Ground::Uniform,
+            Some("patchy") => Ground::Patchy,
+            Some("sandy") => Ground::Sandy,
+            Some("loam") => Ground::Loam,
+            Some("rich") => Ground::Rich,
+            Some(v) => panic!("ground={v} is not uniform|patchy|sandy|loam|rich"),
+        },
         ..LabBox::default()
     };
     let scenario = Scenario {
@@ -212,7 +220,8 @@ fn community(m: &BTreeMap<String, String>) {
             let mut frame = vec![0u8; (fw * fh * 4) as usize];
             let touched = w.take_touched_chunks();
             renderer.draw(&w, &particles, &touched, &mut frame, (fw, fh), true);
-            let (top, rows, sc) = ((bed.ground_y - 100).max(0) as usize, 120usize, 2usize);
+            let below: usize = get(m, "below", 20usize);
+            let (top, rows, sc) = ((bed.ground_y - 100).max(0) as usize, 100 + below, 2usize);
             let (tw, th) = (fw as usize * sc, rows * sc);
             let mut img = vec![0u8; tw * th * 4];
             for y in 0..th {
@@ -370,6 +379,44 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         .collect();
     let top_mean = top.iter().sum::<f64>() / top.len().max(1) as f64;
     let top_sd = (top.iter().map(|v| (v - top_mean).powi(2)).sum::<f64>() / top.len().max(1) as f64).sqrt();
+    // The same spread at every 10-row band, and of the nutrient share a root
+    // can use in the top band (`World::soil_nutrient_fraction`): step E's
+    // signal census. Columns with no soil in a band are left out.
+    let sd = |v: &[f64]| {
+        let mu = v.iter().sum::<f64>() / v.len().max(1) as f64;
+        (v.iter().map(|x| (x - mu).powi(2)).sum::<f64>() / v.len().max(1) as f64).sqrt()
+    };
+    let band_sd: Vec<f64> = (0..(bed.soil_depth / 10))
+        .map(|band| {
+            let cols: Vec<f64> = (0..bed.width)
+                .filter_map(|x| {
+                    let (mut sum, mut n) = (0.0f64, 0u64);
+                    for y in ground + band * 10..ground + band * 10 + 10 {
+                        let c = w.get(x, y);
+                        if soil.contains(&c.material) {
+                            sum += c.aux() as f64 / pixel_physics::sim::material::SOIL_SATURATED as f64;
+                            n += 1;
+                        }
+                    }
+                    (n > 0).then(|| sum / n as f64)
+                })
+                .collect();
+            sd(&cols)
+        })
+        .collect();
+    let nut: Vec<f64> = (0..bed.width)
+        .filter_map(|x| {
+            let (mut sum, mut n) = (0.0f64, 0u64);
+            for y in ground..ground + 10 {
+                if soil.contains(&w.get(x, y).material) {
+                    sum += w.soil_nutrient_fraction(x, y) as f64;
+                    n += 1;
+                }
+            }
+            (n > 0).then(|| sum / n as f64)
+        })
+        .collect();
+    let (nut_mean, nut_sd) = (nut.iter().sum::<f64>() / nut.len().max(1) as f64, sd(&nut));
     // Seed and litter lying above the soil line, and the deepest column.
     let (mut seed_cells, mut seed_max, mut litter_cells, mut litter_max, mut seed_live) = (0u64, 0u64, 0u64, 0u64, 0u64);
     for x in 0..bed.width {
@@ -493,8 +540,9 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         ));
     }
     s.push_str(&format!(
-        " | water={} topsd={top_sd:.3} | standing={standing} standingmax={standing_max} rained={} drained={} vapour={:.0} spell={} on={under} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
+        " | water={} topsd={top_sd:.3} bandsd={} nut={nut_mean:.3} nutsd={nut_sd:.3} | standing={standing} standingmax={standing_max} rained={} drained={} vapour={:.0} spell={} on={under} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
         water.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
+        band_sd.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
         w.rain_cells,
         w.drained_water / pixel_physics::sim::material::LIQUID_FULL as u64,
         w.atmospheric_bank,
@@ -602,6 +650,52 @@ fn plastic(m: &BTreeMap<String, String>) {
     let frames: u64 = get(m, "frames", 20_000);
     let n: u64 = get(m, "seed", 6);
     let spec = BedSpec { frames, ..BedSpec::default() };
+    // `axis=ground` (M1 step E): the same founder under the lamp, on a bed
+    // that is all sandy, all loam or all rich (`Ground`), with the spells
+    // the training world runs. The question is whether the ground moves a
+    // plant more than its own dice do.
+    if get(m, "axis", "light".to_string()) == "ground" {
+        // The fourth arm is the control: loam again on different dice, so
+        // "loam B - loam" is what a shift reads when the ground is the same.
+        let arms = [("sandy", Ground::Sandy, 0u64), ("loam", Ground::Loam, 0), ("rich", Ground::Rich, 0), ("loam B", Ground::Loam, 1_000)];
+        println!("plant_m0 plastic axis=ground: species={sp} frames={frames} seeds={n} (founder alone under a lamp, in-bed heredity off, drain on, spells 20k/40k)");
+        let mut table: Vec<Vec<[f32; 6]>> = Vec::new();
+        for (label, ground, dice) in arms {
+            let mut rows = Vec::new();
+            for s in 0..n {
+                let mut bed = arena::bed_for(None, &sp, Layout { seed: 5_000_000 + dice + s, offset: Offset::Under }, &spec);
+                bed.ground = ground;
+                bed.rain = Rain::Steady;
+                bed.spells = Some(Spells { wet: 20_000, dry: 40_000 });
+                let (mut w, id) = arena::build(&bed, &spec);
+                let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
+                for _ in 0..frames {
+                    pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
+                }
+                if let Some(f) = form(&w, id, bed.ground_y) {
+                    rows.push(f);
+                }
+            }
+            print!("  {label:<6} alive {}/{n} |", rows.len());
+            for (i, name) in FORM.iter().enumerate() {
+                let (mu, sd) = mean_sd(&rows.iter().map(|r| r[i]).collect::<Vec<_>>());
+                print!(" {name} {mu:.2}+-{sd:.2}");
+            }
+            println!();
+            table.push(rows);
+        }
+        for (axis, a, b) in [("rich - sandy", 2usize, 0usize), ("loam - sandy", 1, 0), ("rich - loam", 2, 1), ("loam B - loam", 3, 1)] {
+            print!("  {axis:<14}");
+            for (i, name) in FORM.iter().enumerate() {
+                let (ma, sa) = mean_sd(&table[a].iter().map(|r| r[i]).collect::<Vec<_>>());
+                let (mb, sb) = mean_sd(&table[b].iter().map(|r| r[i]).collect::<Vec<_>>());
+                let pooled = ((sa * sa + sb * sb) / 2.0).sqrt().max(1e-6);
+                print!(" {name} {:+.2}", (ma - mb) / pooled);
+            }
+            println!("   (shift in units of the spread inside an arm)");
+        }
+        return;
+    }
     let arms = [("bright, wet", Offset::Under, Rain::Light), ("dim, wet", Offset::Between, Rain::Light), ("bright, dry", Offset::Under, Rain::Off), ("dim, dry", Offset::Between, Rain::Off)];
     println!("plant_m0 plastic: species={sp} frames={frames} seeds={n} (founder alone, trainer's lab bed, in-bed heredity off)");
     let mut table: Vec<Vec<[f32; 6]>> = Vec::new();
@@ -795,8 +889,24 @@ fn drain_cost(m: &BTreeMap<String, String>) {
     for _ in 0..grow {
         pixel_physics::lab::tick_world(&mut w, &mut p, &mut b, &tuning, &bed, Some(&scenario));
     }
-    let arms = [LabBox { drain: false, ..bed.clone() }, LabBox { drain: true, ..bed.clone() }];
-    let mut worlds = [w.clone(), w];
+    // `switch=texture` prices step E's two soil rules instead: the same
+    // grown bed, one copy with `World::soil_texture` and
+    // `soil_drains_around` turned off.
+    // `switch=around` prices `soil_drains_around` alone, texture left on.
+    let switch: String = get(m, "switch", "drain".to_string());
+    let around = switch == "around";
+    let texture = switch == "texture" || around;
+    let arms = if texture {
+        [bed.clone(), bed.clone()]
+    } else {
+        [LabBox { drain: false, ..bed.clone() }, LabBox { drain: true, ..bed.clone() }]
+    };
+    let mut off = w.clone();
+    if texture {
+        off.soil_texture = around;
+        off.soil_drains_around = false;
+    }
+    let mut worlds = [off, w];
     let mut state = [(ParticleSystem::new(), Blasts::new()), (ParticleSystem::new(), Blasts::new())];
     let (mut micros, mut visited, mut changed) = ([0f64; 2], [0u64; 2], [0u64; 2]);
     for _ in 0..blocks {
@@ -812,7 +922,14 @@ fn drain_cost(m: &BTreeMap<String, String>) {
     }
     let ticks = (blocks as u64 * block) as f64;
     println!("plant_m0 draincost: mix={mix_name} seed={} grow={grow} blocks={blocks}x{block} rain={:?} spells={:?}", bed.seed, bed.rain, bed.spells);
-    for (i, name) in ["drain off", "drain on"].iter().enumerate() {
+    let names = if around {
+        ["around off", "around on"]
+    } else if texture {
+        ["texture off", "texture on"]
+    } else {
+        ["drain off", "drain on"]
+    };
+    for (i, name) in names.iter().enumerate() {
         println!(
             "{name:>9}: {:.0} us/tick  soil-water cells walked/tick {:.0}  changed/tick {:.0}  drained {} cells",
             micros[i] / ticks,
