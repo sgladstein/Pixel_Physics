@@ -11342,6 +11342,95 @@ pub fn scent_accepts(judge: &[f32; CREATURE_TRAITS], other: &[f32; CREATURE_TRAI
     scent_distance_sq(&scent_of(judge), &scent_of(other)) <= r * r
 }
 
+/// **Which animals of one group are still one family**: the connected
+/// components of the mutual-kin graph over `traits` -- `i` and `j` joined
+/// when each passes [`scent_accepts`] judging the other -- as one label per
+/// animal, equal labels for one component. `World::regroup_by_scent`'s
+/// clustering, and only that.
+///
+/// **Why not every pair.** It was a union over all `n(n-1)/2` pairs, and
+/// `Lab::tick` runs it every tick: 28-35% of a grown goal-box colony's
+/// frame at ~410 ants (callgrind, performance lane, 2026-10-21), against
+/// its own doc's "a comparison per animal". The components are the same
+/// with far fewer pairs. Take one hub, the animal nearest the group's mean
+/// scent, and join it to every animal that is mutually kin with it: those
+/// are one component already, so a pair with both ends among them adds
+/// nothing. Every other edge has an end outside the hub's star, so only
+/// those animals are paired with the rest. A cohesive colony -- every
+/// colony the lab has grown -- costs `n` comparisons plus `n` per animal
+/// outside the star, and a colony split in two costs what it did.
+///
+/// **Exactly the old predicate.** Each scent and squared radius is
+/// computed once as `scent_accepts` computes it, and the distance once per
+/// pair: `scent_distance_sq` is symmetric bit for bit (`a - b` and `b - a`
+/// differ only in sign, and the squares agree), so `d <= r_i^2 && d <=
+/// r_j^2` is the two calls the union made. Which hub is chosen changes how
+/// many pairs are tried, never the components; the labels are not the old
+/// union's roots, and its one caller reads them only as "same or not".
+/// `kin_components_match_every_pair` holds it to the all-pairs union.
+pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
+    let n = traits.len();
+    let scent: Vec<[f32; 3]> = traits.iter().map(scent_of).collect();
+    let r2: Vec<f32> = traits
+        .iter()
+        .map(|t| {
+            let r = tolerance_radius(t);
+            r * r
+        })
+        .collect();
+    let kin = |i: usize, j: usize| {
+        let d = scent_distance_sq(&scent[i], &scent[j]);
+        d <= r2[i] && d <= r2[j]
+    };
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    fn join(p: &mut [usize], a: usize, b: usize) {
+        let (a, b) = (find(p, a), find(p, b));
+        if a != b {
+            p[a.max(b)] = a.min(b);
+        }
+    }
+    if n == 0 {
+        return parent;
+    }
+    // The hub: nearest the mean scent (f64, so the choice is stable; it
+    // only ever changes how many pairs are tried).
+    let mut mean = [0.0f64; 3];
+    for s in &scent {
+        for k in 0..3 {
+            mean[k] += f64::from(s[k]) / n as f64;
+        }
+    }
+    let off = |s: &[f32; 3]| (0..3).map(|k| (f64::from(s[k]) - mean[k]).powi(2)).sum::<f64>();
+    let hub = (0..n).min_by(|&a, &b| off(&scent[a]).total_cmp(&off(&scent[b]))).unwrap_or(0);
+    let mut outside = Vec::new();
+    for i in 0..n {
+        if i == hub {
+            continue;
+        }
+        if kin(hub, i) {
+            join(&mut parent, hub, i);
+        } else {
+            outside.push(i);
+        }
+    }
+    for &o in &outside {
+        for j in 0..n {
+            if j != o && find(&mut parent, o) != find(&mut parent, j) && kin(o, j) {
+                join(&mut parent, o, j);
+            }
+        }
+    }
+    (0..n).map(|i| find(&mut parent, i)).collect()
+}
+
 /// **Frames for an unbitten animal to mend one whole cell of bite damage**
 /// (`OrganismState::gnawed`), or `None` when wounds never heal.
 ///
@@ -49200,6 +49289,88 @@ mod tests {
         assert!(a[0].iter().chain(b[0].iter()).all(|v| v.abs() <= 0.5), "an offset is bounded by the spread: {a:?} {b:?}");
         let (a2, b2) = scents(0.5);
         assert_eq!((a2[0], b2[0]), (a[0], b[0]), "the same seed draws the same offsets");
+    }
+
+    /// **`kin_components` finds exactly the components the all-pairs union
+    /// did** -- the union `World::regroup_by_scent` ran before it, kept here
+    /// as the reference, over groups built to exercise every path: one
+    /// tight cloud (the hub's star is everything), two or three clouds
+    /// apart, a chain whose ends are joined only through animals outside
+    /// the hub's star, one-sided tolerance (a narrow judge refuses a wide
+    /// one that would accept it), and plain random scatter. The tallies at
+    /// the end are the positive control that each kind actually occurred.
+    #[test]
+    fn kin_components_match_every_pair() {
+        use crate::sim::organism::{SCENT_SLOTS, TRAIT_TOLERANCE};
+        fn reference(t: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
+            let n = t.len();
+            let mut p: Vec<usize> = (0..n).collect();
+            fn find(p: &mut [usize], mut i: usize) -> usize {
+                while p[i] != i {
+                    p[i] = p[p[i]];
+                    i = p[i];
+                }
+                i
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    if scent_accepts(&t[i], &t[j]) && scent_accepts(&t[j], &t[i]) {
+                        let (a, b) = (find(&mut p, i), find(&mut p, j));
+                        if a != b {
+                            p[a.max(b)] = a.min(b);
+                        }
+                    }
+                }
+            }
+            (0..n).map(|i| find(&mut p, i)).collect()
+        }
+        let animal = |s: [f32; 3], tol: f32| {
+            let mut t = [0.0f32; CREATURE_TRAITS];
+            for k in 0..3 {
+                t[SCENT_SLOTS[k]] = s[k];
+            }
+            t[TRAIT_TOLERANCE] = tol;
+            t
+        };
+        let mut r = crate::sim::rng::stream(3, 1, 4, 1);
+        let mut u = move || r.unit_f32();
+        let (mut split, mut via_outside, mut trials) = (0, 0, 0);
+        for trial in 0..600 {
+            let n = 2 + (u() * 60.0) as usize;
+            let kind = trial % 5;
+            let group: Vec<[f32; CREATURE_TRAITS]> = (0..n)
+                .map(|i| match kind {
+                    // One cloud, well inside one radius.
+                    0 => animal([u() * 0.4, u() * 0.4, u() * 0.4], u() * 0.4 - 0.2),
+                    // Two or three clouds, far apart.
+                    1 => {
+                        let c = (i % (2 + trial % 2)) as f32 * 5.0;
+                        animal([c + u() * 0.3, u() * 0.3, 0.0], 0.0)
+                    }
+                    // A chain along one axis, one step under the radius.
+                    2 => animal([i as f32 * 0.8 + u() * 0.05, 0.0, 0.0], -0.1),
+                    // One-sided tolerance: narrow and wide judges mixed.
+                    3 => animal([u() * 2.0, u() * 2.0, 0.0], if i % 2 == 0 { -0.9 } else { 1.0 }),
+                    // Scatter.
+                    _ => animal([u() * 4.0 - 2.0, u() * 4.0 - 2.0, u() * 4.0 - 2.0], u() * 2.0 - 1.0),
+                })
+                .collect();
+            let (got, want) = (kin_components(&group), reference(&group));
+            for i in 0..n {
+                for j in 0..n {
+                    assert_eq!(got[i] == got[j], want[i] == want[j], "trial {trial} (kind {kind}): animals {i} and {j}");
+                }
+            }
+            trials += 1;
+            let parts = { let mut w = want.clone(); w.sort_unstable(); w.dedup(); w.len() };
+            split += usize::from(parts > 1);
+            // Joined through the outside: a component bigger than the
+            // hub's star that holds an animal the hub does not accept.
+            via_outside += usize::from(kind == 2 && parts == 1 && n > 4);
+        }
+        assert_eq!(trials, 600);
+        assert!(split > 100, "too few groups that split to test anything: {split}");
+        assert!(via_outside > 50, "too few chains joined only through the outside: {via_outside}");
     }
 
     /// **A lineage that drifts out of its colony's family is named as a new
