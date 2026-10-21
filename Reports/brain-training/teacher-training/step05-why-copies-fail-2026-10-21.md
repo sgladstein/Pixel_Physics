@@ -121,10 +121,41 @@ acting, go-down +3.41, both +10.11). The test that matters is the two together w
 A unit helps the soil lesson and does nothing for the spread into fetch -- consistent with the context probe: that
 spread is not a capacity problem.
 
+**Dig + go-down with one revived unit** -- the pair the ceiling says is superadditive:
+
+| Copy | Full loads | Fetch (start 16.66) |
+|---|---|---|
+| go-down alone (step 1) | 10.57 | 17.11 |
+| dig + go-down (step 1) | 9.32 | 11.50 |
+| **dig + go-down, one revived unit** | **10.67** (+4.25 +- 0.43) | **17.74** (+1.09 +- 0.86) |
+
+The revived unit removes the interference (fetch held, soil not below go-down alone) -- but dig still adds nothing on
+top of go-down, where acting it adds +6.7. The wiring problem is solved; the dig lesson's own gain is still missing.
+In held-out terms the copy now digs at the foot 0.86 and at the wall 0.0049 (start 0.17 / 0.0060), so it *does* the
+lesson on s161's states; what to look at next is whether it reaches the foot in its own runs (§1's measure).
+
 ## 5. Routing (from the research lane's audit)
 
 The research lane read s161's wiring and found **unit 14 is the brain's own empty-only unit**: `c::SPOIL` reaches it at
 +31.7, so whenever the ant carries it sits saturated and flat (slope ~0.001), and it has no link from `f::HOME` (slot
 1252 is 0). Confirmed on the start genome used here. So a walk-home lesson routed through unit 14 would not reach
-loaded ants. Arms: (r1) slot 1252 alone on the allow-list; (r14) all 45 of unit 14's feature links. Running. Neither
-can stop the spread into *empty* foragers, which unit 14 serves too.
+loaded ants. Arms: (r1) slot 1252 alone on the allow-list; (r14) all 45 of unit 14's feature links. Neither can stop
+the spread into *empty* foragers, which unit 14 serves too -- and they did not:
+
+| Walk home copy | Full loads | Fetch |
+|---|---|---|
+| (a) step 1 | 7.03 | 11.46 |
+| (r1) + slot 1252 | 7.31 | 11.43 |
+| (r14) + all of unit 14's feature links | 7.67 | 10.26 |
+
+## 6. The kept-skill floor: why the go-down copy fails fetch on some worlds
+
+On the trainer's own fetch harness (96 worlds, worse side of each mirrored pair) s171 scores 19.34 and the go-down
+copy 17.62; heavier anchors (10x, 20x, plus the copy's own fetch runs) did not help (15.76, 17.51). **The loss is a few
+total failures, not a general slide**: s171 scores under 5 on 2 of 96 worlds, the copies on 5-12; away from those
+worlds the 20x copy is level with s171 (+0.13 a world). Traced on one such world (`fetch-copy.log`, world 44, score
+0.18): 661 of 675 decisions are walks, nearly all inside the nest (`at_nest` 1, `c::DEPTH` +0.27, the pre-dug chamber),
+with brief trips to the surface. **Go-down has spread to the empty forager in the nest**: "empty, below ground" is the
+lesson's trigger, and the forager keeps stepping deeper instead of climbing out. Under the worse-side fold the trainer
+uses, a few such worlds decide the floor. Being tested: those look-alike decisions (an empty ant below ground, in
+fetch) as their own heavily weighted anchor group (`keep_lookalike`).
