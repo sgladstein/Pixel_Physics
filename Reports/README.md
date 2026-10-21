@@ -5575,6 +5575,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   trail intact; "walk home" breaks fetch (it spreads to loaded ants and
   foragers) and "dig" collapses the ant when copied alone; together the
   lessons interfere in the shared scorer.
+  [teacher-design-2026-10-21.md](brain-training/teacher-training/teacher-design-2026-10-21.md)
+  — **design doc, for adversarial and improvement review, nothing new
+  built:** keep the three-rule teacher for the 8-row step and grow it
+  into planners (soil placement onto a ring mound first, then digging a
+  nest from a blueprint chosen by eye, then foraging routes), with search
+  as their judge and a colony tier (a central planner in a real crowd;
+  colony-level choices taught as outcomes). One lesson form for every
+  teacher (a regularised target from the planner's costs); the
+  copyability probe as the gate, with five ways out where it fails.
+  Companions:
+  [search-teacher-design-2026-10-21.md](brain-training/teacher-training/search-teacher-design-2026-10-21.md)
+  (rollouts from cloned worlds with paired random streams; pilot on
+  dig-or-not; one-step search predicted blind to "go down"; literature in
+  `notes/search-teacher-literature.md`) and
+  `notes/nest-architecture-2026-10-21.md` (real nests in vertical
+  section: chambers are flat lenses 1-2 body lengths high, so the ladder's
+  planned 8-16-cell rooms are 3-5x too tall), with five candidate
+  blueprints drawn in `measurements/blueprints/`.
 
 ## Licensing and distribution
 
