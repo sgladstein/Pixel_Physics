@@ -96,9 +96,10 @@ for the owner before anything "passes".
    truncation keeps beat the average kept child in all three mutation settings on 96 test worlds (+0.42 / +0.74 / +0.32
    against +0.03 / +0.22 / +0.22, each +-0.5; log 17:40). Proposal: add that averaged brain to each generation as one
    extra candidate. Trainer change: design + independent review first.
-3. **A graded fetch floor.** 89% of fetch vetoes of hold-out champions (145 of 163, 10 runs) sat within one standard
-   error of the floor: the hard cliff vetoes on noise. Research lane's fix: a log ramp from x1 at 0.85 to x0.1 at 0.75.
-   Design + review.
+3. **~~A graded fetch floor.~~ Judge the fetch floor at far food (`dist=30,30 calib=96`)** -- superseded 2026-10-21
+   evening (log entry 18:30): the vetoes are a real loss (trips out end 20-27 columns from the nest), so a ramp would
+   loosen the gate on the eroding skill. Design and review: `Reports/brain-training/design/far-fetch-and-centroid-design-2026-10-21.md`.
+   The averaged child (item 2) is deferred by the same review: the trainer version is not the operator tested offline.
 4. **Log each child's paired difference from its parent** at race stage 1 (research Q1 #2), so runs can measure their
    own variation. Small trainer change.
 5. **Before colony rungs:** (a) with 12 ants in one shaft the brains **Feed each other 13% of decisions** -- Feed's
@@ -463,6 +464,24 @@ The owner is **Scott** (GitHub `sgladstein`). They use a Mac terminal, so give z
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-21 18:30 UTC (new session). Fetch erodes only at far food; the floor is reading a real loss.**
+  - Lane taken over by a project thread; project rules now override section 6/7 where they differ: the merge desk
+    thread merges every PR and runs the full suite (lanes do not merge), the review queue is retired (pictures go to
+    the owner in the chat), and every VM run needs the owner's go with its cost.
+  - **Per distance** (96 test worlds, share of s91, worlds under half of s91): s171 10/16/23/30 columns 0.86 / 0.91 /
+    0.85 / **0.71 (4 of 24 failed)**; cur192 0.99 / 0.95 / 0.92 / 0.81; small192 0.95 / 0.91 / 0.84 / **0.64 (5 of 24)**;
+    s91 1.04 / 1.03 / 0.99 / 0.95, none failed. The small-step arm's fetch loss was 5-7 failed far worlds, not a general
+    slide.
+  - **Traced** (scratch `PP_PIC_TEST`/`PP_PIC_XEVERY` on the picture path; picture
+    `Reports/brain-training/investigation/fetch-forays-2026-10-21.png`): after dig training the ant's trips out end
+    20-27 columns from the nest; s91 walks 33+. Food at 30 (heap to 26) is hit or missed by a few columns. The diggers
+    also sit in the nest between trips; s91 never does.
+  - **Far-only fetch** (`dist=30,30`, `test96-scores/far30/`): s91 1.00, cur192 0.84, b181 0.74, copy v2 0.70, s171 0.64,
+    small192 0.48 (s.e. 0.04-0.08 over 24 pairs).
+  - **Pace bar arithmetic:** per-world spread is about 2.9 full loads for every brain, so 10+ on 11 of 12 worlds (92%)
+    needs a mean near 14. cur192: 84% of test worlds at 10+ (worse side 75%); small192 85%.
+  - Saved s171 soil/fetch/trail test scores reproduce exactly on main 82d5087a (judging build check).
 
 - **2026-10-21 07:40 UTC. Training worlds pin the roll-on-placement rule off (`hold_training_world`).**
   - The teacher lane's `PIXEL_PHYSICS_SPOIL_ROLL` (PR 753, owner-approved for the games) moves where a put-down pellet comes to rest, so what S3 pays and what falls back into the hole. Every arena that builds a world (forage, scarce/fetch, trail, dig, soil) now sets `World::spoil_roll = Some(0)`, so the teacher lane can turn it on by default in the games without moving the dig ladder's baselines. It comes into the arenas at a rung boundary, with s161/s171 and the pace bar re-measured.

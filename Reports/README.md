@@ -5617,6 +5617,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **built (`noprune=`):** named slots selection may tune but never prune, for a selection run from a brain the teacher
   lane copied (its revived links: slot 1498 and `DEPTH` into live scorer units). A listed scorer input brings its unit's
   output weight with it -- the MAJOR an independent review found -- and an empty list leaves every draw as it was.
+- [brain-training/design/far-fetch-and-centroid-design-2026-10-21.md](brain-training/design/far-fetch-and-centroid-design-2026-10-21.md) —
+  **part 1 proposed (launch arguments, no code), part 2 deferred:** the kept fetch floor's vetoes are a real loss, not
+  noise -- dig-trained ants' trips out end 20-27 columns from the nest, so fetch erodes only with food 30 out (s171 0.71
+  of s91 there, 0.85-0.91 nearer). Proposes judging the floor at `dist=30,30 calib=96`; drops the research lane's ramp.
+  The parents'-average child is deferred: the trainer version is not the operator tested offline (independent review).
 - [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
   dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
   (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
