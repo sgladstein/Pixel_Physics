@@ -62,8 +62,23 @@ replaced a cross-world control the review showed invalid for step choices):
 
 **The dig rule is the hard one**: the brain's job stage sees the dig options only through the best dig target's score,
 s161 reads that score at -0.311 on Dig (the sign has to flip), and 62% of dig scores sit above 0.95, so today that
-channel barely separates foot from wall (AUC 0.613). The copier must reshape the scorer so that foot cells score high
-and wall cells low, then flip the job's weight -- which may need links that are dead today (section 3).
+channel barely separates foot from wall (AUC 0.613). **But the verb stage compares jobs, and the walk scores are not
+saturated** (measured 2026-10-21 on s161's 24 sealed-world log, 32,613 empty-jawed decisions with a Dig offered, AUC for
+"a foot cell is in reach"): the best dig score 0.666 (median 0.974 with a foot cell, 0.967 without); best dig minus the
+mean of all options 0.534; best dig minus second-best dig 0.463; **best dig minus best walk 0.888** (median +0.538 against
++0.007) -- at the foot the ant's best step scores about 0.44, elsewhere about 0.96. The Walk job's weight on its own
+best-step score is **exactly 0 in s161** (slot 1498, pruned; Turn reads its own at +2.0). That one connection lets
+"walking looks poor here" hand the choice to Dig, with no change to the brain's design. It is the first entry on the
+allow-list (section 3).
+
+**Why not change the squash instead** (owner's question, 2026-10-21): `x / (1 + |x|)` is there for determinism (no
+transcendental in anything a decision reads, `brain.rs`, P-19), for the bounded pick that keeps every option reachable,
+and as the network's nonlinearity. The dig channel's trouble is where the scores sit on it (raw scores in the tens,
+sharpness at its clamp of 4), not its shape: a squash that bends faster would put them at 0.9999 and separate less, and
+this one's gradient falls off as 1/(1+|x|)^2 where `tanh`'s falls off exponentially. A change to what a job reads (its
+best target's lead, or the unsquashed score) remains a candidate if the copy shows the channel cannot carry the lesson --
+and the copier is what keeps such a change cheap later: an existing brain can be distilled into the changed design
+instead of retrained by selection.
 
 **T1 audit** (privileged computation, never privileged information): foot-in-reach is each option's `DEPTH`, `SOIL`,
 `CUT`; deepest step is each step's `DEPTH`; nearest the mouth is each step's `HOME`, with `home_dist`/`d_home`. The
@@ -98,7 +113,8 @@ s161 (finding 13): the scorer is shared, and "head home" is the same vector an e
 - **Trainable:** the target scorer (`S_CTX`, `S_FEAT`, `S_VERB`, `S_OUT`), the job heads (`JOB`, `HID_OUT`), the hidden
   units (`HID`) -- **live slots only, plus a named allow-list** (finding 2). Every live link is billed against the
   soil arena's 2,400 J each tick, and a dense gradient could switch on up to ~1,600 slots (ants would run dry near frame
-  9,300). The allow-list starts with the links the dig lesson plausibly needs (`DEPTH` into live scorer units); any
+  9,300). The allow-list starts with the links the dig lesson plausibly needs: **the Walk job's weight on its own best-step
+score (slot 1498, 0 in s161)** and `DEPTH` into live scorer units; any
   revived weight that stays under the live threshold is reset to exactly 0 each step; the inputs of scorer units and
   hidden units that nothing reads are zeroed before training, so revival cannot wake weights that drifted unselected.
   **Live links and energy left at the bell are reported for every genome written.**
