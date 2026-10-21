@@ -614,7 +614,16 @@ This session cannot launch anything.
 >    plant moved the spread 0.41 -> 0.40, because a frozen shrub is a clump
 >    with no stem cell touching open air. Open with the owner: keep digging
 >    at the shrub's self-boxing, or accept the spread and go to M2.
-> 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+> 5. **M2: rungs 1-3 and the role re-fit. Started 2026-10-21; the owner
+>    accepted the clone spread and picked M2 over more stall work.** First
+>    look (`Reports/plant-community-2026-10-20/m2/rungs/`): stations and
+>    rungs are in the trainer's bed (`arena::Station`, `arena::Rung`,
+>    `plantrain mode=rungs`). Dim light separates the roles, but the shrub
+>    -- meant as the shade-tolerant understory -- is the one dim hurts most
+>    (5 of 12 establish against 12; the herb loses nothing). Dry soil is not
+>    a station yet: growth ignores soil water above germination. The mister
+>    is ~94% of a small bed's cost. Next: rung scores, then rung 1 predicting
+>    rung 2. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow

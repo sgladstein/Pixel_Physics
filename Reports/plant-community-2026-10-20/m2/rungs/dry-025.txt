@@ -1,0 +1,11 @@
+plantrain rungs: species=tree,shrub,herb,creeper rungs=establish,grow stations=dry layouts=12 base=3000000 threads=4
+  establish dry (width 48 frames 3000 n_est 20 lamp 1 rain Off soil 0.25): 0.04 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1700 | end shoot p25    52 p50    62 p75   144 cv 0.70 | rgr/1k p25 0.78 p50 0.83 p75 0.94
+    shrub    germ 12/12 est 12/12 est@ p50    900 | end shoot p25   126 p50   170 p75   200 cv 0.32 | rgr/1k p25 0.88 p50 1.07 p75 1.10
+    herb     germ 12/12 est 12/12 est@ p50   1600 | end shoot p25    36 p50    44 p75    45 cv 0.15 | rgr/1k p25 0.44 p50 0.48 p75 0.49
+    creeper  germ 12/12 est 12/12 est@ p50   1300 | end shoot p25    44 p50    52 p75    59 cv 0.37 | rgr/1k p25 0.43 p50 0.50 p75 0.60
+  grow dry (width 48 frames 10000 n_est 20 lamp 1 rain Off soil 0.25): 0.13 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   433 p50   688 p75   723 cv 0.33 | rgr/1k p25 0.37 p50 0.40 p75 0.42
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   128 p50   326 p75   330 cv 0.57 | rgr/1k p25 0.21 p50 0.31 p75 0.31
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    95 p50   106 p75   108 cv 0.35 | rgr/1k p25 0.19 p50 0.20 p75 0.21
+    creeper  germ 12/12 est 12/12 est@ p50   1500 | end shoot p25    71 p50    91 p75   100 cv 0.35 | rgr/1k p25 0.14 p50 0.18 p75 0.18

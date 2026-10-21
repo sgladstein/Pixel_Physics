@@ -1,0 +1,31 @@
+plantrain rungs: species=tree,shrub,herb,creeper rungs=establish,grow stations=bright,dim,dry layouts=12 base=3000000 threads=4
+  establish bright (width 48 frames 3000 n_est 20): 0.66 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1700 | end shoot p25    52 p50    61 p75   147 cv 0.70 | rgr/1k p25 0.78 p50 0.83 p75 0.95
+    shrub    germ 12/12 est 12/12 est@ p50    900 | end shoot p25   127 p50   164 p75   200 cv 0.33 | rgr/1k p25 0.88 p50 1.05 p75 1.10
+    herb     germ 12/12 est 12/12 est@ p50   1600 | end shoot p25    36 p50    44 p75    45 cv 0.12 | rgr/1k p25 0.44 p50 0.48 p75 0.49
+    creeper  germ 12/12 est 12/12 est@ p50   1200 | end shoot p25    53 p50    58 p75    62 cv 0.28 | rgr/1k p25 0.51 p50 0.55 p75 0.60
+  establish dim (width 48 frames 3000 n_est 20): 0.61 core-s a bed
+    tree     germ 12/12 est  9/12 est@ p50   2400 | end shoot p25    22 p50    29 p75    41 cv 0.74 | rgr/1k p25 0.48 p50 0.73 p75 1.03
+    shrub    germ 12/12 est  5/12 est@ p50   1500 | end shoot p25    15 p50    19 p75    40 cv 1.05 | rgr/1k p25 0.43 p50 0.61 p75 1.12
+    herb     germ 12/12 est 12/12 est@ p50   2500 | end shoot p25    22 p50    24 p75    24 cv 0.09 | rgr/1k p25 0.26 p50 0.32 p75 0.36
+    creeper  germ 12/12 est  9/12 est@ p50   1300 | end shoot p25    24 p50    45 p75    47 cv 0.66 | rgr/1k p25 0.45 p50 0.53 p75 0.65
+  establish dry (width 48 frames 3000 n_est 20): 0.04 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1700 | end shoot p25    52 p50    62 p75   144 cv 0.70 | rgr/1k p25 0.78 p50 0.83 p75 0.94
+    shrub    germ 12/12 est 12/12 est@ p50    900 | end shoot p25   126 p50   170 p75   200 cv 0.31 | rgr/1k p25 0.88 p50 1.07 p75 1.10
+    herb     germ 12/12 est 12/12 est@ p50   1600 | end shoot p25    36 p50    44 p75    45 cv 0.15 | rgr/1k p25 0.44 p50 0.48 p75 0.49
+    creeper  germ 12/12 est 12/12 est@ p50   1200 | end shoot p25    44 p50    55 p75    61 cv 0.36 | rgr/1k p25 0.45 p50 0.59 p75 0.61
+  grow bright (width 48 frames 10000 n_est 20): 2.40 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   537 p50   599 p75   743 cv 0.25 | rgr/1k p25 0.41 p50 0.42 p75 0.42
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   151 p50   318 p75   360 cv 0.55 | rgr/1k p25 0.22 p50 0.31 p75 0.32
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    86 p50   102 p75   116 cv 0.37 | rgr/1k p25 0.19 p50 0.20 p75 0.21
+    creeper  germ 12/12 est 12/12 est@ p50   1250 | end shoot p25    73 p50    95 p75   117 cv 0.29 | rgr/1k p25 0.15 p50 0.18 p75 0.20
+  grow dim (width 48 frames 10000 n_est 20): 2.52 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   2750 | end shoot p25    86 p50   418 p75   477 cv 0.73 | rgr/1k p25 0.22 p50 0.39 p75 0.41
+    shrub    germ 12/12 est 11/12 est@ p50   3250 | end shoot p25    64 p50    81 p75   113 cv 0.91 | rgr/1k p25 0.18 p50 0.20 p75 0.30
+    herb     germ 12/12 est 12/12 est@ p50   2500 | end shoot p25    61 p50    71 p75    80 cv 0.35 | rgr/1k p25 0.16 p50 0.17 p75 0.19
+    creeper  germ 12/12 est 12/12 est@ p50   1500 | end shoot p25    53 p50    61 p75    74 cv 0.43 | rgr/1k p25 0.12 p50 0.17 p75 0.19
+  grow dry (width 48 frames 10000 n_est 20): 0.17 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   466 p50   581 p75   726 cv 0.30 | rgr/1k p25 0.39 p50 0.41 p75 0.41
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   127 p50   283 p75   327 cv 0.54 | rgr/1k p25 0.21 p50 0.29 p75 0.31
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    95 p50   106 p75   110 cv 0.35 | rgr/1k p25 0.19 p50 0.20 p75 0.21
+    creeper  germ 12/12 est 12/12 est@ p50   1250 | end shoot p25    71 p50    89 p75   102 cv 0.33 | rgr/1k p25 0.14 p50 0.18 p75 0.19

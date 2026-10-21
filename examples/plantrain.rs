@@ -21,6 +21,8 @@
 //! cargo run --release --example plantrain -- mode=lean layouts=4 offsets=4,8 stops=8000,16000,24000
 //! # rank genomes by mean or by worst layout: which pick holds up on a second, disjoint set?
 //! cargo run --release --example plantrain -- mode=ranking genomes=16 layouts=12 sigma=0.9 genes=8
+//! # the ladder's first rungs on the shipped role species: per station, who establishes, how fast it grows, what a bed costs
+//! cargo run --release --example plantrain -- mode=rungs species=tree,shrub,herb,creeper rungs=establish,grow stations=bright,dim layouts=12
 //! # a picture: the shipped species and each file, on N layouts, at chosen frames
 //! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
 //! ```
@@ -39,7 +41,7 @@ use std::path::PathBuf;
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
-    "heavy", "spacing", "offsets", "top",
+    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -74,6 +76,7 @@ fn bed(m: &BTreeMap<String, String>) -> BedSpec {
             Some("on") => false,
             Some(v) => panic!("mutation={v} is not on|off"),
         },
+        station: d.station,
     };
     if b.every == 0 || b.frames == 0 {
         eprintln!("plantrain: every= and frames= must be at least 1");
@@ -154,6 +157,75 @@ fn calibrate(m: &BTreeMap<String, String>) {
     let scores: Vec<f32> = rows.iter().map(|c| score::bed_score(c, &k)).collect();
     let (mean, min) = score::fold(&scores);
     println!("score at k_seed={} size_floor={}: mean {mean:.3} min {min:.3} sd {:.3}  {:?}", k.k_seed, k.size_floor, sd(&scores), scores);
+}
+
+/// **The ladder's rungs on shipped species, per station** (plant-community
+/// plan §6.2, M2): germinated and established out of the layouts, the frame
+/// it established at, shoot cells at the end with their spread, the juvenile
+/// growth rate from establishment to the end, and the wall time per bed --
+/// the numbers a rung's constants and its compute budget (§13) are set from,
+/// and the check that a station changes anything at all.
+fn rungs(m: &BTreeMap<String, String>) {
+    let species: Vec<String> = get(m, "species", "tree,shrub,herb,creeper".to_string()).split(',').map(str::to_string).collect();
+    let rungs: Vec<arena::Rung> = get(m, "rungs", "establish,grow".to_string())
+        .split(',')
+        .map(|r| arena::Rung::named(r).unwrap_or_else(|| panic!("rung `{r}` is not establish|grow|life")))
+        .collect();
+    // `dry` is left out by default: see `Station::DRY` for why it scores
+    // nothing yet.
+    let stations: Vec<arena::Station> = get(m, "stations", "bright,dim".to_string())
+        .split(',')
+        .map(|s| arena::Station::named(s).unwrap_or_else(|| panic!("station `{s}` is not bright|dim|dry")))
+        .collect();
+    let n: usize = get(m, "layouts", 12);
+    let base: u64 = get(m, "base", 3_000_000);
+    let threads = rayon::current_num_threads();
+    println!("plantrain rungs: species={} rungs={} stations={} layouts={n} base={base} threads={threads}", species.join(","), rungs.iter().map(|r| r.name()).collect::<Vec<_>>().join(","), stations.iter().map(|s| s.name).collect::<Vec<_>>().join(","));
+    for &rung in &rungs {
+        for &station in &stations {
+            let mut spec = rung.spec(station);
+            spec.n_est = get(m, "n_est", spec.n_est);
+            // `drysoil=F`: the dry station's starting soil water, for the
+            // sweep that finds a value that is dry to a plant.
+            if station.name == "dry" {
+                spec.station.soil = get(m, "drysoil", spec.station.soil);
+            }
+            let layouts = rung.layouts(base, n);
+            let arms: Vec<Arm> = species.iter().map(|s| Arm::shipped(s)).collect();
+            let t = std::time::Instant::now();
+            let rows = train_plant::census_all(&arms, &layouts, &spec);
+            let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
+            println!("  {} {} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
+            for (sp, cs) in species.iter().zip(&rows) {
+                let germ = cs.iter().filter(|c| c.germinated).count();
+                let est: Vec<f32> = cs.iter().filter_map(|c| c.established_at.map(|f| f as f32)).collect();
+                let end: Vec<f32> = cs.iter().map(|c| c.end_shoot as f32).collect();
+                let mean = end.iter().sum::<f32>() / n.max(1) as f32;
+                let cv = if mean > 0.0 { sd(&end) / mean } else { 0.0 };
+                // ln(end / n_est) per 1,000 frames after establishing: the
+                // relative growth rate over the juvenile stretch.
+                let rgr: Vec<f32> = cs
+                    .iter()
+                    .filter_map(|c| {
+                        let at = c.established_at?;
+                        let span = spec.frames.saturating_sub(at);
+                        (span > 0 && c.end_shoot > 0).then(|| (c.end_shoot as f32 / spec.n_est.max(1) as f32).ln() * 1000.0 / span as f32)
+                    })
+                    .collect();
+                println!(
+                    "    {sp:<8} germ {germ:>2}/{n} est {:>2}/{n} est@ p50 {:>6.0} | end shoot p25 {:>5.0} p50 {:>5.0} p75 {:>5.0} cv {cv:.2} | rgr/1k p25 {:.2} p50 {:.2} p75 {:.2}",
+                    est.len(),
+                    q(&est, 0.5),
+                    q(&end, 0.25),
+                    q(&end, 0.5),
+                    q(&end, 0.75),
+                    q(&rgr, 0.25),
+                    q(&rgr, 0.5),
+                    q(&rgr, 0.75)
+                );
+            }
+        }
+    }
 }
 
 fn sd(v: &[f32]) -> f32 {
@@ -720,6 +792,7 @@ fn main() {
     let m = args();
     match m.get("mode").map(String::as_str).unwrap_or("train") {
         "calibrate" => calibrate(&m),
+        "rungs" => rungs(&m),
         "sweep" => sweep(&m),
         "score" => score_files(&m),
         "pic" => pic(&m),
