@@ -583,9 +583,21 @@ This session cannot launch anything.
 >    herb on sand reads its root zone 0.20-0.61 -> 0.30-0.90 (8 of 8 seeds),
 >    loam identical; the training world, paired, inside seed noise. Acts only
 >    where `soil_texture` is on (patchy lab ground).
-> 3. **Re-price shade tolerance**: it is still free in bright light (step
->    7), so training must not move it until it costs something there.
-> 4. **A2, development keying**, then the rest of A3 and A4 (§3.3).
+> 3. **Re-price shade tolerance. Re-priced, 2026-10-21; the rest is rung
+>    4's** (`Reports/plant-community-2026-10-20/m1/shade-price/`).
+>    `SHADE_LEAF_PRICE` 0.35 -> 0.9: a lone tolerant shrub under the lamp
+>    was larger on 12 of 16 paired seeds, now 8 of 16 (neutral); in dim
+>    light tolerance still keeps 16 of 16 alive against 13. No price makes it
+>    a *loss* alone in bright light, because a lone shrub there earns ~7x
+>    its upkeep and is sized by development, not carbon. The cost belongs
+>    where light is contested, so judge it on rung 4; and rungs 1-3 cannot
+>    see a leaf-economics trait in their bright stations.
+> 4. **A2, development keying: built, parked off, 2026-10-21**
+>    (`World::node_keyed_growth`; `.../m1/a2-node-key/`). It does not shrink
+>    the spread: grass tightens, herb and shrub widen, because the spread is
+>    the seedling stall lottery, which keying reshuffles. **So the rest of
+>    A3 comes first** (tip survival, the taper as a carried fraction), and
+>    A2 is re-measured after it; then A4.
 > 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the

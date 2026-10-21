@@ -1,0 +1,15 @@
+clone_variance: species=shrub founders=8 frames=20000 worldseed=None shift=1 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, moved one column at a time (8 positions):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  +0 col              22.000      8.000      7.000      1.143      0.318      0.455      0.679
+  +1 col              22.000      8.000      7.000      1.143      0.318      0.455      0.679
+  +2 col              23.000     10.000      7.000      1.429      0.304      0.435      0.543
+  +3 col              22.000      8.000      7.000      1.143      0.318      0.455      0.679
+  +4 col              23.000     10.000      7.000      1.429      0.304      0.435      0.543
+  +5 col              22.000      8.000      7.000      1.143      0.318      0.455      0.679
+  +6 col              23.000     10.000      7.000      1.429      0.304      0.435      0.543
+  +7 col              23.000     10.000      7.000      1.429      0.304      0.435      0.543
+  CV                   0.024      0.119      0.000      0.119      0.024      0.024      0.119
+  -- every row above is the SAME genome. Whatever spread this shows is the floor under any claim that two genomes differ.

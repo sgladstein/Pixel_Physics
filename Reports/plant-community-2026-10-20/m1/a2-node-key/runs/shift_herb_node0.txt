@@ -1,0 +1,15 @@
+clone_variance: species=herb founders=8 frames=20000 worldseed=None shift=1 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, moved one column at a time (8 positions):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  +0 col             142.000     30.000     21.000      1.429      0.296      0.500      0.587
+  +1 col             134.000     30.000     21.000      1.429      0.284      0.500      0.611
+  +2 col             142.000     30.000     22.000      1.364      0.296      0.500      0.587
+  +3 col             134.000     30.000     20.000      1.500      0.284      0.500      0.611
+  +4 col             134.000     30.000     20.000      1.500      0.284      0.500      0.611
+  +5 col             142.000     31.000     23.000      1.348      0.296      0.500      0.600
+  +6 col             128.000     30.000     20.000      1.500      0.289      0.500      0.617
+  +7 col             138.000     31.000     21.000      1.476      0.283      0.500      0.616
+  CV                   0.037      0.015      0.051      0.043      0.021      0.000      0.021
+  -- every row above is the SAME genome. Whatever spread this shows is the floor under any claim that two genomes differ.

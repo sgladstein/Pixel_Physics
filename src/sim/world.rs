@@ -6448,6 +6448,10 @@ pub struct World {
     /// would hit it harder: a process-global would be a hidden argument to
     /// every test that grows a plant, and the suite runs in parallel.
     pub developmental_key: super::organism::DevelopmentalKey,
+    /// **A growing tip's dice keyed on its node, not its age** (A2 of the
+    /// plant-community plan; `plant::node_stream`). Acts only under
+    /// `DevelopmentalKey::Plant`.
+    pub node_keyed_growth: bool,
     /// **The deepest generation any lineage has ever reached** — a high-water
     /// mark, never decremented, and the reason it exists is that every other
     /// generation readout in this repo cannot answer the question.
@@ -7575,6 +7579,7 @@ impl World {
             carried_radius: CARRIED_RADIUS,
             carried_off: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
+            node_keyed_growth: super::plant::node_key_default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
             deepest_breeder_generation: 0,
