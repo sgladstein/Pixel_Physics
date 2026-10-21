@@ -1,0 +1,137 @@
+# Handoff: the teacher lane (teaching the ant brain by copying), for the next session
+
+*Written 2026-10-21 ~08:30 UTC by the teacher-approach session (`session_0155kwr6ZPrC8bXE2JopsdJ4`), at the owner's
+request, at a natural stopping point. Read this, then `CLAUDE.md`, then the two documents named in "Where things
+are". Everything below is on `main` unless it says otherwise.*
+
+## What this lane is for
+
+The owner wants the evolved ant brain taught by copying a teacher, then improved by selection, because selection alone
+is slow and colony behaviours look unaffordable by selection alone. The lane built a copier (gradient descent on the
+brain's own genome, offline, in Python), measured what copying does, and designed where the teacher goes next (rules ->
+planners -> search, plus a colony tier). The brain lane (`session_01CfwaroVA7ncQdU7qtDEcJy`) owns `src/train/` and the
+Google runs; a research lane answers literature questions and sends findings by scheduled message.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The design (v2, after three adversarial reviews) | `Reports/brain-training/teacher-training/teacher-design-2026-10-21.md`; disposition of 30 findings in `teacher-design-review-2026-10-21.md`; reviews in `review/design-*.md` |
+| What copying did (step 1) | `step1-results-2026-10-21.md` |
+| Why copied lessons fail (step 0.5) | `step05-why-copies-fail-2026-10-21.md` |
+| Guidelines (T1 amended), literature, measurements 1-3 | `guidelines-2026-10-20.md`, `literature-2026-10-20.md`, `measurements-2026-10-20.md`, `notes/` |
+| Search teacher design + literature | `search-teacher-design-2026-10-21.md`, `notes/search-teacher-literature.md` |
+| Real nests in section; blueprints; general nest score | `notes/nest-architecture-2026-10-21.md`; `measurements/blueprints/` (`nestscore.py`, `render_blueprints.py`, `ringcrescent.py`, `rollcheck.py`, pictures) |
+| Spoil roll (engine switch, off by default) | `Reports/spoil-roll-2026-10-21/` (report, the measurement, and `default-on.patch`) |
+| **The copier and all analysis scripts** | `measurements/copier/` (`copier.py`, `contextprobe.py`, `probe.py`, `behave.py`, `arms.py`, `sil.py`, `rho.py`) |
+| **The Rust scratch code** (decision logger, label-only and acting teacher, `copylog`, `copyreplay`, `mutants`, the `reliab` harness) | `measurements/teacher-probes-2026-10-21.patch` -- a diff against `main` at `eae65c70`; the three new examples also as `measurements/copier/*.rs.txt`. **Never for main**; apply in a worktree at `eae65c70` and rebase forward (main has since changed the roof sense to a touch rule, PR 754, and added the spoil roll) |
+| Every genome the tables cite, with its copier config | `measurements/genomes/` (s161 as loaded and quieted, s171 as loaded, the step-1 copies, the step-0.5 arms, the s171 copies) |
+| The copy handed to the brain lane | `measurements/step1-runs/s171-copy/s171-down-v2.txt` and `s171-down-v2-revived.txt` (83 slots to protect) |
+
+The logs the copier trains on are not in git (hundreds of MB). Regenerate with the patch's `copylog`:
+`PP_COPY_LOG=<file> PP_TEACH_LABEL=1 copylog soil <genome> 9101 48 out.csv 2`, `copylog fetch <genome> 9301 16`,
+`copylog trail <genome> 9401 8` (the run seeds every config here used; s171's extra fetch anchors: 9311 x64 for s171,
+9321 x48 for the copy's own runs). Evaluation worlds: `reliab 8 12000 out.csv <genomes...>` from a directory with
+the `m1` layout (run sets 9001+9002, 96 worlds, 48 seed pairs; s.e. clustered by seed with `arms.py`). Kept skills:
+`copylog fetch|trail <genome> 9801 48`, **but judge any genome bound for the trainer with the trainer's own harness**
+(below).
+
+## State at handoff
+
+**Done and on main.**
+- Step 1: copying works for "go down" (s161 6.42 -> 10.57; repeats over seeds). "Dig" and "walk home" fail when copied
+  alone.
+- Step 0.5: why.
+  - **Dig is wiring.** The verb stage barely reads the dig score (weight -0.31 against a -6.30 bias). One revived
+    scorer unit removes most of the collapse (3.35 -> 5.80). With one unit, dig + go-down gives 10.67 with fetch held.
+  - **Dig's last gap is a discrimination limit.** The dig score separates a foot cell from a wall at AUC 0.61. The
+    copy still cuts walls on ~9 of ~22 trips, and weighting "don't dig here" harder only makes it dig less.
+  - **Walk home spreads to foragers.** The arenas are separable only by artefacts (fetch is fed), and neither capacity
+    nor routing through unit 14 fixes it.
+- **s171 copy v2 meets the brain lane's floor**, confirmed by the brain lane on its own worlds.
+  - Copy: soil +2.08 sealed / +0.81 fresh; fetch 0.83 of s91.
+  - Against 150 generations of raced selection: +0.42 / +0.90, fetch 0.78.
+  - The fix was a look-alike anchor group plus one revived unit. v1 failed because go-down trapped foragers in the
+    nest chamber.
+
+**Waiting on the owner.**
+1. **The copy-vs-selection run** -- the brain lane is ready (`noprune=` with the 83-slot file, main `ec86ab0a`).
+2. **Spoil roll on by default.** Built, measured neutral, and the brain lane has pinned it off in every training
+   arena (PR 756). But with it on, `sim::creature::tests::every_traced_decision_agrees_with_the_counters_and_the_positions`
+   fails, and the roll is not the cause.
+   - The roll changes that test colony's path so it reaches a walled-in hungry ant.
+   - `pack_behind` (NeedsFirst's pack) calls `commit_step`, which books `DecisionOutcome::Stepped` with no cone pick,
+     and here with no head motion.
+   - That is a latent bug in how the trace books a pack. The `moves` counter assertions read the same booking, so the
+     fix needs the owner's go.
+   - The flip itself is `Reports/spoil-roll-2026-10-21/default-on.patch`.
+
+## What to do next, in order
+
+1. **Fold step 0.5 and the research lane's answers into the design (v3).** The research lane's findings arrived by
+   scheduled message overnight; its reports are under `Reports/brain-training/research/` (branch
+   `claude/project-thread-hhopdh` until merged). What they change:
+   - **Q3a.** Unit 14 is the brain's empty-only unit (tested: routing walk home through it helps soil, not fetch).
+     EWC and PCGrad are not worth it here.
+   - **Q3c.** DAgger hurt because learner-visited states use up a small brain's capacity (Laskey 2016), and its labels
+     assume the teacher carries on.
+     - Use coaching-style targets with a *schedule*: tau loose, then tightening.
+     - Li et al. 2020 relabel only *failed* trips. This is cheap to try: relabel the trips that stranded, keep the
+       labels where trips worked.
+   - **Q3b.** Seed the copy into a few parents, not all of them (Lamarckian lock-in).
+   - **Q3e.** Never pool "good trips" across arenas for self-imitation.
+   - **Q4.**
+     - Size colony training by contacts per ant.
+     - Pioneer ants that fade out.
+     - Check whether the brain rests when a tunnel is blocked.
+   - **Q5.**
+     - A headroom-over-the-head sense needs reach >= 8 for 7-cell chambers.
+     - CO2 is no depth cue.
+     - Slanted shafts are not wrong (age).
+2. **Dig's discrimination limit -> a sense.** The candidate is local: "the target is the lowest open-adjacent cell of
+   the cavity the ant stands in", which is the bottom of the hole felt by gravity and touch.
+   - First run the probe (brain channel) with that feature computed offline from the logs. Does it separate foot from
+     wall?
+   - Only then propose it to the brain lane (new links at zero, through their lane).
+3. **The search teacher pilot (design §8)**, not started. Do its instrument checks A1-A4 and the pairing measurement
+   S1 first. Its target, dig-or-not, is exactly the lesson that copying cannot finish.
+4. **Nest work.**
+   - Rust port of `nestscore.py` beside `src/lab/nestcensus.rs`.
+   - The harvester-profile plan generator.
+   - The nest planner on the roof and chamber rungs.
+   - The ring mound (owner's choice), with mound cuts never labelled "no" (see the `MOUND_DIG` dead end).
+5. **Walk home**: decide with the owner. Either leave the empty return trip to selection, or teach it only in an arena
+   where diggers and foragers share the world.
+
+## Owner rulings made in this lane (2026-10-20/21)
+
+- Chamber height: 7 cells.
+- Harvester stack is the favourite nest; any of the five is acceptable.
+- Different species / creatures digging different nests later.
+- Score the nest by general properties, not one blueprint.
+- **Ring** mound.
+- Pellet settle: "go with your suggestion" (the roll at placement, never loose soil).
+- New senses: allowed if local and biologically realistic.
+- The teacher may compute anything (T1 amended).
+- No put-down rule in the teacher.
+- Merge to main allowed whenever (owner, 2026-10-21), with CI green on the merged head.
+- No VMs without the owner's go.
+
+## Gotchas this lane paid for
+
+- **Agreement on logged decisions is not performance.** Several copies fitted held-out decisions better and did worse
+  in the world.
+- **Judge a kept skill with the harness that enforces it**:
+  `train brain=mind challenge=fetch dist=10,30 budget=1200 holdout=96 noise=1 start=<g> score=<g>`, read the "worse
+  side" line (min over each mirrored pair). The 48-world check passed a copy the trainer's floor fails.
+- **A dead unit with every weight at 0 cannot learn** (zero gradient on both sides); the first revive arm reproduced
+  the baseline to every digit. Seed its inputs, leave its output at 0.
+- **The copier's quiet step and the revive seeding must both respect `freeze`.** Each once changed a frozen
+  `f::ROOF_DROP` link.
+- **An extra live link changes soil runs** (energy is billed per link) but not fetch or trail (those arenas top the
+  ant up). Re-measure any genome you edit, even a "no-op" edit.
+- **`deeptrace` reads its scenario relative to the repo root.** Run it from there.
+- **A shell command containing `rm` inside `bash -c` is blocked by the harness's safety check.** Write to new file
+  names instead of deleting.
+- `scripts/docscheck.sh` exits 1 on `main` because of `deadendindex.py`'s `utcfromtimestamp` DeprecationWarning alone.
+  Read its output, not the exit code.

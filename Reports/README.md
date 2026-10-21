@@ -5797,6 +5797,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   no supply line (739 starved against 8). On the playtest line ~11 of ~150
   cells a 1,000 frames reach the store; the low store belongs to the
   recruiting colony (fits `follow-food-home-2026-10-10`).
+- [handoff/teacher-lane-handoff-2026-10-21.md](handoff/teacher-lane-handoff-2026-10-21.md) — **the
+  teacher lane's handoff (2026-10-21):** where the copier, its scratch Rust
+  patch, every cited genome and the analysis scripts now live in the repo;
+  the state (copy v2 handed to the brain lane; dig a discrimination limit;
+  walk home an arena-context spread); the two owner decisions pending
+  (copy-vs-selection run; spoil roll default, blocked on a pack-booking
+  trace bug); next steps in order; and the gotchas this lane paid for.
 - [handoff/brain-lane-handoff.md](handoff/brain-lane-handoff.md) — **the
   handoff for the stage 2 brain work (training the ant's mind up the ladder
   trail → forage → dig → brood), 2026-10-20; start here for brain training.**
