@@ -378,12 +378,43 @@ local options, each small and legible, none on by default:
 
 | Change | Real basis | On screen | Cost |
 |---|---|---|---|
-| Spans over about 3 body widths shed a few roof grains from the middle | Arching weakens with span | Wide rooms get a sag and a scatter on the floor, not a cave-in | One row scan per worked cell with air beneath |
+| Spans beyond a generous limit (real chambers span many body lengths; tighter when dry or soaked) shed a few roof grains from the middle | Arching weakens with span | Very wide rooms get a sag and a scatter on the floor, not a cave-in | One row scan per worked cell with air beneath |
 | Saturated walls shed a grain now and then, dry ones crumble at the rim | Cohesion falls at both ends of wetness | Flooded tunnels silt up slowly | A moisture term in the crumb rule |
 | Graded root hold (more roots, firmer bank) | Root reinforcement grows with root density | Banks with sparse roots slump at the edge | Count of root neighbours instead of any |
 
 Each would need the HANGING cue (§5.3) to include its new failure, which is
 local in every case.
+
+### 5.6 The third dimension: is a wide void a room or a tunnel?
+
+*Raised by the owner on reading §5.5, 2026-10-21; the choice is pending.*
+
+The screen is one vertical plane. A roof's real span is the shorter of its two
+horizontal sizes, and one of them is off screen, so a void 128 cells wide could
+be a great room or a body-wide tunnel running across the view. The physics
+that is realistic depends on which the world is taken to be:
+
+- **Deep slice of a 3D world.** A wide void is most likely a body-wide tunnel
+  seen side-on, so its true span is about one body whatever its width on
+  screen. The engine's width-blind rule is then defensible, and only the
+  wetness effects of §5.5 are worth adding. This is how the repo already
+  reads trees: a branch one cell wide is not a shelf spanning the whole wood
+  (`wiki/liquids-and-gases.md`).
+- **Glass ant farm (thin slab).** The world is a slab a body or two deep
+  between panes. Width on screen *is* the span, and a span limit is the
+  realistic rule. The lab is a sealed box, and thin glass formicaria are a
+  standard real setup, so this reading is literally true there; the outdoor
+  and held worlds read better as a slice.
+
+Two facts keep either reading from over-promising. The real span limit is
+generous: chambers span many body lengths in damp soil, so a limit caps very
+wide rooms and does not force narrow tunnels. And body-wide tunnels come
+mostly from the ant, not the soil: narrow tunnels let ants brace with legs and
+antennae and arrest falls while climbing: fire ants dig tunnels 1.06 body lengths
+across, and below 1.31 body lengths every induced fall was arrested (Gravish et
+al. 2013). In this
+engine, then, narrow tunnels would come from fall risk on the climb, not from
+roof collapse.
 
 ## 6. The plants: what the ground should tell a root and a seed
 
@@ -456,7 +487,7 @@ Ant digging and tunnels
 - Buarque de Macedo, R. et al. (2021). Unearthing real-time 3D ant tunneling mechanics. *PNAS*. doi:10.1073/pnas.2102267118
 - Pal, A., Buarque de Macedo, R. & Andrade, J.E. (2021). Granular Matter. doi:10.1007/s10035-021-01141-2
 - Halfen, A.F. & Hasiotis, S.T. (2010). *PALAIOS*. doi:10.2110/palo.2010.p10-005r
-- Gravish, N. et al. (2013), tunnel width and body length, as cited in `nest-excavation-mechanics-2026-09-19.md`
+- Gravish, N., Monaenkova, D., Goodisman, M.A.D. & Goldman, D.I. (2013). Climbing, falling, and jamming during ant locomotion in confined environments. *PNAS* 110:9746. doi:10.1073/pnas.1302428110
 
 Ants and soil water
 - Drager, K.I., Hirmas, D.R. & Hasiotis, S.T. (2016). *SSSAJ*. doi:10.2136/sssaj2015.08.0300; and *Soil Science*. doi:10.1097/SS.0000000000000145
