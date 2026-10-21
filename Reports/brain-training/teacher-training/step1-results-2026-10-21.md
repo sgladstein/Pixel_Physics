@@ -160,8 +160,22 @@ floor is applied -- and reproduced here:
 The trainer's floor is 0.8 x keepref's calibration score (22.015) = 17.61, so the copy sits on it, which is not
 "meets". Two lessons kept: **judge a kept skill with the harness that enforces it**, folded the way it folds; and on
 these worlds the soil gain is about half what mine showed (+0.69 against +2.17), so a 96-world set is not one number
-either. A copy anchored on 64 more s171 fetch worlds plus the copy's own fetch runs (labelled with s171's policy) is
-being trained and will be judged on the trainer's harness.
+either. **The fix (copy v2, `s171-down-v2.txt`).** Heavier fetch anchors alone made it worse (worse side 15.76 at 10x, 17.51
+at 20x): the loss was a few total failures -- the copy's forager, empty and inside the nest's chamber below ground,
+kept taking the deepest step (go-down's trigger) and never came out (step 0.5 §6). What fixed it: those look-alike
+fetch decisions (an empty ant below ground) as their own anchor group at 20x, drawn from s171's fetch runs on 80
+worlds and the copy's own, **plus one revived scorer unit**; `f::ROOF_DROP` frozen and never seeded.
+
+| s171 copy | Soil, my 96 worlds (s171 9.47) | Fetch worse side, trainer's harness (s171 19.34; floor 17.61) | Fetch worlds under 5 (of 96) | Trail worse side (s171 0.745) |
+|---|---|---|---|---|
+| v1, handed over first | 11.64 (+2.17 +- 0.55) | 17.62 +- 0.80 | 5 | -- |
+| look-alike anchor only | 10.36 (+0.90 +- 0.58) | 18.59 +- 0.72 | 3 | -- |
+| **v2: look-alike anchor + one unit** | **10.71 (+1.24 +- 0.51)** | **19.83 +- 0.26** | **0** | **0.731 +- 0.016** |
+
+v2 holds fetch better than s171 itself: same 96 layouts, mean 20.86 against 20.57, and on s171's own two failure
+worlds it scores 20.4 and 18.1 (s171: 1.7 and 3.6) -- the anchor taught "climb out of the nest" more firmly than s171
+had it. The price is about half the soil gain. Its 83 revived links (the 8 go-down links, unit 0's inputs, verb row and
+output) are in `s171-down-v2-revived.txt`.
 
 ## Where this leaves step 1
 
