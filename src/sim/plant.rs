@@ -10995,13 +10995,22 @@ const SHADE_UPKEEP_CUT: f32 = 0.5;
 /// trade: thin cheap leaves saturate early).
 const SHADE_LEAF_PRICE: f32 = 0.35;
 
+/// `SHADE_LEAF_PRICE`, or `PIXEL_PHYSICS_SHADE_LEAF_PRICE` when set: the
+/// sweep the price is re-derived on (plan step 3, "re-price shade
+/// tolerance"). A measurement instrument, read once per process.
+fn shade_leaf_price() -> f32 {
+    use std::sync::OnceLock;
+    static PRICE: OnceLock<f32> = OnceLock::new();
+    *PRICE.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_LEAF_PRICE").ok().and_then(|v| v.parse().ok()).unwrap_or(SHADE_LEAF_PRICE))
+}
+
 /// The light a leaf at `(x, y)` earns from, after its plant's shade
 /// tolerance is priced (`SHADE_LEAF_PRICE`). Plain light when the world does
 /// not read shade genes or the plant has none.
 fn leaf_light_used(world: &World, x: i32, y: i32, shade_tolerate: f32) -> f32 {
     let light = ambient_light_above(world, x, y);
     if shade_tolerate > 0.0 {
-        light * (1.0 - SHADE_LEAF_PRICE * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0))
+        light * (1.0 - shade_leaf_price() * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0)).max(0.0)
     } else {
         light
     }

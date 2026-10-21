@@ -1160,6 +1160,10 @@ fn plastic(m: &BTreeMap<String, String>) {
                         .collect();
                     println!("    {label}: founder {} at the end; deaths in the bed by cause {:?}", if w.organism(id).is_some() { "alive" } else { "dead" }, causes);
                 }
+                // One line per seed, so the arms can be compared paired
+                // within seed rather than by mean of survivors: a shoot's
+                // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
+                println!("    SEED {label} s={s} shoot {}", form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])));
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);
                     if let Some(st) = w.organism(id) {
@@ -1206,10 +1210,24 @@ fn plastic(m: &BTreeMap<String, String>) {
                 bed.spells = Some(Spells { wet: 20_000, dry: 40_000 });
                 let (mut w, id) = arena::build(&bed, &spec);
                 w.bud_break_reserve = get(m, "budreserve", 0u8) != 0;
+                // `twater=1`: `World::texture_water`, the A/B of a plant
+                // reading each texture's water on its own scale.
+                w.texture_water = get(m, "twater", u8::from(w.texture_water)) != 0;
                 let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
-                for _ in 0..frames {
+                // Mean root-zone water the founder reads (`root_zone_water`,
+                // through `plant::available_water`), sampled every 1,000
+                // frames: what the switch changes first, before any form.
+                let (mut wet, mut wet_n) = (0.0f32, 0u32);
+                for f in 0..frames {
                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
+                    if f % 1_000 == 999 {
+                        if let Some(st) = w.organism(id).filter(|st| st.contact_root_cells > 0) {
+                            wet += st.root_zone_water;
+                            wet_n += 1;
+                        }
+                    }
                 }
+                println!("    SEED {label} s={s} texture_water={} rootwet {:.3} shoot {}", w.texture_water, wet / wet_n.max(1) as f32, form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])));
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);
                 }

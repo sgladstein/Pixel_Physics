@@ -1,6 +1,6 @@
 # Liquids & Gases
 
-*Current as of: 2026-10-21, later (in every lab bed, water in the ground
+*Current as of: 2026-10-21, latest (on patchy ground a plant judges each soil by its own measure, so damp sand reads as damp rather than two-thirds dry). Before that, 2026-10-21, later (in every lab bed, water in the ground
 passes through a mat of roots instead of being sealed in by it, so pools
 stop standing over plants; and rain works its way through even a very thick
 crown). Before that, 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
@@ -100,7 +100,9 @@ ground. Dark rich clay-loam holds the most, gives it up slowly, and is hard
 for a root to push through. After rain each settles at its own wetness and
 stays there; water does not creep out of the clay into the sand beside it.
 Under a dry spell the sandy patches parch while the clay stays damp, so two
-plants a few cells apart live through different droughts. The bed's
+plants a few cells apart live through different droughts. A root judges each
+kind by its own measure: sand as wet as sand ever stays reads as well
+watered, and clay is only thirsty once it has given up what clay gives up. The bed's
 surface dips into shallow hollows, where rain gathers and the soil is
 darkest. Water reaching a root or a stone runs down beside it rather than
 pooling on top. Everywhere else, and in the bed as it ships, the ground is

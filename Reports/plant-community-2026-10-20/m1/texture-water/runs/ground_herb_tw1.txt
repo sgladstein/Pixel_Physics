@@ -1,0 +1,41 @@
+plant_m0 plastic axis=ground: species=herb frames=60000 seeds=8 (founder alone under a lamp, in-bed heredity off, drain on, spells 20k/40k)
+    SEED sandy s=0 texture_water=true rootwet 0.789 shoot 77
+    SEED sandy s=1 texture_water=true rootwet 0.904 shoot 101
+    SEED sandy s=2 texture_water=true rootwet 0.797 shoot 65
+    SEED sandy s=3 texture_water=true rootwet 0.785 shoot 57
+    SEED sandy s=4 texture_water=true rootwet 0.903 shoot 170
+    SEED sandy s=5 texture_water=true rootwet 0.808 shoot dead
+    SEED sandy s=6 texture_water=true rootwet 0.301 shoot 161
+    SEED sandy s=7 texture_water=true rootwet 0.734 shoot 54
+  sandy  alive 7/8 | shoot 97.86+-48.83 height 39.00+-10.91 width 13.00+-4.86 leaf_share 0.45+-0.07 root 75.86+-50.95 root_depth 16.00+-9.97
+    SEED loam s=0 texture_water=true rootwet 0.764 shoot dead
+    SEED loam s=1 texture_water=true rootwet 0.915 shoot 111
+    SEED loam s=2 texture_water=true rootwet 0.754 shoot 64
+    SEED loam s=3 texture_water=true rootwet 0.951 shoot 139
+    SEED loam s=4 texture_water=true rootwet 0.920 shoot 123
+    SEED loam s=5 texture_water=true rootwet 0.826 shoot dead
+    SEED loam s=6 texture_water=true rootwet 0.240 shoot 175
+    SEED loam s=7 texture_water=true rootwet 0.777 shoot 51
+  loam   alive 6/8 | shoot 110.50+-46.54 height 41.50+-13.05 width 13.83+-4.36 leaf_share 0.45+-0.09 root 82.33+-51.94 root_depth 25.00+-26.34
+    SEED rich s=0 texture_water=true rootwet 0.813 shoot dead
+    SEED rich s=1 texture_water=true rootwet 0.428 shoot 113
+    SEED rich s=2 texture_water=true rootwet 0.678 shoot 67
+    SEED rich s=3 texture_water=true rootwet 0.745 shoot 202
+    SEED rich s=4 texture_water=true rootwet 0.437 shoot 216
+    SEED rich s=5 texture_water=true rootwet 0.659 shoot dead
+    SEED rich s=6 texture_water=true rootwet 0.356 shoot 204
+    SEED rich s=7 texture_water=true rootwet 0.740 shoot 59
+  rich   alive 6/8 | shoot 143.50+-72.47 height 41.33+-12.31 width 18.50+-9.52 leaf_share 0.44+-0.09 root 39.83+-32.91 root_depth 8.00+-7.16
+    SEED loam B s=0 texture_water=true rootwet 0.917 shoot 119
+    SEED loam B s=1 texture_water=true rootwet 0.637 shoot dead
+    SEED loam B s=2 texture_water=true rootwet 0.943 shoot 109
+    SEED loam B s=3 texture_water=true rootwet 0.851 shoot 74
+    SEED loam B s=4 texture_water=true rootwet 0.936 shoot 9
+    SEED loam B s=5 texture_water=true rootwet 0.920 shoot dead
+    SEED loam B s=6 texture_water=true rootwet 0.848 shoot 194
+    SEED loam B s=7 texture_water=true rootwet 0.737 shoot dead
+  loam B alive 5/8 | shoot 101.00+-67.51 height 36.20+-17.91 width 16.00+-10.95 leaf_share 0.54+-0.17 root 122.80+-50.33 root_depth 48.80+-28.13
+  rich - sandy   shoot +0.74 height +0.20 width +0.73 leaf_share -0.09 root -0.84 root_depth -0.92   (shift in units of the spread inside an arm)
+  loam - sandy   shoot +0.27 height +0.21 width +0.18 leaf_share -0.02 root +0.13 root_depth +0.45   (shift in units of the spread inside an arm)
+  rich - loam    shoot +0.54 height -0.01 width +0.63 leaf_share -0.06 root -0.98 root_depth -0.88   (shift in units of the spread inside an arm)
+  loam B - loam  shoot -0.16 height -0.34 width +0.26 leaf_share +0.68 root +0.79 root_depth +0.87   (shift in units of the spread inside an arm)
