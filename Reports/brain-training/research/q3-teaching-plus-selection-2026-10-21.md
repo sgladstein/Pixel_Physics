@@ -17,8 +17,8 @@ does a search label cost? And what is the known flaw in copying your own past
 successes?
 
 **What this builds on, and does not repeat.** The teacher lane's notes
-(`Reports/brain-training/teacher-training/notes/` on branch
-`ccr-439ee31b-pn36yq`) already cover privileged teachers, ADVISOR, A2D, Swamy,
+(`Reports/brain-training/teacher-training/notes/`, on `main`
+since PR #753) already cover privileged teachers, ADVISOR, A2D, Swamy,
 basic DAgger and kickstarting. This report adds only what is not in them.
 
 **Evidence tags:**

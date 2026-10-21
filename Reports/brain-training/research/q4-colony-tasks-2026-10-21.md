@@ -8,7 +8,7 @@ lane on 2026-10-21.*
 colony tasks: digging rooms sized to the colony, splitting work, and keeping
 a tunnel from jamming. The teacher lane has already written six colony
 guidelines, C1 to C6 (`Reports/brain-training/teacher-training/guidelines-2026-10-20.md`
-on branch `ccr-439ee31b-pn36yq`), on top of about 15,000 words of notes:
+on `main` since PR #753), on top of about 15,000 words of notes:
 
 - `notes/evolving_collective_behaviour.md`: Waibel, Ferrante, heterogeneity,
   credit assignment, scaling;

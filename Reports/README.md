@@ -5662,6 +5662,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   scent (Pitteri 2026; C10). The parked dig-recruit rule dug more and shrank the colony, so build the planned building
   scent and let selection decide.
 
+- [brain-training/research/q5-real-ant-sensing-2026-10-21.md](brain-training/research/q5-real-ant-sensing-2026-10-21.md) —
+  **research lane, Q5: which of the ant's senses are true to a real ant.** 61% of s171's sense weight is on local, true
+  readings; 24% is on the roof forecast and the dug-cell label. PR #751's touch bit replaces the roof forecast, and arching
+  around real tunnels explains why it works (Buarque de Macedo 2021). The CO2 depth template was refuted (Tschinkel 2013),
+  and s171 barely uses depth, so ablate it. The home vector is too exact (real error grows with distance). Ants sense a
+  quorum as a contact rate. The owner's 8–16-cell chamber spec is about four times real, so a height sense needs a reach
+  of at least 17.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
