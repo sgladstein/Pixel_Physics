@@ -5574,7 +5574,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   "go down" alone takes s161 from 6.42 to 10.57 full loads with fetch and
   trail intact; "walk home" breaks fetch (it spreads to loaded ants and
   foragers) and "dig" collapses the ant when copied alone; together the
-  lessons interfere in the shared scorer.
+  lessons interfere in the shared scorer. The go-down copy repeats (10.57 / 10.60 / 9.80
+  over three training seeds; fetch +0.5 to -1.9); one DAgger round did
+  not help (9.50); on s171 the per-rule headroom moves to dig and walk
+  home (+5.75, +5.40), with the same all-rules ceiling (20.50).
   [teacher-design-2026-10-21.md](brain-training/teacher-training/teacher-design-2026-10-21.md)
   — **design doc, for adversarial and improvement review, nothing new
   built:** keep the three-rule teacher for the 8-row step and grow it

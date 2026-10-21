@@ -1,0 +1,31 @@
+quiet_unread: 184 links of unread units zeroed; live links 706 -> 522
+trainable slots: 320 (live 311, allow-list 9)
+rules copied: ['down']
+group none : train   9760  held out   2240  target ref
+group down : train   9911  held out   2089  target teacher
+group keep : train  10280  held out   1720  target ref
+step 0: held-out KL none 0.0052 down 2.2126 keep 0.0202
+step 100: held-out KL none 0.0476 down 1.4430 keep 0.1137  sum 1.6043  (10 s)
+step 200: held-out KL none 0.0440 down 1.2735 keep 0.1005  sum 1.4180  (19 s)
+step 300: held-out KL none 0.0462 down 1.0310 keep 0.0846  sum 1.1618  (28 s)
+step 400: held-out KL none 0.0501 down 0.8603 keep 0.0874  sum 0.9978  (39 s)
+step 500: held-out KL none 0.0546 down 0.8185 keep 0.0865  sum 0.9596  (48 s)
+step 600: held-out KL none 0.0493 down 0.8306 keep 0.0827  sum 0.9626  (56 s)
+step 700: held-out KL none 0.0473 down 0.8212 keep 0.0769  sum 0.9454  (65 s)
+step 800: held-out KL none 0.0521 down 0.8059 keep 0.0794  sum 0.9374  (74 s)
+step 900: held-out KL none 0.0506 down 0.8083 keep 0.0940  sum 0.9530  (83 s)
+step 1000: held-out KL none 0.0478 down 0.8336 keep 0.0836  sum 0.9649  (92 s)
+step 1100: held-out KL none 0.0463 down 0.8393 keep 0.0734  sum 0.9590  (101 s)
+step 1200: held-out KL none 0.0430 down 0.8128 keep 0.0740  sum 0.9297  (110 s)
+step 1300: held-out KL none 0.0472 down 0.8431 keep 0.0704  sum 0.9606  (121 s)
+step 1400: held-out KL none 0.0447 down 0.8274 keep 0.0776  sum 0.9496  (130 s)
+step 1500: held-out KL none 0.0442 down 0.8041 keep 0.0756  sum 0.9238  (139 s)
+step 1600: held-out KL none 0.0430 down 0.8295 keep 0.0757  sum 0.9482  (148 s)
+step 1700: held-out KL none 0.0419 down 0.8379 keep 0.0695  sum 0.9493  (157 s)
+step 1800: held-out KL none 0.0428 down 0.8181 keep 0.0742  sum 0.9351  (165 s)
+step 1900: held-out KL none 0.0431 down 0.8266 keep 0.0720  sum 0.9417  (175 s)
+early stop at 1900; best step 1500
+wrote /home/user/d1/down-r1.txt: best step 1500, live links 531 (start 706), moved 273, revived 9 [np.int64(654), np.int64(699), np.int64(789), np.int64(834), np.int64(924), np.int64(1059), np.int64(1149), np.int64(1239), np.int64(1498)]
+  none  start: overlap with target 0.992 | copy: overlap with target 0.954
+  down  start: overlap with target 0.285 | copy: overlap with target 0.492
+  keep  start: overlap with target 0.986 | copy: overlap with target 0.928

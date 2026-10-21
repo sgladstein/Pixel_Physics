@@ -97,11 +97,57 @@ which needs the copy's revived links protected (slot 1498 and the `DEPTH` links 
 1239; the brain lane has offered a named-slot protect list). The brain lane also suggests copying into s171, whose
 ceiling is the same.
 
+## Since the interim: is the copy repeatable, does DAgger help, and is s171 a better start?
+
+**The go-down copy is a repeatable result, not a lucky one.** The same copy retrained with two more seeds (different
+batches and initial order, same data and settings), judged on the same 96 worlds:
+
+| Go-down copy | Full loads | vs 6.42 | Fetch (s161q 16.66) | Fetch, paired vs s161q |
+|---|---|---|---|---|
+| seed 1 (the one above) | 10.57 ± 0.39 | +4.16 ± 0.48 | 17.11 | +0.46 ± 1.13 |
+| seed 2 | 10.60 ± 0.36 | +4.19 ± 0.46 | 14.75 | −1.90 ± 1.09 |
+| seed 3 | 9.80 ± 0.34 | +3.39 ± 0.45 | 15.42 | −1.24 ± 0.91 |
+
+All three revive the same nine links (slot 1498 and the eight `DEPTH` links). The soil gain spreads by about 0.8
+between copies; the fetch cost spreads more (+0.5 to −1.9). No single copy's fetch change is outside about two
+standard errors, but two of three are below the start, so **"kept skills intact" should read "fetch roughly held, at
+a cost of up to ~2 trips on some copies"**. The fetch errors are not seed-clustered (48 fixed worlds), so they are a
+little optimistic.
+
+**One DAgger round on the go-down copy made it worse**: relabelling the copy's own states and copying again from s161
+on the pooled data gave 9.50 full loads (against 10.57), fetch 15.32, trail 0.598. One round is not a verdict on DAgger,
+but it is no reason to spend more rounds on this lesson before the others work.
+
+**s171 has the same headroom as s161, rule by rule.** s171 (100 generations of selection at 8 rows; 9.47 alone) with
+each rule acting alone on the same 96 worlds:
+
+| Teacher acting | s171: full loads | s171: gain | s161: gain (measurements, 6.80 alone) |
+|---|---|---|---|
+| none | 9.47 | -- | -- |
+| dig at the foot | 15.22 | +5.75 | +4.74 |
+| go down | 12.11 | +2.65 | +3.41 |
+| walk home | 14.86 | +5.40 | +1.56 |
+| dig + go down | 16.23 | +6.76 | +10.11 |
+| all three | 20.50 | +11.03 | +13.74 (20.54) |
+
+The all-rules ceiling is the same as s161's (20.50 against 20.54-20.66), so **selection raised the floor without
+raising the ceiling**. Rule by rule the headroom moved: go down is worth less on s171 (+2.65 against +3.41; selection
+already taught some of it), and **walk home is worth three times as much** (+5.40 against +1.56), so on s171 it no
+longer needs go-down beside it to pay. **So copying go-down into s171 would buy less than it bought s161**; the bigger
+prizes on s171 are dig and walk home, the two lessons that did not copy cleanly into s161. Whether they copy into s171
+is the next test worth running, with the context probe of the teacher design (section 7) first, since walk home broke
+fetch by spreading to foragers.
+
 ## Where this leaves step 1
 
-Against the design's bars: the best copy (go down only, 10.57) is in the "partial" band -- 35% of the reachable gain
-(the strict floor-limited ceiling is 18.23), kept skills held. GIF: `measurements/s161-vs-copy-down-world2.gif` (sealed world 2: s161's scattered wall cuts against the copy's cuts concentrated at the foot). Not yet run: DAgger rounds on the go-down copy, the
-self-imitation arm, the dig rule's failure traced to its cause. Open for the owner: whether to (a) build on
-go down alone (DAgger, then a selection run from it), (b) keep working the dig and home rules into the copy (they
-interfere in the shared scorer; a context sense or more capacity may be needed), or (c) treat walk home as a lesson for
-selection rather than copying, since it costs fetch.
+Against the design's bars: the best copy (go down only, 10.57; repeated at 10.60 and 9.80) is in the "partial" band --
+35% of the reachable gain (the strict floor-limited ceiling is 18.23), fetch roughly held. GIF:
+`measurements/s161-vs-copy-down-world2.gif` (sealed world 2: s161's scattered wall cuts against the copy's cuts
+concentrated at the foot). One DAgger round on it did not help (9.50). Not yet run: the self-imitation arm, the dig
+rule's failure traced to its cause, and copying into s171.
+
+What comes next is in [`teacher-design-2026-10-21.md`](teacher-design-2026-10-21.md) (under review): keep these three
+rules as the 8-row teacher and the examiner of later ones; replace walk home with a carry path that only labels loaded
+ants; copy dig only after go-down, with a regularised target; and test a context probe (can the ant tell an empty
+digger from an empty forager?) before copying a lesson that could spread. On s171 the larger prizes are dig and walk
+home, not go down.
