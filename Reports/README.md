@@ -5530,6 +5530,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/design/noprune-design-2026-10-21.md](brain-training/design/noprune-design-2026-10-21.md) —
+  **built (`noprune=`):** named slots selection may tune but never prune, for a selection run from a brain the teacher
+  lane copied (its revived links: slot 1498 and `DEPTH` into live scorer units). A listed scorer input brings its unit's
+  output weight with it -- the MAJOR an independent review found -- and an empty list leaves every draw as it was.
 - [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
   dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
   (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
