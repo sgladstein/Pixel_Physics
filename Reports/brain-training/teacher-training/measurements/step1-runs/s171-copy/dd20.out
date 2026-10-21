@@ -1,0 +1,35 @@
+quiet_unread: 187 links of unread units zeroed; live links 707 -> 520
+trainable slots: 316 (live 308, allow-list 9, frozen 16, of them live 1)
+rules copied: ['dig', 'down']
+group digM : train   3807  held out    584  target teacher
+group none : train   6765  held out   1235  target ref
+group digN : train   6882  held out   1118  target teacher
+group down : train   6924  held out   1076  target teacher
+group keep : train   5904  held out   2096  target ref
+step 0: held-out KL digM 3.6723 none 0.0000 digN 0.0046 down 1.7748 keep 0.0000
+step 100: held-out KL digM 1.9530 none 0.0103 digN 0.0105 down 1.7685 keep 0.0081  sum 3.7504  (16 s)
+step 200: held-out KL digM 1.9247 none 0.0067 digN 0.0109 down 1.7045 keep 0.0173  sum 3.6642  (33 s)
+step 300: held-out KL digM 1.6402 none 0.0089 digN 0.0098 down 1.6810 keep 0.0133  sum 3.3533  (50 s)
+step 400: held-out KL digM 1.6399 none 0.0111 digN 0.0208 down 1.6384 keep 0.0252  sum 3.3355  (66 s)
+step 500: held-out KL digM 1.6278 none 0.0079 digN 0.0094 down 1.5785 keep 0.0221  sum 3.2457  (83 s)
+step 600: held-out KL digM 1.5826 none 0.0098 digN 0.0092 down 1.4892 keep 0.0208  sum 3.1117  (100 s)
+step 700: held-out KL digM 1.5646 none 0.0127 digN 0.0096 down 1.3547 keep 0.0280  sum 2.9696  (118 s)
+step 800: held-out KL digM 1.5925 none 0.0145 digN 0.0110 down 1.3157 keep 0.0293  sum 2.9629  (134 s)
+step 900: held-out KL digM 1.5440 none 0.0143 digN 0.0119 down 1.2434 keep 0.0315  sum 2.8450  (151 s)
+step 1000: held-out KL digM 1.5659 none 0.0157 digN 0.0114 down 1.2239 keep 0.0380  sum 2.8548  (167 s)
+step 1100: held-out KL digM 1.5117 none 0.0114 digN 0.0091 down 1.1709 keep 0.0310  sum 2.7340  (185 s)
+step 1200: held-out KL digM 1.4873 none 0.0113 digN 0.0095 down 1.1737 keep 0.0333  sum 2.7151  (202 s)
+step 1300: held-out KL digM 1.4974 none 0.0103 digN 0.0091 down 1.1485 keep 0.0343  sum 2.6995  (220 s)
+step 1400: held-out KL digM 1.4805 none 0.0115 digN 0.0103 down 1.1545 keep 0.0359  sum 2.6926  (238 s)
+step 1500: held-out KL digM 1.4572 none 0.0105 digN 0.0092 down 1.1382 keep 0.0417  sum 2.6567  (253 s)
+step 1600: held-out KL digM 1.4673 none 0.0100 digN 0.0109 down 1.1403 keep 0.0417  sum 2.6703  (270 s)
+step 1700: held-out KL digM 1.4843 none 0.0132 digN 0.0092 down 1.1436 keep 0.0384  sum 2.6887  (285 s)
+step 1800: held-out KL digM 1.4644 none 0.0118 digN 0.0081 down 1.1516 keep 0.0349  sum 2.6707  (303 s)
+step 1900: held-out KL digM 1.4774 none 0.0119 digN 0.0091 down 1.1302 keep 0.0389  sum 2.6676  (319 s)
+early stop at 1900; best step 1500
+wrote /home/user/c171/dd20.txt: best step 1500, live links 528 (start 707), moved 262, revived 8 [np.int64(699), np.int64(789), np.int64(834), np.int64(924), np.int64(1059), np.int64(1149), np.int64(1239), np.int64(1498)]
+  digM  start: overlap with target 0.054 P(Dig) 0.142 | copy: overlap with target 0.318 P(Dig) 0.697
+  none  start: overlap with target 1.000 | copy: overlap with target 0.979
+  digN  start: overlap with target 0.995 P(Dig) 0.0046 | copy: overlap with target 0.985 P(Dig) 0.0043
+  down  start: overlap with target 0.296 | copy: overlap with target 0.364
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.952
