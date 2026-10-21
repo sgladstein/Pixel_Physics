@@ -286,6 +286,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
+- **2026-10-21 01:25 UTC. Racing A/B launched (owner's go, 2026-10-20).**
+  - Four `c4d-highcpu-16` spot VMs, ref `1e9217c` (racing, its floor fix, link protection), from `training/starts/s171-8-g79.txt`, arguments as `dig-8` (`shaft=8 frames=12000 budget=2400 layouts=48 holdout=24 pop=100 keepref=training/starts/fretrain-s91.txt`). Two pairs: `race-a181`/`race-a182` unraced, `gens=80`; `race-b181`/`race-b182` `race=8`, `gens=150` (about the same CPU). `--hours 8`, so about $5.
+  - **Judging:** each arm's hold-out best at equal CPU (the raced arm's snapshot where its summed `secs` matches its unraced partner's total) and at equal generations, on 24 sealed 8-row worlds plus 96 fresh worlds, and fetch and trail against s91 on the same worlds. Unpaired means: the teacher session showed paired worlds save nothing between different brains. One pair cannot show racing's effect; two can show only a large one.
+  - Timestamped snapshots of the raced arms are being saved every 10 minutes to the session scratchpad (`ab/race-b18X/HHMM/`).
 - **2026-10-21 01:10 UTC. Dig step 5, first round done: +3 to +4 full loads, bar not yet met; fetch at the floor.**
   - `dig-8-s171`, `dig-8-s172` finished 100 generations (DONE confirmed, then VMs deleted). Files: `Reports/brain-training/stage2/dig/8/` (hold-bests, curves, snapshots); s171's hold-best is also `training/starts/s171-8-g79.txt`.
   - On 24 sealed 8-row worlds (12,000 frames, budget 2400), full loads a world: **s171 gen 79 9.79, s172 gen 82 10.50**, against the start s161 gen 336's 6.62 (+3.17 se 0.79; +3.88 se 0.83); s171 against s172 -0.71, se 0.51. Each has 15 of 24 worlds at 10+, 7 and 8 of the first 12: **the pace bar (10 on 11 of 12) is not met.**
