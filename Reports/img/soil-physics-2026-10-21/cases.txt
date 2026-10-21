@@ -1,0 +1,42 @@
+soil_cases: frames=1200 world=300x110 ground=10 soil=80
+
+=== dry (bank aux 250) ===
+  span 4                     caved    0 / 12  
+  span 16                    caved    0 / 48  
+  span 48                    caved    0 / 144 
+  span 128                   caved    0 / 384 
+
+=== wet (bank aux 1000) ===
+  span 4                     caved    0 / 12  
+  span 16                    caved    0 / 48  
+  span 48                    caved    0 / 144 
+  span 128                   caved    0 / 384 
+
+=== loose (bank aux 620) ===
+  span 4                     caved   12 / 12  
+  span 16                    caved   48 / 48  
+  span 48                    caved  144 / 144 
+  span 128                   caved  384 / 384 
+
+=== bridge (bank aux 620) ===
+  span 8 t1 below            caved    6 / 24  
+  span 8 t1 above            caved    0 / 24  
+  span 8 t2 below            caved    0 / 24  
+  span 8 t2 above            caved    0 / 24  
+  span 48 t1 below           caved   46 / 144 
+  span 48 t1 above           caved    0 / 144 
+  span 48 t2 below           caved    0 / 144 
+  span 48 t2 above           caved    0 / 144 
+  slab span 8 thick 1        held     2 / 8   
+  slab span 8 thick 2        held    16 / 16  
+  slab span 48 thick 1       held     2 / 48  
+  slab span 48 thick 2       held    96 / 96  
+
+=== shelf (bank aux 620) ===
+  packed shelf pit           caved    0 / 772 
+  spoil shelf pit            caved   28 / 772 
+  packed shelf               held    28 / 28  
+  spoil shelf                held     0 / 28  
+dry: wall cells worked into packedsoil: 432
+wet: wall cells worked into packedsoil: 432
+bridge: wall cells worked into packedsoil: 468

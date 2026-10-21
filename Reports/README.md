@@ -618,6 +618,23 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [soil-physics-realism-2026-10-21.md](soil-physics-realism-2026-10-21.md) —
+  **research and measurement, nothing changed, 2026-10-21.** How real the
+  ground is for the ant that digs it and the plants that root in it. The
+  engine's soil holds by touch alone: a worked roof two cells thick stands at
+  any span, wet or dry, and one cell thick falls at any span (§2 picture,
+  `examples/soil_cases.rs`); real soil fails by span and by wetness, with
+  cohesion peaking at intermediate moisture. **§5 answers the brain lane's
+  roof-flag question**: the forecast `f::ROOF_DROP` equals a present-tense
+  touch bit ("a grain beside the bite rests on it or on air and has two or
+  fewer other holds, or a pellet rests on it") on **all 116,388** of s171's
+  Dig options over 48 soil-arena worlds (8,186 flagged, 0 disagreements;
+  `examples/roof_cues.rs`, `scripts/roof_probe.py`), so the swap needs no
+  retraining; the existing 44 features predict it at AUC 0.994 (recall 0.89,
+  precision 0.90). §6 ranks plant soil signals: `plant_available_fraction`
+  ignores texture, burial has no emergence-depth limit (powder does not block
+  light), root cost never rises with drying, and nutrient kept by position
+  stops spoil and mounds fertilising. Also: §Z39 is cited but unfiled.
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
