@@ -5546,6 +5546,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   matches 48 uniform worlds at under half the cost on a realistic generation; protect untestable links; test teaching by
   copying in two forms (part 6), RL after it.
 
+- [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
+  **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
+  size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
+  now a `noprune=@file` list, ~55 core-minutes). No 1/5 rule or self-adapted step size under this noise. The breeder's
+  equation puts the best split of 4,800 worlds near 200 brains × 24 worlds. CMA-ES only after a one-core-minute
+  recombined-mean test. Literature and offline arithmetic only.
+
+- [brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md](brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md) —
+  **research lane, Q2: a skill ladder that does not forget.** Early 2019's "EWC for evolution" is a uniform L2 fitness
+  penalty, not lower mutation on important links, so `protect=` is not its analogue. A Fisher-style ranking of links
+  is worth having only if it predicts which deletions hurt (a predictive test is given). The `keepref=` gate vetoes on
+  noise near its 0.8 line; a log ramp from 0.75 to 0.85 keeps the floor without the coin-flip. POET, rehearsal pools
+  and lexicase are not needed yet.
+
+- [brain-training/research/q3-teaching-plus-selection-2026-10-21.md](brain-training/research/q3-teaching-plus-selection-2026-10-21.md) —
+  **research lane, Q3: why a copied lesson spreads, and how to teach a brain that is then selected.** In the copy start
+  the carrying sense gates one scorer unit, which has no link to "home", so the walk-home lesson reaches loaded and
+  empty ants alike: routing, not capacity (slot 1252 is the test, ~200 s). Why DAgger lowered both copies, what a
+  rollout teacher's label costs with common random numbers, Lamarckian against Baldwinian, and Eysenbach 2022's
+  correction to self-imitation. Each part was sent to the teacher lane as it was answered.
+
+- [brain-training/research/q4-colony-tasks-2026-10-21.md](brain-training/research/q4-colony-tasks-2026-10-21.md) —
+  **research lane, Q4: colony tasks, past the teacher lane's C1–C6.** Copied planners fail when trained in a thinner
+  crowd than they meet (Li 2020: 0.72 against 0.96), so match contacts per ant, not ant count (C7). In a tunnel, learners
+  collapse past four agents unless the scent field carries crowding (Aina & Ha 2025), so check the brain rests when
+  blocked before a tunnel rung (C8). Relabel only failed trips (C9). A few in-world pioneers can steer a colony through
+  scent (Pitteri 2026; C10). The parked dig-recruit rule dug more and shrank the colony, so build the planned building
+  scent and let selection decide.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
