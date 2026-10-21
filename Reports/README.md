@@ -5553,6 +5553,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   6.8; a veto without a replacement stranded the ant mid-shaft, and
   "put down sooner" hurt alone because the brain's carry and its turn home
   are coupled. GIFs in `measurements/`.
+  [step1-copy-design-2026-10-21.md](brain-training/teacher-training/step1-copy-design-2026-10-21.md)
+  — **design doc, for adversarial review, not built:** copying the
+  three-rule teacher (dig at the foot, go down, walk home) into s161 by
+  gradient descent on its own choice probabilities, labelled by the same
+  Rust teacher in a label-only mode, with an anchor to s161 where the
+  teacher abstains; bar: half the ceiling's gain (13.7 full loads) with
+  kept skills at the floor. Self-imitation arm alongside (its labels are
+  100% pure on digs but cannot supply the 748 "dig here" calls).
 
 ## Licensing and distribution
 

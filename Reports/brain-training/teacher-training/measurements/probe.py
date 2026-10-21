@@ -24,6 +24,8 @@ Teachers (decision types):
                    (soil_away: 3 cells, Chebyshev, from every hole cell at that frame).
   D3  walk home    empty, on the surface, chosen verb Walk, 2+ Walk options, 3+ columns from the shaft mouth:
                    label = the Walk options whose target column is nearest the mouth.
+  D4  go down      empty, below ground, no foot cell in reach, chosen verb Walk, a step deeper than here offered
+                   (the ceiling test's "down" rule): label = the deepest Walk options.
 """
 import sys
 import numpy as np
@@ -95,9 +97,9 @@ def facts(w):
 
 # ---------------------------------------------------------------- build the four data sets (cached beside the log)
 import os, pickle
-ONLY = sys.argv[3].split(",") if len(sys.argv) > 3 else ["D1", "D1b", "D2", "D3"]
-CACHE = LOG + ".probe.pkl"
-D1, D1b, D2, D3 = [], [], [], []
+ONLY = sys.argv[3].split(",") if len(sys.argv) > 3 else ["D1", "D1b", "D2", "D3", "D4"]
+CACHE = LOG + ".probe2.pkl"
+D1, D1b, D2, D3, D4 = [], [], [], [], []
 n_worlds, n_dec = 0, 0
 for wi, w in enumerate(worlds(LOG) if not os.path.exists(CACHE) else []):
     n_worlds += 1
@@ -138,6 +140,13 @@ for wi, w in enumerate(worlds(LOG) if not os.path.exists(CACHE) else []):
         if carrying and drops:
             D2.append(dict(w=wi, x=np.concatenate([base, agg(drops)]), y=int(any(away(o[1], o[2]) for o in drops)),
                            brain=int(d["verb"] == DROP), hd=ctx[C["home_dist"]]))
+        if not carrying and d["verb"] == WALK and len(walks) >= 2 and depth(d["x"], d["y"]) > 0 and not any(foot(o[1], o[2]) for o in digs):
+            dz = np.array([depth(o[1], o[2]) for o in walks])
+            if dz.max() > depth(d["x"], d["y"]):
+                lab = dz == dz.max()
+                if not lab.all():
+                    chosen = [i for i, o in enumerate(walks) if (o[1], o[2]) == d["t"]]
+                    D4.append(dict(w=wi, F=np.array([o[4] for o in walks]), base=base, lab=lab, brain=chosen[0] if chosen else -1))
         if (not carrying and d["verb"] == WALK and len(walks) >= 2 and depth(d["x"], d["y"]) <= 0
                 and abs(d["x"] - mouth) >= 3):
             dist = np.array([abs(o[1] - mouth) for o in walks])
@@ -147,11 +156,11 @@ for wi, w in enumerate(worlds(LOG) if not os.path.exists(CACHE) else []):
                 D3.append(dict(w=wi, F=np.array([o[4] for o in walks]), base=base, lab=lab, brain=chosen[0] if chosen else -1))
 
 if os.path.exists(CACHE):
-    D1, D1b, D2, D3, n_worlds, n_dec = pickle.load(open(CACHE, "rb"))
+    D1, D1b, D2, D3, D4, n_worlds, n_dec = pickle.load(open(CACHE, "rb"))
 else:
-    pickle.dump((D1, D1b, D2, D3, n_worlds, n_dec), open(CACHE, "wb"))
+    pickle.dump((D1, D1b, D2, D3, D4, n_worlds, n_dec), open(CACHE, "wb"))
 print(f"worlds {n_worlds}, decisions {n_dec}")
-print(f"samples: D1 dig target {len(D1)}, D1b dig or not {len(D1b)}, D2 put down {len(D2)}, D3 walk home {len(D3)}")
+print(f"samples: D1 dig target {len(D1)}, D1b dig or not {len(D1b)}, D2 put down {len(D2)}, D3 walk home {len(D3)}, D4 go down {len(D4)}")
 
 
 # ---------------------------------------------------------------- models (numpy, full batch, Adam)
@@ -343,3 +352,5 @@ if "D2" in ONLY:
     binary_report("D2  put down: drop at the first cell clear of the hole", D2)
 if "D3" in ONLY:
     choice_report("D3  walk home: empty on the surface, head for the mouth", D3)
+if "D4" in ONLY:
+    choice_report("D4  go down: empty below ground, no foot cell in reach, take the deepest step", D4)
