@@ -79,6 +79,24 @@ What the traces show:
 - **The lessons interfere.** Dig + go down (9.32) is below go down alone (10.57) and costs fetch, though neither does
   alone: one shared scorer serves every verb and arena.
 
+## Against selection, on the same worlds
+
+The brain lane reproduced the ceiling (s161 6.80 alone, 20.66 with the teacher) and reported that 100 generations of
+selection at 8 rows from s161 (s171, s172; about 8 VM-hours, ~$3.50) reach 9.47 and 9.50 alone, with the teacher's
+ceiling unchanged at ~20.5. On this report's worlds:
+
+| Brain | Soil full loads | Fetch (share of s91) | Trail (share of s91) | Cost |
+|---|---|---|---|---|
+| s161, quieted | 6.42 +- 0.28 | 16.66 (0.69) | 0.640 (0.74) | -- |
+| s171, 100 generations of selection | 9.47 +- 0.41 | 19.64 (0.81) | 0.796 (0.92) | ~8 VM-hours |
+| s161 + copied "go down" | **10.57 +- 0.39** | 17.11 (0.71) | 0.611 (0.71) | ~1 local CPU-hour |
+
+Copying edges selection on the dig score (+1.1, about two standard errors); selection holds kept skills better (its
+runs had the kept-skill floor). They look complementary: copy a lesson in, then select with the floor from the copy --
+which needs the copy's revived links protected (slot 1498 and the `DEPTH` links 654, 699, 789, 834, 924, 1059, 1149,
+1239; the brain lane has offered a named-slot protect list). The brain lane also suggests copying into s171, whose
+ceiling is the same.
+
 ## Where this leaves step 1
 
 Against the design's bars: the best copy (go down only, 10.57) is in the "partial" band -- 35% of the reachable gain
