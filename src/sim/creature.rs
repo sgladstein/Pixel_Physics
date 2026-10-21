@@ -32070,6 +32070,17 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
     true
 }
 
+/// SCRATCH (teacher lane, never for main): [`slay`] by organism id. `slay` kills whatever animal owns the cell at
+/// a point, and ants overlap (`climbs_over_kin`), so culling by the head's position killed a different ant about
+/// half the time (the in-run pilot's "ghosts").
+pub fn cull_organism(world: &mut World, organism: OrganismId) -> bool {
+    if world.organism(organism).is_none() {
+        return false;
+    }
+    creature_dies(world, organism, organism::DeathCause::Culled);
+    true
+}
+
 fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::DeathCause) {
     // **Give the foliage back before anything else happens.** An animal
     // that dies inside a bush is holding cells of it (`organism::Parted`),
