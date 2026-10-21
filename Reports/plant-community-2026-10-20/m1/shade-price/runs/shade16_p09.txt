@@ -1,0 +1,143 @@
+plant_m0 plastic axis=shade: species=shrub frames=60000 seeds=16 genes=shrub:tolerate:0.7
+    bright, off: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    bright, off: founder alive at the end; deaths in the bed by cause ["FELLED:1", "ROTTED:9"]
+    SEED bright, off s=0 shoot 206
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=1 shoot 698
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=2 shoot 591
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=3 shoot 482
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=4 shoot 997
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=5 shoot 522
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=6 shoot 450
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=7 shoot 886
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=8 shoot 902
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=9 shoot 1103
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=10 shoot 1211
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=11 shoot 127
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=12 shoot 727
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=13 shoot 861
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=14 shoot 581
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, off s=15 shoot 849
+  bright, off  alive 16/16 leaf light 0.41 | shoot 699.56+-302.89 height 30.56+-7.67 width 42.88+-13.46 leaf_share 0.50+-0.12 root 200.25+-127.92 root_depth 24.06+-13.96
+    dim, off: light at the planting site (3 rows up) 0.24 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    dim, off: founder alive at the end; deaths in the bed by cause []
+    SEED dim, off s=0 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=1 shoot 388
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=2 shoot 445
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=3 shoot 422
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=4 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=5 shoot 462
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=6 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=7 shoot 616
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=8 shoot 213
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=9 shoot 889
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=10 shoot 656
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=11 shoot 267
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=12 shoot 559
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=13 shoot 254
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=14 shoot 373
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=15 shoot 396
+  dim, off     alive 13/16 leaf light 0.21 | shoot 456.92+-186.12 height 20.08+-4.44 width 49.23+-9.10 leaf_share 0.26+-0.15 root 202.54+-42.66 root_depth 32.92+-9.90
+    bright, on: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    bright, on: founder alive at the end; deaths in the bed by cause ["ROTTED:6"]
+    SEED bright, on s=0 shoot 421
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=1 shoot 629
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=2 shoot 493
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=3 shoot 479
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=4 shoot 727
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=5 shoot 775
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=6 shoot 492
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=7 shoot 1004
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=8 shoot 653
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=9 shoot 1340
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=10 shoot 1083
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=11 shoot 526
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=12 shoot 775
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=13 shoot 766
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=14 shoot 410
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=15 shoot 1052
+  bright, on   alive 16/16 leaf light 0.41 | shoot 726.56+-272.28 height 30.00+-5.72 width 44.81+-10.55 leaf_share 0.49+-0.10 root 210.00+-98.08 root_depth 22.25+-9.28
+    dim, on: light at the planting site (3 rows up) 0.24 of full
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    dim, on: founder alive at the end; deaths in the bed by cause []
+    SEED dim, on s=0 shoot 271
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=1 shoot 411
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=2 shoot 399
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=3 shoot 408
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=4 shoot 178
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=5 shoot 278
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=6 shoot 126
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=7 shoot 694
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=8 shoot 210
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=9 shoot 897
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=10 shoot 808
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=11 shoot 260
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=12 shoot 718
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=13 shoot 428
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=14 shoot 349
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=15 shoot 268
+  dim, on      alive 16/16 leaf light 0.21 | shoot 418.94+-234.93 height 18.75+-8.03 width 49.62+-8.95 leaf_share 0.31+-0.13 root 150.81+-49.64 root_depth 21.56+-5.18
+  dim - bright, genes ignored  shoot -0.97 height -1.67 width +0.55 leaf_share -1.76 root +0.02 root_depth +0.73   (shift in units of the spread inside an arm)
+  dim - bright, genes read     shoot -1.21 height -1.61 width +0.49 leaf_share -1.56 root -0.76 root_depth -0.09   (shift in units of the spread inside an arm)

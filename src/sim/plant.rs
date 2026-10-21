@@ -11112,7 +11112,21 @@ const SHADE_UPKEEP_CUT: f32 = 0.5;
 /// fully tolerant plant's leaves earn `1 - SHADE_LEAF_PRICE` of it. The
 /// price that keeps tolerance from being free (A5.2, the leaf economics
 /// trade: thin cheap leaves saturate early).
-const SHADE_LEAF_PRICE: f32 = 0.35;
+///
+/// **0.9, re-derived 2026-10-21 (plan step 3), and it cannot do the whole
+/// job.** A lone shrub under the lamp, tolerance 0.7, 16 seeds paired by
+/// seed, 60,000 frames (`plant_m0 mode=plastic axis=shade`, its `SEED`
+/// lines): at 0.35 the tolerant shrub was larger on **12 of 16** seeds
+/// (median +5%); at 0.9, **8 of 16** -- neutral. In the dim arm both prices
+/// keep what tolerance is for: 16 of 16 alive against 13 of 16 without.
+/// **Why no price makes it a loss in bright light:** the ledger
+/// (`trace=10000`) shows a lone shrub under the lamp earning ~7x its upkeep
+/// with a carbon store that only grows (246 -> 890 by 40,000 frames); its
+/// size is set by development (its last tip ends near 40,000), not carbon,
+/// so a cut to its income changes nothing it builds. The cost of tolerance
+/// has to show where light is contested -- a neighbour overtopping it --
+/// which is rung 4's arena, not a lone plant's. 0.6 measured between.
+const SHADE_LEAF_PRICE: f32 = 0.9;
 
 /// `SHADE_LEAF_PRICE`, or `PIXEL_PHYSICS_SHADE_LEAF_PRICE` when set: the
 /// sweep the price is re-derived on (plan step 3, "re-price shade
