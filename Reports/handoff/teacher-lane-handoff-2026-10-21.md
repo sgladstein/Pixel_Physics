@@ -54,20 +54,31 @@ the `m1` layout (run sets 9001+9002, 96 worlds, 48 seed pairs; s.e. clustered by
   - The fix was a look-alike anchor group plus one revived unit. v1 failed because go-down trapped foragers in the
     nest chamber.
 
-**Waiting on the owner.**
-1. **The copy-vs-selection run** -- the brain lane is ready (`noprune=` with the 83-slot file, main `ec86ab0a`).
-2. **Spoil roll on by default.** Built, measured neutral, and the brain lane has pinned it off in every training
-   arena (PR 756). But with it on, `sim::creature::tests::every_traced_decision_agrees_with_the_counters_and_the_positions`
-   fails, and the roll is not the cause.
+**Decided by the owner (2026-10-21, after this was first written).**
+1. **The copy-vs-selection run: go.** Two runs per arm if the budget allows (~$7): copy v2 (main `ec86ab0a`,
+   `noprune=` with the 83-slot file) against s171, same settings and CPU. Optionally a third arm with the copy seeded
+   into only ~5 of 25 parents (the research lane's lock-in check), at the brain lane's discretion. **The brain lane
+   runs it** (it owns `src/train/` and the Google runs); this lane reads the result.
+2. **Spoil roll: fix the trace bug, then turn the roll on by default (option A).** With the roll on,
+   `sim::creature::tests::every_traced_decision_agrees_with_the_counters_and_the_positions` fails, and the roll is not
+   the cause:
    - The roll changes that test colony's path so it reaches a walled-in hungry ant.
    - `pack_behind` (NeedsFirst's pack) calls `commit_step`, which books `DecisionOutcome::Stepped` with no cone pick,
-     and here with no head motion.
-   - That is a latent bug in how the trace books a pack. The `moves` counter assertions read the same booking, so the
-     fix needs the owner's go.
-   - The flip itself is `Reports/spoil-roll-2026-10-21/default-on.patch`.
+     and there with no head motion.
+   - So a pack is logged as a walking step: a latent bookkeeping bug that misattributes walled-in ants' decisions in
+     every trace.
+
+   The fix:
+   - Book a pack as its own outcome, or otherwise not as a cone step.
+   - Keep the `moves` and step-count assertions consistent, then re-run that test and `cargo test --release --lib`.
+   - Apply `Reports/spoil-roll-2026-10-21/default-on.patch` (the one-line default plus its docs).
+   - Training arenas stay pinned off (PR 756); tell the brain lane the PR number.
+   - Bookkeeping only, no behaviour change; it touches the hand-written ant's trace code in `creature.rs`, so run
+     `bash scripts/branchcheck.sh --who-touched src/sim/creature.rs` first and land quickly.
 
 ## What to do next, in order
 
+0. **The spoil-roll trace fix and default flip** (decision 2 above): small, approved, and it unblocks a feature.
 1. **Fold step 0.5 and the research lane's answers into the design (v3).** The research lane's findings arrived by
    scheduled message overnight; its reports are under `Reports/brain-training/research/` (branch
    `claude/project-thread-hhopdh` until merged). What they change:
