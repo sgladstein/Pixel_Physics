@@ -99,6 +99,11 @@
 //! pass/fail floor, never a ratio in the product. `foot=1` is step 4b
 //! (`Soil::foot`): only a first cut at the shaft's foot, `shaft=` rows
 //! down or more, pays, so wall cuts earn nothing (rev 2.9).
+//! `stepnear=P` forces the bed's step 6-10 columns from the shaft on a
+//! share `P` of pairs (`challenges::DigBed::drawn`), 0 by default. In a
+//! suite, `frames=` is the **learned** arenas' (not kept) world length; the
+//! kept arenas keep their own. Before 2026-10-21 it reached no arena in a
+//! suite at all, so the `dig-8` runs trained soil at 6,000 frames.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -123,6 +128,7 @@ struct Arena {
     shaft: i32,
     budget: Option<f32>,
     foot: bool,
+    step_near: f64,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -141,6 +147,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         shaft,
         budget,
         foot,
+        step_near,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -217,6 +224,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             shaft,
             budget,
             foot,
+            step_near,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
@@ -295,6 +303,7 @@ fn main() {
     let mut step = 1;
     let mut shaft = 2;
     let mut foot = false;
+    let mut step_near = 0.0;
     let mut budget = Some(challenges::SOIL_BUDGET);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
@@ -375,6 +384,9 @@ fn main() {
                 assert!(v == "0" || v == "1", "foot={v}: 1 pays only first cuts at the shaft's foot from step 4 (step 4b), 0 every cut under the top row");
                 foot = v == "1";
             }
+            "stepnear" => {
+                step_near = v.parse().ok().filter(|p: &f64| (0.0..=1.0).contains(p)).unwrap_or_else(|| panic!("stepnear={v}: the share of bed pairs with the step 6-10 columns from the shaft, 0 to 1"));
+            }
             "budget" => {
                 budget = if v == "fed" {
                     None
@@ -403,6 +415,10 @@ fn main() {
         "foot=1 is the soil trip's: it needs challenge=soil or a suite holding soil"
     );
     assert!(
+        step_near == 0.0 || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
+        "stepnear= is the soil trip's beds: it needs challenge=soil or a suite holding soil"
+    );
+    assert!(
         keepref.is_empty() || (mind && challenge == "suite" && !keep.is_empty()),
         "keepref= is the kept arenas' reference brain: it needs brain=mind, challenge=suite and keep="
     );
@@ -410,7 +426,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -443,6 +459,16 @@ fn main() {
     // Only when on, so a rev 2.8 run's state still resumes on this build.
     if foot {
         set.arena += " foot=1";
+    }
+    // Only when set, so a state from before it resumes: a suite's
+    // `frames=` was ignored until 2026-10-21, and this marks the states
+    // that ran it, so one of the `dig-8` runs (soil at 6,000 whatever it
+    // said) never resumes at 12,000.
+    if challenge == "suite" && frames.is_some() {
+        set.arena += " frames=learned";
+    }
+    if step_near > 0.0 {
+        set.arena += &format!(" stepnear={step_near}");
     }
     // Likewise only when set: the reference changes every kept floor, so a
     // resume must keep it.
@@ -481,16 +507,18 @@ fn main() {
         shaft,
         budget,
         foot,
+        step_near,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
             .split(',')
             .filter(|s| !s.is_empty())
             .map(|n| {
-                (
-                    arena(n, &Arena { frames: None, ..spec }),
-                    keep.split(',').any(|k| k == n),
-                )
+                // `frames=` is the learned arenas' (2026-10-21): a kept arena
+                // is a floor measured at its own length. Before, it reached
+                // none of them, and `frames=12000` trained soil at 6,000.
+                let kept = keep.split(',').any(|k| k == n);
+                (arena(n, &Arena { frames: if kept { None } else { frames }, ..spec }), kept)
             })
             .collect();
         assert!(!list.is_empty(), "challenge=suite needs arenas=a,b,...");
