@@ -545,6 +545,25 @@ This session cannot launch anything.
 
 ## 8. Milestones
 
+> **Handoff (State 2026-10-21, 10:15 UTC).** Everything below is on PR
+> #747 (branch `claude/ant-evolution-plant-inspiration-24mykv`), green at
+> `8d0b0cc5`; merge it before starting the next step, which should begin
+> from `main`. M1 steps 1-7 and the 7a detour are done and recorded below.
+> **Waiting on the owner:** (a) the closed soil budget,
+> `LabBox::rot_makes_soil = false` -- heaps roughly halve and grass loses
+> its monopoly, at less green (step 7a, `m1/looks/2-heaps-tradeoff.png`);
+> (b) the colour arm, A / B / C (`m1/looks/3-colour-*.png`, `plant_m0
+> altpal=2`). **Next, in order:** (1) whatever the owner picks; (2)
+> texture-aware available water -- `update::plant_available_fraction` maps
+> 180..620 for every texture, so sand reads two-thirds dry at its own field
+> capacity (`Reports/soil-physics-realism-2026-10-21.md` §6.2 rank 1, PR
+> #751); (3) re-price shade tolerance, which is still free in bright light
+> (step 7), before training may move it; (4) A2, development keying
+> (step 8); (5) rungs 4-6, aimed at recruitment and long-run coexistence --
+> on both beds only grass replaces itself. Open costs to keep in view: the
+> water rule's ~+11% run time on a dense grass bed, and §Z39 (a plant gets
+> no sideways light; harmless at the shipped lamp spacing).
+
 | | what | done when |
 |---|---|---|
 | **M0** | **Baselines and feasibility, no engine change:** the development report (§3.2) for herb, shrub and grass; mix7 and a four-role bed, 12 seeds × 450,000 frames, with and without ants; **the soil-water profile over a long run** (§4.1); **the slice's counts** (§2.4: tips stopped by another plant, split from those stopped by their own plant; light under one canopy plant against open light; seed and litter depth per column; gaps per 100 columns); the cost of a small arena by size and length; a copied bed starting the same as its original | pictures and numbers in the chat; §3.2's bars set; §6.2's costs measured; the watering decision made from the water profile; A6's pieces chosen by the slice's counts |
