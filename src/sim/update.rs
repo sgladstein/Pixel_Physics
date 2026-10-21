@@ -417,6 +417,7 @@ fn loam_level(moisture: u16, field_capacity: u16) -> u16 {
 /// still a floor. Well inside `MAX_REACH`, which the parallel sweep's write
 /// safety rests on.
 const ROOT_PASS_REACH: i32 = 6;
+const _: () = assert!(ROOT_PASS_REACH <= MAX_REACH, "a soil write beyond MAX_REACH breaks parallel.rs's write-disjointness proof");
 
 /// **The soil cell that `(x, y)` exchanges water with across its face
 /// `(dx, dy)`**: the neighbour itself when it holds water; otherwise, when
@@ -435,14 +436,22 @@ const ROOT_PASS_REACH: i32 = 6;
 /// slice a root one cell wide stands for a thread through soil that is
 /// mostly not root; `drip_through_organism` makes the same argument for
 /// water landing on a leaf.
-fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, through_roots: bool) -> Option<(i32, i32, Cell)> {
+///
+/// `direct: false` skips the plain neighbour and answers only *through*
+/// tissue -- the `-x`/`-y` walk, where a plain neighbour is that neighbour's
+/// own `+x`/`+y` face and must not be handled twice.
+///
+/// **Tissue is `MaterialKind::Plant`, not "has an organism id"**: an ant, a
+/// worm or brood standing in a one-cell gallery carries an id too, and must
+/// not bridge soil water across the tunnel it is standing in.
+fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, through_roots: bool, direct: bool) -> Option<(i32, i32, Cell)> {
     let n = surface.get(x + dx, y + dy);
     if surface.materials().get(n.material).water_capacity > 0 {
-        return Some((x + dx, y + dy, n));
+        return direct.then_some((x + dx, y + dy, n));
     }
     // Cheapest test first: nearly every non-soil neighbour is air or stone,
     // and the switch is a bool the caller already read.
-    let plant = |c: Cell| c.organism_id() != 0 || surface.materials().kind(c.material) == MaterialKind::Plant;
+    let plant = |c: Cell| surface.materials().kind(c.material) == MaterialKind::Plant;
     if !through_roots || !plant(n) {
         return None;
     }
@@ -561,11 +570,24 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // the answer cannot change between them.
     let levels_sideways = surface.soil_capillary_levels();
     let through_roots = surface.soil_through_roots();
-    for (dx, dy) in [(1, 0), (0, 1)] {
+    for (dx, dy) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
         // The neighbour across this face -- or, through a root, the soil on
-        // the root's far side (`soil_partner`). Each pair is still visited
-        // once: only `+x`/`+y` are walked, so the far cell never walks back.
-        let Some((tx, ty, n)) = soil_partner(surface, x, y, dx, dy, through_roots) else {
+        // the root's far side (`soil_partner`). A plain neighbour is handled
+        // only from its `-x`/`-y` side, as it always was, so `+x`/`+y` take
+        // it and `-x`/`-y` do not (`direct`). **A pair across a root is
+        // handled from both ends**, and that is the fix for a stall the
+        // moisture plan would otherwise cause: the plan re-visits a written
+        // cell's four neighbours and no further, so a cell whose partner six
+        // cells away had changed was never woken, and a pool over a settled
+        // mat could stand until something unrelated wrote next to it.
+        // Whichever of the two is visited now makes the exchange. When both
+        // are, it is made twice that pass -- a rate, which this rule's rate
+        // already is, not a leak: every transfer is two-sided and capped.
+        let direct = dx > 0 || dy > 0;
+        if !through_roots && !direct {
+            continue;
+        }
+        let Some((tx, ty, n)) = soil_partner(surface, x, y, dx, dy, through_roots, direct) else {
             continue;
         };
         let n_capacity = surface.materials().get(n.material).water_capacity;
@@ -719,6 +741,27 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         }
     }
 
+    // **The cell under a root mat pulls the drainage the cell above it owes**
+    // -- the other end of the drain through roots below, for the same reason
+    // the capillary pairs are two-sided: the soil above a mat may not be
+    // re-visited when this cell dries (by a root drinking it, say), and
+    // drainage is otherwise only ever pushed from above. Same rate and
+    // surplus as the push, read off the giver's own texture.
+    if through_roots && moisture < capacity {
+        if let Some((ax, ay, above)) = soil_partner(surface, x, y, 0, -1, true, false) {
+            let a_texture = if textured { surface.materials().get(above.material).texture_of(above.shade) } else { material::SOIL_TEXTURE_OFF };
+            let a_moisture = soil_moisture(above);
+            if a_moisture > a_texture.field_capacity {
+                let rate = (SOIL_DRAINAGE_RATE * a_texture.drainage).min(1.0);
+                let moved = (((a_moisture - a_texture.field_capacity) as f32 * rate) as u16).min(capacity - moisture);
+                if moved > 0 {
+                    moisture += moved;
+                    surface.set_moisture(ax, ay, above.with_aux(a_moisture - moved));
+                }
+            }
+        }
+    }
+
     if moisture > field_capacity {
         let below = surface.get(x, y + 1);
         let below_capacity = surface.materials().get(below.material).water_capacity;
@@ -761,43 +804,50 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
                 moisture -= shed;
                 surface.set(x, y + 1, Cell::new(material::WATER, 0).with_aux(shed));
             }
-        } else if let Some((tx, ty, target)) = if surface.soil_through_roots() { soil_partner(surface, x, y, 0, 1, true) } else { None } {
+        } else {
             // **Through the root, to the soil under it**
             // (`World::soil_through_roots`): the same rate and surplus as
             // straight down, landing on the first soil past the plant
             // tissue below. Tried before running down beside the root
-            // because in a mat the diagonals are roots too.
-            let room = surface.materials().get(target.material).water_capacity.saturating_sub(soil_moisture(target));
-            let surplus = moisture - field_capacity;
-            let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
-            if moved > 0 {
-                moisture -= moved;
-                surface.set_moisture(tx, ty, target.with_aux(soil_moisture(target) + moved));
-            }
-        } else if surface.soil_drains_around() {
-            // **Water runs down beside a root** (`World::soil_drains_around`).
-            // The cell below holds no water and is not air -- a root, a
-            // stone -- so the surplus goes to a soil cell diagonally below
-            // instead, the way rain runs down the side of a root rather than
-            // standing on it. Without this a root mat was a floor: a pool
-            // stood over a shrub's roots through a whole 40,000-frame dry
-            // spell (M1 step 2). Which diagonal is tried first alternates
-            // with the cell's parity, so there is no standing drift to one
-            // side; the same rate and surplus as straight down.
-            let first: i32 = if (x + y) & 1 == 0 { -1 } else { 1 };
-            for dx in [first, -first] {
-                let side = surface.get(x + dx, y + 1);
-                let side_capacity = surface.materials().get(side.material).water_capacity;
-                if side_capacity == 0 {
-                    continue;
-                }
-                let room = side_capacity.saturating_sub(soil_moisture(side));
+            // because in a mat the diagonals are roots too -- and when the
+            // soil under the mat is full, the side route below still runs
+            // (the block's value is whether anything moved).
+            let mut moved_through = false;
+            if let Some((tx, ty, target)) = if through_roots { soil_partner(surface, x, y, 0, 1, true, true) } else { None } {
+                let room = surface.materials().get(target.material).water_capacity.saturating_sub(soil_moisture(target));
                 let surplus = moisture - field_capacity;
                 let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
                 if moved > 0 {
                     moisture -= moved;
-                    surface.set_moisture(x + dx, y + 1, side.with_aux(soil_moisture(side) + moved));
-                    break;
+                    surface.set_moisture(tx, ty, target.with_aux(soil_moisture(target) + moved));
+                    moved_through = true;
+                }
+            }
+            if !moved_through && surface.soil_drains_around() {
+                // **Water runs down beside a root** (`World::soil_drains_around`).
+                // The cell below holds no water and is not air -- a root, a
+                // stone -- so the surplus goes to a soil cell diagonally below
+                // instead, the way rain runs down the side of a root rather than
+                // standing on it. Without this a root mat was a floor: a pool
+                // stood over a shrub's roots through a whole 40,000-frame dry
+                // spell (M1 step 2). Which diagonal is tried first alternates
+                // with the cell's parity, so there is no standing drift to one
+                // side; the same rate and surplus as straight down.
+                let first: i32 = if (x + y) & 1 == 0 { -1 } else { 1 };
+                for dx in [first, -first] {
+                    let side = surface.get(x + dx, y + 1);
+                    let side_capacity = surface.materials().get(side.material).water_capacity;
+                    if side_capacity == 0 {
+                        continue;
+                    }
+                    let room = side_capacity.saturating_sub(soil_moisture(side));
+                    let surplus = moisture - field_capacity;
+                    let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
+                    if moved > 0 {
+                        moisture -= moved;
+                        surface.set_moisture(x + dx, y + 1, side.with_aux(soil_moisture(side) + moved));
+                        break;
+                    }
                 }
             }
         }
@@ -1646,6 +1696,7 @@ const _: () = assert!(
 /// parallel sweep's write-disjointness proof allows; a crown thicker than
 /// that still holds water.
 const DRIP_REACH: i32 = MAX_REACH;
+const _: () = assert!(DRIP_REACH <= MAX_REACH, "a per-frame move beyond MAX_REACH breaks parallel.rs's cross-chunk write-disjointness proof");
 
 /// A shed leaf does not sit on the branch below it — it goes past.
 ///
@@ -4156,6 +4207,45 @@ mod tests {
         }
     }
 
+    /// **A crown thicker than the old reach still lets the rain through**
+    /// (`DRIP_REACH`). The basin of the test below with a canopy 24 rows
+    /// deep: at the old 16-cell reach every drop's scan ran out inside the
+    /// tissue and the water sat on the crown for good -- the cap as an
+    /// answer. 24 rather than something near 32 so the scene is plainly past
+    /// the old reach and plainly inside the new one.
+    #[test]
+    fn water_drips_through_a_crown_deeper_than_sixteen_cells() {
+        let mut w = world_with_floor();
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        for y in 50..=83 {
+            w.set(59, y, Cell::new(material::STONE, 0));
+            w.set(71, y, Cell::new(material::STONE, 0));
+        }
+        for y in 60..=83 {
+            for x in 60..=70 {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(1));
+            }
+        }
+        for x in 63..=67 {
+            w.set(x, 59, Cell::new(material::WATER, 0));
+        }
+        run(&mut w, 400);
+        let (mut above, mut below) = (0u64, 0u64);
+        for x in 0..128 {
+            for y in 0..128 {
+                let c = w.get(x, y);
+                if c.material == material::WATER {
+                    if y < 60 {
+                        above += liquid_fill(c) as u64;
+                    } else if y > 83 {
+                        below += liquid_fill(c) as u64;
+                    }
+                }
+            }
+        }
+        assert!(below > 0 && above == 0, "a 24-row crown held the rain: {above} fill still on top, {below} below");
+    }
+
     /// **A leaf does not sit on the branch it just let go of.**
     ///
     /// `plant::shed_to_litter` already walked a shed leaf down through its
@@ -4214,45 +4304,6 @@ mod tests {
     ///
     /// A five-cell puddle rather than one drop, because `water` evaporates
     /// and a single cell that happens to evaporate would read as a pass.
-    /// **A crown thicker than the old reach still lets the rain through**
-    /// (`DRIP_REACH`). The basin of the test below with a canopy 24 rows
-    /// deep: at the old 16-cell reach every drop's scan ran out inside the
-    /// tissue and the water sat on the crown for good -- the cap as an
-    /// answer. 24 rather than something near 32 so the scene is plainly past
-    /// the old reach and plainly inside the new one.
-    #[test]
-    fn water_drips_through_a_crown_deeper_than_sixteen_cells() {
-        let mut w = world_with_floor();
-        let wood = w.materials.id_of("wood").expect("wood is compiled in");
-        for y in 50..=83 {
-            w.set(59, y, Cell::new(material::STONE, 0));
-            w.set(71, y, Cell::new(material::STONE, 0));
-        }
-        for y in 60..=83 {
-            for x in 60..=70 {
-                w.set(x, y, Cell::new(wood, 0).with_organism_id(1));
-            }
-        }
-        for x in 63..=67 {
-            w.set(x, 59, Cell::new(material::WATER, 0));
-        }
-        run(&mut w, 400);
-        let (mut above, mut below) = (0u64, 0u64);
-        for x in 0..128 {
-            for y in 0..128 {
-                let c = w.get(x, y);
-                if c.material == material::WATER {
-                    if y < 60 {
-                        above += liquid_fill(c) as u64;
-                    } else if y > 83 {
-                        below += liquid_fill(c) as u64;
-                    }
-                }
-            }
-        }
-        assert!(below > 0 && above == 0, "a 24-row crown held the rain: {above} fill still on top, {below} below");
-    }
-
     #[test]
     fn water_drips_through_a_canopy_but_oil_and_a_roofed_canopy_do_not() {
         let arm = |liquid: &str, roofed: bool| -> (u64, u64) {
@@ -6154,6 +6205,36 @@ mod tests {
                 assert_eq!(here as u32 + below as u32 + side as u32, material::SOIL_SATURATED as u32 + 200, "on: water must move, not appear or vanish");
             } else {
                 assert_eq!((here, below, side), (material::SOIL_SATURATED, 100, 100), "off: a cell sealed in roots has nowhere to go");
+            }
+        }
+    }
+
+    /// **Either end of a pair across a root makes the exchange.** The moisture
+    /// pass re-visits only a written cell's four neighbours, so if only the
+    /// soil *above* a mat could start the exchange, a dry cell under the mat
+    /// -- dried by a root drinking it, say -- would never wake the saturated
+    /// cell six rows up, and the pool over it would stand. Visiting only the
+    /// cell under the mat must pull water through it: by drainage from above
+    /// and by capillary across. Off, nothing moves.
+    #[test]
+    fn the_soil_under_a_root_mat_pulls_water_through_it_when_through_roots_is_on() {
+        for on in [false, true] {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            w.soil_through_roots = on;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let root = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            for y in 11..=13 {
+                w.set(10, y, Cell::new(root, 0));
+            }
+            w.set(10, 10, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+            w.set(10, 14, Cell::new(soil, 0).with_aux(100));
+            update_soil_water(&mut w, 10, 14);
+            let (above, here) = (soil_moisture(w.get(10, 10)), soil_moisture(w.get(10, 14)));
+            if on {
+                assert!(here > 100 && above < material::SOIL_SATURATED, "on: visiting the cell under the mat moved nothing ({above} above, {here} here)");
+                assert_eq!(above as u32 + here as u32, material::SOIL_SATURATED as u32 + 100, "on: water must move, not appear or vanish");
+            } else {
+                assert_eq!((above, here), (material::SOIL_SATURATED, 100), "off: the mat seals the two apart");
             }
         }
     }

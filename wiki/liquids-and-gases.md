@@ -1,6 +1,9 @@
 # Liquids & Gases
 
-*Current as of: 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
+*Current as of: 2026-10-21, later (in every lab bed, water in the ground
+passes through a mat of roots instead of being sealed in by it, so pools
+stop standing over plants; and rain works its way through even a very thick
+crown). Before that, 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
 loamy and rich clay soils hold and shed water differently, and water runs
 down beside a root instead of standing on it; the lab's bed drains through
 its floor). Before that, 2026-10-03 (water sinks through a floor of light powder --
@@ -48,6 +51,24 @@ against a trunk stays put rather than sinking into the roots. And ground
 that has already taken all the water it can hold turns the next drop away,
 so a bed you keep watering does eventually puddle -- that is the difference
 between damp ground and a waterlogged one, and you can see it happen.
+
+**A mat of roots does not seal the ground -- in a lab bed.** Water in the
+soil moves from one patch of ground to the next, and a root is not ground,
+so a dense tangle of roots used to box the soil inside it in: that soil
+could neither drain down nor spread sideways, it filled up, and full ground
+turns away every drop that lands on it -- so water stood in pools on top of
+the plants, sometimes for most of a run. Now water in the ground passes
+through the roots to the soil on the far side, the way it does in real
+ground, where a root is a thread with soil all round it rather than a wall.
+The pools over planting mostly go: on the training beds, standing water
+fell to a tenth or less of what it was. Outdoors the ground is as it was
+until this is checked there.
+
+**Rain gets through even a thick crown.** A drop on a tree looks down
+through the leaves and branches below it for somewhere to go. It used to
+give up after sixteen cells of tree, and a big, dense crown is thicker than
+that, so some rain stayed up in the canopy for good. It now looks twice as
+far, which is as far as anything is allowed to move in one step.
 
 **A wet roof drips into the space under it.** Dig a tunnel and you leave a
 ceiling of soil with nothing beneath it. Ground that is merely damp holds

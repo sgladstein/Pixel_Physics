@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -297,26 +297,101 @@ fn community(m: &BTreeMap<String, String>) {
         if shots.contains(&f) {
             println!("{}", screen_mix(&w, &bed, f));
             println!("{}", water_why(&w, &bed, f));
-            let (fw, fh) = (bed.width as u32, bed.height as u32);
-            let mut frame = vec![0u8; (fw * fh * 4) as usize];
-            let touched = w.take_touched_chunks();
-            renderer.draw(&w, &particles, &touched, &mut frame, (fw, fh), true);
             let below: usize = get(m, "below", 20usize);
-            let (top, rows, sc) = ((bed.ground_y - 100).max(0) as usize, 100 + below, 2usize);
-            let (tw, th) = (fw as usize * sc, rows * sc);
-            let mut img = vec![0u8; tw * th * 4];
-            for y in 0..th {
-                for x in 0..tw {
-                    let src = ((top + y / sc) * fw as usize + x / sc) * 4;
-                    img[(y * tw + x) * 4..(y * tw + x) * 4 + 4].copy_from_slice(&frame[src..src + 4]);
+            let path = format!("{out}_f{f}.png");
+            shot(&mut w, &particles, &mut renderer, &bed, below, &path);
+            // `altpal=1`: the same world, the same frame, drawn again with
+            // brighter foliage and seeds and litter toned toward the soil --
+            // a colour A/B with nothing else different (`alt_palette`).
+            // `altpal=2` also draws a third version with roots toned toward
+            // the soil too (`_alt2`), to tell which tan reads as "seeds".
+            let alts: u8 = get(m, "altpal", 0u8);
+            for level in 1..=alts.min(2) {
+                let saved = alt_palette(&mut w, level >= 2);
+                let path = format!("{out}_f{f}_alt{}.png", if level >= 2 { "2" } else { "" });
+                shot(&mut w, &particles, &mut renderer, &bed, below, &path);
+                for (id, pal) in saved {
+                    w.materials.get_mut(id).palette = pal;
                 }
             }
-            let path = format!("{out}_f{f}.png");
-            image::save_buffer(&path, &img, tw as u32, th as u32, image::ColorType::Rgba8).expect("write png");
-            println!("plant_m0: wrote {path}");
         }
     }
     println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
+}
+
+/// Draw the bed through the shipped renderer and save rows 100 above the
+/// soil to `below` under it, 2 px a cell.
+fn shot(w: &mut World, particles: &ParticleSystem, renderer: &mut pixel_physics::render::Renderer, bed: &LabBox, below: usize, path: &str) {
+    let (fw, fh) = (bed.width as u32, bed.height as u32);
+    let mut frame = vec![0u8; (fw * fh * 4) as usize];
+    let touched = w.take_touched_chunks();
+    renderer.draw(w, particles, &touched, &mut frame, (fw, fh), true);
+    let (top, rows, sc) = ((bed.ground_y - 100).max(0) as usize, 100 + below, 2usize);
+    let (tw, th) = (fw as usize * sc, rows * sc);
+    let mut img = vec![0u8; tw * th * 4];
+    for y in 0..th {
+        for x in 0..tw {
+            let src = ((top + y / sc) * fw as usize + x / sc) * 4;
+            img[(y * tw + x) * 4..(y * tw + x) * 4 + 4].copy_from_slice(&frame[src..src + 4]);
+        }
+    }
+    image::save_buffer(path, &img, tw as u32, th as u32, image::ColorType::Rgba8).expect("write png");
+    println!("plant_m0: wrote {path}");
+}
+
+/// The colour arm of the "does the bed look like plants" A/B, render only:
+/// foliage brighter and a little more saturated (HSV value x1.45, saturation
+/// x1.15), and loose seed and litter pulled 55% toward the soil's own brown so
+/// they read as ground rather than as a scatter of grains. Returns the
+/// palettes it replaced.
+fn alt_palette(w: &mut World, roots: bool) -> Vec<(pixel_physics::sim::material::MaterialId, Vec<[u8; 4]>)> {
+    fn hsv_lift(c: [u8; 4]) -> [u8; 4] {
+        let (r, g, b) = (c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0);
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let v = max;
+        let s = if max > 0.0 { (max - min) / max } else { 0.0 };
+        let h = if max == min {
+            0.0
+        } else if max == r {
+            ((g - b) / (max - min)).rem_euclid(6.0)
+        } else if max == g {
+            (b - r) / (max - min) + 2.0
+        } else {
+            (r - g) / (max - min) + 4.0
+        };
+        let (v, s) = ((v * 1.45).min(1.0), (s * 1.15).min(1.0));
+        let c2 = v * s;
+        let x = c2 * (1.0 - ((h % 2.0) - 1.0).abs());
+        let (r1, g1, b1) = match h as i32 {
+            0 => (c2, x, 0.0),
+            1 => (x, c2, 0.0),
+            2 => (0.0, c2, x),
+            3 => (0.0, x, c2),
+            4 => (x, 0.0, c2),
+            _ => (c2, 0.0, x),
+        };
+        let mm = v - c2;
+        [((r1 + mm) * 255.0) as u8, ((g1 + mm) * 255.0) as u8, ((b1 + mm) * 255.0) as u8, c[3]]
+    }
+    let soil = [68.0f32, 50.0, 37.0];
+    let toward_soil = |c: [u8; 4]| -> [u8; 4] {
+        let k = 0.55;
+        [(c[0] as f32 * (1.0 - k) + soil[0] * k) as u8, (c[1] as f32 * (1.0 - k) + soil[1] * k) as u8, (c[2] as f32 * (1.0 - k) + soil[2] * k) as u8, c[3]]
+    };
+    let mut saved = Vec::new();
+    let mut names = vec![("leaf", true), ("grassblade", true), ("seed", false), ("buriedseed", false), ("litter", false), ("pip", false), ("windfall", false)];
+    if roots {
+        names.extend([("rootwood", false), ("grassroot", false), ("reedroot", false)]);
+    }
+    for (name, lift) in names {
+        let Some(id) = w.materials.id_of(name) else { continue };
+        let old = w.materials.get(id).palette.clone();
+        let new: Vec<[u8; 4]> = old.iter().map(|&c| if lift { hsv_lift(c) } else { toward_soil(c) }).collect();
+        w.materials.get_mut(id).palette = new;
+        saved.push((id, old));
+    }
+    saved
 }
 
 /// **What the picture is made of**: every cell in the window a shot draws
