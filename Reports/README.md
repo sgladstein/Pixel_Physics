@@ -618,6 +618,32 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [soil-physics-realism-2026-10-21.md](soil-physics-realism-2026-10-21.md) —
+  **research and measurement, then three switches all off by default,
+  2026-10-21.** How real the
+  ground is for the ant that digs it and the plants that root in it. The
+  engine's soil holds by touch alone: a worked roof two cells thick stands at
+  any span, wet or dry, and one cell thick falls at any span (§2 picture,
+  `examples/soil_cases.rs`); real soil fails by span and by wetness, with
+  cohesion peaking at intermediate moisture. **§5 answers the brain lane's
+  roof-flag question**: the forecast `f::ROOF_DROP` equals a present-tense
+  touch bit ("a grain beside the bite rests on it or on air and has two or
+  fewer other holds, or a pellet rests on it") on **all 116,388** of s171's
+  Dig options over 48 soil-arena worlds (8,186 flagged, 0 disagreements;
+  `examples/roof_cues.rs`, `scripts/roof_probe.py`), so the swap needs no
+  retraining; the existing 44 features predict it at AUC 0.994 (recall 0.89,
+  precision 0.90). §6 ranks plant soil signals: `plant_available_fraction`
+  ignores texture, burial has no emergence-depth limit (powder does not block
+  light), root cost never rises with drying, and nutrient kept by position
+  stops spoil and mounds fertilising. Also: §Z39 is cited but unfiled.
+  **§10 builds three of the suggestions behind off-by-default switches**: a
+  wetness-dependent roof span that sags wide rooms into a dome
+  (`PIXEL_PHYSICS_ROOF_SPAN`, the glass-farm reading of §5.6; real nests
+  barely notice it), dear roots in dry ground (`PIXEL_PHYSICS_DRY_ROOT_COST`)
+  and an emergence-depth limit for buried seeds
+  (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab stand less
+  than seed-to-seed spread. The touch roof sense shipped on `main` as the
+  default (`be3bf9a2`).
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
@@ -5676,6 +5702,49 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   section: chambers are flat lenses 1-2 body lengths high, so the ladder's
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
+
+- [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
+  **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
+  size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
+  now a `noprune=@file` list, ~55 core-minutes). No 1/5 rule or self-adapted step size under this noise. The breeder's
+  equation puts the best split of 4,800 worlds near 200 brains × 24 worlds. CMA-ES only after a one-core-minute
+  recombined-mean test. Literature and offline arithmetic only.
+
+- [brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md](brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md) —
+  **research lane, Q2: a skill ladder that does not forget.** Early 2019's "EWC for evolution" is a uniform L2 fitness
+  penalty, not lower mutation on important links, so `protect=` is not its analogue. A Fisher-style ranking of links
+  is worth having only if it predicts which deletions hurt (a predictive test is given). The `keepref=` gate vetoes on
+  noise near its 0.8 line; a log ramp from 0.75 to 0.85 keeps the floor without the coin-flip. POET, rehearsal pools
+  and lexicase are not needed yet.
+
+- [brain-training/research/q3-teaching-plus-selection-2026-10-21.md](brain-training/research/q3-teaching-plus-selection-2026-10-21.md) —
+  **research lane, Q3: why a copied lesson spreads, and how to teach a brain that is then selected.** In the copy start
+  the carrying sense gates one scorer unit, which has no link to "home", so the walk-home lesson reaches loaded and
+  empty ants alike: routing, not capacity (slot 1252 is the test, ~200 s). Why DAgger lowered both copies, what a
+  rollout teacher's label costs with common random numbers, Lamarckian against Baldwinian, and Eysenbach 2022's
+  correction to self-imitation. Each part was sent to the teacher lane as it was answered.
+
+- [brain-training/research/q4-colony-tasks-2026-10-21.md](brain-training/research/q4-colony-tasks-2026-10-21.md) —
+  **research lane, Q4: colony tasks, past the teacher lane's C1–C6.** Copied planners fail when trained in a thinner
+  crowd than they meet (Li 2020: 0.72 against 0.96), so match contacts per ant, not ant count (C7). In a tunnel, learners
+  collapse past four agents unless the scent field carries crowding (Aina & Ha 2025), so check the brain rests when
+  blocked before a tunnel rung (C8). Relabel only failed trips (C9). A few in-world pioneers can steer a colony through
+  scent (Pitteri 2026; C10). The parked dig-recruit rule dug more and shrank the colony, so build the planned building
+  scent and let selection decide.
+
+- [brain-training/research/q5-real-ant-sensing-2026-10-21.md](brain-training/research/q5-real-ant-sensing-2026-10-21.md) —
+  **research lane, Q5: which of the ant's senses are true to a real ant.** 61% of s171's sense weight is on local, true
+  readings; 24% is on the roof forecast and the dug-cell label. PR #751's touch bit replaces the roof forecast, and arching
+  around real tunnels explains why it works (Buarque de Macedo 2021). The CO2 depth template was refuted (Tschinkel 2013),
+  and s171 barely uses depth, so ablate it. The home vector is too exact (real error grows with distance). Ants sense a
+  quorum as a contact rate. The owner's 8–16-cell chamber spec is about four times real, so a height sense needs a reach
+  of at least 17.
+
+- [brain-training/research/field-map-and-ranked-list-2026-10-21.md](brain-training/research/field-map-and-ranked-list-2026-10-21.md) —
+  **research lane: the field map across Q1–Q5, and one ranked list of 21 tests.** For each training problem, the
+  families of answer the field offers and which fit this brain, with pointers to the evidence. Tests are tiered by cost
+  and ordered by what they decide for the work in flight: tiers 0 to 2 cost about 3.5 core-hours in all, and the three
+  Google runs about $3.50 together, each waiting on minutes-long tests that could make it unnecessary.
 
 ## Licensing and distribution
 
