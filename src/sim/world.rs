@@ -6365,6 +6365,26 @@ pub struct World {
     /// right and has not been measured. Step E of
     /// `Reports/plant-community-plan-2026-10-20.md`.
     pub soil_texture: bool,
+    /// **A plant reads soil water on the texture's own scale**
+    /// (`plant::available_water`). Without it a root judges every soil by
+    /// loam's 180..620 band, so sand at its own field capacity (470) reads
+    /// two-thirds dry and clay's water above 620 is worth nothing --
+    /// the opposite of what patchy ground is for. With it, available water
+    /// is read off `update::loam_level`, the same stand-in for matric
+    /// potential the soil's own water moves by, so a root and the water
+    /// agree on which cell is wetter. Only acts where `soil_texture` is on.
+    /// `Reports/soil-physics-realism-2026-10-21.md` §6.2, rank 1.
+    ///
+    /// **On by default since 2026-10-21, measured as neutral to the bed and
+    /// right at the root.** A lone herb, 8 seeds, 60,000 frames
+    /// (`plant_m0 mode=plastic axis=ground twater=0|1`): on sandy ground the
+    /// root-zone water it reads went 0.20-0.61 -> 0.30-0.90, higher on 8 of
+    /// 8 seeds, with the shoot unchanged; on loam every number identical.
+    /// The training world, 8 beds x 720,000 frames paired: kinds with 100+
+    /// leaf at the end 1-3 -> 1-2 (forest) and 2-4 -> 2-3 (grass bed), inside
+    /// what seeds alone move. `Reports/plant-community-2026-10-20/m1/
+    /// texture-water/`.
+    pub texture_water: bool,
     /// **Water runs down beside a root.** Soil water moves only between
     /// cells that hold it, so a wet cell over a root mat or a stone had
     /// nowhere to drain, and a pool stood over a shrub's roots through a
@@ -7537,6 +7557,7 @@ impl World {
             seed_dormant_rest: super::plant::seed_bank_default().1,
             soil_capillary_levels: false,
             soil_texture: false,
+            texture_water: true,
             soil_drains_around: false,
             soil_through_roots: false,
             decay_reads_ground: false,

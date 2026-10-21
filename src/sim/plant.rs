@@ -648,6 +648,21 @@ pub const SEED_DRY_READ_ROWS: i32 = 4;
 /// tissue (a fruit still on its plant, which shares `CellType::Seed`). Only
 /// a seed on the ground is in the drought this is for, and a hanging
 /// fruit's ripening and windfall clock must not move.
+/// **How much of a soil cell's water a plant can take up, `0.0..=1.0`** --
+/// `update::plant_available_fraction`, read on the cell's own texture when
+/// the world has texture and `World::texture_water` is on. The one place a
+/// plant asks the question, so a root drinking, a seed deciding to wake and
+/// a carrier choosing where to drop it cannot disagree about one cell.
+/// Off, or on a world without texture, it is exactly the loam reading.
+pub(crate) fn available_water(world: &World, cell: Cell) -> f32 {
+    if world.soil_texture && world.texture_water {
+        let fc = world.materials.get(cell.material).texture_of(cell.shade).field_capacity;
+        update::plant_available_fraction_textured(cell, fc)
+    } else {
+        update::plant_available_fraction(cell)
+    }
+}
+
 fn seed_dryness(world: &World, x: i32, y: i32, threshold: Option<f32>) -> f32 {
     for dy in 1..=SEED_DRY_READ_ROWS {
         let c = world.get(x, y + dy);
@@ -673,7 +688,7 @@ fn seed_dryness(world: &World, x: i32, y: i32, threshold: Option<f32>) -> f32 {
             return 0.0;
         }
         if holds {
-            let avail = update::plant_available_fraction(c);
+            let avail = available_water(world, c);
             return match threshold {
                 Some(t) if t > 0.0 => (1.0 - avail / t).clamp(0.0, 1.0),
                 _ => (1.0 - avail).clamp(0.0, 1.0),
@@ -1327,7 +1342,7 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                     // which is what makes drought terminal rather than
                     // merely slow.
                     MaterialKind::Powder => {
-                        let available = update::plant_available_fraction(n);
+                        let available = available_water(world, n);
                         if available > 0.0 {
                             let drawn = (rate * available).min(capacity - water);
                             if drawn > 0.0 {
@@ -1484,7 +1499,7 @@ fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
         // multiply: texture says how hard this ground is at its wettest,
         // dryness how much harder it has become since.
         let dry = match dry_root_cost() {
-            Some(k) if m.water_capacity > 0 => dryness_mult(k, cell),
+            Some(k) if m.water_capacity > 0 => dryness_mult(k, available_water(world, cell)),
             _ => 1.0,
         };
         (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0) * texture * dry
@@ -1518,8 +1533,11 @@ fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
 /// `k` at or below the wilting point, 1.0 at field capacity and wetter,
 /// linear between -- [`dry_root_cost`]'s curve, apart so a test can run it
 /// at any `k` without the process-wide switch.
-fn dryness_mult(k: f32, c: Cell) -> f32 {
-    1.0 + (k - 1.0) * (1.0 - update::plant_available_fraction(c))
+///
+/// Takes the available fraction rather than the cell so it reads the same
+/// texture-aware water a root drinks (`available_water`).
+fn dryness_mult(k: f32, available: f32) -> f32 {
+    1.0 + (k - 1.0) * (1.0 - available)
 }
 
 /// Read once per process through a `OnceLock`: this is on every root step.
@@ -3272,7 +3290,7 @@ const MIDDEN_SEARCH_COLUMNS: i32 = 6;
 fn site_holds_enough_water(world: &World, ground: Cell, threshold: Option<f32>) -> bool {
     let holds_water = world.materials.get(ground.material).water_capacity > 0;
     match threshold {
-        Some(t) => holds_water && update::plant_available_fraction(ground) >= t,
+        Some(t) => holds_water && available_water(world, ground) >= t,
         None => holds_water,
     }
 }
@@ -7280,7 +7298,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
                     let diag_light = ambient_light_above(world, x, y);
                     let diag_holds_water = world.materials.get(below.material).water_capacity > 0;
-                    let diag_soil_water = if diag_holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let diag_soil_water = if diag_holds_water { available_water(world, below) } else { 0.0 };
                     let delivered = world.organism(organism_id).is_some_and(|st| st.pip_delivered);
                     let overburden = overburden_depth(world, x, y);
                     let frame = world.frame;
@@ -7325,7 +7343,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // would read bone dry -- and one on half-drained water
                     // would read well watered.
                     let holds_water = world.materials.get(below.material).water_capacity > 0;
-                    let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let soil_water = if holds_water { available_water(world, below) } else { 0.0 };
                     light >= light_threshold && soil_water >= soil_water_threshold
                 });
                 if ready && !excluded_column(x) {
@@ -11096,13 +11114,22 @@ const SHADE_UPKEEP_CUT: f32 = 0.5;
 /// trade: thin cheap leaves saturate early).
 const SHADE_LEAF_PRICE: f32 = 0.35;
 
+/// `SHADE_LEAF_PRICE`, or `PIXEL_PHYSICS_SHADE_LEAF_PRICE` when set: the
+/// sweep the price is re-derived on (plan step 3, "re-price shade
+/// tolerance"). A measurement instrument, read once per process.
+fn shade_leaf_price() -> f32 {
+    use std::sync::OnceLock;
+    static PRICE: OnceLock<f32> = OnceLock::new();
+    *PRICE.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_LEAF_PRICE").ok().and_then(|v| v.parse().ok()).unwrap_or(SHADE_LEAF_PRICE))
+}
+
 /// The light a leaf at `(x, y)` earns from, after its plant's shade
 /// tolerance is priced (`SHADE_LEAF_PRICE`). Plain light when the world does
 /// not read shade genes or the plant has none.
 fn leaf_light_used(world: &World, x: i32, y: i32, shade_tolerate: f32) -> f32 {
     let light = ambient_light_above(world, x, y);
     if shade_tolerate > 0.0 {
-        light * (1.0 - SHADE_LEAF_PRICE * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0))
+        light * (1.0 - shade_leaf_price() * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0)).max(0.0)
     } else {
         light
     }
@@ -11880,7 +11907,7 @@ fn face_available(world: &World, n: Cell) -> f32 {
     if world.materials.kind(n.material) == MaterialKind::Liquid {
         update::liquid_fill(n) as f32 / material::LIQUID_FULL as f32
     } else {
-        update::plant_available_fraction(n)
+        available_water(world, n)
     }
 }
 
@@ -15075,6 +15102,41 @@ pub(crate) fn sow_specimen_seed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **`World::texture_water`: each texture is read on its own scale.**
+    /// Sand, loam and clay-loam each at their own field capacity read fully
+    /// available, and each at its own wilting point reads zero. Off (or on a
+    /// world without texture) every family reads loam's scale, so sand at
+    /// its field capacity is two-thirds dry -- the defect this exists for,
+    /// asserted so the switch cannot go quietly inert.
+    #[test]
+    fn a_plant_reads_soil_water_on_its_textures_own_scale() {
+        let mut w = World::new(Rect::new(0, 0, 15, 15));
+        let soil = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+        // Family order as `material::SOIL_TEXTURES`: loam, rich, sandy.
+        let at = |family: usize, aux: u16| Cell::new(soil, (family * 4) as u8).with_aux(aux);
+        let wp = |fc: u16| (u32::from(material::SOIL_WILTING_POINT) * u32::from(fc) / u32::from(material::SOIL_FIELD_CAPACITY)) as u16;
+        w.soil_texture = true;
+        w.texture_water = true;
+        for (family, fc) in [(0, 620u16), (1, 740), (2, 470)] {
+            assert_eq!(w.materials.get(soil).texture_of((family * 4) as u8).field_capacity, fc, "family {family}'s field capacity moved; this test's table is stale");
+            let full = available_water(&w, at(family, fc));
+            let dry = available_water(&w, at(family, wp(fc)));
+            assert!(full > 0.99, "family {family} at its own field capacity {fc} reads {full:.3}, not full");
+            assert!(dry < 0.01, "family {family} at its own wilting point {} reads {dry:.3}, not dry", wp(fc));
+        }
+        // Loam reads exactly as before, at every wetness.
+        for aux in (0..=1000).step_by(20) {
+            assert_eq!(available_water(&w, at(0, aux)), update::plant_available_fraction(at(0, aux)), "loam at {aux}");
+        }
+        // Off: sand at its field capacity is read on loam's scale.
+        for (texture, water) in [(true, false), (false, true)] {
+            w.soil_texture = texture;
+            w.texture_water = water;
+            let sand = available_water(&w, at(2, 470));
+            assert!((sand - 290.0 / 440.0).abs() < 0.01, "texture {texture} water {water}: sand at 470 reads {sand:.3}, expected loam's 0.659");
+        }
+    }
     use crate::sim::chunk::Rect;
     use crate::sim::field;
     use crate::sim::material;
@@ -24332,13 +24394,13 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
         let at = |aux: u16| Cell::new(soil, 0).with_aux(aux);
         let (wp, fc) = (material::SOIL_WILTING_POINT, material::SOIL_FIELD_CAPACITY);
-        assert!((dryness_mult(2.0, at(0)) - 2.0).abs() < 1e-6, "bone dry pays k");
-        assert!((dryness_mult(2.0, at(wp)) - 2.0).abs() < 1e-6, "at the wilting point pays k");
-        assert!((dryness_mult(2.0, at(fc)) - 1.0).abs() < 1e-6, "at field capacity pays nothing extra");
-        assert!((dryness_mult(2.0, at(1000)) - 1.0).abs() < 1e-6, "soaked is not made cheaper");
-        let mid = dryness_mult(3.0, at((wp + fc) / 2));
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(0))) - 2.0).abs() < 1e-6, "bone dry pays k");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(wp))) - 2.0).abs() < 1e-6, "at the wilting point pays k");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(fc))) - 1.0).abs() < 1e-6, "at field capacity pays nothing extra");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(1000))) - 1.0).abs() < 1e-6, "soaked is not made cheaper");
+        let mid = dryness_mult(3.0, update::plant_available_fraction(at((wp + fc) / 2)));
         assert!((mid - 2.0).abs() < 1e-2, "halfway between pays halfway: {mid}");
-        assert!(dryness_mult(1.0, at(0)) == 1.0, "k of 1 is the switch off");
+        assert!(dryness_mult(1.0, update::plant_available_fraction(at(0))) == 1.0, "k of 1 is the switch off");
     }
 
     /// **A seed buried past its reserve stays down; a shallow one comes up**

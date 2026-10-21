@@ -571,21 +571,26 @@ This session cannot launch anything.
 > rules are on.**
 >
 > **Next, in order.**
-> 1. **Re-baseline the training world.** Every community number in M1 --
->    the A3 table, the 1.2M-frame long runs, A5's community test -- was
->    measured before through-roots water and the closed soil budget
->    shipped, and the closed budget alone moved grass from 446-725 to
->    161-283 plants. Run `mix=roles` and `mix=roles4`, 4 seeds, 720,000
->    frames, and record kinds with 100+ leaf and recruitment over time.
-> 2. **Texture-aware available water**: `update::plant_available_fraction`
->    maps 180..620 for every texture, so sand reads two-thirds dry at its
->    own field capacity (`Reports/soil-physics-realism-2026-10-21.md` §6.2,
->    rank 1; that report is another session's PR #751).
+> 1. **Re-baseline the training world. Done, 2026-10-21**
+>    (`Reports/plant-community-2026-10-20/m1/texture-water/`): in the forest
+>    bed **herb now recruits and persists** (3-37 plants and 20-95
+>    established per 240,000 frames at 720,000, against 0-16 plants in the
+>    long runs); shrub lasts on 1 of 4 seeds, creeper on none. The grass bed
+>    keeps 2-4 kinds with 100+ leaf, grass at 244-381 plants.
+> 2. **Texture-aware available water. Done, on by default, 2026-10-21**
+>    (`World::texture_water`, `plant::available_water`): a plant reads soil
+>    water on its texture's own scale, through `update::loam_level`. A lone
+>    herb on sand reads its root zone 0.20-0.61 -> 0.30-0.90 (8 of 8 seeds),
+>    loam identical; the training world, paired, inside seed noise. Acts only
+>    where `soil_texture` is on (patchy lab ground).
 > 3. **Re-price shade tolerance**: it is still free in bright light (step
 >    7), so training must not move it until it costs something there.
 > 4. **A2, development keying**, then the rest of A3 and A4 (§3.3).
-> 5. **Rungs 4-6**, aimed at recruitment and long-run coexistence: in the
->    long runs only grass replaced itself.
+> 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    budget-per-rung log built alongside. Revision 5's handoff named rungs
+>    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
+>    generations there; rungs 4-6 (recruitment, long-run coexistence) follow
+>    as M4.
 >
 > **Still open with the owner:** patchy ground in the played lab (+7%
 > frame); the creeper's lifespan (a longer one, or ramets that root and
