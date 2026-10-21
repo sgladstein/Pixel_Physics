@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -229,9 +229,12 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
         w.rot_soil_yield = 0.0;
         w.root_mats_repay = true;
     }
+    // `twater=1`: `World::texture_water` (a plant reads soil water on the
+    // texture's own scale; acts only with `ground=patchy` or a textured bed).
+    w.texture_water = get(m, "twater", u8::from(w.texture_water)) != 0;
     println!(
-        "plant_m0 soil_capillary_levels={} soil_through_roots={} decay_reads_ground={} rot_soil_yield={} root_mats_repay={}",
-        w.soil_capillary_levels, w.soil_through_roots, w.decay_reads_ground, w.rot_soil_yield, w.root_mats_repay
+        "plant_m0 soil_capillary_levels={} soil_through_roots={} decay_reads_ground={} rot_soil_yield={} root_mats_repay={} soil_texture={} texture_water={}",
+        w.soil_capillary_levels, w.soil_through_roots, w.decay_reads_ground, w.rot_soil_yield, w.root_mats_repay, w.soil_texture, w.texture_water
     );
     println!(
         "plant_m0 bud_break_reserve={} lifespans: {}",

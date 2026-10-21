@@ -6365,6 +6365,16 @@ pub struct World {
     /// right and has not been measured. Step E of
     /// `Reports/plant-community-plan-2026-10-20.md`.
     pub soil_texture: bool,
+    /// **A plant reads soil water on the texture's own scale**
+    /// (`plant::available_water`). Without it a root judges every soil by
+    /// loam's 180..620 band, so sand at its own field capacity (470) reads
+    /// two-thirds dry and clay's water above 620 is worth nothing --
+    /// the opposite of what patchy ground is for. With it, available water
+    /// is read off `update::loam_level`, the same stand-in for matric
+    /// potential the soil's own water moves by, so a root and the water
+    /// agree on which cell is wetter. Only acts where `soil_texture` is on.
+    /// `Reports/soil-physics-realism-2026-10-21.md` §6.2, rank 1.
+    pub texture_water: bool,
     /// **Water runs down beside a root.** Soil water moves only between
     /// cells that hold it, so a wet cell over a root mat or a stone had
     /// nowhere to drain, and a pool stood over a shrub's roots through a
@@ -7537,6 +7547,7 @@ impl World {
             seed_dormant_rest: super::plant::seed_bank_default().1,
             soil_capillary_levels: false,
             soil_texture: false,
+            texture_water: false,
             soil_drains_around: false,
             soil_through_roots: false,
             decay_reads_ground: false,

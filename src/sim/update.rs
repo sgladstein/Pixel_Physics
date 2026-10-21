@@ -400,7 +400,7 @@ fn on_a_branch<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
 /// `SOIL_SATURATED`. A stand-in for matric potential -- the ordering is
 /// right and the curve is not -- so that two soils each at their own field
 /// capacity read as level (`update_soil_water`'s capillary step).
-fn loam_level(moisture: u16, field_capacity: u16) -> u16 {
+pub(crate) fn loam_level(moisture: u16, field_capacity: u16) -> u16 {
     let (fc, loam) = (field_capacity.clamp(1, material::SOIL_SATURATED - 1) as u32, material::SOIL_FIELD_CAPACITY as u32);
     let m = (moisture as u32).min(material::SOIL_SATURATED as u32);
     let level = if m <= fc {
@@ -2596,6 +2596,18 @@ pub fn soil_moisture(cell: Cell) -> u16 {
 /// look intact.
 pub fn plant_available_fraction(cell: Cell) -> f32 {
     let m = soil_moisture(cell) as f32;
+    let wp = material::SOIL_WILTING_POINT as f32;
+    let fc = material::SOIL_FIELD_CAPACITY as f32;
+    ((m - wp) / (fc - wp)).clamp(0.0, 1.0)
+}
+
+/// `plant_available_fraction` for a soil whose field capacity is
+/// `field_capacity`: the moisture is first put on loam's scale
+/// (`loam_level`), so each texture's wilting point and field capacity sit
+/// where loam's do -- sand's band is 136..470, clay's 215..740. Loam
+/// (620) reads exactly as `plant_available_fraction` does.
+pub fn plant_available_fraction_textured(cell: Cell, field_capacity: u16) -> f32 {
+    let m = loam_level(soil_moisture(cell), field_capacity) as f32;
     let wp = material::SOIL_WILTING_POINT as f32;
     let fc = material::SOIL_FIELD_CAPACITY as f32;
     ((m - wp) / (fc - wp)).clamp(0.0, 1.0)
