@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -1110,6 +1110,10 @@ fn plastic(m: &BTreeMap<String, String>) {
             ("bright, on", Offset::Under, 33, true, 1.0),
             ("dim, on", dim_off, dim_spacing, true, dim_lamp),
         ] {
+            // `arm=bright-off` runs that arm alone (labels with ", " -> "-").
+            if m.get("arm").is_some_and(|a| *a != label.replace(", ", "-")) {
+                continue;
+            }
             let (mut rows, mut lights) = (Vec::new(), Vec::new());
             // Wide enough for the dim column (half of 132 from the nearest
             // lamp) to exist, and the same in both arms.
@@ -1138,8 +1142,10 @@ fn plastic(m: &BTreeMap<String, String>) {
                 let trace: u64 = get(m, "trace", 0);
                 for f in 0..frames {
                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
-                    if trace > 0 && s == 0 && f % trace == 0 {
-                        trace_founder(&w, id, &format!("{label} f={f}"));
+                    // `traceall=1`: every seed's founder, not only seed 0 --
+                    // the per-individual trace the stall lottery needs.
+                    if trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0) && f % trace == 0 {
+                        trace_founder(&w, id, &format!("{label} s={s} f={f}"));
                     }
                 }
                 // `pics=N`: the founder's patch for the first N seeds,
