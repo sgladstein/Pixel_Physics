@@ -2662,6 +2662,11 @@ pub mod inrun {
         arena_mind(genome, SOIL_VERBS, emits())
     }
 
+    /// The slots the scarce-dig trainer would mutate.
+    pub fn slots() -> Vec<usize> {
+        creature::mind::trainable(SOIL_VERBS, emits())
+    }
+
     /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
     /// (founders in id order).
     pub fn colony(seed: u64, ants: usize, dist: i32, drip: u32, every: u64, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
@@ -2725,6 +2730,38 @@ pub mod inrun {
 
     pub fn ants(w: &World, sp: SpeciesId) -> Vec<OrganismId> {
         ants_of(w, sp)
+    }
+
+    /// A child of the colony at its door: placed as a founder is (`plant_founder_in`, homed on the door), given
+    /// `genome` and `grants` full grants. Tries the door's columns and the rows above it until the body fits.
+    pub fn birth(w: &mut World, sp: SpeciesId, genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
+        let any = *ants_of(w, sp).first()?;
+        let (colony, anchor) = w.organism(any).map(|s| (s.colony, s.forage_anchor))?;
+        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
+        for dy in 1..16 {
+            for dx in [0, 2, -2, 4, -4, 6, -6] {
+                let (x, y) = (anchor.0 + dx, anchor.1 - dy);
+                if !w.in_bounds(x, y) || w.get(x, y).material != material::EMPTY {
+                    continue;
+                }
+                if let Some(site) = creature::plant_founder_in(w, x, y, "ant", Some(colony), Some(anchor)) {
+                    let crate::sim::scheduler::ActiveKind::Creature { organism } = site.kind else { continue };
+                    w.schedule_active_site(site);
+                    creature::mind::give(w, organism, genome);
+                    if let Some(s) = w.organism_mut(organism) {
+                        s.energy = full;
+                    }
+                    return Some(organism);
+                }
+            }
+        }
+        None
+    }
+
+    /// Remove an ant on the engine's own death path (a corpse, the slot freed), by id: `slay` by position hit the wrong
+    /// ant wherever ants overlapped.
+    pub fn cull(w: &mut World, id: OrganismId) -> bool {
+        creature::cull_organism(w, id)
     }
 
     /// Every founder on `grants` full grants (the founding deals staggered reserves).
