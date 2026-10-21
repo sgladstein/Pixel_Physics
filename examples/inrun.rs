@@ -207,6 +207,13 @@ fn main() {
     // 30-39) while digs were spread evenly over 0-120. 0 = off (pay everywhere, the old rule).
     let nest_r = fnum("nest_r", 20.0) as i32;
     let in_nest = |x: i32| nest_r <= 0 || (x - inrun::NEST).abs() <= nest_r;
+    // Rim quarrying (dig-scoring thread, 2026-10-21): a lone ant learns to come down from the surface, cut the first wall
+    // cell and go straight back out, and the nest becomes a crater (44 of 49 cuts in the top 4 rows after 12k; 70-80% of
+    // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
+    // fewer than N rows below the datum inside the nest region, and `rim_debit=F` charges F times the cut half instead.
+    // Off by default (rim_rows=0) until judged against the controls.
+    let rim_rows = fnum("rim_rows", 0.0) as i32;
+    let rim_debit = fnum("rim_debit", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
@@ -367,9 +374,18 @@ fn main() {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
                 orig[i] = false;
-                let nest = in_nest(x);
+                let mut nest = in_nest(x);
+                let depth = y - surf[x as usize];
+                if nest && depth < rim_rows {
+                    nest = false;
+                    if let Some(b) = book.get_mut(&who) {
+                        let g = -rim_debit * 0.5 * w_dig * dig_price;
+                        b.credit += g;
+                        b.g2 += g * g;
+                    }
+                }
                 held.insert(who, (who, nest));
-                writeln!(ev, "{frame},{who},dig,{x},{y},{},{who}", y - surf[x as usize]).unwrap();
+                writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
                 if !nest {
                     continue;
                 }
