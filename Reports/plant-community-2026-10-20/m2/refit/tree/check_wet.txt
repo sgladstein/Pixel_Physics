@@ -1,0 +1,17 @@
+plantrain rungs: species=tree,/tmp/m2-tree-W6B6/score_best.ron,/tmp/m2-tree-W6B6/random_best.ron rungs=grow,life stations=bright,dim layouts=12 base=7000000 threads=4
+  grow bright (width 48 frames 10000 n_est 20 lamp 1 rain Light soil 1): 2.07 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   2000 | end shoot p25   471 p50   566 p75   615 cv 0.41 | rgr/1k p25 0.37 p50 0.41 p75 0.42
+    /tmp/m2-tree-W6B6/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1548 p50  1710 p75  1798 cv 0.16 | rgr/1k p25 0.49 p50 0.50 p75 0.50
+    /tmp/m2-tree-W6B6/random_best.ron germ 12/12 est 12/12 est@ p50   1500 | end shoot p25   555 p50   668 p75   726 cv 0.43 | rgr/1k p25 0.39 p50 0.41 p75 0.42
+  grow dim (width 48 frames 10000 n_est 20 lamp 0.4 rain Light soil 1): 1.94 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   2750 | end shoot p25    96 p50   204 p75   282 cv 0.80 | rgr/1k p25 0.23 p50 0.32 p75 0.34
+    /tmp/m2-tree-W6B6/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   957 p50  1135 p75  1430 cv 0.41 | rgr/1k p25 0.45 p50 0.46 p75 0.48
+    /tmp/m2-tree-W6B6/random_best.ron germ 12/12 est 10/12 est@ p50   3750 | end shoot p25    35 p50    43 p75    43 cv 0.49 | rgr/1k p25 0.09 p50 0.14 p75 0.14
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 14.95 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25  2198 p50  2404 p75  2992 cv 0.24 | rgr/1k p25 0.12 p50 0.13 p75 0.13
+    /tmp/m2-tree-W6B6/score_best.ron germ 12/12 est 12/12 est@ p50   1500 | end shoot p25  5503 p50  5665 p75  5774 cv 0.26 | rgr/1k p25 0.14 p50 0.15 p75 0.15
+    /tmp/m2-tree-W6B6/random_best.ron germ 12/12 est  9/12 est@ p50   1750 | end shoot p25  1362 p50  2158 p75  2332 cv 0.63 | rgr/1k p25 0.12 p50 0.12 p75 0.12
+  life dim (width 96 frames 40000 n_est 20 lamp 0.4 rain Light soil 1): 13.81 core-s a bed
+    tree     germ 12/12 est 11/12 est@ p50   2750 | end shoot p25   620 p50   831 p75  1234 cv 0.73 | rgr/1k p25 0.10 p50 0.11 p75 0.12
+    /tmp/m2-tree-W6B6/score_best.ron germ 12/12 est 12/12 est@ p50   1500 | end shoot p25  4423 p50  5028 p75  5586 cv 0.33 | rgr/1k p25 0.14 p50 0.14 p75 0.14
+    /tmp/m2-tree-W6B6/random_best.ron germ 12/12 est  4/12 est@ p50   5000 | end shoot p25     0 p50     0 p75     0 cv 0.00 | rgr/1k p25 0.00 p50 0.00 p75 0.00

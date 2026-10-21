@@ -1,6 +1,6 @@
 # Liquids & Gases
 
-*Current as of: 2026-10-21, latest (on patchy ground a plant judges each soil by its own measure, so damp sand reads as damp rather than two-thirds dry). Before that, 2026-10-21, later (in every lab bed, water in the ground
+*Current as of: 2026-10-21, last (the lab's mister rains the same on every column whatever the box's width, so a narrow box is no longer drenched). Before that, 2026-10-21, latest (on patchy ground a plant judges each soil by its own measure, so damp sand reads as damp rather than two-thirds dry). Before that, 2026-10-21, later (in every lab bed, water in the ground
 passes through a mat of roots instead of being sealed in by it, so pools
 stop standing over plants; and rain works its way through even a very thick
 crown). Before that, 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
@@ -107,6 +107,14 @@ surface dips into shallow hollows, where rain gathers and the soil is
 darkest. Water reaching a root or a stone runs down beside it rather than
 pooling on top. Everywhere else, and in the bed as it ships, the ground is
 the one ordinary kind.
+
+**The mister rains per column.** Its setting is how much falls on each
+column, not on the whole box: a box half the usual width gets half the
+water, a box twice as wide twice as much, and every column the same. It used
+to drop the same amount whatever the width, so a narrow box was drenched --
+the small training beds plants are bred in took five to ten times the rain
+of the lab they were being bred for. The lab at its usual width is
+unchanged.
 
 **A lab bed drains through its floor.** Watered from above with nowhere to
 go, a sealed bed used to fill from the bottom until it stood under a lake.
