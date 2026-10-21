@@ -1,6 +1,6 @@
 # How real is the ground? Soil physics for the ant and for the plants (2026-10-21)
 
-*Status: research and measurement, then four engine switches, **all off by
+*Status: research and measurement, then three engine switches, **all off by
 default** (§10; the owner asked for them on 2026-10-21 with "switches off by
 default"). With every switch unset the engine is unchanged. Four
 instruments added (`examples/soil_cases.rs`, `examples/roof_cues.rs`,
@@ -32,7 +32,7 @@ measured: §10.
    permanent or gone. §5.5 lists the small, legible slumps that would give
    it a middle if the owner wants one.
 3. **The ant's roof warning can be a sense instead of a forecast, with no
-   loss.** The forecast (`f::ROOF_DROP`) looks only at the 5x5 patch around
+   loss** (since shipped on `main` as the default, `be3bf9a2`; §10.2). The forecast (`f::ROOF_DROP`) looks only at the 5x5 patch around
    the cut. The same answer comes from a present-tense touch reading: *"a
    grain beside my bite is resting on it (or on air) and has two or fewer
    other grains holding it, or a pellet is sitting on my bite."* On s171's
@@ -496,20 +496,21 @@ roof collapse.
 
 The owner asked, overnight, for some of the suggestions to be built behind
 switches that are off by default, to see how the soil could be improved.
-Four are built. Each is one environment variable, read once per process; with
-it unset the code path is the shipped one, so every number elsewhere in the
-repo still holds.
+Three are switches. Each is one environment variable, read once per process;
+with it unset the code path is the shipped one, so every number elsewhere in
+the repo still holds. A fourth, the touch roof sense, was built as a switch
+too, but the brain lane shipped the same reading as the default on `main`
+the same morning (§10.2), so the switch was dropped.
 
 | Switch | What it does | Default | Measured |
 |---|---|---|---|
 | `PIXEL_PHYSICS_ROOF_SPAN` (`on` = 12, or a number) | A worked roof over an opening wider than the ground can span sags from the middle, as a dome that stops on its own. The span peaks in damp ground and shrinks when dry or soaked | off | §10.1 |
-| `PIXEL_PHYSICS_ROOF_SENSE=touch` | The ant's roof warning comes from what it can feel now, not from a forecast | `forecast` | §10.2: identical on s171 |
+| *(shipped on `main`, `be3bf9a2`)* | The ant's roof warning comes from what it can feel now, not from a forecast | on | §10.2: identical on s171 |
 | `PIXEL_PHYSICS_DRY_ROOT_COST` (`on` = 2, or a multiplier) | A root pays more to grow into dry ground: up to 2x at the wilting point, nothing extra at field capacity | off | §10.3 |
 | `PIXEL_PHYSICS_EMERGENCE_DEPTH` (`on` = 6, or a depth in cells) | A seed buried deeper than its reserve allows stays dormant until the cover is dug or washed off it | off | §10.3 |
 
 **Frame cost.** Off, each is one cached flag read on a path that is already
-per-event (a roof cell's crumb check, a Dig option, a root step, a waiting
-seed). On, paired 20,000-frame lab runs with the span rule took 20.2, 18.3 and
+per-event (a roof cell's crumb check, a root step, a waiting seed). On, paired 20,000-frame lab runs with the span rule took 20.2, 18.3 and
 19.7 s against 19.3, 19.8 and 19.2 s off; the plant switches' 60,000-frame
 runs took 103/95/83 s (dry roots) and 112/102/62 s (emergence) against
 108/97/61 s off. All within run-to-run noise; none is a measured harm.
@@ -556,34 +557,38 @@ with the sheets beside it.
 **Under the deep-slice reading this switch should stay off**: the slice's
 column is identical to today's on every scene. It is the glass-farm rule.
 
-### 10.2 The touch roof sense (`PIXEL_PHYSICS_ROOF_SENSE=touch`)
+### 10.2 The touch roof sense (shipped on `main`, not a switch)
 
-`creature::options::hanging` replaces `cut_drops_roof` as the source of
-`f::ROOF_DROP` when the switch reads `touch`. It is §5.3's bit: a powder grain
-touching the bite rests on the bite or on open space and has two or fewer
-other holds, or a pellet rests on the bite. Every cell it reads is within two
-of the bite and read as it is now.
+§5.3's bit -- a powder grain touching the bite rests on the bite or on open
+space and has two or fewer other holds, or a pellet rests on the bite -- now
+fills `f::ROOF_DROP` by default: the brain lane landed it on `main` as
+`creature::bite_is_hanging` (`be3bf9a2`, owner's approval 2026-10-21), with
+the forecast kept as the test reference. This branch had built the same bit
+behind `PIXEL_PHYSICS_ROOF_SENSE=touch`; the merge took `main`'s version and
+dropped the switch.
 
-**s171 plays exactly the same game with it.** `roof_cues genome=<s171>`
-under the forecast and under `touch` wrote byte-identical CSVs (116,388 Dig
-options, 8,186 flagged, md5 `3876df91...`), and those CSVs carry the brain's
-whole feature vector at every decision, so the trajectories, and hence the
-scores, are the same (`img/soil-physics-2026-10-21/roof_sense.txt`). An
-unknown value for the switch panics on the first Dig option, which is the
-check that the run read it.
+**The independent check agrees with theirs.** Before the merge, `roof_cues
+genome=<s171>` under the forecast and under the touch bit wrote
+byte-identical CSVs (116,388 Dig options, 8,186 flagged, md5 `3876df91...`).
+Those CSVs carry the brain's whole feature vector at every decision, so the
+trajectories, and hence the scores, are the same
+(`img/soil-physics-2026-10-21/roof_sense.txt`). The brain lane found the
+same on their own worlds.
 
-The guard, `the_touch_roof_sense_matches_the_forecast_at_a_founding_cut`,
-holds the two equal on every cuttable cell around the soil arena's founding
-cut with pellets on the surface, and was watched red with the hold count at
-one and at four (it stayed green at three, where no grain in that scene sits)
-and with the footing term removed.
+**For whoever owns that guard.** `main`'s ground-truth test is recorded red
+with the hold count loosened to 1. This branch's version of it went red at
+1 and at 4, but **stayed green at 3**, and also green with the pellet
+footing term removed, until a row of three pellets was put on the surface
+(the middle one is held by four grains, so only the footing term can call
+the cut beneath it). A pellet row in `main`'s founding-cut scene would close
+the same gap.
 
-**Where the two part.** The forecast also sees a sag that `ROOF_SPAN` would
-cause; the touch bit does not, because how wide the opening under a grain is
-is not something a body at the face feels. With both switches on, the ant
-gets no warning of a span sag. That is the realistic outcome under §5.6's
-farm reading (a real ant has no such warning either), and the reason the
-swap is the brain lane's to make, not this report's.
+**Where touch and forecast part.** The forecast would also see a sag that
+`ROOF_SPAN` (§10.1) causes; the touch bit does not, because how wide the
+opening under a grain is is not something a body at the face feels. So with
+the span switch on, the ant gets no warning of a span sag. That is the
+realistic outcome under §5.6's farm reading, since a real ant has no such
+warning either.
 
 ### 10.3 Dry roots and buried seeds
 

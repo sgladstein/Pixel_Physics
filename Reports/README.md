@@ -619,7 +619,7 @@ by somebody about to try it on creatures.
 ## Plants and trees  ·  `engine`
 
 - [soil-physics-realism-2026-10-21.md](soil-physics-realism-2026-10-21.md) —
-  **research and measurement, then four switches all off by default,
+  **research and measurement, then three switches all off by default,
   2026-10-21.** How real the
   ground is for the ant that digs it and the plants that root in it. The
   engine's soil holds by touch alone: a worked roof two cells thick stands at
@@ -636,14 +636,14 @@ by somebody about to try it on creatures.
   ignores texture, burial has no emergence-depth limit (powder does not block
   light), root cost never rises with drying, and nutrient kept by position
   stops spoil and mounds fertilising. Also: §Z39 is cited but unfiled.
-  **§10 builds four of the suggestions behind off-by-default switches**: a
+  **§10 builds three of the suggestions behind off-by-default switches**: a
   wetness-dependent roof span that sags wide rooms into a dome
   (`PIXEL_PHYSICS_ROOF_SPAN`, the glass-farm reading of §5.6; real nests
-  barely notice it), the touch roof sense (`PIXEL_PHYSICS_ROOF_SENSE=touch`,
-  byte-identical to the forecast on s171's 48 worlds), dear roots in dry
-  ground (`PIXEL_PHYSICS_DRY_ROOT_COST`) and an emergence-depth limit for
-  buried seeds (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab
-  stand less than seed-to-seed spread.
+  barely notice it), dear roots in dry ground (`PIXEL_PHYSICS_DRY_ROOT_COST`)
+  and an emergence-depth limit for buried seeds
+  (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab stand less
+  than seed-to-seed spread. The touch roof sense shipped on `main` as the
+  default (`be3bf9a2`).
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
@@ -4223,6 +4223,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [spoil-roll-2026-10-21/README.md](spoil-roll-2026-10-21/README.md) — **built, off by
+  default (2026-10-21):** a pellet put down on the mound rolls up to two 1:1
+  steps down its flank away from the door before it is tamped
+  (`PIXEL_PHYSICS_SPOIL_ROLL`, `World::spoil_roll`), decided at placement so
+  no loose soil ever exists. Shipped colony, 4 seeds x 100k frames: rolls on
+  ~2% of put-downs, door open in all runs, mound overhang down on 3 of 4,
+  nest score mixed; safe and barely visible there. Default stays off until
+  the brain lane pins its training arenas.
 - [nest-door-2026-10-03.md](nest-door-2026-10-03.md) — **measurement and
   two switches, 2026-10-03, both shipped on as genes. `engine`/`lab`.** Why
   the lab colony's door filled in and stayed shut (20 of 20 runs): food the
@@ -5556,6 +5564,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/design/noprune-design-2026-10-21.md](brain-training/design/noprune-design-2026-10-21.md) —
+  **built (`noprune=`):** named slots selection may tune but never prune, for a selection run from a brain the teacher
+  lane copied (its revived links: slot 1498 and `DEPTH` into live scorer units). A listed scorer input brings its unit's
+  output weight with it -- the MAJOR an independent review found -- and an empty list leaves every draw as it was.
 - [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
   dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
   (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
@@ -5567,6 +5579,85 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   full loads; at 8 rows longer runs per world rank better per CPU than more worlds. Part 5 (training methods): racing
   matches 48 uniform worlds at under half the cost on a realistic generation; protect untestable links; test teaching by
   copying in two forms (part 6), RL after it.
+- [brain-training/teacher-training/guidelines-2026-10-20.md](brain-training/teacher-training/guidelines-2026-10-20.md)
+  — **plan and guidelines, nothing built (2026-10-20).** How to teach the
+  trained ant brain by copying, and whether colony behaviours are affordable:
+  teacher rules (privileged computation, never privileged information; label
+  the brain's own runs; score every option and abstain; check copyability
+  before training), colony rules (clone and score the colony; the world must
+  charge for switching jobs or no castes appear; `SELF`, `AGE` and memory
+  already supply what castes need), and the three cheap measurements that
+  decide the budget. Built on
+  [literature-2026-10-20.md](brain-training/teacher-training/literature-2026-10-20.md),
+  a ~80-paper review read mostly at abstract level (key claims checked in
+  `notes/verification-pass.md`), with per-thread notes in `notes/`.
+  [measurements-2026-10-20.md](brain-training/teacher-training/measurements-2026-10-20.md)
+  — **measured, local:** paired worlds save nothing at the trainer's
+  mutation size (child-parent correlation 0.05; two good brains 0.12 — the
+  noise is the run's own luck); all three dig corrections are copyable from
+  the brain's own inputs (94-100% held out, brain today 53-55%), and 65% of
+  s161's digs at 8 rows are made with no foot cell in reach. The ceiling
+  test (2026-10-21): the hand-written teacher driving s161 — dig only at
+  the foot, go down, walk home — reaches 20.5 full loads a world against
+  6.8; a veto without a replacement stranded the ant mid-shaft, and
+  "put down sooner" hurt alone because the brain's carry and its turn home
+  are coupled. GIFs in `measurements/`.
+  [step1-copy-design-2026-10-21.md](brain-training/teacher-training/step1-copy-design-2026-10-21.md)
+  — **design doc v2, revised after adversarial review, not built:**
+  copying the three-rule teacher (dig at the foot, go down, walk home)
+  into s161 by KL to the ceiling policy as a distribution on every
+  decision, live links plus an allow-list only (revived links are billed
+  as energy), one-step memory path; bar 12.5 full loads, half the
+  *reachable* gain (a strict floor-limited ceiling of 18.23 at scores
+  of +-0.9). Self-imitation arm alongside with the same rounds.
+  [step1-review-2026-10-21.md](brain-training/teacher-training/step1-review-2026-10-21.md)
+  — **the review's disposition**: three reviews (method, evidence,
+  code), 16 BLOCKER/MAJOR findings all accepted, and the checks they
+  asked for: the memory-consistent ceiling (20.66 +- 0.37, seed-
+  clustered), a smooth compliance curve (half the calls give 60% of the
+  gain), the floor-limited arms; one diagnosis withdrawn.
+  [step1-results-2026-10-21.md](brain-training/teacher-training/step1-results-2026-10-21.md)
+  — **interim:** the copier is built and validated (forward pass matches
+  Rust's decide to 2.6e-5 on a perturbed genome; positive control
+  s161 -> a reachable target closes 83% of the gap in the world). Copying
+  "go down" alone takes s161 from 6.42 to 10.57 full loads with fetch and
+  trail intact; "walk home" breaks fetch (it spreads to loaded ants and
+  foragers) and "dig" collapses the ant when copied alone; together the
+  lessons interfere in the shared scorer. The go-down copy repeats (10.57 / 10.60 / 9.80
+  over three training seeds; fetch +0.5 to -1.9); one DAgger round did
+  not help (9.50); on s171 the per-rule headroom moves to dig and walk
+  home (+5.75, +5.40), with the same all-rules ceiling (20.50).
+  [step05-why-copies-fail-2026-10-21.md](brain-training/teacher-training/step05-why-copies-fail-2026-10-21.md)
+  — **in progress: why copied lessons fail.** Dig: the brain's live wiring
+  cannot hold "dig at the foot, not the wall" (its verb stage barely reads
+  the dig score), so the lesson spread to wall cuts, which took the foot
+  cuts' place (7.2 -> 4.1 a world); with every slot free the lesson holds
+  in its own runs but the energy bill runs the ant dry. Walk home: the
+  context to keep it out of foraging exists (AUC 0.97-1.00, mostly arena
+  artefacts such as fetch being fed) and the copy does not use it.
+  [teacher-design-2026-10-21.md](brain-training/teacher-training/teacher-design-2026-10-21.md)
+  — **design v2, revised after three adversarial reviews** (disposition:
+  [teacher-design-review-2026-10-21.md](brain-training/teacher-training/teacher-design-review-2026-10-21.md),
+  reviews verbatim in `review/design-*.md`). Keep the three-rule teacher;
+  first find out why copying fails (step 0.5, offline, with a go/no-go),
+  then the search pilot on dig-or-not, then planners: nest digging scored
+  by a **general nest score** (built: well-proportioned chambers 7 cells
+  tall, tunnels credited only as far as they serve, cracks and craters
+  charged; blueprints score 210-936, every built-bad shape near zero or
+  below, the shipped colony's real nests -7 -> ~180 over 150k frames),
+  then soil placement for the mound (placed spoil never slides here, and
+  a 2D ring is a wall to the food: ring vs crescent goes to the owner).
+  Three probes gate copying (all features, the brain's own channel,
+  context); guideline T1 amended.
+  Companions:
+  [search-teacher-design-2026-10-21.md](brain-training/teacher-training/search-teacher-design-2026-10-21.md)
+  (rollouts from cloned worlds with paired random streams; pilot on
+  dig-or-not; one-step search predicted blind to "go down"; literature in
+  `notes/search-teacher-literature.md`) and
+  `notes/nest-architecture-2026-10-21.md` (real nests in vertical
+  section: chambers are flat lenses 1-2 body lengths high, so the ladder's
+  planned 8-16-cell rooms are 3-5x too tall), with five candidate
+  blueprints drawn in `measurements/blueprints/`.
 
 ## Licensing and distribution
 

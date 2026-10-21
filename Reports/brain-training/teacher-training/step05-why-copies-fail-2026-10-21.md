@@ -1,0 +1,92 @@
+# Step 0.5: why copied lessons fail
+
+*2026-10-21, by the teacher-approach session. Status: **in progress** -- items 1-3 of the teacher design's §4 are
+done; the revive-one-unit arms are running. Local, offline on step 1's logs plus world runs on the 96 evaluation
+worlds (seed-clustered s.e.). Scratch code: `contextprobe.py` and the copier's `arena_bit`, `all_slots`,
+`revive_units` options (`scratch/teacher-probes`, never for main).*
+
+## The answer so far
+
+**Dig fails to copy because the brain's live wiring cannot hold it, not because a sense is missing. Walk home fails
+for a different reason: the information to keep it out of foraging is there, and the copy does not use it.**
+
+| Lesson | What the copy did in its own runs | The cause | What helps |
+|---|---|---|---|
+| **Dig at the foot** | Dug at the foot when there (0.17 -> 0.69), but dug the wall *more* (0.0135 -> 0.0163 a decision), so foot cuts fell 7.2 -> 4.1 a world and wall cuts rose 10.5 -> 14.2; total cuts unchanged (22.5 / 22.2), so each extra wall cut took a foot cut's place | **The verb stage cannot see "a foot cell is in reach".** Dig's job reads its best option score with weight -0.31 against a bias of -6.30, and the best dig score itself separates foot from wall at AUC 0.613. To copy the lesson the copier must build both at once; each one's gradient is near zero while the other is | **More wiring.** With every slot free the copy digs the foot 0.89 and the wall 0.0111 -- *below* the start -- in its own runs. But its 1,874 live links run it out of energy (0.08 by frame 8,000-12,000, against 0.26), so in the world it scores 4.40, not more. One revived unit is the test now running |
+| **Walk home** | Spread to empty foragers and broke fetch (16.66 -> 11.46) | **Not a missing sense.** The context probe separates "empty digger walking home" from "empty forager walking" at AUC 1.000 from senses and memory alone -- but through arena artefacts (fetch is fed, so energy reads exactly 0.500; without energy, still 0.97 via run length, `at_nest` and depth). The copy did not use the separation | The arena bit (an offline counterfactual) lets the soil lesson work better (8.05 against 7.03) but breaks fetch worse, because the bit does not exist in the real fetch arena. More wiring alone: no better in the world (6.40) |
+
+## 1. The dig copy's collapse, traced
+
+The dig-only copy (step 1's `only-dig`, 3.35 full loads) and its start (s161 quieted, 6.42), each on the same 48
+training-layout worlds with every decision logged (`copylog soil ... 9101 48`):
+
+| | Start | Dig copy | Dig copy, all slots free |
+|---|---|---|---|
+| Full loads a world | 6.27 | 3.44 | 4.75 |
+| Foot / wall / rim cuts a world | 7.2 / 10.5 / 4.8 | 4.2 / 14.2 / 3.8 | 5.4 / 8.5 / 1.7 |
+| P(dig) with a foot cell in reach | 0.17 | 0.69 | 0.89 |
+| P(dig) with only wall cells in reach | 0.0135 | 0.0163 | **0.0111** |
+| Takes the deepest step when empty below ground | 0.22 | 0.26 | -- |
+| Carry time, foot pellet (median frames) | 260 | 262 | -- |
+| Put-down to next cut (median frames) | 245 | 245 | -- |
+| Mean energy by 4,000 frames | 0.47 / 0.40 / 0.31 / 0.26 | same | 0.44 / 0.27 / **0.08** |
+
+**What it rules out**: descent (the copy goes down as well as its start), carrying (identical), energy (identical for
+the step-1 copy). **What it shows**: a trip down ends at the first cut, so the rate of wall cuts on the way down decides
+how many trips reach the foot. Step 1's held-out log already said so -- on "don't dig here" states the copy's P(Dig)
+went 0.0104 -> 0.0193 -- but it was read as "dig copies half". It copied the wrong way where it mattered.
+
+**The withdrawn claim**: step 1's "the copy digs at the foot 80-91% of the time" was measured on *s161's* logged states.
+In its own runs it reaches the foot far less often.
+
+## 2. The joint-fit diagnostic
+
+Each lesson copied three ways (design §4 item 2), scored on held-out logged decisions and then in the world:
+
+| Arm | Walk home: lesson / kept skills (held out) | Walk home in the world: full loads, fetch | Dig: P(Dig) foot / wall (held out) | Dig in the world: full loads, fetch |
+|---|---|---|---|---|
+| (a) as in step 1 | 0.64 / 0.94 | 7.03, 11.46 | 0.79 / 0.0193 | 3.35, 18.07 |
+| (b) every slot free, energy ignored (1,874 live links) | 0.87 / 0.95 | 6.40, 11.81 | 0.96 / 0.0079 | 4.40, 17.60 |
+| (c) (a) + an arena bit (on `c::CROWD`) | 0.75 / 0.95 | 8.05, 5.97 | 0.82 / 0.0193 | 3.11, 13.44 |
+
+(Start: 6.42 full loads, fetch 16.66; dig's start on held-out "don't dig" states 0.0104. Arm (c)'s bit borrows
+`c::CROWD`, which reads 0 in every solo arena but has live links in s161 -- setting it moved s161's own fetch
+agreement to 0.75 before training; and it does not exist in the real fetch arena, so (c)'s fetch number is not
+deployable, only diagnostic.)
+
+**Reading, by the design's own key**: for dig, only (b) fits both, so the wall is **capacity or wiring**; (c) does
+nothing, because dig's spread is inside the soil arena. For walk home, (b) and (c) both fit both on held-out
+decisions, and neither helps in the world: **agreement on logged decisions is not performance**, which the design's
+own guideline T6 says and which this table shows twice.
+
+## 3. The context probe (walk home)
+
+`contextprobe.py`: 6,000 soil decisions the teacher labelled "walk home" against 6,000 fetch decisions of an empty
+forager choosing Walk, held out by world.
+
+| Inputs | AUC linear | AUC 16-unit |
+|---|---|---|
+| senses + memory | 1.000 | 1.000 |
+| ... energy senses held at 0 | 0.974 | 0.977 |
+| ... + mean Walk-option features (energy held at 0) | 0.982 | 0.983 |
+| Positive control (energy above its median) | 1.000 | -- |
+| Negative control (arena labels permuted by world) | 0.516 / 0.507 | -- |
+
+Separating inputs: energy (fetch is fed: 0.500 every frame), then scent A, depth, age (the run clock: arenas differ in
+length), `at_nest` (0.77 in fetch, 0.04 on the soil surface). **These are arena artefacts**: a brain that keys on them
+learns "which arena am I in", which no real colony offers. The finding that matters for the brain lane: the kept-skill
+arenas can be told apart from the soil arena by things that are not the world.
+
+## What this changes
+
+- **For the brain lane's copy-then-select test**: the copy handed over (go-down into s171, 11.64, fetch and trail above
+  floor) is unaffected -- go-down's channel was clean.
+- **For dig**: test the cheapest capacity (one revived scorer unit, ~90 links) before anything else. If it holds the
+  lesson without running the ant dry, dig copies; if not, dig is a lesson for selection with link protection.
+- **For walk home**: neither a sense nor capacity fixes it in the world. Leave the empty return trip to selection
+  (step 1's option (c)), or teach it only in a world where diggers and foragers share an arena, so the look-alike states
+  carry both labels.
+- **For the arenas**: fetch being fed makes energy an arena tag. Worth the brain lane's knowing before any kept-skill
+  floor is trusted as "the same brain doing two jobs".
+
+*Revive-one-unit results: to follow in this document.*
