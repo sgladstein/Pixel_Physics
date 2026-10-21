@@ -1,0 +1,45 @@
+span_readings: frames=600 hidden=2 damp_half_span=12 cohesion dry 0.49 damp 1.00 soaked 0.25
+lab seed 1: 30000 frames in 28.72 s
+lab seed 2: 30000 frames in 31.37 s
+
+=== chambers (crop (0, 4, 300, 28)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:  526 failed  332 fell  farm/2: 1358 failed  446 fell
+  damp     today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:  168 failed  168 fell  farm/2:  420 failed  300 fell
+  soaked   today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:  878 failed  405 fell  farm/2: 1863 failed  526 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-chambers.png (3627x270)
+
+=== s171-sealed0 (crop (112, 58, 33, 23)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    1 failed    1 fell
+  damp     today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+  soaked   today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-s171-sealed0.png (423x225)
+
+=== s171-sealed3 (crop (111, 56, 43, 26)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    4 failed    5 fell
+  damp     today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+  soaked   today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-s171-sealed3.png (543x252)
+
+=== colony1 (crop (16, 101, 29, 14)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    8 failed    8 fell
+  damp     today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+  soaked   today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    4 failed    4 fell  farm/2:    9 failed    9 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-colony1.png (375x144)
+
+=== colony2 (crop (13, 102, 31, 13)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    1 failed    1 fell
+  damp     today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    0 failed    0 fell
+  soaked   today:    0 failed    0 fell  slice:    0 failed    0 fell  farm:    0 failed    0 fell  farm/2:    3 failed    3 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-colony2.png (399x135)
+
+=== lab1 (crop (240, 148, 54, 33)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    3 fell  slice:    0 failed    3 fell  farm:    0 failed    3 fell  farm/2:    0 failed    3 fell
+  damp     today:    0 failed    4 fell  slice:    0 failed    4 fell  farm:    0 failed    4 fell  farm/2:    0 failed    4 fell
+  soaked   today:    0 failed    7 fell  slice:    0 failed    7 fell  farm:    2 failed   10 fell  farm/2:    5 failed   12 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-lab1.png (675x315)
+
+=== lab2 (crop (235, 143, 55, 38)) ===  rows: dry, damp, soaked; columns: today, slice, farm, farm/2
+  dry      today:    0 failed    3 fell  slice:    0 failed    3 fell  farm:    0 failed    3 fell  farm/2:   10 failed   17 fell
+  damp     today:    0 failed    3 fell  slice:    0 failed    3 fell  farm:    0 failed    3 fell  farm/2:    0 failed    3 fell
+  soaked   today:    0 failed   13 fell  slice:    0 failed   13 fell  farm:    0 failed   13 fell  farm/2:    0 failed   13 fell
+wrote Reports/img/soil-physics-2026-10-21/span/span-lab2.png (687x360)

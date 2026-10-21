@@ -1,0 +1,24 @@
+# python3 -I scripts/roof_probe.py arena_s171.csv   (2026-10-21)
+# arena_s171.csv: cargo run --release --example roof_cues -- genome=Reports/brain-training/stage2/dig/8/dig-8-s171-hold-best.txt csv=arena_s171.csv
+#   soil arena step 4, shaft 8, foot pay, budget 1200 J, 12,000 frames, 24 sealed + 24 hold-out layouts, Dig options every 5 frames
+arena_s171.csv: 116388 Dig options over 48 worlds; flagged 7.033%; engine verdict on 11671 rows, 4.832% drop ground
+
+CONTROLS
+  POSITIVE: label `lined`, all features        n=116388  linear: AUC 1.000  recall 1.00  precision 1.00   mlp16: AUC 1.000  recall 1.00  precision 1.00
+  NEGATIVE: flag moved between worlds, all features n=116388  linear: AUC 0.502  recall 0.48  precision 0.07   mlp16: AUC 0.511  recall 0.33  precision 0.07
+
+LABEL: the ant's own roof flag (f::ROOF_DROP)
+  the touch features the brief names           n=116388  linear: AUC 0.954  recall 0.69  precision 0.59   mlp16: AUC 0.983  recall 0.72  precision 0.93
+  every option feature but the flag (44)       n=116388  linear: AUC 0.965  recall 0.70  precision 0.76   mlp16: AUC 0.994  recall 0.89  precision 0.90
+  + hold_min (one-hot 0..6)                    n=116388  linear: AUC 1.000  recall 0.97  precision 0.96   mlp16: AUC 1.000  recall 0.98  precision 0.99
+  + resting, pellet, thin (no count)           n=116388  linear: AUC 0.991  recall 0.89  precision 0.77   mlp16: AUC 0.999  recall 0.94  precision 0.94
+  hold_min alone (one-hot)                     n=116388  linear: AUC 0.992  recall 0.85  precision 1.00   mlp16: AUC 0.992  recall 0.86  precision 1.00
+  hold_min<=2 or pellet, as one bit            n=116388  linear: AUC 1.000  recall 1.00  precision 1.00   mlp16: AUC 1.000  recall 1.00  precision 1.00
+
+LABEL: the engine's verdict (cut it in a clone, did ground fall within 3 frames) -- subsample
+  the flag itself                              n= 11671  linear: AUC 0.980  recall 0.99  precision 0.69
+  every option feature but the flag (44)       n= 11671  linear: AUC 0.978  recall 0.71  precision 0.87   mlp16: AUC 0.991  recall 0.92  precision 0.94
+  + hold_min (one-hot 0..6)                    n= 11671  linear: AUC 0.990  recall 0.95  precision 0.87   mlp16: AUC 0.994  recall 0.96  precision 0.93
+
+AGREEMENT of the one-bit touch cue with the flag, row by row
+  both 8186   flag only 0   cue only 0   neither 108202

@@ -2,7 +2,7 @@
 
 *2026-10-21, by the teacher-approach session, for the owner's question "should a freshly placed pellet settle a cell
 or two before it hardens?" -- answered "go with your suggestion". Built in `src/sim/creature.rs` (`spoil_roll_of`,
-`spoil_rest`, `place_spoil`), **off by default**, per world through `World::spoil_roll`. Measured on the shipped
+`spoil_rest`, `place_spoil`), **on by default since 2026-10-21** (below), per world through `World::spoil_roll`. Measured on the shipped
 colony; not yet on the trained brain's arena.*
 
 ## What it does
@@ -51,7 +51,8 @@ The rule is aimed at the teacher's ring mound (`Reports/brain-training/teacher-t
 §5): a planner that puts pellets on the outer flank, where a roll is possible, should see it fire far more often than
 the shipped ants' scatter does. That is the next measurement, on the brain's soil arena.
 
-**Default.** Measured neutral, so by the house rule it should ship on in the games. It stays **off** for now for one
-reason: switching the process default on would also change the brain lane's training arenas mid-run, which build
-worlds with `spoil_roll` unset. The brain lane has been asked to pin `spoil_roll: Some(0)` in its arenas (or to take
-the change); once it has, the default goes on.
+**Default: on** (2026-10-21). Measured neutral, so by the house rule it ships on in the games. It was held off for one
+night for one reason: switching the process default would also have changed the brain lane's training arenas mid-run.
+The brain lane pinned `spoil_roll: Some(0)` in every arena (`train::challenges::hold_training_world`, PR 756) and
+checked that s171's sealed soil and fetch runs are identical with the roll on; the default was flipped after that. The
+arenas take it at a rung boundary, with re-measured baselines.

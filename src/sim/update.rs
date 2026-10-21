@@ -1001,6 +1001,92 @@ fn crumb_rule() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CRUMB").as_deref() != Ok("off"))
 }
 
+/// **How well damp ground holds together, 0..1 of its best**, against its
+/// water (`Cell::aux` on a powder: 0 dry, 1000 saturated). Weak dry, best
+/// damp, weakest soaked: the shape of capillary (apparent) cohesion, which
+/// rises from nothing in dry grains to a peak at intermediate wetness and
+/// falls towards saturation (Lu & Likos 2013; one silty sand peaked near
+/// 11% water and was weaker than dry above it). Fire ants dig their deepest
+/// tunnels at that intermediate moisture and none in dry or saturated
+/// substrate (Monaenkova et al. 2015). **The shape is sourced; the sizes are
+/// chosen** -- 0.35 at bone dry, 1.0 across 450..700, 0.25 soaked -- and are
+/// only read by [`roof_span`]'s rule (`soil-physics-realism-2026-10-21.md`
+/// §5.5-5.6).
+pub fn soil_cohesion(aux: u16) -> f32 {
+    let m = aux as f32;
+    if m < 450.0 {
+        0.35 + 0.65 * m / 450.0
+    } else if m <= 700.0 {
+        1.0
+    } else {
+        1.0 - 0.75 * ((m - 700.0) / 300.0).min(1.0)
+    }
+}
+
+/// **The roof span limit, off by default** (`PIXEL_PHYSICS_ROOF_SPAN`;
+/// owner, 2026-10-21: "implement some of your suggestions, with switches off
+/// by default"). `=<cells>` turns it on with that half-span for damp ground,
+/// `=on` with 12 (an opening 24 cells, 12 ant body lengths, across at best,
+/// the order of a harvester-ant chamber). Unset or `=off`: no span rule, the
+/// engine as it was.
+///
+/// **What it reads the world as.** The screen is one plane, so a void's
+/// width on screen is its roof span only if the world is a thin slab -- a
+/// glass ant farm, which the lab's sealed box literally is. Read as a slice
+/// of a deep world, a wide void is a body-wide tunnel seen side-on and no
+/// span rule applies; that reading is this switch off. Both were drawn for
+/// the owner in `examples/span_readings.rs` before this was written
+/// (`soil-physics-realism-2026-10-21.md` §5.6).
+///
+/// **Keep it off: the farm reading was wrong.** The owner asked why, under
+/// it, an ant could not dig a long tunnel without it falling (2026-10-21).
+/// Real ants dig long tunnels behind glass and they stand, because a roof
+/// spans the shorter of its two horizontal sizes, and in a thin slab that is
+/// the gap between the panes. So a tunnel's real span is about a body in
+/// either reading, and keying the rule on width on screen punishes long
+/// tunnels to catch great halls, which a 2D world cannot tell apart. The
+/// width-blind default is the realistic rule. This stays as the starting
+/// point if rooms and tunnels ever become distinguishable.
+///
+/// Read once per process through a `OnceLock`, like the switches above.
+pub fn roof_span() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_ROOF_SPAN").as_deref() {
+        Err(_) | Ok("off") => None,
+        Ok("on") => Some(12.0),
+        Ok(v) => Some(v.parse::<f32>().unwrap_or_else(|_| {
+            panic!("PIXEL_PHYSICS_ROOF_SPAN={v:?}: use off, on, or a damp half-span in cells")
+        })),
+    })
+}
+
+/// Nothing holding a roof up from below: air, an animal (not a pillar), or
+/// liquid.
+fn open_under_roof(materials: &MaterialRegistry, c: Cell) -> bool {
+    c.material == material::EMPTY || matches!(materials.get(c.material).kind, MaterialKind::Creature | MaterialKind::Liquid)
+}
+
+/// **A worked roof cell too far from the wall of the opening under it.**
+/// With open space directly beneath `(x, y)`, the opening's run along the
+/// row below is followed out from `x` both ways; the cell fails when the
+/// nearer wall is more than `half * soil_cohesion(aux)` cells away. So a
+/// wide roof goes from the middle, and each row that goes leaves the row
+/// above a narrower opening: the sag stops as a dome by itself (the
+/// re-lining in `update_powder` is what keeps the dome from being a
+/// chimney).
+///
+/// **The scan is the answer, not a cap on it**: it stops after
+/// `floor(limit)` open cells a side because that many is exactly what
+/// decides `d > limit` -- `CLAUDE.md`'s size-cap rule.
+pub(crate) fn over_span(get: impl Fn(i32, i32) -> Cell, materials: &MaterialRegistry, half: f32, x: i32, y: i32) -> bool {
+    if !open_under_roof(materials, get(x, y + 1)) {
+        return false;
+    }
+    let need = (half * soil_cohesion(get(x, y).aux())).floor().max(0.0) as i32;
+    (1..=need).all(|k| open_under_roof(materials, get(x - k, y + 1)))
+        && (1..=need).all(|k| open_under_roof(materials, get(x + k, y + 1)))
+}
+
 /// **Whether a `self_supporting` powder at `(x, y)` gives way** --
 /// `update_powder`'s footing rule and crumb rule, with every cell read
 /// through `get`. Its reasons are written where it is called; it is
@@ -1028,7 +1114,7 @@ pub(crate) fn worked_cell_gives_way(get: impl Fn(i32, i32) -> Cell, materials: &
     } else {
         usize::MAX
     };
-    no_footing || contacts < 3
+    no_footing || contacts < 3 || roof_span().is_some_and(|half| over_span(&get, materials, half, x, y))
 }
 
 /// **The ablation switch for the footing rule** -- `Material::needs_footing`,
@@ -1431,6 +1517,18 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         if worked_cell_gives_way(|a, b| surface.get(a, b), surface.materials(), needs_footing, x, y) {
             let loose = surface.materials().get(here.material).slumps_into;
             if let Some(loose) = loose {
+                // **A roof that sags is re-lined above, so it sags rather
+                // than caving** -- only under `roof_span`, and only for a
+                // span failure. Unworked soil here is a loose powder that
+                // stands only because lining holds it, so without this one
+                // failed roof cell opens a chimney and the whole column
+                // pours in (drawn: `span_readings reline=0`). Real
+                // undisturbed soil keeps its own cohesion and only the
+                // over-span part fails, so the ground over the failure is
+                // worked the way a cut works its neighbours, and the next
+                // row up is judged on its own, narrower opening.
+                let relined = roof_span()
+                    .is_some_and(|half| over_span(|a, b| surface.get(a, b), surface.materials(), half, x, y));
                 // Everything but the material rides across, for the reason
                 // the waterlogging branch below carries it: on a `Powder`,
                 // `aux == 0` means *dry*, so a rebuilt cell is destroyed
@@ -1438,6 +1536,19 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                 let mut crumb = here;
                 crumb.material = loose;
                 surface.set(x, y, crumb);
+                if relined {
+                    for dx in -1..=1 {
+                        let above = surface.get(x + dx, y - 1);
+                        if above.organism_id() != 0 {
+                            continue;
+                        }
+                        if let Some(packed) = surface.materials().get(above.material).packs_into {
+                            let mut wall = above;
+                            wall.material = packed;
+                            surface.set(x + dx, y - 1, wall);
+                        }
+                    }
+                }
                 return true;
             }
         }
@@ -3805,6 +3916,49 @@ mod tests {
             );
         }
         assert_eq!(w.creature_stats.unpacked, 4, "the counter must say what happened -- a silent pass and a pass that found nothing look identical");
+    }
+
+    /// **The roof span rule reads span, wetness and the nearer wall -- and
+    /// nothing else** (`over_span`, `PIXEL_PHYSICS_ROOF_SPAN`, off by
+    /// default). On a grid read through a closure, so it runs whatever the
+    /// process's switch says: a lined roof row over an opening `w` wide.
+    ///
+    /// Four arms, so it can go red for the replacement and not only the
+    /// original: damp, an opening exactly as wide as the limit holds
+    /// everywhere and one two wider fails **only in the middle** (a rule that
+    /// failed every roof cell over a wide opening would cave rather than sag);
+    /// the same wide opening holds at a larger half-span (the knob is wired);
+    /// and soaked ground fails over an opening damp ground holds (the
+    /// wetness term is wired). The cohesion curve itself is checked for its
+    /// shape: best damp, weaker dry, weakest soaked.
+    #[test]
+    fn a_wide_roof_sags_from_the_middle_and_wetness_narrows_what_holds() {
+        let reg = material::MaterialRegistry::builtin();
+        let packed = reg.id_of("packedsoil").expect("packedsoil is compiled in");
+        let grid = |w: i32, aux: u16| {
+            move |x: i32, y: i32| -> Cell {
+                if y == 0 {
+                    Cell::new(packed, 0).with_aux(aux)
+                } else if y == 1 && (0..w).contains(&x) {
+                    Cell::EMPTY
+                } else {
+                    Cell::new(material::STONE, 0)
+                }
+            }
+        };
+        let failing = |w: i32, aux: u16, half: f32| -> Vec<i32> {
+            let g = grid(w, aux);
+            (0..w).filter(|&x| over_span(g, &reg, half, x, 0)).collect()
+        };
+        let damp = material::SOIL_FIELD_CAPACITY;
+        assert!(failing(24, damp, 12.0).is_empty(), "an opening 24 wide is within a damp half-span of 12: {:?}", failing(24, damp, 12.0));
+        let wide = failing(26, damp, 12.0);
+        assert_eq!(wide, vec![12, 13], "26 wide must fail in the middle only, so the roof sags and does not cave");
+        assert!(failing(26, damp, 16.0).is_empty(), "a larger half-span must hold the same opening: the knob is not wired");
+        let soaked = failing(24, material::SOIL_SATURATED, 12.0);
+        assert!(!soaked.is_empty(), "soaked ground must fail over an opening damp ground holds: the wetness term is not wired");
+        assert!(!soaked.contains(&0) && !soaked.contains(&23), "the cells beside the walls must hold even soaked: {soaked:?}");
+        assert!(soil_cohesion(damp) > soil_cohesion(100) && soil_cohesion(100) > soil_cohesion(material::SOIL_SATURATED));
     }
 
     /// **A worked cell hanging on nothing is a crumb and falls; one that is
