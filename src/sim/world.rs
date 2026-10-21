@@ -6528,6 +6528,27 @@ pub struct World {
     /// (`Reports/plant-trainer-plan-2026-10-19.md` §5.4). Founding only: a
     /// bred seed inherits its parent's alleles whatever this says.
     pub founder_variant_chance: f32,
+    /// **How deep a heap of waiting seed may stand before the seed on top
+    /// leaves the slice** (A6 of `Reports/plant-community-plan-2026-10-20.md`;
+    /// `plant::seed_pile_below`). 0 is off: seed stacks as it always has.
+    ///
+    /// The owner, 2026-10-20: *"Huge piles of seed still build up."* All of a
+    /// heap is living seed waiting its turn (measured: 9,009 waiting seeds,
+    /// 36 deep, on one 480,000-frame bed), and each is an organism the
+    /// engine ticks. A heap is a slice artefact: in a real stand that seed
+    /// lies scattered over the ground around the plant, a seed or two deep.
+    /// So a waiting seed resting on a heap at least this deep is taken to
+    /// have landed beside the slice instead, and leaves it
+    /// (`organism::DeathCause::Spread`, counted in `seeds_spread`).
+    pub seed_pile_depth: u8,
+    /// **A plant with no growing tip breaks a bud on stored carbon** (A3 of
+    /// `Reports/plant-community-plan-2026-10-20.md`; `plant::break_buds`).
+    /// Off, buds are paid for by this tick's income alone, and a plant that
+    /// has lost every tip can never earn one back.
+    pub bud_break_reserve: bool,
+    /// Waiting seeds that left the slice from the top of a heap
+    /// (`seed_pile_depth`). An effect count.
+    pub seeds_spread: u64,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -7485,6 +7506,9 @@ impl World {
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
             param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
+            seed_pile_depth: 0,
+            bud_break_reserve: false,
+            seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),

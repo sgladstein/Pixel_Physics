@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -181,10 +181,42 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
     // species, not of whatever they mutate into over 450,000 frames.
     w.fate_mutation_chance = 0.0;
     w.param_mutation_chance = 0.0;
+    // **And the other two, which M0 left on** (review M7, plan §12): the
+    // per-birth genotype jitter and founder variants. Without these a
+    // "census of today's species" was a census of a drifting population.
+    // `heredity=on` restores M0's bed for comparison.
+    if get(m, "heredity", "off".to_string()) != "on" {
+        w.mutation_sigma = 0.0;
+        w.founder_variant_chance = 0.0;
+    }
     // `loadfail=0` is the owner's own setting (`PLANT_LOAD_FAILURE=false` in
     // the 2026-10-09 playtest, `examples/replay.rs`): a plant with no support
     // path is not felled. On by default, as the lab ships.
     w.plant_load_failure = get(m, "loadfail", 1u8) != 0;
+    // `pile=D` (A6): a waiting seed on a heap D deep leaves the slice.
+    w.seed_pile_depth = get(m, "pile", w.seed_pile_depth);
+    println!("plant_m0 seed_pile_depth={}", w.seed_pile_depth);
+    // `budreserve=1` (A3): a plant with no tip breaks a bud on stored carbon.
+    w.bud_break_reserve = get(m, "budreserve", u8::from(w.bud_break_reserve)) != 0;
+    // `life=shrub:45000,creeper:40000`: a species' median lifespan in
+    // plant-time frames, set on this bed only -- the arm the owner's
+    // lifespan ruling is measured on before any species file changes.
+    if let Some(spec) = m.get("life") {
+        for item in spec.split(',') {
+            let (name, v) = item.split_once(':').expect("life=NAME:FRAMES,...");
+            let id = w.species.id_of(name).unwrap_or_else(|| panic!("life: no species {name}"));
+            w.species.get_mut(id).life_half_life = v.parse().expect("life frames");
+        }
+    }
+    println!(
+        "plant_m0 bud_break_reserve={} lifespans: {}",
+        w.bud_break_reserve,
+        species.iter().map(|n| format!("{n}={}", w.species.id_of(n).map_or(0.0, |id| w.species.get(id).life_half_life))).collect::<Vec<_>>().join(" ")
+    );
+    println!(
+        "plant_m0 heredity: fate_mutation={} param_mutation={} mutation_sigma={} founder_variants={}",
+        w.fate_mutation_chance, w.param_mutation_chance, w.mutation_sigma, w.founder_variant_chance
+    );
     (w, bed, scenario, species, mix_name, placed.plants)
 }
 
@@ -252,6 +284,13 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
     // deepest root summed over plants, plants).
     let mut roots: BTreeMap<&str, (f64, u64, u64, u64)> = BTreeMap::new();
     let (mut tips, mut boxed_own, mut boxed_other, mut contact, mut up_blocked) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    // **What a tip touches, split** (plan §8.1 step 4): a waiting seed, a
+    // plant of its own kind, or a plant of another kind. `contact` above is
+    // all three; a pile of seed reads as crowding in it.
+    let (mut touch_seed, mut touch_kin, mut touch_foreign) = (0u64, 0u64, 0u64);
+    // Per species: noon-equivalent light summed over its own leaf cells,
+    // and the count -- the light its leaves actually get.
+    let mut leaf_light: BTreeMap<&str, (f64, u64)> = BTreeMap::new();
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
         let def = w.species.get(st.species);
@@ -293,6 +332,14 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
             let c = w.get(x, y);
             if Some(c.material) == leaf {
                 row[2] += 1;
+                let l = leaf_light.entry(name).or_insert((0.0, 0));
+                // The day divided out only where the sky lights the world:
+                // the lab is lit by lamps with no daily cycle, and dividing
+                // by the sky's night amplitude read every leaf as full sun.
+                let raw = w.field_at(x, y).light;
+                let lit = if w.sky_lighting() { pixel_physics::sim::field::noon_equivalent_light(raw, w.frame) } else { raw };
+                l.0 += lit as f64 / pixel_physics::sim::field::MAX_LIGHT as f64;
+                l.1 += 1;
             }
             if y < ground && (0..bed.width).contains(&x) {
                 covered[x as usize] = true;
@@ -300,6 +347,7 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
                     tips += 1;
                     let mut free = false;
                     let mut other = false;
+                    let (mut t_seed, mut t_kin, mut t_foreign) = (false, false, false);
                     let (mut up_full, mut up_other) = (true, false);
                     for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
                         let n = w.get(x + dx, y + dy);
@@ -311,6 +359,11 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
                             }
                         } else if theirs {
                             other = true;
+                            match w.organism(n.organism_id()) {
+                                Some(o) if o.dormant_seed || organism::cell_type(n.aux()) == Some(CellType::Seed) => t_seed = true,
+                                Some(o) if o.species == st.species => t_kin = true,
+                                _ => t_foreign = true,
+                            }
                             if dy < 0 {
                                 up_other = true;
                             }
@@ -325,6 +378,9 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
                     if other {
                         contact += 1;
                     }
+                    touch_seed += t_seed as u64;
+                    touch_kin += t_kin as u64;
+                    touch_foreign += t_foreign as u64;
                     if up_full && up_other {
                         up_blocked += 1;
                     }
@@ -529,24 +585,27 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
     let mut s = format!("f={frame}");
     for (name, r) in &per {
         let (wet, n, depth, plants) = roots.get(name).copied().unwrap_or((0.0, 0, 0, 0));
+        let (ll, ln) = leaf_light.get(name).copied().unwrap_or((0.0, 0));
         s.push_str(&format!(
-            " | {name} plants={} bank={} leaf={} est={} rootwet={:.3} rootdepth={:.1}",
+            " | {name} plants={} bank={} leaf={} est={} rootwet={:.3} rootdepth={:.1} leaflight={:.3}",
             r[0],
             r[1],
             r[2],
             r[3],
             if n > 0 { wet / n as f64 } else { -1.0 },
-            if plants > 0 { depth as f64 / plants as f64 } else { -1.0 }
+            if plants > 0 { depth as f64 / plants as f64 } else { -1.0 },
+            if ln > 0 { ll / ln as f64 } else { -1.0 }
         ));
     }
     s.push_str(&format!(
-        " | water={} topsd={top_sd:.3} bandsd={} nut={nut_mean:.3} nutsd={nut_sd:.3} | standing={standing} standingmax={standing_max} rained={} drained={} vapour={:.0} spell={} on={under} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
+        " | water={} topsd={top_sd:.3} bandsd={} nut={nut_mean:.3} nutsd={nut_sd:.3} | standing={standing} standingmax={standing_max} rained={} drained={} vapour={:.0} spell={} on={under} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} spread={} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} touch_seed={touch_seed} touch_kin={touch_kin} touch_foreign={touch_foreign} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
         water.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
         band_sd.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
         w.rain_cells,
         w.drained_water / pixel_physics::sim::material::LIQUID_FULL as u64,
         w.atmospheric_bank,
         bed.spells.map_or("none", |sp| if sp.wet_at(frame) { "wet" } else { "dry" }),
+        w.seeds_spread,
         if nc > 0 { lc / nc as f64 } else { -1.0 },
         if no > 0 { lo / no as f64 } else { -1.0 },
     ));
@@ -668,6 +727,7 @@ fn plastic(m: &BTreeMap<String, String>) {
                 bed.rain = Rain::Steady;
                 bed.spells = Some(Spells { wet: 20_000, dry: 40_000 });
                 let (mut w, id) = arena::build(&bed, &spec);
+                w.bud_break_reserve = get(m, "budreserve", 0u8) != 0;
                 let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
                 for _ in 0..frames {
                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);

@@ -7188,6 +7188,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
                 }
+                // **A seed on a heap leaves the slice** (A6;
+                // `World::seed_pile_depth`, `DeathCause::Spread`). Only one
+                // that is waiting anyway: a seed that could sprout has done
+                // so above, and a seed resting on soil is never on a heap.
+                if world.seed_pile_depth > 0 && seed_pile_below(world, x, y, world.seed_pile_depth) >= world.seed_pile_depth {
+                    world.seeds_spread += 1;
+                    world.loss_context = Some(organism::DeathCause::Spread);
+                    world.set(x, y, Cell::EMPTY);
+                    world.loss_context = None;
+                    return Vec::new();
+                }
                 // **Remember that it waited**, so `germinate` can tell a
                 // seed that sat out a dry spell from one that sprouted the
                 // moment it landed. Without this the counter would say
@@ -10916,6 +10927,12 @@ fn bud_trace(
     }
 }
 
+/// How many growth steps' carbon a plant with no growing tip must hold,
+/// summed over every cell, before `World::bud_break_reserve` lets it break a
+/// bud from store. Enough to build the shoot a few cells, so a plant does
+/// not break a bud it cannot carry past the first step.
+const BUD_RESERVE_STEPS: f32 = 4.0;
+
 fn break_buds(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
@@ -10951,6 +10968,8 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     let mut tips = 0usize;
     let mut buds: Vec<(i32, i32, f32)> = Vec::new();
     let mut richest: Option<(i32, i32, f32)> = None;
+    // The plant's whole store, for `World::bud_break_reserve` below.
+    let mut reserve = 0.0f32;
     for &(x, y) in &cells {
         let cell = world.get(x, y);
         if cell.organism_id() != organism_id {
@@ -11007,6 +11026,7 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
             _ => {}
         }
         let held = world.carbon_at(x, y);
+        reserve += held;
         if richest.is_none_or(|(_, _, best)| held > best) {
             richest = Some((x, y, held));
         }
@@ -11104,6 +11124,32 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // herb that has finished growing. The record is paid off one per leaf
     // the plant builds (`OrganismState::grazed_leaf`), not per flush, so a
     // flush that builds several nodes cannot buy back more than was lost.
+    // **A plant with no growing tip and carbon in store breaks a bud** (A3
+    // of `Reports/plant-community-plan-2026-10-20.md`;
+    // `World::bud_break_reserve`). `supportable` above prices tips against
+    // this tick's *income* only, so a plant whose tips have all gone has
+    // nothing to earn with and can never pay for one again, whatever it
+    // holds: traced on the shrub (M0 §3), a seedling that lost every shoot
+    // tip between frames 500 and 1,000 earned about 0.017 a tick against a
+    // 0.2 step and stood still for the rest of the run with its savings
+    // untouched. That is half of why shrubs grow "hit or miss" (owner,
+    // 2026-10-20). A real plant's buds break on stored sugar -- reserves are
+    // what a browsed or frost-killed shoot regrows from (sugar-promoted bud
+    // outgrowth; Mason et al. 2014, cited from memory). One bud, and only
+    // with `BUD_RESERVE_STEPS` steps' carbon in the whole plant.
+    //
+    // **Not the rejected "stock in the numerator"** (`Reports/dead-ends.md`,
+    // `allocate_to_frontier`/`break_buds`: stock grows with mass, every
+    // tip's share stayed high, and the stand fused into one canopy, 38,605
+    // cells against 1,723). This never sizes the crown from the store: it
+    // lets a plant with *no* tip have *one*, and only where income could not
+    // pay for any (a plant whose income can already breaks buds above).
+    // Whether one tip at a time still grows a stand without bound -- the
+    // other recorded way this goes wrong, "a rate cap is not a size bound"
+    // -- is what its community measurement reads first.
+    if world.bud_break_reserve && tips == 0 && reserve >= BUD_RESERVE_STEPS * step_cost {
+        supportable = supportable.max(1);
+    }
     if graze_regrow() {
         let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
         if grazed > 0 && tips == 0 {
@@ -13628,6 +13674,25 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
 /// before it, a fallen leaf drew from `World::rng` and so shifted the decay
 /// and rain draws that come after it in the same tick.
 const LITTER_SHADE_SALT: u64 = 0x4C69_7474_6572_5348; // "LitterSH"
+
+/// **How deep the heap under `(x, y)` is, counted down to `cap`**: waiting
+/// seeds of any species and fallen leaves, stopping at the first cell that
+/// is neither (soil, stone, a living plant, air). `World::seed_pile_depth`'s
+/// measure. Litter counts because a heap is seed and leaf together, and a
+/// seed on a leaf on a seed is as far from the soil as one on two seeds.
+fn seed_pile_below(world: &World, x: i32, y: i32, cap: u8) -> u8 {
+    let litter = [world.materials.id_of("litter"), world.materials.id_of("deadleaf")];
+    let mut depth = 0u8;
+    while depth < cap {
+        let c = world.get(x, y + 1 + depth as i32);
+        let waiting_seed = c.organism_id() != 0 && world.organism(c.organism_id()).is_some_and(|s| s.dormant_seed);
+        if !(waiting_seed || litter.contains(&Some(c.material))) {
+            break;
+        }
+        depth += 1;
+    }
+    depth
+}
 
 /// `cause` is what this shedding is, for `OrganismState::last_loss`: if this
 /// clear empties a living plant, that is what the plant died of. It labels
@@ -24616,6 +24681,56 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             rained.germinated,
             rained.after_waiting
         );
+    }
+
+    /// **A heap of waiting seed is held to `World::seed_pile_depth`, and only
+    /// with it set** (A6; `seed_pile_below`, `DeathCause::Spread`). Six seeds
+    /// stacked in one column on dry soil, where none can sprout: with the
+    /// depth at 2, every seed resting on two or more others leaves the slice,
+    /// and the two at the bottom stay; at 0, the stack stands.
+    #[test]
+    fn a_seed_heap_is_held_to_its_depth_and_only_when_set() {
+        for depth in [0u8, 2] {
+            let mut w = test_world();
+            w.seed = 1;
+            w.seed_pile_depth = depth;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let (x, y) = (100, 60);
+            for fx in (x - 4)..=(x + 4) {
+                w.set(fx, y + 4, Cell::new(material::STONE, 0));
+                for dy in 1..=3 {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+                }
+            }
+            for dy in 1..=3 {
+                w.set(x - 5, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + 5, y + dy, Cell::new(material::STONE, 0));
+            }
+            // A one-cell shaft, so the six can only stack: on open ground a
+            // heap this narrow rolls off its own sides.
+            for dy in -8..=0 {
+                w.set(x - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + 1, y + dy, Cell::new(material::STONE, 0));
+            }
+            for k in 0..6 {
+                assert!(w.plant_tree_species(x, y - k, "tree"), "test setup: seed {k} should plant");
+            }
+            run_with_fields(&mut w, 1_000);
+            let waiting = (y - 12..=y)
+                .filter(|&cy| {
+                    let c = w.get(x, cy);
+                    c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| s.dormant_seed)
+                })
+                .count();
+            // Seeds also lose the ordinary viability race over 1,000 frames
+            // (`SpeciesDef::seed_half_life`), so the arms are read as bounds
+            // rather than exact counts.
+            if depth == 0 {
+                assert!(waiting >= 4 && w.seeds_spread == 0, "off: the stack should stand ({waiting} waiting, {} spread)", w.seeds_spread);
+            } else {
+                assert!(waiting <= 2 && w.seeds_spread >= 3, "depth 2: at most two should stay and the rest leave ({waiting} waiting, {} spread)", w.seeds_spread);
+            }
+        }
     }
 
     struct SeedBed {

@@ -7241,6 +7241,13 @@ pub enum DeathCause {
     Withered,
     /// **A plant whose last cell an animal ate.**
     Eaten,
+    /// **A waiting seed that left the slice from the top of a heap** (A6 of
+    /// `Reports/plant-community-plan-2026-10-20.md`; `World::seed_pile_depth`).
+    /// In a real stand seed falls over an area; in a one-cell-thick slice it
+    /// stacks in a column, and the heap is something the slice invents. A
+    /// seed resting on a heap deeper than the setting is taken to have
+    /// landed in the ground beside the slice instead.
+    Spread,
     /// **A dormant seed another plant's root grew into.** Roots may enter any
     /// soft loose cell (`plant::growable`), and a seed is one; nothing asks
     /// whose it is. Registered as a finding rather than changed: it is how the
@@ -7275,12 +7282,13 @@ impl DeathCause {
             DeathCause::Withered => "WITHERED",
             DeathCause::Eaten => "EATEN",
             DeathCause::Overgrown => "OVERRUN",
+            DeathCause::Spread => "SPREAD",
         }
     }
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 14;
+pub const DEATH_CAUSES: usize = 15;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -7298,6 +7306,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Withered,
     DeathCause::Eaten,
     DeathCause::Overgrown,
+    DeathCause::Spread,
 ];
 
 impl DeathCause {

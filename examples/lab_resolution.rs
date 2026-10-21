@@ -139,6 +139,8 @@ fn spec_from_args() -> LabBox {
         drain: false,
         spells: None,
         ground: pixel_physics::lab::scene::Ground::Uniform,
+        // Held at the box before A6, so this ladder's numbers stand.
+        seed_pile_depth: 0,
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they

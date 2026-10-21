@@ -691,7 +691,67 @@ the review (§12), **M1 runs in this order**:
    log header (M0 left per-birth jitter and founder variants on; §12, M7).
    Also count contact split by seed, own kind and other kind, and light under
    each species' own leaf.
+
+   **Done, 2026-10-21.** This is the training world: the four roles,
+   patchy ground, the floor drain, spells (20,000 wet / 40,000 dry), load
+   failure off, and all four heredity switches off, printed in each log's
+   header. 4 seeds, 480,000 frames, `plant_m0` (`heredity=on` restores
+   M0's bed). **This is the baseline A6, A3, A5 and A2 are compared
+   against, paired by seed.**
+
+   **A grass sward with a few creepers and shrubs.**
+   - grass about 1,000 plants (959-1,157), still recruiting;
+   - creeper 5-21 plants;
+   - shrub 1-3;
+   - herb dead on all four seeds;
+   - 2-3 kinds with 100+ leaf cells.
+
+   **The heaps:** 5,468-8,170 waiting seed above the soil, the deepest
+   30-37 cells.
+
+   **Contact, split (review M6).** 81-84% of growing tips touch another
+   plant. **But that is a waiting seed (57-63% of tips) or the plant's own
+   kind (53%); only 1.5-7% touch another species.** What crowds a tip in
+   the slice is heaped seed and kin, not competition between kinds, so
+   passage (A6's other piece) is not called for by this count.
+
+   **Light at each species' own leaves**, as a fraction of a lamp's full
+   light (raw: the lab has no daily cycle): creeper 0.53, grass 0.47, herb
+   0.47, shrub 0.43.
+
+   Data: `Reports/plant-community-2026-10-20/m1/rebaseline/`.
 5. **A6, where a seed may germinate, and the piles**:
+
+   **Done, 2026-10-21: heaps capped at 2 deep, on by default in every lab
+   bed** (`LabBox::seed_pile_depth`, `World::seed_pile_depth`,
+   `plant::seed_pile_below`, `DeathCause::Spread`).
+   - **"Only on soil" was already the rule.** The germination gate wants a
+     water-holding cell directly under the seed. So A6 came down to the heaps.
+   - **The heaps are all living seed.** On the re-baseline, every seed cell
+     above the soil is a waiting seed organism (9,009 on one bed). A waiting
+     seed resting on a heap at least 2 deep is now taken to have landed
+     beside the slice, and leaves it.
+   - **Paired against the re-baseline** (4 seeds, 480,000 frames, training
+     world):
+
+     | | re-baseline | depth 2 | depth 4 |
+     |---|---|---|---|
+     | waiting seed above the soil | 5,468-8,170 | **486-934** | 1,032-1,841 |
+     | deepest heap | 30-37 | 7-8 | 9-11 |
+     | kinds with 100+ leaf, per seed | 2,3,3,2 | 3,4,3,2 | 2,3,4,2 |
+     | grass plants | 959-1,157 | 325-562 (bigger) | 422-793 |
+     | herb plants | 0-1 | 0-26 (one seed recruits) | 1-20 |
+     | tips touching seed / blocked upward | 57-63% / 38-45% | 42-48% / 19-29% | 44-55% / 25-38% |
+
+   - **Species-mix guard:** grass's share of leaf is 67-90% at depth 2,
+     against about 92% before. There's no ratchet.
+   - **Depth 2 ships:** the complaint is the heaps, and 2 halves them
+     against 4. Herb's extra seed at 4 is within what 4 beds can tell apart.
+   - **The bank "that ants can still reach"** is not built: seed that leaves
+     the slice is gone, counted (`seeds_spread`, 141,000-308,000 a run). Seed
+     on the ground and the buried bank are untouched.
+   - **Outdoors** the rule is off until measured there.
+   - Picture: `Reports/plant-community-2026-10-20/m1/a6-s1.png`.
    - a seed sprouts only in contact with soil, as a real seed does;
    - seed past a set depth leaves the slice into a bank that ants can still
      reach and that the census counts;

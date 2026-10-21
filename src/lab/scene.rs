@@ -245,6 +245,25 @@ pub struct LabBox {
     /// default, and never written) is the bed as it always was.
     #[serde(default, skip_serializing_if = "Ground::is_uniform")]
     pub ground: Ground,
+    /// **How deep a heap of waiting seed may stand** before the seed on top
+    /// leaves the slice (`World::seed_pile_depth`; A6 of
+    /// `Reports/plant-community-plan-2026-10-20.md`). **2 by default**: on
+    /// the four-role training bed it took the seed lying above the soil
+    /// from 5,468-8,170 cells to 486-934 and the deepest heap from 30-37 to
+    /// 7-8 over 480,000 frames, 4 of 4 seeds, with one more kind alive on
+    /// two seeds and grass's share not up. 0 is the bed before, where heaps
+    /// grow without bound. Written only when it differs from the default.
+    #[serde(default = "seed_pile_depth_default", skip_serializing_if = "is_seed_pile_depth_default")]
+    pub seed_pile_depth: u8,
+}
+
+/// `LabBox::seed_pile_depth`'s default: see that field.
+fn seed_pile_depth_default() -> u8 {
+    2
+}
+
+fn is_seed_pile_depth_default(depth: &u8) -> bool {
+    *depth == seed_pile_depth_default()
 }
 
 /// **What the bed's ground is made of** (step E of
@@ -443,6 +462,7 @@ impl Default for LabBox {
             drain: drain_default(),
             spells: None,
             ground: Ground::Uniform,
+            seed_pile_depth: seed_pile_depth_default(),
         }
     }
 }
@@ -1075,6 +1095,7 @@ impl LabBox {
             Ground::Uniform | Ground::Patchy => None,
         };
         let textured = self.ground != Ground::Uniform;
+        w.seed_pile_depth = self.seed_pile_depth;
         w.soil_texture = textured;
         w.soil_drains_around = textured;
         for x in 0..self.width {
