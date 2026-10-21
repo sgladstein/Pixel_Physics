@@ -13246,6 +13246,19 @@ impl<'w> MoistureView<'w> {
         }
     }
 
+    /// **`inner.contains`, as one unsigned compare per axis.** `x - min_x`
+    /// wraps below the rectangle to a value larger than its width, so
+    /// `(x - min_x) as u32 <= max_x - min_x` is exactly `min_x <= x <= max_x`
+    /// for every `i32` -- the empty-intersection point at `i32::MIN` included.
+    /// This is the test every read and write of the pass makes (about fifteen
+    /// a visited cell), so it is worth the four compares it saves.
+    #[inline(always)]
+    fn is_inner(&self, x: i32, y: i32) -> bool {
+        let r = self.inner;
+        (x.wrapping_sub(r.min_x) as u32) <= (r.max_x.wrapping_sub(r.min_x) as u32)
+            && (y.wrapping_sub(r.min_y) as u32) <= (r.max_y.wrapping_sub(r.min_y) as u32)
+    }
+
     /// Queue `World::set`'s tail for `(x, y)`, if it has anything to do.
     ///
     /// The two guards mirror `set`'s own: `reindex_organism_cell` returns
@@ -13262,16 +13275,16 @@ impl<'w> MoistureView<'w> {
 }
 
 impl CellSurface for MoistureView<'_> {
-    #[inline]
+    #[inline(always)]
     fn get(&self, x: i32, y: i32) -> Cell {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             return self.chunk.get_world(x, y);
         }
         self.world.get(x, y)
     }
 
     fn set(&mut self, x: i32, y: i32, cell: Cell) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let old = self.chunk.get_world(x, y);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
@@ -13296,7 +13309,7 @@ impl CellSurface for MoistureView<'_> {
             self.set(x, y, cell);
             return;
         }
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.set_world_quiet(x, y, cell);
             self.chunk.mark_moist_dirty(x, y);
             self.world.mark_moist_neighbours(x, y, self.coord);
@@ -13318,7 +13331,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_moved(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_moved(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13327,7 +13340,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_undercut(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_undercut(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13336,7 +13349,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn keep_awake(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.keep_awake(x, y);
         } else {
             self.world.keep_awake(x, y);
