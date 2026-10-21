@@ -23,6 +23,8 @@
 //! cargo run --release --example plantrain -- mode=ranking genomes=16 layouts=12 sigma=0.9 genes=8
 //! # the ladder's first rungs on the shipped role species: per station, who establishes, how fast it grows, what a bed costs
 //! cargo run --release --example plantrain -- mode=rungs species=tree,shrub,herb,creeper rungs=establish,grow stations=bright,dim layouts=12
+//! # does each rung rank genomes the way the next one does? mutated children on rungs 1, 2 and a whole life
+//! cargo run --release --example plantrain -- mode=ladder control=herb genomes=16 layouts=8 stations=bright,dim
 //! # a picture: the shipped species and each file, on N layouts, at chosen frames
 //! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
 //! ```
@@ -225,6 +227,125 @@ fn rungs(m: &BTreeMap<String, String>) {
                 );
             }
         }
+    }
+}
+
+/// Spearman rank correlation of two equal-length lists, ties at their mean
+/// rank.
+fn spearman(x: &[f32], y: &[f32]) -> f32 {
+    let rank = |v: &[f32]| -> Vec<f32> {
+        let mut idx: Vec<usize> = (0..v.len()).collect();
+        idx.sort_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal));
+        let mut r = vec![0.0; v.len()];
+        let mut i = 0;
+        while i < idx.len() {
+            let mut j = i;
+            while j + 1 < idx.len() && v[idx[j + 1]] == v[idx[i]] {
+                j += 1;
+            }
+            for &t in &idx[i..=j] {
+                r[t] = (i + j) as f32 / 2.0;
+            }
+            i = j + 1;
+        }
+        r
+    };
+    let (rx, ry) = (rank(x), rank(y));
+    let n = rx.len().max(1) as f32;
+    let (mx, my) = (rx.iter().sum::<f32>() / n, ry.iter().sum::<f32>() / n);
+    let cov: f32 = rx.iter().zip(&ry).map(|(a, b)| (a - mx) * (b - my)).sum();
+    let vx: f32 = rx.iter().map(|a| (a - mx) * (a - mx)).sum();
+    let vy: f32 = ry.iter().map(|b| (b - my) * (b - my)).sum();
+    cov / (vx * vy).sqrt().max(f32::EPSILON)
+}
+
+/// **Does each rung predict the next?** (plant-community plan §6.2's first
+/// rule for the ladder: a rung that does not rank candidates the way the
+/// next one does is teaching something else.) Mutated children of `control`
+/// -- the same children `mode=ranking` makes -- grown on rung 1 (establish)
+/// and rung 2 (grow) per station on two disjoint layout sets, and once on a
+/// whole life (P1's bed and score). Prints each arm's numbers, then the
+/// rank correlations: a rung against itself on the other set (its own
+/// repeatability -- a ceiling on anything it can predict), and each rung
+/// against the next.
+fn ladder(m: &BTreeMap<String, String>) {
+    let start = train_plant::load(&start_path(m)).expect("the start species loads");
+    let g: usize = get(m, "genomes", 16);
+    let n: usize = get(m, "layouts", 8);
+    let base: u64 = get(m, "base", 9_000_000);
+    let sigma: f32 = get(m, "sigma", 0.9);
+    let max_genes: usize = get(m, "genes", 8);
+    let groups: Vec<Group> = m
+        .get("groups")
+        .map(|v| v.split(',').map(|x| Group::parse(x).unwrap_or_else(|| panic!("unknown group `{x}`"))).collect())
+        .unwrap_or_else(|| vec![Group::Shape, Group::Leaf, Group::Flower, Group::Height]);
+    let stations: Vec<arena::Station> = get(m, "stations", "bright,dim".to_string())
+        .split(',')
+        .map(|s| arena::Station::named(s).unwrap_or_else(|| panic!("station `{s}` is not bright|dim|dry")))
+        .collect();
+    let genes = genome::gene_table(&start);
+    let free: Vec<usize> = (0..genes.len()).filter(|&i| groups.contains(&genes[i].group)).collect();
+    let mut rng = pixel_physics::sim::rng::Rng::new(get(m, "seed", 0x5EED_1000));
+    let control: String = get(m, "control", "herb".to_string());
+    let mut arms = vec![Arm::shipped(&control)];
+    for i in 0..g {
+        let (mut d, _) = genome::mutate(&start, &genes, &free, sigma, max_genes, &mut rng);
+        d.name = genome::child_name(&start.name, 971, 0, i);
+        arms.push(Arm::of(&d));
+    }
+    println!(
+        "plantrain ladder: control={control} genomes={g} sigma={sigma} genes={max_genes} groups={} layouts={n}+{n} base={base} stations={}",
+        groups.iter().map(|x| x.name()).collect::<Vec<_>>().join(","),
+        stations.iter().map(|s| s.name).collect::<Vec<_>>().join(",")
+    );
+    let mean_of = |rows: &[Census], f: &dyn Fn(&Census) -> f32| rows.iter().map(f).sum::<f32>() / rows.len().max(1) as f32;
+    // cols[name] = one number per arm.
+    let mut cols: Vec<(String, Vec<f32>)> = Vec::new();
+    for &station in &stations {
+        for rung in [arena::Rung::Establish, arena::Rung::Grow] {
+            let spec = rung.spec(station);
+            for (set, b) in [("A", base), ("B", base + 500_000)] {
+                let t = std::time::Instant::now();
+                let rows = train_plant::census_all(&arms, &rung.layouts(b, n), &spec);
+                eprintln!("  {} {} {set}: {:.0} s", rung.name(), station.name, t.elapsed().as_secs_f32());
+                cols.push((format!("{}-{}-{set}", rung.name(), station.name), rows.iter().map(|r| mean_of(r, &|c| c.end_shoot as f32)).collect()));
+            }
+        }
+    }
+    let life = arena::Rung::Life.spec(arena::Station::BRIGHT);
+    let k = constants(m, &life);
+    let t = std::time::Instant::now();
+    let life_scores = train_plant::score_all(&arms, &arena::Rung::Life.layouts(base + 1_000_000, n), &life, &k);
+    eprintln!("  life bright: {:.0} s", t.elapsed().as_secs_f32());
+    cols.push(("life-score".to_string(), life_scores.iter().map(|r| score::fold(r).0).collect()));
+    print!("\n{:<5}", "arm");
+    for (name, _) in &cols {
+        print!(" {name:>18}");
+    }
+    println!();
+    for a in 0..arms.len() {
+        let tag = if a == 0 { "ship".to_string() } else { format!("c{a:02}") };
+        print!("{tag:<5}");
+        for (_, v) in &cols {
+            print!(" {:>18.2}", v[a]);
+        }
+        println!();
+    }
+    let col = |name: &str| cols.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone()).unwrap_or_default();
+    println!("\nSpearman over {} arms:", arms.len());
+    for &station in &stations {
+        let st = station.name;
+        let (e_a, e_b) = (col(&format!("establish-{st}-A")), col(&format!("establish-{st}-B")));
+        let (g_a, g_b) = (col(&format!("grow-{st}-A")), col(&format!("grow-{st}-B")));
+        let life = col("life-score");
+        println!(
+            "  {st:<7} repeat: establish {:+.2} grow {:+.2} | establish -> grow {:+.2} | grow -> life {:+.2} | establish -> life {:+.2}",
+            spearman(&e_a, &e_b),
+            spearman(&g_a, &g_b),
+            spearman(&e_a, &g_b),
+            spearman(&g_a, &life),
+            spearman(&e_a, &life)
+        );
     }
 }
 
@@ -793,6 +914,7 @@ fn main() {
     match m.get("mode").map(String::as_str).unwrap_or("train") {
         "calibrate" => calibrate(&m),
         "rungs" => rungs(&m),
+        "ladder" => ladder(&m),
         "sweep" => sweep(&m),
         "score" => score_files(&m),
         "pic" => pic(&m),

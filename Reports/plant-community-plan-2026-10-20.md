@@ -622,8 +622,13 @@ This session cannot launch anything.
 >    -- meant as the shade-tolerant understory -- is the one dim hurts most
 >    (5 of 12 establish against 12; the herb loses nothing). Dry soil is not
 >    a station yet: growth ignores soil water above germination. The mister
->    is ~94% of a small bed's cost. Next: rung scores, then rung 1 predicting
->    rung 2. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    is ~94% of a small bed's cost. **Rung 2 is the filter** (`plantrain
+>    mode=ladder`, 16 mutated children each of herb and shrub): it repeats
+>    on fresh layouts at 0.62-0.90 and predicts a whole life at 0.71-0.78,
+>    at a fifth of the cost. Rung 1 is too early for the herb (12 of 17
+>    children identical at frame 3,000), so it stays a death filter only.
+>    One random shrub child already grows twice the shipped shrub in dim
+>    light. Next: a rung-2 score and the shrub's re-fit in the dim station. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow

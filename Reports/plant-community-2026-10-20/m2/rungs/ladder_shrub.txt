@@ -1,0 +1,33 @@
+plantrain ladder: control=shrub genomes=16 sigma=0.9 genes=8 groups=shape,leaf,flower,height layouts=8+8 base=9000000 stations=bright,dim
+  establish bright A: 22 s
+  establish bright B: 21 s
+  grow bright A: 85 s
+  grow bright B: 81 s
+  establish dim A: 20 s
+  establish dim B: 21 s
+  grow dim A: 81 s
+  grow dim B: 85 s
+  life bright: 502 s
+
+arm   establish-bright-A establish-bright-B      grow-bright-A      grow-bright-B    establish-dim-A    establish-dim-B         grow-dim-A         grow-dim-B         life-score
+ship              175.50             155.88             287.50             312.38              34.00              51.12             116.25             113.88               3.18
+c01               177.12             159.75             336.12             286.12              34.50              46.38              91.75             122.75               3.06
+c02                52.50              55.38             139.50             218.25              23.75              16.38              71.62             102.38               3.03
+c03                38.00              28.25             177.12             154.12              14.88              11.00             112.75              95.88               3.04
+c04               178.50             156.62             267.50             237.75              34.25              51.75             120.38              94.62               3.18
+c05               177.88             158.62             327.75             322.88              34.00              51.88             119.25             119.25               3.18
+c06               175.50             157.12             281.12             303.62              34.25              49.00             103.38             105.50               3.18
+c07               113.00              84.50             197.88             179.75              14.25              11.50              31.38              26.50               3.03
+c08                17.12              11.12              27.25              11.25               4.88               1.25               4.62               1.00               1.88
+c09               226.12             200.00             456.75             428.12              91.25              57.50             253.50             174.00               3.45
+c10               175.38             160.00             322.38             334.50              33.88              51.25             115.88             144.75               3.18
+c11               171.75             132.62             419.88             349.75              46.88              30.00             163.50             179.12               3.62
+c12               181.00             146.38             267.75             246.25              66.50              46.00             139.00             103.50               3.06
+c13               169.75             154.12             333.62             314.88              34.50              47.88              92.12             116.25               3.04
+c14                33.25              28.12             183.50             212.12              17.12              16.88             106.00              78.88               3.02
+c15               173.38             125.50             323.00             244.38              48.50              47.88             143.88             142.38               3.07
+c16               161.88             157.25             237.50             220.75              36.38              34.38             108.38              82.38               2.91
+
+Spearman over 17 arms:
+  bright  repeat: establish +0.77 grow +0.90 | establish -> grow +0.68 | grow -> life +0.78 | establish -> life +0.73
+  dim     repeat: establish +0.51 grow +0.62 | establish -> grow +0.63 | grow -> life +0.71 | establish -> life +0.49
