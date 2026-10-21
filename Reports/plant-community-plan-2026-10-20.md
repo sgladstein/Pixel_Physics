@@ -607,7 +607,13 @@ This session cannot launch anything.
 >    spread levers. The herb, by contrast, tracks its site (r = 0.76). The
 >    remaining lever is to damp the stall itself: a stunted seedling with
 >    carbon in store gets to catch up, without reopening the stock-funded
->    runaway in `Reports/dead-ends.md`.
+>    runaway in `Reports/dead-ends.md`. **First try, parked off
+>    (`World::collar_sprout`, `.../m1/collar-sprout/`):** tracing twelve
+>    lone shrubs found no early state that predicts the end, and 7 of 12
+>    finishing frozen with no tip and no bud. A basal sprout for such a
+>    plant moved the spread 0.41 -> 0.40, because a frozen shrub is a clump
+>    with no stem cell touching open air. Open with the owner: keep digging
+>    at the shrub's self-boxing, or accept the spread and go to M2.
 > 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
