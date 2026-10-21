@@ -136,7 +136,9 @@ These were answered in chat. Mark them answered or let them lapse; don't treat t
 **Decided by the owner (2026-10-21, after this was first written).**
 1. **The copy-vs-selection run: go.** Two runs per arm if the budget allows (~$7): copy v2 (main `ec86ab0a`,
    `noprune=` with the 83-slot file) against s171, same settings and CPU. Optionally a third arm with the copy seeded
-   into only ~5 of 25 parents (the research lane's lock-in check), at the brain lane's discretion. **The brain lane
+   into only ~5 of 25 parents (the research lane's lock-in check), at the brain lane's discretion. This lane recommends
+   running that arm and logging genome diversity each generation (Q3b: Lamarckian write-back into every parent locked
+   evolution in, Castillo 2006). **The brain lane
    runs it** (it owns `src/train/` and the Google runs); this lane reads the result.
 2. **Spoil roll: fix the trace bug, then turn the roll on by default (option A).** With the roll on,
    `sim::creature::tests::every_traced_decision_agrees_with_the_counters_and_the_positions` fails, and the roll is not
@@ -162,7 +164,9 @@ These were answered in chat. Mark them answered or let them lapse; don't treat t
    scheduled message overnight; its reports are under `Reports/brain-training/research/` (branch
    `claude/project-thread-hhopdh` until merged). What they change:
    - **Q3a.** Unit 14 is the brain's empty-only unit (tested: routing walk home through it helps soil, not fetch).
-     EWC and PCGrad are not worth it here.
+     EWC and PCGrad are not worth it here. The research list's ranks 6 and 7 are already answered: arm (a') ran
+     (soil 7.31, fetch 11.43; one link does not fix it). Skip the 5-NN fit: arm (b) already fits the logged decisions
+     and still fails in the world, so a fit on logged decisions cannot decide anything here.
    - **Q3c.** DAgger hurt because learner-visited states use up a small brain's capacity (Laskey 2016), and its labels
      assume the teacher carries on.
      - Use coaching-style targets with a *schedule*: tau loose, then tightening.
@@ -174,17 +178,35 @@ These were answered in chat. Mark them answered or let them lapse; don't treat t
      - Size colony training by contacts per ant.
      - Pioneer ants that fade out.
      - Check whether the brain rests when a tunnel is blocked.
+     - Pioneer ants that fade (C10, Pitteri 2026) *are* the owner's "put the teacher in the crowd". A 10% minority
+       moving by a learned policy shifted a colony into trails through scent; extra scent alone did not.
    - **Q5.**
-     - A headroom-over-the-head sense needs reach >= 8 for 7-cell chambers.
+     - A headroom-over-the-head sense needs reach >= 8 for 7-cell chambers. (Q5 §7 says 17: it predates the 7-cell
+       ruling and used the old 8-16 spec. To grade overshoot as `nestscore.py` does, zero at 13, reach 13.)
      - CO2 is no depth cue.
      - Slanted shafts are not wrong (age).
+1b. **Two DAgger diagnostics, ~15 core-minutes in total, before the search pilot.** Their answer decides which states the
+   search teacher labels:
+   - Refit the DAgger pool without far states (Q3c): states whose nearest round-0 state is farther than the round-0
+     median nearest-neighbour distance.
+   - Relabel only failed trips, from the point of failure (Q4 C9, Li 2020).
+
+   Compare both against 8.64 / 10.57, and against DAgger's 6.34 / 9.50. If either recovers, the search teacher labels
+   only those states.
 2. **Dig's discrimination limit -> a sense.** The candidate is local: "the target is the lowest open-adjacent cell of
    the cavity the ant stands in", which is the bottom of the hole felt by gravity and touch.
    - First run the probe (brain channel) with that feature computed offline from the logs. Does it separate foot from
      wall?
    - Only then propose it to the brain lane (new links at zero, through their lane).
+   - Propose it together with the brain lane's sense-honesty tests: the depth ablation and the `f::CUT` census (Q5
+     ranks 2-3). A copy built on a sense that is about to be swapped has to be redone. This sense is the gravity and
+     touch reading Q5 endorses; depth has no known real sense.
 3. **The search teacher pilot (design §8)**, not started. Do its instrument checks A1-A4 and the pairing measurement
    S1 first. Its target, dig-or-not, is exactly the lesson that copying cannot finish.
+   - **Run it on the strongest student, not s161.** Use copy v2 or s171. Search gains grow with the base policy's
+     strength (Tesauro 1996), so s161 at 6.8 would undersell it. Rebuild the M2 value table on that base.
+   - Mirrored twins correlate only 0.41-0.65, so pairing removes about half the variance, not all of it. Size the
+     rollout samples on what is left.
 4. **Nest work.**
    - Rust port of `nestscore.py` beside `src/lab/nestcensus.rs`.
    - The harvester-profile plan generator.
