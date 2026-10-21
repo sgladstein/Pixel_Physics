@@ -641,6 +641,50 @@ by somebody about to try it on creatures.
   herb never flowers** (its leader stops short of the ninth node), so the
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
+- [plant-community-m0-2026-10-20.md](plant-community-m0-2026-10-20.md)
+  — **M0 of the community plan, complete.**
+  **Today's lab bed holds one to three kinds of plant**, and the survivors
+  mostly do not replace themselves (42 beds, 450,000 frames). **Ants make room
+  for the annual herb** (5 of 8 beds with ants, 0 of 12 without).
+  **Grass fails at recruitment, and the seed piles are that failure.** Under
+  the lab default, seedlings on the pile are felled and grass dies out.
+  Under the owner's setting (load failure off) the pile never clears (40
+  deep) and grass carpets the bed. **The default mister floods every bed past
+  about 200,000 frames** (§Z38).
+  **The per-plant developmental key freezes the dice without shrinking them**
+  (one herb genome, one spot: 128–382 cells). **The shrub's stall-or-take-off
+  is traced:** bud break reads income per tick, not savings, so a seedling
+  that loses its tips early never restarts.
+  62–86% of shoot tips touch another plant. A grown bed copies exactly, and a
+  small arena costs about 0.1 core-seconds.
+
+- [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
+  — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
+  handoff carrying the state and the queue -- read that first.** Revision 4
+  came after M0 and an independent review (its §12: 2 blockers, 9 major,
+  4 minor, all accepted); supersedes the trainer plan's P2–P6. Revision 4 reorders M1: confirm the shared random stream, then the
+  watering, then a re-baseline with heredity truly off, then seeds sprouting
+  only on soil. Each role is scored on its own objective. The starting
+  species are remapped (canopy from tree or conifer, ground cover from
+  creeper, understory from shrub). The community rungs are gated on a steady
+  resident bed and a heritability check. The owner has since answered both
+  questions (load failure off in the training world; a shrub lifespan, the
+  creeper's held). The goal: a lab bed where **four
+  roles** coexist (canopy perennial, shade-tolerant understory, annual
+  colonist, clonal ground cover), proven by **mutual invasibility** rather than
+  a species count. **Part A** rebuilds development from how real plants grow:
+  phyllotaxis by rule, buds by apical dominance, sugar and light, shade
+  avoidance against tolerance, sun and shade leaves, root foraging, each
+  trait a **reaction norm** (a base gene and a sensitivity gene). It comes
+  first because clones a column apart range 134–387 cells today. **Part C** is
+  an ant-style ladder of seven rungs, from establishing in a pocket of soil
+  (about 0.3 core-seconds a bed) to invading a pre-grown bed copied per
+  candidate. Whole long beds are validation only. Google Cloud through PR 734's
+  launcher, $40 a month of a shared $100. The 2D slice is read as a thin
+transect through a 3D stand: light through foliage, passage past another
+plant, and seed stacking are each measured, then calibrated as the depth that
+cannot be drawn.
+
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
   — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
   independent adversarial review (its §12: 1 blocker, 13 major, 7 minor, each

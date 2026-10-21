@@ -956,9 +956,16 @@ mod tests {
             "{decisions} decisions, {carrying} carrying"
         );
 
-        // The control: food beside a free-jawed head.
+        // The control: food beside a free-jawed head -- on whichever side
+        // of it is open. **Either side, not both**, since 2026-10-21: the
+        // food goes on one cell, and asking for both open made the control
+        // a bet on where twelve ants happen to stand at frame 3,000. Soil
+        // water passing through roots (`LabBox::soil_through_roots`, on in
+        // this box) reshuffled the colony and lost that bet with nothing
+        // about the options changed -- every per-decision assertion above
+        // still held.
         let food = w.materials.id_of("provisions").expect("provisions");
-        let (id, head) = w
+        let (id, t) = w
             .live_organism_ids()
             .into_iter()
             .filter_map(|id| {
@@ -966,11 +973,10 @@ mod tests {
                     .filter(|s| s.species == sp && s.brood.is_none() && s.spoil.is_none() && s.crop.is_none())
                     .and_then(|s| s.chain.first().map(|&h| (id, h)))
             })
-            .find(|&(_, (x, y))| {
-                w.get(x + 1, y).material == material::EMPTY && w.get(x - 1, y).material == material::EMPTY
+            .find_map(|(id, (x, y))| {
+                [(x + 1, y), (x - 1, y)].into_iter().find(|&(tx, ty)| w.get(tx, ty).material == material::EMPTY).map(|t| (id, t))
             })
-            .expect("a free-jawed, empty-cropped ant with open ground either side");
-        let t = (head.0 + 1, head.1);
+            .expect("a free-jawed, empty-cropped ant with open ground beside its head");
         build(&w, id, &def, &mut opts);
         assert!(
             !opts.iter().any(|o| o.target == t && o.verb == Verb::PickUp),

@@ -1,0 +1,3 @@
+plant_m0 draincost: mix=roles4 seed=2 grow=120000 blocks=10x2000 rain=Light spells=None
+drain off: 1546 us/tick  soil-water cells walked/tick 1531  changed/tick 436  drained 6109 cells
+ drain on: 1592 us/tick  soil-water cells walked/tick 1819  changed/tick 549  drained 6961 cells

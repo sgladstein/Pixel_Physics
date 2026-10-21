@@ -948,6 +948,18 @@ impl CellSurface for ChunkView<'_> {
         self.world.soil_capillary_levels
     }
 
+    fn soil_texture(&self) -> bool {
+        self.world.soil_texture
+    }
+
+    fn soil_drains_around(&self) -> bool {
+        self.world.soil_drains_around
+    }
+
+    fn soil_through_roots(&self) -> bool {
+        self.world.soil_through_roots
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         self.world.organism_due(base_interval)
     }

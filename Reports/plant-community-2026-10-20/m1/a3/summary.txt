@@ -1,0 +1,34 @@
+
+=== a3: seeds [1, 2, 3, 4]
+  f=120000  standing [93, 171, 167, 121]  seed above soil [530, 308, 383, 206]  deepest heap [6, 4, 7, 3]  spread [56436, 13900, 30300, 36921]
+  f=240000  standing [169, 81, 385, 346]  seed above soil [630, 258, 308, 321]  deepest heap [6, 4, 6, 5]  spread [110667, 27655, 61703, 66073]
+  f=360000  standing [434, 188, 395, 265]  seed above soil [650, 289, 379, 398]  deepest heap [7, 5, 6, 5]  spread [177296, 49442, 93602, 93325]
+  f=480000  standing [371, 197, 1257, 331]  seed above soil [767, 366, 559, 472]  deepest heap [6, 5, 5, 5]  spread [233295, 85707, 128950, 130494]
+  tips touching (contact_other): per seed [0.767, 0.623, 0.699, 0.642]
+  tips touching (touch_seed): per seed [0.405, 0.266, 0.344, 0.309]
+  tips touching (touch_kin): per seed [0.582, 0.453, 0.53, 0.457]
+  tips touching (touch_foreign): per seed [0.043, 0.102, 0.097, 0.086]
+  tips touching (up_blocked_other): per seed [0.281, 0.213, 0.272, 0.231]
+  per species at 480k: plants | leaf | established in last 100k | leaf light (median over run) | root water after dry/wet | deepest root
+    creeper  plants [8, 24, 12, 30] leaf [165, 301, 257, 596] est [0, 1, 1, 1] light 0.463 rootwater 0.70/0.73 depth 7.0
+    grass    plants [546, 326, 377, 362] leaf [2531, 1297, 1484, 1836] est [72, 35, 46, 51] light 0.409 rootwater 0.39/0.63 depth 3.1
+    herb     plants [12, 8, 18, 8] leaf [231, 192, 262, 247] est [8, 3, 9, 5] light 0.423 rootwater 0.61/0.77 depth 5.1
+    shrub    plants [4, 18, 11, 7] leaf [267, 894, 1030, 178] est [0, 4, 1, 0] light 0.434 rootwater 0.71/0.73 depth 10.4
+  kinds with 100+ leaf at 480k, per seed: [4, 4, 4, 4]
+
+=== a3life: seeds [1, 2, 3, 4]
+  f=120000  standing [119, 20, 124, 67]  seed above soil [302, 275, 336, 186]  deepest heap [6, 4, 5, 4]  spread [52298, 15461, 31661, 37041]
+  f=240000  standing [118, 71, 113, 159]  seed above soil [758, 398, 349, 291]  deepest heap [6, 5, 5, 6]  spread [104898, 32605, 61976, 74271]
+  f=360000  standing [140, 31, 38, 375]  seed above soil [666, 505, 385, 474]  deepest heap [7, 6, 7, 6]  spread [172910, 64703, 97096, 132552]
+  f=480000  standing [299, 55, 56, 101]  seed above soil [823, 583, 542, 551]  deepest heap [6, 7, 6, 5]  spread [256124, 111817, 135559, 195322]
+  tips touching (contact_other): per seed [0.751, 0.694, 0.688, 0.682]
+  tips touching (touch_seed): per seed [0.403, 0.272, 0.276, 0.352]
+  tips touching (touch_kin): per seed [0.556, 0.545, 0.546, 0.515]
+  tips touching (touch_foreign): per seed [0.038, 0.053, 0.065, 0.033]
+  tips touching (up_blocked_other): per seed [0.29, 0.243, 0.273, 0.264]
+  per species at 480k: plants | leaf | established in last 100k | leaf light (median over run) | root water after dry/wet | deepest root
+    creeper  plants [2, 18, 0, 5] leaf [1, 137, 0, 19] est [0, 5, 0, 2] light 0.477 rootwater 0.52/0.70 depth 6.8
+    grass    plants [612, 486, 372, 550] leaf [3017, 2048, 1805, 2344] est [70, 35, 47, 61] light 0.451 rootwater 0.42/0.64 depth 2.7
+    herb     plants [0, 16, 35, 1] leaf [0, 497, 914, 1] est [0, 21, 39, 0] light 0.403 rootwater 0.53/0.73 depth 5.5
+    shrub    plants [2, 3, 13, 12] leaf [239, 35, 614, 376] est [0, 0, 2, 5] light 0.427 rootwater 0.70/0.72 depth 9.7
+  kinds with 100+ leaf at 480k, per seed: [2, 3, 3, 2]

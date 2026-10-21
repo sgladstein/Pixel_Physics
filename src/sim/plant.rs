@@ -1406,9 +1406,13 @@ const PENETRATION_COST_BASELINE: f32 = 0.8;
 /// 1.0; penetrated ground scales by its resistance against loose soil's,
 /// so tree roots pay ~1x in soil, ~1.75x in sand, ~4.4x in gravel.
 fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
-    let m = world.materials.get(world.get(x, y).material);
+    let cell = world.get(x, y);
+    let m = world.materials.get(cell.material);
     if m.kind == MaterialKind::Powder && m.penetration_resistance > 0.0 {
-        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0)
+        // Clay-heavy ground is dearer to root through, on a world that reads
+        // soil texture (`World::soil_texture`, `material::SoilTexture`).
+        let texture = if world.soil_texture { m.texture_of(cell.shade).penetration } else { 1.0 };
+        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0) * texture
     } else {
         1.0
     }
@@ -5463,6 +5467,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 branch_angle,
                 internode,
                 stem_stiffness,
+                shade_avoid,
+                shade_tolerate,
             } => {
                 // So a way out of this arm that no exit labels shows in the
                 // census as `NotAsked` instead of vanishing from it. A flag,
@@ -5651,7 +5657,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // reads identically where the child-creation code below uses
                 // them again.
                 let lineage_step = plastochron.saturating_add(1);
-                let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                // **How shaded this tip is**, for the two shade genes
+                // (`World::shade_plasticity`, A5). 0 in open light.
+                let shade_here = if world.shade_plasticity && (shade_avoid > 0.0 || shade_tolerate > 0.0) { shade_at(world, x, y) } else { 0.0 };
+                // **Shade avoidance stretches the internode**: a node every
+                // `plastochron * (1 + shade_avoid * shade)` steps, so the
+                // stem gains height faster per leaf in shade. Only the
+                // node's spacing moves; the metamer count below keeps the
+                // base interval, so a fate authored "after N metamers"
+                // still means N of the species' own nodes.
+                let node_interval = if shade_here > 0.0 && shade_avoid > 0.0 && plastochron_interval > 0 {
+                    ((plastochron_interval as f32 * (1.0 + shade_avoid * shade_here)).round() as u8).max(plastochron_interval)
+                } else {
+                    plastochron_interval
+                };
+                let leaf_due = node_interval > 0 && lineage_step.is_multiple_of(node_interval);
                 // Nodes passed, not cells laid -- the unit `after_metamers`
                 // is authored in. Zero where the species has no plastochron
                 // at all (a root), which is right: an axis with no metamers
@@ -6824,18 +6844,26 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // lineage carries on. An all-or-nothing gate here
                         // would put a cliff exactly where the old
                         // subtractive `crowding_weight` had one.
-                        let leaf_construction_cost = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE;
+                        // **Shade leaves** (`shade_tolerate`, A5): in shade the
+                        // spray may grow to `leaf_cluster * (1 + tolerate *
+                        // shade)` cells, each built at `1 - tolerate * shade
+                        // / 2` of the cost -- bigger, thinner, cheaper, as a
+                        // real shade leaf is. Their price is in
+                        // `leaf_light_used`. 0 or open light: as before.
+                        let shade_leaf = shade_tolerate * shade_here;
+                        let spray_max = ((leaf_cluster as f32) * (1.0 + shade_leaf)).round() as usize;
+                        let leaf_construction_cost = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE * (1.0 - 0.5 * shade_leaf);
                         let affordable = if leaf_construction_cost > 0.0 {
                             (resource / leaf_construction_cost).floor().max(0.0) as usize
                         } else {
-                            leaf_cluster as usize
+                            spray_max
                         };
-                        let budget = (leaf_cluster as usize).min(affordable);
+                        let budget = spray_max.min(affordable);
                         // The effect counter for the charge -- see
                         // `World::leaf_cells_unaffordable`. Pure
                         // observation: it reads the same two numbers the
                         // line above already computed and touches no RNG.
-                        world.leaf_cells_unaffordable += (leaf_cluster as usize - budget) as u64;
+                        world.leaf_cells_unaffordable += spray_max.saturating_sub(budget) as u64;
                         let mut cluster: Vec<(i32, i32)> = Vec::new();
                         let mut frontier: Vec<(i32, i32)> = Vec::new();
                         if budget > 0 {
@@ -6996,6 +7024,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     let mut shed: Option<organism::DeathCause> = None;
                     if shade_death > 0.0 {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                        // A shade-tolerant leaf keeps its place in the dark
+                        // (`shade_tolerate`, A5).
+                        let shade_death = shade_death * (1.0 - plant_shade_tolerate(world, organism_id));
                         if rng.chance(shade_death * darkness * darkness * darkness) {
                             shed = Some(organism::DeathCause::ShadedOut);
                         }
@@ -7183,6 +7214,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 });
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
+                }
+                // **A seed on a heap leaves the slice** (A6;
+                // `World::seed_pile_depth`, `DeathCause::Spread`). Only one
+                // that is waiting anyway: a seed that could sprout has done
+                // so above, and a seed resting on soil is never on a heap.
+                if world.seed_pile_depth > 0 && seed_pile_below(world, x, y, world.seed_pile_depth) >= world.seed_pile_depth {
+                    world.seeds_spread += 1;
+                    world.loss_context = Some(organism::DeathCause::Spread);
+                    world.set(x, y, Cell::EMPTY);
+                    world.loss_context = None;
+                    return Vec::new();
                 }
                 // **Remember that it waited**, so `germinate` can tell a
                 // seed that sat out a dry spell from one that sprouted the
@@ -10912,6 +10954,63 @@ fn bud_trace(
     }
 }
 
+/// **How shaded a cell is**, 0 in open light and 1 in the dark: the
+/// signal both shade genes answer (A5; `World::shade_plasticity`). The
+/// engine has no light quality, so this is plain light lost -- to a
+/// neighbour's leaves or the plant's own -- read with the day divided out
+/// (`ambient_light_above`), **against the world's own open light**
+/// (`World::open_light`), not against `MAX_LIGHT`. Against `MAX_LIGHT`, a
+/// plant under a grow lamp (`beam` 2.4) read 0.4 shaded in the brightest
+/// place the lab has: the tolerant shrub's leaf bonus came free there, and
+/// a lone-plant test found tolerance costing nothing in "bright" light
+/// (shoot 551 -> 664, 8 seeds; `plant-community-plan` M1 step 7).
+fn shade_at(world: &World, x: i32, y: i32) -> f32 {
+    (1.0 - ambient_light_above(world, x, y) / world.open_light).clamp(0.0, 1.0)
+}
+
+/// How much of its upkeep a fully shade-tolerant plant is spared (A5): a
+/// tolerant plant's bill is `1 - SHADE_UPKEEP_CUT * shade_tolerate` of the
+/// usual. Half, at the top, so tolerance roughly halves the light a plant
+/// needs to stand still.
+const SHADE_UPKEEP_CUT: f32 = 0.5;
+
+/// What a shade-tolerant leaf gives up in bright light: at full light a
+/// fully tolerant plant's leaves earn `1 - SHADE_LEAF_PRICE` of it. The
+/// price that keeps tolerance from being free (A5.2, the leaf economics
+/// trade: thin cheap leaves saturate early).
+const SHADE_LEAF_PRICE: f32 = 0.35;
+
+/// The light a leaf at `(x, y)` earns from, after its plant's shade
+/// tolerance is priced (`SHADE_LEAF_PRICE`). Plain light when the world does
+/// not read shade genes or the plant has none.
+fn leaf_light_used(world: &World, x: i32, y: i32, shade_tolerate: f32) -> f32 {
+    let light = ambient_light_above(world, x, y);
+    if shade_tolerate > 0.0 {
+        light * (1.0 - SHADE_LEAF_PRICE * shade_tolerate * (light / world.open_light).clamp(0.0, 1.0))
+    } else {
+        light
+    }
+}
+
+/// This plant's `shade_tolerate`, or 0 where the world does not read shade
+/// genes (`World::shade_plasticity`).
+fn plant_shade_tolerate(world: &World, organism_id: OrganismId) -> f32 {
+    if !world.shade_plasticity {
+        return 0.0;
+    }
+    individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { shade_tolerate, .. } => Some(*shade_tolerate),
+        _ => None,
+    })
+    .unwrap_or(0.0)
+}
+
+/// How many growth steps' carbon a plant with no growing tip must hold,
+/// summed over every cell, before `World::bud_break_reserve` lets it break a
+/// bud from store. Enough to build the shoot a few cells, so a plant does
+/// not break a bud it cannot carry past the first step.
+const BUD_RESERVE_STEPS: f32 = 4.0;
+
 fn break_buds(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
@@ -10943,10 +11042,13 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     let (collar, shoot_top) = (state.collar_y, state.shoot_top_y);
 
     let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     let mut intercepted = 0.0f32;
     let mut tips = 0usize;
     let mut buds: Vec<(i32, i32, f32)> = Vec::new();
     let mut richest: Option<(i32, i32, f32)> = None;
+    // The plant's whole store, for `World::bud_break_reserve` below.
+    let mut reserve = 0.0f32;
     for &(x, y) in &cells {
         let cell = world.get(x, y);
         if cell.organism_id() != organism_id {
@@ -10964,7 +11066,7 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
             // `SecondaryThicken`, and `plastochron: 0` means a tip never
             // reaches `Node`), so this is kept in step rather than relied on.
             Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
-                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y)
+                intercepted += leaf_light_used(world, x, y, shade_tolerate) * water_status(world, x, y)
             }
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
@@ -11003,6 +11105,7 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
             _ => {}
         }
         let held = world.carbon_at(x, y);
+        reserve += held;
         if richest.is_none_or(|(_, _, best)| held > best) {
             richest = Some((x, y, held));
         }
@@ -11100,6 +11203,32 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // herb that has finished growing. The record is paid off one per leaf
     // the plant builds (`OrganismState::grazed_leaf`), not per flush, so a
     // flush that builds several nodes cannot buy back more than was lost.
+    // **A plant with no growing tip and carbon in store breaks a bud** (A3
+    // of `Reports/plant-community-plan-2026-10-20.md`;
+    // `World::bud_break_reserve`). `supportable` above prices tips against
+    // this tick's *income* only, so a plant whose tips have all gone has
+    // nothing to earn with and can never pay for one again, whatever it
+    // holds: traced on the shrub (M0 §3), a seedling that lost every shoot
+    // tip between frames 500 and 1,000 earned about 0.017 a tick against a
+    // 0.2 step and stood still for the rest of the run with its savings
+    // untouched. That is half of why shrubs grow "hit or miss" (owner,
+    // 2026-10-20). A real plant's buds break on stored sugar -- reserves are
+    // what a browsed or frost-killed shoot regrows from (sugar-promoted bud
+    // outgrowth; Mason et al. 2014, cited from memory). One bud, and only
+    // with `BUD_RESERVE_STEPS` steps' carbon in the whole plant.
+    //
+    // **Not the rejected "stock in the numerator"** (`Reports/dead-ends.md`,
+    // `allocate_to_frontier`/`break_buds`: stock grows with mass, every
+    // tip's share stayed high, and the stand fused into one canopy, 38,605
+    // cells against 1,723). This never sizes the crown from the store: it
+    // lets a plant with *no* tip have *one*, and only where income could not
+    // pay for any (a plant whose income can already breaks buds above).
+    // Whether one tip at a time still grows a stand without bound -- the
+    // other recorded way this goes wrong, "a rate cap is not a size bound"
+    // -- is what its community measurement reads first.
+    if world.bud_break_reserve && tips == 0 && reserve >= BUD_RESERVE_STEPS * step_cost {
+        supportable = supportable.max(1);
+    }
     if graze_regrow() {
         let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
         if grazed > 0 && tips == 0 {
@@ -11312,6 +11441,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     let mut frontier: Vec<(i32, i32)> = Vec::new();
     let mut frontier_is_root: Vec<bool> = Vec::new();
     let mut donors: Vec<(i32, i32)> = Vec::new();
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     let mut intercepted = 0.0f32;
     for &(x, y) in &cells {
         let cell = world.get(x, y);
@@ -11371,7 +11501,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
                 // needs it: income is bounded by whichever of light and
                 // water is scarcer, so a rootless plant in full sun earns
                 // nothing at all however much light it intercepts.
-                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y);
+                intercepted += leaf_light_used(world, x, y, shade_tolerate) * water_status(world, x, y);
                 donors.push((x, y));
             }
             Some(_) => donors.push((x, y)),
@@ -11998,6 +12128,9 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         return;
     };
     let species_id = state.species;
+    // This plant's shade tolerance (A5; 0 unless `World::shade_plasticity`):
+    // read once, for the shade-shedding roll and the upkeep bill below.
+    let shade_tolerate = plant_shade_tolerate(world, organism_id);
     if state.cells.is_empty() {
         return;
     }
@@ -12742,7 +12875,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         && organism::cell_type(world.get(cx, cy).aux()).is_some_and(|t| is_foliage(world, cx, cy, t, species_id, has_leaf_stage))
                     {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
-                        if rng.chance(shade_death * darkness * darkness * darkness) {
+                        if rng.chance(shade_death * (1.0 - shade_tolerate) * darkness * darkness * darkness) {
                             world.shed_shade += 1;
                             shed_to_litter(world, cx, cy, organism::DeathCause::ShadedOut);
                             // Reclaim any spray this stranded. NOT a
@@ -12945,7 +13078,12 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // crown recession.
         let root_tissue = world.materials.get(cell.material).reinforces_powder || cell_type == CellType::RootTip;
         let q_peak = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
-        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue);
+        // **A shade-tolerant plant runs on less** (A5): slow tissue that
+        // respires less is what lowers a real shade plant's light
+        // compensation point. Measured before this: at a quarter of full
+        // light every founder of every species lost its tissue and died
+        // within 60,000 frames, genes or no genes.
+        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - SHADE_UPKEEP_CUT * shade_tolerate);
         if !root_tissue {
             basis += maintenance_basis(q_peak, l_node(upkeep_leaf_cluster));
         }
@@ -13574,6 +13712,20 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
             queue.push(p);
         }
     }
+    // **No drinking root left is the empty list above, not a cut.** The
+    // list is the walk's, and die-back and root turnover run between the
+    // walk and here, so a seedling whose one drinking root was turned over
+    // this tick arrived with a list naming a cell it no longer owns, reached
+    // nothing, and had every cell it owns booked as severed -- shed at the
+    // cap tick after tick, a plant that lost its water read as a plant cut
+    // in two. Traced 2026-10-20 (M1 A1): a 28-cell seedling inside the
+    // founder's crown in this file's `a_severed_crown_is_shed_and_an_
+    // intact_plant_is_not`, its only contact root at (108, 61) already
+    // litter. Exempt for the empty list's own reason: thirst is not this
+    // rule's to judge.
+    if queue.is_empty() {
+        return 0;
+    }
     while let Some((x, y)) = queue.pop() {
         for (dx, dy) in NEIGHBOURS_8 {
             let n = (x + dx, y + dy);
@@ -13605,6 +13757,31 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
     shed
 }
 
+/// Separates the shade a shed leaf lands with from every other
+/// `rng::stream` caller (M1 A1, `Reports/plant-community-plan-2026-10-20.md`):
+/// before it, a fallen leaf drew from `World::rng` and so shifted the decay
+/// and rain draws that come after it in the same tick.
+const LITTER_SHADE_SALT: u64 = 0x4C69_7474_6572_5348; // "LitterSH"
+
+/// **How deep the heap under `(x, y)` is, counted down to `cap`**: waiting
+/// seeds of any species and fallen leaves, stopping at the first cell that
+/// is neither (soil, stone, a living plant, air). `World::seed_pile_depth`'s
+/// measure. Litter counts because a heap is seed and leaf together, and a
+/// seed on a leaf on a seed is as far from the soil as one on two seeds.
+fn seed_pile_below(world: &World, x: i32, y: i32, cap: u8) -> u8 {
+    let litter = [world.materials.id_of("litter"), world.materials.id_of("deadleaf")];
+    let mut depth = 0u8;
+    while depth < cap {
+        let c = world.get(x, y + 1 + depth as i32);
+        let waiting_seed = c.organism_id() != 0 && world.organism(c.organism_id()).is_some_and(|s| s.dormant_seed);
+        if !(waiting_seed || litter.contains(&Some(c.material))) {
+            break;
+        }
+        depth += 1;
+    }
+    depth
+}
+
 /// `cause` is what this shedding is, for `OrganismState::last_loss`: if this
 /// clear empties a living plant, that is what the plant died of. It labels
 /// and does nothing else -- `World::loss_context` is read by no rule.
@@ -13620,7 +13797,11 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // speckles. Litter has one family today, so these agree -- reading the
     // right one now means this does not silently break if that changes.
     let shades = world.materials.get(litter).base_shades.max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+    // **Keyed on the leaf's own cell and frame, never `World::rng`.** A
+    // draw from the shared stream moved every later draw in the world by
+    // one: one leaf falling here re-rolled whether a pip rotted across the
+    // bed and where the lab's next raindrop landed (`LITTER_SHADE_SALT`).
+    let shade = rng::stream(world.seed ^ LITTER_SHADE_SALT, x as u32 as u64, y as u32 as u64, world.frame).below(shades) as u8;
     // Root tissue is told apart by material (`reinforces_powder`) or by a
     // live `RootTip`, the same test `step_organisms` counts `root_cells` by.
     let was_root = {
@@ -13717,7 +13898,19 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // before the clear above.
     let root_ok = !buried_remains_roots_only() || was_root;
     let sheds_into = if landing == y && repayable && root_ok && buried_remains_enabled() {
-        buried_ground(world, x, y).then_some("soil")
+        // **A root inside a root mat is in the ground too**
+        // (`World::root_mats_repay`). `buried_ground` asks for a mineral
+        // neighbour, which keeps a crown from turning to soil in mid-air --
+        // but a root cell walled in by other roots has none, so it shed as
+        // litter and the soil it had displaced was gone for good. With rot
+        // adding soil on the surface (5%) that was a conveyor, ground carried
+        // from inside the bed up onto it: heaps above, holes below. Turn the
+        // rot's soil off alone and only the holes stay -- measured on the
+        // training beds, empty cells in the top 20 rows of ground 2-5% ->
+        // 8-24%. So a root with no air beside it repays where it stands,
+        // whatever it is walled in by; the loan ledger above still caps it
+        // at what roots took.
+        (buried_ground(world, x, y) || (was_root && world.root_mats_repay && walled_in(world, x, y))).then_some("soil")
     } else {
         None
     };
@@ -13729,7 +13922,9 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
             // `decay::tick` reads `base_shades`, and the same reason the
             // litter shade above does.
             let shades = world.materials.get(ground).base_shades.max(1) as u32;
-            let shade = world.rng.below(shades) as u8;
+            // Keyed, as the litter shade above is, and on the same key with
+            // the order swapped so the two never draw the same number.
+            let shade = rng::stream(world.seed ^ LITTER_SHADE_SALT, y as u32 as u64, x as u32 as u64, world.frame).below(shades) as u8;
             // **It takes its water back out of the ground, which is
             // `displace_soil_water` run backwards** — and leaving it dry
             // instead is not a small difference, it inverts the result of a
@@ -13873,6 +14068,12 @@ fn buried_remains_roots_only() -> bool {
 /// Read at the shedding site rather than remembered from growth, because
 /// nothing on a `Cell` records what it displaced and adding a bit for it
 /// would cost every cell in the world for a question asked once per death.
+/// No air on any of the four faces of `(x, y)` -- the half of
+/// `buried_ground` that a root inside a mat still meets.
+fn walled_in(world: &World, x: i32, y: i32) -> bool {
+    [(0, -1), (0, 1), (-1, 0), (1, 0)].iter().all(|&(dx, dy)| world.get(x + dx, y + dy).material != material::EMPTY)
+}
+
 fn buried_ground(world: &World, x: i32, y: i32) -> bool {
     let mut mineral = false;
     for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
@@ -16190,6 +16391,55 @@ mortality -- see the doc on this test"
         );
     }
 
+    /// **A root walled in by other roots repays its soil when
+    /// `World::root_mats_repay` is on, and only a root does.** The mat case
+    /// `buried_ground` misses: no air beside it, but no mineral neighbour
+    /// either, so it shed as litter and the bed lost the cell -- with the
+    /// lab's rot adding no soil, the ground was eaten from inside (holes in
+    /// the top 20 rows of ground 2-5% -> 8-24%). Off, the old answer; on,
+    /// soil in place and the loan down by one. The leaf over a trunk is the
+    /// specificity arm: walled in by wood, still litter, because it is not a
+    /// root.
+    #[test]
+    fn a_root_inside_a_root_mat_repays_its_soil_only_when_mats_repay() {
+        for on in [false, true] {
+            let mut w = test_world();
+            w.root_mats_repay = on;
+            let organism: OrganismId = 9;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+            for x in 40..70 {
+                for y in 50..60 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            for at in [(45, 55), (44, 55), (46, 55), (45, 54), (45, 56)] {
+                displace_soil_water(&mut w, at.0, at.1);
+                place(&mut w, at, rootwood, organism, CellType::MatureBody, (0.0, 0.0));
+            }
+            // A leaf over a trunk, walled in by wood on three sides and the
+            // leaf's own cell above it cleared -- it must not pass as a root.
+            for (x, y) in [(60, 45), (59, 44), (61, 44), (60, 43)] {
+                place(&mut w, (x, y), wood, organism, CellType::MatureBody, (0.0, 0.0));
+            }
+            place(&mut w, (60, 44), leaf, organism, CellType::Leaf, (0.0, 0.0));
+            let lent = w.bed_cells_on_loan;
+            assert_eq!(lent, 5, "test setup: five roots, five cells lent");
+            shed_to_litter(&mut w, 45, 55, organism::DeathCause::Withered);
+            shed_to_litter(&mut w, 60, 44, organism::DeathCause::Withered);
+            if on {
+                assert_eq!(w.get(45, 55).material, soil, "on: a root inside a mat must hand back the cell it displaced");
+                assert_eq!(w.bed_cells_on_loan, lent - 1, "on: exactly one loan repaid");
+            } else {
+                assert_ne!(w.get(45, 55).material, soil, "off: a root with no mineral neighbour does not repay");
+                assert_eq!(w.bed_cells_on_loan, lent, "off: no loan repaid");
+            }
+            assert_ne!(w.get(60, 44).material, soil, "a leaf walled in by wood is not a root and must not turn to soil");
+        }
+    }
+
     /// **A buried shoot is not a root: it falls to litter and leaves the loan
     /// for a root to repay.** The guard over `buried_remains_roots_only`. A
     /// grass blade buried in the mixed bed's seed heaps used to pass
@@ -17242,6 +17492,34 @@ they are the same world. Got {median}, which means something other than the leve
             w.step_active_sites();
             field::step(w);
         }
+    }
+
+    /// **A plant whose only drinking root went earlier this tick is thirsty,
+    /// not cut in two.** `shed_cut_off_tissue` is handed the walk's list of
+    /// drinking roots, and root turnover and die-back run between the walk
+    /// and the check. Before the exemption a list naming only a root the
+    /// plant no longer owned reached nothing, and every cell the plant had
+    /// was booked as severed and shed at the cap -- traced 2026-10-20 on a
+    /// seedling in `a_severed_crown_is_shed_and_an_intact_plant_is_not`.
+    #[test]
+    fn a_plant_whose_only_drinking_root_went_this_tick_is_not_read_as_cut() {
+        let mut w = test_world();
+        w.plant_load_failure = false;
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        run_with_fields(&mut w, 2_000);
+        let root = w
+            .organism(id)
+            .and_then(|s| s.cells.keys().copied().filter(|&(x, y)| w.materials.get(w.get(x, y).material).reinforces_powder).min_by_key(|&(x, y)| (y, x)))
+            .expect("test setup: the plant should have grown a root");
+        let soil = w.materials.id_of("soil").expect("soil ships");
+        w.set(root.0, root.1, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        assert!(w.organism(id).is_some_and(|s| s.cells.len() > 5), "test setup: the plant should still be standing");
+        assert_eq!(
+            shed_cut_off_tissue(&mut w, id, &[root]),
+            0,
+            "a list naming only a root the plant no longer owns booked the whole plant as cut off"
+        );
     }
 
     /// **A tree that dies of old age is booked OLD AGE.** Until 2026-10-06
@@ -21384,8 +21662,44 @@ this costs more than the bug"
                 }
             }
             let before = w.plant_cut_off_cells_shed;
-            run_with_fields(&mut w, 6_000);
+            // **Only this tree, every frame of the counted window.** The
+            // counter is world-wide and the arms below assert an exact
+            // zero, so any seedling in the scene can trip it with a genuine
+            // cut-off of its own. `seed_dry_keeps` above narrowed that and
+            // did not close it: traced 2026-10-20, with decay's dice keyed
+            // (M1 A1) the intact arm's run changed and two seedlings sprouted
+            // anyway -- organism 2, whose two root cells were left an island
+            // when the cell joining them became litter (a real cut-off, the
+            // pair's only same-plant neighbour each other), and organism 3,
+            // the stale-list case `shed_cut_off_tissue` now exempts. The
+            // third seedling to trip this guard, so the scope is enforced
+            // rather than encouraged: every other organism is taken out
+            // before each frame, roots back to soil.
+            for _ in 0..6_000 {
+                keep_only(&mut w, id);
+                run_with_fields(&mut w, 1);
+            }
             (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
+        }
+
+        fn keep_only(w: &mut World, id: OrganismId) {
+            let soil = w.materials.id_of("soil").expect("soil ships");
+            let others: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|&o| o != id).collect();
+            for other in others {
+                let cells: Vec<(i32, i32)> = w.organism(other).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
+                for (x, y) in cells {
+                    let c = w.get(x, y);
+                    if c.organism_id() != other {
+                        continue;
+                    }
+                    let back = if w.materials.get(c.material).reinforces_powder {
+                        Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                    } else {
+                        Cell::EMPTY
+                    };
+                    w.set(x, y, back);
+                }
+            }
         }
 
         let (intact_shed, intact_cells) = run(false, false, false);
@@ -24522,6 +24836,122 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             rained.germinated,
             rained.after_waiting
         );
+    }
+
+    /// **A heap of waiting seed is held to `World::seed_pile_depth`, and only
+    /// with it set** (A6; `seed_pile_below`, `DeathCause::Spread`). Six seeds
+    /// stacked in one column on dry soil, where none can sprout: with the
+    /// depth at 2, every seed resting on two or more others leaves the slice,
+    /// and the two at the bottom stay; at 0, the stack stands.
+    #[test]
+    fn a_seed_heap_is_held_to_its_depth_and_only_when_set() {
+        for depth in [0u8, 2] {
+            let mut w = test_world();
+            w.seed = 1;
+            w.seed_pile_depth = depth;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let (x, y) = (100, 60);
+            for fx in (x - 4)..=(x + 4) {
+                w.set(fx, y + 4, Cell::new(material::STONE, 0));
+                for dy in 1..=3 {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+                }
+            }
+            for dy in 1..=3 {
+                w.set(x - 5, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + 5, y + dy, Cell::new(material::STONE, 0));
+            }
+            // A one-cell shaft, so the six can only stack: on open ground a
+            // heap this narrow rolls off its own sides.
+            for dy in -8..=0 {
+                w.set(x - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + 1, y + dy, Cell::new(material::STONE, 0));
+            }
+            for k in 0..6 {
+                assert!(w.plant_tree_species(x, y - k, "tree"), "test setup: seed {k} should plant");
+            }
+            run_with_fields(&mut w, 1_000);
+            let waiting = (y - 12..=y)
+                .filter(|&cy| {
+                    let c = w.get(x, cy);
+                    c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| s.dormant_seed)
+                })
+                .count();
+            // Seeds also lose the ordinary viability race over 1,000 frames
+            // (`SpeciesDef::seed_half_life`), so the arms are read as bounds
+            // rather than exact counts.
+            if depth == 0 {
+                assert!(waiting >= 4 && w.seeds_spread == 0, "off: the stack should stand ({waiting} waiting, {} spread)", w.seeds_spread);
+            } else {
+                assert!(waiting <= 2 && w.seeds_spread >= 3, "depth 2: at most two should stay and the rest leave ({waiting} waiting, {} spread)", w.seeds_spread);
+            }
+        }
+    }
+
+    /// **A plant with no growing tip and carbon in store breaks a bud, with
+    /// `World::bud_break_reserve` on, and only then** (A3). A grown tree has
+    /// every tip retired and its upkeep set above anything it earns, so its
+    /// income can pay for no tip. Its cells are then filled with carbon. Off, `break_buds` flushes nothing -- the stall the shrub
+    /// trace found. On, it flushes one.
+    #[test]
+    fn a_tipless_plant_with_stored_carbon_breaks_a_bud_only_with_reserve_on() {
+        for on in [false, true] {
+            let mut w = test_world();
+            w.seed = 1;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            run_with_fields(&mut w, 4_000);
+            let cells: Vec<(i32, i32)> = w.organism(id).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
+            let buds = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::DormantBud)).count();
+            assert!(buds > 0, "test setup: the tree should hold dormant buds, has {buds} of {} cells", cells.len());
+            for &(x, y) in &cells {
+                let c = w.get(x, y);
+                if organism::cell_type(c.aux()) == Some(CellType::GrowingTip) {
+                    w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+                }
+            }
+            // Upkeep above anything it could earn, so income pays for no tip
+            // -- the stalled seedling's condition, without staging its shade.
+            w.organism_mut(id).expect("alive").maintenance = 1.0e6;
+            for &(x, y) in &cells {
+                write_carbon(&mut w, x, y, 1.0);
+            }
+            w.bud_break_reserve = on;
+            let before = w.buds_flushed;
+            break_buds(&mut w, id);
+            let flushed = w.buds_flushed - before;
+            assert_eq!(flushed, u32::from(on), "reserve {on}: a tipless, unlit tree with full stores flushed {flushed} buds");
+        }
+    }
+
+    /// **The shade genes are read only under `World::shade_plasticity`, and a
+    /// tolerant leaf pays its price in bright light** (A5). A tree given
+    /// `shade_tolerate` 1.0 through the parameter-override path a mutation
+    /// or the trainer would use: off, `plant_shade_tolerate` reads 0; on, it
+    /// reads the gene. `leaf_light_used` at full light is
+    /// `1 - SHADE_LEAF_PRICE` of the light for that plant and all of it for
+    /// a plant with no tolerance.
+    #[test]
+    fn shade_genes_are_read_only_when_plasticity_is_on_and_tolerance_costs_in_full_light() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        let tree = w.organism(id).expect("planted").species;
+        assert!(w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::ShadeTolerate, 0, 1.0), "test setup: the tree should have a Grow to set");
+        w.shade_plasticity = false;
+        assert_eq!(plant_shade_tolerate(&w, id), 0.0, "off: the gene must not be read");
+        w.shade_plasticity = true;
+        assert_eq!(plant_shade_tolerate(&w, id), 1.0, "on: the gene must be read through the override path");
+        // Away from the tree, after the light channel has been solved --
+        // `test_world` starts with no light until a field step runs.
+        run_with_fields(&mut w, 30);
+        let (x, y) = (160, 30);
+        let light = ambient_light_above(&w, x, y);
+        assert!(light > 0.0, "test setup: open air should be lit");
+        let full = (light / w.open_light).clamp(0.0, 1.0);
+        let used = leaf_light_used(&w, x, y, 1.0);
+        assert!((used - light * (1.0 - SHADE_LEAF_PRICE * full)).abs() < 1e-5, "a fully tolerant leaf at light {light} used {used}");
+        assert_eq!(leaf_light_used(&w, x, y, 0.0), light, "no tolerance, no price");
     }
 
     struct SeedBed {

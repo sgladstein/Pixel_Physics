@@ -6352,6 +6352,57 @@ pub struct World {
     /// animals all sit at a paired median of ~1.0 with the sign split down
     /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
     pub soil_capillary_levels: bool,
+    /// **Soil has texture**: a soil cell's palette family sets how much
+    /// water it holds against gravity, how fast the rest drains, what share
+    /// of its nutrient a root can use, and how hard it is to root through
+    /// (`material::SoilTexture`, read by `update::update_soil_water`,
+    /// `Self::soil_nutrient_fraction` and `plant::penetration_cost_mult`).
+    ///
+    /// Off everywhere unless a lab bed asks for patchy ground
+    /// (`lab::scene::Ground::Patchy`), so the outdoor game, whose soil
+    /// families are painted by region aridity, does not change: turning it
+    /// on there would make every dry region's soil sandy, which may well be
+    /// right and has not been measured. Step E of
+    /// `Reports/plant-community-plan-2026-10-20.md`.
+    pub soil_texture: bool,
+    /// **Water runs down beside a root.** Soil water moves only between
+    /// cells that hold it, so a wet cell over a root mat or a stone had
+    /// nowhere to drain, and a pool stood over a shrub's roots through a
+    /// whole dry spell (M1 step 2, measured). With this on, such a cell
+    /// sheds its surplus to a soil cell diagonally below instead. Off unless
+    /// a lab bed asks for patchy ground, for `soil_texture`'s reason.
+    pub soil_drains_around: bool,
+    /// **Soil water passes through a root to the soil beyond it**
+    /// (`update::soil_partner`). Soil water moves only between cells that
+    /// hold it, so a mat of roots was a floor and a wall: the soil inside it
+    /// could neither drain nor spread, saturated, and turned away every drop
+    /// that landed on it -- the base of most of the water standing on a
+    /// grown bed (plant-community plan, "the bed has to look like plants").
+    /// A root one cell wide in a 2D slice is not a sheet spanning the bed's
+    /// depth, which is `update::drip_through_organism`'s own argument for
+    /// the liquid side.
+    pub soil_through_roots: bool,
+    /// **Rot reads the wetness of the ground, not only of the air**
+    /// (`decay::tick`). The diffused humidity reads 0 in any field block
+    /// holding a plant (§Z39), so without this litter under a plant always
+    /// rots at the dry rate.
+    pub decay_reads_ground: bool,
+    /// **How much of a fractional rot yield becomes soil** -- litter, pip,
+    /// windfall, corpse (`decay::tick`; 1.0 = the material's own 5%). Soil
+    /// has no sink, so 5% of an unbounded stream of litter is an unbounded
+    /// heap (`Reports/soil-accumulation-and-the-carbon-cycle.md`): on the
+    /// lab training beds, soil standing above the original surface reached
+    /// 5-17% of the picture by 480,000 frames, and 0-2.4% with this at 0 --
+    /// but 0 alone eats the ground from inside (`root_mats_repay`). The lab
+    /// sets it from `LabBox::rot_makes_soil`: 0 by default since 2026-10-21,
+    /// with `root_mats_repay` on beside it.
+    pub rot_soil_yield: f32,
+    /// **A dead root inside a root mat gives back the soil it displaced**
+    /// (`plant::shed_to_litter`'s repayment, `walled_in`). Off, only a
+    /// root with a mineral neighbour repays, so the soil a mat displaced left
+    /// as litter. The lab sets it from `LabBox::rot_makes_soil` (off there
+    /// means this on): the two together close the bed's soil budget.
+    pub root_mats_repay: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -6516,6 +6567,40 @@ pub struct World {
     /// (`Reports/plant-trainer-plan-2026-10-19.md` §5.4). Founding only: a
     /// bred seed inherits its parent's alleles whatever this says.
     pub founder_variant_chance: f32,
+    /// **How deep a heap of waiting seed may stand before the seed on top
+    /// leaves the slice** (A6 of `Reports/plant-community-plan-2026-10-20.md`;
+    /// `plant::seed_pile_below`). 0 is off: seed stacks as it always has.
+    ///
+    /// The owner, 2026-10-20: *"Huge piles of seed still build up."* All of a
+    /// heap is living seed waiting its turn (measured: 9,009 waiting seeds,
+    /// 36 deep, on one 480,000-frame bed), and each is an organism the
+    /// engine ticks. A heap is a slice artefact: in a real stand that seed
+    /// lies scattered over the ground around the plant, a seed or two deep.
+    /// So a waiting seed resting on a heap at least this deep is taken to
+    /// have landed beside the slice instead, and leaves it
+    /// (`organism::DeathCause::Spread`, counted in `seeds_spread`).
+    pub seed_pile_depth: u8,
+    /// **A plant with no growing tip breaks a bud on stored carbon** (A3 of
+    /// `Reports/plant-community-plan-2026-10-20.md`; `plant::break_buds`).
+    /// Off, buds are paid for by this tick's income alone, and a plant that
+    /// has lost every tip can never earn one back.
+    pub bud_break_reserve: bool,
+    /// **Plants read their species' shade genes** (`Behavior::Grow::
+    /// shade_avoid` / `shade_tolerate`; A5 of
+    /// `Reports/plant-community-plan-2026-10-20.md`). Off, both genes are
+    /// ignored and a plant grows the same in shade as in sun, which is the
+    /// engine before A5.
+    pub shade_plasticity: bool,
+    /// **The light an unshaded leaf gets in this world** -- what the shade
+    /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
+    /// under the sky (noon sun, with the day divided out); the grow lamp's
+    /// `beam` in the lab, set by `LabBox`'s build. Without it a lamp-lit
+    /// plant read 40% shaded in the brightest place its world has, and a
+    /// tolerant one took the shade-leaf bonus there for free.
+    pub open_light: f32,
+    /// Waiting seeds that left the slice from the top of a heap
+    /// (`seed_pile_depth`). An effect count.
+    pub seeds_spread: u64,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -6620,6 +6705,12 @@ pub struct World {
     /// there for the whole run, same as `structural_failures` does on a
     /// world with nothing built in it.
     pub rain_cells: u64,
+    /// **Water the lab bed's floor drain has let out**, in soil-water units
+    /// (one full water cell is `material::LIQUID_FULL`), summed since this
+    /// world was built: the far side of `rain_cells`. Written only by
+    /// `lab::rain::drain`, and only on a bed with `LabBox::drain` on, so it
+    /// stays 0 outdoors and on every bed as it shipped before.
+    pub drained_water: u64,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -7445,6 +7536,12 @@ impl World {
             seed_dry_keeps: super::plant::seed_bank_default().0,
             seed_dormant_rest: super::plant::seed_bank_default().1,
             soil_capillary_levels: false,
+            soil_texture: false,
+            soil_drains_around: false,
+            soil_through_roots: false,
+            decay_reads_ground: false,
+            rot_soil_yield: 1.0,
+            root_mats_repay: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
@@ -7466,6 +7563,11 @@ impl World {
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
             param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
+            seed_pile_depth: 0,
+            bud_break_reserve: false,
+            shade_plasticity: false,
+            open_light: crate::sim::field::MAX_LIGHT,
+            seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
@@ -7491,6 +7593,7 @@ impl World {
             enclosure: None,
             sky_lighting: true,
             rain_cells: 0,
+            drained_water: 0,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -12079,7 +12182,18 @@ impl World {
             return 1.0;
         }
         let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_period());
-        f32::from(initial.saturating_sub(deficit)) / f32::from(initial)
+        let fraction = f32::from(initial.saturating_sub(deficit)) / f32::from(initial);
+        // **A sandy patch carries less, whatever its deficit** -- the share
+        // a root can use, by texture, on a world that reads texture. On the
+        // read and not on the deficit, because recovery is booked per chunk
+        // (`Chunk::nutrient_recovered_at`) and a per-cell recovery rate
+        // would break that stamp.
+        if self.soil_texture {
+            let cell = self.get(x, y);
+            fraction * self.materials.get(cell.material).texture_of(cell.shade).nutrient
+        } else {
+            fraction
+        }
     }
 
     /// Take nutrient from the soil at `(x, y)`; returns what was there to
@@ -12881,6 +12995,18 @@ impl CellSurface for World {
         self.soil_capillary_levels
     }
 
+    fn soil_texture(&self) -> bool {
+        self.soil_texture
+    }
+
+    fn soil_drains_around(&self) -> bool {
+        self.soil_drains_around
+    }
+
+    fn soil_through_roots(&self) -> bool {
+        self.soil_through_roots
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -13213,6 +13339,18 @@ impl CellSurface for MoistureView<'_> {
 
     fn soil_capillary_levels(&self) -> bool {
         self.world.soil_capillary_levels
+    }
+
+    fn soil_texture(&self) -> bool {
+        self.world.soil_texture
+    }
+
+    fn soil_drains_around(&self) -> bool {
+        self.world.soil_drains_around
+    }
+
+    fn soil_through_roots(&self) -> bool {
+        self.world.soil_through_roots
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

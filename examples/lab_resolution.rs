@@ -133,6 +133,18 @@ fn spec_from_args() -> LabBox {
         founder_at: None,
         // Held: the shipped species by name, never a runtime one.
         species_ron: None,
+        // Held at the box before the floor drain (2026-10-20), so this
+        // ladder's numbers are what they were; with the mister off above,
+        // nothing reaches the floor to drain anyway.
+        drain: false,
+        spells: None,
+        ground: pixel_physics::lab::scene::Ground::Uniform,
+        // Held at the box before A6, so this ladder's numbers stand.
+        seed_pile_depth: 0,
+        bud_break_reserve: false,
+        // Held at the box before soil water passed through roots, likewise.
+        soil_through_roots: false,
+        rot_makes_soil: true,
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they
