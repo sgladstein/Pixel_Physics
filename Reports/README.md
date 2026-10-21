@@ -5567,6 +5567,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   asked for: the memory-consistent ceiling (20.66 +- 0.37, seed-
   clustered), a smooth compliance curve (half the calls give 60% of the
   gain), the floor-limited arms; one diagnosis withdrawn.
+  [step1-results-2026-10-21.md](brain-training/teacher-training/step1-results-2026-10-21.md)
+  — **interim:** the copier is built and validated (forward pass matches
+  Rust's decide to 2.6e-5 on a perturbed genome; positive control
+  s161 -> a reachable target closes 83% of the gap in the world). Copying
+  "go down" alone takes s161 from 6.42 to 10.57 full loads with fetch and
+  trail intact; "walk home" breaks fetch (it spreads to loaded ants and
+  foragers) and "dig" collapses the ant when copied alone; together the
+  lessons interfere in the shared scorer.
 
 ## Licensing and distribution
 

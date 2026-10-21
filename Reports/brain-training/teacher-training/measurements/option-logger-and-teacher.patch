@@ -11,10 +11,10 @@ index cd5d30ce..457c5e5d 100644
      println!("wrote {out}");
  }
 diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
-index bcd22901..d9c2a634 100644
+index bcd22901..7dadae97 100644
 --- a/src/sim/creature/mind.rs
 +++ b/src/sim/creature/mind.rs
-@@ -1733,12 +1733,58 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+@@ -1733,12 +1733,59 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
              scratch_log::ablate(&mut ctx);
              let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
              let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
@@ -22,7 +22,8 @@ index bcd22901..d9c2a634 100644
 +            let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
              if let Some(d) = d.as_ref() {
                  scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
-             }
++                scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
++            }
 +            // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
 +            let mut redrawn: Option<Vec<Opt>> = None;
 +            if scratch_log::teach_on() {
@@ -67,7 +68,7 @@ index bcd22901..d9c2a634 100644
 +                        mind.state.last_verb = Some(done);
 +                    }
 +                }
-+            }
+             }
              mind.state.last = Some(now);
 -            d.map(|d| (opts[d.pick], d.emits, opts.len()))
 +            let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
@@ -75,7 +76,7 @@ index bcd22901..d9c2a634 100644
          });
          if let Some(m) = world.minds.as_mut() {
              m.counts.decisions += 1;
-@@ -3457,7 +3503,354 @@ mod tests {
+@@ -3457,7 +3504,477 @@ mod tests {
  pub mod scratch_log {
      use super::*;
      use std::io::Write;
@@ -419,6 +420,129 @@ index bcd22901..d9c2a634 100644
 +            }
 +        })
 +    }
++    // ---- SCRATCH (teacher-training step 1, the copier's log): `PP_COPY_LOG=<file>` writes, per decision, everything a
++    // copier needs to recompute the brain's choice for ANY genome -- every option of every verb at full precision
++    // (Rust's shortest round-trip float form), the brain's own scores, its memory before the decision -- and, in the
++    // soil arena with `PP_TEACH_LABEL` set, the teacher's state labels: pure functions of the state, written whatever
++    // the brain picked (review finding 1). Every row starts with a world tag (`WORLD`, set by the example per job) so
++    // worlds can run on several threads into one file; `SETTLE` marks the scored settle's rest-mind rows.
++    thread_local! {
++        pub static WORLD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
++        pub static SETTLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    }
++    fn copy_out() -> Option<&'static Mutex<std::io::BufWriter<std::fs::File>>> {
++        static F: OnceLock<Option<Mutex<std::io::BufWriter<std::fs::File>>>> = OnceLock::new();
++        F.get_or_init(|| {
++            std::env::var("PP_COPY_LOG")
++                .ok()
++                .map(|p| Mutex::new(std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(p).expect("copy log"))))
++        })
++        .as_ref()
++    }
++    pub fn copy_on() -> bool {
++        copy_out().is_some()
++    }
++    /// One row into the copy log, prefixed with this thread's world tag.
++    pub fn cline(s: &str) {
++        if let Some(f) = copy_out() {
++            let tag = WORLD.with(|w| w.get());
++            let _ = writeln!(f.lock().unwrap(), "{tag},{s}");
++        }
++    }
++    pub fn copy_flush() {
++        if let Some(f) = copy_out() {
++            let _ = f.lock().unwrap().flush();
++        }
++    }
++    pub fn label_on() -> bool {
++        static L: OnceLock<bool> = OnceLock::new();
++        *L.get_or_init(|| std::env::var("PP_TEACH_LABEL").is_ok())
++    }
++    /// The teacher's state labels for one decision, as option indices into `opts`. Each mirrors the acting rule's test
++    /// in `teach` / `walk_home` exactly, but is computed whatever the brain picked:
++    ///   dig   `M` must-dig (a foot cell in reach; `digset` = the acting rule's choice key's arg-max set), `N`
++    ///         must-not-dig (Dig offered, no foot cell), `-` abstain (carrying, shut in, or no Dig offered)
++    ///   down  the deepest steps (key: depth, then nearest column), when empty, below ground, no foot cell in reach,
++    ///         and the deepest step is deeper than here
++    ///   home  the steps nearest the mouth's column, when empty, on the surface, 3+ columns from the mouth, 2+ steps
++    fn labels(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) -> String {
++        TEACH.with(|t| {
++            let t = t.borrow();
++            let Some(t) = t.as_ref() else { return "-|-|-|-".to_string() };
++            let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
++            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++            let foot = |o: &Opt| {
++                let (x, y) = o.target;
++                o.verb == Verb::Dig && t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
++            };
++            let join = |v: &[usize]| if v.is_empty() { "-".to_string() } else { v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";") };
++            let any_foot = opts.iter().any(foot);
++            let (mut dig, mut digset) = ("-", Vec::new());
++            if !carrying && !shut_in(opts) && opts.iter().any(|o| o.verb == Verb::Dig) {
++                if any_foot {
++                    dig = "M";
++                    let key = |o: &Opt| (t.depth(o.target.0, o.target.1), -(o.target.0 as f32 - t.mouth_x).abs());
++                    let best = opts.iter().filter(|o| foot(o)).map(key).fold(None, |m: Option<(i32, f32)>, k| match m {
++                        Some(b) if b >= k => Some(b),
++                        _ => Some(k),
++                    });
++                    digset = (0..opts.len()).filter(|&i| foot(&opts[i]) && Some(key(&opts[i])) == best).collect();
++                } else {
++                    dig = "N";
++                }
++            }
++            let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++            let here = t.depth(at.0, at.1);
++            let mut down = Vec::new();
++            if !carrying && here > 0 && !any_foot && !walks.is_empty() {
++                let key = |i: usize| (t.depth(opts[i].target.0, opts[i].target.1), -(opts[i].target.0 - at.0).abs());
++                let best = walks.iter().map(|&i| key(i)).max().unwrap();
++                if best.0 > here {
++                    down = walks.iter().copied().filter(|&i| key(i) == best).collect();
++                }
++            }
++            let mut home = Vec::new();
++            if !carrying && here <= 0 && (at.0 as f32 - t.mouth_x).abs() >= 3.0 && walks.len() >= 2 {
++                let d = |i: usize| (opts[i].target.0 as f32 - t.mouth_x).abs();
++                let best = walks.iter().map(|&i| d(i)).fold(f32::INFINITY, f32::min);
++                home = walks.iter().copied().filter(|&i| d(i) == best).collect();
++            }
++            format!("{dig}|{}|{}|{}", join(&digset), join(&down), join(&home))
++        })
++    }
++    /// The copy log's decision row: `Q,frame,id,x,y,settle,pick,last_verb,carrying,labels,ctx,mem0,opts` -- opts as
++    /// `verb:tx:ty:score:i=v i=v ...` (nonzero features), `;`-joined.
++    #[allow(clippy::too_many_arguments)]
++    pub fn copy_decision(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
++        if !copy_on() {
++            return;
++        }
++        let f = |v: &[f32]| v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ");
++        let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++        let lab = if label_on() { labels(world, organism, at, opts) } else { "-|-|-|-".to_string() };
++        let all: Vec<String> = opts
++            .iter()
++            .enumerate()
++            .map(|(k, op)| {
++                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}={x}")).collect();
++                format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
++            })
++            .collect();
++        cline(&format!(
++            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{}",
++            world.frame,
++            at.0,
++            at.1,
++            u8::from(SETTLE.with(|s| s.get())),
++            d.pick,
++            last.map_or(-1, |v| v as i32),
++            u8::from(carrying),
++            f(ctx),
++            f(mem0),
++            all.join(";")
++        ));
++    }
++
 +    pub fn teach_report() -> String {
 +        let c: Vec<u64> = COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
 +        format!(
@@ -430,7 +554,7 @@ index bcd22901..d9c2a634 100644
      fn out() -> Option<&'static Mutex<std::io::LineWriter<std::fs::File>>> {
          static F: OnceLock<Option<Mutex<std::io::LineWriter<std::fs::File>>>> = OnceLock::new();
          F.get_or_init(|| {
-@@ -3501,5 +3894,17 @@ pub mod scratch_log {
+@@ -3501,5 +4018,17 @@ pub mod scratch_log {
              at.0, at.1, o.verb as usize, o.target.0, o.target.1,
              last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
          ) + &format!(",{}", f(&o.feats)));
@@ -449,7 +573,7 @@ index bcd22901..d9c2a634 100644
      }
  }
 diff --git a/src/train/challenges.rs b/src/train/challenges.rs
-index 948bbac5..a8f43833 100644
+index 948bbac5..ad8822d6 100644
 --- a/src/train/challenges.rs
 +++ b/src/train/challenges.rs
 @@ -1920,11 +1920,42 @@ impl Challenge for Soil {
@@ -458,17 +582,16 @@ index 948bbac5..a8f43833 100644
          let deep = |x: i32, y: i32| depth_below_ground(&datum, x0, x, y);
 +        // SCRATCH (teacher-training measurement 2): the privileged facts a teacher reads, once a world: extents, the
 +        // depth datum per column, the founding hole, the ground at frame 0.
-+        if std::env::var("PP_MIND_LOG").is_ok() {
++        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
 +            let dat: Vec<String> = datum.iter().map(|d| d.map_or("x".into(), |v| v.to_string())).collect();
 +            let fc: Vec<String> = founding.iter().map(|(x, y)| format!("{x}:{y}")).collect();
 +            let g0: String = ground0.iter().map(|&b| if b { '1' } else { '0' }).collect();
-+            creature::mind::scratch_log::line(format!(
-+                "G,{},{x0},{y0},{nw},{},{},{},{},{g0}",
-+                w.seed, ground0.len() / nw, self.shaft, dat.join(" "), fc.join(" ")
-+            ));
++            let row = format!("G,{},{x0},{y0},{nw},{},{},{},{},{g0}", w.seed, ground0.len() / nw, self.shaft, dat.join(" "), fc.join(" "));
++            creature::mind::scratch_log::cline(&row);
++            creature::mind::scratch_log::line(row);
 +        }
 +        // SCRATCH (teacher-training ceiling test): hand the teacher its facts for the run's frames only.
-+        if creature::mind::scratch_log::teach_on() {
++        if creature::mind::scratch_log::teach_on() || creature::mind::scratch_log::label_on() {
 +            let top = founding.iter().map(|c| c.1).min().unwrap_or(0);
 +            let mouth: Vec<i32> = founding.iter().filter(|c| c.1 == top).map(|c| c.0).collect();
 +            let ctx = creature::mind::scratch_log::TeachCtx {
@@ -492,6 +615,36 @@ index 948bbac5..a8f43833 100644
          }
 +        // The settle that follows is scored: the teacher must not act in it.
 +        creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = None);
++        creature::mind::scratch_log::SETTLE.with(|s| s.set(true));
          let alive = ants_of(&w, sp);
          let holding = alive.iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
          let energy_left = alive.iter().filter_map(|&id| w.organism(id).map(|s| s.energy as f64)).sum::<f64>() / placed.len().max(1) as f64;
+@@ -1949,16 +1980,23 @@ impl Challenge for Soil {
+         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
+         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
+         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+-        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline.
+-        if std::env::var("PP_MIND_LOG").is_ok() {
++        creature::mind::scratch_log::SETTLE.with(|s| s.set(false));
++        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline -- into the
++        // decision log, and the copy log (world-tagged) when that is on.
++        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
+             let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
++            let mut rows = Vec::new();
+             for &(x, y, f, id) in &cuts {
+-                creature::mind::scratch_log::line(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
++                rows.push(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
+             }
+             for &(x, y, f, id) in &dumps {
+-                creature::mind::scratch_log::line(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
++                rows.push(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
++            }
++            rows.push(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
++            for r in rows {
++                creature::mind::scratch_log::cline(&r);
++                creature::mind::scratch_log::line(r);
+             }
+-            creature::mind::scratch_log::line(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
+         }
+         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
+         vec![Score {
