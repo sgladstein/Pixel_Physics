@@ -1,0 +1,106 @@
+{
+  "id": "20261021T051824537Z-683876",
+  "created": "2026-10-21T05:18:24Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "ccr-439ee31b-pn36yq",
+    "commit": "b9442df4",
+    "agent": null,
+    "session_id": "c5a77cb3-ff1b-59a8-b136-bac28528e98e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Which nest should the teacher build? Five real nest shapes, plus the ladder's current plan",
+  "question": "Which of these looks like the nest you want the ants to dig? Pick one (or say what to change). Also: do the flat, low chambers (1-5) look right to you, against the tall rooms the ladder plans now (6)?",
+  "context_md": "These are drawn targets, not simulations. Nothing has dug them. Each one is a real species' nest as seen in vertical section (ant-farm view), from plaster and metal casts (Tschinkel) and glass-sided lab nests, fitted to our 256 x 128 box with the ground at row 64.\n\n- **Scale:** our ant is 2 cells long. Passages are drawn 4 cells wide (your 'passage ~4'). Chambers are 5 cells tall (2.5 body lengths), which is twice the real height so they stay readable.\n- **The main finding:** real chambers are flat lenses. They are 1-2 body lengths high at every size, and 3-20 times wider than tall. They grow wider, never taller. The ladder's planned chambers (8-16 cells tall, panel 6) are 3-5 times taller than any real one.\n- **The mound is drawn to hold all the dug soil.** In a 2D slice nothing spreads into a third dimension, so the mound's area equals the nest's. That is why every mound is a wide, flat ring about 8 cells tall. The gap beside the mouth keeps the inner slope from sliding back into the hole, and real ants drop beyond the crest for the same reason.\n- **Which to pick matters for teaching:** shapes made by simple local rules are easier for the brain to learn. Examples: 'dig down from a chamber's edge, widen at the bottom' (5); 'stop the roof at about body height' (1, 4, 5); 'bud when the room stops being crowded' (3). Shape 2 (the tangle) is the hardest to teach.\n- Tunnel paths for 2, 3 and 5 are my reading of written descriptions. Treat them as the gist, not exact.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 Harvester stack",
+      "files": [
+        "20261021T051824537Z-683876/000-1-harvester_stack.png"
+      ],
+      "caption": "Florida harvester ant: zig-zag shaft, wide flat chambers on alternating sides, big near the top and small deep down",
+      "meta": {
+        "open cells": 762,
+        "ants it fits at real crowding": 30,
+        "chambers": 8
+      },
+      "focus": null
+    },
+    {
+      "label": "2 Garden-ant tangle",
+      "files": [
+        "20261021T051824537Z-683876/001-2-garden_ant_farm.png"
+      ],
+      "caption": "Lasius: 2-4 wandering, branching galleries with swellings, one loop, no trunk",
+      "meta": {
+        "open cells": 991,
+        "ants it fits at real crowding": 39,
+        "chambers": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "3 Round room that buds",
+      "files": [
+        "20261021T051824537Z-683876/002-3-round_room_budding.png"
+      ],
+      "caption": "Messor in 2D lab nests: today's shaft into one room that buds, then grows galleries as ants are added",
+      "meta": {
+        "open cells": 539,
+        "ants it fits at real crowding": 21,
+        "chambers": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "4 Carpenter shallow",
+      "files": [
+        "20261021T051824537Z-683876/003-4-carpenter_shallow.png"
+      ],
+      "caption": "Camponotus socius: long top chambers that curl up to just under the surface, wedge-shaped lenses below, mound on one side",
+      "meta": {
+        "open cells": 627,
+        "ants it fits at real crowding": 25,
+        "chambers": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "5 Staircase stack",
+      "files": [
+        "20261021T051824537Z-683876/004-5-staircase_kebab.png"
+      ],
+      "caption": "Aphaenogaster: each shaft leaves one chamber's edge and lands in the next one's centre. The only real family that fits the box at true scale",
+      "meta": {
+        "open cells": 438,
+        "ants it fits at real crowding": 17,
+        "chambers": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "6 Ladder plan today",
+      "files": [
+        "20261021T051824537Z-683876/005-6-ladder-plan.png"
+      ],
+      "caption": "dig-rung-design steps 10-11: chambers 8-16 cells tall, width at least height. For comparison",
+      "meta": {
+        "open cells": 504,
+        "ants it fits at real crowding": 20,
+        "chambers": 2
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
