@@ -1633,6 +1633,20 @@ const _: () = assert!(
     "a per-frame move beyond MAX_REACH breaks parallel.rs's cross-chunk write-disjointness proof"
 );
 
+/// How far a drop resting on plant tissue looks down through it for a
+/// landing (`drip_through_organism`, `drip_landing_open`). **Not
+/// `ORGANISM_TUNNEL_REACH`, because for a drop the cap is an answer, not a
+/// bound on work.** A falling leaf that runs out of reach tries again next
+/// frame from where the tissue below has moved; tissue under a drop never
+/// moves, so a drop whose scan runs out stays on the crown for good -- the
+/// size-cap-as-answer `CLAUDE.md` forbids. That "no crown has a 16-cell
+/// branch" held for branches and not for crowns: on the four-role training
+/// bed at 240,000 frames, 46 of 134 standing drops sat on tissue deeper
+/// than 16, with 60 more stacked on them. `MAX_REACH` is the most the
+/// parallel sweep's write-disjointness proof allows; a crown thicker than
+/// that still holds water.
+const DRIP_REACH: i32 = MAX_REACH;
+
 /// A shed leaf does not sit on the branch below it — it goes past.
 ///
 /// **The 2D-slice rule, applied where a cell comes to rest rather than only
@@ -1851,7 +1865,7 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
         }
         return false;
     }
-    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
+    for probe in (y + 1)..(y + 1 + DRIP_REACH) {
         let here = surface.get(x, probe);
         if here.material == material::EMPTY {
             return try_move(surface, x, y, x, probe);
@@ -1886,7 +1900,7 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
 /// drop that never moves, and one that says no where the rule says yes is the
 /// stranded drop this exists to prevent.
 fn drip_landing_open<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
-    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
+    for probe in (y + 1)..(y + 1 + DRIP_REACH) {
         let here = surface.get(x, probe);
         if here.material == material::EMPTY {
             return true;
@@ -4200,6 +4214,45 @@ mod tests {
     ///
     /// A five-cell puddle rather than one drop, because `water` evaporates
     /// and a single cell that happens to evaporate would read as a pass.
+    /// **A crown thicker than the old reach still lets the rain through**
+    /// (`DRIP_REACH`). The basin of the test below with a canopy 24 rows
+    /// deep: at the old 16-cell reach every drop's scan ran out inside the
+    /// tissue and the water sat on the crown for good -- the cap as an
+    /// answer. 24 rather than something near 32 so the scene is plainly past
+    /// the old reach and plainly inside the new one.
+    #[test]
+    fn water_drips_through_a_crown_deeper_than_sixteen_cells() {
+        let mut w = world_with_floor();
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        for y in 50..=83 {
+            w.set(59, y, Cell::new(material::STONE, 0));
+            w.set(71, y, Cell::new(material::STONE, 0));
+        }
+        for y in 60..=83 {
+            for x in 60..=70 {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(1));
+            }
+        }
+        for x in 63..=67 {
+            w.set(x, 59, Cell::new(material::WATER, 0));
+        }
+        run(&mut w, 400);
+        let (mut above, mut below) = (0u64, 0u64);
+        for x in 0..128 {
+            for y in 0..128 {
+                let c = w.get(x, y);
+                if c.material == material::WATER {
+                    if y < 60 {
+                        above += liquid_fill(c) as u64;
+                    } else if y > 83 {
+                        below += liquid_fill(c) as u64;
+                    }
+                }
+            }
+        }
+        assert!(below > 0 && above == 0, "a 24-row crown held the rain: {above} fill still on top, {below} below");
+    }
+
     #[test]
     fn water_drips_through_a_canopy_but_oil_and_a_roofed_canopy_do_not() {
         let arm = |liquid: &str, roofed: bool| -> (u64, u64) {

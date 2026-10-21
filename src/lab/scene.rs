@@ -263,6 +263,23 @@ pub struct LabBox {
     /// 233+-419 to 777+-404 cells. Written only when off.
     #[serde(default = "bud_break_reserve_default", skip_serializing_if = "is_bud_break_reserve_default")]
     pub bud_break_reserve: bool,
+    /// **Soil water passes through roots to the soil beyond**
+    /// (`World::soil_through_roots`). **On by default**: on the training beds
+    /// it took the water standing above the ground from 109-224 cells to
+    /// 12-30 at 120,000 frames (4 beds), with saturated soil under a plant
+    /// -- the base of most pools -- falling to 0-2, at about today's soil
+    /// write count by 240,000. Written only when off.
+    #[serde(default = "soil_through_roots_default", skip_serializing_if = "is_soil_through_roots_default")]
+    pub soil_through_roots: bool,
+}
+
+/// `LabBox::soil_through_roots`'s default: see that field.
+fn soil_through_roots_default() -> bool {
+    true
+}
+
+fn is_soil_through_roots_default(on: &bool) -> bool {
+    *on == soil_through_roots_default()
 }
 
 /// `LabBox::bud_break_reserve`'s default: see that field.
@@ -481,6 +498,7 @@ impl Default for LabBox {
             ground: Ground::Uniform,
             seed_pile_depth: seed_pile_depth_default(),
             bud_break_reserve: bud_break_reserve_default(),
+            soil_through_roots: soil_through_roots_default(),
         }
     }
 }
@@ -1115,6 +1133,7 @@ impl LabBox {
         let textured = self.ground != Ground::Uniform;
         w.seed_pile_depth = self.seed_pile_depth;
         w.bud_break_reserve = self.bud_break_reserve;
+        w.soil_through_roots = self.soil_through_roots;
         // Under the lamps, the lamp is the sun: what the shade genes call
         // open light (`World::open_light`).
         if let Some(lamp) = w.materials.id_of("growlamp") {

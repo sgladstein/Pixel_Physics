@@ -184,7 +184,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // Litter needs its own because sharing ash's gave it a lifetime sixteen
     // times longer than the runs it is measured in, so it never reached
     // equilibrium -- it only integrated the canopy's shedding.
-    let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
+    //
+    // **And the ground counts, not only the air** (`World::decay_reads_
+    // ground`). `field_at(..).moisture` is the diffused humidity, and a
+    // field block holding a plant cell never diffuses (`open-bugs-handoff.md`
+    // §Z39), so litter under a plant read bone dry on a wet bed and rotted
+    // at the dry rate -- five times slower for litter -- which is litter
+    // lying about under every plant. `ground_wetness_at` is the channel the
+    // fire gate moved to for the same reason: the moisture *source* at the
+    // cell's block and the one below, written for blocked blocks too.
+    let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD
+        || (world.decay_reads_ground && world.ground_wetness_at(x, y) > DECAY_MOISTURE_THRESHOLD);
     let chance = if damp { rate_damp } else { rate_dry };
     if !dice.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.organism_due(DECAY_TICK_INTERVAL) }];

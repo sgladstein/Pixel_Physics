@@ -871,7 +871,14 @@ the review (§12), **M1 runs in this order**:
      open-light fix): the tolerant shrub is 59% bigger in dim light (shoot
      268 -> 426) with more leaf share (0.24 -> 0.29), all alive either way.
      Herb avoidance hurts in uniform dim light (5/8 alive -> 2/8), as it
-     should where stretching reaches nothing brighter.
+     should where stretching reaches nothing brighter. **Rerun after the
+     open-light fix, the tolerant shrub is still bigger in bright light
+     (551 -> 711)**: self-shading inside its own crown still reads as shade,
+     so the upkeep cut and the extra, cheaper leaves outweigh the leaf-light
+     price even under the lamp. **The price has to be re-derived before
+     training is allowed to move this gene** -- otherwise selection drives
+     every species to full tolerance and the axis makes no difference
+     between them.
    - **The community test fails.** Four roles, 4 seeds, 720,000 frames,
      shrub tolerance 0.7 against none, the genes-off arm byte-identical to
      the earlier runs: the shrub lasts on **1 of 4 seeds with the gene

@@ -6374,6 +6374,11 @@ pub struct World {
     /// depth, which is `update::drip_through_organism`'s own argument for
     /// the liquid side.
     pub soil_through_roots: bool,
+    /// **Rot reads the wetness of the ground, not only of the air**
+    /// (`decay::tick`). The diffused humidity reads 0 in any field block
+    /// holding a plant (§Z39), so without this litter under a plant always
+    /// rots at the dry rate.
+    pub decay_reads_ground: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -7509,6 +7514,7 @@ impl World {
             soil_texture: false,
             soil_drains_around: false,
             soil_through_roots: false,
+            decay_reads_ground: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,

@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -220,7 +220,13 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
     // passes through a root to the soil beyond). The standing-water arms.
     w.soil_capillary_levels = get(m, "level", u8::from(w.soil_capillary_levels)) != 0;
     w.soil_through_roots = get(m, "roots", u8::from(w.soil_through_roots)) != 0;
-    println!("plant_m0 soil_capillary_levels={} soil_through_roots={}", w.soil_capillary_levels, w.soil_through_roots);
+    // `rotground=1`: `World::decay_reads_ground` (litter under a plant reads
+    // the ground's wetness).
+    w.decay_reads_ground = get(m, "rotground", u8::from(w.decay_reads_ground)) != 0;
+    println!(
+        "plant_m0 soil_capillary_levels={} soil_through_roots={} decay_reads_ground={}",
+        w.soil_capillary_levels, w.soil_through_roots, w.decay_reads_ground
+    );
     println!(
         "plant_m0 bud_break_reserve={} lifespans: {}",
         w.bud_break_reserve,
@@ -355,13 +361,22 @@ fn screen_mix(w: &World, bed: &LabBox, frame: u64) -> String {
         v.sort_by_key(|e| std::cmp::Reverse(*e.1));
         format!("n={n} ") + &v.iter().map(|(k, c)| format!("{k}:{:.1}%", **c as f64 * 100.0 / n as f64)).collect::<Vec<_>>().join(" ")
     };
-    format!("SCREEN f={frame} above[{}] || ground-top20[{}]", fmt(&above), fmt(&below))
+    // Where heaped ground comes from: every soil-family cell in the bed,
+    // against the rots so far (`decay.rs`; 5% of a rotted litter, seed or
+    // corpse cell comes back as soil).
+    let soil_cells: u64 = (0..bed.height).map(|y| (0..bed.width).filter(|&x| w.materials.get(w.get(x, y).material).water_capacity > 0).count() as u64).sum();
+    format!(
+        "SCREEN f={frame} soilcells={soil_cells} rotted={} above[{}] || ground-top20[{}]",
+        w.decayed_damp as u64 + w.decayed_dry as u64,
+        fmt(&above),
+        fmt(&below)
+    )
 }
 
 /// **Why is the standing water standing?** Every water cell above the
 /// soil line by what it rests on, and for those on plant matter,
 /// `update::drip_through_organism`'s downward scan replayed (as
-/// `examples/waterstand` does it, reach 16) to name what refused the drop.
+/// `examples/waterstand` does it, at `update::DRIP_REACH`) to name what refused the drop.
 /// `examples/waterstand`'s census, on this harness's beds.
 fn water_why(w: &World, bed: &LabBox, frame: u64) -> String {
     use pixel_physics::sim::material::{self, MaterialKind};
@@ -382,7 +397,8 @@ fn water_why(w: &World, bed: &LabBox, frame: u64) -> String {
                 "on-water".to_string()
             } else if plantish(below) {
                 let mut why = "on-plant:too-deep".to_string();
-                for probe in (y + 1)..(y + 17) {
+                // `update::DRIP_REACH` (32, `MAX_REACH`), mirrored.
+                for probe in (y + 1)..(y + 33) {
                     let here = w.get(x, probe);
                     if here.material == material::EMPTY {
                         why = "on-plant:can-drip".to_string();
