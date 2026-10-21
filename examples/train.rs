@@ -258,6 +258,13 @@ fn on(k: &str, v: &str) -> bool {
 }
 
 fn main() {
+    struct RoofReport;
+    impl Drop for RoofReport {
+        fn drop(&mut self) {
+            eprintln!("SCRATCH roof-flag options seen: {}", pixel_physics::sim::creature::SCRATCH_ROOF_SEEN.load(std::sync::atomic::Ordering::Relaxed));
+        }
+    }
+    let _roof = RoofReport;
     creature::mutation_off_for_measuring();
     let mut set = Settings::default();
     let mut challenge = "forage".to_string();

@@ -1785,6 +1785,10 @@ impl Soil {
     /// 4 the whole bed**, its stone and its step on the side `k` picks, so
     /// a pair differs by the side alone, as [`Dig`]'s do.
     fn bed(&self, layout: Layout) -> Scenario {
+        // SCRATCH: PP_PLAIN_BED=1 -- a plain box: flat, 40 rows of soil, lamps 33 apart, no lens, no step, any layout.
+        if std::env::var("PP_PLAIN_BED").is_ok() {
+            return bed_shaped(layout.seed * 2 + (layout.k & 1), self.ants, "", 40, 33);
+        }
         let shape = DigBed::of(layout);
         if self.generated() {
             bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp)

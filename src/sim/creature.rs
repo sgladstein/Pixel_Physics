@@ -55892,3 +55892,9 @@ mod tests {
         assert!(!is_nest_bound(&w, w.organism(id).unwrap()), "marked, and still nest-bound");
     }
 }
+
+/// SCRATCH: how many Dig options carried the roof flag (before any blanking), printed at exit by the soil arena run.
+pub static SCRATCH_ROOF_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn scratch_roof_seen() {
+    SCRATCH_ROOF_SEEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}

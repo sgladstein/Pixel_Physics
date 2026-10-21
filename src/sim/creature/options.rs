@@ -412,7 +412,10 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         if jaws_free && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
-                    feats[f::ROOF_DROP] = f32::from(u8::from(super::cut_drops_roof(world, t)));
+                    // SCRATCH: PP_NO_ROOFDROP=1 blanks the per-cell roof flag (counted, so the switch can be seen to bite).
+                    let on = super::cut_drops_roof(world, t);
+                    if on { crate::sim::creature::scratch_roof_seen(); }
+                    feats[f::ROOF_DROP] = if std::env::var("PP_NO_ROOFDROP").is_ok() { 0.0 } else { f32::from(u8::from(on)) };
                 }
             });
         }
