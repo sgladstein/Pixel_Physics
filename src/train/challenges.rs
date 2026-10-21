@@ -1404,6 +1404,12 @@ pub struct Soil {
     /// guards and numbers are written against. At `shaft` 0 the foot is
     /// the first row under the top, so on is rev 2.8 there too.
     pub foot: bool,
+    /// **The share of bed pairs with the step forced near the shaft**
+    /// (`stepnear=`, [`DigBed::drawn`]), 0 for the beds every earlier run
+    /// and score met. It moves the hold-out with the training beds, so a
+    /// run's own hold-out numbers are not comparable across it; judge on
+    /// `sealed=1` at the default.
+    pub step_near: f64,
 }
 
 /// The soil trip's verbs: the forager's ([`SCARCE_VERBS`]) and the cut.
@@ -1785,7 +1791,7 @@ impl Soil {
     /// 4 the whole bed**, its stone and its step on the side `k` picks, so
     /// a pair differs by the side alone, as [`Dig`]'s do.
     fn bed(&self, layout: Layout) -> Scenario {
-        let shape = DigBed::of(layout);
+        let shape = DigBed::drawn(layout, self.step_near);
         if self.generated() {
             bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp)
         } else {
@@ -1863,6 +1869,14 @@ fn founding_cut(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<(i32, i32)> 
 impl Challenge for Soil {
     fn name(&self) -> &'static str {
         "soil"
+    }
+    /// **No food and no larvae in the soil box**, so Pick up, Eat and Feed
+    /// never have a target: measured on s161 gen 336's 38,028 decisions over
+    /// the 24 sealed worlds (investigation 2026-10-20), and guarded by
+    /// `soil_never_offers_food_verbs`.
+    fn acting_verbs(&self) -> Vec<creature::options::Verb> {
+        use creature::options::Verb as V;
+        SOIL_VERBS.iter().copied().filter(|v| !matches!(v, V::PickUp | V::Eat | V::Feed)).collect()
     }
     fn unit(&self) -> Unit {
         Unit::Colony
@@ -2031,14 +2045,37 @@ pub struct DigBed {
 const BED_INSIDE: (i32, i32) = (6, BED_W - 6);
 
 impl DigBed {
+    /// One feature's draw for the bed on `seed`: `lo..=hi`, a hash of the
+    /// seed and the feature's `salt`, so a pair's two sides draw alike.
+    fn roll(seed: u64, salt: u64, lo: i32, hi: i32) -> i32 {
+        let mut z = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        lo + ((z ^ (z >> 31)) % (hi - lo + 1) as u64) as i32
+    }
+
+    /// **[`DigBed::of`], with a step forced near the shaft on a share
+    /// `near` of the pairs** ([`Soil::step_near`]): there the step is drawn
+    /// 6-10 columns out instead of 6-30, mirrored as ever, its height as
+    /// drawn. Why: on 192 hold-out beds at the 8-row shaft (2026-10-21) the
+    /// step within 10 columns of the shaft, 40 beds of 192, cost both
+    /// trained brains 1.4 and 1.7 full loads (2 s.e.), and the 4-row brain
+    /// they came from only 0.3: the walk out to a fixed put-down that a
+    /// flat bed pays. A step anywhere else, the stone, the soil depth and
+    /// the lamps cost nothing measurable, and a plain bed (no lens, no step,
+    /// one depth) is no less noisy -- the per-world spread is the run's own.
+    /// 0 is [`DigBed::of`] exactly, bed for bed.
+    pub fn drawn(layout: Layout, near: f64) -> DigBed {
+        let mut bed = Self::of(layout);
+        let draw = |salt: u64, lo: i32, hi: i32| Self::roll(layout.seed, salt, lo, hi);
+        if near > 0.0 && f64::from(draw(11, 0, 9999)) < near * 10_000.0 {
+            bed.step = Some((NEST_X + bed.side * draw(12, 6, 10), draw(9, 2, 6)));
+        }
+        bed
+    }
+
     pub fn of(layout: Layout) -> DigBed {
-        let seed = layout.seed;
-        let draw = |salt: u64, lo: i32, hi: i32| {
-            let mut z = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            lo + ((z ^ (z >> 31)) % (hi - lo + 1) as u64) as i32
-        };
+        let draw = |salt: u64, lo: i32, hi: i32| Self::roll(layout.seed, salt, lo, hi);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
         let depth = draw(1, 24, 52);
         let lens = (draw(2, 0, 3) > 0).then(|| {
@@ -2423,6 +2460,13 @@ impl Challenge for Suite {
     fn verbs(&self) -> &'static [creature::options::Verb] {
         self.verbs
     }
+    fn unfloored(&self, s: &Score) -> f64 {
+        self.product(&s.parts[..self.arenas.len()], false)
+    }
+    fn untested_verbs(&self) -> Vec<creature::options::Verb> {
+        let learning: Vec<creature::options::Verb> = self.arenas.iter().filter(|(_, keep)| !keep).flat_map(|(a, _)| a.acting_verbs()).collect();
+        self.verbs.iter().copied().filter(|v| !learning.contains(v)).collect()
+    }
     fn mind_emits(&self) -> [bool; creature::mind::EMITS] {
         let mut on = [false; creature::mind::EMITS];
         for (a, _) in &self.arenas {
@@ -2513,7 +2557,7 @@ impl Challenge for Suite {
             let name = a.name();
             self.refs[i] = mean.max(REF_FLOOR);
             self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
-            let whose = if keep && saved != g { " (the start as saved)" } else { "" };
+            let whose = if keep && saved != g { " (the start as saved, or keepref=)" } else { "" };
             println!("suite reference {name}: {:.3}{whose}, spread {:.3} over {} units", self.refs[i], self.sds[i], units.len());
             if keep && saved != g {
                 let now = folded(g);
@@ -3497,6 +3541,60 @@ mod tests {
         assert!((score(&noisy) - 0.1 / 1.5).abs() < 1e-9, "past two standard errors, forgotten: {}", score(&noisy));
     }
 
+    /// An arena that scores a genome's weight `a` on layouts before
+    /// `split` and weight `b` from it on, so a test can dip one brain under
+    /// a floor on racing's first round only.
+    struct Weights {
+        a: usize,
+        b: usize,
+        split: usize,
+    }
+    impl Challenge for Weights {
+        fn name(&self) -> &'static str {
+            "weights"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [O] {
+            &[]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: f64::from(g[0][if (l.k as usize) < self.split { self.a } else { self.b }]), parts: vec![] }]
+        }
+    }
+
+    /// **Racing's first round does not cut on a kept arena's floor**
+    /// ([`Challenge::unfloored`]): the best digger keeps fetch at 0.5 of its
+    /// reference on the 4 first-round worlds and 1.2 on the other 6 -- 0.92
+    /// over all 10, above the 0.8 floor. Ranked by the floored score it was
+    /// cut (0.1 of its product); unfloored it survives and ends unpenalised,
+    /// while a digger under the floor on every world survives the cut and
+    /// is still penalised on all ten.
+    #[test]
+    fn racing_does_not_cut_on_a_floor_read_over_a_few_worlds() {
+        let mut s = Suite::new(vec![(Box::new(Weights { a: 0, b: 0, split: 4 }), false), (Box::new(Weights { a: 1, b: 2, split: 4 }), true)], 0.8);
+        s.refs = vec![1.0, 1.0];
+        let lay: Vec<Layout> = (0..10).map(|k| Layout { seed: 1, k, blind: false, legal: false }).collect();
+        let mut genomes: Vec<Vec<f32>> = (1..=8).map(|d| vec![d as f32 * 0.5, 1.0, 1.0]).collect();
+        genomes.push(vec![10.0, 0.5, 1.2]); // 8: dips on the first round only
+        genomes.push(vec![10.0, 0.5, 0.5]); // 9: forgot fetch everywhere
+        genomes.push(vec![1.0, 1.0, 1.0]); // the control
+        let (means, survived) = crate::train::race(&s, &genomes, &lay, 4, 0.0, 2, &mut crate::train::Rng(1));
+        assert!(survived[8] && survived[9], "the diggers were cut on the floor: {survived:?}");
+        assert!((means[8].fit - (10.0f64 * 0.92).sqrt()).abs() < 1e-6, "the dip brain over all ten: {}", means[8].fit);
+        assert!((means[9].fit - 0.1 * (10.0f64 * 0.5).sqrt()).abs() < 1e-9, "the forgetful one is still penalised: {}", means[9].fit);
+    }
+
     /// **The step-4 switch** ([`Suite::gated_at`]): on from step 4 with soil
     /// learned, off before it, off without soil, and off with soil only
     /// kept.
@@ -3848,7 +3946,7 @@ mod tests {
         let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
         for k in [0, 1] {
             let world = |step: u8| {
-                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false };
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0 };
                 assert_eq!(soil.mirrored(), step >= 4);
                 soil.world(lay(seed, k), &g)
             };
@@ -3868,6 +3966,37 @@ mod tests {
             let (w3, sc3, _, _) = world(3);
             assert_eq!(census::surface_of(&w3, &sc3.bed, inside), GROUND_Y, "k={k}: step 3's bed is flat");
         }
+    }
+
+    /// **`stepnear=` forces the step near the shaft on its share of pairs,
+    /// and nothing else** ([`DigBed::drawn`]): at 0 every bed is
+    /// [`DigBed::of`]'s; at 1 every bed's step is 6-10 columns out on its
+    /// own side, mirrored across a pair, and nothing but the step moved; at
+    /// 0.3 about that share of 400 pairs is forced. The beds' own share
+    /// within 10 columns is the control: about one bed in five.
+    #[test]
+    fn step_near_forces_the_step_by_the_shaft_and_nothing_else() {
+        let lay = |seed: u64, k: u64| Layout { seed, k, blind: false, legal: false };
+        let near = |b: &DigBed| b.step.is_some_and(|(x, _)| (6..=10).contains(&((x - NEST_X) * b.side)));
+        let (mut own, mut forced) = (0, 0);
+        for seed in 0..400 {
+            for k in [0, 1] {
+                let l = lay(seed, k);
+                let bed = DigBed::of(l);
+                assert_eq!(DigBed::drawn(l, 0.0), bed, "seed {seed}: 0 is the bed as it was");
+                let all = DigBed::drawn(l, 1.0);
+                assert!(near(&all), "seed {seed} k {k}: {:?}", all.step);
+                assert_eq!(DigBed { step: bed.step, ..all.clone() }, bed, "seed {seed}: only the step moves");
+                if k == 0 {
+                    own += usize::from(near(&bed));
+                    forced += usize::from(DigBed::drawn(l, 0.3) != bed && near(&DigBed::drawn(l, 0.3)));
+                    let west = DigBed::drawn(lay(seed, 1), 1.0);
+                    assert_eq!(all.step.map(|s| s.0 - NEST_X), west.step.map(|s| NEST_X - s.0), "seed {seed}: mirrored");
+                }
+            }
+        }
+        assert!((60..=110).contains(&own), "the beds' own near steps: {own} of 400");
+        assert!((90..=150).contains(&forced), "0.3 forced {forced} of 400");
     }
 
     /// **No stone in the founding cut** (ladder lane, `dig-rung-design.md`
@@ -3895,7 +4024,7 @@ mod tests {
             (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
         };
         let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
-            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false };
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0 };
             let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
             assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
             let mut out = vec![];
@@ -3923,7 +4052,7 @@ mod tests {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let g = creature::mind::blank(SOIL_VERBS);
         let deepest = |w: &World, sc: &Scenario| founding_cut(w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(w, &sc.bed, x) + 1).max();
-        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false };
+        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0 };
         let (w, sc, _, _) = soil(0).world(lay, &g);
         assert_eq!(deepest(&w, &sc), None, "no shaft asked for, and a hole at frame 0");
         let (w, sc, _, _) = soil(2).world(lay, &g);
@@ -3948,7 +4077,7 @@ mod tests {
     #[test]
     fn the_soil_picture_paints_near_and_away_as_the_score_does() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0 };
         let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
         let x = chamber.0 + 20;
@@ -3968,7 +4097,7 @@ mod tests {
     #[test]
     fn the_soil_ledger_matches_the_world_counts() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false };
+        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0 };
         let (mut w, _, sp, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let (digs, dumped, dig_j) = (w.creature_stats.digs, w.creature_stats.spoil_dumped, w.creature_stats.dig_energy);
         for _ in 0..soil.frames {
@@ -4010,5 +4139,60 @@ mod tests {
         let dumps = [(3, 2, 2, 1), (2, 3, 4, 2)];
         let t = soil_trip(3, 1, ground, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(t.stages, [2, 2, 1]);
+    }
+
+    /// **The soil box never offers the food verbs** (`Soil::acting_verbs`,
+    /// the protection in `Settings::protect`): a mind with every verb on,
+    /// one ant on a step-4 bed for 3,000 frames. The counter is checked
+    /// against verbs that do act (walking, cutting, putting down), so a
+    /// blind counter fails here too; if food or larvae ever reach the soil
+    /// box this fails, and the protection must be revisited, not silenced.
+    #[test]
+    fn soil_never_offers_food_verbs() {
+        use creature::options::Verb as V;
+        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let g = super::super::start_mind(&soil, "training/starts/s134-4b-g34.txt");
+        for k in 0..2 {
+            let (mut w, _, _, _) = soil.world(Layout { seed: 70_000, k, blind: false, legal: false }, &g);
+            for _ in 0..soil.frames {
+                frame(&mut w, true);
+            }
+            let c = w.minds.as_ref().expect("minds").counts;
+            for v in [V::Walk, V::Dig, V::Drop] {
+                assert!(c.offered[v as usize] > 0, "k={k}: {v:?} never offered -- the counter is blind");
+            }
+            for v in [V::PickUp, V::Eat, V::Feed] {
+                assert_eq!(c.offered[v as usize], 0, "k={k}: {v:?} had a target in the soil box");
+            }
+            let acting = soil.acting_verbs();
+            assert!(SOIL_VERBS.iter().all(|v| acting.contains(v) == (c.offered[*v as usize] > 0)), "k={k}: acting_verbs {acting:?} disagrees with what acted");
+        }
+    }
+
+    /// **A digging suite cannot test the food verbs, a foraging one can**
+    /// (`Suite::untested_verbs`): soil learned with fetch and trail kept
+    /// leaves Pick up, Eat and Feed untested; with fetch learned, nothing.
+    #[test]
+    fn a_digging_suite_leaves_the_food_verbs_untested() {
+        use creature::options::Verb as V;
+        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let fetch = || Scarce {
+            ants: 1,
+            frames: 10,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: Some(creature::FoodBrake::FORAGE),
+            dist: (10, 30),
+            steps: true,
+            fed: true,
+            dig: false,
+        };
+        let digging = Suite::new(vec![(Box::new(soil()), false), (Box::new(fetch()), true), (Box::new(Trail { ants: 2, frames: 10, clones: true }), true)], 0.8);
+        let mut u = digging.untested_verbs();
+        u.sort_by_key(|v| *v as usize);
+        assert_eq!(u, vec![V::PickUp, V::Eat, V::Feed]);
+        let foraging = Suite::new(vec![(Box::new(fetch()), false), (Box::new(soil()), true)], 0.8);
+        assert!(foraging.untested_verbs().iter().all(|v| *v == V::Dig), "{:?}", foraging.untested_verbs());
     }
 }

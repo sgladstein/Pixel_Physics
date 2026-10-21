@@ -146,6 +146,18 @@ pub trait Challenge: Sync {
     fn mirrored(&self) -> bool {
         false
     }
+    /// **A folded score without its forget-floor penalty**, for racing's
+    /// first round ([`race`]): only a suite has a floor, and it gives back
+    /// the product of its ratios as if no kept arena were under. Why: a
+    /// floor is a share of a reference, and read on a few worlds it fires on
+    /// noise. s172's champion at gen 70 of `dig-8` (fetch 0.87 of s91 on 96
+    /// fresh worlds) falls under 0.8 on 26% of 8-world draws against 8% of
+    /// 48-world ones, so a raced first round cut a quarter of such brains
+    /// for nothing. The floor still decides, on every layout, for whoever
+    /// survives.
+    fn unfloored(&self, s: &Score) -> f64 {
+        s.fit
+    }
     /// **How a genome's per-layout scores become its score**: by default
     /// the mean, or the worse side of each mirrored pair ([`worse_side`]).
     /// A suite folds each of its arenas on its own first ([`fold`]).
@@ -176,6 +188,19 @@ pub trait Challenge: Sync {
     /// never trained.
     fn verbs(&self) -> &'static [Verb] {
         &[Verb::Walk, Verb::TurnAround, Verb::Rest]
+    }
+    /// **The verbs that can act here**: those of [`Challenge::verbs`] that
+    /// ever have a target in this arena's worlds. All of them unless an
+    /// arena knows better (the soil box has no food or larvae, so Pick up,
+    /// Eat and Feed never have one there; a guard test watches it).
+    fn acting_verbs(&self) -> Vec<Verb> {
+        self.verbs().to_vec()
+    }
+    /// **Verbs this challenge offers but cannot test while it learns**: in a
+    /// suite, those only its kept arenas can use. Their connections are
+    /// left alone under [`Settings::protect`]. None for a single arena.
+    fn untested_verbs(&self) -> Vec<Verb> {
+        Vec::new()
     }
     /// The scents a mind may lay here (A, B, alarm): A and B as the brain's
     /// `EmitA`/`EmitB` bans say, alarm off.
@@ -736,6 +761,18 @@ pub struct Settings {
     /// exactly where it was and just add an extra 50 generations"). A
     /// cloud container that restarts mid-run lost its run the same way.
     pub resume: bool,
+    /// **Leave untestable verbs' connections alone** (`protect=`, on by
+    /// default; owner, 2026-10-20): a mind's slots that serve only a verb
+    /// the challenge cannot test ([`Challenge::untested_verbs`]: in a suite,
+    /// a verb only its kept arenas can use) are taken out of the trainable
+    /// slots, so mutation and pruning never touch them ([`mind::protect`]).
+    /// Off is the rig before it.
+    pub protect: bool,
+    /// **Racing** (`race=N`, off at 0, the default): each generation's
+    /// genomes on the first N of its layouts, the better half on the rest
+    /// ([`race`]). Off until an A/B run measures it (investigation
+    /// 2026-10-20, part 5).
+    pub race: usize,
     /// **The arena's own arguments**, as the command line gave them
     /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
     /// budget and the rest), for [`RunState`]: a resume under another
@@ -821,6 +858,8 @@ impl Default for Settings {
             grow: 1.0,
             patience: 50,
             resume: false,
+            protect: true,
+            race: 0,
             arena: String::new(),
         }
     }
@@ -939,6 +978,49 @@ pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], t
         .into_iter()
         .map(|row| row.into_iter().map(|s| s.expect("every genome scored on every layout")).collect())
         .collect()
+}
+
+/// **Racing** (`race=`, [`Settings::race`]): every genome on the first
+/// `first` layouts, the better half of the population kept (ranked with no
+/// forget-floor penalty, [`Challenge::unfloored`]: a floor fires on noise
+/// over a few worlds), and only those
+/// on the rest. Returns each genome's folded score (over every layout for
+/// a survivor, over the first round for one dropped) and who survived.
+/// The control (the last genome) always survives, so its line stays
+/// comparable. **Why**: in a realistic generation (25 parents and 75
+/// mutants, two independent 48-world sets) most mutants are plainly
+/// worse, and 8 worlds, keep half, +40 picked parents as good as 48 worlds
+/// each for well under the cost (investigation 2026-10-20, part 5); the
+/// hard part, ordering near-equals, gets every world it got before.
+/// `first` must be even on a mirrored challenge, so no pair is split.
+#[allow(clippy::too_many_arguments)]
+pub fn race(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], first: usize, wire: f64, threads: usize, rng: &mut Rng) -> (Vec<Score>, Vec<bool>) {
+    assert!(first > 0 && first < layouts.len(), "race={first}: needs 0 < race < layouts ({})", layouts.len());
+    assert!(!ch.mirrored() || first.is_multiple_of(2), "race={first}: a mirrored challenge needs an even first round");
+    let (a, b) = layouts.split_at(first);
+    let n = genomes.len();
+    let control = n - 1;
+    let s1 = score_all(ch, genomes, a, threads, rng);
+    let m1: Vec<Score> = s1.iter().map(|s| fold(ch, s, a)).collect();
+    let mut order: Vec<usize> = (0..control).collect();
+    order.sort_by(|&x, &y| {
+        let at = |g: usize| wired(ch.unfloored(&m1[g]), connections(&genomes[g]), wire);
+        at(y).partial_cmp(&at(x)).unwrap().then(x.cmp(&y))
+    });
+    let mut survived = vec![false; n];
+    for &g in order.iter().take(control.div_ceil(2)) {
+        survived[g] = true;
+    }
+    survived[control] = true;
+    let keep: Vec<usize> = (0..n).filter(|&g| survived[g]).collect();
+    let pool: Vec<Vec<f32>> = keep.iter().map(|&g| genomes[g].clone()).collect();
+    let s2 = score_all(ch, &pool, b, threads, rng);
+    let mut means = m1;
+    for (k, &g) in keep.iter().enumerate() {
+        let whole: Vec<Score> = s1[g].iter().chain(&s2[k]).cloned().collect();
+        means[g] = fold(ch, &whole, layouts);
+    }
+    (means, survived)
 }
 
 /// A genome's whole score at once: the mean over the layouts it met, fit and
@@ -1274,7 +1356,15 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
     std::fs::create_dir_all(out.join("champions"))?;
-    let slots = trainable_for(ch, start.len());
+    let mut slots = trainable_for(ch, start.len());
+    if set.protect && is_mind(start.len()) {
+        let untested = ch.untested_verbs();
+        if !untested.is_empty() {
+            let n = mind::protect(&mut slots, &untested);
+            println!("protect: {n} slots serving only {untested:?} left alone (no target in the learning arena)");
+        }
+    }
+    let slots = slots;
     assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
@@ -1348,12 +1438,21 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         // `Unit::Ant` it is one more member of the shuffle, so it meets the
         // same neighbours the population does.
         all.push(start.clone());
-        let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
-        let means: Vec<Score> = scores.iter().map(|s| fold(ch, s, &layouts)).collect();
+        let (means, survived) = if set.race > 0 {
+            let (m, s) = race(ch, &all, &layouts, set.race, set.wire, set.threads, &mut rng);
+            let kept = s[..set.pop].iter().filter(|&&k| k).count();
+            println!("    race: {kept} of {} kept after {} of {} layouts", set.pop, set.race, layouts.len());
+            (m, s)
+        } else {
+            let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
+            (scores.iter().map(|s| fold(ch, s, &layouts)).collect::<Vec<Score>>(), vec![true; all.len()])
+        };
         let control = means[set.pop].fit;
         let links: Vec<usize> = popn.iter().map(|g| connections(g)).collect();
         let mut ranked: Vec<(f64, usize)> = (0..set.pop).map(|g| (wired(means[g].fit, links[g], set.wire), g)).collect();
-        ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
+        // Under racing a survivor outranks every genome dropped, whatever
+        // its score: a dropped one was scored on the first round alone.
+        ranked.sort_by(|a, b| survived[b.1].cmp(&survived[a.1]).then(b.0.partial_cmp(&a.0).unwrap()).then(a.1.cmp(&b.1)));
         let b = ranked[0].1;
         champion = popn[b].clone();
         let secs = tg.elapsed().as_secs_f64();
@@ -2000,6 +2099,75 @@ mod tests {
         }
     }
 
+    /// **A ruler**: a genome's first weight on every layout, plus a small
+    /// layout term, counting every run, so racing's cut, cost and scores can
+    /// be checked exactly.
+    struct Ruler {
+        runs: std::sync::atomic::AtomicUsize,
+    }
+    impl Challenge for Ruler {
+        fn name(&self) -> &'static str {
+            "ruler"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            self.runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            vec![Score { fit: f64::from(g[0][0]) + 0.001 * (l.k % 10) as f64, parts: vec![] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **Racing keeps the better half and scores it on every layout**
+    /// ([`race`]): 20 genomes and a control, 4 of 10 layouts in the first
+    /// round. The survivors are exactly the top 10 and the control; a
+    /// survivor's score is its mean over all 10, a dropped one's over the
+    /// first 4; and it costs 21 x 4 + 11 x 6 runs, not 21 x 10.
+    #[test]
+    fn race_keeps_the_better_half_and_scores_it_on_every_layout() {
+        let ruler = Ruler { runs: std::sync::atomic::AtomicUsize::new(0) };
+        let mut genomes: Vec<Vec<f32>> = (0..20).map(|i| vec![((i * 7) % 20) as f32]).collect();
+        genomes.push(vec![-5.0]);
+        let layouts = training_layouts(1, 0, 10);
+        let (means, survived) = race(&ruler, &genomes, &layouts, 4, 0.0, 2, &mut Rng(1));
+        let mean_k = |ks: &[Layout]| ks.iter().map(|l| 0.001 * (l.k % 10) as f64).sum::<f64>() / ks.len() as f64;
+        for (g, gen) in genomes.iter().enumerate() {
+            let top = g == 20 || gen[0] >= 10.0;
+            assert_eq!(survived[g], top, "genome {g} (first weight {})", gen[0]);
+            let want = f64::from(gen[0]) + if top { mean_k(&layouts) } else { mean_k(&layouts[..4]) };
+            assert!((means[g].fit - want).abs() < 1e-9, "genome {g}: {} against {want}", means[g].fit);
+        }
+        assert_eq!(ruler.runs.load(std::sync::atomic::Ordering::Relaxed), 21 * 4 + 11 * 6);
+    }
+
+    /// **A raced run trains**: `race=` through [`train`] on the bowl, to a
+    /// champion off the start, with the arena string naming it so a resume
+    /// cannot mix raced and unraced generations.
+    #[test]
+    fn a_raced_run_trains_and_says_so() {
+        let dir = std::env::temp_dir().join(format!("train-race-{}", std::process::id()));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 4, pop: 8, layouts: 4, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, race: 2, arena: "race=2".into(), ..Settings::default() };
+        train(&bowl, start.clone(), &set, &dir).unwrap();
+        let state = RunState::load(&dir.join(STATE_FILE), &bowl, &set, &start);
+        assert_eq!(state.next, 4);
+        assert!(state.champion != start, "the champion moved off the start");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// A mind arena scored by the genome alone, so a test can run whole
     /// generations in no time. On a training layout, the sum of its
     /// weights, so half of all steps gain, plus a share that depends on the
@@ -2321,6 +2489,40 @@ mod tests {
         save_genome(&p, &g).unwrap();
         assert_eq!(load_genome(&p, g.len()), g);
         std::fs::remove_file(&p).ok();
+    }
+
+    /// **Protection keeps an untestable verb's links from mutation and
+    /// pruning** (`Settings::protect`): every slot live, 1,000 mutations at
+    /// the dig runs' rates. Unprotected, Eat's slots change -- the positive
+    /// control, so the protected arm cannot pass by mutating nothing --
+    /// and other slots go on changing under protection.
+    #[test]
+    fn protect_keeps_untestable_verbs_links_from_mutation() {
+        use crate::sim::creature::options::Verb;
+        let verbs: Vec<Verb> = Verb::ALL.into_iter().filter(|v| *v != Verb::Attack).collect();
+        let g = vec![0.5f32; mind::GENOME_LEN];
+        let eat = mind::verb_slots(Verb::Eat);
+        assert_eq!(eat.len(), 1 + (mind::CONTEXT + mind::MEMORY + 2) + mind::HIDDEN + mind::UNITS + mind::MEMORY);
+        let dig = mind::verb_slots(Verb::Dig);
+        assert!(eat.iter().all(|i| !dig.contains(i)), "two verbs share a slot");
+        let open = mind::trainable(&verbs, [true, true, true]);
+        let mut shut = open.clone();
+        assert_eq!(mind::protect(&mut shut, &[Verb::Eat]), eat.len());
+        for (slots, protected) in [(&open, false), (&shut, true)] {
+            let mut rng = Rng(7);
+            let (mut eat_changed, mut other_changed) = (0, 0);
+            for _ in 0..1000 {
+                let c = mutate(&g, slots, 0.03, 0.3, 0.3, 0.1, &mut rng);
+                eat_changed += eat.iter().filter(|&&i| c[i] != g[i]).count();
+                other_changed += dig.iter().filter(|&&i| c[i] != g[i]).count();
+            }
+            assert!(other_changed > 0, "protected={protected}: nothing else mutated either");
+            if protected {
+                assert_eq!(eat_changed, 0, "a protected slot mutated");
+            } else {
+                assert!(eat_changed > 0, "the unprotected control never touched Eat's slots");
+            }
+        }
     }
 
     #[test]

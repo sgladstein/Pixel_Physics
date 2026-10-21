@@ -55,6 +55,17 @@
 //! bigger heap slumps into home at the near distances and into the wall at
 //! the far ones. `forget=0.8` is the share of its reference under which a
 //! suite's kept arena counts as forgotten (design rev3's 80%).
+//! `race=N` (off unless set): each generation's genomes on the first N of its
+//! layouts, the better half on the rest (`train::race`); N even for a mirrored
+//! arena.
+//! `protect=0|1` (1 unless set): leave the connections of verbs a suite's
+//! learning arena can never use (Eat while digging) out of mutation and
+//! pruning (`train::Settings::protect`).
+//! `keepref=<mind file>` measures that reference on a fixed brain instead of
+//! the run's `start=`: a chain of runs, each refused only under 80% of its
+//! own start, could otherwise give up 20% of a kept skill per link (owner,
+//! 2026-10-20: dig runs from s91 to s162 had cost fetch 8% and trail 10%,
+//! and s162's run sat at 0.81 of its start's fetch). Off unless given.
 //! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
 //! of today's (`brain=today`, the default): `start=` is then `blank` (or
 //! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
@@ -88,6 +99,11 @@
 //! pass/fail floor, never a ratio in the product. `foot=1` is step 4b
 //! (`Soil::foot`): only a first cut at the shaft's foot, `shaft=` rows
 //! down or more, pays, so wall cuts earn nothing (rev 2.9).
+//! `stepnear=P` forces the bed's step 6-10 columns from the shaft on a
+//! share `P` of pairs (`challenges::DigBed::drawn`), 0 by default. In a
+//! suite, `frames=` is the **learned** arenas' (not kept) world length; the
+//! kept arenas keep their own. Before 2026-10-21 it reached no arena in a
+//! suite at all, so the `dig-8` runs trained soil at 6,000 frames.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -112,6 +128,7 @@ struct Arena {
     shaft: i32,
     budget: Option<f32>,
     foot: bool,
+    step_near: f64,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -130,6 +147,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         shaft,
         budget,
         foot,
+        step_near,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -206,6 +224,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             shaft,
             budget,
             foot,
+            step_near,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
@@ -259,6 +278,7 @@ fn main() {
     let mut arenas = String::new();
     let mut keep = String::new();
     let mut forget = 0.8;
+    let mut keepref = String::new();
     let mut start = "zero".to_string();
     let mut out: Option<PathBuf> = None;
     let mut frames = None;
@@ -283,6 +303,7 @@ fn main() {
     let mut step = 1;
     let mut shaft = 2;
     let mut foot = false;
+    let mut step_near = 0.0;
     let mut budget = Some(challenges::SOIL_BUDGET);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
@@ -363,12 +384,21 @@ fn main() {
                 assert!(v == "0" || v == "1", "foot={v}: 1 pays only first cuts at the shaft's foot from step 4 (step 4b), 0 every cut under the top row");
                 foot = v == "1";
             }
+            "stepnear" => {
+                step_near = v.parse().ok().filter(|p: &f64| (0.0..=1.0).contains(p)).unwrap_or_else(|| panic!("stepnear={v}: the share of bed pairs with the step 6-10 columns from the shaft, 0 to 1"));
+            }
             "budget" => {
                 budget = if v == "fed" {
                     None
                 } else {
                     Some(v.parse().ok().filter(|&j: &f32| j.is_finite() && j > 0.0).unwrap_or_else(|| panic!("budget={v}: fed, or a finite number of joules above 0")))
                 }
+            }
+            "keepref" => keepref = v.into(),
+            "race" => set.race = v.parse().unwrap_or_else(|_| panic!("race={v}: the first round's layouts, 0 for off")),
+            "protect" => {
+                assert!(v == "0" || v == "1", "protect={v}: 1 leaves untestable verbs' connections alone (the default), 0 trains every slot");
+                set.protect = v == "1";
             }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
@@ -384,11 +414,19 @@ fn main() {
         !foot || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
         "foot=1 is the soil trip's: it needs challenge=soil or a suite holding soil"
     );
+    assert!(
+        step_near == 0.0 || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
+        "stepnear= is the soil trip's beds: it needs challenge=soil or a suite holding soil"
+    );
+    assert!(
+        keepref.is_empty() || (mind && challenge == "suite" && !keep.is_empty()),
+        "keepref= is the kept arenas' reference brain: it needs brain=mind, challenge=suite and keep="
+    );
     // **Every setting, every time**, score and noise runs included: a log
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -396,6 +434,8 @@ fn main() {
         set.grow,
         set.patience,
         set.resume,
+        set.protect,
+        set.race,
         set.seed,
         set.pop,
         set.gens,
@@ -420,6 +460,30 @@ fn main() {
     if foot {
         set.arena += " foot=1";
     }
+    // Only when set, so a state from before it resumes: a suite's
+    // `frames=` was ignored until 2026-10-21, and this marks the states
+    // that ran it, so one of the `dig-8` runs (soil at 6,000 whatever it
+    // said) never resumes at 12,000.
+    if challenge == "suite" && frames.is_some() {
+        set.arena += " frames=learned";
+    }
+    if step_near > 0.0 {
+        set.arena += &format!(" stepnear={step_near}");
+    }
+    // Likewise only when set: the reference changes every kept floor, so a
+    // resume must keep it.
+    if !keepref.is_empty() {
+        set.arena += &format!(" keepref={keepref}");
+    }
+    // On by default, so it is written when on: a state saved before it (or
+    // with protect=0) resumes only with protect=0, never silently under it.
+    if set.protect {
+        set.arena += " protect=1";
+    }
+    // Only when on: it changes which genomes breed, so a resume must keep it.
+    if set.race > 0 {
+        set.arena += &format!(" race={}", set.race);
+    }
 
     // The genome's scorer goes into every world it is cloned into, so a
     // suite would carry it into the forage and trail worlds too (coordinator
@@ -443,16 +507,18 @@ fn main() {
         shaft,
         budget,
         foot,
+        step_near,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
             .split(',')
             .filter(|s| !s.is_empty())
             .map(|n| {
-                (
-                    arena(n, &Arena { frames: None, ..spec }),
-                    keep.split(',').any(|k| k == n),
-                )
+                // `frames=` is the learned arenas' (2026-10-21): a kept arena
+                // is a floor measured at its own length. Before, it reached
+                // none of them, and `frames=12000` trained soil at 6,000.
+                let kept = keep.split(',').any(|k| k == n);
+                (arena(n, &Arena { frames: if kept { None } else { frames }, ..spec }), kept)
             })
             .collect();
         assert!(!list.is_empty(), "challenge=suite needs arenas=a,b,...");
@@ -578,9 +644,10 @@ fn main() {
     // was the raw fit pinned at the cap, so both printed 3.000 (review of
     // PR 712, N1). A single arena's calibration does nothing.
     // A kept arena is measured on the start as saved, before the rung's
-    // entry (R12): `start_mind_saved`, reopened as `g0` was.
+    // entry (R12): `start_mind_saved`, reopened as `g0` was -- or on
+    // `keepref=`'s brain, the same way, when one is given.
     let saved = if mind {
-        let mut g = train::start_mind_saved(ch.as_ref(), &start);
+        let mut g = train::start_mind_saved(ch.as_ref(), if keepref.is_empty() { &start } else { &keepref });
         creature::mind::reopen(&mut g, ch.verbs());
         g
     } else {

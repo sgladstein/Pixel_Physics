@@ -5530,6 +5530,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
+  dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
+  (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
+  walking the surface, and loads go about 3x farther than the rule needs. Part 2 (what it reads): it digs when it feels
+  "at the nest" (on along the whole shaft) and its target scorer cannot see a cell's depth, so on an 8-row shaft it cuts
+  the wall more than the foot. Part 3 (why fetch erodes): pruning plus the per-connection energy cost deletes links
+  that only the protected skills use -- s161's "don't eat the cargo" constant went from -10 to 0, and it eats 4x the food.
+  Part 4 (selection reliability): a run's final brains differ by a tenth of the noise; the dig score ranks better than
+  full loads; at 8 rows longer runs per world rank better per CPU than more worlds. Part 5 (training methods): racing
+  matches 48 uniform worlds at under half the cost on a realistic generation; protect untestable links; test teaching by
+  copying in two forms (part 6), RL after it.
 - [brain-training/teacher-training/guidelines-2026-10-20.md](brain-training/teacher-training/guidelines-2026-10-20.md)
   — **plan and guidelines, nothing built (2026-10-20).** How to teach the
   trained ant brain by copying, and whether colony behaviours are affordable:
