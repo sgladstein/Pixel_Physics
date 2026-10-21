@@ -139,6 +139,7 @@ struct Arena {
     budget: Option<f32>,
     foot: bool,
     step_near: f64,
+    nest: bool,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -158,6 +159,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         budget,
         foot,
         step_near,
+        nest,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -235,6 +237,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             budget,
             foot,
             step_near,
+            nest,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
@@ -548,6 +551,8 @@ fn main() {
         budget,
         foot,
         step_near,
+        // The soil trip's `nest` part: only where something prints it.
+        nest: score.is_some() || noise,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
