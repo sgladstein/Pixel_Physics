@@ -5670,6 +5670,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   quorum as a contact rate. The owner's 8–16-cell chamber spec is about four times real, so a height sense needs a reach
   of at least 17.
 
+- [brain-training/research/field-map-and-ranked-list-2026-10-21.md](brain-training/research/field-map-and-ranked-list-2026-10-21.md) —
+  **research lane: the field map across Q1–Q5, and one ranked list of 21 tests.** For each training problem, the
+  families of answer the field offers and which fit this brain, with pointers to the evidence. Tests are tiered by cost
+  and ordered by what they decide for the work in flight: tiers 0 to 2 cost about 3.5 core-hours in all, and the three
+  Google runs about $3.50 together, each waiting on minutes-long tests that could make it unnecessary.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
