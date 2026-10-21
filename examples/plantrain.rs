@@ -25,6 +25,8 @@
 //! cargo run --release --example plantrain -- mode=ranking genomes=16 layouts=12 sigma=0.9 genes=8
 //! # the ladder's first rungs on the shipped role species: per station, who establishes, how fast it grows, what a bed costs
 //! cargo run --release --example plantrain -- mode=rungs species=tree,shrub,herb,creeper rungs=establish,grow stations=bright,dim layouts=12
+//! # ...and a trained file beside the species it came from, over a whole life
+//! cargo run --release --example plantrain -- mode=rungs species=shrub,training/plants/run1/best.ron rungs=life layouts=12
 //! # does each rung rank genomes the way the next one does? mutated children on rungs 1, 2 and a whole life
 //! cargo run --release --example plantrain -- mode=ladder control=herb genomes=16 layouts=8 stations=bright,dim
 //! # a picture: the shipped species and each file, on N layouts, at chosen frames
@@ -45,7 +47,7 @@ use std::path::PathBuf;
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
-    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung",
+    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung", "station",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -80,7 +82,9 @@ fn bed(m: &BTreeMap<String, String>) -> BedSpec {
             Some("on") => false,
             Some(v) => panic!("mutation={v} is not on|off"),
         },
-        station: d.station,
+        // `station=dim` for `mode=pic` and the other whole-bed modes; the
+        // trainer takes `stations=` instead, since it scores several.
+        station: m.get("station").map_or(d.station, |v| arena::Station::named(v).unwrap_or_else(|| panic!("station `{v}` is not bright|dim|dry"))),
     };
     if b.every == 0 || b.frames == 0 {
         eprintln!("plantrain: every= and frames= must be at least 1");
@@ -195,7 +199,12 @@ fn rungs(m: &BTreeMap<String, String>) {
                 spec.station.soil = get(m, "drysoil", spec.station.soil);
             }
             let layouts = rung.layouts(base, n);
-            let arms: Vec<Arm> = species.iter().map(|s| Arm::shipped(s)).collect();
+            // A name ending `.ron` is a trained file, so a champion can be
+            // put on the same rungs as the species it came from.
+            let arms: Vec<Arm> = species
+                .iter()
+                .map(|s| if s.ends_with(".ron") { Arm::of(&train_plant::load(std::path::Path::new(s)).expect("the file loads")) } else { Arm::shipped(s) })
+                .collect();
             let t = std::time::Instant::now();
             let rows = train_plant::census_all(&arms, &layouts, &spec);
             let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
