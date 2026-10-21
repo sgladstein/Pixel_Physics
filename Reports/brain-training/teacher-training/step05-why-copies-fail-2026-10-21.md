@@ -134,6 +134,33 @@ top of go-down, where acting it adds +6.7. The wiring problem is solved; the dig
 In held-out terms the copy now digs at the foot 0.86 and at the wall 0.0049 (start 0.17 / 0.0060), so it *does* the
 lesson on s161's states; what to look at next is whether it reaches the foot in its own runs (§1's measure).
 
+### Why dig still adds nothing: a discrimination limit, not a weight
+
+Traced in their own runs, the copies divide their trips like this (each trip down ends at its first cut):
+
+| Copy | Full loads | Foot cuts | Wall cuts | P(dig) at the foot | P(dig) at a wall, per decision | Takes the deepest step |
+|---|---|---|---|---|---|---|
+| start | 6.27 | 7.2 | 10.8 | 0.17 | 0.0135 | 0.22 |
+| go-down | 10.85 | 12.3 | 6.6 | 0.13 | 0.0107 | 0.51 |
+| dig + go-down, one unit | 11.33 | 12.8 | 5.6 | 0.57 | 0.0093 | 0.74 |
+
+The copy does both lessons; what it cannot do is stop cutting walls on the way down. A wall is offered on hundreds of
+decisions a run, so 0.009 a decision still spends ~9 of ~22 trips on wall, rim and recut cuts -- the trips the acting
+teacher's veto turns into foot cuts (16.9). Weighting the "don't dig here" decisions harder does not buy it:
+
+| Dig + go-down, one unit | Full loads | P(dig) at a wall (held out) | P(dig) at the foot | Go-down agreement |
+|---|---|---|---|---|
+| "don't dig here" x10 | 10.67 | 0.0049 | 0.86 | 0.73 |
+| x100 | 9.32 | 0.0041 | 0.79 | 0.57 |
+| x400 | 6.53 | 0.0035 | 0.43 | 0.36 |
+
+The wall rate barely moves while the other lessons drain away, because the same channel carries them and the dig score
+separates a foot cell from a wall at AUC 0.61. **So dig's last gap is a discrimination limit**: the ant needs
+something that marks the bottom of the hole. A local, biologically plausible candidate for the design (way out 4): the
+target cell is the lowest open-adjacent cell of the cavity the ant stands in -- what an ant at a tunnel's end feels by
+gravity and touch -- which is not on any option today (`f::DEPTH` is depth below the original ground, the same for a
+foot cell and a wall cell at that depth).
+
 ## 5. Routing (from the research lane's audit)
 
 The research lane read s161's wiring and found **unit 14 is the brain's own empty-only unit**: `c::SPOIL` reaches it at
