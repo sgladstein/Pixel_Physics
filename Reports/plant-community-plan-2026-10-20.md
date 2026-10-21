@@ -901,6 +901,39 @@ the review (§12), **M1 runs in this order**:
    write-up stands, A2 (step 8) is next, then rungs 4-6 aimed at
    recruitment and long-run coexistence -- the problem the long runs above
    named.
+
+   **(1) Water: done, shipped on in lab beds, 2026-10-21.** The census of
+   what each standing drop rests on (`plant_m0` `WATER`) named the base of
+   most pools: saturated soil under a plant, walled in by roots, because
+   soil water moved only between soil cells. `LabBox::soil_through_roots`
+   lets it pass through up to 6 cells of tissue, from either end of the
+   pair; `update::DRIP_REACH` lets a drop on a crown look 32 cells down,
+   not 16. Standing water above the ground, 8 beds (4 seeds x forest and
+   grass), paired: **47-558 -> 6-37 cells, lower on 16 of 16 bed-times**
+   (240k and 480k). The sideways-levelling dial (`soil_capillary_levels`)
+   was the third arm: less effective and dearer. An independent review
+   found a stall (a pair across roots woken from one end only) and two
+   risks; all fixed before shipping.
+   **(2) Heaps: diagnosed, not shipped.** They are rot: 5% of rotted
+   litter, seed, fruit and corpses lands as soil on the surface
+   (`DECAY_YIELD=0` takes heaps from 5-17% of the picture to 0-2.4%). But
+   that 5% was also covering a leak, and alone it eats the ground from
+   inside (holes in the top 20 rows of ground 2-5% -> 8-31%). Closing the
+   budget (rot leaves nothing, and a dead root inside a mat repays its own
+   soil: `LabBox::rot_makes_soil = false`) puts holes back to 0-4% and
+   lowers heaps on 6 of 8 beds (to 2-9%) -- **and lowers the grass bed's
+   green share on 3 of 4 seeds**, because rot's soil on the surface is
+   where a seed lands on soil and sprouts (A6). Held as a switch for the
+   owner; `dead-ends.md` has the entry. The real fix is likely seeds that
+   can sprout in litter, or a soil sink (bioturbation), not a yield.
+   **(3) Seeds and litter, and (4) colour:** a render-only colour arm
+   (`plant_m0 altpal=1|2`) draws the same world at the same frame with
+   brighter foliage and seed, litter -- and in `altpal=2` roots -- toned
+   toward the soil, for the owner to choose between by eye. Litter rotting
+   at the dry rate under plants (`World::decay_reads_ground`, the moisture
+   half of §Z39) is built and off: on the ground channel the 0.3 threshold
+   reads nearly every bed as damp and would rot fallen fruit and corpses,
+   ant food, ~4.7x faster. Unmeasured, so unshipped.
 8. **A2, development keying.**
 
 **Rungs 4–6 and M4 wait** for three things:

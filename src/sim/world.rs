@@ -6379,6 +6379,21 @@ pub struct World {
     /// holding a plant (§Z39), so without this litter under a plant always
     /// rots at the dry rate.
     pub decay_reads_ground: bool,
+    /// **How much of a fractional rot yield becomes soil** -- litter, pip,
+    /// windfall, corpse (`decay::tick`; 1.0 = the material's own 5%). Soil
+    /// has no sink, so 5% of an unbounded stream of litter is an unbounded
+    /// heap (`Reports/soil-accumulation-and-the-carbon-cycle.md`): on the
+    /// lab training beds, soil standing above the original surface reached
+    /// 5-17% of the picture by 480,000 frames, and 0-2.4% with this at 0 --
+    /// but 0 alone eats the ground from inside (`root_mats_repay`). The lab
+    /// sets it from `LabBox::rot_makes_soil`, which keeps it at 1.0.
+    pub rot_soil_yield: f32,
+    /// **A dead root inside a root mat gives back the soil it displaced**
+    /// (`plant::shed_to_litter`'s repayment, `walled_in`). Off, only a
+    /// root with a mineral neighbour repays, so the soil a mat displaced left
+    /// as litter. The lab sets it from `LabBox::rot_makes_soil` (off there
+    /// means this on): the two together close the bed's soil budget.
+    pub root_mats_repay: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -7515,6 +7530,8 @@ impl World {
             soil_drains_around: false,
             soil_through_roots: false,
             decay_reads_ground: false,
+            rot_soil_yield: 1.0,
+            root_mats_repay: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,

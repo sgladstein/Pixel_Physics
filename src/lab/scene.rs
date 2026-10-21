@@ -271,6 +271,33 @@ pub struct LabBox {
     /// write count by 240,000. Written only when off.
     #[serde(default = "soil_through_roots_default", skip_serializing_if = "is_soil_through_roots_default")]
     pub soil_through_roots: bool,
+    /// **Rotting litter, seed, fruit and corpses add soil to the bed**
+    /// (`World::rot_soil_yield`: on = the materials' own 5%, off = none).
+    /// **On by default, which is the bed as it always was** -- the off
+    /// setting is measured and held, not shipped. Off closes the bed's soil
+    /// budget: rot leaves nothing, and `World::root_mats_repay` comes on so a
+    /// dead root inside a mat gives back the soil it displaced (without that,
+    /// the 5% was covering a leak and the ground was eaten from inside --
+    /// empty cells in the top 20 rows of ground 2-5% -> 8-31%). Measured on
+    /// the training beds, 4 seeds of a forest and a grass bed, 480,000
+    /// frames, against the bed with water through roots: soil heaped above
+    /// the original surface 4-17% -> 2-9% (lower on 6 of 8), holes back to
+    /// 0-4%, **but the grass bed's green share falls on 3 of 4 seeds**
+    /// (44 -> 34, 31 -> 23, 50 -> 36), because the soil rot makes on the
+    /// surface is where a seed lands on soil and sprouts (A6). The owner's
+    /// call: `plant-community-plan-2026-10-20.md` step 7a. Written only when
+    /// off.
+    #[serde(default = "rot_makes_soil_default", skip_serializing_if = "is_rot_makes_soil_default")]
+    pub rot_makes_soil: bool,
+}
+
+/// `LabBox::rot_makes_soil`'s default: see that field.
+fn rot_makes_soil_default() -> bool {
+    true
+}
+
+fn is_rot_makes_soil_default(on: &bool) -> bool {
+    *on == rot_makes_soil_default()
 }
 
 /// `LabBox::soil_through_roots`'s default: see that field.
@@ -499,6 +526,7 @@ impl Default for LabBox {
             seed_pile_depth: seed_pile_depth_default(),
             bud_break_reserve: bud_break_reserve_default(),
             soil_through_roots: soil_through_roots_default(),
+            rot_makes_soil: rot_makes_soil_default(),
         }
     }
 }
@@ -1134,6 +1162,8 @@ impl LabBox {
         w.seed_pile_depth = self.seed_pile_depth;
         w.bud_break_reserve = self.bud_break_reserve;
         w.soil_through_roots = self.soil_through_roots;
+        w.rot_soil_yield = if self.rot_makes_soil { 1.0 } else { 0.0 };
+        w.root_mats_repay = !self.rot_makes_soil;
         // Under the lamps, the lamp is the sun: what the shade genes call
         // open light (`World::open_light`).
         if let Some(lamp) = w.materials.id_of("growlamp") {

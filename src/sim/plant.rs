@@ -13898,7 +13898,19 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // before the clear above.
     let root_ok = !buried_remains_roots_only() || was_root;
     let sheds_into = if landing == y && repayable && root_ok && buried_remains_enabled() {
-        buried_ground(world, x, y).then_some("soil")
+        // **A root inside a root mat is in the ground too**
+        // (`World::root_mats_repay`). `buried_ground` asks for a mineral
+        // neighbour, which keeps a crown from turning to soil in mid-air --
+        // but a root cell walled in by other roots has none, so it shed as
+        // litter and the soil it had displaced was gone for good. With rot
+        // adding soil on the surface (5%) that was a conveyor, ground carried
+        // from inside the bed up onto it: heaps above, holes below. Turn the
+        // rot's soil off alone and only the holes stay -- measured on the
+        // training beds, empty cells in the top 20 rows of ground 2-5% ->
+        // 8-24%. So a root with no air beside it repays where it stands,
+        // whatever it is walled in by; the loan ledger above still caps it
+        // at what roots took.
+        (buried_ground(world, x, y) || (was_root && world.root_mats_repay && walled_in(world, x, y))).then_some("soil")
     } else {
         None
     };
@@ -14056,6 +14068,12 @@ fn buried_remains_roots_only() -> bool {
 /// Read at the shedding site rather than remembered from growth, because
 /// nothing on a `Cell` records what it displaced and adding a bit for it
 /// would cost every cell in the world for a question asked once per death.
+/// No air on any of the four faces of `(x, y)` -- the half of
+/// `buried_ground` that a root inside a mat still meets.
+fn walled_in(world: &World, x: i32, y: i32) -> bool {
+    [(0, -1), (0, 1), (-1, 0), (1, 0)].iter().all(|&(dx, dy)| world.get(x + dx, y + dy).material != material::EMPTY)
+}
+
 fn buried_ground(world: &World, x: i32, y: i32) -> bool {
     let mut mineral = false;
     for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
@@ -16371,6 +16389,55 @@ mortality -- see the doc on this test"
             "a leaf over a trunk finds no air below it and is still not buried -- \
              without the mineral-neighbour test a crown turns to soil in mid-air"
         );
+    }
+
+    /// **A root walled in by other roots repays its soil when
+    /// `World::root_mats_repay` is on, and only a root does.** The mat case
+    /// `buried_ground` misses: no air beside it, but no mineral neighbour
+    /// either, so it shed as litter and the bed lost the cell -- with the
+    /// lab's rot adding no soil, the ground was eaten from inside (holes in
+    /// the top 20 rows of ground 2-5% -> 8-24%). Off, the old answer; on,
+    /// soil in place and the loan down by one. The leaf over a trunk is the
+    /// specificity arm: walled in by wood, still litter, because it is not a
+    /// root.
+    #[test]
+    fn a_root_inside_a_root_mat_repays_its_soil_only_when_mats_repay() {
+        for on in [false, true] {
+            let mut w = test_world();
+            w.root_mats_repay = on;
+            let organism: OrganismId = 9;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+            for x in 40..70 {
+                for y in 50..60 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            for at in [(45, 55), (44, 55), (46, 55), (45, 54), (45, 56)] {
+                displace_soil_water(&mut w, at.0, at.1);
+                place(&mut w, at, rootwood, organism, CellType::MatureBody, (0.0, 0.0));
+            }
+            // A leaf over a trunk, walled in by wood on three sides and the
+            // leaf's own cell above it cleared -- it must not pass as a root.
+            for (x, y) in [(60, 45), (59, 44), (61, 44), (60, 43)] {
+                place(&mut w, (x, y), wood, organism, CellType::MatureBody, (0.0, 0.0));
+            }
+            place(&mut w, (60, 44), leaf, organism, CellType::Leaf, (0.0, 0.0));
+            let lent = w.bed_cells_on_loan;
+            assert_eq!(lent, 5, "test setup: five roots, five cells lent");
+            shed_to_litter(&mut w, 45, 55, organism::DeathCause::Withered);
+            shed_to_litter(&mut w, 60, 44, organism::DeathCause::Withered);
+            if on {
+                assert_eq!(w.get(45, 55).material, soil, "on: a root inside a mat must hand back the cell it displaced");
+                assert_eq!(w.bed_cells_on_loan, lent - 1, "on: exactly one loan repaid");
+            } else {
+                assert_ne!(w.get(45, 55).material, soil, "off: a root with no mineral neighbour does not repay");
+                assert_eq!(w.bed_cells_on_loan, lent, "off: no loan repaid");
+            }
+            assert_ne!(w.get(60, 44).material, soil, "a leaf walled in by wood is not a root and must not turn to soil");
+        }
     }
 
     /// **A buried shoot is not a root: it falls to litter and leaves the loan

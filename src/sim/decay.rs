@@ -304,6 +304,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if let Some(worth) = crate::sim::world::EnergyLedger::meat_worth_of(&world.materials, cell) {
         world.energy_ledger.meat_lost += worth;
     }
+    // **`World::rot_soil_yield` scales only a fractional yield** -- litter,
+    // pip, windfall and corpse, the organic rots whose own files call the
+    // missing 95% respiration. A 1:1 yield is a transformation, not a rot
+    // (ash and spoil weathering to soil, dead leaf to litter, a log to
+    // deadwood), and is left exactly as it was.
+    let material_yield = if material_yield < 1.0 { material_yield * world.rot_soil_yield } else { material_yield };
     let yield_fraction = decay_yield_override().unwrap_or(material_yield);
     // **Labelled for `OrganismState::last_loss`**, in case this cell is an
     // organism's last: a `pip` or `windfall` is a seed organism's own cell,

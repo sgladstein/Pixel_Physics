@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -223,9 +223,15 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
     // `rotground=1`: `World::decay_reads_ground` (litter under a plant reads
     // the ground's wetness).
     w.decay_reads_ground = get(m, "rotground", u8::from(w.decay_reads_ground)) != 0;
+    // `rotsoil=0`: the closed soil budget (`LabBox::rot_makes_soil` off) --
+    // rot leaves no soil and a dead root in a mat repays its own.
+    if get(m, "rotsoil", 1u8) == 0 {
+        w.rot_soil_yield = 0.0;
+        w.root_mats_repay = true;
+    }
     println!(
-        "plant_m0 soil_capillary_levels={} soil_through_roots={} decay_reads_ground={}",
-        w.soil_capillary_levels, w.soil_through_roots, w.decay_reads_ground
+        "plant_m0 soil_capillary_levels={} soil_through_roots={} decay_reads_ground={} rot_soil_yield={} root_mats_repay={}",
+        w.soil_capillary_levels, w.soil_through_roots, w.decay_reads_ground, w.rot_soil_yield, w.root_mats_repay
     );
     println!(
         "plant_m0 bud_break_reserve={} lifespans: {}",
