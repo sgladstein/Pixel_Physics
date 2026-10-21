@@ -5756,6 +5756,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   and ordered by what they decide for the work in flight: tiers 0 to 2 cost about 3.5 core-hours in all, and the three
   Google runs about $3.50 together, each waiting on minutes-long tests that could make it unnecessary.
 
+- [brain-training/research/in-run-selection-method-2026-10-21.md](brain-training/research/in-run-selection-method-2026-10-21.md) —
+  **research lane: what the training literature says about breeding the brain inside a running colony.** Why food
+  delivery does not rise: a 30k-frame life holds about one delivery, and ranking parents on z marks a big, rare job
+  down. The fixes are to breed on the shrunken mean (as in BLUP), and to pay food like digs, half as it moves and half on
+  arrival. Also covered: the turnover rule is rtNEAT's law of eligibility; the z < −3 cull needs a clone-colony
+  calibration; the trainer's mutation defaults grow the brain with no wire cost; colony competition should audit before
+  it selects (Waibel 2009, Skolicki 2005); and the walk home should be taught first. Ten tests, ranked by cost.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
