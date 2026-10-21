@@ -82,8 +82,8 @@ What the traces show:
 ## Where this leaves step 1
 
 Against the design's bars: the best copy (go down only, 10.57) is in the "partial" band -- 35% of the reachable gain
-(the strict floor-limited ceiling is 18.23), kept skills held. Not yet run: DAgger rounds on the go-down copy, the
-self-imitation arm, the dig rule's failure traced to its cause, and a GIF. Open for the owner: whether to (a) build on
+(the strict floor-limited ceiling is 18.23), kept skills held. GIF: `measurements/s161-vs-copy-down-world2.gif` (sealed world 2: s161's scattered wall cuts against the copy's cuts concentrated at the foot). Not yet run: DAgger rounds on the go-down copy, the
+self-imitation arm, the dig rule's failure traced to its cause. Open for the owner: whether to (a) build on
 go down alone (DAgger, then a selection run from it), (b) keep working the dig and home rules into the copy (they
 interfere in the shared scorer; a context sense or more capacity may be needed), or (c) treat walk home as a lesson for
 selection rather than copying, since it costs fetch.
