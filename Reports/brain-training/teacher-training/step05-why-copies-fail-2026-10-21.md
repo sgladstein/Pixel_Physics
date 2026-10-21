@@ -79,8 +79,10 @@ arenas can be told apart from the soil arena by things that are not the world.
 
 ## What this changes
 
-- **For the brain lane's copy-then-select test**: the copy handed over (go-down into s171, 11.64, fetch and trail above
-  floor) is unaffected -- go-down's channel was clean.
+- **For the brain lane's copy-then-select test**: the copy handed over (go-down into s171, 11.64 full loads on my 96
+  worlds) does **not** clear the trainer's fetch floor on the brain lane's harness (worse side of 48 mirrored pairs:
+  17.62 against s171's 19.34 and a floor of 17.61) -- see step1-results; a copy anchored on more fetch states is being
+  built. Go-down's channel was clean, so this is a fetch-anchor problem, not a copying one.
 - **For dig**: test the cheapest capacity (one revived scorer unit, ~90 links) before anything else. If it holds the
   lesson without running the ant dry, dig copies; if not, dig is a lesson for selection with link protection.
 - **For walk home**: neither a sense nor capacity fixes it in the world. Leave the empty return trip to selection
