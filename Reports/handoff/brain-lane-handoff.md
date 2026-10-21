@@ -323,11 +323,11 @@ Examples: `train/dig-4b`. Unused since 2026-10-20; Google is faster for these ru
   - the VM deletes itself after its hours plus 1.
 - Speed at the current settings (8 rows, 12,000 frames, 48 layouts, `race=8`, pop 100): about **200-215 s a generation
   on a `c4d-highcpu-16`**, so `--hours 8` gives 110-150 generations. Four `-16`s fill the 64-vCPU quota. A `-16` costs
-  about $0.22 an hour, so four for 8 hours is about $7.
-- Spend: the owner approved up to **$100 in total** on Google, and sets a cap per run. Tally so far by this lane's
-  estimate: about $25 through 2026-10-21 morning (rounds to s171/s172, the racing A/B, round 2) plus up to $10 for the
-  copy run; earlier lanes spent from the same $100 before that, so **check the project's billing page** before any
-  large launch.
+  about $0.22 an hour (the lane's spot estimate, about $0.014 per vCPU-hour), so four for 8 hours is about $7.
+- Spend: the owner approved up to **$100 in total** on Google, and sets a cap per run. This lane's estimates: about
+  $13 for the night of 2026-10-21 (the racing A/B and round 2, against a $25 cap), a few dollars for s171/s172 before
+  it, and up to $10 for the copy run now on; earlier lanes spent from the same $100 before that. These are estimates,
+  not the bill: **check the project's billing page** before any large launch.
 
 ## 6. The owner's standing rulings (not written down elsewhere)
 
