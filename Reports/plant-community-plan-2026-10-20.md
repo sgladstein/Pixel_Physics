@@ -923,9 +923,13 @@ the review (§12), **M1 runs in this order**:
    soil: `LabBox::rot_makes_soil = false`) puts holes back to 0-4% and
    lowers heaps on 6 of 8 beds (to 2-9%) -- **and lowers the grass bed's
    green share on 3 of 4 seeds**, because rot's soil on the surface is
-   where a seed lands on soil and sprouts (A6). Held as a switch for the
-   owner; `dead-ends.md` has the entry. The real fix is likely seeds that
-   can sprout in litter, or a soil sink (bioturbation), not a yield.
+   where a seed lands on soil and sprouts (A6). **That lost green is
+   grass, and it reads the other way for the goal**: grass plants 446-725
+   -> 161-283 per bed, and kinds with 100+ leaf 2,3,2,4 -> 4,3,3,3. Rot's
+   soil was subsidising grass recruitment, part of its monopoly. The forest
+   beds are mixed (2,2,3,3 -> 2,3,2,2). Held as a switch for the owner
+   (looks, and now diversity); `dead-ends.md` has the entry. Also worth
+   trying: seeds that can sprout in litter, or a soil sink (bioturbation).
    **(3) Seeds and litter, and (4) colour:** a render-only colour arm
    (`plant_m0 altpal=1|2`) draws the same world at the same frame with
    brighter foliage and seed, litter -- and in `altpal=2` roots -- toned

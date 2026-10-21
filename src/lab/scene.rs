@@ -284,9 +284,11 @@ pub struct LabBox {
     /// the original surface 4-17% -> 2-9% (lower on 6 of 8), holes back to
     /// 0-4%, **but the grass bed's green share falls on 3 of 4 seeds**
     /// (44 -> 34, 31 -> 23, 50 -> 36), because the soil rot makes on the
-    /// surface is where a seed lands on soil and sprouts (A6). The owner's
-    /// call: `plant-community-plan-2026-10-20.md` step 7a. Written only when
-    /// off.
+    /// surface is where a seed lands on soil and sprouts (A6). That green is
+    /// grass (446-725 -> 161-283 plants), and kinds with 100+ leaf go
+    /// 2,3,2,4 -> 4,3,3,3: rot's soil subsidises grass recruitment. The
+    /// owner's call: `plant-community-plan-2026-10-20.md` step 7a. Written
+    /// only when off.
     #[serde(default = "rot_makes_soil_default", skip_serializing_if = "is_rot_makes_soil_default")]
     pub rot_makes_soil: bool,
 }
