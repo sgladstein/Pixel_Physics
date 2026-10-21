@@ -4269,14 +4269,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
-- [spoil-roll-2026-10-21/README.md](spoil-roll-2026-10-21/README.md) — **built, off by
-  default (2026-10-21):** a pellet put down on the mound rolls up to two 1:1
+- [spoil-roll-2026-10-21/README.md](spoil-roll-2026-10-21/README.md) — **built, on by
+  default in the games since 2026-10-21 (training arenas pin it off):** a pellet put down on the mound rolls up to two 1:1
   steps down its flank away from the door before it is tamped
   (`PIXEL_PHYSICS_SPOIL_ROLL`, `World::spoil_roll`), decided at placement so
   no loose soil ever exists. Shipped colony, 4 seeds x 100k frames: rolls on
   ~2% of put-downs, door open in all runs, mound overhang down on 3 of 4,
-  nest score mixed; safe and barely visible there. Default stays off until
-  the brain lane pins its training arenas.
+  nest score mixed; safe and barely visible there.
 - [nest-door-2026-10-03.md](nest-door-2026-10-03.md) — **measurement and
   two switches, 2026-10-03, both shipped on as genes. `engine`/`lab`.** Why
   the lab colony's door filled in and stayed shut (20 of 20 runs): food the
@@ -5610,6 +5609,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/design/test-probe-design-2026-10-21.md](brain-training/design/test-probe-design-2026-10-21.md) —
+  **built (`probe=`, `test=`, `calib=`):** reserved test worlds (seeds 30,000+) and a progress probe that scores the
+  champion and the hold-best there every 10 generations into `test.csv`, read by nothing the run decides. Why: the
+  hold-out flatters what it picks (13.2-13.7 full loads on its 24 worlds against 10.8-12.3 on 72 never used).
 - [brain-training/design/noprune-design-2026-10-21.md](brain-training/design/noprune-design-2026-10-21.md) —
   **built (`noprune=`):** named slots selection may tune but never prune, for a selection run from a brain the teacher
   lane copied (its revived links: slot 1498 and `DEPTH` into live scorer units). A listed scorer input brings its unit's
@@ -5912,6 +5915,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   no supply line (739 starved against 8). On the playtest line ~11 of ~150
   cells a 1,000 frames reach the store; the low store belongs to the
   recruiting colony (fits `follow-food-home-2026-10-10`).
+- [handoff/teacher-lane-handoff-2026-10-21.md](handoff/teacher-lane-handoff-2026-10-21.md) — **the
+  teacher lane's handoff (2026-10-21):** where the copier, its scratch Rust
+  patch, every cited genome and the analysis scripts now live in the repo;
+  the state (copy v2 handed to the brain lane; dig a discrimination limit;
+  walk home an arena-context spread); the two owner decisions pending
+  (copy-vs-selection run; spoil roll default, blocked on a pack-booking
+  trace bug); next steps in order; and the gotchas this lane paid for.
 - [handoff/brain-lane-handoff.md](handoff/brain-lane-handoff.md) — **the
   handoff for the stage 2 brain work (training the ant's mind up the ladder
   trail → forage → dig → brood), 2026-10-20; start here for brain training.**

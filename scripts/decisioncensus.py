@@ -67,9 +67,9 @@ OUTCOME_GROUPS = [
     ("tumbled", {"roll_failed_tumbled"}),
     ("idle", {"roll_failed_idle"}),
     ("blocked", {"blocked_tumbled", "reversed", "crossing", "swapped"}),
-    ("other", {"launched", "no_body", "filling"}),
+    ("other", {"launched", "no_body", "filling", "packed"}),
 ]
-RELOCATING = {"stepped", "fell", "swapped", "reversed"}
+RELOCATING = {"stepped", "fell", "swapped", "reversed", "packed"}
 LONG_STALL = 10
 DIST_BANDS = [(0, 9), (10, 29), (30, 59), (60, 10**9)]
 

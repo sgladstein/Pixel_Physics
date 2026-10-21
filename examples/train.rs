@@ -102,6 +102,13 @@
 //! pass/fail floor, never a ratio in the product. `foot=1` is step 4b
 //! (`Soil::foot`): only a first cut at the shaft's foot, `shaft=` rows
 //! down or more, pays, so wall cuts earn nothing (rev 2.9).
+//! `probe=N` (10 unless set; 0 off) scores the generation's champion and
+//! the run's hold-best on `probeworlds=` (96) reserved test worlds every N
+//! generations into `test.csv`, which nothing the run decides reads; judge
+//! progress there, never on the hold-out that chose the brain. `test=N`
+//! puts `score=` / `noise=1` on N of those worlds. `calib=N` sets the kept
+//! arenas' calibration worlds apart from `holdout=` (the default), so the
+//! hold-out can grow without moving a run's floors.
 //! `stepnear=P` forces the bed's step 6-10 columns from the shaft on a
 //! share `P` of pairs (`challenges::DigBed::drawn`), 0 by default. In a
 //! suite, `frames=` is the **learned** arenas' (not kept) world length; the
@@ -296,6 +303,8 @@ fn main() {
     let mut trace: Option<u64> = None;
     let mut free = String::new();
     let mut sealed = false;
+    let mut test = 0usize;
+    let mut calib: Option<usize> = None;
     let mut genes = String::new();
     let mut heap = 300;
     let mut walkset = String::new();
@@ -350,6 +359,16 @@ fn main() {
             "trace" => trace = Some(v.parse().unwrap()),
             "free" => free = v.into(),
             "sealed" => sealed = on(k, v),
+            // The reserved test worlds (`train::test_layouts`) for `score=`
+            // and `noise=1`: a world count, so judging never borrows the
+            // hold-out's size (review of the probe design, M3).
+            "test" => test = v.parse().unwrap_or_else(|_| panic!("test={v}: how many reserved test worlds to judge on")),
+            // The kept arenas' calibration worlds, `holdout=` by default
+            // (as before): set it to keep a run's floors where they were
+            // while the hold-out grows (review of the probe design, M3).
+            "calib" => calib = Some(v.parse().unwrap_or_else(|_| panic!("calib={v}: a world count"))),
+            "probe" => set.probe = v.parse().unwrap_or_else(|_| panic!("probe={v}: every N generations, 0 off")),
+            "probeworlds" => set.probe_worlds = v.parse().unwrap_or_else(|_| panic!("probeworlds={v}: a world count")),
             "genes" => genes = v.into(),
             "walkset" => walkset = v.into(),
             "prune" => set.prune = v.parse().unwrap(),
@@ -429,6 +448,7 @@ fn main() {
         step_near == 0.0 || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
         "stepnear= is the soil trip's beds: it needs challenge=soil or a suite holding soil"
     );
+    assert!(!(sealed && test > 0), "sealed=1 and test=N name two different world sets: pick one");
     assert!(
         keepref.is_empty() || (mind && challenge == "suite" && !keep.is_empty()),
         "keepref= is the kept arenas' reference brain: it needs brain=mind, challenge=suite and keep="
@@ -437,7 +457,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} noprune={:?} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} test={test} calib={calib:?} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} noprune={:?} probe={}x{} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -447,6 +467,8 @@ fn main() {
         set.resume,
         set.protect,
         set.no_prune,
+        set.probe,
+        set.probe_worlds,
         set.race,
         set.seed,
         set.pop,
@@ -481,6 +503,12 @@ fn main() {
     }
     if step_near > 0.0 {
         set.arena += &format!(" stepnear={step_near}");
+    }
+    // The floors are set on the calibration worlds, so a run's must stay
+    // its own on a resume; written only when it differs from the hold-out,
+    // which every state before it used.
+    if let Some(c) = calib.filter(|&c| c != set.holdout) {
+        set.arena += &format!(" calib={c}");
     }
     // Likewise only when set: the reference changes every kept floor, so a
     // resume must keep it.
@@ -665,7 +693,7 @@ fn main() {
     } else {
         g0.clone()
     };
-    ch.calibrate(&g0, &saved, &train::calibration_layouts(set.holdout), set.threads);
+    ch.calibrate(&g0, &saved, &train::calibration_layouts(calib.unwrap_or(set.holdout)), set.threads);
     // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
     // brain as `ant.ron` ships it for `game`, else a file -- or, under
     // `brain=mind`, a mind preset or file.
@@ -738,7 +766,9 @@ fn main() {
             Some(f) => genome_of(f),
             None => g0.clone(),
         };
-        let hold = if sealed {
+        let hold = if test > 0 {
+            train::test_layouts(test)
+        } else if sealed {
             train::sealed_layouts(set.holdout)
         } else {
             train::holdout_layouts(set.holdout)
@@ -784,7 +814,9 @@ fn main() {
     if let Some(f) = score {
         let g = genome_of(&f);
         println!("(scored with this challenge's bans applied: {:?})", ch.banned());
-        let hold = if sealed {
+        let hold = if test > 0 {
+            train::test_layouts(test)
+        } else if sealed {
             train::sealed_layouts(set.holdout)
         } else {
             train::holdout_layouts(set.holdout)
