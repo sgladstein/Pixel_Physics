@@ -1,6 +1,9 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-09-06 (bodies rot instead of lying where they fell for
+*Current as of: 2026-10-21 (in a lab bed, what rots leaves no soil at all,
+and a dead root in a tangle of roots gives its earth back -- so the ground
+in the box stops climbing and stops hollowing out). Before that: 2026-09-06
+(bodies rot instead of lying where they fell for
 ever, and what rots underground goes back into the ground it pushed aside — so
 a bed with plants and animals in it stops quietly running out of earth).
 Before that: 2026-08-31 (a sealed room no longer dries out — water the sun
@@ -297,6 +300,17 @@ will still raise its floor eventually, because leaves keep arriving and soil
 has no way to weather back out of the world. Soil at the world's edge can
 spill away, but that is no match for a canopy. If you leave a forest running
 long enough, expect the ground under it to creep upward.
+
+**In a lab bed it is stopped.** A sealed box has nowhere for soil to go, so
+even one leaf in twenty was a floor that never stopped rising -- mounds
+round the trunks, ramps of earth across the planting. In the box, what rots
+now leaves nothing behind at all. That needed a second change to be safe:
+a root that dies deep inside a tangle of other roots used to fall to litter
+rather than give back the earth it had pushed aside, and the leaf-soil had
+been quietly making up for it. Now it gives the earth back too, so the
+ground neither climbs nor hollows. You may notice the grass is less
+dominant: fresh soil on top was where its seed landed and took, and without
+it the other plants keep more of the bed.
 
 (Growing roots used to be listed here as the other drain, and they are not one
 any more — see *what rots underground goes back into the ground*, below. A root

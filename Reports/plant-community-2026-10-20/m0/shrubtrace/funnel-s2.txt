@@ -1,0 +1,7 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/m0/shrubtrace/s2
+  shrub
+    set as a seed       11  of prev 100.0%  of all 100.0%   stopped here      8: ROTTED 8
+    germinated           3  of prev  27.3%  of all  27.3%   stopped here      0: -
+    established          3  of prev 100.0%  of all  27.3%   stopped here      0: -
+    set a seed           3  of prev 100.0%  of all  27.3%   stopped here      3: alive 3

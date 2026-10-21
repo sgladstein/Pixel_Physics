@@ -1,0 +1,9 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/m0/shrubtrace/s3
+  shrub      root      7,250 visits:  root_share 96%, too_poor 4%, grew 1%, no_good_direction 0%, tip_cap 0%
+                       1,068 retired: root_share 95%, too_poor 5%, no_good_direction 0%
+  shrub      shoot        45 visits:  grew 42%, too_poor 36%, organ_unaffordable 11%, flowered 11%
+                           0 retired: -
+  plants by the reason most of their tips stopped on:
+    shrub      shoot none stopped 4
+    shrub      root  root_share 2, too_poor 1, none stopped 1

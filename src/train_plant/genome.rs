@@ -160,6 +160,8 @@ const LEVERS: &[(ParamId, Group, Step, Bound)] = &[
     (ParamId::JuvenileBranch, Group::Shape, Step::Add, Bound::Abs(0.0, 4.0)),
     (ParamId::LeafCluster, Group::Leaf, Step::Count, Bound::Abs(1.0, 24.0)),
     (ParamId::LeafSpread, Group::Leaf, Step::Add, Bound::Abs(0.0, 1.0)),
+    (ParamId::ShadeTolerate, Group::Leaf, Step::Add, Bound::Abs(0.0, 1.0)),
+    (ParamId::ShadeAvoid, Group::Shape, Step::Add, Bound::Abs(0.0, 1.0)),
     (ParamId::PhotosynthesizeRate, Group::Leaf, Step::Factor, Bound::Rel(0.125, 8.0)),
     (ParamId::ShadeDeath, Group::Leaf, Step::Factor, Bound::Rel(0.125, 8.0)),
     (ParamId::DroughtDeath, Group::Leaf, Step::Factor, Bound::Rel(0.125, 8.0)),

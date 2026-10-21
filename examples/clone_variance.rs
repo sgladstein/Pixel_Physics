@@ -715,6 +715,16 @@ fn main() {
         one_cell_over(&species, founders, frames, worldseed, sarg("png"), key);
         return;
     }
+    // **`seeds=1`: one spot, one genome, `founders` developmental seeds.**
+    // The arm `shift=1` cannot be: under `DevelopmentalKey::Plant` it
+    // writes one seed onto every position, so it shows the key *freezing*
+    // the dice, not how large they are. Varying only the seed asks how much
+    // of a plant's form is its developmental dice at all (plant community
+    // plan §3.2, M0.1). Meaningless under `World`, which never reads it.
+    if arg::<u32>("seeds").unwrap_or(0) > 0 {
+        many_seeds_one_spot(&species, founders, frames, worldseed, key);
+        return;
+    }
     // **`spread=` renders one bed per leaf-spread setting.** Separate from
     // the three-arm mode because the question is different: those arms are
     // about *variance* between plants, this is about the *shape of the
@@ -895,6 +905,61 @@ fn main() {
 /// would not guess: a plant one column over is a different plant, and a plant
 /// that germinates into organism slot 7 rather than 6 is a different plant
 /// again.
+fn many_seeds_one_spot(species: &str, n: usize, frames: u64, worldseed: Option<u64>, key: organism::DevelopmentalKey) {
+    println!("\n  one founder, alone, same genome, same spot, a different developmental seed each run ({n} seeds):");
+    if key == organism::DevelopmentalKey::World {
+        println!("  REFUSING: under DevelopmentalKey::World the developmental seed is never read; pass dev=0");
+        return;
+    }
+    print!("  {:<15}", "");
+    for c in COLUMNS {
+        print!("  {c:>9}");
+    }
+    println!();
+    let (w0, ids0) = build(species, 1, worldseed, None, key);
+    let Some(&(src, sx, sy)) = ids0.first() else {
+        println!("  REFUSING: the reference bed planted nothing.");
+        return;
+    };
+    let mut w0 = w0;
+    pixel_physics::sim::plant::seed_genotype(&mut w0, src, sx, sy);
+    let Some(reference) = w0.organism_genotype(src) else {
+        println!("  REFUSING: the reference founder has no genome.");
+        return;
+    };
+    let mut all: Vec<Shape> = Vec::new();
+    for k in 0..n {
+        let (mut w, ids) = build(species, 1, worldseed, None, key);
+        let dev = if k == 0 { reference.3 } else { reference.3 ^ (k as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) };
+        for &(id, _, _) in &ids {
+            w.set_organism_genotype(id, reference.0, reference.1, reference.2, dev);
+        }
+        for _ in 0..frames {
+            parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        let s = shapes(&w, &ids);
+        if let Some(s0) = s.first() {
+            all.push(*s0);
+            print!("  {:<15}", format!("seed {k}"));
+            for i in 0..COLUMNS.len() {
+                print!("  {:>9}", format!("{:.3}", s0.get(i)));
+            }
+            println!();
+        } else {
+            println!("  {:<15}  (did not establish)", format!("seed {k}"));
+        }
+    }
+    print!("  {:<15}", "CV");
+    for i in 0..COLUMNS.len() {
+        let col: Vec<f32> = all.iter().map(|s| s.get(i)).collect();
+        print!("  {:>9}", format!("{:.3}", cv(&col)));
+    }
+    println!();
+    println!("  -- one genome, one spot: whatever spread this shows is the developmental dice alone.");
+}
+
 fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, png: Option<String>, key: organism::DevelopmentalKey) {
     println!("\n  one founder, alone, same genome, moved one column at a time ({n} positions):");
     print!("  {:<15}", "");

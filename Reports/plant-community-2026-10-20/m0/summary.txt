@@ -1,0 +1,138 @@
+
+=== mix7 ants: 8 seeds ([1, 2, 3, 4, 5, 6, 7, 8])
+  kinds with 100+ leaf at 450k       min 1  p25 2  med 2  max 3
+  of those, reproducing (last 100k)  min 0  p25 1  med 1  max 2
+  evenness (eff. kinds / sown)       min 0.16  p25 0.20  med 0.29  max 0.39
+  seed cells above soil, peak        min 346  p25 446  med 726  max 1021
+  deepest seed column, peak          min 8  p25 9  med 11  max 22
+  seed cells above soil, 450k        min 23  p25 51  med 81  max 111
+  soil water, top band, lowest       min 0.620  p25 0.642  med 0.645  max 0.665
+  soil water, any band, lowest       min 0.620  p25 0.625  med 0.625  max 0.629
+  gaps (3+ bare cols) per 100, 450k  min 0.20  p25 0.60  med 1.21  max 2.82
+  tips touching another plant        min 0.20  p25 0.24  med 0.28  max 0.33
+  tips blocked upward by another     min 0.05  p25 0.08  med 0.09  max 0.14
+  surface light under canopy         min 0.148  p25 0.273  med 0.305  max 0.371
+  surface light, open                min 0.585  p25 0.801  med 0.838  max 0.922
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    conifer    med    1951  p25    1605  max    4940  100+ on 7/8
+    creeper    med       0  p25       0  max      21  100+ on 0/8
+    grass      med       0  p25       0  max       0  100+ on 0/8
+    herb       med      16  p25       0  max      58  100+ on 0/8
+    scrambler  med      98  p25      43  max     534  100+ on 3/8
+    shrub      med       3  p25       1  max     440  100+ on 2/8
+    tree       med    1071  p25       0  max    2119  100+ on 5/8
+  falling in the second half (share halved): {'herb': 3, 'scrambler': 1, 'shrub': 1, 'tree': 1}
+  soil water by band at 450k (median): 0.90, 0.87, 0.87, 0.88, 0.89, 0.91, 0.94, 0.98
+
+=== mix7 noants: 12 seeds ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  kinds with 100+ leaf at 450k       min 1  p25 2  med 3  max 4
+  of those, reproducing (last 100k)  min 0  p25 0  med 1  max 2
+  evenness (eff. kinds / sown)       min 0.15  p25 0.23  med 0.27  max 0.40
+  seed cells above soil, peak        min 407  p25 692  med 1178  max 3145
+  deepest seed column, peak          min 8  p25 13  med 21  max 31
+  seed cells above soil, 450k        min 1  p25 29  med 70  max 948
+  soil water, top band, lowest       min 0.624  p25 0.636  med 0.645  max 0.654
+  soil water, any band, lowest       min 0.624  p25 0.625  med 0.626  max 0.629
+  gaps (3+ bare cols) per 100, 450k  min 0.40  p25 1.01  med 1.81  max 2.82
+  tips touching another plant        min 0.10  p25 0.12  med 0.21  max 0.36
+  tips blocked upward by another     min 0.02  p25 0.06  med 0.08  max 0.15
+  surface light under canopy         min 0.225  p25 0.279  med 0.313  max 0.466
+  surface light, open                min 0.653  p25 0.736  med 0.795  max 0.938
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    conifer    med    1729  p25     294  max    2997  100+ on 10/12
+    creeper    med      18  p25      11  max     142  100+ on 2/12
+    grass      med       0  p25       0  max     189  100+ on 1/12
+    herb       med       7  p25       1  max      56  100+ on 0/12
+    scrambler  med     118  p25      57  max     492  100+ on 6/12
+    shrub      med       8  p25       6  max     536  100+ on 3/12
+    tree       med    2466  p25     200  max    4107  100+ on 10/12
+  falling in the second half (share halved): {'tree': 3, 'grass': 3, 'conifer': 1, 'herb': 3, 'scrambler': 1, 'shrub': 1}
+  soil water by band at 450k (median): 0.90, 0.86, 0.86, 0.86, 0.88, 0.89, 0.91, 0.97
+
+=== roles4 ants: 8 seeds ([1, 2, 3, 4, 5, 6, 7, 8])
+  kinds with 100+ leaf at 450k       min 0  p25 1  med 1  max 2
+  of those, reproducing (last 100k)  min 0  p25 0  med 1  max 1
+  evenness (eff. kinds / sown)       min 0.43  p25 0.47  med 0.51  max 0.62
+  seed cells above soil, peak        min 654  p25 1292  med 1564  max 2372
+  deepest seed column, peak          min 13  p25 16  med 19  max 28
+  seed cells above soil, 450k        min 10  p25 58  med 65  max 121
+  soil water, top band, lowest       min 0.620  p25 0.637  med 0.642  max 0.665
+  soil water, any band, lowest       min 0.620  p25 0.623  med 0.625  max 0.626
+  gaps (3+ bare cols) per 100, 450k  min 1.01  p25 1.21  med 2.02  max 3.43
+  tips touching another plant        min 0.48  p25 0.50  med 0.50  max 0.61
+  tips blocked upward by another     min 0.10  p25 0.12  med 0.14  max 0.18
+  surface light under canopy         min 0.646  p25 0.673  med 0.751  max 0.888
+  surface light, open                min 0.908  p25 0.918  med 0.935  max 0.962
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    creeper    med      25  p25      20  max     100  100+ on 1/8
+    grass      med       0  p25       0  max       2  100+ on 0/8
+    herb       med     134  p25      59  max     319  100+ on 5/8
+    shrub      med     184  p25      20  max     445  100+ on 4/8
+  falling in the second half (share halved): {'grass': 6, 'shrub': 1, 'herb': 1}
+  soil water by band at 450k (median): 0.96, 0.95, 0.95, 0.95, 0.96, 0.97, 0.98, 0.99
+
+=== roles4 crippleshrub: 1 seeds ([1])
+  kinds with 100+ leaf at 450k       min 1  p25 1  med 1  max 1
+  of those, reproducing (last 100k)  min 0  p25 0  med 0  max 0
+  evenness (eff. kinds / sown)       min 0.31  p25 0.31  med 0.31  max 0.31
+  seed cells above soil, peak        min 2664  p25 2664  med 2664  max 2664
+  deepest seed column, peak          min 20  p25 20  med 20  max 20
+  seed cells above soil, 450k        min 32  p25 32  med 32  max 32
+  soil water, top band, lowest       min 0.632  p25 0.632  med 0.632  max 0.632
+  soil water, any band, lowest       min 0.624  p25 0.624  med 0.624  max 0.624
+  gaps (3+ bare cols) per 100, 450k  min 3.43  p25 3.43  med 3.43  max 3.43
+  tips touching another plant        min 0.55  p25 0.55  med 0.55  max 0.55
+  tips blocked upward by another     min 0.14  p25 0.14  med 0.14  max 0.14
+  surface light under canopy         min 0.919  p25 0.919  med 0.919  max 0.919
+  surface light, open                min 0.889  p25 0.889  med 0.889  max 0.889
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    creeper    med     517  p25     517  max     517  100+ on 1/1
+    grass      med       0  p25       0  max       0  100+ on 0/1
+    herb       med      28  p25      28  max      28  100+ on 0/1
+    shrub      med       0  p25       0  max       0  100+ on 0/1
+  falling in the second half (share halved): {'grass': 1, 'herb': 1}
+  soil water by band at 450k (median): 0.94, 0.89, 0.88, 0.89, 0.89, 0.90, 0.93, 0.97
+
+=== roles4 noants: 12 seeds ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  kinds with 100+ leaf at 450k       min 1  p25 1  med 2  max 2
+  of those, reproducing (last 100k)  min 0  p25 0  med 0  max 0
+  evenness (eff. kinds / sown)       min 0.33  p25 0.44  med 0.54  max 0.71
+  seed cells above soil, peak        min 1369  p25 2007  med 2612  max 4165
+  deepest seed column, peak          min 17  p25 20  med 21  max 28
+  seed cells above soil, 450k        min 14  p25 20  med 35  max 149
+  soil water, top band, lowest       min 0.616  p25 0.643  med 0.654  max 0.673
+  soil water, any band, lowest       min 0.616  p25 0.624  med 0.625  max 0.626
+  gaps (3+ bare cols) per 100, 450k  min 1.61  p25 2.02  med 2.62  max 4.03
+  tips touching another plant        min 0.40  p25 0.51  med 0.62  max 0.79
+  tips blocked upward by another     min 0.14  p25 0.22  med 0.24  max 0.43
+  surface light under canopy         min 0.681  p25 0.825  med 0.859  max 0.969
+  surface light, open                min 0.737  p25 0.863  med 0.890  max 0.979
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    creeper    med     198  p25     136  max     413  100+ on 11/12
+    grass      med       1  p25       0  max      33  100+ on 0/12
+    herb       med      19  p25       0  max      95  100+ on 0/12
+    shrub      med     273  p25     188  max     809  100+ on 9/12
+  falling in the second half (share halved): {'grass': 12, 'herb': 7}
+  soil water by band at 450k (median): 0.96, 0.92, 0.92, 0.92, 0.93, 0.93, 0.94, 0.97
+
+=== roles4 rainoff: 1 seeds ([1])
+  kinds with 100+ leaf at 450k       min 2  p25 2  med 2  max 2
+  of those, reproducing (last 100k)  min 0  p25 0  med 0  max 0
+  evenness (eff. kinds / sown)       min 0.49  p25 0.49  med 0.49  max 0.49
+  seed cells above soil, peak        min 1495  p25 1495  med 1495  max 1495
+  deepest seed column, peak          min 16  p25 16  med 16  max 16
+  seed cells above soil, 450k        min 483  p25 483  med 483  max 483
+  soil water, top band, lowest       min 0.244  p25 0.244  med 0.244  max 0.244
+  soil water, any band, lowest       min 0.244  p25 0.244  med 0.244  max 0.244
+  gaps (3+ bare cols) per 100, 450k  min 2.42  p25 2.42  med 2.42  max 2.42
+  tips touching another plant        min 0.48  p25 0.48  med 0.48  max 0.48
+  tips blocked upward by another     min 0.20  p25 0.20  med 0.20  max 0.20
+  surface light under canopy         min 0.900  p25 0.900  med 0.900  max 0.900
+  surface light, open                min 0.927  p25 0.927  med 0.927  max 0.927
+  leaf at 450k, per species (med over seeds; present on how many seeds):
+    creeper    med     346  p25     346  max     346  100+ on 1/1
+    grass      med       0  p25       0  max       0  100+ on 0/1
+    herb       med       0  p25       0  max       0  100+ on 0/1
+    shrub      med     231  p25     231  max     231  100+ on 1/1
+  falling in the second half (share halved): {}
+  soil water by band at 450k (median): 0.24, 0.52, 0.59, 0.61, 0.62, 0.62, 0.65, 0.81

@@ -45,7 +45,7 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
 }
 
-const REACH: i32 = 16;
+const REACH: i32 = 32; // `update::DRIP_REACH` (`MAX_REACH`) since 2026-10-21; was `ORGANISM_TUNNEL_REACH`, 16
 
 fn census(world: &World, spec: &LabBox, frame: u64) {
     let Some(water) = world.materials.id_of("water") else { return };

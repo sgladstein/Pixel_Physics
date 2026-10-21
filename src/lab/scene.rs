@@ -225,6 +225,181 @@ pub struct LabBox {
     /// species. `None` is today's bed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub species_ron: Option<String>,
+    /// **The bed drains through its floor**, as a pot does through its hole
+    /// (`super::rain::drain`; M1 step 2 of
+    /// `Reports/plant-community-plan-2026-10-20.md`, bug Z38). **On by
+    /// default**: without it the box is a source of water with no sink, and
+    /// the shipped mister put the bed under a lake by 480,000 frames on 4
+    /// of 4 seeds (`super::rain`'s header has the table). Off is the box as
+    /// it was. A missing key reads as on, and on is never written, so every
+    /// file before this reads back as a draining bed and round-trips
+    /// unchanged; a box saved with the drain off says so.
+    #[serde(default = "drain_default", skip_serializing_if = "is_drain_default")]
+    pub drain: bool,
+    /// **Wet and dry spells** (`super::rain::Spells`): the mister at `rain`'s
+    /// rate for `wet` frames, then off with the lid vented for `dry`. `None`
+    /// is the steady mister.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spells: Option<super::rain::Spells>,
+    /// **What the ground is made of** -- [`Ground`]. `Uniform` (the
+    /// default, and never written) is the bed as it always was.
+    #[serde(default, skip_serializing_if = "Ground::is_uniform")]
+    pub ground: Ground,
+    /// **How deep a heap of waiting seed may stand** before the seed on top
+    /// leaves the slice (`World::seed_pile_depth`; A6 of
+    /// `Reports/plant-community-plan-2026-10-20.md`). **2 by default**: on
+    /// the four-role training bed it took the seed lying above the soil
+    /// from 5,468-8,170 cells to 486-934 and the deepest heap from 30-37 to
+    /// 7-8 over 480,000 frames, 4 of 4 seeds, with one more kind alive on
+    /// two seeds and grass's share not up. 0 is the bed before, where heaps
+    /// grow without bound. Written only when it differs from the default.
+    #[serde(default = "seed_pile_depth_default", skip_serializing_if = "is_seed_pile_depth_default")]
+    pub seed_pile_depth: u8,
+    /// **A plant with no growing tip breaks a bud on stored carbon**
+    /// (`World::bud_break_reserve`; A3 of the plant community plan). **On by
+    /// default**: on the four-role training bed it took the kinds with 100+
+    /// leaf to 4 of 4 on every seed (from 3,4,3,2), with herb alive and
+    /// recruiting on all four and no runaway; a lone shrub's size went from
+    /// 233+-419 to 777+-404 cells. Written only when off.
+    #[serde(default = "bud_break_reserve_default", skip_serializing_if = "is_bud_break_reserve_default")]
+    pub bud_break_reserve: bool,
+    /// **Soil water passes through roots to the soil beyond**
+    /// (`World::soil_through_roots`). **On by default**: on the training beds
+    /// it took the water standing above the ground from 109-224 cells to
+    /// 12-30 at 120,000 frames (4 beds), with saturated soil under a plant
+    /// -- the base of most pools -- falling to 0-2, at about today's soil
+    /// write count by 240,000. Written only when off.
+    #[serde(default = "soil_through_roots_default", skip_serializing_if = "is_soil_through_roots_default")]
+    pub soil_through_roots: bool,
+    /// **Rotting litter, seed, fruit and corpses add soil to the bed**
+    /// (`World::rot_soil_yield`: on = the materials' own 5%, off = none).
+    /// **Off by default since 2026-10-21, the owner's ruling** (*"rotting
+    /// can stop heaping soil"*). Off closes the bed's soil budget: rot
+    /// leaves nothing, and `World::root_mats_repay` comes on so a dead root
+    /// inside a mat gives back the soil it displaced -- without that the 5%
+    /// was covering a leak, and turning it off alone ate the ground from
+    /// inside (empty cells in the top 20 rows of ground 2-5% -> 8-31%).
+    /// Measured on the training beds, 4 seeds of a forest and a grass bed,
+    /// 480,000 frames, against the bed with water through roots: soil heaped
+    /// above the original surface 4-17% -> 2-9% (lower on 6 of 8), holes
+    /// back to 0-4%. The grass bed's green share falls on 3 of 4 seeds (44 ->
+    /// 34, 31 -> 23, 50 -> 36), and that green is grass: 446-725 -> 161-283
+    /// plants, kinds with 100+ leaf 2,3,2,4 -> 4,3,3,3. The soil rot made on
+    /// the surface was where grass seed landed on soil and sprouted (A6),
+    /// so it was subsidising grass's monopoly. `plant-community-plan-2026-
+    /// 10-20.md` step 7a. Written only when on.
+    #[serde(default = "rot_makes_soil_default", skip_serializing_if = "is_rot_makes_soil_default")]
+    pub rot_makes_soil: bool,
+}
+
+/// `LabBox::rot_makes_soil`'s default: see that field.
+fn rot_makes_soil_default() -> bool {
+    false
+}
+
+fn is_rot_makes_soil_default(on: &bool) -> bool {
+    *on == rot_makes_soil_default()
+}
+
+/// `LabBox::soil_through_roots`'s default: see that field.
+fn soil_through_roots_default() -> bool {
+    true
+}
+
+fn is_soil_through_roots_default(on: &bool) -> bool {
+    *on == soil_through_roots_default()
+}
+
+/// `LabBox::bud_break_reserve`'s default: see that field.
+fn bud_break_reserve_default() -> bool {
+    true
+}
+
+fn is_bud_break_reserve_default(on: &bool) -> bool {
+    *on == bud_break_reserve_default()
+}
+
+/// `LabBox::seed_pile_depth`'s default: see that field.
+fn seed_pile_depth_default() -> u8 {
+    2
+}
+
+fn is_seed_pile_depth_default(depth: &u8) -> bool {
+    *depth == seed_pile_depth_default()
+}
+
+/// **What the bed's ground is made of** (step E of
+/// `Reports/plant-community-plan-2026-10-20.md`).
+///
+/// The owner, 2026-10-20: *"If our soil bed is fully uniform (uniform
+/// density, uniform moisture, uniform nutrients, etc.) then there is no
+/// signal for the plant to respond in interesting ways."* It was: one soil,
+/// at one wetness, under a flat surface, so two plants a few cells apart
+/// could only differ by their dice.
+///
+/// `Patchy` lays the same soil out in patches of three textures -- sandy,
+/// loam, and a dark rich clay-loam -- carried by the palette family each
+/// cell's shade picks, so the patches are visible as soil colour and move
+/// with the soil (`material::SoilTexture`). It cuts gentle hollows into the
+/// surface, where rain collects and the top rows are the rich, wet soil a
+/// basin gathers. It turns on `World::soil_texture` and
+/// `World::soil_drains_around`. Patches are tens of cells across, for §2.4's
+/// reason: the bed is a thin slice through a 3D stand, and a patch in the
+/// slice is a patch in the ground it cuts through, so single-cell noise
+/// would be no signal at all.
+///
+/// `Sandy`, `Loam` and `Rich` fill the whole bed with one texture, with the
+/// same rules on and a flat surface. They are the clone test's arms: the
+/// same plant on each, so a difference between them is the ground's and
+/// not the patch layout's (`examples/plant_m0.rs mode=plastic axis=ground`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Ground {
+    #[default]
+    Uniform,
+    Patchy,
+    Sandy,
+    Loam,
+    Rich,
+}
+
+impl Ground {
+    fn is_uniform(&self) -> bool {
+        *self == Ground::Uniform
+    }
+}
+
+/// Separates patchy ground's noise from every other `rng::stream` caller.
+const GROUND_PATCH_SALT: u64 = 0x4772_6F75_6E64_5054; // "GroundPT"
+const GROUND_HOLLOW_SALT: u64 = 0x4772_6F75_6E64_484F; // "GroundHO"
+
+/// Smooth value noise in `0..1` at a real position on an integer lattice,
+/// keyed on the bed seed: the four surrounding lattice values, eased.
+fn value_noise(seed: u64, salt: u64, x: f32, y: f32) -> f32 {
+    let (x0, y0) = (x.floor(), y.floor());
+    let ease = |t: f32| t * t * (3.0 - 2.0 * t);
+    let (u, v) = (ease(x - x0), ease(y - y0));
+    let at = |i: f32, j: f32| crate::sim::rng::stream(seed ^ salt, i as i64 as u64, j as i64 as u64, 0).unit_f32();
+    let top = at(x0, y0) * (1.0 - u) + at(x0 + 1.0, y0) * u;
+    let bottom = at(x0, y0 + 1.0) * (1.0 - u) + at(x0 + 1.0, y0 + 1.0) * u;
+    top * (1.0 - v) + bottom * v
+}
+
+/// A soil shade in `family`, keeping the jitter byte's tone and its high
+/// grain bits (`render::GrainMode::Cell` keys on those): soil's palette is
+/// three families of four (`soil.ron`), entry `family * 4 + tone`, and the
+/// renderer reads `shade % 12`.
+fn patch_shade(byte: u8, family: usize) -> u8 {
+    let grain = (byte as u32 / 12).min(20) * 12;
+    (grain + family as u32 * 4 + byte as u32 % 4) as u8
+}
+
+/// `LabBox::drain`'s default, on: see that field.
+fn drain_default() -> bool {
+    true
+}
+
+fn is_drain_default(drain: &bool) -> bool {
+    *drain == drain_default()
 }
 
 /// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
@@ -346,6 +521,13 @@ impl Default for LabBox {
             windfall_rots: windfall_rots_default(),
             founder_at: None,
             species_ron: None,
+            drain: drain_default(),
+            spells: None,
+            ground: Ground::Uniform,
+            seed_pile_depth: seed_pile_depth_default(),
+            bud_break_reserve: bud_break_reserve_default(),
+            soil_through_roots: soil_through_roots_default(),
+            rot_makes_soil: rot_makes_soil_default(),
         }
     }
 }
@@ -443,6 +625,35 @@ const LAMP_ROWS: i32 = 4;
 const LAMP_REACH_FRACTION: f32 = 0.62;
 
 impl LabBox {
+    /// How far below `ground_y` the surface of column `x` sits on patchy
+    /// ground: 0 over about half the bed, down to 8 in wide hollows. Never
+    /// above `ground_y`, because founders and colonies are placed two rows
+    /// above it.
+    fn hollow_depth(&self, x: i32) -> i32 {
+        let n = value_noise(self.seed, GROUND_HOLLOW_SALT, x as f32 / 60.0, 0.5);
+        ((n - 0.45).max(0.0) / 0.35 * 8.0).min(8.0).round() as i32
+    }
+
+    /// The soil family at `(x, y)` on patchy ground, under a surface at
+    /// `top`: index into `material::SOIL_TEXTURES` (0 loam, 1 rich, 2 sandy).
+    /// Two octaves of value noise, wide and flat-ish (48 x 24 cells, then 16
+    /// x 8 for ragged edges), cut into thirds; and the top six rows of a
+    /// hollow two or more deep are rich, the dark wet soil a basin gathers.
+    fn soil_family_at(&self, x: i32, y: i32, top: i32) -> usize {
+        if top - self.ground_y >= 2 && y - top < 6 {
+            return 1;
+        }
+        let n = 0.7 * value_noise(self.seed, GROUND_PATCH_SALT, x as f32 / 48.0, y as f32 / 24.0)
+            + 0.3 * value_noise(self.seed, GROUND_PATCH_SALT ^ 1, x as f32 / 16.0, y as f32 / 8.0);
+        if n < 0.42 {
+            2
+        } else if n > 0.58 {
+            1
+        } else {
+            0
+        }
+    }
+
     /// Where the parameters page persists the bed spec.
     ///
     /// Gitignored, like the specimen shelf (`sim::specimen::SHELF_DIR`) and
@@ -936,10 +1147,43 @@ impl LabBox {
         // a band of nothing. Confined stone: `structural` anchors a cell
         // walled in on every side outright, so this is a foundation and not
         // a slab waiting to come down.
+        //
+        // **Patchy ground** (`Ground::Patchy`) lays the same soil out as
+        // sandy, loamy and rich patches with hollows in its surface, and
+        // turns on the two rules that make the patches matter; see
+        // `Ground`. Uniform is the bed exactly as it was.
+        let patchy = self.ground == Ground::Patchy;
+        let only = match self.ground {
+            Ground::Sandy => Some(2),
+            Ground::Loam => Some(0),
+            Ground::Rich => Some(1),
+            Ground::Uniform | Ground::Patchy => None,
+        };
+        let textured = self.ground != Ground::Uniform;
+        w.seed_pile_depth = self.seed_pile_depth;
+        w.bud_break_reserve = self.bud_break_reserve;
+        w.soil_through_roots = self.soil_through_roots;
+        w.rot_soil_yield = if self.rot_makes_soil { 1.0 } else { 0.0 };
+        w.root_mats_repay = !self.rot_makes_soil;
+        // Under the lamps, the lamp is the sun: what the shade genes call
+        // open light (`World::open_light`).
+        if let Some(lamp) = w.materials.id_of("growlamp") {
+            w.open_light = w.materials.get(lamp).beam.max(f32::EPSILON);
+        }
+        w.soil_texture = textured;
+        w.soil_drains_around = textured;
         for x in 0..self.width {
-            for y in self.ground_y..(self.ground_y + self.soil_depth) {
-                w.set(x, y, Cell::new(soil, (crate::sim::rng::jitter(x, y) * 255.0) as u8)
-                    .with_aux(material::SOIL_FIELD_CAPACITY));
+            let top = self.ground_y + if patchy { self.hollow_depth(x) } else { 0 };
+            for y in top..(self.ground_y + self.soil_depth) {
+                let byte = (crate::sim::rng::jitter(x, y) * 255.0) as u8;
+                if textured {
+                    let family = only.unwrap_or_else(|| self.soil_family_at(x, y, top));
+                    let shade = patch_shade(byte, family);
+                    let held = material::SOIL_TEXTURES[family].field_capacity;
+                    w.set(x, y, Cell::new(soil, shade).with_aux(held));
+                } else {
+                    w.set(x, y, Cell::new(soil, byte).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
             }
             for y in (self.ground_y + self.soil_depth)..bed_bottom {
                 w.set(x, y, Cell::new(material::STONE, 0));
@@ -1304,6 +1548,50 @@ mod tests {
     /// `lab::tests`' `SHELF_LOCK`: [`LabBox::ASSET_PATH_ENV`] resolves
     /// through process-global state, and `cargo test` runs in parallel.
     static BED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// **Patchy ground is patchy, and uniform ground is the bed as it was**
+    /// (`Ground`, step E of the plant community plan). Patchy: all three
+    /// textures present in real shares, some columns' surface below
+    /// `ground_y`, never above it, and both soil rules on. Uniform: one
+    /// flat surface at `ground_y`, rules off.
+    #[test]
+    fn patchy_ground_has_three_textures_and_hollows_and_uniform_has_neither() {
+        for ground in [Ground::Uniform, Ground::Patchy] {
+            let bed = LabBox { founders: 0, colonies: 0, predators: 0, ground, ..LabBox::default() };
+            let w = bed.build();
+            let soil = w.materials.id_of("soil").expect("soil ships");
+            let mut families = [0usize; 3];
+            let mut hollows = 0;
+            for x in 0..bed.width {
+                assert_ne!(w.get(x, bed.ground_y - 1).material, soil, "{ground:?}: soil above ground_y at x {x}; founders are placed two rows up");
+                // Air at the soil line, not a wall: the box's side walls are
+                // stone and are not hollows.
+                if w.get(x, bed.ground_y).material == material::EMPTY {
+                    hollows += 1;
+                }
+                for y in bed.ground_y..bed.ground_y + bed.soil_depth {
+                    let c = w.get(x, y);
+                    if c.material == soil {
+                        families[w.materials.get(soil).family_of(c.shade).min(2)] += 1;
+                    }
+                }
+            }
+            let total: usize = families.iter().sum();
+            match ground {
+                Ground::Patchy => {
+                    assert!(w.soil_texture && w.soil_drains_around, "patchy ground must turn both soil rules on");
+                    for (f, n) in families.iter().enumerate() {
+                        assert!(*n * 10 > total, "family {f} is {n} of {total} soil cells -- a patch texture this rare is no signal");
+                    }
+                    assert!(hollows > bed.width / 10, "only {hollows} of {} columns are hollowed", bed.width);
+                }
+                _ => {
+                    assert!(!w.soil_texture && !w.soil_drains_around, "uniform ground must leave both soil rules off");
+                    assert_eq!(hollows, 0, "uniform ground must be flat");
+                }
+            }
+        }
+    }
 
     fn scratch_path(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("pixel_physics_lab_{tag}_{}.ron", std::process::id()))

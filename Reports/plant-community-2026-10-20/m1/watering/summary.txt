@@ -1,0 +1,60 @@
+
+=== light: seeds [1, 2, 3, 4]
+  f=120000 none  standing per seed [949, 911, 668, 860]  soil water by band (med) 0.70,0.68,0.69,0.71,0.75,0.80,0.86,0.95  top spread 0.186
+  f=240000 none  standing per seed [2419, 2447, 1777, 1794]  soil water by band (med) 0.81,0.79,0.82,0.84,0.85,0.88,0.91,0.97  top spread 0.175
+  f=360000 none  standing per seed [5398, 4878, 4030, 4629]  soil water by band (med) 0.91,0.88,0.88,0.89,0.91,0.92,0.94,0.97  top spread 0.157
+  f=440000 none  standing per seed [7752, 7280, 6142, 7077]  soil water by band (med) 0.94,0.91,0.91,0.91,0.92,0.93,0.94,0.97  top spread 0.148
+  f=450000 none  standing per seed [8082, 7614, 6419, 7328]  soil water by band (med) 0.94,0.91,0.91,0.92,0.92,0.93,0.94,0.97  top spread 0.150
+  f=480000 none  standing per seed [8481, 8692, 7187, 8154]  soil water by band (med) 0.95,0.92,0.91,0.92,0.92,0.93,0.95,0.97  top spread 0.136
+  rained / drained (cells, per seed): [(23640, 0), (23619, 0), (23620, 0), (23629, 0)]
+  standing max over the run, per seed: [8481, 8692, 7187, 8154]
+  per species at 480k (median over seeds): leaf | plants | established in last 100k
+    creeper  leaf [307, 241, 88, 267] plants [17, 18, 8, 10] est [0, 0, 0, 0]
+    grass    leaf [2302, 1220, 1869, 1668] plants [890, 622, 763, 784] est [34, 23, 43, 26]
+    herb     leaf [31, 62, 9, 0] plants [4, 7, 1, 0] est [2, 0, 0, 0]
+    shrub    leaf [217, 32, 271, 357] plants [5, 7, 6, 3] est [0, 0, 0, 0]
+  water around roots (median over seeds and the last two cycles) / mean deepest root, rows
+    creeper  after dry 0.830  after wet 0.841  depth 6.2
+    grass    after dry 0.770  after wet 0.782  depth 0.1
+    herb     after dry 0.828  after wet 0.861  depth 3.5
+    shrub    after dry 0.831  after wet 0.820  depth 3.3
+
+=== drain: seeds [1, 2, 3, 4]
+  f=120000 none  standing per seed [544, 527, 409, 683]  soil water by band (med) 0.66,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.153
+  f=240000 none  standing per seed [1055, 780, 796, 968]  soil water by band (med) 0.67,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.133
+  f=360000 none  standing per seed [1123, 697, 882, 1707]  soil water by band (med) 0.64,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.126
+  f=440000 none  standing per seed [1387, 1036, 899, 1575]  soil water by band (med) 0.63,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.120
+  f=450000 none  standing per seed [1063, 774, 1088, 1488]  soil water by band (med) 0.63,0.62,0.62,0.62,0.62,0.62,0.63,0.63  top spread 0.112
+  f=480000 none  standing per seed [1416, 900, 987, 1650]  soil water by band (med) 0.63,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.111
+  rained / drained (cells, per seed): [(23640, 19192), (23619, 20466), (23620, 19972), (23629, 18472)]
+  standing max over the run, per seed: [1453, 1036, 1110, 2043]
+  per species at 480k (median over seeds): leaf | plants | established in last 100k
+    creeper  leaf [425, 106, 61, 180] plants [21, 9, 3, 5] est [0, 0, 0, 0]
+    grass    leaf [3139, 3020, 3181, 3321] plants [1576, 1646, 1667, 1709] est [59, 44, 45, 44]
+    herb     leaf [4, 3, 42, 0] plants [2, 1, 4, 0] est [0, 0, 1, 0]
+    shrub    leaf [225, 28, 264, 373] plants [5, 3, 7, 2] est [0, 0, 0, 0]
+  water around roots (median over seeds and the last two cycles) / mean deepest root, rows
+    creeper  after dry 0.780  after wet 0.778  depth 5.6
+    grass    after dry 0.579  after wet 0.594  depth 0.1
+    herb     after dry 0.640  after wet 0.641  depth 0.0
+    shrub    after dry 0.806  after wet 0.807  depth 4.2
+
+=== spells: seeds [1, 2, 3, 4]
+  f=120000  wet  standing per seed [48, 213, 89, 237]  soil water by band (med) 0.56,0.62,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.197
+  f=240000  wet  standing per seed [535, 147, 122, 398]  soil water by band (med) 0.64,0.64,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.162
+  f=360000  wet  standing per seed [363, 272, 430, 382]  soil water by band (med) 0.63,0.63,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.154
+  f=440000  dry  standing per seed [2067, 1670, 1970, 1722]  soil water by band (med) 0.64,0.63,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.131
+  f=450000  dry  standing per seed [1602, 991, 1288, 901]  soil water by band (med) 0.64,0.63,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.132
+  f=480000  wet  standing per seed [1121, 489, 704, 311]  soil water by band (med) 0.62,0.63,0.62,0.62,0.62,0.62,0.62,0.62  top spread 0.135
+  rained / drained (cells, per seed): [(23593, 20305), (23615, 21780), (23646, 20425), (23650, 20397)]
+  standing max over the run, per seed: [2067, 1670, 1970, 1722]
+  per species at 480k (median over seeds): leaf | plants | established in last 100k
+    creeper  leaf [177, 280, 130, 101] plants [11, 18, 9, 4] est [0, 0, 0, 0]
+    grass    leaf [2081, 1648, 2170, 2483] plants [967, 896, 1128, 1276] est [43, 40, 26, 27]
+    herb     leaf [0, 4, 0, 0] plants [0, 1, 0, 0] est [0, 0, 0, 0]
+    shrub    leaf [304, 46, 511, 637] plants [5, 5, 7, 5] est [0, 0, 0, 0]
+  water around roots (median over seeds and the last two cycles) / mean deepest root, rows
+    creeper  after dry 0.690  after wet 0.704  depth 6.7
+    grass    after dry 0.522  after wet 0.610  depth 0.2
+    herb     after dry 0.864  after wet nan  depth 0.0
+    shrub    after dry 0.800  after wet 0.805  depth 5.8

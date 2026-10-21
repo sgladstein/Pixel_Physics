@@ -1,0 +1,7 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/m0/grasstrace/s1
+  grass
+    set as a seed   20,188  of prev 100.0%  of all 100.0%   stopped here 17,328: ROTTED 16,512, alive 592, OVERRUN 224
+    germinated       2,860  of prev  14.2%  of all  14.2%   stopped here  2,732: FELLED 1,322, OLD AGE 817, LOST ITS TISSUE 567, alive 13
+    established        128  of prev   4.5%  of all   0.6%   stopped here      0: -
+    set a seed         128  of prev 100.0%  of all   0.6%   stopped here    128: OLD AGE 90, LOST ITS TISSUE 26, FELLED 10, alive 2

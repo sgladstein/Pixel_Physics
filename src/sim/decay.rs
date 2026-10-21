@@ -26,6 +26,7 @@
 //! chunk settles. It used to be documented as simply never decaying.
 
 use super::cell::Cell;
+use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -104,11 +105,37 @@ pub fn windfall_rots_default() -> bool {
 // shading leaf in a growing forest, and one shared 0.15 would have turned a
 // stand into a mat of seedlings.
 
+/// Separates decay's per-cell dice from every other `rng::stream` caller.
+const DECAY_SALT: u64 = 0x4465_6361_795F_5244; // "Decay_RD"
+
 /// Dispatch a due `ActiveKind::Decay` site. `scheduler::step` never routes
 /// any other `ActiveKind` here.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     debug_assert!(matches!(site.kind, ActiveKind::Decay), "scheduler::step only routes ActiveKind::Decay here");
     let (x, y) = (site.x, site.y);
+    // **This cell's own dice, keyed on where and when -- never `World::rng`.**
+    // Every roll below (whether it rots, its shade, whether anything is
+    // left, the reseed) used to come off the shared world stream. That is
+    // deterministic and still wrong for comparison: the stream is also what
+    // the lab's mister places its drops with and what a falling leaf takes
+    // its shade from, so one extra raindrop, or one leaf shed anywhere,
+    // re-rolled every litter and pip cell's fate across the whole bed from
+    // that frame on. Measured 2026-10-20 (M1 A1, `plant_m0 mode=nudge`): one
+    // discarded draw at frame 1,000 and nothing else changed, and the two
+    // copies of a community bed differed by 4 cells that frame, and by
+    // frame 60,000 in 20,899 cells across 504 of 512 columns, herbs 7
+    // against 32. With this and the mister keyed (`lab::rain::tick`), the
+    // same nudge changes nothing for all 60,000 frames
+    // (`lab::tests::a_draw_from_the_shared_world_stream_does_not_reach_the_bed`,
+    // which goes red with either one put back). Keyed, a change elsewhere
+    // reaches this cell only
+    // through what it physically does -- the water it brings, the light it
+    // takes -- which is the only route a comparison can attribute.
+    //
+    // `plant_tree`/`plant_moss_seed` on the reseed branch still take their
+    // own shade from `World::rng`. Only ash reseeds (`ash.ron`, 0.15), and
+    // ash does not occur in a plant bed; left as is.
+    let mut dice = rng::stream(world.seed ^ DECAY_SALT, x as u32 as u64, y as u32 as u64, world.frame);
 
     // **Read from the cell, not from a hardcoded material.** This used to
     // test `!= ash_id` and produce soil unconditionally; both ends are data
@@ -157,9 +184,19 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // Litter needs its own because sharing ash's gave it a lifetime sixteen
     // times longer than the runs it is measured in, so it never reached
     // equilibrium -- it only integrated the canopy's shedding.
-    let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
+    //
+    // **And the ground counts, not only the air** (`World::decay_reads_
+    // ground`). `field_at(..).moisture` is the diffused humidity, and a
+    // field block holding a plant cell never diffuses (`open-bugs-handoff.md`
+    // §Z39), so litter under a plant read bone dry on a wet bed and rotted
+    // at the dry rate -- five times slower for litter -- which is litter
+    // lying about under every plant. `ground_wetness_at` is the channel the
+    // fire gate moved to for the same reason: the moisture *source* at the
+    // cell's block and the one below, written for blocked blocks too.
+    let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD
+        || (world.decay_reads_ground && world.ground_wetness_at(x, y) > DECAY_MOISTURE_THRESHOLD);
     let chance = if damp { rate_damp } else { rate_dry };
-    if !world.rng.chance(chance) {
+    if !dice.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.organism_due(DECAY_TICK_INTERVAL) }];
     }
     // Counted *here*, past the roll, so these are decays that happened rather
@@ -203,7 +240,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // `world.set` below writes, so it is the only thing either half should
     // ever have been reading.
     let shades = world.materials.get(into).base_shades.max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+    let shade = dice.below(shades) as u8;
     // **Left dry, deliberately, and capillary flow is what wets it.**
     //
     // Two richer versions were built and both manufacture water. Copying
@@ -267,6 +304,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if let Some(worth) = crate::sim::world::EnergyLedger::meat_worth_of(&world.materials, cell) {
         world.energy_ledger.meat_lost += worth;
     }
+    // **`World::rot_soil_yield` scales only a fractional yield** -- litter,
+    // pip, windfall and corpse, the organic rots whose own files call the
+    // missing 95% respiration. A 1:1 yield is a transformation, not a rot
+    // (ash and spoil weathering to soil, dead leaf to litter, a log to
+    // deadwood), and is left exactly as it was.
+    let material_yield = if material_yield < 1.0 { material_yield * world.rot_soil_yield } else { material_yield };
     let yield_fraction = decay_yield_override().unwrap_or(material_yield);
     // **Labelled for `OrganismState::last_loss`**, in case this cell is an
     // organism's last: a `pip` or `windfall` is a seed organism's own cell,
@@ -284,7 +327,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             crate::sim::organism::DeathCause::Withered
         }
     });
-    if yield_fraction < 1.0 && !world.rng.chance(yield_fraction) {
+    if yield_fraction < 1.0 && !dice.chance(yield_fraction) {
         world.set(x, y, Cell::EMPTY);
         world.loss_context = None;
         world.rotted_to_nothing += 1;
@@ -311,8 +354,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // this one chance -- see `MaterialDef::reseed_chance`, which is now per
     // material rather than one global constant, because ash and litter differ
     // by two orders of magnitude in how many cells reach this line.
-    if reseed_chance > 0.0 && world.is_empty(x, y - 1) && world.rng.chance(reseed_chance) {
-        if world.rng.flip() {
+    if reseed_chance > 0.0 && world.is_empty(x, y - 1) && dice.chance(reseed_chance) {
+        if dice.flip() {
             world.plant_moss_seed(x, y - 1);
         } else {
             world.plant_tree(x, y - 1);

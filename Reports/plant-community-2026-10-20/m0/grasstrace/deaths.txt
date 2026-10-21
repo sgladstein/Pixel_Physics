@@ -1,0 +1,13 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/m0/grasstrace/s1
+  grass      plant   2,845: FELLED 1,332, OLD AGE 907, LOST ITS TISSUE 593, STARVED 12, UNKNOWN 1
+  grass      seed   16,736: ROTTED 16,512, OVERRUN 224
+  age at death (a seed's from its setting, a plant's from its germination):
+    plant FELLED           median 142 (p10 99, p90 516, n 1,332)
+    plant LOST ITS TISSUE  median 22,658 (p10 4,327, p90 62,837, n 593)
+    plant OLD AGE          median 58,622 (p10 24,367, p90 106,993, n 907)
+    plant STARVED          median 15,296 (p10 4,232, p90 40,579, n 12)
+    plant UNKNOWN          median 20,250 (p10 20,250, p90 20,250, n 1)
+    seed  OVERRUN          median 12,732 (p10 510, p90 47,161, n 224)
+    seed  ROTTED           median 28,950 (p10 4,899, p90 81,094, n 16,512)
+  marked to gone, every declared death: median 2,860 (p10 521, p90 7,907, n 1,500)

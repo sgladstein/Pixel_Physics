@@ -38668,10 +38668,28 @@ mod tests {
         }
         w.set(100, 100, Cell::EMPTY); // clear the seed cell -- plant_worm no-ops on occupied ground
         w.plant_worm(100, 100);
-        run(&mut w, 400);
-
-        for y in 90..110 {
-            assert_eq!(w.get(80, y).material, material::STONE, "the worm entered/displaced the stone wall");
+        let worm_id = w.materials.id_of("worm").unwrap();
+        let corpse_id = w.materials.id_of("corpse").unwrap();
+        // **Watched every frame, not read once at the end.** A worm that
+        // starves leaves a corpse, and a corpse rots in a few hundred frames
+        // (`corpse.ron`, 95% of it to nothing), so "is there a worm or a
+        // corpse at frame 400" was a question about the decay dice as much
+        // as about burrowing. It flipped when decay's rolls were keyed to
+        // their own cell (M1 A1, 2026-10-21) with the worm unchanged. Seen
+        // anywhere away from its seed cell at any frame is the burrow.
+        let (mut seen, mut left_seed) = (false, false);
+        for _ in 0..400 {
+            run(&mut w, 1);
+            for y in 90..110 {
+                assert_eq!(w.get(80, y).material, material::STONE, "the worm entered/displaced the stone wall");
+                for x in 81..150 {
+                    let m = w.get(x, y).material;
+                    if m == worm_id || m == corpse_id {
+                        seen = true;
+                        left_seed |= (x, y) != (100, 100);
+                    }
+                }
+            }
         }
         // A positive check, not just the negative one above: confirms a
         // worm was actually created and did something, so this test can't
@@ -38688,14 +38706,8 @@ mod tests {
         // census would not do it — the move swaps two whole cells, so the
         // sand the worm burrows through is displaced behind it rather than
         // consumed, and the world's sand count is conserved exactly.
-        let worm_id = w.materials.id_of("worm").unwrap();
-        let corpse_id = w.materials.id_of("corpse").unwrap();
-        let is_creature = |x: i32, y: i32| {
-            let m = w.get(x, y).material;
-            m == worm_id || m == corpse_id
-        };
-        assert!((81..150).any(|x| (90..110).any(|y| is_creature(x, y))), "no worm or corpse found anywhere -- was one ever actually created?");
-        assert!(!is_creature(100, 100), "the worm never left the cell it was planted in -- it did not burrow at all");
+        assert!(seen, "no worm or corpse seen at any frame -- was one ever actually created?");
+        assert!(left_seed, "the worm never left the cell it was planted in -- it did not burrow at all");
     }
 
     #[test]
@@ -51972,6 +51984,22 @@ mod tests {
                 // the animal can step out of is not inexhaustible*. The moss
                 // arm already spans 72..148, so this also makes the two
                 // larders the same size, which they never were.
+                //
+                // **And it does not rot, which it did from round 29 until
+                // 2026-10-21.** `litter` weathers into soil through
+                // `decay.rs`, and measured that day the 400 painted cells
+                // were 144-148 by the end of the 2,000-frame settle and
+                // **0** by the end of the run, under either dice. So the
+                // "inexhaustible" arm was a larder that rotted out from
+                // under the ant, and its yield was set by which few cells
+                // happened to survive beside the spawn point: keying the
+                // decay dice per cell (`decay.rs`, plant-community step A1)
+                // changed nothing about the rot rate and moved this arm from
+                // 37 mouthfuls to 8, below the lawn's 12. The wall's claim
+                // is a ceiling on a stationary eater, so it must not be a
+                // function of the rot schedule; the lawn arm has no litter
+                // and is untouched.
+                w.materials.get_mut(leaf).decays_into = None;
                 for x in 70..150 {
                     for y in [104, 105, 106, 107, 110] {
                         w.set(x, y, Cell::new(leaf, 0).with_attached(true));

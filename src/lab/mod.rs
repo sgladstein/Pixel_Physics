@@ -5379,6 +5379,50 @@ mod tests {
         assert_ne!(grid_hash(&lab.world), parent, "a duplicate at a NEW seed came out identical — the seed is not reaching the copy, so a rack of replicates is one world wearing many labels");
     }
 
+    /// **One draw from the shared world stream must not reach the bed** (M1
+    /// A1, `Reports/plant-community-plan-2026-10-20.md`). The mister placed
+    /// its drops, and decay rolled every litter cell's fate, off `World::rng`
+    /// -- so one extra draw anywhere (a leaf's shade, a drop refused by a
+    /// grown plant) re-rolled the whole bed. Measured before the fix with
+    /// `plant_m0 mode=nudge`: one discarded draw at frame 1,000 and nothing
+    /// else changed, and by frame 60,000 the two copies differed in 20,899
+    /// cells across 504 of 512 columns, herbs 7 against 32. After it, zero.
+    ///
+    /// Three identical beds with litter laid on the soil, so decay rolls
+    /// inside the window. The third takes one draw from its shared stream
+    /// and throws it away. It must come out identical to the first.
+    #[test]
+    fn a_draw_from_the_shared_world_stream_does_not_reach_the_bed() {
+        const FRAMES: u32 = 1_500;
+        let bed = || {
+            let spec = rack_bed(7);
+            let mut lab = Lab::new(spec.clone());
+            let litter = lab.world.materials.id_of("litter").expect("litter ships");
+            for x in (8..spec.width - 8).step_by(3) {
+                lab.world.set(x, spec.ground_y - 1, crate::sim::cell::Cell::new(litter, 0));
+            }
+            lab
+        };
+        let mut a = bed();
+        run(&mut a, FRAMES);
+        // **Blind unless both channels fired** in the window: a bed with no
+        // rain placed and no decay rolled passes this whether or not either
+        // is keyed.
+        assert!(a.world.rain_cells > 0, "no rain fell in the window, so this cannot see the mister");
+        assert!(a.world.decayed_damp + a.world.decayed_dry > 0, "nothing decayed in the window, so this cannot see decay");
+        let mut twin = bed();
+        run(&mut twin, FRAMES);
+        assert_eq!(grid_hash(&twin.world), grid_hash(&a.world), "two identical beds came out different -- the comparison below means nothing");
+        let mut nudged = bed();
+        let _ = nudged.world.rng.next_u64();
+        run(&mut nudged, FRAMES);
+        assert_eq!(
+            grid_hash(&nudged.world),
+            grid_hash(&a.world),
+            "one draw from World::rng changed the bed: something in it rolls its dice off the shared stream again"
+        );
+    }
+
     /// **Turning the size row up gives you a bigger box**, end to end from
     /// the panel to the world's own bounds.
     ///

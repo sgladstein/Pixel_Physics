@@ -1,0 +1,7 @@
+plant_m0 plastic: species=grass frames=20000 seeds=6 (founder alone, trainer's lab bed, in-bed heredity off)
+  bright, wet  alive 6/6 | shoot 18.33+-4.50 height 5.67+-0.82 width 6.17+-1.33 leaf_share 0.98+-0.03 root 21.50+-6.09 root_depth 3.67+-0.52
+  dim, wet     alive 6/6 | shoot 11.50+-3.33 height 6.33+-2.66 width 5.33+-0.82 leaf_share 0.97+-0.05 root 15.50+-1.05 root_depth 3.83+-1.60
+  bright, dry  alive 6/6 | shoot 18.67+-2.94 height 6.33+-1.51 width 5.83+-0.75 leaf_share 1.00+-0.00 root 23.33+-4.37 root_depth 3.83+-0.41
+  dim, dry     alive 6/6 | shoot 14.50+-8.36 height 8.83+-5.12 width 5.50+-1.22 leaf_share 0.96+-0.06 root 15.17+-1.83 root_depth 3.17+-0.41
+  light: dim - bright  shoot -1.07 height +0.52 width -0.57 leaf_share -0.60 root -1.88 root_depth -0.28   (shift in units of the spread inside an arm)
+  water: dry - wet     shoot +0.29 height +0.52 width -0.08 leaf_share +0.21 root +0.14 root_depth -0.28   (shift in units of the spread inside an arm)

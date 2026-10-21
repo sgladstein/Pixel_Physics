@@ -79,8 +79,10 @@ arenas can be told apart from the soil arena by things that are not the world.
 
 ## What this changes
 
-- **For the brain lane's copy-then-select test**: the copy handed over (go-down into s171, 11.64, fetch and trail above
-  floor) is unaffected -- go-down's channel was clean.
+- **For the brain lane's copy-then-select test**: the copy handed over (go-down into s171, 11.64 full loads on my 96
+  worlds) does **not** clear the trainer's fetch floor on the brain lane's harness (worse side of 48 mirrored pairs:
+  17.62 against s171's 19.34 and a floor of 17.61) -- see step1-results; a copy anchored on more fetch states is being
+  built. Go-down's channel was clean, so this is a fetch-anchor problem, not a copying one.
 - **For dig**: test the cheapest capacity (one revived scorer unit, ~90 links) before anything else. If it holds the
   lesson without running the ant dry, dig copies; if not, dig is a lesson for selection with link protection.
 - **For walk home**: neither a sense nor capacity fixes it in the world. Leave the empty return trip to selection
@@ -89,4 +91,98 @@ arenas can be told apart from the soil arena by things that are not the world.
 - **For the arenas**: fetch being fed makes energy an arena tag. Worth the brain lane's knowing before any kept-skill
   floor is trusted as "the same brain doing two jobs".
 
-*Revive-one-unit results: to follow in this document.*
+## 4. The narrowest capacity: one revived scorer unit
+
+s161 uses 8 of its 16 scorer units. Arm (u1) lets the copier use one of the dead ones -- its 35 context and memory
+inputs, its 45 option-feature inputs, its verb row and its output (`revive_units`). **First build, a null result to
+keep:** the revived unit came out identical to arm (a) to every digit, because a unit with every weight at zero has an
+exactly zero gradient on both sides (zero output weight to its inputs; zero activation to its output). Its inputs are
+now seeded (sigma 0.3) with the output left at 0, so the start's policy is unchanged.
+
+| Dig copy | Full loads (start 6.42) | Fetch (start 16.66) | Held out: P(Dig) at the foot / at a wall (start in brackets) |
+|---|---|---|---|
+| (a) step 1 | 3.35 | 18.07 | 0.79 / 0.0193 (0.24 / 0.0104) |
+| (b) every slot free | 4.40 (runs dry) | 17.60 | 0.96 / 0.0079 |
+| **(u1) one revived unit** | **5.80** (-0.61 +- 0.45) | 17.26 (+0.60 +- 0.92) | 0.88 / 0.0137 (0.17 / 0.0129) |
+| (u2) two revived units | 5.91 (-0.51 +- 0.41) | 17.84 (+1.18 +- 0.88) | 0.84 / 0.0182 (0.25 / 0.0153) |
+
+(The held-out split differs between arms -- the seeding draws from the stream that picks held-out worlds -- so the
+start's own rates are given beside each.)
+
+**One unit removes most of the collapse** (3.35 -> 5.80) with fetch held: the dig lesson no longer takes over the wall.
+It does not yet *gain* alone, which is what the ceiling predicted -- dig and go-down are superadditive (dig alone +4.74
+acting, go-down +3.41, both +10.11). The test that matters is the two together with one revived unit; it is running.
+
+| Walk home copy | Full loads | Fetch |
+|---|---|---|
+| (a) step 1 | 7.03 | 11.46 |
+| (u1) one revived unit | 7.82 (+1.41 +- 0.44) | 10.47 (-6.19 +- 1.13) |
+
+A unit helps the soil lesson and does nothing for the spread into fetch -- consistent with the context probe: that
+spread is not a capacity problem.
+
+**Dig + go-down with one revived unit** -- the pair the ceiling says is superadditive:
+
+| Copy | Full loads | Fetch (start 16.66) |
+|---|---|---|
+| go-down alone (step 1) | 10.57 | 17.11 |
+| dig + go-down (step 1) | 9.32 | 11.50 |
+| **dig + go-down, one revived unit** | **10.67** (+4.25 +- 0.43) | **17.74** (+1.09 +- 0.86) |
+
+The revived unit removes the interference (fetch held, soil not below go-down alone) -- but dig still adds nothing on
+top of go-down, where acting it adds +6.7. The wiring problem is solved; the dig lesson's own gain is still missing.
+In held-out terms the copy now digs at the foot 0.86 and at the wall 0.0049 (start 0.17 / 0.0060), so it *does* the
+lesson on s161's states; what to look at next is whether it reaches the foot in its own runs (§1's measure).
+
+### Why dig still adds nothing: a discrimination limit, not a weight
+
+Traced in their own runs, the copies divide their trips like this (each trip down ends at its first cut):
+
+| Copy | Full loads | Foot cuts | Wall cuts | P(dig) at the foot | P(dig) at a wall, per decision | Takes the deepest step |
+|---|---|---|---|---|---|---|
+| start | 6.27 | 7.2 | 10.8 | 0.17 | 0.0135 | 0.22 |
+| go-down | 10.85 | 12.3 | 6.6 | 0.13 | 0.0107 | 0.51 |
+| dig + go-down, one unit | 11.33 | 12.8 | 5.6 | 0.57 | 0.0093 | 0.74 |
+
+The copy does both lessons; what it cannot do is stop cutting walls on the way down. A wall is offered on hundreds of
+decisions a run, so 0.009 a decision still spends ~9 of ~22 trips on wall, rim and recut cuts -- the trips the acting
+teacher's veto turns into foot cuts (16.9). Weighting the "don't dig here" decisions harder does not buy it:
+
+| Dig + go-down, one unit | Full loads | P(dig) at a wall (held out) | P(dig) at the foot | Go-down agreement |
+|---|---|---|---|---|
+| "don't dig here" x10 | 10.67 | 0.0049 | 0.86 | 0.73 |
+| x100 | 9.32 | 0.0041 | 0.79 | 0.57 |
+| x400 | 6.53 | 0.0035 | 0.43 | 0.36 |
+
+The wall rate barely moves while the other lessons drain away, because the same channel carries them and the dig score
+separates a foot cell from a wall at AUC 0.61. **So dig's last gap is a discrimination limit**: the ant needs
+something that marks the bottom of the hole. A local, biologically plausible candidate for the design (way out 4): the
+target cell is the lowest open-adjacent cell of the cavity the ant stands in -- what an ant at a tunnel's end feels by
+gravity and touch -- which is not on any option today (`f::DEPTH` is depth below the original ground, the same for a
+foot cell and a wall cell at that depth).
+
+## 5. Routing (from the research lane's audit)
+
+The research lane read s161's wiring and found **unit 14 is the brain's own empty-only unit**: `c::SPOIL` reaches it at
++31.7, so whenever the ant carries it sits saturated and flat (slope ~0.001), and it has no link from `f::HOME` (slot
+1252 is 0). Confirmed on the start genome used here. So a walk-home lesson routed through unit 14 would not reach
+loaded ants. Arms: (r1) slot 1252 alone on the allow-list; (r14) all 45 of unit 14's feature links. Neither can stop
+the spread into *empty* foragers, which unit 14 serves too -- and they did not:
+
+| Walk home copy | Full loads | Fetch |
+|---|---|---|
+| (a) step 1 | 7.03 | 11.46 |
+| (r1) + slot 1252 | 7.31 | 11.43 |
+| (r14) + all of unit 14's feature links | 7.67 | 10.26 |
+
+## 6. The kept-skill floor: why the go-down copy fails fetch on some worlds
+
+On the trainer's own fetch harness (96 worlds, worse side of each mirrored pair) s171 scores 19.34 and the go-down
+copy 17.62; heavier anchors (10x, 20x, plus the copy's own fetch runs) did not help (15.76, 17.51). **The loss is a few
+total failures, not a general slide**: s171 scores under 5 on 2 of 96 worlds, the copies on 5-12; away from those
+worlds the 20x copy is level with s171 (+0.13 a world). Traced on one such world (`fetch-copy.log`, world 44, score
+0.18): 661 of 675 decisions are walks, nearly all inside the nest (`at_nest` 1, `c::DEPTH` +0.27, the pre-dug chamber),
+with brief trips to the surface. **Go-down has spread to the empty forager in the nest**: "empty, below ground" is the
+lesson's trigger, and the forager keeps stepping deeper instead of climbing out. Under the worse-side fold the trainer
+uses, a few such worlds decide the floor. Being tested: those look-alike decisions (an empty ant below ground, in
+fetch) as their own heavily weighted anchor group (`keep_lookalike`).

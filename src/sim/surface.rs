@@ -175,6 +175,21 @@ pub trait CellSurface {
     /// incompleteness un-compilable rather than to test for it.
     fn soil_capillary_levels(&self) -> bool;
 
+    /// `World::soil_texture`: does a soil cell's palette family set how it
+    /// holds and sheds water (`material::SoilTexture`)? No default, for
+    /// `soil_capillary_levels`' reason above.
+    fn soil_texture(&self) -> bool;
+
+    /// `World::soil_drains_around`: does wet soil over a cell that holds no
+    /// water (a root, a stone) shed its surplus to a soil cell diagonally
+    /// below? No default, for the same reason.
+    fn soil_drains_around(&self) -> bool;
+
+    /// `World::soil_through_roots`: does soil water pass through plant
+    /// tissue to the soil on its far side, in both its drainage and its
+    /// capillary exchange? No default, for the same reason.
+    fn soil_through_roots(&self) -> bool;
+
     /// Clear a cell's moved flag once the sweep has skipped it. Always called
     /// on the position currently being visited.
     fn clear_moved(&mut self, x: i32, y: i32);

@@ -667,6 +667,50 @@ by somebody about to try it on creatures.
   herb never flowers** (its leader stops short of the ninth node), so the
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
+- [plant-community-m0-2026-10-20.md](plant-community-m0-2026-10-20.md)
+  — **M0 of the community plan, complete.**
+  **Today's lab bed holds one to three kinds of plant**, and the survivors
+  mostly do not replace themselves (42 beds, 450,000 frames). **Ants make room
+  for the annual herb** (5 of 8 beds with ants, 0 of 12 without).
+  **Grass fails at recruitment, and the seed piles are that failure.** Under
+  the lab default, seedlings on the pile are felled and grass dies out.
+  Under the owner's setting (load failure off) the pile never clears (40
+  deep) and grass carpets the bed. **The default mister floods every bed past
+  about 200,000 frames** (§Z38).
+  **The per-plant developmental key freezes the dice without shrinking them**
+  (one herb genome, one spot: 128–382 cells). **The shrub's stall-or-take-off
+  is traced:** bud break reads income per tick, not savings, so a seedling
+  that loses its tips early never restarts.
+  62–86% of shoot tips touch another plant. A grown bed copies exactly, and a
+  small arena costs about 0.1 core-seconds.
+
+- [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
+  — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
+  handoff carrying the state and the queue -- read that first.** Revision 4
+  came after M0 and an independent review (its §12: 2 blockers, 9 major,
+  4 minor, all accepted); supersedes the trainer plan's P2–P6. Revision 4 reorders M1: confirm the shared random stream, then the
+  watering, then a re-baseline with heredity truly off, then seeds sprouting
+  only on soil. Each role is scored on its own objective. The starting
+  species are remapped (canopy from tree or conifer, ground cover from
+  creeper, understory from shrub). The community rungs are gated on a steady
+  resident bed and a heritability check. The owner has since answered both
+  questions (load failure off in the training world; a shrub lifespan, the
+  creeper's held). The goal: a lab bed where **four
+  roles** coexist (canopy perennial, shade-tolerant understory, annual
+  colonist, clonal ground cover), proven by **mutual invasibility** rather than
+  a species count. **Part A** rebuilds development from how real plants grow:
+  phyllotaxis by rule, buds by apical dominance, sugar and light, shade
+  avoidance against tolerance, sun and shade leaves, root foraging, each
+  trait a **reaction norm** (a base gene and a sensitivity gene). It comes
+  first because clones a column apart range 134–387 cells today. **Part C** is
+  an ant-style ladder of seven rungs, from establishing in a pocket of soil
+  (about 0.3 core-seconds a bed) to invading a pre-grown bed copied per
+  candidate. Whole long beds are validation only. Google Cloud through PR 734's
+  launcher, $40 a month of a shared $100. The 2D slice is read as a thin
+transect through a 3D stand: light through foliage, passage past another
+plant, and seed stacking are each measured, then calibrated as the depth that
+cannot be drawn.
+
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
   — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
   independent adversarial review (its §12: 1 blocker, 13 major, 7 minor, each
@@ -5658,6 +5702,49 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   section: chambers are flat lenses 1-2 body lengths high, so the ladder's
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
+
+- [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
+  **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
+  size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
+  now a `noprune=@file` list, ~55 core-minutes). No 1/5 rule or self-adapted step size under this noise. The breeder's
+  equation puts the best split of 4,800 worlds near 200 brains × 24 worlds. CMA-ES only after a one-core-minute
+  recombined-mean test. Literature and offline arithmetic only.
+
+- [brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md](brain-training/research/q2-skill-ladder-without-forgetting-2026-10-21.md) —
+  **research lane, Q2: a skill ladder that does not forget.** Early 2019's "EWC for evolution" is a uniform L2 fitness
+  penalty, not lower mutation on important links, so `protect=` is not its analogue. A Fisher-style ranking of links
+  is worth having only if it predicts which deletions hurt (a predictive test is given). The `keepref=` gate vetoes on
+  noise near its 0.8 line; a log ramp from 0.75 to 0.85 keeps the floor without the coin-flip. POET, rehearsal pools
+  and lexicase are not needed yet.
+
+- [brain-training/research/q3-teaching-plus-selection-2026-10-21.md](brain-training/research/q3-teaching-plus-selection-2026-10-21.md) —
+  **research lane, Q3: why a copied lesson spreads, and how to teach a brain that is then selected.** In the copy start
+  the carrying sense gates one scorer unit, which has no link to "home", so the walk-home lesson reaches loaded and
+  empty ants alike: routing, not capacity (slot 1252 is the test, ~200 s). Why DAgger lowered both copies, what a
+  rollout teacher's label costs with common random numbers, Lamarckian against Baldwinian, and Eysenbach 2022's
+  correction to self-imitation. Each part was sent to the teacher lane as it was answered.
+
+- [brain-training/research/q4-colony-tasks-2026-10-21.md](brain-training/research/q4-colony-tasks-2026-10-21.md) —
+  **research lane, Q4: colony tasks, past the teacher lane's C1–C6.** Copied planners fail when trained in a thinner
+  crowd than they meet (Li 2020: 0.72 against 0.96), so match contacts per ant, not ant count (C7). In a tunnel, learners
+  collapse past four agents unless the scent field carries crowding (Aina & Ha 2025), so check the brain rests when
+  blocked before a tunnel rung (C8). Relabel only failed trips (C9). A few in-world pioneers can steer a colony through
+  scent (Pitteri 2026; C10). The parked dig-recruit rule dug more and shrank the colony, so build the planned building
+  scent and let selection decide.
+
+- [brain-training/research/q5-real-ant-sensing-2026-10-21.md](brain-training/research/q5-real-ant-sensing-2026-10-21.md) —
+  **research lane, Q5: which of the ant's senses are true to a real ant.** 61% of s171's sense weight is on local, true
+  readings; 24% is on the roof forecast and the dug-cell label. PR #751's touch bit replaces the roof forecast, and arching
+  around real tunnels explains why it works (Buarque de Macedo 2021). The CO2 depth template was refuted (Tschinkel 2013),
+  and s171 barely uses depth, so ablate it. The home vector is too exact (real error grows with distance). Ants sense a
+  quorum as a contact rate. The owner's 8–16-cell chamber spec is about four times real, so a height sense needs a reach
+  of at least 17.
+
+- [brain-training/research/field-map-and-ranked-list-2026-10-21.md](brain-training/research/field-map-and-ranked-list-2026-10-21.md) —
+  **research lane: the field map across Q1–Q5, and one ranked list of 21 tests.** For each training problem, the
+  families of answer the field offers and which fit this brain, with pointers to the evidence. Tests are tiered by cost
+  and ordered by what they decide for the work in flight: tiers 0 to 2 cost about 3.5 core-hours in all, and the three
+  Google runs about $3.50 together, each waiting on minutes-long tests that could make it unnecessary.
 
 ## Licensing and distribution
 

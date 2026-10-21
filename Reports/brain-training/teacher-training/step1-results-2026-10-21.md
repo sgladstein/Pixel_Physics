@@ -138,6 +138,45 @@ prizes on s171 are dig and walk home, the two lessons that did not copy cleanly 
 is the next test worth running, with the context probe of the teacher design (section 7) first, since walk home broke
 fetch by spreading to foragers.
 
+## The copy handed to the brain lane: go-down into s171
+
+For the brain lane's copy-then-select test (owner-approved): go-down copied into s171, fetch and trail anchored, the
+`f::ROOF_DROP` links frozen (the brain lane's request: load-bearing for s171). Soil on my 96 worlds: **9.47 -> 11.64
+(+2.17 +- 0.55)**, about 80% of go-down's acting gain on s171 (+2.65). Genome:
+`measurements/step1-runs/s171-copy/s171-down.txt`; revived links 699, 789, 834, 924, 1059, 1149, 1239 (`f::DEPTH`
+into live units) and 1498.
+
+**Fetch: first reported as meeting the floor, and it does not.** On my 48 fetch worlds it read 20.08 against s171's
+19.64. The brain lane scored it with the trainer's own harness (`train brain=mind challenge=fetch dist=10,30
+budget=1200 holdout=96 noise=1 score=`), 96 fresh worlds, each mirrored pair folded to its worse side as the trainer's
+floor is applied -- and reproduced here:
+
+| | Fetch mean (96) | Worse side (48 pairs) | Soil, brain lane's 96 fresh worlds |
+|---|---|---|---|
+| s171 | 20.57 | 19.34 +- 0.57 | 10.90 |
+| copy handed over | 19.37 | 17.62 +- 0.80 | 11.58 (+0.69 +- 0.53) |
+| 4x-anchor copy | 18.94 | 16.99 +- 0.94 | -- |
+
+The trainer's floor is 0.8 x keepref's calibration score (22.015) = 17.61, so the copy sits on it, which is not
+"meets". Two lessons kept: **judge a kept skill with the harness that enforces it**, folded the way it folds; and on
+these worlds the soil gain is about half what mine showed (+0.69 against +2.17), so a 96-world set is not one number
+either. **The fix (copy v2, `s171-down-v2.txt`).** Heavier fetch anchors alone made it worse (worse side 15.76 at 10x, 17.51
+at 20x): the loss was a few total failures -- the copy's forager, empty and inside the nest's chamber below ground,
+kept taking the deepest step (go-down's trigger) and never came out (step 0.5 §6). What fixed it: those look-alike
+fetch decisions (an empty ant below ground) as their own anchor group at 20x, drawn from s171's fetch runs on 80
+worlds and the copy's own, **plus one revived scorer unit**; `f::ROOF_DROP` frozen and never seeded.
+
+| s171 copy | Soil, my 96 worlds (s171 9.47) | Fetch worse side, trainer's harness (s171 19.34; floor 17.61) | Fetch worlds under 5 (of 96) | Trail worse side (s171 0.745) |
+|---|---|---|---|---|
+| v1, handed over first | 11.64 (+2.17 +- 0.55) | 17.62 +- 0.80 | 5 | -- |
+| look-alike anchor only | 10.36 (+0.90 +- 0.58) | 18.59 +- 0.72 | 3 | -- |
+| **v2: look-alike anchor + one unit** | **10.71 (+1.24 +- 0.51)** | **19.83 +- 0.26** | **0** | **0.731 +- 0.016** |
+
+v2 holds fetch better than s171 itself: same 96 layouts, mean 20.86 against 20.57, and on s171's own two failure
+worlds it scores 20.4 and 18.1 (s171: 1.7 and 3.6) -- the anchor taught "climb out of the nest" more firmly than s171
+had it. The price is about half the soil gain. Its 83 revived links (the 8 go-down links, unit 0's inputs, verb row and
+output) are in `s171-down-v2-revived.txt`.
+
 ## Where this leaves step 1
 
 Against the design's bars: the best copy (go down only, 10.57; repeated at 10.60 and 9.80) is in the "partial" band --
