@@ -5538,6 +5538,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/design/test-probe-design-2026-10-21.md](brain-training/design/test-probe-design-2026-10-21.md) —
+  **built (`probe=`, `test=`, `calib=`):** reserved test worlds (seeds 30,000+) and a progress probe that scores the
+  champion and the hold-best there every 10 generations into `test.csv`, read by nothing the run decides. Why: the
+  hold-out flatters what it picks (13.2-13.7 full loads on its 24 worlds against 10.8-12.3 on 72 never used).
 - [brain-training/design/noprune-design-2026-10-21.md](brain-training/design/noprune-design-2026-10-21.md) —
   **built (`noprune=`):** named slots selection may tune but never prune, for a selection run from a brain the teacher
   lane copied (its revived links: slot 1498 and `DEPTH` into live scorer units). A listed scorer input brings its unit's

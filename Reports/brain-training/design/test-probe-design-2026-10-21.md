@@ -1,6 +1,6 @@
 # Design: a reserved test set and a progress probe for the trainer
 
-*2026-10-21, brain lane, at the owner's request ("what is the correct way to do this?"). Status: design, for review.*
+*2026-10-21, brain lane, at the owner's request ("what is the correct way to do this?"). Status: **built**, after an independent review (one BLOCKER, three MAJOR, three MINOR; all taken -- see the end).*
 
 ## Why
 
@@ -48,3 +48,29 @@ claim and comparison is made on them.
   `holdout_layouts`, `sealed_layouts`, `calibration_layouts` at 10,000 each.
 - **Resume**: a run resumed partway writes the same `test.csv` as one that never stopped (rows of generations before
   the resume kept, the start re-scored once and identical).
+
+## Review and what changed (2026-10-21)
+
+- **BLOCKER, fixed:** a resume of a run saved before the probe (no `test.csv`) would have panicked in `rows_before`.
+  `test.csv` is opened by `rows_kept(.., missing_ok)`, which reads a missing file as empty; the others stay strict.
+  Guard `a_run_from_before_the_probe_resumes_with_it_on`, red with `missing_ok` ignored.
+- **MAJOR, fixed:** the start is written once per run (only when no `start` row survives a resume); probe rows are
+  written before the state is saved, as `holdout.csv`'s are.
+- **MAJOR, fixed:** in a gated suite the floor depends on how many units are scored, so 96 test worlds veto
+  differently from 24 hold-out worlds. `test.csv` carries `unfloored` (the product with no veto) beside `fit`, and the
+  `_under` flags in its parts.
+- **MAJOR, fixed:** `holdout=48` alone would also have moved the suite's calibration (references and floors), since
+  calibration used `holdout`'s size. **`calib=N`** sets calibration apart (default: `holdout`, as before; written into
+  the arena string when it differs), so the hold-out can grow with the floors where they were. `test=N` is a world
+  count of its own; `sealed=1` with `test=N` is refused.
+- **MINOR, taken:** the range check is a runtime assert in `train()` (`assert_training_clear_of_test`; run seed 0
+  reaches 30,000 after 58,000 layouts); the probe also scores **the generation's champion** (`who=champion`), which
+  neither selection chose, so a population moving ahead while the hold-out stalls shows; the hold-best's score is
+  cached while it stands; the guards zero the clock, check the layouts are the test range, and check the hold-best
+  row's `top_gen` and fit against the state with the hold-best from before the first probe (a probe of every
+  generation was blind to "probes the champion": at the generation the hold-best changes they are the same brain --
+  found by putting the fault back, fixed by probing every 4).
+
+**Launch arguments from now on (dig runs):** `holdout=48 calib=24` (validation grows; floors as calibrated before),
+probe at its default (every 10 generations, 96 test worlds). Judge by `test.csv` and by `score=` / `noise=1` with
+`test=96`, never by the hold-out.

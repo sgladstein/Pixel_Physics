@@ -781,6 +781,16 @@ pub struct Settings {
     /// `sigma` when it mutates; it is never set to 0. A listed scorer-unit
     /// input brings that unit's output weight with it ([`no_prune_mask`]).
     pub no_prune: Vec<usize>,
+    /// **The progress probe** (`probe=N`, every N generations and at the
+    /// last; 0 is off; 10 by default): the generation's champion and the
+    /// run's hold-best brain on [`test_layouts`]`(probe_worlds)`, written to
+    /// `test.csv` and read by nothing the run decides. The hold-out chooses
+    /// the best brain and when to stop, so it flatters what it chooses; this
+    /// is the run's progress on worlds nothing chose (design 2026-10-21).
+    /// About 0.3% of a dig generation at 10 and 96 worlds.
+    pub probe: usize,
+    /// The probe's world count ([`Settings::probe`]).
+    pub probe_worlds: usize,
     /// **The arena's own arguments**, as the command line gave them
     /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
     /// budget and the rest), for [`RunState`]: a resume under another
@@ -869,6 +879,8 @@ impl Default for Settings {
             protect: true,
             race: 0,
             no_prune: vec![],
+            probe: 10,
+            probe_worlds: 96,
             arena: String::new(),
         }
     }
@@ -914,6 +926,38 @@ pub fn holdout_layouts(n: usize) -> Vec<Layout> {
 pub fn sealed_layouts(n: usize) -> Vec<Layout> {
     (0..n as u64).map(|k| Layout { seed: 70_000 + k / 2, k, blind: false, legal: false }).collect()
 }
+/// **The reserved test worlds** (`probe=`, `test=` in `examples/train.rs`):
+/// seeds 30,000 and up, never used to choose anything -- not parents, not a
+/// run's best brain, not when to stop. Every progress claim and comparison
+/// is made here (design `Reports/brain-training/design/test-probe-design-
+/// 2026-10-21.md`). Why: whatever the hold-out picks is flattered there --
+/// the second 8-row round's hold-best brains read 13.2-13.7 full loads on
+/// the 24 hold-out worlds and 10.8-12.3 on 72 never used to pick anything.
+/// Clear of training as long as [`assert_training_clear_of_test`] holds, and
+/// of the hold-out (50,000+) for up to 40,000 layouts.
+pub fn test_layouts(n: usize) -> Vec<Layout> {
+    assert!(n <= 40_000, "test={n}: the test range ends where the hold-out starts (40,000 layouts)");
+    (0..n as u64).map(|k| Layout { seed: TEST_SEED + k / 2, k, blind: false, legal: false }).collect()
+}
+/// The first seed of [`test_layouts`].
+pub const TEST_SEED: u64 = 30_000;
+
+/// **A run's training worlds never reach the test range** (review of the
+/// probe design, 2026-10-21): run seed 0's training seeds climb from 1,000
+/// and reach 30,000 after 58,000 layouts (about 600 generations of 96).
+/// Checked at the start of every run, on the run's own last generation.
+pub fn assert_training_clear_of_test(run_seed: u64, gens: usize, layouts: usize) {
+    let top = training_layouts(run_seed, gens.saturating_sub(1), layouts).iter().map(|l| l.seed).max().unwrap_or(0);
+    let lo = training_layouts(run_seed, 0, layouts).iter().map(|l| l.seed).min().unwrap_or(0);
+    let test = TEST_SEED..TEST_SEED + 20_000;
+    assert!(
+        !(test.contains(&top) || test.contains(&lo) || (lo < TEST_SEED && top >= TEST_SEED + 20_000)),
+        "seed={run_seed} gens={gens} layouts={layouts}: training seeds {lo}..={top} reach the reserved test worlds ({}..{})",
+        test.start,
+        test.end
+    );
+}
+
 pub fn calibration_layouts(n: usize) -> Vec<Layout> {
     (0..n as u64).map(|k| Layout { seed: 90_000 + k / 2, k, blind: false, legal: false }).collect()
 }
@@ -1430,6 +1474,11 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let first = resumed.as_ref().map_or(0, |r| r.next);
     let mut progress = rows_before(&out.join("progress.csv"), &format!("gen,best,median,control,secs,{},links", parts.join(",")), first)?;
     let mut holdout = rows_before(&out.join("holdout.csv"), &format!("gen,who,fit,{}", parts.join(",")), first)?;
+    // The progress probe's file: rows kept as `holdout.csv`'s are, and the
+    // start written once per run (a resume finds its row and scores nothing).
+    let test_path = out.join("test.csv");
+    let mut test_rows = if set.probe > 0 { Some(rows_kept(&test_path, &format!("gen,who,fit,unfloored,top_gen,{}", parts.join(",")), first, true)?) } else { None };
+    let start_probed = std::fs::read_to_string(&test_path).is_ok_and(|t| t.lines().any(|l| l.split(',').nth(1) == Some("start")));
     let head = format!(
         "challenge={} unit={:?} ants={} frames={} {:?} banned={:?} trainable_slots={}",
         ch.name(),
@@ -1442,6 +1491,22 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     );
     println!("{head}");
     let hold = holdout_layouts(set.holdout);
+    let test = test_layouts(if set.probe > 0 { set.probe_worlds } else { 0 });
+    assert_training_clear_of_test(set.seed, set.gens, set.layouts);
+    let write_probe = |f: &mut std::fs::File, gen: usize, who: &str, s: &Score, top_gen: usize| -> std::io::Result<()> {
+        let p: Vec<String> = s.parts.iter().map(|p| format!("{p:.3}")).collect();
+        writeln!(f, "{gen},{who},{:.3},{:.3},{top_gen},{}", s.fit, ch.unfloored(s), p.join(","))
+    };
+    if let Some(f) = test_rows.as_mut() {
+        if !start_probed {
+            let s = score_rows(ch, &[(start.as_slice(), test.as_slice())], set.threads).remove(0);
+            write_probe(f, first, "start", &s, 0)?;
+            println!("    PROBE start    {:7.2} on {} test worlds", s.fit, test.len());
+        }
+    }
+    // The hold-best's probe score, kept while the hold-best stands: scoring
+    // is deterministic, so an unchanged genome costs nothing to re-report.
+    let mut top_probe: Option<(usize, Score)> = None;
 
     let elites = (set.pop / 4).max(1);
     let t0 = Instant::now();
@@ -1583,6 +1648,30 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 picture(ch, &champion, hold[0], &out.join(format!("pic-gen-{gen:03}.png")));
             }
             curves(out);
+        }
+
+        // **The progress probe** (before the state is saved, as the
+        // hold-out's rows are, so a run killed between the two writes them
+        // again on its resume): this generation's champion -- which the
+        // hold-out did not choose -- and the run's hold-best, on the test
+        // worlds. Nothing reads these rows.
+        if let Some(f) = test_rows.as_mut() {
+            if (gen + 1) % set.probe == 0 || gen + 1 == set.gens || stop {
+                let fresh_top = top_probe.as_ref().is_none_or(|(g, _)| *g != top_gen);
+                let mut todo: Vec<(&[f32], &[Layout])> = vec![(champion.as_slice(), test.as_slice())];
+                if fresh_top {
+                    todo.push((top_genome.as_slice(), test.as_slice()));
+                }
+                let mut got = score_rows(ch, &todo, set.threads).into_iter();
+                let champ = got.next().expect("the champion's probe");
+                if fresh_top {
+                    top_probe = Some((top_gen, got.next().expect("the hold-best's probe")));
+                }
+                let (tg, ts) = top_probe.as_ref().expect("a hold-best probe");
+                write_probe(f, gen, "champion", &champ, gen)?;
+                write_probe(f, gen, "top", ts, *tg)?;
+                println!("    PROBE champion {:7.2}  hold-best (gen {tg}) {:7.2}  on {} test worlds", champ.fit, ts.fit, test.len());
+            }
         }
 
         let parents: Vec<Vec<f32>> = ranked[..elites].iter().map(|&(_, g)| popn[g].clone()).collect();
@@ -1922,9 +2011,19 @@ pub fn fingerprint(g: &[f32]) -> u64 {
 /// state was saved; the resume runs that generation again, so its rows are
 /// written once.
 fn rows_before(path: &Path, head: &str, first: usize) -> std::io::Result<std::fs::File> {
+    rows_kept(path, head, first, false)
+}
+
+/// [`rows_before`], or with `missing_ok` a file a run saved before it
+/// existed (`test.csv` on a state from before the probe) read as empty
+/// rather than refusing the resume (review of the probe design, B1).
+fn rows_kept(path: &Path, head: &str, first: usize, missing_ok: bool) -> std::io::Result<std::fs::File> {
     let mut kept = format!("{head}\n");
     if first > 0 {
-        let old = std::fs::read_to_string(path)?;
+        let old = match std::fs::read_to_string(path) {
+            Err(e) if missing_ok && e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            r => r?,
+        };
         for l in old.lines().skip(1) {
             if l.split(',').next().and_then(|g| g.parse::<usize>().ok()).is_some_and(|g| g < first) {
                 kept.push_str(l);
@@ -2424,6 +2523,86 @@ mod tests {
         assert!(a.champion != start, "the champion moved off the start");
         assert!(a.parents.iter().any(|p| p != &a.parents[0]), "the parents differ");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **The progress probe changes nothing a run does, and reads the test
+    /// worlds and the hold-best** ([`Settings::probe`], review of its design,
+    /// 2026-10-21). The bowl at `probe` 1 and at 0: the same rows, champions,
+    /// hold-best and state but for the clock; the probed run alone writes
+    /// `test.csv`. Every row's layouts are the reserved ones (the bowl's part
+    /// is the mean layout seed); the hold-best's row carries the state's
+    /// `top_gen` and, the bowl's hold-out fit being the same function of the
+    /// genome on any hold-out-range world, the state's `top` -- and the
+    /// hold-best is from the first half, so a probe that read the champion
+    /// instead would fail.
+    #[test]
+    fn the_probe_changes_nothing_and_reads_the_test_worlds_and_the_hold_best() {
+        let dir = std::env::temp_dir().join(format!("train-probe-{}", std::process::id()));
+        let (on, off) = (dir.join("on"), dir.join("off"));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 6, pop: 8, layouts: 2, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, probe_worlds: 8, ..Settings::default() };
+        // Every 4 generations, not every one: the hold-best changes only
+        // where it is that generation's champion, so a probe of every
+        // generation cannot tell the two apart (the guard was blind to
+        // "probes the champion" at 1).
+        train(&bowl, start.clone(), &Settings { probe: 4, ..set.clone() }, &on).unwrap();
+        train(&bowl, start.clone(), &Settings { probe: 0, ..set.clone() }, &off).unwrap();
+        let read = |d: &Path, f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+        let untimed = |t: String| t.lines().map(|l| l.split(',').enumerate().filter(|&(i, _)| i != 4).map(|(_, c)| c).collect::<Vec<_>>().join(",")).collect::<Vec<_>>().join("\n");
+        assert_eq!(untimed(read(&on, "progress.csv")), untimed(read(&off, "progress.csv")));
+        for f in ["holdout.csv", "best.txt", "hold-best.txt", "champions/gen-005.txt"] {
+            assert_eq!(read(&on, f), read(&off, f), "{f}");
+        }
+        let state = |d: &Path, p| RunState { secs: 0.0, ..RunState::load(&d.join(STATE_FILE), &bowl, &Settings { probe: p, ..set.clone() }, &start) };
+        let st = state(&on, 4);
+        assert_eq!(st, state(&off, 0));
+        assert!(!off.join("test.csv").exists(), "the probe off writes no test.csv");
+        let rows: Vec<Vec<String>> = read(&on, "test.csv").lines().skip(1).map(|l| l.split(',').map(String::from).collect()).collect();
+        assert_eq!(rows.iter().filter(|r| r[1] != "start").map(|r| r[0].as_str()).collect::<Vec<_>>(), vec!["3", "3", "5", "5"], "probes at generation 3 and at the last");
+        for r in &rows {
+            let seed: f64 = r[5].parse().unwrap();
+            assert!((TEST_SEED as f64..50_000.0).contains(&seed), "a row scored off the test worlds: {r:?}");
+        }
+        let last_top = rows.iter().rev().find(|r| r[1] == "top").unwrap();
+        assert!(st.top_gen < 3, "the hold-best is from before the first probe (gen {}), so the probed champion is another brain", st.top_gen);
+        assert_eq!(last_top[4].parse::<usize>().unwrap(), st.top_gen);
+        assert!((last_top[2].parse::<f64>().unwrap() - st.top).abs() < 1e-3, "{} against {}", last_top[2], st.top);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **A run saved before the probe resumes with it on** (review of its
+    /// design, B1): three generations at `probe` 0, then three more resumed
+    /// at 1 -- `test.csv` did not exist and is started, with the start row
+    /// written once and the probed generations after the resume.
+    #[test]
+    fn a_run_from_before_the_probe_resumes_with_it_on() {
+        let dir = std::env::temp_dir().join(format!("train-probe-resume-{}", std::process::id()));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 6, pop: 8, layouts: 2, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, probe_worlds: 4, ..Settings::default() };
+        train(&bowl, start.clone(), &Settings { gens: 3, probe: 0, ..set.clone() }, &dir).unwrap();
+        assert!(!dir.join("test.csv").exists());
+        train(&bowl, start.clone(), &Settings { probe: 1, resume: true, ..set.clone() }, &dir).unwrap();
+        let text = std::fs::read_to_string(dir.join("test.csv")).unwrap();
+        let whos: Vec<(usize, String)> = text.lines().skip(1).map(|l| {
+            let c: Vec<&str> = l.split(',').collect();
+            (c[0].parse().unwrap(), c[1].to_string())
+        }).collect();
+        assert_eq!(whos.iter().filter(|w| w.1 == "start").count(), 1);
+        assert_eq!(whos.iter().filter(|w| w.1 == "champion").map(|w| w.0).collect::<Vec<_>>(), vec![3, 4, 5]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **Training never reaches the test worlds** ([`assert_training_clear_of_test`]):
+    /// run seed 0 at 700 generations of 96 layouts climbs into them and is
+    /// refused; the dig runs' settings are clear.
+    #[test]
+    fn training_seeds_that_reach_the_test_worlds_are_refused() {
+        assert_training_clear_of_test(191, 150, 48);
+        assert_training_clear_of_test(0, 400, 48);
+        let caught = std::panic::catch_unwind(|| assert_training_clear_of_test(0, 700, 96));
+        assert!(caught.is_err(), "seed 0 at 700 x 96 reaches seed 30,000 and must be refused");
     }
 
     /// **A resume is refused on another arena, another hold-out, with other
