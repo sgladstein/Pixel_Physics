@@ -1,0 +1,5 @@
+# examples/roof_cues genome=Reports/brain-training/stage2/dig/8/dig-8-s171-hold-best.txt, forecast then PIXEL_PHYSICS_ROOF_SENSE=touch
+wrote /tmp/claude-0/-home-claude-Pixel-Physics/40b8c535-7412-5798-beb6-3d5a5ef77251/scratchpad/fc.csv: 116388 Dig-option rows, 8186 flagged, 11671 with the engine's verdict
+wrote /tmp/claude-0/-home-claude-Pixel-Physics/40b8c535-7412-5798-beb6-3d5a5ef77251/scratchpad/tc.csv: 116388 Dig-option rows, 8186 flagged, 11671 with the engine's verdict
+3876df910ca7ccd2dd0d4fb17eb708a5  fc.csv
+3876df910ca7ccd2dd0d4fb17eb708a5  tc.csv

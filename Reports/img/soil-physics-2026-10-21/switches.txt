@@ -1,0 +1,56 @@
+# examples/soil_switches, 2026-10-21. Light rain (shipped default), then mister off.
+soil_switches seeds=[1, 2, 3] stops=[20000, 40000, 60000] colonies=1 DRY_ROOT_COST=off EMERGENCE_DEPTH=off
+seed 1 frame  20000 | plants 178 roots  1860 deepest  19 germ   83 | buried d0-2   4 d3-6   1 d7+   2 | front dry   22 part  142 wet 1143 mean@2 1.05 | s 27.5
+seed 1 frame  40000 | plants 493 roots  3176 deepest  37 germ  211 | buried d0-2  10 d3-6  12 d7+   3 | front dry   38 part  350 wet 1808 mean@2 1.07 | s 59.2
+seed 1 frame  60000 | plants 572 roots  2990 deepest  35 germ  293 | buried d0-2   1 d3-6   4 d7+   3 | front dry   72 part  735 wet 1614 mean@2 1.16 | s 108.1
+seed 2 frame  20000 | plants 151 roots  1461 deepest  20 germ   85 | buried d0-2   3 d3-6   1 d7+   0 | front dry    6 part  218 wet 1249 mean@2 1.05 | s 21.7
+seed 2 frame  40000 | plants 471 roots  2984 deepest  23 germ  235 | buried d0-2   7 d3-6   6 d7+   2 | front dry   19 part  394 wet 1908 mean@2 1.07 | s 53.1
+seed 2 frame  60000 | plants 715 roots  3226 deepest  53 germ  381 | buried d0-2   8 d3-6   6 d7+   1 | front dry   36 part  683 wet 2340 mean@2 1.10 | s 96.7
+seed 3 frame  20000 | plants 130 roots  1087 deepest  16 germ   65 | buried d0-2   2 d3-6   1 d7+   0 | front dry   11 part  111 wet  787 mean@2 1.05 | s 18.3
+seed 3 frame  40000 | plants 355 roots  1866 deepest  17 germ  201 | buried d0-2   7 d3-6   4 d7+   0 | front dry   18 part  209 wet 1145 mean@2 1.08 | s 37.6
+seed 3 frame  60000 | plants 533 roots  2568 deepest  29 germ  345 | buried d0-2  18 d3-6  15 d7+   8 | front dry   24 part  281 wet 1602 mean@2 1.07 | s 61.3
+
+soil_switches seeds=[1, 2, 3] stops=[20000, 40000, 60000] colonies=1 DRY_ROOT_COST=on EMERGENCE_DEPTH=off
+seed 1 frame  20000 | plants 145 roots  1426 deepest  21 germ   76 | buried d0-2   4 d3-6   3 d7+   0 | front dry   10 part  211 wet 1110 mean@2 1.06 | s 26.6
+seed 1 frame  40000 | plants 424 roots  2701 deepest  40 germ  197 | buried d0-2   9 d3-6  10 d7+   2 | front dry   19 part  332 wet 1980 mean@2 1.06 | s 57.6
+seed 1 frame  60000 | plants 560 roots  3128 deepest  80 germ  333 | buried d0-2   7 d3-6   8 d7+   5 | front dry   27 part  567 wet 2445 mean@2 1.07 | s 103.4
+seed 2 frame  20000 | plants 147 roots  1514 deepest  21 germ   75 | buried d0-2   3 d3-6   0 d7+   1 | front dry    6 part  274 wet 1259 mean@2 1.07 | s 21.0
+seed 2 frame  40000 | plants 380 roots  2735 deepest  32 germ  203 | buried d0-2  19 d3-6   6 d7+   1 | front dry   43 part  394 wet 1803 mean@2 1.08 | s 55.6
+seed 2 frame  60000 | plants 625 roots  3157 deepest  32 germ  349 | buried d0-2   5 d3-6   9 d7+   1 | front dry   48 part  597 wet 1886 mean@2 1.11 | s 95.0
+seed 3 frame  20000 | plants 128 roots  1110 deepest  16 germ   82 | buried d0-2   2 d3-6   0 d7+   0 | front dry    3 part  172 wet  964 mean@2 1.05 | s 19.8
+seed 3 frame  40000 | plants 389 roots  2394 deepest  34 germ  250 | buried d0-2   8 d3-6  11 d7+   2 | front dry   33 part  336 wet 1544 mean@2 1.08 | s 48.8
+seed 3 frame  60000 | plants 492 roots  2916 deepest  35 germ  453 | buried d0-2  19 d3-6  20 d7+   6 | front dry   52 part  613 wet 2006 mean@2 1.12 | s 82.5
+
+soil_switches seeds=[1, 2, 3] stops=[20000, 40000, 60000] colonies=1 DRY_ROOT_COST=off EMERGENCE_DEPTH=on
+seed 1 frame  20000 | plants 178 roots  1860 deepest  19 germ   83 | buried d0-2   4 d3-6   1 d7+   2 | front dry   22 part  142 wet 1143 mean@2 1.05 | s 27.3
+seed 1 frame  40000 | plants 492 roots  3208 deepest  36 germ  208 | buried d0-2  11 d3-6  14 d7+   3 | front dry   34 part  359 wet 1786 mean@2 1.08 | s 65.9
+seed 1 frame  60000 | plants 559 roots  3358 deepest  34 germ  275 | buried d0-2   3 d3-6   2 d7+   2 | front dry   38 part  619 wet 1797 mean@2 1.11 | s 111.5
+seed 2 frame  20000 | plants 151 roots  1461 deepest  20 germ   85 | buried d0-2   3 d3-6   1 d7+   0 | front dry    6 part  218 wet 1249 mean@2 1.05 | s 21.5
+seed 2 frame  40000 | plants 481 roots  2886 deepest  36 germ  240 | buried d0-2  14 d3-6   8 d7+   2 | front dry   30 part  402 wet 1999 mean@2 1.07 | s 52.1
+seed 2 frame  60000 | plants 724 roots  3026 deepest  56 germ  431 | buried d0-2  13 d3-6   4 d7+   2 | front dry   30 part  649 wet 2196 mean@2 1.10 | s 102.2
+seed 3 frame  20000 | plants 130 roots  1087 deepest  16 germ   65 | buried d0-2   2 d3-6   1 d7+   0 | front dry   11 part  111 wet  787 mean@2 1.05 | s 17.3
+seed 3 frame  40000 | plants 355 roots  1866 deepest  17 germ  201 | buried d0-2   7 d3-6   4 d7+   0 | front dry   18 part  209 wet 1145 mean@2 1.08 | s 38.2
+seed 3 frame  60000 | plants 500 roots  2242 deepest  33 germ  330 | buried d0-2   7 d3-6  14 d7+   4 | front dry   29 part  283 wet 1442 mean@2 1.08 | s 62.3
+
+soil_switches seeds=[1, 2, 3] stops=[20000, 40000, 60000] colonies=1 rain=Off DRY_ROOT_COST=off EMERGENCE_DEPTH=off
+seed 1 frame  20000 | plants 139 roots  1952 deepest  29 germ   78 | buried d0-2   2 d3-6   5 d7+   0 | front dry   34 part  400 wet 1344 mean@2 1.11 | s 17.2
+seed 1 frame  40000 | plants 518 roots  3454 deepest  39 germ  162 | buried d0-2  18 d3-6  11 d7+   7 | front dry  181 part  630 wet 1887 mean@2 1.16 | s 38.0
+seed 1 frame  60000 | plants 748 roots  3805 deepest  39 germ  194 | buried d0-2  10 d3-6  19 d7+  11 | front dry  434 part 1120 wet 1755 mean@2 1.29 | s 77.6
+seed 2 frame  20000 | plants 103 roots  1371 deepest  26 germ   43 | buried d0-2   0 d3-6   0 d7+   0 | front dry   37 part  330 wet 1017 mean@2 1.14 | s 13.7
+seed 2 frame  40000 | plants 370 roots  3418 deepest  48 germ  127 | buried d0-2   8 d3-6  15 d7+   2 | front dry  108 part  603 wet 1920 mean@2 1.14 | s 31.4
+seed 2 frame  60000 | plants 643 roots  3265 deepest  64 germ  177 | buried d0-2  28 d3-6  24 d7+   6 | front dry  335 part  926 wet 1550 mean@2 1.29 | s 59.0
+seed 3 frame  20000 | plants 105 roots  1285 deepest  20 germ   49 | buried d0-2   0 d3-6   0 d7+   0 | front dry   20 part  243 wet  937 mean@2 1.12 | s 11.4
+seed 3 frame  40000 | plants 318 roots  2277 deepest  35 germ   93 | buried d0-2  10 d3-6  10 d7+   1 | front dry  106 part  526 wet 1337 mean@2 1.19 | s 26.4
+seed 3 frame  60000 | plants 492 roots  2759 deepest  42 germ  145 | buried d0-2  12 d3-6  18 d7+   3 | front dry  229 part  742 wet 1166 mean@2 1.30 | s 51.0
+
+soil_switches seeds=[1, 2, 3] stops=[20000, 40000, 60000] colonies=1 rain=Off DRY_ROOT_COST=on EMERGENCE_DEPTH=off
+seed 1 frame  20000 | plants 152 roots  1872 deepest  23 germ   63 | buried d0-2   1 d3-6   0 d7+   0 | front dry   40 part  404 wet 1247 mean@2 1.13 | s 14.7
+seed 1 frame  40000 | plants 457 roots  2892 deepest  51 germ  129 | buried d0-2  13 d3-6  13 d7+   1 | front dry  193 part  914 wet 1671 mean@2 1.23 | s 33.5
+seed 1 frame  60000 | plants 628 roots  2724 deepest  51 germ  151 | buried d0-2  13 d3-6  18 d7+   7 | front dry  265 part  763 wet 1335 mean@2 1.28 | s 64.8
+seed 2 frame  20000 | plants 157 roots  1830 deepest  20 germ   68 | buried d0-2   3 d3-6   2 d7+   4 | front dry   23 part  385 wet 1260 mean@2 1.13 | s 13.7
+seed 2 frame  40000 | plants 454 roots  3685 deepest  40 germ  187 | buried d0-2  14 d3-6  15 d7+   7 | front dry  123 part  716 wet 1890 mean@2 1.16 | s 33.0
+seed 2 frame  60000 | plants 724 roots  3654 deepest  52 germ  246 | buried d0-2  17 d3-6  33 d7+  14 | front dry  348 part 1006 wet 1766 mean@2 1.27 | s 55.9
+seed 3 frame  20000 | plants 134 roots  1436 deepest  23 germ   91 | buried d0-2   1 d3-6   2 d7+   0 | front dry   37 part  311 wet  997 mean@2 1.13 | s 12.1
+seed 3 frame  40000 | plants 375 roots  2446 deepest  34 germ  178 | buried d0-2  16 d3-6   9 d7+   1 | front dry  161 part  593 wet 1448 mean@2 1.22 | s 29.4
+seed 3 frame  60000 | plants 548 roots  2340 deepest  37 germ  224 | buried d0-2  12 d3-6  21 d7+   9 | front dry  265 part  793 wet 1291 mean@2 1.30 | s 50.9
+
