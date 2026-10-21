@@ -5547,7 +5547,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   mutation size (child-parent correlation 0.05; two good brains 0.12 — the
   noise is the run's own luck); all three dig corrections are copyable from
   the brain's own inputs (94-100% held out, brain today 53-55%), and 65% of
-  s161's digs at 8 rows are made with no foot cell in reach.
+  s161's digs at 8 rows are made with no foot cell in reach. The ceiling
+  test (2026-10-21): the hand-written teacher driving s161 — dig only at
+  the foot, go down, walk home — reaches 20.5 full loads a world against
+  6.8; a veto without a replacement stranded the ant mid-shaft, and
+  "put down sooner" hurt alone because the brain's carry and its turn home
+  are coupled. GIFs in `measurements/`.
 
 ## Licensing and distribution
 

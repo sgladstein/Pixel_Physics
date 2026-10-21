@@ -2,8 +2,7 @@
 
 *Written 2026-10-20 by the teacher-approach session (claims checked through PubMed and SciSpace the same day:
 [`notes/verification-pass.md`](notes/verification-pass.md), 14 of 17 verified, 2 corrected and applied here), at the owner's request, after the discussion opened by
-`Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines; steps 0a and 0b measured
-the same day ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)), nothing else built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
+`Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines; steps 0a, 0b and the ceiling test (0c, 2026-10-21) measured ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)), nothing else built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
 abstract level -- see its caveat) and the brain lane's investigation (`Reports/brain-training/investigation-2026-10-20.md`
 on the same branch), cited below as "investigation part N".*
 
@@ -25,6 +24,10 @@ frames would cost roughly $40-50 at today's settings ($0.65 x 1.7 for four ants 
 generations) -- half the budget for one experiment. With the levers below it is plausibly $5-15 -- an estimate, which
 needs racing and copying together to deliver 3-8x on our simulator (paired worlds, once counted among them, measured no
 saving: see below). Without them, colony training happens once or twice, total.
+
+**What a teacher is worth, measured (2026-10-21):** three hand-written rules driving s161 directly -- dig only at the
+foot, go down, walk home -- take it from 6.8 to **20.5 full loads a world at 8 rows (3.0x)**, with no world under 3
+(T9). That is the ceiling copying is aiming at.
 
 **Three cheap measurements decide how the budget should be split**, and all three can be taken locally, without VMs:
 
@@ -85,13 +88,19 @@ better (Hinton et al. 2015; Rusu et al. 2016). It also fits the house law that a
 
 Where the teacher has no confident answer it **abstains**, and that decision contributes nothing to the copy loss. This is
 what keeps the long tail out (the ant on a ledge, the pellet falling back, two rules fighting): the teacher writes rules
-only for the decisions we can state exactly. For the 8-row dig step that is three, all from investigation part 1:
+only for the decisions we can state exactly. For the 8-row dig step the ceiling test (T9) settled it at **three
+rules, one of which investigation part 1 did not predict**:
 
-1. **Where to dig**: only where a foot cell is in reach (3.2 wasted wall trips a world at 4 rows, 5.6 at 8). Measured:
-   this is a dig-or-not call, not a pick among cells -- the cells in reach are almost never a mix, and 65% of s161's
-   digs at 8 rows are made with no foot cell in reach.
-2. **When to put a load down**: about 4-5 columns out, not the median 10.
-3. **When an empty ant turns back**: sooner (45% of its surface time is 10+ columns out).
+1. **Dig only where a foot cell is in reach** (3.2 wasted wall trips a world at 4 rows, 5.6 at 8). A dig-or-not call,
+   not a pick among cells: the cells in reach are almost never a mix, and 65% of s161's digs at 8 rows are made with no
+   foot cell in reach. Alone: +4.74 full loads.
+2. **Go down when empty below ground with no foot cell in reach.** Not in the original list: without it, rule 1 strands
+   the ant mid-shaft (T9). With rule 1: +10.11.
+3. **Walk home when empty on the surface.** With rules 1-2: +13.74 -- 20.5 full loads a world against 6.8.
+
+**Put the load down at the first clear spot -- dropped.** Investigation part 1 read the 10-column carry as waste; the
+ceiling test says it is coupled to the turn home (alone it cost -0.97), and with walk-home taught it adds only +0.4
+while stacking pellets into posts beside the mouth. Not taught until it builds a heap.
 
 ### T4. Selection stays the judge
 
@@ -155,6 +164,28 @@ The handoff's test stands, with three additions:
    out. Full loads are too noisy to see one correction.
 3. **The one-day time box is a measurement**: record what the day produced and what it did not, as evidence on how hard
    the teacher is to write.
+
+### T9. Run the teacher before copying it -- the ceiling test
+
+**A bad teacher makes a bad student, and the only way to find out whether a teacher is good is to let it drive.**
+Before any copying, put the teacher's rules into the running simulation, have them make their calls while the current
+brain makes every other decision, and score it on the same worlds as the brain alone. That number is the ceiling:
+what copying could at most deliver. Run every rule alone and in combination, count every force and veto (an arm whose
+teacher never fired is not a result), check the teacher-off arm reproduces the brain to the last digit, and look at a
+GIF. The first ceiling test (2026-10-21, [`measurements-2026-10-20.md`](measurements-2026-10-20.md) section 3) taught
+three things a teacher designed on paper got wrong:
+
+- **A veto needs a replacement.** Forbidding a bad habit leaves the student whatever it did around the habit. Vetoing
+  wall cuts stranded the ant mid-shaft in 9 of 96 worlds, because the brain had only ever got down by digging. Every
+  "don't" in a teacher needs a "do this instead" in the same situation.
+- **Behaviours the brain has coupled must be taught together.** "Put the load down sooner" cost loads alone, because
+  the brain's turn home fires only after it has gone far; taught alongside walk-home it helped. Before writing a rule,
+  ask what the behaviour it removes was *also* doing -- the same lesson as CLAUDE.md's "a fix exposes a constant that was
+  compensating", applied to a teacher.
+- **Look at it.** The put-down rule scored inside the noise and built two posts beside the mouth. Numbers alone would
+  have kept it; the picture says it is not what an ant does.
+
+The ceiling test is cheap (two minutes on 4 cores for 96 worlds), so it runs after every change to a rule, not once.
 
 ## Guidelines for colony behaviours
 
@@ -282,7 +313,8 @@ Two notes on the table:
 |---|---|---|---|
 | 0a | **Done**: rho of parent and children on the same 96 worlds | No | Pairing saves nothing at the trainer's step size |
 | 0b | **Done**: logger extended to every option; copyability probe on the three dig corrections, both controls | No | All three are teachable from the brain's own inputs |
-| 1 | The one-day partial teacher and self-imitation, copied offline, judged against s161 over 96 worlds with the round-trip control (T8) | No | Whether copying beats selection for a dig step |
+| 0c | **Done**: the ceiling test (T9) -- the teacher driving s161 | No | Dig + go down + walk home is worth 3.0x (20.5 vs 6.8 full loads); put-down dropped |
+| 1 | Copyability of "go down"; then the teacher (dig, down, home) and self-imitation, copied offline, judged against s161 over 96 worlds with the round-trip control (T8) | No | Whether copying reaches the ceiling, and how much of it |
 | 2 | Racing to the cut line on raw scores, A/B'd against the current trainer | Yes, short | The evaluation saving, measured |
 | 3 | First colony arena, **varying the world**: 4 ants, two work sites, with and without a switching cost; does a split appear with a solo-trained brain plus `SELF`/`AGE`? Measure the cheap-vs-full rank correlation alongside | Yes | Whether colony training is affordable, and whether the arena makes castes pay |
 | 4 | Room sizing at 2-8 ants with the crowding threshold teacher; acceptance test N vs 2N | Yes | Whether crowd behaviour can be taught |

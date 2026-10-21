@@ -1,9 +1,9 @@
-# Teacher training, measurements 1 and 2: paired worlds, and what a teacher can teach
+# Teacher training, measurements 1-3: paired worlds, what a teacher can teach, and what the teacher is worth
 
 *Measured 2026-10-20 by the teacher-approach session, locally (4 cores, no VMs), on s161 gen 336
 (`Reports/brain-training/stage2/dig/4b4/dig-4b4-s161-g340-hold-best.txt`) at the current training step: 8-row shaft,
 12,000 frames, budget 2400. The plan these feed is [`guidelines-2026-10-20.md`](guidelines-2026-10-20.md); the tools and
-raw data are in [`measurements/`](measurements/). Status: **done; both change the plan.***
+raw data are in [`measurements/`](measurements/). Status: **done; all three change the plan.** Measurement 3, the ceiling test, ran 2026-10-21.*
 
 ## The answer, first
 
@@ -19,6 +19,14 @@ raw data are in [`measurements/`](measurements/). Status: **done; both change th
    cells in reach are almost never a mix of foot and wall (9 mixed decisions of 535). **65% of its digs are made where no
    foot cell is in reach**, and where one is, it digs only 20% of the time. The teacher's correction belongs to "dig here
    or not", not to "which cell".
+
+4. **A teacher that only forbids strands the student.** Run directly on s161 (the teacher makes its calls, the brain
+   does the rest), the first teacher's dig rule alone was worth +4.74 full loads, but paired with walk-home it collapsed
+   9 of 96 worlds to under 3: with its wall cuts vetoed the ant walked up and down the shaft for 6,000 frames and never
+   reached the foot -- s161 had only ever got down by digging. One more rule, **go down when empty below ground with no
+   foot cell in reach**, fixed it: **dig + go down + walk home reaches 20.5 full loads a world against the brain's 6.8
+   (3.0x), with no world under 3.** The put-down rule hurt on its own (-0.97) and helps only beside walk-home (+0.4):
+   the brain's long carry and its turn home are coupled.
 
 ## Measurement 1: are a parent and its children correlated on the same worlds?
 
@@ -60,7 +68,7 @@ with the worlds shuffled -- mean correlation -0.002 to -0.008.
 
 ## Measurement 2: can the brain copy a teacher's call from what it senses?
 
-**Setup.** The brain lane's decision logger extended (`measurements/option-logger.patch`, scratch, never for main) to
+**Setup.** The brain lane's decision logger extended (`measurements/option-logger-and-teacher.patch`, scratch, never for main) to
 write, per decision, **every Walk, Dig and Drop option** with its 45 features and the brain's score for it, and per
 world the privileged facts a teacher reads: the frame-0 ground, the depth datum, the founding hole. The extended logger
 does not change behaviour: the logged run gives 159 full loads over the 24 sealed worlds, 6.6 a world, the brain lane's
@@ -103,12 +111,76 @@ negative control reads 0.49 against a uniform floor of 0.40: walk options share 
 "towards the middle of the box"), and a model learns that prior from any world's labels. The teacher's 0.995 is far
 above both.
 
+## Measurement 3: the ceiling test -- what is a teacher worth if the brain followed it exactly?
+
+**Setup.** The hand-written teacher, built into the scratch branch (`measurements/option-logger-and-teacher.patch`,
+`scratch_log::teach` and `walk_home` in `mind.rs`), makes its calls *in the running simulation* while s161 makes every
+other decision. `PP_TEACH=dig,down,home,drop[,margin=N]` turns each rule on. It reads only what measurement 2 showed the
+ant can sense -- the frame-0 ground, depth, the hole as it stands -- handed over by the soil arena for the run's frames and
+**taken away before the scored settle**. Rules (a veto removes a verb and lets the brain redraw from what is left, so
+the teacher never invents behaviour where it abstains):
+
+| Rule | Force | Veto | Abstains |
+|---|---|---|---|
+| **dig** | empty jaws, a foot cell in reach: dig the deepest | a dig with no foot cell in reach | shut in (no Walk offered) |
+| **down** | empty, below ground, no foot cell in reach: the deepest step, if it is deeper | -- | no deeper step |
+| **home** | empty, on the surface, 3+ columns from the mouth, walking: the step nearest the mouth's column | -- | within 3 columns of the mouth |
+| **drop** | carrying, a put-down 3+ cells clear of the hole offered: the clear one nearest the hole | a put-down inside the zone | shut in |
+
+**Checks that it ran.** Every arm counts its forces and vetoes (all six rules fired in every arm that had them); the
+teacher-off arm reproduces 6.80 with every counter at 0; decisions with the teacher on but no facts number 381 a world,
+the settle's share (2,000 frames), so none escaped it; a rerun of one arm reproduces to the last digit. *One false start,
+recorded because CLAUDE.md predicts it:* the first traced run of the drop rule was identical to the brain alone line for
+line -- the logging binary had not been rebuilt after the teacher was added.
+
+**Results** (s161 gen 336, 96 training-style worlds, 8-row shaft, 12,000 frames; unpaired, per measurement 1):
+
+| Rules on | Full loads a world | vs brain alone | Worlds under 3 | p10 / median / p90 | Worlds at 10+ |
+|---|---|---|---|---|---|
+| none (brain alone) | 6.80 +- 0.32 | -- | 6 | 3 / 6 / 11 | 20 / 96 |
+| drop | 5.83 +- 0.27 | -0.97 +- 0.41 | 5 | 3 / 6 / 9 | -- |
+| drop, margin 1 | 5.84 +- 0.26 | -0.96 +- 0.41 | -- | -- | -- |
+| home | 8.36 +- 0.30 | +1.56 +- 0.44 | 5 | 5 / 9 / 12 | -- |
+| down | 10.21 +- 0.29 | +3.41 +- 0.43 | -- | -- | -- |
+| dig | 11.54 +- 0.34 | +4.74 +- 0.46 | 2 | 7 / 12 / 15 | 72 / 96 |
+| dig, home | 10.59 +- 0.66 | +3.79 +- 0.73 | 9 | 3 / 11 / 20 | -- |
+| dig, drop, home | 12.74 +- 0.67 | +5.94 +- 0.74 | 7 | 4 / 13 / 21 | -- |
+| dig, drop, home, margin 1 | 10.10 +- 0.61 | +3.30 +- 0.69 | -- | -- | -- |
+| dig, down | 16.92 +- 0.23 | +10.11 +- 0.39 | 0 | 15 / 17 / 19 | 94 / 96 |
+| **dig, down, home** | **20.54 +- 0.27** | **+13.74 +- 0.42** | **0** | **19 / 21 / 22** | **94 / 96** |
+| dig, down, home, drop | 20.96 +- 0.25 | +14.16 +- 0.40 | 0 | 20 / 21 / 23 | 94 / 96 |
+
+**Why each failure, traced.**
+
+- **drop alone hurts** (24 sealed worlds, every pellet traced): the carry up got shorter (surface carrying 18.5% ->
+  7.3% of decisions; foot cut to put-down median 270 -> 220 frames) but the way back down got longer (put-down to next
+  foot cut median 655 -> 992 frames; empty on the surface 46% -> 58%), and foot cuts fell 7.5 -> 6.6 a world. The
+  brain's turn home fires late, after it has gone far: put the load down at 4 columns and the empty ant walks on
+  anyway. A wider clearance (margin 1) changes nothing, so it is not pellets sliding back. With walk-home taught too,
+  drop becomes a small gain.
+- **dig + home collapses some worlds** (sealed world 2 traced decision by decision): zero wall cuts in every world --
+  the dig rule did its job -- but in 6 of 24 worlds the ant made 1-2 foot cuts and then spent 6,000+ frames walking up
+  and down the 2-wide shaft between 1 and 7 rows down, a step down offered almost every time, never reaching the foot
+  (12 decisions at depth 8, against 600+ in good worlds). No fallen pellet blocked it: every dig target it was offered
+  was wall or rim. The brain had never learned to descend; it got down by cutting whatever wall was beside it. The
+  veto took the habit away and nothing replaced it. **down** is the replacement.
+
+**What the owner should look at** (sealed world 2, 12,000 frames, a frame every 60): `measurements/brain-vs-teacher-world2.gif`
+-- s161 alone (wall cuts scattered round the shaft) against s161 with dig, down and home (a clean shaft cut at the
+foot); and `measurements/teacher-putdown-world2.gif` -- the teacher with and without the drop rule. **The drop rule
+stacks pellets into two posts beside the mouth** (the "first clear spot" is the same spot each time), where the brain's
+own put-downs spread into a low heap. It adds +0.4 loads, inside the noise; a posts-shaped mound is not what real ants
+build, so it should not be taught as it stands.
+
 ## What changes in the plan
 
 - **Guidelines, cost table:** paired worlds move from "the cheapest win" to *measured, no saving at the trainer's step
   size*; the reason (per-world noise is trajectory luck) moves into the case for copying.
 - **Guidelines T3:** the first correction is "dig only where a foot cell is in reach" (a dig-or-not call), not "which
   cell to cut".
+- **The teacher to copy is dig + down + home** (drop out until it builds a heap rather than posts), and **go down**
+  needs a copyability check before it is copied -- it was not one of the probe's decisions (prediction: copyable, since
+  every walk option carries `DEPTH`).
 - **Next (step 1 of the plan):** the one-day partial teacher for D1b, D2 and D3, copied offline onto s161 with the
   round-trip control. Judge the copy against s161 by **unpaired means over many worlds** (96, with their standard
   errors), not by a paired test: measurement 1 shows a brain that behaves differently decorrelates from its source.
@@ -117,7 +189,7 @@ above both.
 
 ```
 # worktree from scratch/brain-instruments, patch applied
-git apply Reports/brain-training/teacher-training/measurements/option-logger.patch
+git apply Reports/brain-training/teacher-training/measurements/option-logger-and-teacher.patch
 cargo build --release --example train --example reliab --example mutants   # mutants: measurements/mutants.rs.txt
 # measurement 1
 target/release/examples/mutants parent.txt 30 4242 kids                     # the trainer's rule
@@ -127,4 +199,9 @@ python3 -I rho.py rho8.csv parent.txt parent-copy.txt s162-g338.txt
 PP_MIND_LOG=s161-8row.log PIXEL_PHYSICS_MUTATION=off target/release/examples/train brain=mind challenge=soil step=4 \
   shaft=8 foot=1 budget=2400 frames=12000 holdout=24 sealed=1 start=parent.txt score=parent.txt threads=1 noise=1
 python3 -I -u probe.py s161-8row.log 4 D1b      # then D2, D3; ~15-20 min each, single-threaded numpy
+# measurement 3 (rebuild BOTH examples after applying the patch)
+PP_TEACH=dig,down,home target/release/examples/reliab 8 12000 dig_down_home.csv parent.txt   # ~2 min; prints the teacher's counts
+python3 -I arms.py none.csv dig_down_home.csv
+PP_TEACH=dig,down,home PP_GIF_EVERY=60 PP_GIF_DIR=frames PP_GIF_SEALED=2 target/release/examples/train ... pic=x.png score=parent.txt
+python3 -I mkgif12.py <dir> out.gif 96 50 64 30 5 <sub1> "<label1>" <sub2> "<label2>"
 ```
