@@ -5554,13 +5554,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   "put down sooner" hurt alone because the brain's carry and its turn home
   are coupled. GIFs in `measurements/`.
   [step1-copy-design-2026-10-21.md](brain-training/teacher-training/step1-copy-design-2026-10-21.md)
-  — **design doc, for adversarial review, not built:** copying the
-  three-rule teacher (dig at the foot, go down, walk home) into s161 by
-  gradient descent on its own choice probabilities, labelled by the same
-  Rust teacher in a label-only mode, with an anchor to s161 where the
-  teacher abstains; bar: half the ceiling's gain (13.7 full loads) with
-  kept skills at the floor. Self-imitation arm alongside (its labels are
-  100% pure on digs but cannot supply the 748 "dig here" calls).
+  — **design doc v2, revised after adversarial review, not built:**
+  copying the three-rule teacher (dig at the foot, go down, walk home)
+  into s161 by KL to the ceiling policy as a distribution on every
+  decision, live links plus an allow-list only (revived links are billed
+  as energy), one-step memory path; bar 12.5 full loads, half the
+  *reachable* gain (a strict floor-limited ceiling of 18.23 at scores
+  of +-0.9). Self-imitation arm alongside with the same rounds.
+  [step1-review-2026-10-21.md](brain-training/teacher-training/step1-review-2026-10-21.md)
+  — **the review's disposition**: three reviews (method, evidence,
+  code), 16 BLOCKER/MAJOR findings all accepted, and the checks they
+  asked for: the memory-consistent ceiling (20.66 +- 0.37, seed-
+  clustered), a smooth compliance curve (half the calls give 60% of the
+  gain), the floor-limited arms; one diagnosis withdrawn.
 
 ## Licensing and distribution
 

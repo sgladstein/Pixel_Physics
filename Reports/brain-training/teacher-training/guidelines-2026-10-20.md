@@ -94,7 +94,7 @@ rules, one of which investigation part 1 did not predict**:
 1. **Dig only where a foot cell is in reach** (3.2 wasted wall trips a world at 4 rows, 5.6 at 8). A dig-or-not call,
    not a pick among cells: the cells in reach are almost never a mix, and 65% of s161's digs at 8 rows are made with no
    foot cell in reach. Alone: +4.74 full loads.
-2. **Go down when empty below ground with no foot cell in reach.** Not in the original list: without it, rule 1 strands
+2. **Go down when empty below ground with no foot cell in reach.** Not in the original list: without it, rules 1 and 3 together strand
    the ant mid-shaft (T9). With rule 1: +10.11.
 3. **Walk home when empty on the surface.** With rules 1-2: +13.74 -- 20.5 full loads a world against 6.8.
 
@@ -175,9 +175,12 @@ teacher never fired is not a result), check the teacher-off arm reproduces the b
 GIF. The first ceiling test (2026-10-21, [`measurements-2026-10-20.md`](measurements-2026-10-20.md) section 3) taught
 three things a teacher designed on paper got wrong:
 
-- **A veto needs a replacement.** Forbidding a bad habit leaves the student whatever it did around the habit. Vetoing
-  wall cuts stranded the ant mid-shaft in 9 of 96 worlds, because the brain had only ever got down by digging. Every
-  "don't" in a teacher needs a "do this instead" in the same situation.
+- **Rules act on each other through the brain's state; test every combination.** Dig alone was fine and walk-home
+  alone was fine, but dig + walk home stranded the ant mid-shaft in 7 of 48 seeds -- the walk-home calls shifted some
+  state the brain's own descent depends on (it takes the deepest step 50-73% of the time alone, ~40% under dig + home).
+  A third rule, "go down", removed the collapse. Every "don't" and every redirect needs checking against what the brain
+  does *around* it, in combination. *(The first version of this bullet said the brain "had only ever got down by
+  digging"; the adversarial review showed that wrong, 2026-10-21.)*
 - **Behaviours the brain has coupled must be taught together.** "Put the load down sooner" cost loads alone, because
   the brain's turn home fires only after it has gone far; taught alongside walk-home it helped. Before writing a rule,
   ask what the behaviour it removes was *also* doing -- the same lesson as CLAUDE.md's "a fix exposes a constant that was

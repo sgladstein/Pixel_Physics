@@ -22,8 +22,10 @@ raw data are in [`measurements/`](measurements/). Status: **done; all three chan
 
 4. **A teacher that only forbids strands the student.** Run directly on s161 (the teacher makes its calls, the brain
    does the rest), the first teacher's dig rule alone was worth +4.74 full loads, but paired with walk-home it collapsed
-   9 of 96 worlds to under 3: with its wall cuts vetoed the ant walked up and down the shaft for 6,000 frames and never
-   reached the foot -- s161 had only ever got down by digging. One more rule, **go down when empty below ground with no
+   9 of 96 worlds (7 of 48 seeds) to under 3: with its wall cuts vetoed the ant walked up and down the shaft for 6,000
+   frames and never reached the foot. *(The first explanation given here -- "s161 had only ever got down by digging" --
+   is withdrawn after review: alone it takes the deepest step 50-73% of the time, and dig alone does not strand; the
+   combination with walk-home shifts a state the brain's descent depends on, and which input is not yet traced.)* One more rule, **go down when empty below ground with no
    foot cell in reach**, fixed it: **dig + go down + walk home reaches 20.5 full loads a world against the brain's 6.8
    (3.0x), with no world under 3.** The put-down rule hurt on its own (-0.97) and helps only beside walk-home (+0.4):
    the brain's long carry and its turn home are coupled.
@@ -63,7 +65,7 @@ with the worlds shuffled -- mean correlation -0.002 to -0.008.
   children were more than two standard errors below the parent, and 12 of 30 fell under 3 full loads against 6.8.
 - **For the brain lane, two observations, not recommendations.** (a) Every child of every mutation size was at or below
   the parent on average -- s161 gen 336 sits where almost every change hurts. (b) On these 96 training-style 8-row
-  worlds, **s162 gen 338 scored 7.50 full loads against s161's 6.80** (+0.70, s.e. 0.38): at 4 rows s161 was ahead (7.21
+  worlds, **s162 gen 338 scored 7.50 full loads against s161's 6.80** (+0.70, s.e. 0.46 clustered by seed; 0.38 unclustered): at 4 rows s161 was ahead (7.21
   against 6.21 on 24 sealed worlds), so the dig-8 runs may have started from the weaker of the two at depth.
 
 ## Measurement 2: can the brain copy a teacher's call from what it senses?
@@ -168,8 +170,17 @@ line -- the logging binary had not been rebuilt after the teacher was added.
   the dig rule did its job -- but in 6 of 24 worlds the ant made 1-2 foot cuts and then spent 6,000+ frames walking up
   and down the 2-wide shaft between 1 and 7 rows down, a step down offered almost every time, never reaching the foot
   (12 decisions at depth 8, against 600+ in good worlds). No fallen pellet blocked it: every dig target it was offered
-  was wall or rim. The brain had never learned to descend; it got down by cutting whatever wall was beside it. The
-  veto took the habit away and nothing replaced it. **down** is the replacement.
+  was wall or rim. **down** removes the collapse. *Why the ant stopped descending is open, and the first answer given
+  here was wrong* ("the brain had never learned to descend; it got down by cutting walls" -- withdrawn 2026-10-21): the
+  evidence review recomputed that s161 alone takes the deepest step 0.50-0.73 of the time in this state, that a dig-only
+  arm vetoing the same wall cuts does not strand, and that under dig + home the bias falls to ~0.40 against ~0.37
+  stepping up in every world. Making the teacher's memory update consistent did not change it (7 of 48 seeds still
+  collapse). The walk-home calls shift some state the brain's descent depends on; tracing which input is a follow-up.
+
+**After review (2026-10-21), standard errors are clustered by seed**: the 96 worlds are 48 mirrored pairs and twins
+often run identically, so the numbers above understate the error by 20-40% and count tails twice. The re-run with the
+teacher's memory made consistent, clustered by seed, the compliance curve and the floor-limited arms are in
+[`step1-review-2026-10-21.md`](step1-review-2026-10-21.md): the ceiling is **20.66 +- 0.37** (was 20.54 +- 0.27).
 
 **What the owner should look at** (sealed world 2, 12,000 frames, a frame every 60): `measurements/brain-vs-teacher-world2.gif`
 -- s161 alone (wall cuts scattered round the shaft) against s161 with dig, down and home (a clean shaft cut at the

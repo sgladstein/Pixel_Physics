@@ -43,5 +43,36 @@ reports carry them.
 
 ## Checks run before revising (all local)
 
-*(Filled in as they finish: the memory-consistent ceiling, the compliance curve, the floor-limited arm, all with
-seed-clustered standard errors.)*
+s161 gen 336, 96 training-style worlds = 48 seeds, 8-row shaft, 12,000 frames; standard errors clustered by seed
+(`measurements/arms.py`); every arm's `remember` positive control read 0 mismatches.
+
+| Arm (dig + down + home unless named) | Full loads | Share of the teacher's gain | Seeds under 3 |
+|---|---|---|---|
+| brain alone | 6.80 +- 0.39 | -- | 2 |
+| teacher, memory now consistent (was 20.54) | **20.66 +- 0.37** | 1.00 | 0 |
+| each call applied with probability 0.25 | 11.21 +- 0.41 | 0.32 | 1 |
+| ... 0.5 | 15.14 +- 0.35 | 0.60 | 0 |
+| ... 0.75 | 18.35 +- 0.36 | 0.83 | 0 |
+| ... 0.9 | 19.91 +- 0.36 | 0.95 | 0 |
+| floor-limited, lenient (leaks only where the brain's draw was wrong), scores +-1 / +-0.9 / +-0.8 | 20.55 / 20.92 / 20.35 | ~1.0 | 0 |
+| **floor-limited, strict (every covered decision drawn from the saturated policy), scores +-1** | 20.34 +- 0.40 | 0.98 | 0 |
+| **... scores reaching +-0.9** | **18.23 +- 0.37** | **0.83** | 0 |
+| dig alone, memory consistent (was 11.54) | 11.96 +- 0.40 | -- | 1 |
+| dig + home, memory consistent | 11.01 +- 0.96 | -- | **7** |
+
+What they settle:
+
+- **The memory mismatch did not inflate the ceiling** (20.54 -> 20.66) **and did not cause the stranding** (dig + home
+  still collapses 7 of 48 seeds with memory consistent). Finding 10's open question stays open: the teacher's walk-home
+  calls shift a state the brain's descent depends on, and the untraced input is a follow-up, not a blocker -- the
+  taught set includes "go down", which removes the collapse.
+- **No cliff under uniform partial compliance.** Applying every call with probability q gives a smooth, concave curve:
+  half the calls bring 60% of the gain. The cliff the evidence review found is real for *subsets of rules* (dig + home
+  without down), not for partial obedience to all three -- so a partly copied brain should land on this curve, and its
+  per-rule agreement on its own runs reads off where.
+- **The choice floor costs little at saturation and a lot short of it.** The strict floor leaks 1.5 wall digs a world
+  at scores of +-1 (20.34) and 6.9 at +-0.9 (18.23; the method review estimated 6.7 at that level -- its mechanism is
+  right). How far the copy can push its scores, against `squash`'s slow saturation and sharpness at its clamp of 4, is
+  therefore a first-class quantity for the copier to report.
+- **The bar moves**: from half the ceiling's gain (13.7) to half the *reachable* gain at scores of +-0.9 -- **12.5 full
+  loads** -- read beside the compliance curve.
