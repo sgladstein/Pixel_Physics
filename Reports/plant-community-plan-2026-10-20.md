@@ -1,6 +1,7 @@
 # Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 4)
 
-**Status: plan, revision 5. M1 has started. Revision 4 answered the
+**Status: plan, revision 5. M0 and M1 are done (PR #747); §8 opens with a
+dated handoff that carries the current state and the queue. Before that: Revision 4 answered the
 independent review after M0 (§12: 2 blockers, 9 major, 4 minor, all accepted).
 Revision 5 records the owner's two rulings (§9), and two considerations from
 the owner: the environment must give plants something to respond to (§3.4),
@@ -545,22 +546,80 @@ This session cannot launch anything.
 
 ## 8. Milestones
 
-> **Handoff (State 2026-10-21, 10:15 UTC).** Everything below is on PR
-> #747 (branch `claude/ant-evolution-plant-inspiration-24mykv`), green at
-> `8d0b0cc5`; merge it before starting the next step, which should begin
-> from `main`. M1 steps 1-7 and the 7a detour are done and recorded below.
-> **Owner's picks (2026-10-21):** the closed soil budget ships
-> (`LabBox::rot_makes_soil` off by default), and colour A -- today's
-> palettes, unchanged. **Next, in order:** (1) done; (2)
-> texture-aware available water -- `update::plant_available_fraction` maps
-> 180..620 for every texture, so sand reads two-thirds dry at its own field
-> capacity (`Reports/soil-physics-realism-2026-10-21.md` §6.2 rank 1, PR
-> #751); (3) re-price shade tolerance, which is still free in bright light
-> (step 7), before training may move it; (4) A2, development keying
-> (step 8); (5) rungs 4-6, aimed at recruitment and long-run coexistence --
-> on both beds only grass replaces itself. Open costs to keep in view: the
-> water rule's ~+11% run time on a dense grass bed, and §Z39 (a plant gets
-> no sideways light; harmless at the shipped lamp spacing).
+> **Handoff (State 2026-10-21, 13:45 UTC). Read this first; it is the whole
+> state a new session needs.**
+>
+> **Where things are.** All of M0 and M1 is on PR #747 (branch
+> `claude/ant-evolution-plant-inspiration-24mykv`, head `442ee86f`, `main`
+> merged in; local full lib suite 2,360 passed). Merge it, then start new
+> work from `main`. Done: A1 fair dice, the drain and spells (Z38), patchy
+> ground (E), the re-baseline, A6 seed heaps, bud break from stored carbon,
+> shrub lifespan, A5 shade genes (built, parked off), and step 7a (the bed
+> looks like plants). **Naming trap:** step 6 shipped under "A3", but it is
+> only one piece of §3.3's A3 (buds from store); the rest of A3 --
+> phyllotaxis, taper as a carried fraction, the tip's step with error
+> diffusion -- and A4 are not done.
+>
+> **What every lab bed does now, by default:** drain on; seed heaps leave
+> the slice (`seed_pile_depth` 2); a tipless plant breaks a bud from store;
+> soil water passes through roots; rot leaves no soil and dead roots in a
+> mat repay theirs (owner's pick, 2026-10-21); colours unchanged (owner
+> picked A). **Off:** patchy ground and spells (the training world turns
+> both on), shade genes (`shade_plasticity`), `decay_reads_ground` (would
+> rot fruit and corpses, ant food, ~4.7x faster; unmeasured),
+> `soil_capillary_levels`. **Outdoors none of the M1 soil, seed or water
+> rules are on.**
+>
+> **Next, in order.**
+> 1. **Re-baseline the training world.** Every community number in M1 --
+>    the A3 table, the 1.2M-frame long runs, A5's community test -- was
+>    measured before through-roots water and the closed soil budget
+>    shipped, and the closed budget alone moved grass from 446-725 to
+>    161-283 plants. Run `mix=roles` and `mix=roles4`, 4 seeds, 720,000
+>    frames, and record kinds with 100+ leaf and recruitment over time.
+> 2. **Texture-aware available water**: `update::plant_available_fraction`
+>    maps 180..620 for every texture, so sand reads two-thirds dry at its
+>    own field capacity (`Reports/soil-physics-realism-2026-10-21.md` §6.2,
+>    rank 1; that report is another session's PR #751).
+> 3. **Re-price shade tolerance**: it is still free in bright light (step
+>    7), so training must not move it until it costs something there.
+> 4. **A2, development keying**, then the rest of A3 and A4 (§3.3).
+> 5. **Rungs 4-6**, aimed at recruitment and long-run coexistence: in the
+>    long runs only grass replaced itself.
+>
+> **Still open with the owner:** patchy ground in the played lab (+7%
+> frame); the creeper's lifespan (a longer one, or ramets that root and
+> become their own plants -- one creeper organism is its whole clone);
+> turning any lab-only rule on outdoors (each unmeasured there).
+>
+> **How to measure.** The training world is `cargo run --release --example
+> plant_m0 -- mode=community mix=roles loadfail=0 rain=steady
+> spells=20000,40000 ground=patchy seed=N frames=F sample=40000` (`mix=roles4`
+> is the grass bed). `shots=F,...` writes the picture and prints `SCREEN`
+> (what the picture is made of) and `WATER` (what each standing drop rests
+> on); `Reports/instruments.md`'s `plant_m0` row lists every mode.
+> **Durations here:** 480,000 frames is ~16-20 min per bed alone on one
+> thread; 8 beds at once on 4 cores ~55 min; the local full lib suite
+> 4-14 min; CI ~15 min, and on this repo the push-triggered CI run is
+> cancelled in favour of the PR run, which is normal. Data so far:
+> `Reports/plant-community-2026-10-20/m1/` (`looks/README.md` explains the
+> last round).
+>
+> **What cost time this round, so it does not again.**
+> - Light read in empty air beside a plant is not the plant's light: a
+>   block holding a plant gets no sideways light (§Z39). Measure at the
+>   plant (`plant_m0 mode=plastic trace=N`).
+> - A lab-bed default change re-rolls every chaotic test scene: three
+>   tests that had passed by luck went red (the moss lawn, the worm, the
+>   ant-options control). Run the full lib suite locally before pushing one.
+> - "Green share" alone misread diversity: count kinds and plants per kind.
+> - Look at the picture after every fix: rot yield 0 alone cleared the
+>   heaps and hollowed the ground (holes 2-5% -> 8-31%).
+>
+> **The owner's working preferences.** Pictures go straight into the chat,
+> before claiming something looks better. Be sparing with sub-agents and
+> parallel sessions. A switch ships on when it measures as a gain. Chat
+> leads with what a change does and where it is going.
 
 | | what | done when |
 |---|---|---|
