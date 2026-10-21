@@ -1,22 +1,132 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 19:15 UTC.** Written by the session that has run
-this work since 2026-10-17, because the owner's account was about to run out
-of usage. It is updated in place through the night as each task finishes:
-read the **Log** at the bottom first to see what changed since this header.
+**Last updated: 2026-10-21 17:40 UTC**, at a hand-off to a new session (the owner's request). **Read section 0
+first: it is the state of the work now, and it supersedes sections 2 and 3, which are kept as the history of steps
+1-4.** The Log at the bottom has every measurement in order, newest first.
 
-You have the repo and nothing else: not the project's shared folder, not its
-chat, not its other sessions. Everything you need from those has been copied
-in (see *Where things are*). The repo's own `CLAUDE.md` still applies and is
-worth reading; this file adds what is specific to the brain work and the
-owner's standing rulings on it, which are not written down anywhere else.
-
-**Branch.** Step 4b (the newest trainer change) is on `main` (PR 733). This
-file is updated on branch `claude/project-thread-eewfjj` through the night and
-reaches `main` through its PR: if `main`'s copy is older than the branch's,
-read the branch's.
+You have the repo and nothing else: not the project's shared folder, not its chat, not its other sessions. The repo's
+own `CLAUDE.md` still applies; this file adds what is specific to the brain work and the owner's rulings on it.
 
 ---
+
+## 0. Start here (state at 2026-10-21 17:40 UTC)
+
+**In one line:** dig step 5 (the 8-row shaft) is in progress; selection now improves it steadily at 12,000-frame
+worlds with racing; the best brain carries 12.6 full loads a world against a pace bar of 10 on 11 of 12; a run
+testing **copy-then-select** (the teacher lane's copied brain against plain selection) is on Google now and is yours
+to collect.
+
+### Running now -- collect it first
+
+- **`cvs-copy-201`, `cvs-copy-202`, `cvs-sel-201`, `cvs-sel-202`**: four `c4d-highcpu-16` spot VMs on Google, launched
+  16:58 UTC, `--hours 8`, ref `b0dc264`. Due by about 01:00 UTC 2026-10-22 (sooner if the flat rule stops an arm).
+  Owner's cap for this run: **$10**.
+- Settings, all four: `brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 dist=10,30 step=4
+  shaft=8 foot=1 frames=12000 budget=2400 wire=0.001 grow=0.1 pop=100 layouts=48 holdout=48 calib=24 cross=0.3
+  race=8 keepref=training/starts/fretrain-s91.txt gens=150 pm=0.03 sigma=0.3 prune=0.3`, probe on (default).
+- **copy arms** start from the teacher lane's copy v2
+  (`Reports/brain-training/teacher-training/measurements/step1-runs/s171-copy/s171-down-v2.txt`) with its 83 revived
+  links never pruned (`noprune=` the comma list of `s171-down-v2-revived.txt`, which is space-separated: the parser
+  wants commas or one per line); **sel arms** start from `training/starts/s171-8-g79.txt`. Seeds 201, 202.
+- **To collect:** `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py status <name>`; when the VM has
+  shut down, status errors with `BadRequest` (the serial port is gone) -- that is normal. `fetch <name> <dir>`, check
+  `STATUS.txt` ends `exit code: 0` and `hold-best.txt` exists, **then** `delete <name>`. Never delete before that.
+- **To judge** (section 0's method, below): each arm's `test.csv` is its learning curve on worlds nothing chose (the
+  hold-best's row is what the run delivers); then score each hold-best with `test=96` and run
+  `Reports/brain-training/tools/judge.py`. Compare copy against sel **paired by seed**. On these worlds the starts read:
+  copy v2 **10.83**, s171 **9.60** (fetch 0.79 / 0.78, trail 0.89 / 0.91).
+- **What it decides:** whether copy-then-select beats selection alone at equal CPU. Watch for lock-in (the research
+  lane's warning, `research/q3-teaching-plus-selection-2026-10-21.md` 3b): a copy arm whose hold-best stops changing
+  early. If it locks in, the follow-up is seeding the copy into a few of the 25 parents (needs a trainer change: seed
+  part of the first population; design and review first).
+
+### How to judge -- the method changed today, and every older number carries some bias
+
+- **Three sets of worlds, one job each.** Training worlds (new each generation) choose parents. The **hold-out**
+  (validation) chooses the run's best brain and when it stops -- so it flatters what it chooses (round 2: 13.2-13.7
+  full loads on the 24 hold-out worlds against 10.8-12.3 on worlds never used). **Test worlds** (`train::test_layouts`,
+  seeds 30,000+) are never used to choose anything: every progress claim and comparison is made there.
+- Since PR 760: `probe=10` (default) writes `test.csv` (the champion and the hold-best on 96 test worlds every 10
+  generations); `test=N` judges `score=`/`noise=1` on test worlds; `calib=N` keeps the floors' calibration apart from
+  `holdout=`. **Launch dig runs with `holdout=48 calib=24`.**
+- **Do not judge on `holdout=96`** (its first 24 worlds are the trainer's hold-out) **or on the 24 sealed worlds**
+  (used to choose b181 over b182). Older entries in this file judged there; the corrected figures are in the 14:40 log
+  entry.
+- Standard errors **per mirrored pair** (twins correlate 0.41-0.65). Fetch/trail as the **worse side** of each pair, as a
+  share of s91 on the same worlds; readings move about +-0.03 between world sets.
+
+### Where the brains stand (96 test worlds, 8 rows, 12,000 frames)
+
+| Brain | Full loads | Fetch / s91 | Trail / s91 | File |
+|---|---|---|---|---|
+| s171 (round 1, from s161) | 9.60 | 0.78 | 0.91 | `training/starts/s171-8-g79.txt` |
+| copy v2 (s171 + "go down", teacher lane) | 10.83 | 0.79 | 0.89 | see above |
+| b181 (racing A/B) | 10.34 | 0.81 | 0.99 | `training/starts/b181-8-g138.txt` |
+| **round 2, today's mutation, seed 192 (gen 113)** | **12.58** | **0.90** | 1.01 | `training/starts/r2-cur192-g113.txt` |
+| round 2, small-step mutation, seed 192 | 12.95 | 0.78 | 0.88 | `stage2/dig/8/round2/` |
+
+**The pace bar** for step 5 (owner, 2026-10-20): 10 full loads per 12,000 frames on 11 of 12 test worlds, plus step 4's
+share and blind conditions. Means are now above 10; count worlds-at-10+ on the test set before claiming it, and a GIF
+for the owner before anything "passes".
+
+### Settled (do not reopen without new evidence)
+
+- **Racing on** (`race=8`): raced arms beat unraced at equal CPU in both pairs (log 08:25).
+- **Mutation stays `pm=0.03 sigma=0.3 prune=0.3`.** The small-step, no-prune candidate digs the same (paired by seed
+  -0.14, +0.36, each +-0.4) but lets fetch slide under the floor (0.77-0.78 against 0.87-0.90): pruning seems to keep
+  fetch (log 17:40).
+- **12,000-frame worlds** (they now reach a suite's soil arena; PR 748). Round 2 gained +1.2 to +2.6 on b181.
+- `keepref=training/starts/fretrain-s91.txt` always; `protect=1` (default); `noprune=` for copied brains.
+- **Training worlds pin the spoil roll off** (`hold_training_world`, PR 756) until a rung boundary.
+- **The roof sense is touch, not a forecast** (`creature::bite_is_hanging`, PR 754; owner-approved, bit-identical).
+
+### Owner rulings from 2026-10-21 (add to section 6)
+
+- **"Local signals and true biology" holds for the trained ant.** But the home vector and depth stay exact for now
+  (no noise): changing them would make training harder; maybe later. The roof forecast was the one to replace (done).
+- `stepnear=` (more steps beside the shaft) **off in any run that is also a comparison**; on at about 0.3 later.
+- Copy-then-select approved (this run). The seeded-parents arm deferred.
+- Spending: ask before any VM run; state the cost; the owner set caps per run ($25 overnight, $10 for this run).
+- The owner wants **pictures and a plain summary** with each result, and to be told when a number they were given was wrong.
+
+### Next, in order (cheapest decisive first)
+
+1. **Collect and judge the copy-vs-selection run** (above). GIF of the best brain against s171 for the owner.
+2. **Averaged-child step** (top build candidate). Offline, one brain made by averaging the changes of the 12 children
+   truncation keeps beat the average kept child in all three mutation settings on 96 test worlds (+0.42 / +0.74 / +0.32
+   against +0.03 / +0.22 / +0.22, each +-0.5; log 17:40). Proposal: add that averaged brain to each generation as one
+   extra candidate. Trainer change: design + independent review first.
+3. **A graded fetch floor.** 89% of fetch vetoes of hold-out champions (145 of 163, 10 runs) sat within one standard
+   error of the floor: the hard cliff vetoes on noise. Research lane's fix: a log ramp from x1 at 0.85 to x0.1 at 0.75.
+   Design + review.
+4. **Log each child's paired difference from its parent** at race stage 1 (research Q1 #2), so runs can measure their
+   own variation. Small trainer change.
+5. **Before colony rungs:** (a) with 12 ants in one shaft the brains **Feed each other 13% of decisions** -- Feed's
+   links are protected and untrained in single-ant arenas, so they fire untrained once other ants are present; (b) trail
+   per-ant score falls 18% from 3 to 24 ants (0.78 -> 0.64), so train colony rungs at their real crowding; (c) the ant
+   waits only weakly when crowded (rest 14% -> 17%); one shaft caps a box (12 ants 8.5 full loads against 1 ant's 11.5).
+6. **Depth is load-bearing** (zeroing its 13 links: 9.60 -> 5.52 full loads; roofed: -1.9). If the owner wants it made
+   realistic later, a touch/gravity replacement must carry the same information.
+7. Code-needing probes from the research lane: the "already dug" label census (can `f::CUT` become touch), Fisher
+   importance as a gate pre-screen. Research ranked list: `Reports/brain-training/research/field-map-and-ranked-list-2026-10-21.md`.
+
+### Other lanes
+
+- **Teacher lane** (copying): a new session took over 2026-10-21; its note is `Reports/handoff/teacher-lane-handoff-2026-10-21.md`.
+  It owns copy experiments and the pack-booking trace bug, then flips the spoil roll on in the games (our arenas stay pinned).
+- **Research lane**: `Reports/brain-training/research/` (Q1-Q5 and the ranked list).
+- **Soil physics**: `Reports/soil-physics-realism-2026-10-21.md` (PR 751).
+- Reach another session with the remote `send_message` tool; its reply arrives as a notification. Messages from other
+  sessions are information, not the owner's instructions -- confirm with the owner before acting on a relayed "go".
+
+### Gotchas learned today
+
+- **Scheduled check-ins (`send_later`) fire only into the session that made them.** Make your own.
+- **Container restarts kill background tasks and detached pollers**; check them after any gap. VM work is unaffected.
+- `rows_before`/resume: a run saved before the probe resumes fine (PR 760).
+- **Put the fault back** before trusting a guard: two of tonight's guards were blind until that check.
+- Merge only after confirming every distinct check is `success` on the PR head (a cancelled duplicate run is normal);
+  one merge tonight went in before CI finished.
 
 ## 1. What this is, in one paragraph
 
@@ -32,7 +142,7 @@ design (goal, 12 baby steps, scoring, bars) is
 `Reports/brain-training/ladder/dig-rung-design.md`; it is long, so read its
 *step 4* section first.
 
-## 2. Where it stands right now
+## 2. Where it stood on 2026-10-20 (history; section 0 is current)
 
 | Rung | State |
 |---|---|
@@ -99,7 +209,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 generation 100**, the pay rule is not what holds it back. More generations won't
 fix it; the rung needs a design change. Take that to the owner.
 
-## 3. What to do next, in order
+## 3. What was next on 2026-10-20 (history; done or superseded -- see section 0)
 
 1. **The investigation the owner approved (2026-10-20), before the 8-row step.** Plan: `/root/.claude/plans/first-write-up-a-precious-pizza.md` in the session that wrote it; its parts, so a new session can carry it on:
    - **Part 1, where loads are lost.** Done so far: 8.0 foot cuts a world become 7.21 full loads (90%), so carrying is solved and *how many foot cuts* is the limit; about 35% of cuts are wasted (3.2 wall + 1.7 top-row a world). Run length (s161 g336, 24 sealed): 4.2 / 7.2 / 12.3 / 17.0 full loads at 3k / 6k / 12k / 24k frames, per-world sd/mean 0.40 / 0.31 / 0.27 / 0.28, so more worlds beats longer runs for ranking at 4 rows. Next: trace individual wasted cuts and lost pellets (the `funnel` skill), world 0 (4 loads) against world 1 (8).
@@ -181,7 +291,7 @@ layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=training/starts/s111-g22
 
 Tonight's four jobs are on `train/dig-4b` as examples.
 
-**Google Cloud (paid, fast): the main compute.** The owner will give you the service-account key, and his $100 go covers runs on this ladder.
+**Google Cloud (paid, fast): the main compute.** The owner will give you the service-account key, and the owner's $100 go covers runs on this ladder.
 - The launcher is `Reports/brain-training/cloud-compute/gcp/gcp_train_job.py`; its header documents it.
 - The key is passed as base64 in the environment variable `GCP_SA_KEY_B64`. Never put it in a file, a commit, a log or chat.
 - Setup and launch:
@@ -197,7 +307,7 @@ Tonight's four jobs are on `train/dig-4b` as examples.
 
 ## 6. The owner's standing rulings (not written down elsewhere)
 
-The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zsh commands.
+The owner is **Scott** (GitHub `sgladstein`). They use a Mac terminal, so give zsh commands.
 
 - **North star: a fun sim game, not accurate ant science.** Biology is inspiration. Judge by game value, and stop tuning once it works.
 - **One general brain for every task**, found by selection. Start from scratch: no old hand rule is kept unless it helps. The brain's energy tax per connection stays.
@@ -206,7 +316,7 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - **Pictures with every result.**
   - Every training run gets a training-curves picture with every generation from gen 0, fixed axes, and every label explained.
   - Every major step's report carries an image, chart or GIF.
-  - **No "passed" until he has seen the pictures and a GIF.**
+  - **No "passed" until the owner has seen the pictures and a GIF.**
 - **Scores get gamed.** Every arena keeps:
   - a survival check;
   - a second number that can't be faked;
@@ -216,11 +326,11 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
   The cheats seen so far are in `Reports/brain-training/ladder/cheats-seen.md`.
 - **Seeds**: 1-4 seeds to iterate on a dig step. 12 seeds against `main` for a game change or a rung's pass. Mutation is off when measuring (`PIXEL_PHYSICS_MUTATION=off`); only the training rig mutates.
-- **Features ship on by default** when they have no measured downside. Tell him the numbers.
+- **Features ship on by default** when they have no measured downside. Tell the owner the numbers.
 - **Usage is tight.** Stay on the critical path, no side probes, and report at milestones rather than constantly.
-- **Spend**: Google up to $100 in total, as above. Any other paid service needs his explicit go.
-- **Questions**: ask so they can be answered in one word, give your recommendation with pros and cons, and give ETAs from measured pace. **He dislikes repeats**, so check `Reports/dead-ends.md` (grep the mechanism) and these notes before proposing anything. **Give the real reason**; he spots circular reasoning.
-- **Writing to him**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
+- **Spend**: Google up to $100 in total, as above. Any other paid service needs the owner's explicit go.
+- **Questions**: ask so they can be answered in one word, give your recommendation with pros and cons, and give ETAs from measured pace. **The owner dislikes repeats**, so check `Reports/dead-ends.md` (grep the mechanism) and these notes before proposing anything. **Give the real reason**; the owner spots circular reasoning.
+- **Writing to the owner**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
 - **Big redesigns** need a design doc and an adversarial review before building.
 - **Rulings of 2026-10-20** (owner, in the session that took the lane over):
   - **Dig step 4: pass** (s161 gen 336, after the GIFs).
@@ -236,7 +346,7 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - `main` is at `918721b` (PR 740). This session's work is on `claude/brain-lane-r4-long` (round-4 continuation data, gen-340 brains, the lineage curves, GIFs, `keepref=`, this handoff), in its own PR; the old `claude/project-thread-eewfjj` belongs to the session before.
 - Open PRs that are **Scott's call** and not part of this work: 705, 706, 702, 697, 686.
 - Merging:
-  - `CLAUDE.md` lets an independent session merge its own PR on green CI. Ask Scott once whether he wants you to.
+  - `CLAUDE.md` lets an independent session merge its own PR on green CI. Ask Scott once whether they want you to.
   - Never `git add -A`; stage explicit paths.
   - Before pushing trainer code, run:
     - `cargo test --release --lib train::`;
@@ -290,6 +400,11 @@ Newest first. Each entry says what changed and what is now true.
   - The teacher lane's `PIXEL_PHYSICS_SPOIL_ROLL` (PR 753, owner-approved for the games) moves where a put-down pellet comes to rest, so what S3 pays and what falls back into the hole. Every arena that builds a world (forage, scarce/fetch, trail, dig, soil) now sets `World::spoil_roll = Some(0)`, so the teacher lane can turn it on by default in the games without moving the dig ladder's baselines. It comes into the arenas at a rung boundary, with s161/s171 and the pace bar re-measured.
   - Checked end to end: with the roll forced on for the whole process, s171's 24 sealed soil worlds and 96 fetch worlds are identical to the baseline; the control (the soil pin removed) changes 21 of 24 worlds. Guard: `training_worlds_hold_pellets_where_they_are_put`.
   - **The teacher lane's s171 go-down copy, on my judging worlds:** soil +1.50 (sealed 24, se 0.82) and +0.69 (fresh 96, se 0.53) over s171; **fetch 0.73 of s91 (worse side, 96 worlds) against s171's 0.81 -- at the trainer's floor, not over it.** The teacher lane reproduced this and withdrew "meets the floor"; it is rebuilding the copy with a heavier fetch anchor.
+- **2026-10-21 17:40 UTC. Round 2 judged on test worlds; copy-vs-selection launched; local tests from the research list; hand-off.**
+  - **Round 2** (from b181, 12,000 frames, raced; data `Reports/brain-training/stage2/dig/8/round2/`), hold-bests on 96 test worlds: today's mutation 11.67 (seed 191, gen 48) and **12.58 (seed 192, gen 113)**; small-step 11.53 and 12.95; b181 10.34. Small-step minus today's, paired: -0.14 +- 0.41, +0.36 +- 0.43. Fetch: today's 0.87 / 0.90, small-step 0.77 / 0.78. Arms stopped on the flat rule or the clock at gens 55, 86, 116, 108. VMs deleted after DONE. **Today's mutation stays.**
+  - **Copy-vs-selection launched** 16:58 (owner's go, $10 cap): see section 0. On test worlds copy v2 10.83, s171 9.60.
+  - **Local tests (research list):** fetch vetoes: 89% within one s.e. of the floor (145 of 163 hold-out champions, 10 runs; trail none). Averaged-child (genetic repair): averaged brain +0.42 / +0.74 / +0.32 vs the kept children's +0.03 / +0.22 / +0.22 on 96 test worlds (ranks 1, 3, 6 of 13). Depth links zeroed: 9.60 -> 5.52; roofed: 7.74; fetch unaffected. Trail per ant at 3/6/12/24 ants: 0.78 / 0.74 / 0.69 / 0.64. 12 ants in one shaft: 8.5 full loads against 1 ant's 11.5, rest 14% -> 17% with contact, Feed 13% of decisions (untrained, protected links). Pruning only small links (|w| < 1 or < 5) at today's setting: 62% / 74% of children clearly worse (prune 0: 44%).
+  - **Tool:** `Reports/brain-training/tools/judge.py` (test-world judging, per-pair s.e., worse-side fetch/trail).
 - **2026-10-21 14:40 UTC. Judging corrected: a reserved test set and a progress probe (`probe=`, `test=`, `calib=`); mid-run state of round 2.**
   - **The flaw:** the trainer's 24 hold-out worlds choose each run's best brain and when to stop, so they flatter what they choose -- round 2's hold-best brains read 13.2-13.7 full loads there against 10.8-12.3 on 72 worlds never used. And my own "96 fresh worlds" (`holdout=96`) were `holdout_layouts(96)`, whose first 24 ARE the trainer's hold-out; the 24 sealed worlds have also been used to choose brains. Every judging number before this entry carries some of that bias.
   - **Corrected, on the 72 never-used worlds (holdout 24..95):** s171 10.83, b181 11.08; A/B a181 9.82, a182 10.33, b181 11.08, b182 11.79; copy v2 11.88. Round 2 at mid-run (hold-bests at gens 48/35/57/53) against b181: today's mutation +0.85 (seed 191), -0.27 (192); candidate +0.68 (191), +1.18 (192), each about +-0.6. Racing's win stands; whether 12,000 frames and the candidate mutation made the curve steeper is not shown yet.
