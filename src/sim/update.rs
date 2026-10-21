@@ -454,12 +454,12 @@ const _: () = assert!(ROOT_PASS_REACH <= MAX_REACH, "a soil write beyond MAX_REA
 #[inline(always)]
 fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, through_roots: bool, direct: bool) -> Option<(i32, i32, Cell)> {
     let n = surface.get(x + dx, y + dy);
-    if surface.materials().get(n.material).water_capacity > 0 {
+    if surface.water_capacity_of(n.material) > 0 {
         return direct.then_some((x + dx, y + dy, n));
     }
     // Cheapest test first: nearly every non-soil neighbour is air or stone,
     // and the switch is a bool the caller already read.
-    let plant = |c: Cell| surface.materials().kind(c.material) == MaterialKind::Plant;
+    let plant = |c: Cell| surface.kind_of(c.material) == MaterialKind::Plant;
     if !through_roots || !plant(n) {
         return None;
     }
@@ -469,7 +469,7 @@ fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, t
         if plant(c) {
             continue;
         }
-        return (surface.materials().get(c.material).water_capacity > 0).then_some((tx, ty, c));
+        return (surface.water_capacity_of(c.material) > 0).then_some((tx, ty, c));
     }
     None
 }
@@ -483,7 +483,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // holds no water neither absorbs nor drains, so sand and gravel behave
     // exactly as they did and the engine's liquid conservation tallies stay
     // true.
-    let capacity = surface.materials().get(cell.material).water_capacity;
+    let capacity = surface.water_capacity_of(cell.material);
     if capacity == 0 {
         return false;
     }
@@ -538,7 +538,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
             break;
         }
         let n = surface.get(x + dx, y + dy);
-        if surface.materials().kind(n.material) != MaterialKind::Liquid {
+        if surface.kind_of(n.material) != MaterialKind::Liquid {
             continue;
         }
         let fill = liquid_fill(n);
@@ -610,7 +610,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
         let Some((tx, ty, n)) = soil_partner(surface, x, y, dx, dy, through_roots, direct) else {
             continue;
         };
-        let n_capacity = surface.materials().get(n.material).water_capacity;
+        let n_capacity = surface.water_capacity_of(n.material);
         let n_field_capacity =
             if textured { surface.materials().get(n.material).texture_of(n.shade).field_capacity } else { material::SOIL_FIELD_CAPACITY };
         let there = soil_moisture(n);
@@ -784,7 +784,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
 
     if moisture > field_capacity {
         let below = surface.get(x, y + 1);
-        let below_capacity = surface.materials().get(below.material).water_capacity;
+        let below_capacity = surface.water_capacity_of(below.material);
         if below_capacity > 0 {
             let room = below_capacity.saturating_sub(soil_moisture(below));
             let surplus = moisture - field_capacity;
@@ -834,7 +834,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
             // (the block's value is whether anything moved).
             let mut moved_through = false;
             if let Some((tx, ty, target)) = if through_roots { soil_partner(surface, x, y, 0, 1, true, true) } else { None } {
-                let room = surface.materials().get(target.material).water_capacity.saturating_sub(soil_moisture(target));
+                let room = surface.water_capacity_of(target.material).saturating_sub(soil_moisture(target));
                 let surplus = moisture - field_capacity;
                 let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
                 if moved > 0 {
@@ -856,7 +856,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
                 let first: i32 = if (x + y) & 1 == 0 { -1 } else { 1 };
                 for dx in [first, -first] {
                     let side = surface.get(x + dx, y + 1);
-                    let side_capacity = surface.materials().get(side.material).water_capacity;
+                    let side_capacity = surface.water_capacity_of(side.material);
                     if side_capacity == 0 {
                         continue;
                     }
