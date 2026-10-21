@@ -12890,6 +12890,13 @@ impl World {
         // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
         // §0 for the four candidates this was chosen over.
         let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
+        // **The settle scan's per-material answers, built once a step and
+        // only on a step where some chunk settles** -- `Chunk::rescan_on_
+        // settle`'s doc has the measurement. Built here rather than cached on
+        // the registry because materials can change live (`tunables.rs`, a
+        // hot-reload), and a table rebuilt per step cannot go stale; it is a
+        // few hundred entries against a 4,096-cell scan per settling chunk.
+        let mut settle_traits: Option<Vec<(i32, bool, bool)>> = None;
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -12917,19 +12924,19 @@ impl World {
                 touched.insert(chunk.coord);
             }
             if !was_settled && settled_now {
-                chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
-                chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
-                // Rides the scan `recompute_reach` is already doing, on the
-                // same transition and for the same reason it was chosen:
-                // this is the one point that is both cheap and safe.
-                let bounds = chunk.coord.bounds();
-                for y in bounds.min_y..=bounds.max_y {
-                    for x in bounds.min_x..=bounds.max_x {
-                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
-                            settled_decayables.push((x, y));
-                        }
-                    }
-                }
+                // Reach, the liquid flag, and -- riding the same scan, on the
+                // same transition and for the same reason it was chosen: this
+                // is the one point that is both cheap and safe -- the
+                // decayable cells. One walk, not three.
+                let table = settle_traits.get_or_insert_with(|| {
+                    (0..materials.len())
+                        .map(|i| {
+                            let m = materials.get(MaterialId(i as u16));
+                            (m.sweep_reach(), m.kind == MaterialKind::Liquid, m.decays_into.is_some())
+                        })
+                        .collect()
+                });
+                chunk.rescan_on_settle(|cell| table[cell.material.0 as usize], &mut settled_decayables);
             }
         }
         // Deduped inside `schedule_active_site`, which is what stops a drift
