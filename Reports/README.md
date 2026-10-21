@@ -5597,6 +5597,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   over three training seeds; fetch +0.5 to -1.9); one DAgger round did
   not help (9.50); on s171 the per-rule headroom moves to dig and walk
   home (+5.75, +5.40), with the same all-rules ceiling (20.50).
+  [step05-why-copies-fail-2026-10-21.md](brain-training/teacher-training/step05-why-copies-fail-2026-10-21.md)
+  — **in progress: why copied lessons fail.** Dig: the brain's live wiring
+  cannot hold "dig at the foot, not the wall" (its verb stage barely reads
+  the dig score), so the lesson spread to wall cuts, which took the foot
+  cuts' place (7.2 -> 4.1 a world); with every slot free the lesson holds
+  in its own runs but the energy bill runs the ant dry. Walk home: the
+  context to keep it out of foraging exists (AUC 0.97-1.00, mostly arena
+  artefacts such as fetch being fed) and the copy does not use it.
   [teacher-design-2026-10-21.md](brain-training/teacher-training/teacher-design-2026-10-21.md)
   — **design v2, revised after three adversarial reviews** (disposition:
   [teacher-design-review-2026-10-21.md](brain-training/teacher-training/teacher-design-review-2026-10-21.md),
