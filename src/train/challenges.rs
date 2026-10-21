@@ -2431,6 +2431,9 @@ impl Challenge for Suite {
     fn verbs(&self) -> &'static [creature::options::Verb] {
         self.verbs
     }
+    fn unfloored(&self, s: &Score) -> f64 {
+        self.product(&s.parts[..self.arenas.len()], false)
+    }
     fn untested_verbs(&self) -> Vec<creature::options::Verb> {
         let learning: Vec<creature::options::Verb> = self.arenas.iter().filter(|(_, keep)| !keep).flat_map(|(a, _)| a.acting_verbs()).collect();
         self.verbs.iter().copied().filter(|v| !learning.contains(v)).collect()
@@ -3507,6 +3510,60 @@ mod tests {
         assert!((score(&noisy) - 1.0 / 1.5).abs() < 1e-9, "within two standard errors, kept: {}", score(&noisy));
         noisy.sds[0] = 0.2;
         assert!((score(&noisy) - 0.1 / 1.5).abs() < 1e-9, "past two standard errors, forgotten: {}", score(&noisy));
+    }
+
+    /// An arena that scores a genome's weight `a` on layouts before
+    /// `split` and weight `b` from it on, so a test can dip one brain under
+    /// a floor on racing's first round only.
+    struct Weights {
+        a: usize,
+        b: usize,
+        split: usize,
+    }
+    impl Challenge for Weights {
+        fn name(&self) -> &'static str {
+            "weights"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [O] {
+            &[]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: f64::from(g[0][if (l.k as usize) < self.split { self.a } else { self.b }]), parts: vec![] }]
+        }
+    }
+
+    /// **Racing's first round does not cut on a kept arena's floor**
+    /// ([`Challenge::unfloored`]): the best digger keeps fetch at 0.5 of its
+    /// reference on the 4 first-round worlds and 1.2 on the other 6 -- 0.92
+    /// over all 10, above the 0.8 floor. Ranked by the floored score it was
+    /// cut (0.1 of its product); unfloored it survives and ends unpenalised,
+    /// while a digger under the floor on every world survives the cut and
+    /// is still penalised on all ten.
+    #[test]
+    fn racing_does_not_cut_on_a_floor_read_over_a_few_worlds() {
+        let mut s = Suite::new(vec![(Box::new(Weights { a: 0, b: 0, split: 4 }), false), (Box::new(Weights { a: 1, b: 2, split: 4 }), true)], 0.8);
+        s.refs = vec![1.0, 1.0];
+        let lay: Vec<Layout> = (0..10).map(|k| Layout { seed: 1, k, blind: false, legal: false }).collect();
+        let mut genomes: Vec<Vec<f32>> = (1..=8).map(|d| vec![d as f32 * 0.5, 1.0, 1.0]).collect();
+        genomes.push(vec![10.0, 0.5, 1.2]); // 8: dips on the first round only
+        genomes.push(vec![10.0, 0.5, 0.5]); // 9: forgot fetch everywhere
+        genomes.push(vec![1.0, 1.0, 1.0]); // the control
+        let (means, survived) = crate::train::race(&s, &genomes, &lay, 4, 0.0, 2, &mut crate::train::Rng(1));
+        assert!(survived[8] && survived[9], "the diggers were cut on the floor: {survived:?}");
+        assert!((means[8].fit - (10.0f64 * 0.92).sqrt()).abs() < 1e-6, "the dip brain over all ten: {}", means[8].fit);
+        assert!((means[9].fit - 0.1 * (10.0f64 * 0.5).sqrt()).abs() < 1e-9, "the forgetful one is still penalised: {}", means[9].fit);
     }
 
     /// **The step-4 switch** ([`Suite::gated_at`]): on from step 4 with soil

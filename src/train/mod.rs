@@ -146,6 +146,18 @@ pub trait Challenge: Sync {
     fn mirrored(&self) -> bool {
         false
     }
+    /// **A folded score without its forget-floor penalty**, for racing's
+    /// first round ([`race`]): only a suite has a floor, and it gives back
+    /// the product of its ratios as if no kept arena were under. Why: a
+    /// floor is a share of a reference, and read on a few worlds it fires on
+    /// noise. s172's champion at gen 70 of `dig-8` (fetch 0.87 of s91 on 96
+    /// fresh worlds) falls under 0.8 on 26% of 8-world draws against 8% of
+    /// 48-world ones, so a raced first round cut a quarter of such brains
+    /// for nothing. The floor still decides, on every layout, for whoever
+    /// survives.
+    fn unfloored(&self, s: &Score) -> f64 {
+        s.fit
+    }
     /// **How a genome's per-layout scores become its score**: by default
     /// the mean, or the worse side of each mirrored pair ([`worse_side`]).
     /// A suite folds each of its arenas on its own first ([`fold`]).
@@ -969,7 +981,9 @@ pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], t
 }
 
 /// **Racing** (`race=`, [`Settings::race`]): every genome on the first
-/// `first` layouts, the better half of the population kept, and only those
+/// `first` layouts, the better half of the population kept (ranked with no
+/// forget-floor penalty, [`Challenge::unfloored`]: a floor fires on noise
+/// over a few worlds), and only those
 /// on the rest. Returns each genome's folded score (over every layout for
 /// a survivor, over the first round for one dropped) and who survived.
 /// The control (the last genome) always survives, so its line stays
@@ -990,7 +1004,8 @@ pub fn race(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], first:
     let m1: Vec<Score> = s1.iter().map(|s| fold(ch, s, a)).collect();
     let mut order: Vec<usize> = (0..control).collect();
     order.sort_by(|&x, &y| {
-        wired(m1[y].fit, connections(&genomes[y]), wire).partial_cmp(&wired(m1[x].fit, connections(&genomes[x]), wire)).unwrap().then(x.cmp(&y))
+        let at = |g: usize| wired(ch.unfloored(&m1[g]), connections(&genomes[g]), wire);
+        at(y).partial_cmp(&at(x)).unwrap().then(x.cmp(&y))
     });
     let mut survived = vec![false; n];
     for &g in order.iter().take(control.div_ceil(2)) {
