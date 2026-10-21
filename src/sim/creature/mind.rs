@@ -1786,6 +1786,12 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             let (mut ctx, now) = context(world, organism, def, &mind.state, &opts);
             // SCRATCH (investigation, not for main): PP_ABLATE=name,name zeroes those senses before every decision.
             scratch_log::ablate(&mut ctx);
+            // SCRATCH (teacher lane): `PP_BOTTOM_CTX=1` (with `PP_BOTTOM`) puts "a cut at the bottom of my hole, below
+            // the ground as built, is in reach" on the borrowed context slot c::CROWD (17), which reads 0 in every solo
+            // arena: the job stage reads it straight, past the scorer's saturated best-score channel.
+            if std::env::var("PP_BOTTOM_CTX").is_ok() {
+                ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
+            }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
             let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
@@ -4016,8 +4022,18 @@ pub mod scratch_log {
                 format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
             })
             .collect();
+        // SCRATCH (teacher lane, 2026-10-21): the "bottom of the hole" candidate sense, appended as a 15th field so
+        // every reader of fields 0-13 is unchanged. Per Dig option, for reach R in BOTTOM_REACH: target row minus the
+        // deepest open row of the cavity the head stands in, flooded through open cells (empty, or this ant's own
+        // body) within Chebyshev R of the head -- what an ant feels by touch and gravity: is there open space lower
+        // than the cell it is about to cut? `-` for other verbs.
+        let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
+        let bottom: Vec<String> = opts
+            .iter()
+            .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+            .collect();
         cline(&format!(
-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{}",
+            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{}",
             world.frame,
             at.0,
             at.1,
@@ -4027,8 +4043,35 @@ pub mod scratch_log {
             u8::from(carrying),
             f(ctx),
             f(mem0),
-            all.join(";")
+            all.join(";"),
+            bottom.join(";")
         ));
+    }
+    pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
+    /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
+    /// own row if nothing else is open.
+    pub fn cavity_low(world: &World, organism: OrganismId, head: (i32, i32), r: i32) -> i32 {
+        let open = |x: i32, y: i32| {
+            let c = world.get(x, y);
+            c.material == crate::sim::material::EMPTY || c.organism_id() == organism
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![head];
+        seen.insert(head);
+        let mut low = head.1;
+        while let Some((x, y)) = stack.pop() {
+            low = low.max(y);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let n = (x + dx, y + dy);
+                    if (n.0 - head.0).abs() <= r && (n.1 - head.1).abs() <= r && !seen.contains(&n) && open(n.0, n.1) {
+                        seen.insert(n);
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        low
     }
 
     pub fn teach_report() -> String {

@@ -10,7 +10,7 @@ fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (shaft, frames, out, files): (i32, u64, &str, &[String]) = (a[0].parse().unwrap(), a[1].parse().unwrap(), &a[2], &a[3..]);
     let budget = 1200.0 * frames as f32 / 6000.0;
-    let soil = Soil { ants: 1, frames, step: 4, shaft, budget: Some(budget), foot: true };
+    let soil = Soil { ants: 1, frames, step: 4, shaft, budget: Some(budget), foot: true, step_near: 0.0 };
     let gs: Vec<Vec<f32>> = files.iter().map(|f| train::start_mind(&soil, f)).collect();
     // Two independent 48-world sets, drawn the way training draws a generation's (mirrored pairs).
     let sets = [train::training_layouts(9001, 0, 48), train::training_layouts(9002, 0, 48)];

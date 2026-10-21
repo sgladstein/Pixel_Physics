@@ -487,6 +487,20 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+    // SCRATCH (teacher lane, 2026-10-21, never for main): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
+    // sense onto every Dig option, borrowing the unwritten `f::BUILDING` slot: 1 when no open cell of the cavity the
+    // head stands in (flooded through open cells within Chebyshev `reach` of the head) lies lower than the target.
+    if let Some(r) = bottom_reach() {
+        let low = super::mind::scratch_log::cavity_low(world, organism, head, r);
+        for o in out.iter_mut().filter(|o| o.verb == Verb::Dig) {
+            o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
+        }
+    }
+}
+
+fn bottom_reach() -> Option<i32> {
+    static R: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("PP_BOTTOM").ok().and_then(|v| v.parse().ok()))
 }
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
