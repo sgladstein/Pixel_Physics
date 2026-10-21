@@ -1191,6 +1191,40 @@ impl Chunk {
         self.reach = self.cells.iter().map(|&cell| reach_of(cell)).max().expect("cells is never empty").max(1);
     }
 
+    /// **Everything a chunk re-derives as it settles, in one walk of its
+    /// cells**: `recompute_reach`'s reach, `recompute_has_liquid`'s flag, and
+    /// the world position of every cell `decays` says gets a decay site,
+    /// pushed onto `decayables` in row-major order (top row first, left to
+    /// right) -- the order `World::end_step`'s own `y`-then-`x` loop used to
+    /// produce, which `schedule_active_site` receives them in.
+    ///
+    /// `traits` answers `(reach, is_liquid, decays)` for a cell. It exists
+    /// because the three used to be three scans, each paying a full
+    /// `MaterialRegistry` lookup per cell (a 616-byte `Material`, and
+    /// `sweep_reach`'s float arithmetic) -- 17% of a training arena's
+    /// frame, where an ant walking through a chunk wakes it and the next
+    /// tick settles it again. The caller passes a per-material table, so a
+    /// cell costs one small indexed load. Bit-identical to the three scans:
+    /// same values, same push order.
+    pub fn rescan_on_settle(&mut self, traits: impl Fn(Cell) -> (i32, bool, bool), decayables: &mut Vec<(i32, i32)>) {
+        let (ox, oy) = self.coord.origin();
+        let mut reach = i32::MIN;
+        let mut liquid = false;
+        for (i, &cell) in self.cells.iter().enumerate() {
+            let (r, l, d) = traits(cell);
+            reach = reach.max(r);
+            liquid |= l;
+            if d {
+                let i = i as i32;
+                decayables.push((ox + i % CHUNK_SIZE, oy + i / CHUNK_SIZE));
+            }
+        }
+        // `cells` is never empty (see `recompute_reach`), so `reach` is a
+        // real cell's value here and `.max(1)` is the same floor.
+        self.reach = reach.max(1);
+        self.has_liquid = liquid;
+    }
+
     /// Force the whole chunk to be examined on the next sweep.
     pub fn wake(&mut self) {
         self.dirty = Some(self.coord.bounds());
