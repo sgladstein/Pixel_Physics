@@ -1,42 +1,42 @@
 {
-  "id": "20261021T054209047Z-78f707",
-  "created": "2026-10-21T05:42:09Z",
-  "board": "nest",
-  "origin": {
-    "worktree": "/home/user/Pixel_Physics",
-    "branch": "ccr-439ee31b-pn36yq",
-    "commit": "b61eebfa",
-    "agent": null,
-    "session_id": "c5a77cb3-ff1b-59a8-b136-bac28528e98e",
-    "user": null,
-    "cwd": "/home/user/Pixel_Physics"
-  },
-  "title": "Mound: a ring round the door, or a crescent on the side away from the food?",
-  "question": "Which mound do you want the teacher to aim for: ring (left) or crescent (right)?",
-  "context_md": "Same harvester nest (7-cell chambers), same soil, heaped two ways. Top row: sized for 12 ants (the planned colony stage). Bottom row: the full stack. Food 45 columns east; the yellow dots are the walk from the door to it.\n\n- **In a 2D slice the mound holds all the soil the nest took out.** Nothing spreads into a third dimension, so the mound's area equals the nest's.\n- **A ring puts a hill on every trip to the food.** The trip climbs 8-11 rows. In the old game the ants tunnelled through it instead, and blocking those tunnels starved the colony (dead-ends , ). The mound arm was also the worst at keeping the door open: 30 of 72 samples against 54.\n- **A crescent leaves the road flat, but is twice as long or taller on one side.** Real ants build both shapes: a ring in Dorymyrmex; a one-sided crescent in Trachymyrmex and Pheidole, turned away from the slope.\n- **Middle ground:** a lopsided ring, mostly on the far side with a thin one on the food side.",
-  "kind": "single",
-  "blind": false,
-  "blocking": false,
-  "items": [
-    {
-      "label": "ring vs crescent",
-      "files": [
-        "20261021T054209047Z-78f707/000-ringcrescent.png"
-      ],
-      "caption": "left: ring, right: crescent; top: 12-ant nest, bottom: full harvester",
-      "meta": {
-        "climb on the way to food, ring (12-ant / full)": "11 / 8 rows",
-        "climb, crescent": "0 / 0 rows",
-        "mound, 12-ant": "551 cells",
-        "mound, full": "1228 cells"
-      },
-      "focus": null
-    }
-  ],
-  "ask": {
-    "choice": false,
-    "rating": true,
-    "comment": true,
-    "annotations": true
+ "id": "20261021T054209047Z-78f707",
+ "created": "2026-10-21T05:42:09Z",
+ "board": "nest",
+ "origin": {
+  "worktree": "/home/user/Pixel_Physics",
+  "branch": "ccr-439ee31b-pn36yq",
+  "commit": "b61eebfa",
+  "agent": null,
+  "session_id": "c5a77cb3-ff1b-59a8-b136-bac28528e98e",
+  "user": null,
+  "cwd": "/home/user/Pixel_Physics"
+ },
+ "title": "Mound: a ring round the door, or a crescent on the side away from the food?",
+ "question": "Which mound do you want the teacher to aim for: ring (left) or crescent (right)?",
+ "context_md": "Same harvester nest (7-cell chambers), same soil, heaped two ways. Top row: sized for 12 ants (the planned colony stage). Bottom row: the full stack. Food 45 columns east; the yellow dots are the walk from the door to it.\n\n- **In a 2D slice the mound holds all the soil the nest took out.** Nothing spreads into a third dimension, so the mound's area equals the nest's.\n- **A ring puts a hill on every trip to the food.** The trip climbs 8-11 rows. In the old game the ants tunnelled through it instead, and blocking those tunnels starved the colony (dead-ends `MOUND_DIG`, `FORAGER_NODIG`). The mound arm was also the worst at keeping the door open: 30 of 72 samples against 54.\n- **A crescent leaves the road flat, but is twice as long or taller on one side.** Real ants build both shapes: a ring in Dorymyrmex; a one-sided crescent in Trachymyrmex and Pheidole, turned away from the slope.\n- **Middle ground:** a lopsided ring, mostly on the far side with a thin one on the food side.",
+ "kind": "single",
+ "blind": false,
+ "blocking": false,
+ "items": [
+  {
+   "label": "ring vs crescent",
+   "files": [
+    "20261021T054209047Z-78f707/000-ringcrescent.png"
+   ],
+   "caption": "left: ring, right: crescent; top: 12-ant nest, bottom: full harvester",
+   "meta": {
+    "climb on the way to food, ring (12-ant / full)": "11 / 8 rows",
+    "climb, crescent": "0 / 0 rows",
+    "mound, 12-ant": "551 cells",
+    "mound, full": "1228 cells"
+   },
+   "focus": null
   }
+ ],
+ "ask": {
+  "choice": false,
+  "rating": true,
+  "comment": true,
+  "annotations": true
+ }
 }
