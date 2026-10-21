@@ -1404,6 +1404,12 @@ pub struct Soil {
     /// guards and numbers are written against. At `shaft` 0 the foot is
     /// the first row under the top, so on is rev 2.8 there too.
     pub foot: bool,
+    /// **The share of bed pairs with the step forced near the shaft**
+    /// (`stepnear=`, [`DigBed::drawn`]), 0 for the beds every earlier run
+    /// and score met. It moves the hold-out with the training beds, so a
+    /// run's own hold-out numbers are not comparable across it; judge on
+    /// `sealed=1` at the default.
+    pub step_near: f64,
 }
 
 /// The soil trip's verbs: the forager's ([`SCARCE_VERBS`]) and the cut.
@@ -1785,7 +1791,7 @@ impl Soil {
     /// 4 the whole bed**, its stone and its step on the side `k` picks, so
     /// a pair differs by the side alone, as [`Dig`]'s do.
     fn bed(&self, layout: Layout) -> Scenario {
-        let shape = DigBed::of(layout);
+        let shape = DigBed::drawn(layout, self.step_near);
         if self.generated() {
             bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp)
         } else {
@@ -2039,14 +2045,37 @@ pub struct DigBed {
 const BED_INSIDE: (i32, i32) = (6, BED_W - 6);
 
 impl DigBed {
+    /// One feature's draw for the bed on `seed`: `lo..=hi`, a hash of the
+    /// seed and the feature's `salt`, so a pair's two sides draw alike.
+    fn roll(seed: u64, salt: u64, lo: i32, hi: i32) -> i32 {
+        let mut z = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        lo + ((z ^ (z >> 31)) % (hi - lo + 1) as u64) as i32
+    }
+
+    /// **[`DigBed::of`], with a step forced near the shaft on a share
+    /// `near` of the pairs** ([`Soil::step_near`]): there the step is drawn
+    /// 6-10 columns out instead of 6-30, mirrored as ever, its height as
+    /// drawn. Why: on 192 hold-out beds at the 8-row shaft (2026-10-21) the
+    /// step within 10 columns of the shaft, 40 beds of 192, cost both
+    /// trained brains 1.4 and 1.7 full loads (2 s.e.), and the 4-row brain
+    /// they came from only 0.3: the walk out to a fixed put-down that a
+    /// flat bed pays. A step anywhere else, the stone, the soil depth and
+    /// the lamps cost nothing measurable, and a plain bed (no lens, no step,
+    /// one depth) is no less noisy -- the per-world spread is the run's own.
+    /// 0 is [`DigBed::of`] exactly, bed for bed.
+    pub fn drawn(layout: Layout, near: f64) -> DigBed {
+        let mut bed = Self::of(layout);
+        let draw = |salt: u64, lo: i32, hi: i32| Self::roll(layout.seed, salt, lo, hi);
+        if near > 0.0 && f64::from(draw(11, 0, 9999)) < near * 10_000.0 {
+            bed.step = Some((NEST_X + bed.side * draw(12, 6, 10), draw(9, 2, 6)));
+        }
+        bed
+    }
+
     pub fn of(layout: Layout) -> DigBed {
-        let seed = layout.seed;
-        let draw = |salt: u64, lo: i32, hi: i32| {
-            let mut z = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            lo + ((z ^ (z >> 31)) % (hi - lo + 1) as u64) as i32
-        };
+        let draw = |salt: u64, lo: i32, hi: i32| Self::roll(layout.seed, salt, lo, hi);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
         let depth = draw(1, 24, 52);
         let lens = (draw(2, 0, 3) > 0).then(|| {
@@ -3917,7 +3946,7 @@ mod tests {
         let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
         for k in [0, 1] {
             let world = |step: u8| {
-                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false };
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0 };
                 assert_eq!(soil.mirrored(), step >= 4);
                 soil.world(lay(seed, k), &g)
             };
@@ -3937,6 +3966,37 @@ mod tests {
             let (w3, sc3, _, _) = world(3);
             assert_eq!(census::surface_of(&w3, &sc3.bed, inside), GROUND_Y, "k={k}: step 3's bed is flat");
         }
+    }
+
+    /// **`stepnear=` forces the step near the shaft on its share of pairs,
+    /// and nothing else** ([`DigBed::drawn`]): at 0 every bed is
+    /// [`DigBed::of`]'s; at 1 every bed's step is 6-10 columns out on its
+    /// own side, mirrored across a pair, and nothing but the step moved; at
+    /// 0.3 about that share of 400 pairs is forced. The beds' own share
+    /// within 10 columns is the control: about one bed in five.
+    #[test]
+    fn step_near_forces_the_step_by_the_shaft_and_nothing_else() {
+        let lay = |seed: u64, k: u64| Layout { seed, k, blind: false, legal: false };
+        let near = |b: &DigBed| b.step.is_some_and(|(x, _)| (6..=10).contains(&((x - NEST_X) * b.side)));
+        let (mut own, mut forced) = (0, 0);
+        for seed in 0..400 {
+            for k in [0, 1] {
+                let l = lay(seed, k);
+                let bed = DigBed::of(l);
+                assert_eq!(DigBed::drawn(l, 0.0), bed, "seed {seed}: 0 is the bed as it was");
+                let all = DigBed::drawn(l, 1.0);
+                assert!(near(&all), "seed {seed} k {k}: {:?}", all.step);
+                assert_eq!(DigBed { step: bed.step, ..all.clone() }, bed, "seed {seed}: only the step moves");
+                if k == 0 {
+                    own += usize::from(near(&bed));
+                    forced += usize::from(DigBed::drawn(l, 0.3) != bed && near(&DigBed::drawn(l, 0.3)));
+                    let west = DigBed::drawn(lay(seed, 1), 1.0);
+                    assert_eq!(all.step.map(|s| s.0 - NEST_X), west.step.map(|s| NEST_X - s.0), "seed {seed}: mirrored");
+                }
+            }
+        }
+        assert!((60..=110).contains(&own), "the beds' own near steps: {own} of 400");
+        assert!((90..=150).contains(&forced), "0.3 forced {forced} of 400");
     }
 
     /// **No stone in the founding cut** (ladder lane, `dig-rung-design.md`
@@ -3964,7 +4024,7 @@ mod tests {
             (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
         };
         let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
-            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false };
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0 };
             let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
             assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
             let mut out = vec![];
@@ -3992,7 +4052,7 @@ mod tests {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let g = creature::mind::blank(SOIL_VERBS);
         let deepest = |w: &World, sc: &Scenario| founding_cut(w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(w, &sc.bed, x) + 1).max();
-        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false };
+        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0 };
         let (w, sc, _, _) = soil(0).world(lay, &g);
         assert_eq!(deepest(&w, &sc), None, "no shaft asked for, and a hole at frame 0");
         let (w, sc, _, _) = soil(2).world(lay, &g);
@@ -4017,7 +4077,7 @@ mod tests {
     #[test]
     fn the_soil_picture_paints_near_and_away_as_the_score_does() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0 };
         let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
         let x = chamber.0 + 20;
@@ -4037,7 +4097,7 @@ mod tests {
     #[test]
     fn the_soil_ledger_matches_the_world_counts() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false };
+        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0 };
         let (mut w, _, sp, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let (digs, dumped, dig_j) = (w.creature_stats.digs, w.creature_stats.spoil_dumped, w.creature_stats.dig_energy);
         for _ in 0..soil.frames {
@@ -4090,7 +4150,7 @@ mod tests {
     #[test]
     fn soil_never_offers_food_verbs() {
         use creature::options::Verb as V;
-        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true };
+        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
         let g = super::super::start_mind(&soil, "training/starts/s134-4b-g34.txt");
         for k in 0..2 {
             let (mut w, _, _, _) = soil.world(Layout { seed: 70_000, k, blind: false, legal: false }, &g);
@@ -4115,7 +4175,7 @@ mod tests {
     #[test]
     fn a_digging_suite_leaves_the_food_verbs_untested() {
         use creature::options::Verb as V;
-        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true };
+        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
         let fetch = || Scarce {
             ants: 1,
             frames: 10,
