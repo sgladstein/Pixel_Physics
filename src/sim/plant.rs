@@ -1499,7 +1499,7 @@ fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
         // multiply: texture says how hard this ground is at its wettest,
         // dryness how much harder it has become since.
         let dry = match dry_root_cost() {
-            Some(k) if m.water_capacity > 0 => dryness_mult(k, cell),
+            Some(k) if m.water_capacity > 0 => dryness_mult(k, available_water(world, cell)),
             _ => 1.0,
         };
         (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0) * texture * dry
@@ -1533,8 +1533,11 @@ fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
 /// `k` at or below the wilting point, 1.0 at field capacity and wetter,
 /// linear between -- [`dry_root_cost`]'s curve, apart so a test can run it
 /// at any `k` without the process-wide switch.
-fn dryness_mult(k: f32, c: Cell) -> f32 {
-    1.0 + (k - 1.0) * (1.0 - update::plant_available_fraction(c))
+///
+/// Takes the available fraction rather than the cell so it reads the same
+/// texture-aware water a root drinks (`available_water`).
+fn dryness_mult(k: f32, available: f32) -> f32 {
+    1.0 + (k - 1.0) * (1.0 - available)
 }
 
 /// Read once per process through a `OnceLock`: this is on every root step.
@@ -24391,13 +24394,13 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
         let at = |aux: u16| Cell::new(soil, 0).with_aux(aux);
         let (wp, fc) = (material::SOIL_WILTING_POINT, material::SOIL_FIELD_CAPACITY);
-        assert!((dryness_mult(2.0, at(0)) - 2.0).abs() < 1e-6, "bone dry pays k");
-        assert!((dryness_mult(2.0, at(wp)) - 2.0).abs() < 1e-6, "at the wilting point pays k");
-        assert!((dryness_mult(2.0, at(fc)) - 1.0).abs() < 1e-6, "at field capacity pays nothing extra");
-        assert!((dryness_mult(2.0, at(1000)) - 1.0).abs() < 1e-6, "soaked is not made cheaper");
-        let mid = dryness_mult(3.0, at((wp + fc) / 2));
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(0))) - 2.0).abs() < 1e-6, "bone dry pays k");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(wp))) - 2.0).abs() < 1e-6, "at the wilting point pays k");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(fc))) - 1.0).abs() < 1e-6, "at field capacity pays nothing extra");
+        assert!((dryness_mult(2.0, update::plant_available_fraction(at(1000))) - 1.0).abs() < 1e-6, "soaked is not made cheaper");
+        let mid = dryness_mult(3.0, update::plant_available_fraction(at((wp + fc) / 2)));
         assert!((mid - 2.0).abs() < 1e-2, "halfway between pays halfway: {mid}");
-        assert!(dryness_mult(1.0, at(0)) == 1.0, "k of 1 is the switch off");
+        assert!(dryness_mult(1.0, update::plant_available_fraction(at(0))) == 1.0, "k of 1 is the switch off");
     }
 
     /// **A seed buried past its reserve stays down; a shallow one comes up**
