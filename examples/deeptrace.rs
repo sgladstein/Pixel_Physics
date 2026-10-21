@@ -1647,6 +1647,7 @@ fn main() {
                     "  dig_company: refused={} kept={} founding={} escaped={} shaft={}",
                     st.company_refused, st.company_kept, st.company_founding, st.company_escaped, st.company_shaft
                 );
+                println!("  spoil_roll: dumped={} rolled={} roll_cells={}", st.spoil_dumped, st.spoil_rolled, st.spoil_roll_cells);
             }
         }
     }

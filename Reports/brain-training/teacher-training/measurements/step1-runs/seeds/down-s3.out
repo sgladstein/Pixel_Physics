@@ -1,0 +1,31 @@
+quiet_unread: 184 links of unread units zeroed; live links 706 -> 522
+trainable slots: 320 (live 311, allow-list 9)
+rules copied: ['down']
+group none : train   6640  held out   1360  target ref
+group down : train   6667  held out   1333  target teacher
+group keep : train   6603  held out   1397  target ref
+step 0: held-out KL none 0.0000 down 2.3314 keep 0.0000
+step 100: held-out KL none 0.0510 down 1.3980 keep 0.1034  sum 1.5524  (11 s)
+step 200: held-out KL none 0.0293 down 1.1721 keep 0.0827  sum 1.2840  (22 s)
+step 300: held-out KL none 0.0413 down 0.9176 keep 0.0934  sum 1.0523  (33 s)
+step 400: held-out KL none 0.0378 down 0.8074 keep 0.0914  sum 0.9366  (43 s)
+step 500: held-out KL none 0.0370 down 0.7730 keep 0.0842  sum 0.8943  (54 s)
+step 600: held-out KL none 0.0329 down 0.7646 keep 0.0807  sum 0.8783  (65 s)
+step 700: held-out KL none 0.0408 down 0.7579 keep 0.0814  sum 0.8801  (76 s)
+step 800: held-out KL none 0.0349 down 0.7321 keep 0.0798  sum 0.8468  (86 s)
+step 900: held-out KL none 0.0337 down 0.6873 keep 0.0910  sum 0.8120  (96 s)
+step 1000: held-out KL none 0.0345 down 0.7086 keep 0.0832  sum 0.8263  (107 s)
+step 1100: held-out KL none 0.0331 down 0.6559 keep 0.0924  sum 0.7813  (118 s)
+step 1200: held-out KL none 0.0310 down 0.6610 keep 0.0873  sum 0.7793  (128 s)
+step 1300: held-out KL none 0.0318 down 0.6492 keep 0.0887  sum 0.7697  (138 s)
+step 1400: held-out KL none 0.0316 down 0.6750 keep 0.0829  sum 0.7895  (150 s)
+step 1500: held-out KL none 0.0308 down 0.6348 keep 0.0895  sum 0.7551  (159 s)
+step 1600: held-out KL none 0.0301 down 0.6500 keep 0.0877  sum 0.7678  (170 s)
+step 1700: held-out KL none 0.0291 down 0.6501 keep 0.0865  sum 0.7657  (181 s)
+step 1800: held-out KL none 0.0296 down 0.6242 keep 0.0888  sum 0.7426  (191 s)
+step 1900: held-out KL none 0.0311 down 0.5824 keep 0.0983  sum 0.7118  (201 s)
+step 2000: held-out KL none 0.0325 down 0.6064 keep 0.0962  sum 0.7351  (211 s)
+wrote /home/user/seeds/down-s3.txt: best step 1900, live links 531 (start 706), moved 273, revived 9 [np.int64(654), np.int64(699), np.int64(789), np.int64(834), np.int64(924), np.int64(1059), np.int64(1149), np.int64(1239), np.int64(1498)]
+  none  start: overlap with target 1.000 | copy: overlap with target 0.966
+  down  start: overlap with target 0.264 | copy: overlap with target 0.606
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.920
