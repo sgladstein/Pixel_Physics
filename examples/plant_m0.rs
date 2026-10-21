@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -1110,22 +1110,52 @@ fn plastic(m: &BTreeMap<String, String>) {
             ("bright, on", Offset::Under, 33, true, 1.0),
             ("dim, on", dim_off, dim_spacing, true, dim_lamp),
         ] {
+            // `arm=bright-off` runs that arm alone (labels with ", " -> "-").
+            if m.get("arm").is_some_and(|a| *a != label.replace(", ", "-")) {
+                continue;
+            }
             let (mut rows, mut lights) = (Vec::new(), Vec::new());
             // Wide enough for the dim column (half of 132 from the nearest
             // lamp) to exist, and the same in both arms.
             let wide = BedSpec { width: 288, ..spec };
             for s in 0..n {
-                let mut bed = arena::bed_for(None, &sp, Layout { seed: 5_000_000 + s, offset: off }, &wide);
+                // `vary=` splits the spread (plan §3.2's decomposition):
+                // `world` (default) varies the world seed with the founder
+                // fixed -- under the lab's `DevelopmentalKey::World` the
+                // plant's own draws do not read the world seed, so this is
+                // the environment's dice; `column` fixes the world and moves
+                // the founder one column per seed -- the plant's dice (its
+                // draws are keyed on position) in one environment; `none`
+                // repeats one plant, the determinism control.
+                let vary: String = get(m, "vary", "world".to_string());
+                // `base=`: the world seed the fixed arms use (and the first
+                // of the varied one).
+                let base: u64 = get(m, "base", 5_000_000u64);
+                let world_seed = if vary == "world" { base + s } else { base };
+                let mut bed = arena::bed_for(None, &sp, Layout { seed: world_seed, offset: off }, &wide);
                 bed.lamp_spacing = spacing;
-                bed.founder_at = Some(vec![arena::founder_column(&bed, off)]);
+                let shift = if vary == "column" { s as i32 } else { 0 };
+                bed.founder_at = Some(vec![arena::founder_column(&bed, off) + shift]);
                 let (mut w, id) = arena::build(&bed, &wide);
                 dim_lamps(&mut w, lamp, bed.width, bed.height);
+                // **The light probe runs on a copy.** It stepped the light
+                // field 30 times on seed 0's own world, so seed 0 grew a
+                // different plant from the same inputs on any later seed
+                // (measured: one world repeated 16 times read 206 cells on
+                // seed 0 and 513 on the other 15). Every earlier run of this
+                // arm carries that on seed 0, the same in each paired arm.
                 if s == 0 {
                     let fx = arena::founder_column(&bed, off);
+                    let mut probe = w.clone();
                     for _ in 0..30 {
-                        pixel_physics::sim::field::step(&mut w);
+                        pixel_physics::sim::field::step(&mut probe);
                     }
-                    println!("    {label}: light at the planting site (3 rows up) {:.2} of full", pixel_physics::sim::plant::ambient_light_above(&w, fx, bed.ground_y - 3) / pixel_physics::sim::field::MAX_LIGHT);
+                    println!("    {label}: light at the planting site (3 rows up) {:.2} of full", pixel_physics::sim::plant::ambient_light_above(&probe, fx, bed.ground_y - 3) / pixel_physics::sim::field::MAX_LIGHT);
+                }
+                // `devkey=N`: `DevelopmentalKey::Plant { coarseness: N }`
+                // instead of the lab's `World` key (A4's question).
+                if let Some(c) = m.get("devkey") {
+                    w.developmental_key = pixel_physics::sim::organism::DevelopmentalKey::Plant { coarseness: c.parse().expect("devkey=N") };
                 }
                 let mut args = m.clone();
                 args.insert("shade".into(), u8::from(plastic).to_string());
@@ -1138,8 +1168,10 @@ fn plastic(m: &BTreeMap<String, String>) {
                 let trace: u64 = get(m, "trace", 0);
                 for f in 0..frames {
                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
-                    if trace > 0 && s == 0 && f % trace == 0 {
-                        trace_founder(&w, id, &format!("{label} f={f}"));
+                    // `traceall=1`: every seed's founder, not only seed 0 --
+                    // the per-individual trace the stall lottery needs.
+                    if trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0) && f % trace == 0 {
+                        trace_founder(&w, id, &format!("{label} s={s} f={f}"));
                     }
                 }
                 // `pics=N`: the founder's patch for the first N seeds,

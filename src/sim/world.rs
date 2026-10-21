@@ -6452,6 +6452,8 @@ pub struct World {
     /// plant-community plan; `plant::node_stream`). Acts only under
     /// `DevelopmentalKey::Plant`.
     pub node_keyed_growth: bool,
+    /// **Laterals at nodes, not by coin** (A3; `plant::branch_due`).
+    pub branch_by_node: bool,
     /// **The deepest generation any lineage has ever reached** — a high-water
     /// mark, never decremented, and the reason it exists is that every other
     /// generation readout in this repo cannot answer the question.
@@ -6614,6 +6616,15 @@ pub struct World {
     /// `Reports/plant-community-plan-2026-10-20.md`). Off, both genes are
     /// ignored and a plant grows the same in shade as in sun, which is the
     /// engine before A5.
+    ///
+    /// **On by default since 2026-10-21** (features ship on unless a harm is
+    /// measured). No shipped species carries a shade gene, so on is a no-op
+    /// until training or a species file sets one: the training world's census
+    /// is identical with it on and off over 8,000 frames, and differs as soon
+    /// as a shrub carries `tolerate` 0.7 (the positive control). With a gene
+    /// it was measured neutral in bright light (larger on 8 of 16 paired
+    /// seeds at `SHADE_LEAF_PRICE` 0.9) and kept 16 of 16 alive in dim light
+    /// against 13 (`Reports/plant-community-2026-10-20/m1/shade-price/`).
     pub shade_plasticity: bool,
     /// **The light an unshaded leaf gets in this world** -- what the shade
     /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
@@ -7580,6 +7591,7 @@ impl World {
             carried_off: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             node_keyed_growth: super::plant::node_key_default(),
+            branch_by_node: super::plant::branch_node_default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
             deepest_breeder_generation: 0,
@@ -7591,7 +7603,7 @@ impl World {
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
             seed_pile_depth: 0,
             bud_break_reserve: false,
-            shade_plasticity: false,
+            shade_plasticity: true,
             open_light: crate::sim::field::MAX_LIGHT,
             seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,

@@ -2456,6 +2456,50 @@ fn node_stream(world: &World, organism_id: OrganismId, x: i32, y: i32, stale_tic
     Some(rng::stream(s.dev_seed ^ NODE_KEY_SALT, (x - ox) as u64, (y - oy) as u64, (u64::from(plastochron) << 8) | u64::from(stale_ticks)))
 }
 
+/// **Does this growth step bear a lateral?** The coin (`rng.chance`) as
+/// shipped; under `World::branch_by_node` (A3 of the plant-community plan,
+/// "buds ... not a coin"), error diffusion along the lineage's own node
+/// count instead: a lateral on the step where `step * p` crosses a whole
+/// number, so an axis with `p` 0.25 branches on every fourth step, exactly,
+/// at the same mean rate as the coin and with none of its spread.
+///
+/// Why it matters: traced on 16 lone lab shrubs (bright lamp, 60,000 frames,
+/// `plant_m0 ... traceall=1`), final size ran 127-1,211 cells, and what
+/// separated them was the tip count by frame 1,500 -- 1 tip on the four
+/// smallest, 4-9 on the larger -- with carbon in store on every plant
+/// (the smallest held 100-600 while standing at one tip). Early laterals buy
+/// leaf, leaf buys income, income licenses buds (`break_buds`), so a coin in
+/// the first few steps decides the plant. Real laterals come at nodes in a
+/// pattern set by the axis, not by chance.
+///
+/// Falls back to the coin once the node count saturates (`u8::MAX`), where
+/// the crossing test can no longer move.
+fn branch_due(world: &World, rng: &mut Rng, p: f32, lineage_step: u8) -> bool {
+    if !world.branch_by_node || lineage_step == u8::MAX {
+        return rng.chance(p);
+    }
+    let p = p.clamp(0.0, 1.0);
+    let step = f32::from(lineage_step) + branch_phase();
+    (step * p).floor() > ((step - 1.0) * p).floor()
+}
+
+/// Where in its first interval an axis bears its first lateral: 0 puts it a
+/// whole interval in (step `1/p`), 0.5 half way. `PIXEL_PHYSICS_BRANCH_PHASE`
+/// for the sweep.
+fn branch_phase() -> f32 {
+    use std::sync::OnceLock;
+    static PHASE: OnceLock<f32> = OnceLock::new();
+    *PHASE.get_or_init(|| std::env::var("PIXEL_PHYSICS_BRANCH_PHASE").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0))
+}
+
+/// `World::branch_by_node`'s default: off, unless
+/// `PIXEL_PHYSICS_BRANCH_NODE=1` -- the harness switch, as `node_key_default`.
+pub(crate) fn branch_node_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BRANCH_NODE").as_deref(), Ok("1")))
+}
+
 /// `World::node_keyed_growth`'s default: off, unless
 /// `PIXEL_PHYSICS_NODE_KEY=1` -- the instrument that lets every harness
 /// (`clone_variance`, `plant_m0`) run the A2 arm without a flag of its own.
@@ -6709,7 +6753,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // frames. See `Behavior::Grow::branch_priming`.
                 if priming_interval == 0
                     && resource >= cost
-                    && rng.chance(branch_chance)
+                    && branch_due(world, &mut rng, branch_chance, lineage_step)
                     && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
                 {
                     // **A lateral gets its own candidate set, and this is
