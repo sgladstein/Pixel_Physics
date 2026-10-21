@@ -34,6 +34,7 @@ WALK, DIG = 0, 3
 # each arena's verbs (`Challenge::verbs`): `apply_bans` switches every other verb off when the arena runs the genome,
 # so a log's decisions must be recomputed with those verbs off (the kept-skill group read 0.054 KL at step 0 without)
 ARENA_VERBS = {"soil": [0, 1, 2, 4, 6, 5, 7, 3], "fetch": [0, 1, 2, 4, 6, 5, 7], "trail": [0, 1, 2]}
+ROOF_DROP_F = 44  # options::f::ROOF_DROP
 DEPTH_F = 26
 
 
@@ -468,13 +469,55 @@ def train(cfg_path):
     g_ref = g0.copy()
     if cfg.get("quiet_unread", True):
         g0, nq = quiet_unread(g0)
+        # frozen slots stay as the start had them even on unread units (the brain lane asked for f::ROOF_DROP's links
+        # untouched; zeroing an unread unit's copy of one changed nothing the ant does, but it changed the genome)
+        if "roof_drop" in cfg.get("freeze", []):
+            for u in range(UNITS):
+                i = S_FEAT + u * FEATURES + ROOF_DROP_F
+                g0[i] = g_ref[i]
         print(f"quiet_unread: {nq} links of unread units zeroed; live links {live_links(g_ref)} -> {live_links(g0)}")
     target_g = read_genome(cfg["target_genome"])[0] if cfg.get("target_genome") else None
     allow = list(cfg.get("allow", []))
     if cfg.get("depth_into_live_units", True):
         allow += [S_FEAT + u * FEATURES + DEPTH_F for u in range(UNITS) if g0[S_OUT + u] != 0.0]
-    mask = trainable_mask(g0, allow)
-    print(f"trainable slots: {mask.sum()} (live {(mask & (onp.abs(g0) >= W_EPS)).sum()}, allow-list {len(allow)})")
+    if cfg.get("arena_bit"):
+        # step 0.5's joint-fit arm (c): one bit that says "not the soil arena", carried on c::CROWD (index 17), which
+        # reads 0 on every decision of every solo arena -- a context input the brain does not have, borrowed from one
+        # it never uses here -- and trainable into every scorer unit and every job head
+        allow += [S_CTX + u * S_IN + 17 for u in range(UNITS)] + [JOB + v * J_IN + 17 for v in range(VERBS)]
+    # step 0.5's narrow capacity arm: revive whole dead scorer units for the lesson -- every input link, its verb
+    # row and its output -- rather than every dead slot in the brain. Picks the first `revive_units` units nothing reads.
+    k = int(cfg.get("revive_units", 0))
+    if k:
+        dead = [u for u in range(UNITS) if g0[S_OUT + u] == 0.0][:k]
+        for u in dead:
+            allow += list(range(S_CTX + u * S_IN, S_CTX + (u + 1) * S_IN))
+            allow += list(range(S_FEAT + u * FEATURES, S_FEAT + (u + 1) * FEATURES))
+            allow += [S_VERB + u * VERBS + v for v in range(VERBS) if v not in FROZEN_VERBS] + [S_OUT + u]
+            # seed the inputs (never the output, so the start's policy is unchanged): a unit with every weight 0 has
+            # an exactly zero gradient on both sides -- the first build of this arm reproduced arm (a) to every digit
+            ins = list(range(S_CTX + u * S_IN, S_CTX + (u + 1) * S_IN)) + list(range(S_FEAT + u * FEATURES, S_FEAT + (u + 1) * FEATURES))
+            if "roof_drop" in cfg.get("freeze", []):
+                # never seed a frozen slot: the freeze holds whatever is there, so a seeded f::ROOF_DROP link would be
+                # a new, permanent link the brain lane asked not to have (found on the first L20u build)
+                ins = [i for i in ins if i != S_FEAT + u * FEATURES + ROOF_DROP_F]
+            g0[ins] = rng.normal(0.0, cfg.get("revive_sigma", 0.3), len(ins))
+        print(f"revive_units: {dead} (inputs seeded, sigma {cfg.get('revive_sigma', 0.3)})")
+    # step 0.5's joint-fit arm (b): every slot of the scorer, the job heads and the hidden units, live or dead (the 8
+    # unread scorer units included), with the energy bill ignored -- "is it capacity?"
+    mask = trainable_mask(onp.ones_like(g0) if cfg.get("all_slots") else g0, allow)
+    # `freeze`: slots the copier must not move, whatever else says so. "roof_drop" is every scorer unit's link from
+    # f::ROOF_DROP -- the brain lane, 2026-10-21: load-bearing for s171 (off: -1.4 to -1.7 full loads) and under
+    # review by a soil-physics session, so kept out of anything the copier changes
+    frozen = []
+    for item in cfg.get("freeze", []):
+        if item == "roof_drop":
+            frozen += [S_FEAT + u * FEATURES + ROOF_DROP_F for u in range(UNITS)]
+        else:
+            frozen.append(int(item))
+    mask[frozen] = False
+    print(f"trainable slots: {mask.sum()} (live {(mask & (onp.abs(g0) >= W_EPS)).sum()}, allow-list {len(allow)}, "
+          f"frozen {len(frozen)}, of them live {int((onp.abs(g0[frozen]) >= W_EPS).sum()) if frozen else 0})")
     # --- data: rows grouped, capped, split by world
     groups = {}
     for li, path in enumerate(cfg["soil_logs"]):
@@ -487,11 +530,24 @@ def train(cfg_path):
             groups.setdefault(group_of(r), []).append(r)
     for li, (arena, path) in enumerate(cfg.get("keep_logs", [])):
         dec, _ = parse_log(path, arena=arena)
+        if cfg.get("arena_bit"):
+            for r in dec:
+                assert r["ctx"][17] == 0.0, "c::CROWD is not 0 in a solo arena: the borrowed bit is not free"
+                r["ctx"] = r["ctx"].copy()
+                r["ctx"][17] = 1.0
         for r in dec:
             r["world"] = (100 + li, r["tag"])
             r["prevrow"] = dec[r["prev"]] if r["prev"] >= 0 else None
             r["dig"], r["digset"], r["down"], r["home"] = "-", [], [], []
-            groups.setdefault("keep", []).append(r)
+            # `keep_lookalike`: kept-skill decisions that look like a lesson's trigger get their own anchor group, so
+            # they cannot be drowned by the many that do not. "below": an empty ant below the ground as built (c::DEPTH
+            # > 0) -- go-down's trigger; in fetch it is a forager in the nest's chamber, where the go-down copy kept
+            # stepping deeper and never came out (fetch scores ~1 on 5-12 of 96 worlds against s171's 2)
+            look = cfg.get("keep_lookalike")
+            if look == "below" and not r["carrying"] and r["ctx"][18] > 0.0:
+                groups.setdefault("keepL", []).append(r)
+            else:
+                groups.setdefault("keep", []).append(r)
     rules = set(cfg.get("rules", ["dig", "down", "home"]))
     if rules != {"dig", "down", "home"}:
         # copy only some of the teacher's rules: the others' labels are cleared, so those decisions anchor to the start
@@ -505,7 +561,7 @@ def train(cfg_path):
                     r["down"] = []
                 if "home" not in rules:
                     r["home"] = []
-                g2 = "keep" if gname == "keep" else group_of(r)
+                g2 = gname if gname in ("keep", "keepL") else group_of(r)
                 moved.setdefault(g2, []).append(r)
         groups = moved
         print(f"rules copied: {sorted(rules)}")
@@ -526,7 +582,7 @@ def train(cfg_path):
         # arms: teacher (the ceiling policy), imitate (another genome's policy everywhere: the positive control with
         # s162, the return-to-start control with s161 as target and a perturbed start), shuffle (teacher labels moved
         # within each decision / within each world: the negative control)
-        mode = "ref" if (gname in ("keep", "none") or cfg["arm"] == "imitate") else "teacher"
+        mode = "ref" if (gname in ("keep", "keepL", "none") or cfg["arm"] == "imitate") else "teacher"
         ref = target_g if cfg["arm"] == "imitate" else g_ref
         packs = []
         for part in (tr, te):
