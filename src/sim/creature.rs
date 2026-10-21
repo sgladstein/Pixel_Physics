@@ -22914,7 +22914,54 @@ fn packed_form(world: &World, cell: Cell, (x, y): (i32, i32), keep_spoil: bool) 
     Some(packed)
 }
 
-/// **Whether cutting `t` drops a roof cell** -- a mind's `f::ROOF_DROP`
+/// **Whether the ant's bite at `t` is hanging** -- a mind's `f::ROOF_DROP`
+/// since 2026-10-21: some grain touching `t` rests on `t` or on open air and
+/// is held by two or fewer other grains, or a pellet rests on `t`. Every term
+/// is something a body pressed against the face feels now: a grain sitting
+/// on what it bites, open space under a grain beside it, how little else that
+/// grain is wedged against. Nothing is built ahead.
+///
+/// **Why it replaced the forecast** ([`cut_drops_roof`], which ran the
+/// engine's collapse rule one cut into the future; owner, 2026-10-21:
+/// "local signals and true biology" for the trained ant). The soil-physics
+/// report (`Reports/soil-physics-realism-2026-10-21.md`, PR 751) found this
+/// reading agrees with the forecast on all 116,388 of s171's Dig options over
+/// 48 soil-arena worlds (8,186 flagged, none apart), and the brain lane
+/// measured the forecast load-bearing (blanked: s171 1.4-1.7 full loads
+/// fewer, soil into the hole 0.1 -> 1-1.6 a world), so a sense that reads the
+/// same keeps both. It is the grain-scale form of what Buarque de Macedo et
+/// al. (2021) describe ants using -- how firmly the material around the face
+/// is held -- and stops short of a stability prediction: it says which grain
+/// is barely held, not what will happen.
+///
+/// Grains are powder ground with no animal in them (stone is held by
+/// `load.rs`); an animal is open, never a hold, as in the forecast.
+pub(crate) fn bite_is_hanging(world: &World, t: (i32, i32)) -> bool {
+    let open = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Creature
+    };
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+        let (nx, ny) = (t.0 + dx, t.1 + dy);
+        let c = world.get(nx, ny);
+        let m = world.materials.get(c.material);
+        if c.material == material::EMPTY || c.organism_id() != 0 || m.kind != MaterialKind::Powder {
+            return false;
+        }
+        let below = (nx, ny + 1);
+        if below != t && !open(below.0, below.1) {
+            return false;
+        }
+        if m.needs_footing && below == t {
+            return true;
+        }
+        let held = NEIGHBOURS_8.iter().filter(|&&(ex, ey)| (nx + ex, ny + ey) != t && !open(nx + ex, ny + ey)).count();
+        held <= 2
+    })
+}
+
+/// **Whether cutting `t` drops a roof cell** -- the forecast `f::ROOF_DROP` read until 2026-10-21, kept as
+/// [`bite_is_hanging`]'s reference in the tests
 /// (PR 2; ladder lane, `dig-rung-design.md` 9). The world one cut ahead is
 /// built as [`cut_cell`] leaves it: `t` open, its neighbours lined by
 /// [`packed_form`]. Then a neighbour of `t` drops when it gives way there by
@@ -22939,6 +22986,7 @@ fn packed_form(world: &World, cell: Cell, (x, y): (i32, i32), keep_spoil: bool) 
 ///
 /// **Cost**: on Dig options only, a cell read per neighbour and per side of
 /// the cut, and the contact ring only for a neighbour with air beneath.
+#[cfg(test)]
 pub(crate) fn cut_drops_roof(world: &World, t: (i32, i32)) -> bool {
     let bare = |x: i32, y: i32| {
         let c = world.get(x, y);
@@ -34142,6 +34190,7 @@ mod tests {
                 }
                 targets += 1;
                 let predicted = cut_drops_roof(&w, (x, y));
+                assert_eq!(bite_is_hanging(&w, (x, y)), predicted, "the touch reading and the forecast part at ({x},{y})");
                 let mut cut = w.clone();
                 cut.set(x, y, Cell::EMPTY);
                 line_burrow(&mut cut, x, y);
