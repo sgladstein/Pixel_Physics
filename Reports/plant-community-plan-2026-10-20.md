@@ -628,7 +628,20 @@ This session cannot launch anything.
 >    at a fifth of the cost. Rung 1 is too early for the herb (12 of 17
 >    children identical at frame 3,000), so it stays a death filter only.
 >    One random shrub child already grows twice the shipped shrub in dim
->    light. Next: a rung-2 score and the shrub's re-fit in the dim station. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    light. **All four roles re-fit on rung 2
+>    (`.../m2/refit/`):** selection beats a random null on every role
+>    (+0.20 to +0.50 on the final set, ahead on every bed; the null does not
+>    move), and the shrub repeats on a second seed. Over a whole life every
+>    role ends 1.6-5x its shipped size, **in the dim station too**: the tree
+>    re-fit is nearly as big under the dim lamp as the full one, and the
+>    herb five times its shipped size. Rung 2 charges nothing for size, so
+>    the §4.2 trade-offs are not in these files; they are rung 4's starting
+>    points, not species to ship. The mister was drenching small beds (a
+>    rate per box, not per column); it now rains per column
+>    (`lab::rain::RATE_WIDTH`, the 512 lab unchanged), halving a training
+>    bed's cost without moving the shipped species' sizes. Next: put a price
+>    on size in the trainer (rung 4: each role beside the others), with the
+>    owner. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow

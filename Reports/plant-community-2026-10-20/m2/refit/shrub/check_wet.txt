@@ -1,0 +1,11 @@
+plantrain rungs: species=shrub,refit_score_best.ron,refit2_score_best.ron,refit2_random_best.ron rungs=life stations=bright,dim layouts=12 base=7000000 threads=4
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 14.04 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   640 p50   777 p75   803 cv 0.21 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+    refit_score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   777 p50   891 p75   957 cv 0.15 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+    refit2_score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   814 p50   871 p75   937 cv 0.36 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+    refit2_random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   614 p50   726 p75   750 cv 0.50 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+  life dim (width 96 frames 40000 n_est 20 lamp 0.4 rain Light soil 1): 13.40 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   4000 | end shoot p25   176 p50   324 p75   459 cv 0.59 | rgr/1k p25 0.07 p50 0.08 p75 0.09
+    refit_score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   601 p50   664 p75   950 cv 0.30 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+    refit2_score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   663 p50   795 p75   920 cv 0.26 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+    refit2_random_best.ron germ 12/12 est 12/12 est@ p50   3250 | end shoot p25   380 p50   564 p75   705 cv 0.53 | rgr/1k p25 0.08 p50 0.09 p75 0.10
