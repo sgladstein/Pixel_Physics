@@ -391,9 +391,12 @@ local in every case.
 
 ### 5.6 The third dimension: is a wide void a room or a tunnel?
 
-*Raised by the owner on reading §5.5, 2026-10-21; the choice is pending.
-Both readings are now drawn side by side (§10.1) and the glass-farm rule is
-a switch.*
+*Raised by the owner on reading §5.5, 2026-10-21. Both readings were drawn
+side by side (§10.1). **Settled the same day, against the span rule**: the
+owner wants one physics for every world, and asked why, in the farm
+reading, an ant could not dig a long tunnel without it falling. That
+question exposed the error in the farm bullet below (kept, with the
+correction after it). The span switch stays off.*
 
 The screen is one vertical plane. A roof's real span is the shorter of its two
 horizontal sizes, and one of them is off screen, so a void 128 cells wide could
@@ -411,6 +414,18 @@ that is realistic depends on which the world is taken to be:
   realistic rule. The lab is a sealed box, and thin glass formicaria are a
   standard real setup, so this reading is literally true there; the outdoor
   and held worlds read better as a slice.
+
+**Correction (2026-10-21, after the owner's question).** The farm bullet is
+wrong about real ant farms. Ants in glass formicaria dig long horizontal
+tunnels that stand. A roof spans the *shorter* of its two horizontal sizes,
+and in a thin slab that is the gap between the panes, about a body, not the
+tunnel's length on screen. So for anything an ant digs, both readings give
+the same real span, about one body, whatever the width on screen. A span
+rule keyed on on-screen width cannot tell a long tunnel from a great hall,
+and would punish the first to catch the second. The width-blind rule the
+engine already has is the realistic one in both readings; what is worth
+adding is wetness (§5.5, second row: soaked walls shed grains, dry rims
+crumble), which does not depend on span.
 
 Two facts keep either reading from over-promising. The real span limit is
 generous: chambers span many body lengths in damp soil, so a limit caps very
@@ -554,8 +569,12 @@ up to 10. Today's ants dig narrow, so this rule caps very wide rooms and
 leaves the nest as it is. Per-scene counts: `img/soil-physics-2026-10-21/span/span.txt`,
 with the sheets beside it.
 
-**Under the deep-slice reading this switch should stay off**: the slice's
-column is identical to today's on every scene. It is the glass-farm rule.
+**This switch should stay off** (§5.6's correction). Its chambers are
+two-row tunnels, and real tunnels that long stand in a glass farm as well
+as in a deep world: the span that matters is across the tunnel, not along
+it. The switch and its pictures are kept as the record of why, and as the
+rule to start from if the world ever gets a third dimension in which rooms
+can be told from tunnels.
 
 ### 10.2 The touch roof sense (shipped on `main`, not a switch)
 
@@ -587,8 +606,8 @@ the same gap.
 `ROOF_SPAN` (§10.1) causes; the touch bit does not, because how wide the
 opening under a grain is is not something a body at the face feels. So with
 the span switch on, the ant gets no warning of a span sag. That is the
-realistic outcome under §5.6's farm reading, since a real ant has no such
-warning either.
+realistic outcome for the rule as written, though §5.6's correction says
+the rule itself should stay off.
 
 ### 10.3 Dry roots and buried seeds
 
