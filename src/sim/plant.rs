@@ -723,6 +723,74 @@ fn bury_or_unearth(world: &mut World, x: i32, y: i32, species_id: organism::Spec
     next
 }
 
+/// **`PIXEL_PHYSICS_EMERGENCE_DEPTH` -- a seed buried too deep stays
+/// down.** Off unless set; `on` is 6 cells, a number is the depth in cells
+/// a seed of the reference reserve can come up through. A buried seed
+/// ([`bury_or_unearth`]) under more cover than its limit does not
+/// germinate: it waits, rotting on its own half-life like any dormant seed,
+/// and sprouts if the cover is dug or washed off it. That is a seed bank,
+/// not a death -- the graded middle between "sprouts" and "gone".
+///
+/// **The limit grows with the seed's reserve as the cube root of its
+/// mass** (Kluyver et al. 2013): `depth * cbrt(endowment / 0.2)`, 0.2 being
+/// the middle of the shipped `seed_cost`s (grass 0.12 to tree 0.3), so a
+/// grass seed comes up through ~84% of the reference depth and a tree's
+/// through ~114%. Emergence falls with depth in the field -- most small
+/// seeds only from the top 1-2 cm (report §3); at an ant's two-cell body
+/// that is several cells, which is where `on`'s 6 comes from. A seed with
+/// no recorded endowment (painted, or worldgen's) is taken at the
+/// reference.
+///
+/// **Off by default because without it a buried seed is only a seed that
+/// food-seekers cannot see**: before this, burial cost a seed nothing
+/// (report §6.2), so every germination count in the lab's tuning record
+/// was taken with all depths sprouting.
+pub(crate) fn emergence_depth() -> Option<f32> {
+    use std::sync::OnceLock;
+    static V: OnceLock<Option<f32>> = OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_EMERGENCE_DEPTH").as_deref() {
+        Err(_) | Ok("off") => None,
+        Ok("on") => Some(6.0),
+        Ok(v) => Some(v.parse::<f32>().ok().filter(|d| *d >= 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_EMERGENCE_DEPTH={v:?}: use off, on, or a depth in cells"))),
+    })
+}
+
+/// **Is the seed at `(x, y)` under more cover than it can come up
+/// through?** False unless [`emergence_depth`] is set and the cell is a
+/// buried seed. The cover is counted as [`overburden_depth`] counts it, but
+/// stops one past the limit, so a seed under a whole worldgen column costs
+/// its limit in reads, not 64.
+fn too_deep_to_emerge(world: &World, x: i32, y: i32, organism_id: OrganismId, cell: Cell) -> bool {
+    let Some(depth) = emergence_depth() else {
+        return false;
+    };
+    if world.materials.id_of("buriedseed") != Some(cell.material) {
+        return false;
+    }
+    let endowment = world.organism(organism_id).map_or(0.0, |s| s.endowment);
+    cover_exceeds(world, x, y, emergence_limit(depth, endowment))
+}
+
+/// How many cells of cover a seed with this reserve comes up through:
+/// `depth * cbrt(endowment / 0.2)`, floored; the reference depth for a seed
+/// with no recorded endowment.
+fn emergence_limit(depth: f32, endowment: f32) -> i32 {
+    let reserve = if endowment > 0.0 { (endowment / 0.2).cbrt() } else { 1.0 };
+    (depth * reserve).floor() as i32
+}
+
+/// More than `limit` non-empty cells straight above `(x, y)`, counted to
+/// one past `limit` and no further.
+fn cover_exceeds(world: &World, x: i32, y: i32, limit: i32) -> bool {
+    let mut cover = 0;
+    let mut yy = y - 1;
+    while cover <= limit && world.get(x, yy).material != material::EMPTY {
+        cover += 1;
+        yy -= 1;
+    }
+    cover > limit
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -1406,12 +1474,57 @@ const PENETRATION_COST_BASELINE: f32 = 0.8;
 /// 1.0; penetrated ground scales by its resistance against loose soil's,
 /// so tree roots pay ~1x in soil, ~1.75x in sand, ~4.4x in gravel.
 fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
-    let m = world.materials.get(world.get(x, y).material);
+    let c = world.get(x, y);
+    let m = world.materials.get(c.material);
     if m.kind == MaterialKind::Powder && m.penetration_resistance > 0.0 {
-        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0)
+        let dry = match dry_root_cost() {
+            Some(k) if m.water_capacity > 0 => dryness_mult(k, c),
+            _ => 1.0,
+        };
+        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0) * dry
     } else {
         1.0
     }
+}
+
+/// **`PIXEL_PHYSICS_DRY_ROOT_COST` -- dry ground is harder ground.** Off
+/// unless set; `on` is 2.0, a number is the multiplier a root pays to grow
+/// into soil at or below the wilting point. It falls linearly to 1.0 at
+/// field capacity on [`update::plant_available_fraction`], the same
+/// quantity a root drinks, so a cell a root can drink from freely is
+/// exactly as cheap as before and only drying ground costs more. Wet ground
+/// past field capacity is not made cheaper.
+///
+/// **The shape is sourced, the size is chosen.** Penetrometer resistance
+/// rises steeply as soil dries and root elongation roughly halves by about
+/// 2 MPa, so drought and hardness arrive together (Bengough et al. 2011,
+/// `Reports/soil-physics-realism-2026-10-21.md` §3). Real resistance can
+/// rise several-fold from field capacity to wilting; 2x is the gentle end,
+/// because this multiplies a bill the root economy was calibrated against
+/// with no such term.
+///
+/// **Off by default because it reallocates a shared budget**: every
+/// root's `Grow.cost` was tuned with dryness free, and a correct mechanism
+/// at inherited constants is a regression (`CLAUDE.md`, *Fixing a bug
+/// often exposes a constant*). Turning it on is a re-tune of the root
+/// economy, measured in §10.3 of the report, not a flag flip.
+///
+/// `k` at or below the wilting point, 1.0 at field capacity and wetter,
+/// linear between -- [`dry_root_cost`]'s curve, apart so a test can run it
+/// at any `k` without the process-wide switch.
+fn dryness_mult(k: f32, c: Cell) -> f32 {
+    1.0 + (k - 1.0) * (1.0 - update::plant_available_fraction(c))
+}
+
+/// Read once per process through a `OnceLock`: this is on every root step.
+pub(crate) fn dry_root_cost() -> Option<f32> {
+    use std::sync::OnceLock;
+    static V: OnceLock<Option<f32>> = OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DRY_ROOT_COST").as_deref() {
+        Err(_) | Ok("off") => None,
+        Ok("on") => Some(2.0),
+        Ok(v) => Some(v.parse::<f32>().ok().filter(|k| *k >= 1.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_DRY_ROOT_COST={v:?}: use off, on, or a multiplier >= 1"))),
+    })
 }
 
 /// This organism's leaf-economy multipliers, `(rate, transpiration)` —
@@ -7152,6 +7265,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     });
                 }
                 let ready = resting
+                    && !too_deep_to_emerge(world, x, y, organism_id, cell)
                     && (instant || {
                     let light = ambient_light_above(world, x, y);
                     // **Reads the soil it is resting on, not the field at
@@ -23888,6 +24002,51 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         // pay to fail.
         assert!((mult(13) - 1.0).abs() < 1e-6, "stone is not penetrable ground and must not be priced; got {}", mult(13));
         assert!((mult(14) - 1.0).abs() < 1e-6, "open air is free; got {}", mult(14));
+    }
+
+    /// **Dry ground is harder ground** ([`dry_root_cost`], behind its switch).
+    /// The curve is 1.0 from field capacity up, `k` at or below the wilting
+    /// point, and linear between; so a root growing into soil it can drink
+    /// from freely pays exactly what it did before, and the term multiplies
+    /// texture rather than replacing it (gravel stays dearer than soil when
+    /// both are dry).
+    #[test]
+    fn dry_ground_costs_a_root_more_and_watered_ground_nothing_extra() {
+        let w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let at = |aux: u16| Cell::new(soil, 0).with_aux(aux);
+        let (wp, fc) = (material::SOIL_WILTING_POINT, material::SOIL_FIELD_CAPACITY);
+        assert!((dryness_mult(2.0, at(0)) - 2.0).abs() < 1e-6, "bone dry pays k");
+        assert!((dryness_mult(2.0, at(wp)) - 2.0).abs() < 1e-6, "at the wilting point pays k");
+        assert!((dryness_mult(2.0, at(fc)) - 1.0).abs() < 1e-6, "at field capacity pays nothing extra");
+        assert!((dryness_mult(2.0, at(1000)) - 1.0).abs() < 1e-6, "soaked is not made cheaper");
+        let mid = dryness_mult(3.0, at((wp + fc) / 2));
+        assert!((mid - 2.0).abs() < 1e-2, "halfway between pays halfway: {mid}");
+        assert!(dryness_mult(1.0, at(0)) == 1.0, "k of 1 is the switch off");
+    }
+
+    /// **A seed buried past its reserve stays down; a shallow one comes up**
+    /// ([`emergence_depth`], behind its switch). The limit grows as the
+    /// cube root of the endowment, so a tree's seed (0.3) comes up through
+    /// more cover than a grass seed's (0.12), and the cover count stops at
+    /// one past the limit however deep the column is.
+    #[test]
+    fn a_seed_comes_up_through_cover_by_the_cube_root_of_its_reserve() {
+        assert_eq!(emergence_limit(6.0, 0.2), 6, "the reference reserve comes up through the reference depth");
+        assert_eq!(emergence_limit(6.0, 0.0), 6, "no recorded endowment is taken at the reference");
+        assert_eq!(emergence_limit(6.0, 0.12), 5, "grass: 6 * cbrt(0.6) = 5.06");
+        assert_eq!(emergence_limit(6.0, 0.3), 6, "tree: 6 * cbrt(1.5) = 6.87");
+        assert_eq!(emergence_limit(12.0, 0.3), 13, "tree at twice the depth: 13.7");
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for y in 4..20 {
+            w.set(10, y, Cell::new(soil, 0));
+        }
+        // A seed at y = 20 under 16 cells of soil; at y = 9 under 5.
+        assert!(cover_exceeds(&w, 10, 20, 6), "16 cells of cover is past 6");
+        assert!(!cover_exceeds(&w, 10, 9, 6), "5 cells of cover is within 6");
+        assert!(cover_exceeds(&w, 10, 9, 4), "5 cells of cover is past 4");
+        assert!(!cover_exceeds(&w, 10, 4, 0), "a seed with open sky above it has no cover");
     }
 
     /// **The seed is its provisions.** `Reproduce.seed_cost` used to be

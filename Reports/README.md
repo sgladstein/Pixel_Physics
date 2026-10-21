@@ -619,7 +619,8 @@ by somebody about to try it on creatures.
 ## Plants and trees  ·  `engine`
 
 - [soil-physics-realism-2026-10-21.md](soil-physics-realism-2026-10-21.md) —
-  **research and measurement, nothing changed, 2026-10-21.** How real the
+  **research and measurement, then four switches all off by default,
+  2026-10-21.** How real the
   ground is for the ant that digs it and the plants that root in it. The
   engine's soil holds by touch alone: a worked roof two cells thick stands at
   any span, wet or dry, and one cell thick falls at any span (§2 picture,
@@ -635,6 +636,14 @@ by somebody about to try it on creatures.
   ignores texture, burial has no emergence-depth limit (powder does not block
   light), root cost never rises with drying, and nutrient kept by position
   stops spoil and mounds fertilising. Also: §Z39 is cited but unfiled.
+  **§10 builds four of the suggestions behind off-by-default switches**: a
+  wetness-dependent roof span that sags wide rooms into a dome
+  (`PIXEL_PHYSICS_ROOF_SPAN`, the glass-farm reading of §5.6; real nests
+  barely notice it), the touch roof sense (`PIXEL_PHYSICS_ROOF_SENSE=touch`,
+  byte-identical to the forecast on s171's 48 worlds), dear roots in dry
+  ground (`PIXEL_PHYSICS_DRY_ROOT_COST`) and an emergence-depth limit for
+  buried seeds (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab
+  stand less than seed-to-seed spread.
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a

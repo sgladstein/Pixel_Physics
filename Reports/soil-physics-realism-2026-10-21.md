@@ -1,8 +1,11 @@
 # How real is the ground? Soil physics for the ant and for the plants (2026-10-21)
 
-*Status: research and measurement; nothing in the engine changed. Two
-instruments added (`examples/soil_cases.rs`, `examples/roof_cues.rs`) and one
-probe script (`scripts/roof_probe.py`). Read from `main` at `12be817` and from
+*Status: research and measurement, then four engine switches, **all off by
+default** (§10; the owner asked for them on 2026-10-21 with "switches off by
+default"). With every switch unset the engine is unchanged. Four
+instruments added (`examples/soil_cases.rs`, `examples/roof_cues.rs`,
+`examples/span_readings.rs`, `examples/soil_switches.rs`) and one probe
+script (`scripts/roof_probe.py`). Read from `main` at `12be817` and from
 PR #747 (`claude/ant-evolution-plant-inspiration-24mykv` at `46ba4b1`) for
 soil texture, the floor drain, spells and patchy ground. Requested by the
 owner; the brain lane's roof-flag request (2026-10-21 06:00 UTC handoff entry)
@@ -10,7 +13,8 @@ is answered in §5.*
 
 **Who should read what.** The ant's roof warning: §0 and §5. Plant soil
 signals: §0 and §6. Where the two meet: §7. The engine's soil rules in plain
-words, for anyone: §1.
+words, for anyone: §1. What can now be switched on, and what each did when
+measured: §10.
 
 ## 0. The short version
 
@@ -387,7 +391,9 @@ local in every case.
 
 ### 5.6 The third dimension: is a wide void a room or a tunnel?
 
-*Raised by the owner on reading §5.5, 2026-10-21; the choice is pending.*
+*Raised by the owner on reading §5.5, 2026-10-21; the choice is pending.
+Both readings are now drawn side by side (§10.1) and the glass-farm rule is
+a switch.*
 
 The screen is one vertical plane. A roof's real span is the shorter of its two
 horizontal sizes, and one of them is off screen, so a void 128 cells wide could
@@ -477,8 +483,153 @@ roof collapse.
   the engine's verdict and the touch cues.
 - `scripts/roof_probe.py`: the probe in §5.2, with its positive and negative
   controls. About 9 minutes on 116k rows.
+- `examples/span_readings.rs`: §10.1's pictures. One span rule under the
+  readings of §5.6, on lined test chambers and on real nests (s171's, a
+  shipped colony's, the lab box's), at three wetnesses, with fallen ground
+  painted and counted.
+- `examples/soil_switches.rs`: §10.3's census. The lab box run through the
+  lab's own tick, with plants, root cells, germinations, buried seeds by
+  depth, and the moisture of the ground at the root front; an A/B is two
+  runs, one with a switch set.
 
-## 10. Sources
+## 10. The switches (built 2026-10-21, all off by default)
+
+The owner asked, overnight, for some of the suggestions to be built behind
+switches that are off by default, to see how the soil could be improved.
+Four are built. Each is one environment variable, read once per process; with
+it unset the code path is the shipped one, so every number elsewhere in the
+repo still holds.
+
+| Switch | What it does | Default | Measured |
+|---|---|---|---|
+| `PIXEL_PHYSICS_ROOF_SPAN` (`on` = 12, or a number) | A worked roof over an opening wider than the ground can span sags from the middle, as a dome that stops on its own. The span peaks in damp ground and shrinks when dry or soaked | off | §10.1 |
+| `PIXEL_PHYSICS_ROOF_SENSE=touch` | The ant's roof warning comes from what it can feel now, not from a forecast | `forecast` | §10.2: identical on s171 |
+| `PIXEL_PHYSICS_DRY_ROOT_COST` (`on` = 2, or a multiplier) | A root pays more to grow into dry ground: up to 2x at the wilting point, nothing extra at field capacity | off | §10.3 |
+| `PIXEL_PHYSICS_EMERGENCE_DEPTH` (`on` = 6, or a depth in cells) | A seed buried deeper than its reserve allows stays dormant until the cover is dug or washed off it | off | §10.3 |
+
+**Frame cost.** Off, each is one cached flag read on a path that is already
+per-event (a roof cell's crumb check, a Dig option, a root step, a waiting
+seed). On, paired 20,000-frame lab runs with the span rule took 20.2, 18.3 and
+19.7 s against 19.3, 19.8 and 19.2 s off; the plant switches' 60,000-frame
+runs took 103/95/83 s (dry roots) and 112/102/62 s (emergence) against
+108/97/61 s off. All within run-to-run noise; none is a measured harm.
+
+### 10.1 The span limit (`PIXEL_PHYSICS_ROOF_SPAN`)
+
+`update::over_span`: a worked roof cell with open space under it fails when
+it is more than `half_span x cohesion(moisture)` cells from the nearer wall
+of the opening beneath it. The cohesion curve's **shape** is sourced
+(capillary cohesion peaks in damp ground and falls when dry or soaked; Lu &
+Likos 2013, Monaenkova et al. 2015): 0.35 dry, 1.0 from 450 to 700, 0.25
+soaked. Its **size** is chosen: a damp half-span of 12 cells, so a damp roof
+holds 24 cells (twelve body lengths) and a dry one about 8.
+
+**Re-lining is what makes it a sag and not a cave-in.** A failed lining
+cell turns back into loose soil, and without more the loose bank above it
+then pours through the gap as a chimney. So each failure packs the three
+cells over it, the way the ant's cut lines what it exposes: the new lining
+is one row higher and, because the failed row narrowed the opening under
+it, slightly shorter, so the sag stops on its own as a dome.
+
+![The chambers under four readings](img/soil-physics-2026-10-21/span/span-chambers.png)
+
+*Lined chambers 2 to 96 cells wide. Rows: dry, damp, soaked. Columns: today
+(no span rule), deep slice (span is at most a body width into the screen, so
+nothing sags), glass farm (span is the width on screen), farm at half the
+span. Red is ground that arrived, pink is where it left.*
+
+| Chambers, cells that fell | today | slice | farm | farm/2 |
+|---|---|---|---|---|
+| dry | 0 | 0 | 332 | 446 |
+| damp | 0 | 0 | 168 | 300 |
+| soaked | 0 | 0 | 405 | 526 |
+
+The engine's own run with `PIXEL_PHYSICS_ROOF_SPAN=12` matched the harness's
+farm column at 332 / 168 / 406 cells against 332 / 168 / 407, so the
+switch is the rule pictured. **Real nests barely notice it.** At the farm
+reading, damp ground fails nothing in s171's nests, the colony banks or the
+lab box; dry or soaked ground sheds a handful of cells; at half the span,
+up to 10. Today's ants dig narrow, so this rule caps very wide rooms and
+leaves the nest as it is. Per-scene counts: `img/soil-physics-2026-10-21/span/span.txt`,
+with the sheets beside it.
+
+**Under the deep-slice reading this switch should stay off**: the slice's
+column is identical to today's on every scene. It is the glass-farm rule.
+
+### 10.2 The touch roof sense (`PIXEL_PHYSICS_ROOF_SENSE=touch`)
+
+`creature::options::hanging` replaces `cut_drops_roof` as the source of
+`f::ROOF_DROP` when the switch reads `touch`. It is §5.3's bit: a powder grain
+touching the bite rests on the bite or on open space and has two or fewer
+other holds, or a pellet rests on the bite. Every cell it reads is within two
+of the bite and read as it is now.
+
+**s171 plays exactly the same game with it.** `roof_cues genome=<s171>`
+under the forecast and under `touch` wrote byte-identical CSVs (116,388 Dig
+options, 8,186 flagged, md5 `3876df91...`), and those CSVs carry the brain's
+whole feature vector at every decision, so the trajectories, and hence the
+scores, are the same (`img/soil-physics-2026-10-21/roof_sense.txt`). An
+unknown value for the switch panics on the first Dig option, which is the
+check that the run read it.
+
+The guard, `the_touch_roof_sense_matches_the_forecast_at_a_founding_cut`,
+holds the two equal on every cuttable cell around the soil arena's founding
+cut with pellets on the surface, and was watched red with the hold count at
+one and at four (it stayed green at three, where no grain in that scene sits)
+and with the footing term removed.
+
+**Where the two part.** The forecast also sees a sag that `ROOF_SPAN` would
+cause; the touch bit does not, because how wide the opening under a grain is
+is not something a body at the face feels. With both switches on, the ant
+gets no warning of a span sag. That is the realistic outcome under §5.6's
+farm reading (a real ant has no such warning either), and the reason the
+swap is the brain lane's to make, not this report's.
+
+### 10.3 Dry roots and buried seeds
+
+**Dry ground is harder ground** (`plant::dry_root_cost`). The root's bill
+for a cell, `penetration_cost_mult`, is multiplied by `1 + (k - 1) x (1 -
+available)`, where `available` is `plant_available_fraction`, the same
+quantity the root drinks: `k` at or below the wilting point, 1.0 from field
+capacity up. Shape from Bengough et al. 2011 (penetration resistance rises
+steeply as soil dries); `k = 2` is the gentle end of a several-fold real rise.
+
+**A seed buried too deep stays down** (`plant::emergence_depth`). A buried
+seed under more than `depth x cbrt(endowment / 0.2)` cells of cover does not
+germinate; it waits on its half-life, and comes up if the cover goes. The
+cube root is Kluyver et al. 2013; 0.2 is the middle of the shipped seed costs,
+so grass (0.12) comes up through 5 cells and a tree (0.3) through 6 at
+`on`'s depth of 6.
+
+Both have unit tests on their curves (`dry_ground_costs_a_root_more...`,
+`a_seed_comes_up_through_cover...`). In the lab box they change little,
+for reasons the census shows:
+
+| Lab box, 60,000 frames, seeds 1/2/3 | plants | root cells | germinations |
+|---|---|---|---|
+| Light rain, all off | 572 / 715 / 533 | 2990 / 3226 / 2568 | 293 / 381 / 345 |
+| Light rain, dry roots on | 560 / 625 / 492 | 3128 / 3157 / 2916 | 333 / 349 / 453 |
+| Light rain, emergence on | 559 / 724 / 500 | 3358 / 3026 / 2242 | 275 / 431 / 330 |
+| Mister off, all off | 748 / 643 / 492 | 3805 / 3265 / 2759 | 194 / 177 / 145 |
+| Mister off, dry roots on | 628 / 724 / 548 | 2724 / 3654 / 2340 | 151 / 246 / 224 |
+
+- **Dry roots: the root front is mostly wet.** Under light rain the mean
+  bill `on` would charge over every soil cell touching a root is 1.07-1.16x;
+  with the mister off it climbs to 1.29-1.30x by 60,000 frames as the ground
+  dries. The arms differ by less than seeds differ from each other, in both
+  directions. The term is wired and bills what it should; at this box's
+  wetness and run length it does not yet decide anything. The test of it is
+  a long drought, where it should show as roots that stop deepening.
+- **Emergence: few seeds are ever buried deep.** At 60,000 frames 1 to 14
+  seeds per box stand under 7 or more cells of cover; the limit holds those
+  and nothing else, so the stand does not move. It would matter where seeds
+  are buried in numbers: under spoil heaps, slumps, or a span sag.
+
+Neither is ready to default on: both multiply into economies calibrated
+without them, and neither has yet been seen to change what is on screen.
+Full lines per stop: `img/soil-physics-2026-10-21/switches.txt`.
+
+## 11. Sources
 
 Ant digging and tunnels
 - Espinoza, D.N. & Santamarina, J.C. (2010). Ant tunneling: a granular media perspective. *Granular Matter* 12. doi:10.1007/s10035-010-0202-y

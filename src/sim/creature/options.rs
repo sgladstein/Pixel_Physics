@@ -412,7 +412,8 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         if jaws_free && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
-                    feats[f::ROOF_DROP] = f32::from(u8::from(super::cut_drops_roof(world, t)));
+                    let drops = if roof_sense_touch() { hanging(world, t) } else { super::cut_drops_roof(world, t) };
+                    feats[f::ROOF_DROP] = f32::from(u8::from(drops));
                 }
             });
         }
@@ -482,6 +483,82 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+}
+
+/// **Which reading fills [`f::ROOF_DROP`]**: the engine's collapse rule run
+/// one cut ahead ([`super::cut_drops_roof`], the default), or the
+/// present-tense touch reading [`hanging`] (`PIXEL_PHYSICS_ROOF_SENSE=touch`).
+/// Owner, 2026-10-21: the trained ant is held to "local signals and true
+/// biology", and the forecast is a physics simulation, not a sense.
+///
+/// **Off by default because the two agreed exactly where it was measured**,
+/// so the switch exists to prove that on the brain lane's own runs before
+/// anyone retires the forecast: on s171's 116,388 Dig options over 48
+/// soil-arena worlds the touch bit and the forecast were the same bit on
+/// every option (8,186 flagged, 0 disagreements;
+/// `soil-physics-realism-2026-10-21.md` §5, `examples/roof_cues.rs`). They
+/// part ways under `update::roof_span`: the forecast sees a sag the span
+/// rule will cause, the touch bit does not, because how wide the opening
+/// under a grain is is not something a body at the face feels.
+///
+/// Read once per process through a `OnceLock`: this is on every Dig option.
+fn roof_sense_touch() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_ROOF_SENSE").as_deref() {
+        Err(_) | Ok("forecast") => false,
+        Ok("touch") => true,
+        Ok(other) => panic!("PIXEL_PHYSICS_ROOF_SENSE={other:?}: use forecast or touch"),
+    })
+}
+
+/// **A grain beside the bite is barely held** -- the touch reading behind
+/// [`roof_sense_touch`]. True when a powder grain touching `t` rests on `t`
+/// itself or on open space and is held by two or fewer other grains, or a
+/// pellet (`needs_footing`) rests on `t`. Every cell read is within two of
+/// `t` and is read as it stands now; nothing is built ahead.
+///
+/// Why it is a sense: a body pressed against the face can feel a grain
+/// sitting on what it is biting, open space under the grain beside it, and
+/// how little else that grain is wedged against. It is the grain-scale form
+/// of what excavating ants respond to -- how firmly the material at the face
+/// is held (Buarque de Macedo et al. 2021) -- and it stops short of what
+/// cannot exist, a local stability prediction (Pal et al. 2021): it says
+/// which grain is barely held, not what will happen.
+///
+/// An animal is open, not a support, for the forecast's reason
+/// ([`super::cut_drops_roof`]: an animal is not a roof's support).
+pub(crate) fn hanging(world: &World, t: (i32, i32)) -> bool {
+    const N8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+    let open = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Creature
+    };
+    N8.iter().any(|&(dx, dy)| {
+        let n = (t.0 + dx, t.1 + dy);
+        let c = world.get(n.0, n.1);
+        if c.material == material::EMPTY || c.organism_id() != 0 {
+            return false;
+        }
+        let m = world.materials.get(c.material);
+        if m.kind != MaterialKind::Powder {
+            return false;
+        }
+        let below = (n.0, n.1 + 1);
+        if below != t && !open(below.0, below.1) {
+            return false;
+        }
+        if m.needs_footing && below == t {
+            return true;
+        }
+        let holds = N8
+            .iter()
+            .filter(|&&(ex, ey)| {
+                let o = (n.0 + ex, n.1 + ey);
+                o != t && !open(o.0, o.1)
+            })
+            .count();
+        holds <= 2
+    })
 }
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
@@ -691,6 +768,63 @@ mod tests {
         w.step_active_sites();
         w.step_fields();
         w.step_pheromones();
+    }
+
+    /// **The touch reading and the forecast call the same cuts around a
+    /// fresh nest** ([`hanging`], [`roof_sense_touch`]). The soil arena's
+    /// founding cut, settled, and every diggable cell from a row above the
+    /// rim to three under the chamber: the present-tense bit must agree with
+    /// [`super::super::cut_drops_roof`] on every one, as it did on all
+    /// 116,388 of s171's Dig options (`soil-physics-realism-2026-10-21.md`
+    /// §5.2), and both must fire somewhere -- an agreement of two silent
+    /// readings would be no evidence. The one place they are known to part
+    /// is a grain already down to two holds before anything is cut, which
+    /// the forecast calls not the cut's doing and the touch bit calls barely
+    /// held; around a settled lined cut no such grain is left standing.
+    ///
+    /// Watched red with the hold count loosened to three or tightened to
+    /// one, and (once the pellet row was added) with the footing term taken
+    /// out.
+    #[test]
+    fn the_touch_roof_sense_matches_the_forecast_at_a_founding_cut() {
+        let mut w = World::new(crate::sim::Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                let cell = if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) };
+                w.set(x, y, cell.with_attached(true));
+            }
+        }
+        w.door_loose = Some(true);
+        w.register_nest_site(60, 38, 2);
+        assert!(w.cut_founding_shaft(60, 38, 2, 2, true) > 0, "the cut removed nothing");
+        // Pellets on the surface: a lone one, and a row of three whose
+        // middle is held by four grains -- so only the footing term, not the
+        // hold count, can call the cut beneath it.
+        let fp = w.nest_sites[0].shaft.expect("a footprint");
+        let spoil = w.materials.id_of("spoil").expect("spoil");
+        for x in [52, 53, 54, 67] {
+            w.set(x, fp.top - 1, Cell::new(spoil, 0));
+        }
+        for _ in 0..30 {
+            crate::sim::update::step(&mut w);
+        }
+        assert_eq!(w.get(53, fp.top - 1).material, spoil, "the middle pellet stands on the ground");
+        assert!(super::super::cut_drops_roof(&w, (53, fp.top)), "the cut under the middle pellet takes its footing");
+        let (mut both, mut targets) = (0, 0);
+        for y in fp.top - 1..=fp.chamber_bottom + 3 {
+            for x in fp.chamber_x0 - 6..=fp.chamber_x1 + 6 {
+                if !w.is_diggable_ground(x, y) {
+                    continue;
+                }
+                targets += 1;
+                let (touch, forecast) = (hanging(&w, (x, y)), super::super::cut_drops_roof(&w, (x, y)));
+                assert_eq!(touch, forecast, "the cut at ({x},{y}): touch {touch}, forecast {forecast}");
+                both += usize::from(touch);
+            }
+        }
+        assert!(targets > 100 && both >= 2, "{both} of {targets} cuts flagged by both readings");
     }
 
     /// **The shadow leaves the game unchanged**: one box run twice from the
