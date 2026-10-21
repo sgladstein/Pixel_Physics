@@ -89,4 +89,40 @@ arenas can be told apart from the soil arena by things that are not the world.
 - **For the arenas**: fetch being fed makes energy an arena tag. Worth the brain lane's knowing before any kept-skill
   floor is trusted as "the same brain doing two jobs".
 
-*Revive-one-unit results: to follow in this document.*
+## 4. The narrowest capacity: one revived scorer unit
+
+s161 uses 8 of its 16 scorer units. Arm (u1) lets the copier use one of the dead ones -- its 35 context and memory
+inputs, its 45 option-feature inputs, its verb row and its output (`revive_units`). **First build, a null result to
+keep:** the revived unit came out identical to arm (a) to every digit, because a unit with every weight at zero has an
+exactly zero gradient on both sides (zero output weight to its inputs; zero activation to its output). Its inputs are
+now seeded (sigma 0.3) with the output left at 0, so the start's policy is unchanged.
+
+| Dig copy | Full loads (start 6.42) | Fetch (start 16.66) | Held out: P(Dig) at the foot / at a wall (start in brackets) |
+|---|---|---|---|
+| (a) step 1 | 3.35 | 18.07 | 0.79 / 0.0193 (0.24 / 0.0104) |
+| (b) every slot free | 4.40 (runs dry) | 17.60 | 0.96 / 0.0079 |
+| **(u1) one revived unit** | **5.80** (-0.61 +- 0.45) | 17.26 (+0.60 +- 0.92) | 0.88 / 0.0137 (0.17 / 0.0129) |
+| (u2) two revived units | 5.91 (-0.51 +- 0.41) | 17.84 (+1.18 +- 0.88) | 0.84 / 0.0182 (0.25 / 0.0153) |
+
+(The held-out split differs between arms -- the seeding draws from the stream that picks held-out worlds -- so the
+start's own rates are given beside each.)
+
+**One unit removes most of the collapse** (3.35 -> 5.80) with fetch held: the dig lesson no longer takes over the wall.
+It does not yet *gain* alone, which is what the ceiling predicted -- dig and go-down are superadditive (dig alone +4.74
+acting, go-down +3.41, both +10.11). The test that matters is the two together with one revived unit; it is running.
+
+| Walk home copy | Full loads | Fetch |
+|---|---|---|
+| (a) step 1 | 7.03 | 11.46 |
+| (u1) one revived unit | 7.82 (+1.41 +- 0.44) | 10.47 (-6.19 +- 1.13) |
+
+A unit helps the soil lesson and does nothing for the spread into fetch -- consistent with the context probe: that
+spread is not a capacity problem.
+
+## 5. Routing (from the research lane's audit)
+
+The research lane read s161's wiring and found **unit 14 is the brain's own empty-only unit**: `c::SPOIL` reaches it at
++31.7, so whenever the ant carries it sits saturated and flat (slope ~0.001), and it has no link from `f::HOME` (slot
+1252 is 0). Confirmed on the start genome used here. So a walk-home lesson routed through unit 14 would not reach
+loaded ants. Arms: (r1) slot 1252 alone on the allow-list; (r14) all 45 of unit 14's feature links. Running. Neither
+can stop the spread into *empty* foragers, which unit 14 serves too.
