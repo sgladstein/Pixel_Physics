@@ -6452,6 +6452,8 @@ pub struct World {
     /// plant-community plan; `plant::node_stream`). Acts only under
     /// `DevelopmentalKey::Plant`.
     pub node_keyed_growth: bool,
+    /// **Laterals at nodes, not by coin** (A3; `plant::branch_due`).
+    pub branch_by_node: bool,
     /// **The deepest generation any lineage has ever reached** — a high-water
     /// mark, never decremented, and the reason it exists is that every other
     /// generation readout in this repo cannot answer the question.
@@ -7589,6 +7591,7 @@ impl World {
             carried_off: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             node_keyed_growth: super::plant::node_key_default(),
+            branch_by_node: super::plant::branch_node_default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
             deepest_breeder_generation: 0,
