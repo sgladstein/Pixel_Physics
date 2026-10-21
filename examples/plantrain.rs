@@ -5,6 +5,8 @@
 //! ```text
 //! # train: herb, its shape and leaf genes free, 24 genomes, 6 layouts a generation
 //! cargo run --release --example plantrain -- groups=shape,leaf pop=24 gens=20 layouts=6 out=training/plants/run1
+//! # train on rung 2 (juvenile growth, bright and dim), scored against the shipped species' size there
+//! cargo run --release --example plantrain -- control=shrub rung=grow stations=bright,dim pop=24 gens=20 layouts=4 out=training/plants/shrub-grow
 //! # the null: the same run with parents drawn at random
 //! cargo run --release --example plantrain -- groups=shape,leaf pop=24 gens=20 layouts=6 select=random out=training/plants/null1
 //! # the shipped species' own census on N layouts: where the run constants come from
@@ -43,7 +45,7 @@ use std::path::PathBuf;
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
-    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil",
+    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -949,6 +951,14 @@ fn main() {
                 teeth: get(&m, "teeth", 1u8) != 0,
                 constants: constants(&m, &b),
                 bed: b,
+                // `rung=grow stations=bright,dim`: train on rung 2, which
+                // predicts a whole life at a fifth of its cost
+                // (`mode=ladder`); `life`, the default, is P1's bed.
+                rung: arena::Rung::named(&get(&m, "rung", "life".to_string())).unwrap_or_else(|| panic!("rung= is establish|grow|life")),
+                stations: get(&m, "stations", "bright".to_string())
+                    .split(',')
+                    .map(|x| arena::Station::named(x).unwrap_or_else(|| panic!("station `{x}` is not bright|dim|dry")))
+                    .collect(),
                 out: m.get("out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("training/plants/run")),
             };
             if let Err(e) = train_plant::run(&s) {
@@ -957,7 +967,7 @@ fn main() {
             }
         }
         other => {
-            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness|lean|ranking");
+            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness|lean|ranking|rungs|ladder");
             std::process::exit(2);
         }
     }

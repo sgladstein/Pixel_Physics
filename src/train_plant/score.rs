@@ -51,6 +51,23 @@ pub fn bed_score(c: &Census, k: &Constants) -> f32 {
     }
 }
 
+/// **Rung 2's score: juvenile growth, in steps** (plant-community plan
+/// §6.2). Not germinated 0; germinated 1 plus the way to establishment;
+/// established 2 plus its shoot cells at the end of the rung against
+/// `reference` -- the shipped species' mean in the same station, measured
+/// once at the start of the run, so a child cannot move its own yardstick.
+/// Twice the reference is the cap: a plant that big has won the rung, and a
+/// ceiling keeps a runaway grower from buying the whole score.
+pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
+    if !c.germinated {
+        return 0.0;
+    }
+    if c.established_at.is_none() {
+        return 1.0 + if n_est == 0 { 0.0 } else { (c.peak_shoot as f32 / n_est as f32).min(0.999) };
+    }
+    2.0 + (c.end_shoot as f32 / (2.0 * reference.max(1.0))).min(0.999)
+}
+
 /// Mean and minimum of a genome's bed scores.
 pub fn fold(scores: &[f32]) -> (f32, f32) {
     if scores.is_empty() {
@@ -123,6 +140,19 @@ mod tests {
         assert_eq!(dwarf, 3.5);
         // ...and still above any plant that never flowered at all.
         assert!(dwarf > bed_score(&census(10_000, None, false, 0), &k));
+    }
+
+    #[test]
+    fn the_grow_score_steps_and_pays_size_against_the_reference() {
+        let est = |end: u32| Census { germinated: true, peak_shoot: end.max(20), established_at: Some(1_000), end_shoot: end, ..Census::default() };
+        let unsprouted = Census::default();
+        let small = Census { germinated: true, peak_shoot: 10, ..Census::default() };
+        let order = [grow_score(&unsprouted, 20, 100.0), grow_score(&small, 20, 100.0), grow_score(&est(50), 20, 100.0), grow_score(&est(100), 20, 100.0), grow_score(&est(150), 20, 100.0)];
+        for w in order.windows(2) {
+            assert!(w[1] > w[0], "{order:?}");
+        }
+        assert_eq!(grow_score(&est(100), 20, 100.0), 2.5, "the reference itself scores half way up its step");
+        assert!(grow_score(&est(10_000), 20, 100.0) < 3.0, "capped below the next step");
     }
 
     #[test]

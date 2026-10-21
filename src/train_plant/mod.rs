@@ -36,7 +36,7 @@ pub mod score;
 
 use crate::sim::organism::{CellType, SpeciesDef};
 use crate::sim::rng::Rng;
-use arena::{BedSpec, Census, Layout};
+use arena::{BedSpec, Census, Layout, Rung, Station};
 use genome::{Gene, Group};
 use rayon::prelude::*;
 use score::Constants;
@@ -76,13 +76,21 @@ pub struct Settings {
     pub teeth: bool,
     pub bed: BedSpec,
     pub constants: Constants,
+    /// **Which rung a genome is scored on** (plant-community plan §6.2).
+    /// `Life` is P1's bed and stepped score, on `bed`; `Grow` is rung 2 in
+    /// every one of `stations`, scored by [`score::grow_score`] against the
+    /// control's own size there.
+    pub rung: Rung,
+    /// The stations a `Grow` genome is grown in; every bed is one layout in
+    /// one station. Ignored by `Life`, which grows in `bed`.
+    pub stations: Vec<Station>,
     pub out: PathBuf,
 }
 
 impl Settings {
     pub fn line(&self) -> String {
         format!(
-            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} out={}",
+            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} rung={} stations={} out={}",
             self.start.display(),
             self.control,
             self.groups.iter().map(|g| g.name()).collect::<Vec<_>>().join(","),
@@ -104,6 +112,8 @@ impl Settings {
             self.constants.n_est,
             self.constants.k_seed,
             self.constants.size_floor,
+            self.rung.name(),
+            self.stations.iter().map(|st| st.name).collect::<Vec<_>>().join(","),
             self.out.display()
         )
     }
@@ -132,6 +142,12 @@ impl Settings {
         }
         if self.bed.every == 0 || self.bed.frames == 0 {
             return Err("every= and frames= must be at least 1".into());
+        }
+        if self.rung == Rung::Establish {
+            return Err("rung=establish ranks nothing: 12 of 17 herb children read identical at frame 3,000 (`plantrain mode=ladder`); train on grow or life".into());
+        }
+        if self.rung == Rung::Grow && self.stations.is_empty() {
+            return Err("rung=grow needs at least one station".into());
         }
         Ok(())
     }
@@ -174,6 +190,45 @@ pub fn census_all(arms: &[Arm], layouts: &[Layout], bed: &BedSpec) -> Vec<Vec<Ce
         })
         .collect();
     flat.chunks(layouts.len().max(1)).map(|c| c.to_vec()).collect()
+}
+
+/// **The run's beds and scores, whichever rung it is on**: `out[arm][bed]`.
+/// `Life` is [`score_all`] on `s.bed`. `Grow` grows every layout in every
+/// station (`rung.spec`, `s.bed.n_est`), bed `station * layouts + layout`,
+/// and scores each by [`score::grow_score`] against `refs[station]`.
+pub fn rung_scores(arms: &[Arm], base: u64, n: usize, s: &Settings, refs: &[f32]) -> Vec<Vec<f32>> {
+    let layouts = s.rung.layouts(base, n);
+    match s.rung {
+        Rung::Life | Rung::Establish => score_all(arms, &layouts, &s.bed, &s.constants),
+        Rung::Grow => {
+            let mut out = vec![Vec::with_capacity(n * s.stations.len()); arms.len()];
+            for (si, &station) in s.stations.iter().enumerate() {
+                let spec = BedSpec { n_est: s.bed.n_est, ..s.rung.spec(station) };
+                for (a, row) in census_all(arms, &layouts, &spec).iter().enumerate() {
+                    out[a].extend(row.iter().map(|c| score::grow_score(c, spec.n_est, refs.get(si).copied().unwrap_or(1.0))));
+                }
+            }
+            out
+        }
+    }
+}
+
+/// **The yardsticks `Grow` scores against**: the control's mean end shoot per
+/// station on `n` layouts from `base` -- the hold-out, so the training
+/// layouts never set them. Empty for `Life`.
+pub fn grow_refs(control: &Arm, base: u64, n: usize, s: &Settings) -> Vec<f32> {
+    if s.rung != Rung::Grow {
+        return Vec::new();
+    }
+    let layouts = s.rung.layouts(base, n);
+    s.stations
+        .iter()
+        .map(|&station| {
+            let spec = BedSpec { n_est: s.bed.n_est, ..s.rung.spec(station) };
+            let row = census_all(std::slice::from_ref(control), &layouts, &spec).remove(0);
+            row.iter().map(|c| c.end_shoot as f32).sum::<f32>() / row.len().max(1) as f32
+        })
+        .collect()
 }
 
 /// Bed scores, `out[arm][layout]`.
@@ -246,13 +301,18 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
     let probe = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 15, 15));
     let control = Arm::shipped(&s.control);
-    let holdout = arena::layouts(HOLDOUT_BASE + s.seed * 1_000, s.holdout);
+    let holdout_base = HOLDOUT_BASE + s.seed * 1_000;
+    let holdout = s.rung.layouts(holdout_base, s.holdout);
+    let refs = grow_refs(&control, holdout_base, s.holdout, s);
+    if !refs.is_empty() {
+        println!("plantrain: grow yardsticks, the control's mean end shoot per station: {}", s.stations.iter().zip(&refs).map(|(st, r)| format!("{} {r:.1}", st.name)).collect::<Vec<_>>().join(", "));
+    }
 
     // **Teeth, before generation 0.**
     let teeth = teeth_arms(&start, s.seed);
     let mut arms = vec![control.clone(), Arm::of(&start)];
     arms.extend(teeth.iter().cloned());
-    let scored = score_all(&arms, &holdout, &s.bed, &s.constants);
+    let scored = rung_scores(&arms, holdout_base, s.holdout, s, &refs);
     let names = ["control", "start", "seedbound", "starved"];
     for (i, row) in scored.iter().enumerate() {
         let (mean, min) = score::fold(row);
@@ -278,7 +338,7 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
 
     let mut progress = String::from("gen,best,median,control,best_min,holdout_best,holdout_control,paired_mean,ahead,behind,halfwidth,best_name,best_moves\n");
-    let mut holdout_csv = String::from("gen,layout,seed,offset,best,control\n");
+    let mut holdout_csv = String::from("gen,bed,seed,offset,station,best,control\n");
     let keep = ((s.pop as f32 * s.keep).round() as usize).clamp(1, s.pop);
     let mut champion: (SpeciesDef, String) = (genome::clone_def(&start), "start".into());
     for g in 0..s.gens {
@@ -287,10 +347,10 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
                 return Err(format!("generation {g} child {i} ({}) is invalid: {e:?}", def.name));
             }
         }
-        let train = arena::layouts(TRAIN_BASE + s.seed * 100_000 + g as u64 * 100, s.layouts);
+        let train_base = TRAIN_BASE + s.seed * 100_000 + g as u64 * 100;
         let mut arms: Vec<Arm> = pop.iter().map(|(d, _)| Arm::of(d)).collect();
         arms.push(control.clone());
-        let scores = score_all(&arms, &train, &s.bed, &s.constants);
+        let scores = rung_scores(&arms, train_base, s.layouts, s, &refs);
         let control_train = score::fold(scores.last().expect("the control row")).0;
         let mut ranked: Vec<(usize, f32, f32)> = scores[..pop.len()]
             .iter()
@@ -307,11 +367,15 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
         champion = (genome::clone_def(&pop[bi].0), pop[bi].1.clone());
 
         // The monitoring hold-out: champion against control, paired.
-        let h = score_all(&[Arm::of(&champion.0), control.clone()], &holdout, &s.bed, &s.constants);
+        let h = rung_scores(&[Arm::of(&champion.0), control.clone()], holdout_base, s.holdout, s, &refs);
         let (hb, hc) = (score::fold(&h[0]).0, score::fold(&h[1]).0);
         let (pm, ahead, behind, hw) = score::paired(&h[0], &h[1]);
-        for (li, l) in holdout.iter().enumerate() {
-            let _ = writeln!(holdout_csv, "{g},{li},{},{},{:.4},{:.4}", l.seed, l.offset.name(), h[0][li], h[1][li]);
+        // One row per bed; under `Grow` the beds run station by station, each
+        // over the same layouts.
+        for (bi, (cb, cc)) in h[0].iter().zip(&h[1]).enumerate() {
+            let l = holdout[bi % holdout.len().max(1)];
+            let station = if s.rung == Rung::Grow { s.stations[bi / holdout.len().max(1)].name } else { "-" };
+            let _ = writeln!(holdout_csv, "{g},{bi},{},{},{station},{cb:.4},{cc:.4}", l.seed, l.offset.name());
         }
         let _ = writeln!(
             progress,
@@ -364,12 +428,12 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
 
     // **The final set, read once.**
-    let finals = arena::layouts(FINAL_BASE + s.seed * 1_000, s.final_set);
-    let f = score_all(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], &finals, &s.bed, &s.constants);
+    let finals_base = FINAL_BASE + s.seed * 1_000;
+    let f = rung_scores(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], finals_base, s.final_set, s, &refs);
     let fp = score::paired(&f[0], &f[1]);
     let report = format!(
-        "{line}\nfinal set ({} layouts): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
-        finals.len(),
+        "{line}\nfinal set ({} beds): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
+        f[0].len(),
         score::fold(&f[0]).0,
         score::fold(&f[1]).0,
         score::fold(&f[2]).0,
@@ -458,6 +522,8 @@ mod tests {
             teeth: false,
             bed: BedSpec { frames: 1_500, ..BedSpec::default() },
             constants: Constants { n_est: 20, k_seed: 24, size_floor: 55 },
+            rung: Rung::Life,
+            stations: vec![Station::BRIGHT],
             out,
         };
         let a = run(&settings(dir.join("a"))).expect("run a");
