@@ -2,7 +2,9 @@
 
 *Started 2026-10-21 by the ant-brain research lane, at Scotttt's request
 through the teacher lane. Status: literature and offline arithmetic only,
-nothing built or run. Sent to the teacher lane on 2026-10-21.*
+nothing built or run. Sent to the teacher lane on 2026-10-21, and corrected
+the same day with two of its measurements (§2, §4). The lane has since also
+changed its turnover rules; nothing here depends on those changes.*
 
 **Why:** the teacher lane now breeds the ant brain inside a running colony.
 It scores each ant, culls the weakest and lets the strongest breed. Its state
@@ -63,9 +65,11 @@ them:
    arrival.** One rare lump becomes many small credits. Textbook
    potential-based shaping cannot help: over a lifetime it sums to zero.
    *Scoring: Scotttt's call.*
-4. **Give the nest a mouth.** Nobody at home needs feeding, so the world
-   gives delivery little value; the repo's own dead ends say provisioning
-   waits on brood or a queen. *World: Scotttt's call.*
+4. **The food price is not the problem** (measured by the teacher lane
+   after this report was sent: it averages 2.83–2.91 against a cap of 3).
+   Delivery is already paid near its maximum, which makes the z penalty in
+   item 1 as strong as it gets. Giving the nest a mouth (a fixed brood) is
+   kept as a later option, not a next arm.
 5. **The turnover rule is rtNEAT's law of eligibility.** NERO kept half its
    population too young to judge; here a quarter is. Whether to go faster
    turns on one unmeasured number, how an ant's repeatability grows with
@@ -73,10 +77,11 @@ them:
 6. **The z < −3 cull culls 0.7% of healthy ants per tenure if the error bar
    is honest, and 8.5% if it misses a third of the noise.** Calibrate it on
    a colony of clones.
-7. **At the trainer's defaults a child gets up to about 84 slot changes,
-   most of them new links, and the colony has no wire cost**, so the brain
-   grows by tens of links a generation whatever it scores. Test `pm` 0.01
-   and `grow` 0.3.
+7. **At `pm` 0.03 with `grow` 1 and no pruning (the harness's setting), a
+   child gets up to about 84 slot changes, most of them new links, and none
+   is ever removed by mutation.** The body bills each live link, so
+   starvation is the only brake. Log the live-link count, and test `pm`
+   0.01 and `grow` 0.3.
 8. **Audit with colony competition before selecting with it.** Mixed
    colonies under colony-level selection were the worst of four setups on
    every task in Waibel 2009, four colonies are few, and replacing one
@@ -126,9 +131,8 @@ lane's choice matches the literature.
 The other end is also measured. With 200 robots and two collocated foods,
 extinctions in 50 runs rose from 6 under random selection to 16 under a
 tournament of 5, 34 under a tournament of 20 and 32 under elitism. So
-exploitation pressure was the danger. The current rule (no breeding
-below the median, at most 3 kids, a family cap of a quarter) is moderate,
-and nothing here argues for making it harsher.
+exploitation pressure was the danger. The current rule is moderate, and
+nothing here argues for making it harsher.
 
 ### 1c. Rank breeding on what? z against the expected brain [GK, *here*]
 
@@ -163,9 +167,9 @@ not yet shown to be the cause (test 1 in §7 checks it).
 
 **z also has an age bias:** at equal edge it grows as √T, so old ants win
 slots over equally good young ones, lengthening the generation interval
-(§1e). The cap of 4 kids bounds this, but with old age off **a capped parent
-holds a slot for ever without breeding**. Count capped ants across a run;
-if they pile up, retire an ant at its cap.
+(§1e). The cap of 4 kids bounds this. A capped parent would hold a slot
+for ever without breeding, and since this report was sent the lane has
+made parents retire after 4 children, which closes that.
 
 ### 1d. Evidence before culling: repeated looks [FT, *here*]
 
@@ -179,13 +183,9 @@ ants gives this *here*:
 | 100k | 1.3% | 6.1% | 13.5% |
 
 **The honest case is fine.** The risk is an SE built from the ant's own
-credits treated as independent events. Two kinds of noise are missing from
-it:
-
-- **persistent luck**, such as being born near the food;
-- **correlated bursts**, such as a run of digs in one tunnel.
-
-Both make the SE too small.
+credits as if independent: it misses persistent luck (born near the food)
+and correlated bursts (a run of digs in one tunnel), and both make it too
+small.
 
 Racing (Heidrich-Meisner & Igel 2009) is the formal version: a confidence
 interval per candidate, a union bound over the looks, and an
@@ -207,9 +207,8 @@ Animal breeding's rate equation (Rendel & Robertson 1950) is:
 - σ_A is the heritable spread;
 - L is the generation interval.
 
-Turnover trades r against L. A shorter tenure means a less accurate record
-but more generations. Mutational damage per generation pushes back the
-other way.
+Turnover trades r against L: a shorter tenure gives a less accurate record
+but more generations, and mutational damage per generation pushes back.
 
 The deciding number is how reliability grows with record length. The lane
 has one point. Its split-half correlation of 0.76–0.84 over 4 colonies
@@ -231,13 +230,12 @@ the minimum age and the turnover.
 
 ## 2. Credit in a colony: need prices, markets and free riders
 
-**Need prices are a first-order difference reward** *here*. Suppose the
-colony's welfare is a concave function of each stock. Then the value of one
-unit of work is the welfare's slope at the current stock. The linear
-shortfall price p = 1 + 2 × shortfall is that slope for a quadratic welfare
-up to the target. So the score already approximates the "aligned and
-sensitive" difference reward of the Tumer group (teacher notes, Q5). It
-does so without counterfactual rollouts.
+**Need prices are a first-order difference reward** *here*. If the
+colony's welfare is concave in each stock, one unit of work is worth the
+welfare's slope there, and p = 1 + 2 × shortfall is that slope for a
+quadratic welfare up to the target. So the score already approximates the
+Tumer group's difference reward (teacher notes, Q5), with no counterfactual
+rollouts.
 
 **MONEE: a market made for exactly this** [FT]. Haasdijk, Bredeche & Eiben
 2014 used 100 simulated robots and two kinds of puck. They added "a market
@@ -252,17 +250,16 @@ mate selection.
   share", so rewards need only be "within one or even two orders of
   magnitude".
 
-**The difference that matters here** *here*. Our price reads the store's
-*stock*, not the colony's *effort*. If the store holds food and ants eat at
-the pile, it never drains, so delivery sits at its floor price **exactly
-when nobody delivers**, where MONEE's effort price would rise. (If the store
-starts empty, the price is already at its ceiling of 3 and the limit is §1c
-and §3 instead.) Two checks:
-
-- **Log reading:** plot the food price over a run. If it sits near 1 while
-  deliveries are rare, the price is not doing its job.
-- **Arm:** price delivery by MONEE's rule, the share of ants delivering in
-  the last window against a target share.
+**The difference, and what the lane measured.** Our price reads the
+store's *stock*, not the colony's *effort*. This report first asked whether
+a store that never drains held delivery at its floor price. **Measured by
+the teacher lane: it does not.** Over two pilot scores the food price
+averages 2.83–2.91 against a cap of 3, sits at the cap 41–47% of the time
+and at the floor under 2%. That is because the eaten side counts every
+digestion, including bites at the pile. So delivery is already paid near
+its maximum, and the limit is §1c and §3, not the price. MONEE's lesson
+still stands for later: an effort price keeps a rare job in view without
+reading any stock.
 
 **Provisioning or freeloading** [FT, GK]. Waibel, Floreano & Keller 2011
 matched Hamilton's rule (rb > c) quantitatively in evolving robots. But
@@ -311,29 +308,33 @@ Biology, kept short.
   - One caution: the pieces from one trip are correlated. An SE built from
     the ant's own squared credits will then be too small (§1d), so take
     noise from the colony.
-- **Give the nest a mouth.** A fixed brood, or a queen eating from the
-  store at a set rate, drains the store and makes the food price real; it
-  is the dead end's own re-test condition. Births still come from the
-  score, so the ruling against egg-laying stands.
+- **Later: give the nest a mouth.** A fixed brood, or a queen eating from
+  the store, gives delivery real value in the world. That is the dead end's
+  own re-test condition, and the ruling against egg-laying stands because
+  births still come from the score. It is not a next arm: the price
+  already pays delivery near its maximum.
 
 ---
 
 ## 4. Mutation rate: in a colony against by generation
 
-**What a child gets today** *here*. Suppose the in-run harness calls
-`train::mutate` with the trainer's defaults (`pm` 0.03, `sigma` 1, `prune`
-0.3, `grow` 1). Each trainable slot, at most 2,797, is drawn with
+**What a child gets today** *here*. The harness calls `train::mutate` with
+`pm` 0.03, `sigma` 1, `prune` 0 and `grow` 1 (the teacher lane, after this
+report was sent). Each trainable slot, at most 2,797, is drawn with
 probability 0.03: up to about 84 slots per child.
 
 - Copy v2 (`v2c.txt` in the lane's genomes folder) has 618 live slots.
-  About 19 are drawn: 5.6 are zeroed and 13 move by a step of sd 1.
+  About 19 are drawn and move by a step of sd 1. With `prune` 0 none is
+  zeroed.
 - Up to about 65 empty slots become new links.
 
 The trainer's own doc measured this: "each child carried about 45 new
 connections", and "a mind grew by 25-30 a generation whatever it scored".
 The arena holds it with a cost per connection (`wire` 1e-3, the default
-since 2026-10-17). **The colony score has no wire term**, so unless the
-harness adds one, the brain drifts toward every slot live.
+since 2026-10-17). In the colony, **the body bills every live link**, so
+link growth costs energy and the brake is starvation rather than a score
+term. Whether that brake holds the brain's size is what the live-link log
+will show.
 
 **What the literature says** [FT for Ochoa 2006; GK for Eigen].
 
@@ -349,9 +350,9 @@ harness adds one, the brain drifts toward every slot live.
   best's advantage). With top ants having about 3 children against an
   average of 1, that is ln 3 ≈ 1.1.
 
-Selection per birth here is weak: noisy, median-bar and few births, about
-60–120 per 600k frames. So the literature points to **fewer, smaller
-changes per child than the arena uses**, not more. Embodied evolution's
+Selection per birth here is weak (noisy, a median bar, few births), so the
+literature points to **fewer, smaller changes per child than the arena
+uses**, not more. Embodied evolution's
 practice matches: Montanier 2016 used a Gaussian of σ 0.1 on weights
 started in ±1, with 600-step lives.
 
@@ -363,8 +364,8 @@ started in ±1, with 600-step lives.
   - the child's score minus its parent's at matched age, which is the
     mutational-effect spectrum;
   - the live-link count by generation.
-- If the drift shows, the wire term or `grow` 0.3 is the fix the arena
-  already validated.
+- If the link count climbs, `grow` 0.3 or a small `prune` is the fix the
+  arena already validated.
 
 ---
 
@@ -375,10 +376,9 @@ started in ±1, with 600-step lives.
   all three, and same-genome teams won wherever cooperation was needed. Mixed colonies competing as wholes is exactly
   the worst cell: one colony's score says little about any one genome in
   it.
-- **Traulsen & Nowak 2006** [GK]: multilevel selection favours a
-  cooperative trait when b/c > 1 + n/m, for groups of at most n and m
-  groups. That means many small groups, not a few large ones. Four colonies
-  of 24–36 give n/m of about 6 to 9.
+- **Traulsen & Nowak 2006** [GK]: multilevel selection favours
+  cooperation when b/c > 1 + n/m (groups of at most n, m groups): many small
+  groups, not a few large ones. Four colonies of 24–36 give n/m of 6 to 9.
 - **Skolicki & De Jong 2005** [FT]: in island models the migration
   interval mattered more than migration size, and too frequent migration
   let one island take over and lost the diversity islands exist for.
@@ -424,17 +424,15 @@ from the other side.
   "much easier to evolve when pre-evolved behavioral building blocks were
   present".
 
-The reason it was left to selection, that teaching it in a dig-only arena
-leaks into foraging (design doc), does not apply in a shared food-and-dig
-colony.
+It was left to selection because teaching it in a dig-only arena leaks
+into foraging (design doc), which does not apply in a food-and-dig colony.
 
 - **How:** this lane's Q3 report. The walk-home lesson spreads through
   routing (scorer unit 14 has no `home` link, at slot 1252). Write the
   lesson into a few founders (Lamarckian), or seed pioneer ants that fade
   (Q4's C10).
-- **Test:** copy v2 with the walk-home lesson written into 5 of the 24
-  founders, against none, on paired seeds, under the current score. Measure
-  food delivered and the per-ant delivery count over the run.
+- **Test:** the lesson written into 5 of 24 founders against none, paired
+  seeds, current score; measure food delivered and deliveries per ant.
 
 ---
 
@@ -445,7 +443,7 @@ one core). This lane does not know its wall time.
 
 | # | Test | Cost | Decides |
 |---|---|---|---|
-| 1 | From existing logs: the food price over a run; deliveries per ant; how often z-rank and score-rank pick different parents; child minus parent at matched age; live links by generation | 0 | whether §1c, §2 and §4 are live |
+| 1 | From existing logs: ~~the food price over a run~~ (done: near its cap); deliveries per ant; how often z-rank and score-rank pick different parents; child minus parent at matched age; live links by generation | 0 | whether §1c, §2 and §4 are live |
 | 2 | Reliability against window length (§1e) | 0 | min age and turnover |
 | 3 | One clone colony: the spread of z at judging | 1 | whether the −3 cull is honest |
 | 4 | Clone-colony judge of each arm's top genome | 1 per arm | what the one-brain product scores |
@@ -453,17 +451,18 @@ one core). This lane does not know its wall time.
 | 6 | Food paid half on progress, half on arrival | 2 with control | §3 (*Scotttt*) |
 | 7 | `pm` 0.01/0.03 × `grow` 1/0.3 | 4 | §4 (owner asked) |
 | 8 | Walk-home lesson in 5 founders against none | 2 | §6 |
-| 9 | A fixed brood sink at the nest | 2 with control | §3 (*Scotttt*) |
+| 9 | A fixed brood sink at the nest (later: price already near its cap) | 2 with control | §3 (*Scotttt*) |
 | 10 | Colony audit: ledger rank against outcome rank, 4 colonies | 4 | §5 |
 
 Tests 1 and 2 cost nothing and decide whether 5, 6 and 7 are worth running.
 
-**For Scotttt, three one-word decisions, each as a paired arm first:**
+**For Scotttt, two one-word decisions, each as a paired arm first:**
 
 - **Rank on the shrunken mean instead of z?** Recommend *yes*.
 - **Pay food on progress?** Recommend *yes*.
-- **Give the nest a mouth?** Recommend *yes*, after test 1 shows the food
-  price stuck at its floor.
+
+A third, giving the nest a mouth, was dropped for now once the lane measured
+the food price near its cap.
 
 ---
 

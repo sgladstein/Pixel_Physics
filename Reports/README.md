@@ -5761,7 +5761,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   delivery does not rise: a 30k-frame life holds about one delivery, and ranking parents on z marks a big, rare job
   down. The fixes are to breed on the shrunken mean (as in BLUP), and to pay food like digs, half as it moves and half on
   arrival. Also covered: the turnover rule is rtNEAT's law of eligibility; the z < −3 cull needs a clone-colony
-  calibration; the trainer's mutation defaults grow the brain with no wire cost; colony competition should audit before
+  calibration; mutation at `grow` 1 with no pruning adds up to ~65 links a child, braked only by starvation; colony competition should audit before
   it selects (Waibel 2009, Skolicki 2005); and the walk home should be taught first. Ten tests, ranked by cost.
 
 ## Licensing and distribution
