@@ -1038,6 +1038,16 @@ pub fn soil_cohesion(aux: u16) -> f32 {
 /// the owner in `examples/span_readings.rs` before this was written
 /// (`soil-physics-realism-2026-10-21.md` §5.6).
 ///
+/// **Keep it off: the farm reading was wrong.** The owner asked why, under
+/// it, an ant could not dig a long tunnel without it falling (2026-10-21).
+/// Real ants dig long tunnels behind glass and they stand, because a roof
+/// spans the shorter of its two horizontal sizes, and in a thin slab that is
+/// the gap between the panes. So a tunnel's real span is about a body in
+/// either reading, and keying the rule on width on screen punishes long
+/// tunnels to catch great halls, which a 2D world cannot tell apart. The
+/// width-blind default is the realistic rule. This stays as the starting
+/// point if rooms and tunnels ever become distinguishable.
+///
 /// Read once per process through a `OnceLock`, like the switches above.
 pub fn roof_span() -> Option<f32> {
     static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();

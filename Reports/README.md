@@ -638,8 +638,10 @@ by somebody about to try it on creatures.
   stops spoil and mounds fertilising. Also: §Z39 is cited but unfiled.
   **§10 builds three of the suggestions behind off-by-default switches**: a
   wetness-dependent roof span that sags wide rooms into a dome
-  (`PIXEL_PHYSICS_ROOF_SPAN`, the glass-farm reading of §5.6; real nests
-  barely notice it), dear roots in dry ground (`PIXEL_PHYSICS_DRY_ROOT_COST`)
+  (`PIXEL_PHYSICS_ROOF_SPAN`; real nests barely notice it, and §5.6's
+  correction says it should stay off: a real tunnel's span is across it,
+  not along it, so the engine's width-blind rule is already the realistic
+  one), dear roots in dry ground (`PIXEL_PHYSICS_DRY_ROOT_COST`)
   and an emergence-depth limit for buried seeds
   (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab stand less
   than seed-to-seed spread. The touch roof sense shipped on `main` as the
