@@ -466,6 +466,39 @@ fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, t
     None
 }
 
+
+/// SCRATCH (never for main): per-source write counters for the soil pass.
+/// 0 infiltration, 1 capillary, 2 drain-down, 3 drip, 4 root-pull, 5 side-drain,
+/// 6 self-write, 7.. drain-down size histogram: 1,2,3-5,6-10,11-50,51+
+pub static SCRATCH_SOIL: [std::sync::atomic::AtomicU64; 16] = [const { std::sync::atomic::AtomicU64::new(0) }; 16];
+#[inline(always)]
+fn sc(i: usize) { SCRATCH_SOIL[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+#[inline(always)]
+fn sc_size(moved: u16) { let k = match moved { 1 => 7, 2 => 8, 3..=5 => 9, 6..=10 => 10, 11..=50 => 11, _ => 12 }; sc(k); }
+
+/// SCRATCH: `SCRATCH_DRAIN_RATE=1.0` overrides `SOIL_DRAINAGE_RATE`.
+fn scratch_drain_rate() -> f32 {
+    static R: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("SCRATCH_DRAIN_RATE").ok().and_then(|v| v.parse().ok()).unwrap_or(SOIL_DRAINAGE_RATE))
+}
+/// SCRATCH: `SCRATCH_SKIP_INFILTRATION=1` skips the infiltration loop when the surface says no liquid can be adjacent.
+fn scratch_skip_infiltration() -> bool {
+    static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("SCRATCH_SKIP_INFILTRATION").as_deref() == Ok("1"))
+}
+
+/// SCRATCH: `SCRATCH_SCHEDULE_INFILTRATION=1` arms the drying site on a wetting with no net change.
+fn scratch_schedule_on_infiltration() -> bool {
+    static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("SCRATCH_SCHEDULE_INFILTRATION").as_deref() == Ok("1"))
+}
+
+/// SCRATCH: `SCRATCH_DRAIN_SNAP=N`; 0 (default) is the shipped rule.
+fn scratch_drain_snap() -> u16 {
+    static R: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("SCRATCH_DRAIN_SNAP").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
 pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if !soil_water_enabled() {
         return false;
@@ -486,7 +519,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     let textured = surface.soil_texture();
     let texture = if textured { surface.materials().get(cell.material).texture_of(cell.shade) } else { material::SOIL_TEXTURE_OFF };
     let field_capacity = texture.field_capacity;
-    let drainage_rate = (SOIL_DRAINAGE_RATE * texture.drainage).min(1.0);
+    let drainage_rate = (scratch_drain_rate() * texture.drainage).min(1.0);
     let here = soil_moisture(cell);
     let mut moisture = here;
 
@@ -513,8 +546,10 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // was a silent mass leak, and one the old gate hid rather than fixed —
     // `infiltration_conserves_water_it_cannot_fit` passed against the gated
     // version only because infiltration never ran at all in that setup.
+    let mut infiltrated = false;
+    let skip_infiltration = scratch_skip_infiltration() && !surface.liquid_may_touch(x, y);
     for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
-        if moisture >= capacity {
+        if skip_infiltration || moisture >= capacity {
             break;
         }
         let n = surface.get(x + dx, y + dy);
@@ -527,6 +562,8 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
             continue;
         }
         moisture += taken;
+        sc(0);
+        infiltrated = true;
         if taken >= fill {
             surface.set(x + dx, y + dy, Cell::EMPTY);
         } else {
@@ -730,6 +767,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         // Never more than the giver holds: on loam's scale the gradient can
         // name more water than a dry giver has (`loam_level`). Untextured,
         // the levels are the amounts and this never binds.
+        sc(1);
         if here_level > there_level {
             let moved = moved.min(moisture);
             moisture -= moved;
@@ -755,6 +793,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
                 let rate = (SOIL_DRAINAGE_RATE * a_texture.drainage).min(1.0);
                 let moved = (((a_moisture - a_texture.field_capacity) as f32 * rate) as u16).min(capacity - moisture);
                 if moved > 0 {
+                    sc(4);
                     moisture += moved;
                     surface.set_moisture(ax, ay, above.with_aux(a_moisture - moved));
                 }
@@ -768,8 +807,11 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         if below_capacity > 0 {
             let room = below_capacity.saturating_sub(soil_moisture(below));
             let surplus = moisture - field_capacity;
-            let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
+            // SCRATCH: `SCRATCH_DRAIN_SNAP=N` -- a surplus under N leaves whole, so
+            // the geometric tail never becomes a one-unit conveyor.
+            let moved = if surplus < scratch_drain_snap() { surplus.min(room) } else { ((surplus as f32 * drainage_rate) as u16).min(room) };
             if moved > 0 {
+                sc(2); sc_size(moved);
                 moisture -= moved;
                 surface.set_moisture(x, y + 1, below.with_aux(soil_moisture(below) + moved));
             }
@@ -801,6 +843,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
             let surplus = moisture - field_capacity;
             let shed = ((surplus as f32 * drainage_rate) as u16).min(material::LIQUID_FULL);
             if shed > 0 {
+                sc(3);
                 moisture -= shed;
                 surface.set(x, y + 1, Cell::new(material::WATER, 0).with_aux(shed));
             }
@@ -844,6 +887,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
                     let surplus = moisture - field_capacity;
                     let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
                     if moved > 0 {
+                        sc(5);
                         moisture -= moved;
                         surface.set_moisture(x + dx, y + 1, side.with_aux(soil_moisture(side) + moved));
                         break;
@@ -853,7 +897,14 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         }
     }
 
+    // SCRATCH: a cell that drank a drop and passed every unit of it on in the
+    // same visit ends where it began, and the drying schedule must still
+    // hear about the wetting -- unreachable at rate 0.25, live at 1.0.
+    if infiltrated && moisture == here && scratch_schedule_on_infiltration() {
+        super::evaporation::schedule_damp_soil(surface, x, y);
+    }
     if moisture != here {
+        sc(6);
         surface.set_moisture(x, y, cell.with_aux(moisture));
         // **The other place soil gets wet**, and the second of the only two
         // moments a damp cell can be put on the drying schedule -- see

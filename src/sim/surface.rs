@@ -126,6 +126,11 @@ impl Default for VisitRng {
 }
 
 pub trait CellSurface {
+    /// SCRATCH: whether a `Liquid` cell could be adjacent to `(x, y)`. `true` is always safe.
+    fn liquid_may_touch(&self, _x: i32, _y: i32) -> bool {
+        true
+    }
+
     fn get(&self, x: i32, y: i32) -> Cell;
     fn set(&mut self, x: i32, y: i32, cell: Cell);
     fn in_bounds(&self, x: i32, y: i32) -> bool;

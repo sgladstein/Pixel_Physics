@@ -3857,6 +3857,9 @@ impl ColonyBooks {
     }
 }
 
+/// SCRATCH (never for main): nanoseconds spent in the soil pass.
+pub static SCRATCH_SOIL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// What one `World::step_soil_water` pass did.
 ///
 /// Three numbers rather than one, because they answer three different
@@ -12126,6 +12129,12 @@ impl World {
         if !crate::sim::update::moisture_phase_enabled() {
             return;
         }
+        let _scratch_t0 = std::time::Instant::now();
+        self.step_soil_water_inner();
+        SCRATCH_SOIL_NANOS.fetch_add(_scratch_t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn step_soil_water_inner(&mut self) {
         let mut plans: Vec<(ChunkCoord, crate::sim::chunk::MoistPlan)> = Vec::new();
         for (coord, chunk) in self.chunks.iter_mut() {
             if let Some(plan) = chunk.take_moist_plan() {
@@ -13262,6 +13271,14 @@ impl<'w> MoistureView<'w> {
 }
 
 impl CellSurface for MoistureView<'_> {
+    #[inline]
+    fn liquid_may_touch(&self, x: i32, y: i32) -> bool {
+        // Interior cell (all four neighbours in this chunk) of a chunk holding no liquid: none can.
+        let r = self.inner;
+        let interior = x > r.min_x && x < r.max_x && y > r.min_y && y < r.max_y;
+        !interior || self.chunk.has_liquid()
+    }
+
     #[inline]
     fn get(&self, x: i32, y: i32) -> Cell {
         if self.inner.contains(x, y) {
