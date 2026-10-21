@@ -51,6 +51,15 @@ foot, go down, walk home -- take it from 6.8 to **20.5 full loads a world at 8 r
 
 ### T1. Privileged computation, never privileged information
 
+> **Amended 2026-10-21** (owner, in discussion: "I want to make sure we are not limiting ourselves"; recorded by the
+> teacher design review, [`teacher-design-review-2026-10-21.md`](teacher-design-review-2026-10-21.md) item 13). The
+> teacher may *compute* anything over the true world, and may use information the ant does not sense **only where a
+> probe shows the student can recover the choice from its own inputs** -- the three probes of
+> [`teacher-design-2026-10-21.md`](teacher-design-2026-10-21.md) §3 (all features, the brain's own channel, context).
+> Where the probe fails, the ways out are listed there; the warning below about learning the average still holds, and
+> it is what the probe measures. A colony planner's "your face, given where the other eleven are" is privileged
+> information under this rule and is pre-gated (design §7).
+
 The teacher may compute anything exactly -- pathfinding, geometry, counting -- **but only over what the ant has sensed or
 could plausibly remember.** This is the one place the owner's "god-like teacher" idea needs a limit. When the teacher
 decides from something the student cannot sense, the student does not learn the teacher's behaviour; it learns the

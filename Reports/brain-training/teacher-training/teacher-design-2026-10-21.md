@@ -1,368 +1,372 @@
 # The teacher: design doc for the next steps (rules, planners, search, and the colony)
 
-*2026-10-21, by the teacher-approach session. Status: **design, for adversarial and improvement review. Nothing in it
-is built** beyond what step 1 already built (the three-rule teacher, the copier, the probe). It answers the owner's
-question of 2026-10-21: keep the current teacher or improve it, and how a teacher can do more than simple rules
-(pathfinding for soil, food and digging; the nest analysis tools choosing where to dig). Companion documents, new
-today: [`search-teacher-design-2026-10-21.md`](search-teacher-design-2026-10-21.md) (the search teacher in full, from
-a research agent; literature in [`notes/search-teacher-literature.md`](notes/search-teacher-literature.md)) and
-[`notes/nest-architecture-2026-10-21.md`](notes/nest-architecture-2026-10-21.md) (what real nests look like in
-vertical section, with sources). Background: [`guidelines-2026-10-20.md`](guidelines-2026-10-20.md) (T1-T9, C1-C6),
+*2026-10-21, by the teacher-approach session. Status: **design v2, revised after three adversarial reviews** (method
+and literature, biology and the game, evidence against the code). The findings and what was done with each are in
+[`teacher-design-review-2026-10-21.md`](teacher-design-review-2026-10-21.md); v1 is commit 6aa3b4b4. **Nothing here is
+built** beyond step 1 (the three-rule teacher, the copier, the probe) and the general nest score (section 6, a Python
+prototype). It answers the owner's question of 2026-10-21: keep the current teacher or improve it, and how a teacher can
+do more than simple rules (pathfinding for soil, food and digging; the nest tools choosing where to dig). Companions:
+[`search-teacher-design-2026-10-21.md`](search-teacher-design-2026-10-21.md) (the search teacher in full; literature in
+[`notes/search-teacher-literature.md`](notes/search-teacher-literature.md)) and
+[`notes/nest-architecture-2026-10-21.md`](notes/nest-architecture-2026-10-21.md) (real nests in vertical section).
+Background: [`guidelines-2026-10-20.md`](guidelines-2026-10-20.md) (T1-T9, C1-C6),
 [`step1-results-2026-10-21.md`](step1-results-2026-10-21.md).*
 
 ## The answer, first
 
-**Keep the current teacher for the 8-row step, and grow it into a framework of planners, with search on top as the
-judge.** At 8 rows the hand teacher is not what limits us: driving s161 it already scores 20.66 full loads a world
-against 6.8, three times the brain. What limits us is *copying*: one rule copies well (go down, 6.42 -> 10.57), two do
-not (dig collapses the ant alone; walk home spreads to foragers). A smarter teacher at 8 rows would add headroom
-nobody can copy yet.
+**Keep the current teacher, and grow it into planners -- but find out why copying fails before building any.** At 8
+rows the hand teacher is not what limits us: driving s161 it scores 20.66 full loads a world against 6.8. Copying is:
+"go down" copies (6.42 -> 10.57, repeated at 10.60 and 9.80), "dig at the foot" collapses the copy (3.35) though the
+rule *acting* alone is fine (+5.16), and "walk home" spreads to foragers. Two rounds of DAgger made copies worse. A
+planner is one more source of labels, and labels are not what is failing; built now, its first failure could not be
+told apart from the copier's. So the order is:
 
-**Past 8 rows there are no rules to write, so the teacher must compute.** The owner's three examples are the right
-three, and each is a **planner**: a goal, a search on the true world for the cheapest way to it, and a rule for turning
-the plan into a lesson on the options the ant actually has.
+1. **Step 0.5, about a day, offline on the step-1 logs** (section 4): trace the dig copy's collapse ant by ant; a
+   joint-fit diagnostic that says whether the wall is the student's capacity, a missing context sense, or labels that
+   contradict each other; the context probe (can the ant tell an empty digger from an empty forager?); and a retrofit
+   of the new lesson form onto "go down", which must reproduce its +4 before anything relies on it. **Go/no-go**: if
+   neither dig nor walk home can be made to copy, no planners -- selection from the go-down copy, or a capacity change
+   through the brain lane.
+2. **The search pilot on dig-or-not** (section 8), which goes straight at the lesson that failed and is the clean test
+   of whether "dig needs descent beside it" is real.
+3. **Planners**, each through the same gauntlet (section 9): **nest digging** scored by the general nest score the owner
+   asked for (section 6), then **soil placement** for the mound the owner wants (section 5), then **foraging routes**.
 
-| Planner | Goal | What it computes that no ant could | Order |
-|---|---|---|---|
-| **Soil placement** | A ring mound round the entrance whose inner toe stays clear of the hole | Exactly where a pellet will slide once put down (it can try the drop in a copy of the world); the shortest carry to an unfilled spot on the ring | **first** |
-| **Nest excavation** | A blueprint drawn from real nests, chosen by the owner by eye | Which cells of the blueprint are diggable *now* without dropping a roof or the rim; the order that keeps the nest connected; which ant should take which face | second |
-| **Foraging** | Straight to known food, straight back | The shortest route on the true ground, around stone and over the mound | last (owner: no strong opinion; exploration stays the brain's) |
+**The answer to "will simple rules make a simple student"** stands, with one correction from the literature. The
+student never copies a rule, only its choices on its own states, so a teacher may compute anything; the limit is what
+the ant can tell apart, measured per decision type by the probe. **But a teacher far stronger than its student can make
+a worse student even when the information is there** (distillation: Mirzadeh et al. 2020; guided policy search,
+PLATO, A2D, dual policy iteration all make the planner *student-aware*). So every planner here breaks near-ties by what
+the brain already prefers (section 1).
 
-**The three rules we have are the simplest planners**: "go down" is a shortest path to the shaft's foot, "walk home"
-a shortest path to the mouth, "dig at the foot" a one-cell plan. So keeping them and building planners is one design,
-not two: the rules become the planners' degenerate case and the examiner of every later teacher.
+**The nest is scored by what it has, not matched to a blueprint** (owner, 2026-10-21: "can we reward more general
+things like number of well proportioned tunnels and chambers"). The score is built and checked (section 6): well-built
+cells, chambers graded on height (7 cells, the owner's ruling), proportion and a flat floor; tunnels graded on width and
+credited only as much as the chambers they serve; cracks, open craters and stray voids charged. Of fourteen controls,
+the real-nest blueprints score highest and every built-bad shape scores near zero or below. The owner's pick, the
+harvester stack, becomes the *default species profile* of the planner that generates a fresh plan per world -- other
+species (or other creatures) later are other profiles.
 
-**The answer to "will simple rules make a simple student"**: the student never copies a rule; it copies the rule's
-*choices*, on its own states. A teacher that computes more makes better choices, and the student can learn every one of
-them that it can tell apart from its senses. **So the teacher should compute as much as it likes; what it must not do
-is ask for distinctions the ant cannot make** -- and that is measured, decision type by decision type, by the
-copyability probe we already have. Where the probe fails, there are five ways out, cheapest first (section 3), and one
-of them is the owner's: a new local, biologically realistic sense.
+**Three ideas from the colony discussion stay in** (section 7): a central planner in a real crowd, colony-level choices
+taught as outcomes, and nothing that reads crowding taught solo. The reviews add a pre-gate: probe the central
+assignment on 12-ant logs before building it, and run the existing brain in 2- and 4-ant boxes first, because local
+crowding may already size the nest without any teacher.
 
-**Three ideas from the colony discussion stay in, unchanged** (section 6): put the teacher in a real crowd and let a
-central planner assign the work; teach *outcomes*, not actions, for the colony-level parts (how big, when to stop,
-where to bud); and crowding needs at least two ants, so nothing that reads it can be taught solo.
+**Two things the owner should know, both from the reviews and the code:**
 
-**The one result here that changes a plan on `main`**: real chambers are flat lenses one to two body lengths high
-(2-4 cells in this game), three to twenty times wider than tall. The dig ladder's planned 8-16-cell-tall chambers
-(`dig-rung-design.md`, steps 10-11) are three to five times taller than any real chamber. The owner judges which by
-eye; renders are coming with this doc.
+- **Placed soil never slides in this engine.** A pellet with footing stands at any slope, including a wall, until
+  something undermines it; then it turns to loose soil, which runs at 33°. So a mound's shape has to be *taught*, the
+  engine will not round off a badly placed pellet, and spill-back comes from cuts that undermine the mound or the rim,
+  not from pellets rolling.
+- **A full ring round the door is, in a 2D slice, a wall across the road to the food.** The record shows that this is
+  why ants dug into the mound in the earlier game, and that stopping them starved the colony. Real ants also build a
+  **one-sided crescent** (Trachymyrmex, Pheidole). Ring against crescent is put to the owner as a paired render with
+  the foragers' route drawn on (section 5), not decided here.
 
 ## 1. What a teacher is, in this framework
 
-Every teacher has four parts. Writing them out is what lets a rule, a planner and a search share one copier.
+Every teacher has four parts, which is what lets a rule, a planner and a search share one copier, one probe and one
+judge.
 
 | Part | The three rules (step 1) | A planner | The search teacher |
 |---|---|---|---|
-| **Goal** | Implicit: full loads | Explicit: a target shape, a target place for soil, food home | An outcome score (full loads, plus a value of what is in flight) |
-| **Computation** | One step of geometry | A search on the true world (shortest paths, a trial drop in a copy, a dig-order over the blueprint) | Roll each option out in a copy of the world, with the brain carrying on |
-| **Values per option** | Allowed or not | A cost-to-go per option: path length, how much of the plan an option advances, whether a drop stays put | Q(a) with a standard error |
-| **Lesson** | The ceiling policy: the brain's own odds renormalised over the allowed options | **The same as the search's**: pi\*(a) ∝ p_brain(a) · exp(A(a)/tau), with A the option's advantage over the brain's average | pi\*(a) ∝ p_brain(a) · exp(A~(a)/tau), A~ shrunk by its noise |
+| **Goal** | Implicit: full loads | Explicit: a nest that scores well, a mound shape, food home | An outcome score (full loads, plus a value of what is in flight) |
+| **Computation** | One step of geometry | A search on the true world (shortest paths; a dig order over the plan; a trial *cut* in a copy of the world) | Roll each option out in a copy of the world, with the brain carrying on |
+| **Values per option** | Allowed or not | A cost-to-go per option | Q(a) with a standard error |
+| **Lesson** | The brain's own odds renormalised over the allowed options | See below | pi\*(a) ∝ p(a) · exp(A~(a)/tau) |
 
-**One lesson form for every teacher.** Turning a planner's costs into an advantage and a regularised target
-(section 1.5 of the search design; Grill et al. 2020) does three things the step-1 ceiling policy did not:
+**The lesson form is per decision type, and it is earned, not assumed.** v1 proposed one regularised target for every
+teacher, pi\*(a) ∝ p(a) · exp(A(a)/tau) (the MPO/AWR family; Grill et al.'s exact form differs). The method review
+showed that for steps, worth ~0.02 full loads each, any tau in {0.03, 0.1, 0.3} multiplies the best step's odds by
+1.07-1.95, about a tenth of the push that made "go down" copy (its hard target took the deepest step from ~0.6 to 1.0).
+So:
 
-- **It is graded** (T3): an option almost as good as the best gets almost as much of the lesson.
-- **It stays near the brain** (tau sets how near). Step 1's two failures were both the lesson moving the brain too
-  far where it was not taught: walk home spread from empty diggers to loaded ants and to foragers; dig, copied alone,
-  removed the wall cuts the ant's descent depended on. Coaching (He et al. 2012) and the regularised target are the
-  literature's answer to exactly this.
-- **It can abstain**: where no option clearly beats the brain's average, the lesson is the brain itself, which is
-  step 1's "no rule applies" row.
+- **Big calls** (dig here or not, put down here or not) use the regularised target, tau chosen on the selection worlds
+  for full loads *with fetch and trail held at their floor*.
+- **Steps** keep the hard target that worked, unless the retrofit in step 0.5 shows the regularised form reproduces
+  "go down" (at least +3 full loads). A is divided by the decision's stake before the exponent if the soft form is used.
+- **p is the current student**, not s161, wherever the student has changed (the method review's reading of why DAgger
+  hurt: anchoring the copy back to s161 exactly where it had learned to differ). Tested in step 0.5.
+- **The exchange rate** from a planner's cost (cells of path) to full loads is the *current student's*, re-measured
+  each round, per frame of the whole run, and stated as such; where the arena's energy budget binds, it is per joule
+  instead, as search charges it.
 
-**The planner's cost becomes an advantage in full-load units** by one exchange rate per planner, measured, not chosen:
-for the soil planner, the full loads s161 completes per frame of carrying (a cell of extra path costs that many full
-loads); for the nest planner, full loads per frame of empty walking plus a blueprint term (section 5.4). tau is then
-chosen on the selection worlds from {0.03, 0.1, 0.3}, as for search.
+**Every planner is student-aware**: among options within ε of the planner's best, it prefers the one the brain already
+rates highest (the cheapest form of guided policy search's "stay near the policy"). And every planner gets its own
+check against short rollouts (search's B1): on ~100 sampled decisions, does its ranking agree with what actually scores
+under the brain's continuation?
 
-## 2. Decision: keep the current teacher, and how it changes
+**Abstain** where no option clearly beats the brain's average: the lesson is the brain itself. The copier needs no
+change for that.
 
-| Part of today's teacher | Decision | Why |
+## 2. Today's teacher: what stays and what changes
+
+| Part | Decision | Why |
 |---|---|---|
-| **Go down** | **Keep, as is.** It is the one lesson that copied cleanly (+4.16 ± 0.48, kept skills held) | -- |
-| **Dig only at the foot** | **Keep, but never copy it alone.** It is coupled to descent (alone it collapsed the copy to 3.35, 15 seeds under 3). Copy it after go-down is in, from the go-down copy, with the regularised target | The ceiling test showed the coupling first; the copy showed it again |
-| **Walk home** | **Replace with the soil planner's carry path**, which is a walk home *only while loaded*, ending at a ring site rather than the mouth | Walk home was taught on empty diggers too, and the empty-forager look-alike is what broke fetch. The planner never labels an empty ant with "go home" |
-| **The put-down rule** | Stays dropped (owner agreed). The soil planner supersedes it | "Put down sooner" hurt alone because the brain's carry and its turn home are coupled; a planner gives the whole carry, not a veto |
-| **Its role** | **The examiner.** Every new teacher must agree with the rules where a rule fires, or explain why (search design, B2a) | A teacher that cannot find a +4.7-load lesson someone already wrote is broken |
+| **Go down** | **Keep, as is.** Copies cleanly and repeatably (10.57 / 10.60 / 9.80; fetch +0.5 to -1.9 trips) | -- |
+| **Dig only at the foot** | **Keep. Copy it next, after step 0.5 says why it collapsed.** v1 said "never copy it alone" because the ceiling showed a coupling; that was a misreading. *Acting* alone the rule gains +5.16 (memory-consistent) with one seed under 3; only the *copy* collapses, cause untraced | The search pilot (section 8) is the second, independent attack on it |
+| **Walk home** | **Keep.** v1 "replaced" it with the soil planner's carry path, but that teaches a different decision: walk home teaches the *empty* ant's way back to dig, worth +5.40 acting on s171. Someone must teach the empty return trip in every arena; until the context probe passes, it is this rule, copied with fetch anchors, or left to selection | The method review's B3 |
+| **The put-down rule** | Stays dropped (owner agreed) | -- |
+| **Its role** | **The examiner, and the bar.** A planner replacing part of the rules must be non-inferior to what it replaces, acting (section 9) | -- |
 
-**What "improve it" means, then**: not a better rule at 8 rows, but making the rules the first instances of a planner
-interface, so that what follows (soil, nest, food, colony) needs no new copier, no new probe and no new judge.
+## 3. The gate: what the ant can tell apart
 
-## 3. The limit on any teacher: what the ant can tell apart
+The teacher may use anything; what the student can learn is what it can predict from its own inputs (Weihs et al.,
+the imitation gap). **v1 misread step 1's probes.** The 94-100% figures were the *all-features* probe (the best model
+on every option feature), and the 0.938 among them was the put-down rule, never copied. Through **the brain's own
+channel** -- each option scored from its own features plus the shared context, and the job stage seeing one best score
+per verb -- the dig rule read 0.65/0.87 recall/precision, and the brain's dig score separated a foot cell from a wall at
+AUC 0.613. **That probe predicted the dig failure.** Go-down's channel was clean (`DEPTH` on each step, 1.000) and it
+copied; walk home's channel was clean (0.995) and it spread, which no probe of its own label can see. So the gate is
+three numbers, each with a bar (uncalibrated: three data points):
 
-The owner's challenge (2026-10-21) was right: "it may only base its calls on things the ant can also sense" is too
-narrow. The teacher may use anything. What is limited is **what the student can learn from it**: a student copying a
-label it cannot predict from its own inputs learns the label's average over everything that looks the same to it
-(Weihs et al. 2021, the imitation gap; T1). The limit is checked, not assumed:
+| Probe | What it asks | Bar |
+|---|---|---|
+| **All features** | Is the information anywhere in what the ant senses? | ≥ 0.95 balanced accuracy, held out by world |
+| **Brain channel** | Can the brain's own wiring carry it? | ≥ 0.90 balanced accuracy; AUC ≥ 0.85 on the minority class |
+| **Context** | Can the ant tell the taught states from the kept-skill states that look like them? | ≥ 0.85 AUC separating them through the brain channel |
 
-**The gate, per decision type, per teacher, before any copying**: the copyability probe (`probe.py`) fits the
-teacher's choice from the brain's own inputs on held-out worlds, with a positive control (a pure function of the
-senses) and the within-decision shuffle as the negative control. Step 1 passed it for all three rules (94-100% held
-out) and still failed to copy two of them, so **the probe is necessary, not sufficient**: it says the information is
-there, not that the brain's one shared scorer can hold the lesson beside its other skills (section 7).
+Positive control: a pure function of the senses. Negative control: the within-decision shuffle.
 
-**Where the probe fails, five ways out, cheapest first:**
+**Where a probe fails, the ways out, cheapest first:**
 
 | Way out | What it is | Example here |
 |---|---|---|
-| 1. **An existing sense** | Often the probe fails on a feature set too small; widen it to all 22 senses, 12 memories and 45 option features | The ant already senses placed spoil (`SPOIL`) apart from native soil and gallery lining (`LINED`), the hole (`CUT`), a cut that would drop a roof (`ROOF_DROP`, `ROOF_CUT`), the headroom over a cell in body heights (`HEADROOM`), depth (`DEPTH`), the home vector (`HOME`, `HOME_DIST`), crowding (`CROWD`, `ROOM`) |
-| 2. **Memory** | The probe on senses plus the 12 memory units, and on a short history of senses | How long since the last put-down; which way the ant came |
-| 3. **Change the goal to one that local rules generate** | **The new idea in this doc.** A goal the ant cannot locate itself in is uncopyable however well it is planned. A goal built from the rules real ants follow is copyable by construction | Real nests are generated by local rules (section 5.1): dig down from a chamber's edge, widen at the bottom; stop the roof at about a body height (Khuong et al. 2016); bud when crowding at the wall falls (Toffin et al. 2009). A blueprint of that family is one the ant can follow from its senses |
-| 4. **A new local, biologically realistic sense** (owner: "on the table if it is a local biologically realistic sense") | Added only when the probe names the missing fact and a real ant demonstrably senses it | **Slope under a put-down cell** (Pheidole oxyops read the pile's slope and drop where it turns from up to down; Tofilski & Ratnieks 2008). **The way back to the last food** (`LAST_FOOD`, already reserved in the option features as "missing"; desert ants hold a vector to a food site, Wehner). **A building scent on handled soil** (`BUILDING`, reserved; Khuong et al. 2016) |
-| 5. **Teach the outcome instead** | Take the decision type out of the copy loss and leave it to selection on a colony score | Room size, when to stop digging, how many dig against forage (section 6) |
+| 1. **An existing sense** | Widen the feature set | `f::SPOIL` (placed spoil, apart from native soil and from `f::LINED` lining), `f::CUT` (the hole), `f::ROOF_DROP`/`c::ROOF_CUT` (a cut that drops a cell one cut ahead -- not the cascade when loose soil runs), `c::DEPTH` (compressed at depth: 48 rows reads 0.75, 64 reads 0.80), `HOME`, `HOME_DIST`, `UP`. **Corrections from the code**: `f::HEADROOM` is open cells above the *option's target* (capped at 6), so on a wall or roof cut it reads 0 whatever the chamber's height -- it is not a roof template; `f::CROWD` reads the ant's own body (0.125-0.25) and `f::ROOM` takes 32 values solo, so they vary without a crowd; only `c::CROWD` is 0 solo |
+| 2. **Memory** | The 12 memory units, or a short history | Distance since the last chamber, for spacing |
+| 3. **Teach the local rule itself** | Where real ants have a local rule, **the rule is the teacher**, and the planner earns its place only on the *disagreement set* -- the choices where planner and rule differ (stability, connectivity, never dropping a roof). Measure that set and probe it alone; if it is small, copy the rule and skip the planner. **This narrows the nest to shapes local rules make**, which the owner is told | Aphaenogaster's "down from a chamber's edge, widen at the bottom"; spacing by depth |
+| 4. **A new local, biologically realistic sense** (owner: on the table) | Only when a probe names the missing fact, through the brain lane, new links at zero | **Headroom over the ant's own head** (the roof height a chamber digger stands under: no sense carries it today). **Body pitch** (head row minus tail row, graviception -- Pheidole's drop point moved with a 15° tilt), better grounded than "slope under the put-down cell". **A decaying fresh-pellet mark** (Khuong's pheromone; a permanent mark adds nothing `f::SPOIL` lacks, and `dead-ends` measured it discriminating on ~1% of drops). **Encounter rate**, a memory integrating contacts (Gordon; Pratt), for the colony |
+| 5. **Teach the outcome instead** | Out of the copy loss; selection on a colony score | Section 7 |
 
-**A sense is a brain change**, so a new one goes through the brain lane, defaults on per the house rule only if it
-measures as a gain or neutral, and is added to a genome with its new links at zero (so every existing brain is
-unchanged until trained).
+**Already tried on the old hand-written creature** (each has a re-test condition that is a cheap pre-check): slope at
+the put-down (`dead-ends` `SurfaceCurvature` on `DropSpoil`: moved nothing; census the reading at drops first), the
+building mark (Khuong, declined twice), a room-height cap (`FLAT_ROOM`: brood rooms on 4 of 12 runs, then a halved
+colony), crowding-driven room digging (Toffin's mechanism: fired, built no rooms, buds never moved). None of these was
+a *taught* lesson, which is what is new here; the pre-checks still apply.
 
-## 4. The soil-placement planner (first)
+**Capacity is not only a brain change.** s161 uses 8 of its 16 scorer units; the other 8 have output weight 0. Reviving
+one for a lesson is possible inside the genome, at an energy cost per link. That comes before asking the brain lane for
+more units.
 
-### 4.1 Why first
+## 4. Step 0.5: why copying fails (first, about a day, offline)
 
-- **Every dig rung is scored on where the soil ends up**: a full load is a pellet carried up and put down at least
-  three cells (Chebyshev) from every hole cell at the bell, after a 2,000-frame settle (`dig-rung-design.md` S3).
-- **It is the owner's stated ideal** ("a mound round the entrance is ideal"), and the place the previous game
-  struggled (section 4.4).
-- **It is solo-teachable.** Nothing in it reads crowding.
-- **It replaces the one rule that hurt** (walk home spreading to empty ants) with one that only ever labels loaded
-  ants.
+| # | What | Reads | Decides |
+|---|---|---|---|
+| 1 | **Trace the dig copy's collapse ant by ant** (the `funnel` skill): every ant in the 15 seeds under 3, inputs and chosen option at every decision from the last good foot cut on | Where it strands, and on which inputs | Whether "dig needs descent" is the mechanism, or something else |
+| 2 | **Joint-fit diagnostic**: fit dig (and walk home) plus the anchors offline three ways -- (a) trainable slots as in step 1; (b) every slot free, ignoring energy; (c) (a) plus a one-bit arena-context input. Held-out loss on lesson and anchor states separately; the cosine between lesson and anchor gradients on shared slots | Only (b) fits both: **capacity**. Only (c): **context** (a sense). Neither: the labels contradict each other on states the ant cannot tell apart, which is a **teacher** problem | Which lever, and whether planners are worth building |
+| 3 | **The context probe** on walk home: empty soil-arena surface ants against empty fetch foragers | Section 3's bar | Whether walk home can copy without breaking fetch |
+| 4 | **Retrofit the lesson form** onto go-down (A = path saved to the foot × rate) at each tau, and onto dig and walk home; plot soil gain against fetch loss, beside the same curve for step 1's per-group loss weight | If the curves coincide, tau buys nothing against spread | The lesson form (section 1) |
+| 5 | **DAgger anchored to the current student** instead of s161, one round on the go-down copy | Against 9.50 | Whether DAgger is worth keeping |
+| 6 | Does the go-down copy carry an unlabelled dig lesson? (Its 8 revived `DEPTH` links feed every verb; the GIF shows cuts concentrated at the foot.) Per-rule agreement on its own runs | -- | How far "go down copied cleanly" can be trusted as one lesson |
 
-### 4.2 The goal: a ring with its crest held out from the lip
+**Go/no-go, written before the results**: if after step 0.5 neither dig nor walk home copies (gain over two
+seed-clustered s.e., fetch and trail at floor), do not build planners. Instead: selection from the go-down copy with its
+links protected; copy agreement as a fitness term (T4's second mode); or the brain lane's capacity change if diagnostic
+2(b) says capacity.
 
-From the nest research (section 3 of the notes):
+## 5. The soil-placement planner (for the mound, not for full loads)
 
-- **Real ants dump just beyond the ridge**, so loads roll down the *outer* slope: Dorymyrmex keep 73-82% of loads where
-  they land, the rest roll outward, and "almost never" back to the entrance (Tofilski & Ratnieks 2005). Pheidole read
-  the slope and drop where it turns from up to down. Several species make a one-sided crescent instead of a ring and
-  move it downslope.
-- **The geometry, for this world's grains**: a cell automaton with a 1:1 diagonal slide rests at about 45°. A mound of
-  height h with its crest at radius r_c from the mouth's centre has its inner toe at about r_c − h. Hold the inner
-  toe at least one body length (2 cells) outside the lip: **r_c ≥ half the mouth's width + 2 + h.** Every put-down
-  goes at r ≥ r_c, on the outer flank, and the crest moves outward as the mound grows.
-- **The planner's plan**: a target ring profile (height by column), seeded at a crest radius of 3 cells past the
-  scoring zone's edge and grown outward as it fills, both sides of the mouth evenly (or one side, if the owner picks
-  the crescent).
+**What the reviews changed.** v1 put this planner first and valued each put-down by a *trial drop* in a copy of the
+world. Three facts from the code undo that:
 
-### 4.3 What it computes, and the lesson
+1. **The arena credits a full load where the pellet is put down**, not where it ends up; the 2,000-frame settle only
+   moves the refill penalty (-4 of `score` a cell back in the hole), never `full_loads`.
+2. **Placed spoil never slides** (`spoil.ron`: `self_supporting`, `needs_footing`; `update_powder` returns before any
+   movement rule). Put-down already requires footing, so a trial drop returns the same value for every option.
+3. **At 8 rows there is almost nothing left to gain**: s161 carries 88% of its full-depth cuts out as full loads, and
+   86% of its put-downs are already clear of the hole. A perfect soil planner adds at most ~0.8 full loads a world --
+   under two standard errors.
 
-For a **loaded** ant at each decision:
+**So this planner is for the mound the owner wants, scored on the mound, and it waits for the nest planner.** It
+values a put-down by geometry: clear of the **planned** hole (today's hole plus the nest plan's cells, which is the one
+privileged fact that bears on S3), outward of the crest, on the far side from the hole -- graded with a broad peak just
+past the crest, as real drop points are distributed (Pheidole), and with each ant's preferred side drawn from its `SELF`
+number (Cataglyphis diggers each keep a carry direction). That gives a lumpy, real-looking heap instead of an engineered
+trapezoid.
 
-1. **Sites**: the cells on the plan that are open and under-filled, on the outer flank.
-2. **Trial drop**: for each candidate put-down in reach, the planner puts the pellet down in a *copy* of the world and
-   runs the grain physics for the settle (a few hundred frames, cells only, no minds). A drop that slides inside the
-   scoring zone or into the hole is worth nothing; one that comes to rest on the plan is worth one full load. **This is
-   privileged computation at its plainest**: no ant knows how a pile will slide; the planner finds out by trying.
-3. **Carry path**: for each step option, the shortest walkable path (`STAND`/`CLIMB` cells) from the option's cell to
-   the nearest site, on the true ground.
-4. **Values**: drop options by their trial value; step options by the path length saved, at the measured exchange rate
-   (section 1). Dig and other verbs while loaded: abstain (the brain's own odds).
-5. **Lesson**: the regularised target. **Empty ants get no label from this planner.**
+**Its privileged computation is a trial *cut*, not a trial drop**: before the nest planner labels a cut into the mound
+or near the rim, it runs the cut in a copy of the world and checks whether spoil above loses its footing and the slump
+reaches the hole. That cascade is the delayed hazard no ant can see; `ROOF_DROP` sees only one cut ahead.
 
-**Cost estimate** (to measure first): loaded decisions are about a third of a run's ~2,700; a trial drop is one copy
-of a 256-wide bed plus ~300 frames of cells, which at ~58 µs a frame for the whole world is an upper bound of ~20 ms;
-with ~3 drop options a decision, about a minute of CPU a world. Cache the trial by the local ground shape.
+**Geometry with the engine's real angles**: loose soil runs at 33°, so a slumped mound of height h runs out about 1.54
+h; r_crest ≥ half the mouth + 2 + 1.54 h.
 
-### 4.4 What went wrong last time, and whether this repeats it
+**Ring or crescent: the owner's call, shown not argued.** A paired render of the same nest with a ring and with a
+one-sided crescent away from the food, the foragers' route drawn on, and the dead-ends record beside it (`MOUND_DIG`:
+refusing mound cuts starved colonies; `SPOIL_RING=1,2`: the mound arm was the worst at keeping the door in use, 30 of
+72 samples against 54; a ring 21 columns out lost 2 of 4 colonies). **Digging through the mound is real biology** --
+harvester shallow chambers lie in the excavated soil, fire-ant mounds are a matrix of tunnels -- so the failure to
+avoid is spill-back and a lost road, not tunnels in the mound. **Mound cuts are never labelled "no"**: solo they are left
+out of the copy loss (abstain), because a "no" copied solo would spread into the colony as the `MOUND_DIG` rule.
 
-The owner: "in the previous game attempts ... ants often dug into the mound and soil often spilled from the mound back
-into the nest." The record (`Reports/dead-ends.md`) is specific, and it changes the plan:
+**The mound budget**: in a 2D slice the mound holds the nest's whole area. It is halved by sizing the nest to the
+colony (section 6.3), and real ants in the one real 2D nest (a glass-sided enclosure) put about half their spoil back as
+backfill and lining (Halfen & Hasiotis 2010, a conference abstract, 1,000 ants, lining included; the field figure is
+2.5%). So over-dug margins and dead ends are legal put-down sites. (v1's "about 8 cells tall" was the renderer's cap,
+and its "wider than any real disc" was wrong: a 34-86-cell reach is inside the harvester's range.)
 
-| Earlier attempt (hand-written creature, not the brain) | What happened | What it means here |
+## 6. The nest: a general score, and a planner that generates the plan
+
+### 6.1 The general nest score (built; `measurements/blueprints/nestscore.py`)
+
+The owner asked whether we must specify a structure or can reward general things. **The score rewards general
+things**; a plan exists only inside the teacher, freshly generated per world (6.2). A fixed blueprint would also be
+uncopyable: the ant cannot sense "column 140".
+
+**What it counts, in well-built cells** (`chambers + 0.5 × tunnels − bad`):
+
+- **Chambers**: roofed rooms whose every part contains a 7×5 core -- so a passage up to 6 wide, at any angle, is never a
+  chamber. Each is graded on **height** (full credit 6-8 cells, the owner's 7; none at 3 or 13), **proportion** (full at
+  width ≥ 3× height, none at 1×; real chambers are 3-20×) and a **flat floor**. Credit is area × grade, area capped at
+  400 cells, so one enormous hall cannot stand in for several rooms.
+- **Tunnels**: everything else in the nest, graded per cell on width across (full 3-6, none at 1 or 10), and **credited
+  only as much as the chambers they serve** (plus a 60-cell allowance for the shaft), so a corridor maze is not a nest.
+- **Layout** (species profile): the harvester is top-heavy -- the share of chamber area in the upper half scales the
+  chamber credit 0.75-1, so it shapes but cannot dominate.
+- **Charged**: cracks (open cells under 3 wide), a pit open to the sky away from the mouth, open cells not joined to the
+  door. Only below-ground, roofed cells joined to the door count; the mouth may be open over 4 columns either side.
+- **Size**: the score grows with what is dug, as real nests grow with their colony; `per_cell` says how well whatever
+  the size; with a colony size, `target` is 25 open cells an ant (about 8% of floor under bodies, the real crowding
+  figure) and `fit` the share reached.
+
+**Why not the room census we have**: `rooms_of` marks a cell as room if 7 of its 9 neighbours are open, so a 4-wide
+passage is all room and the owner's 4-cell passages join chambers into one; a 2-tall chamber has no room cells at all.
+And `in_room`/`in_chamber` (v1 cited them) are rectangle tests of the founding cut, not a census.
+
+**The controls** (`nestscore.py controls`, every case drawn with chambers green, tunnels blue, cracks red, pit orange,
+stray purple):
+
+| Case | Score (well-built cells) | Dug | Per cell | Chambers (graded) |
+|---|---|---|---|---|
+| Harvester stack, 7-cell chambers (the owner's pick) | 761 | 1,228 | 0.62 | 6 (4.3) |
+| Garden-ant galleries | 936 | 1,383 | 0.68 | 6 (4.8) |
+| Carpenter shallow | 631 | 1,004 | 0.63 | 5 (3.2) |
+| Staircase stack | 275 | 577 | 0.48 | 4 (2.3) |
+| Round room that buds | 210 | 621 | 0.34 | 4 (1.6) |
+| Harvester as first drawn (5-cell chambers) | 148 | 755 | 0.20 | 4 (1.3) |
+| The ladder's current plan (8-16-tall rooms) | 135 | 504 | 0.27 | 2 (0.8) |
+| One huge flat hall, 140 × 7 | 428 | 1,044 | 0.41 | 1 (1.0) |
+| Shaft only (today's 8-row arena) | 25 | 70 | 0.36 | 0 |
+| Random-walk cave | 41 | 1,198 | 0.03 | 4 (0.8) |
+| One tall room, 26 × 28 | 27 | 792 | 0.03 | 1 (0.0) |
+| Corridor maze, no rooms | 23 | 3,060 | 0.01 | 0 |
+| Many tiny 5 × 5 pockets | −5 | 700 | −0.01 | 0 |
+| Cracks, 2 wide | −192 | 667 | −0.29 | 0 |
+| Crater open to the sky | −367 | 127 | −2.89 | 0 |
+
+**What the controls caught while it was being built** (each now fixed, and each the kind of thing a score gets wrong
+silently): a 5 × 5 chamber core let 5-wide shafts count as chambers, merging the staircase into one tall "room" (score
+43; the core is now 7 × 5); a wide crater mouth cut the whole nest under it off as "stray" (connectivity now runs
+through the pit, which is charged but does not disconnect); and the random-cave control had hit the box floor and dug
+one long flat hall along it, which the score *rightly* paid for -- the control was wrong, not the score. The score
+also found a real defect in the first blueprint drawing: one harvester chamber met the nest only through a gap open to
+the sky (100 stray cells before the connectivity fix; 7 pit cells charged after).
+
+**What it does not yet do**: score real dug nests from the game -- the shipped colony's nests from `deeptrace` are being
+scored next (section 6.4); grade chambers by what is in them (brood or food on a flat floor, the biology review's
+suggestion); or run inside an arena (a Rust port beside `nestcensus`).
+
+### 6.2 The planner generates the plan
+
+The owner's pick, the **harvester stack**, is the default **species profile**: chambers 7 cells tall and at least 3×
+as wide, hung off alternating sides of a zig-zag shaft, larger and closer near the top. Per world the planner draws a
+fresh plan from the profile's ranges (sides, spacing, sizes), so the student learns the rules, not a picture. Other
+species, or other creatures later (the owner's idea), are other profiles of the same score and generator.
+
+**Dig order**: keep the nest connected (shaft before the chamber it serves, top down); never a cut whose trial cut
+drops a roof, the rim, or the mound into the hole; nearest first; among near-equal frontier cells, the one the brain
+already rates highest. **Grow in stages** -- a niche off the shaft, then a lens, then a lobe, then the next chamber down
+(Tschinkel's deep chambers begin as a circular niche) -- so there is a watchable middle at every moment.
+
+**What the ant would need to follow it** (to be probed in the brain channel, not assumed):
+
+| The plan says | Sensed by | Status |
 |---|---|---|
-| The spoil ring carried further out, the crest drop and the door collar (`SPOIL_RING`, `SPOIL_CREST`, `DOOR_COLLAR`, 2026-10-01/02) | **None reached what refilled the tunnels.** The largest traced source was **the loose rim of a crater falling in**, not the heap: the heap was mostly 15+ columns out already. The crest drop alone *raised* fill | **A good mound does not by itself stop spill-back.** The rim must not be cut. This is the nest planner's job (5.3), and the brain already senses it (`ROOF_DROP`, `ROOF_CUT`, both added for exactly this, PR 2). The dig ladder's own trace agrees: the falling grains came from rim cuts dropping the shaft's shoulder |
-| The mound refused as a dig face (`MOUND_DIG`, `SOLID_MOUND`), and called foragers not digging (`FORAGER_NODIG`) | **Every version cost the colony its way to food**: the cuts into the mound were the passages through it; refusing them shut ants in to starve (colony mean 268-275 -> 134-198) | **Never forbid mound cuts by position.** The re-test condition the record itself names is "a rule that can tell a passage from a scrape (a cut that joins open space toward food or door, against one into a dead-end hollow)". **A planner can tell them apart, because it computes paths.** In the solo dig arena there is no food to reach, so the planner labels mound cuts "no"; in a colony arena it labels a mound cut "yes" only if it shortens a path between door and food |
-| Home counted on the mound (`NEST_HOME=mound`) | Food stacked into towers over the door | The planner's goal is a shape, not a home; home stays the door's seed cells |
+| Dig down here (the shaft) | `DEPTH`, `CUT`, the foot | step 1: channel probe clean for go-down |
+| Start a chamber at this depth | `DEPTH` (compressed deep), memory for spacing | to probe |
+| Widen sideways, not up | **nothing today**: `f::HEADROOM` is not the roof over the ant | candidate sense: headroom over the head (way out 4) |
+| Stop widening | crowding or openness (`f::ROOM` varies solo) | to probe solo and in a crowd |
+| Don't undermine the rim or the mound | `ROOF_DROP` one cut ahead | the cascade is unsensed: the planner's trial cut labels it |
 
-**So the honest prediction is mixed**: the planner should fix *where pellets go* (that is what it controls, and real
-ants show the rule), and should not be expected to fix spill-back on its own. The test separates them: the trial-drop
-value counts slides; the census at the bell counts fill in the shaft by cause (pellet slid, rim fell, put back), as the
-dig ladder already prints.
+### 6.3 Sized to the colony
 
-### 4.5 Can the ant learn it? (prediction, to be probed)
+The blueprints drawn so far are nests of colonies 10-1,000 times the game's: across real colony sizes the architecture
+changes kind (9-300 workers dig a single tunnel; stacked chambers appear at 368-1,000; meshed networks need thousands,
+Gautrais et al. 2014's compilation). So the profile scales by colony size: at 12 ants, a shaft and 2-3 chambers (~300
+cells at 25 an ant); at 24, 3-4 chambers; a second shaft series later. That halves the mound problem too.
 
-The ring is close to sensable already: the step options carry `UP` (is that step up or down from the head) and
-`HOME` (does it point home), and the context carries `HOME_DIST`. "Walk away from home while the ground rises; put down
-where it starts to fall" is a function of those. **Prediction: the probe passes for step and put-down choices at
-≥90% held out without a new sense.** If put-down choices fail, the missing fact is likely the slope at the target
-cell, and the candidate sense is Pheidole's: the height difference across the put-down cell (a local reading of the
-ground under the jaws).
+The plan-view "2D lab nests" (Toffin, Buhl, Gautrais) are horizontal sand discs, with no floor, roof or lifting: they
+supply colony-level laws (area roughly proportional to workers), not section shapes. The round-room-that-buds blueprint
+was a plan view drawn sideways and is demoted.
 
-## 5. The nest-excavation planner (second)
+### 6.4 Real nests
 
-### 5.1 What real nests look like, and why that matters for copying
+The shipped (hand-written) colony in the goal box (`deeptrace seed=1..3 ants=0 frames=150000 mapevery=25000`, the
+same score on `write_map`'s frame). Before the colony lands (frame 6,000) the nest is the 26-cell founding shaft:
+**-7**. Then:
 
-From the notes (Tschinkel's casts of about 20 species; the 2D lab nests of Toffin, Buhl, Gautrais):
+| Frame | Seed 1 | Seed 2 | Seed 3 | Ants (seed 1) |
+|---|---|---|---|---|
+| 25,000 | 78 (248 dug) | 65 (266) | 73 (272) | -- |
+| 75,000 | 111 (374) | 100 (347) | 126 (383) | -- |
+| 150,000 | **176** (488) | **185** (510) | **180** (498) | 600 |
 
-- **The basic unit is a shaft with flat chambers hung on it** (Tschinkel's "shish-kebab"). Big nests add more
-  shaft-chamber units; the shape does not change as the nest grows.
-- **Chambers are flat lenses**: about 1-2 body lengths high at every area, floor horizontal, roof flat or slightly
-  domed, 3-20 times wider than tall. The game ant is two cells long, so a true-scale chamber is **2-4 cells tall**;
-  drawn twice as tall for legibility, 4-8.
-- **Tunnels are about one body length wide** (fire ants 1.06 ± 0.23 body lengths; harvester shafts flatten to ~2.5 near
-  the surface). The owner's 4-cell passage is 2 body lengths, inside the real range for upper shafts.
-- **Most nests are top-heavy** (harvesters: half the chamber area in the top quarter; spacing grows with depth); one
-  genus is bottom-heavy (Aphaenogaster floridana).
-- **Size tracks the colony**: harvester area ∝ workers^0.87, depth ∝ workers^0.37, the same shape at every size; in 2D
-  lab nests, area nearly proportional to workers.
-- **A nest grows in a graded way**: one round cavity, then buds along its wall, then galleries, then a meshed network,
-  and more ants make the switch sooner (Toffin et al. 2009, 2010; Gautrais et al. 2014). Not a binary.
-- **The closest thing to an ant farm** with real ants (P. occidentalis behind glass; Halfen & Hasiotis 2010): galleries
-  about 1.2 body lengths across, chambers 4-14 long by at most 2 high.
+Every seed builds **one** room -- a flat rectangle about 30 wide and 10 tall from the colony's room rule, graded 0.4
+(too tall for the 7-cell profile, and boxy) -- plus small side pockets, and the score rises slowly and smoothly with
+them: graded, not stepped. Two readings: the score agrees with the eye on a nest nobody drew (one room, some pockets,
+a lattice mound above it that the score does not see); and by the real crowding figure (25 open cells an ant), **a
+500-ant colony in ~500 dug cells has about a twenty-fifth of the room a real colony that size would dig**. Pictures:
+`measurements/blueprints/nestscore-real.png`.
 
-**Why this matters beyond realism**: every one of these shapes is generated by *local* rules (dig down from a chamber's
-edge, widen at the bottom; roof at body height; spacing set by depth; bud when the wall is no longer crowded). **A
-blueprint of this family is one the ant can find its place in from `DEPTH`, `HEADROOM`, `ROOFED`, `CROWD` and memory**
--- way out 3 in section 3. An arbitrary "ideal nest" drawn by hand would not be.
+## 7. The colony tier
 
-**The owner judges the blueprint by eye.** Five candidate blueprints from five real nest families, plus the ladder's
-current plan for comparison, are drawn as ant-farm cross-sections at game scale (a 256 x 128 box, ground at row 64,
-passages 4 cells, chambers 5 cells tall) in [`measurements/blueprints/blueprints-sheet.png`](measurements/blueprints/blueprints-sheet.png)
-(specs: `nest-blueprint-specs.json` beside it; renderer: `render_blueprints.py`), and posted for a pick (review card
-`20261021T051824537Z-683876`). The planner is not built until one is picked.
+**Kept**: a central planner in a real crowd; colony-level choices (how big, when to stop, how many dig against
+forage) taught as outcomes; crowding never taught solo; the world varied before the brain for division of labour (C2).
 
-**Drawing them turned up a constraint on the mound.** In a 2D slice nothing spreads into a third dimension, so the
-mound's area *is* the nest's: 440-990 open cells for these blueprints. Held to the spec's inner toe and a 45° slope,
-every blueprint's mound comes out a flat-topped ring about 8 cells tall reaching 34-86 cells from the mouth, wider
-than any real disc in body lengths. Real ants have three ways out, all usable here: a taller ring set back further, a
-wide thin disc, or backfilling dead ends (about half the spoil in a glass-sided harvester nest, Halfen & Hasiotis
-2010). The soil planner's ring must budget for this from the start.
+**Changed by the reviews**:
 
-### 5.2 The plan: a blueprint, a dig order, and a progress score
-
-- **Blueprint**: a set of target open cells, fitted to the box (real nests are 10-100x deeper in body lengths than
-  the box's ~30, so depths are relative; the Aphaenogaster family is the one real family that fits at true scale).
-- **Frontier**: blueprint cells adjacent to the current void and reachable by a walking ant.
-- **Dig order**, by priority: (1) **keep the nest connected** -- the shaft before the chamber it serves, top down;
-  (2) **never a cut that drops a roof or the rim** -- reject any frontier cell whose cut fires `ROOF_DROP`, or whose
-  trial cut in a copy drops a cell into the shaft (the same trial as the soil planner's, on the dig side); (3) nearest
-  first.
-- **Progress, by the nest tools we have**: `nestcensus::rooms_of` (a room cell is one with 7 of its 9 cells open; rooms
-  are 4-connected; it counts rooms, their sizes, and the steps between them), `World::in_room`, `in_chamber`,
-  `room_per_ant`; plus a **blueprint match**: open cells inside the blueprint minus open cells outside it, each
-  normalised by the blueprint's area. Roofed void only: a hole open to the sky is not a room
-  (`measuring-the-world.md`).
-
-### 5.3 The lesson
-
-For an **empty** ant:
-
-- **Dig options**: a frontier cell on the plan and stable is worth its share of the blueprint; any cell outside the
-  plan is worth a penalty (the "must-not-dig" of step 1, generalised); a rim or roof-dropping cut a larger penalty.
-- **Step options**: path length saved to the ant's assigned frontier cell, on the true ground.
-- **Assignment** (solo: the nearest frontier cell; in a crowd, section 6): one ant, one face.
-
-For a **loaded** ant: the soil planner's lesson. The two planners share the hole and the plan, so a pellet is never
-put down on a cell the nest plan will cut.
-
-### 5.4 What the ant would need to follow it
-
-| The plan says | The ant would need to sense | Have it? |
-|---|---|---|
-| Dig down here (the shaft) | Depth, the foot, the hole | Yes (`DEPTH`, `CUT`, the step 1 probe 94-100%) |
-| Start a chamber at this depth | Depth, and how far since the last chamber | Depth yes; spacing from memory (to probe) |
-| Widen sideways, not up | Headroom in body heights at the cut | Yes (`HEADROOM`, `ROOFED`): the body-size template real ants use (Khuong et al. 2016) |
-| Stop widening this chamber | How crowded the room is | Only in a crowd (`CROWD`, `ROOM`): section 6 |
-| Don't cut the rim or a roof | Whether a cut drops a cell | Yes (`ROOF_DROP`, `ROOF_CUT`) |
-| Leave the mound alone (solo) / cut a passage (colony) | Placed spoil; whether the cut opens toward food or door | Spoil yes (`SPOIL`); "toward food" partly (`HOME`, scent); to probe |
-
-**Prediction**: the shaft and the chamber's floor and roof copy (they are depth and headroom); the chamber's *width*
-does not copy solo, because what sets it in real ants is crowding. That is the boundary between section 5 and
-section 6.
-
-## 6. The colony tier
-
-### 6.1 Put the teacher in the crowd, and run a central planner
-
-**Kept from the discussion.** At rung 9 (twelve ants) the nest planner runs in the real colony:
-
-- **One plan, many ants**: the planner assigns frontier faces to the empty ants (a minimum-cost assignment over path
-  lengths, re-solved every few hundred frames), and the soil plan's sites to the loaded ones. This is the central
-  planner: it sees the whole colony.
-- **Each ant's lesson is its own row** of that plan: dig your face, walk to it, carry to your site.
-- **The imitation gap is at its worst here** (C5): "you take the left face because three ants are on the right" is
-  information no ant has. So the probe runs on crowd decisions, with `CROWD` and `ROOM` and scent in the feature set,
-  **before** any copying, and only the decision types that pass are copied.
-- **Search, one ant at a time** (search design section 5): copy the colony, force one ant's option, let the others
-  run the shared brain, score the colony; the planner proposes the options and the search judges them. Cost grows
-  linearly with the ants (Bertsekas's one-agent-at-a-time rollout; SPARTA in Hanabi).
-
-### 6.2 Teach outcomes, not actions, for the colony-level parts
-
-**Kept from the discussion.** Some choices are only good or bad for the colony, and no ant can tell which from where
-it stands:
-
-| Colony-level choice | Taught as | Scored by |
-|---|---|---|
-| How big the nest gets; when to stop digging | **Outcome** | Blueprint match scaled to the colony's size (area ∝ workers^0.87; the 2D lab result is nearly proportional), so the same brain in colonies of N and 2N should dig clearly more for 2N (C4's acceptance test) |
-| When a chamber buds a new one | Outcome | The graded shape sequence (round, budded, galleried) against crowding, from the 2D lab nests |
-| How many ants dig, carry, forage | Outcome | The decomposed colony score (C1: cells dug, food home, brood raised), never a target split of jobs (Duarte et al. 2012) |
-| What each chamber is for (brood deep, food stored, foragers near the top) | Outcome, later | Needs brood and stored food in the arena (below) |
-
-"Taught as outcome" means: **not in the copy loss; selection on the colony score decides it**, with the planner's
-blueprint as part of the score. The planner still matters there: it supplies the target the colony is scored against.
-
-### 6.3 What the colony tier needs from the world
-
-The owner's point, kept: "the correct signal might require us having food storage, brood, other ants in the nest".
-
-- **Crowding needs two or more ants** (C4). In a solo arena `CROWD` reads 0, and anything that never matters is pruned:
-  the links from `CROWD`, `SELF` and `AGE` should be protected through the solo ladder (C3).
-- **Real nests put brood in the bottom third and food deep** (harvesters store seed 40-100 cm down; foragers stay in
-  the top 15 cm). A blueprint with purposes needs brood and food in the arena. The lab has both already; the training
-  arenas do not. This is a later rung, after sizing by crowding works.
-- **No division of labour appears unless the world charges for switching** (C2, Ferrante et al. 2015). The first
-  colony experiment varies the world, not the brain.
-
-## 7. The bottleneck the teacher cannot fix: copying into one shared scorer
-
-Step 1's clearest finding is that **the student, not the teacher, limited the result**. All three rules passed the
-probe; two did not copy. Better teachers will hit the same wall, so the design has to say what it does about it:
-
-| Lever | What it does | Status |
-|---|---|---|
-| **The regularised target** (section 1) | Keeps every lesson near what the brain already does, so it spreads less to look-alike states | New in this design; the search design's tau |
-| **One lesson at a time, then selection** | Copy a lesson alone, then run selection from the copy with the kept-skill floor and the copy's revived links protected (slot 1498 and the `DEPTH` links 654, 699, 789, 834, 924, 1059, 1149, 1239, sent to the brain lane) | The go-down copy is the first candidate; s171 is the second (same ceiling, better kept skills) |
-| **Kept-skill anchors** | Fetch and trail decisions in the copy pool with target = the brain itself | Built; held only partly at 10x |
-| **A context probe** | Before copying a lesson, probe whether the ant can tell the taught states from the kept-skill states that look like them (e.g. empty digger against empty forager). If it cannot, the lesson will spread, and the answer is a context sense or a different lesson, not more weight | New; cheap (the probe with a different label) |
-| **Capacity** | 16 scorer units and 8 hidden units serve every verb in every arena. If lessons keep interfering after the above, more capacity is a brain change for the brain lane | Not proposed yet; the evidence would be lessons that pass the context probe and still interfere |
+- **Pre-gate the central assignment.** "Your face, given where the other eleven are" depends on the other ants, which
+  is privileged *information*, not computation, and multi-robot work finds local-only students fail to imitate central
+  planners in dense settings (PRIMAL needed RL beside imitation; GNN planners needed neighbours' information). Compute
+  the assignment post hoc on existing 12-ant logs and probe it. If it fails, the central planner is kept only as an
+  *option generator* for one-ant-at-a-time counterfactual search (force one ant's option, let the rest run, score the
+  colony -- SPARTA; difference rewards).
+- **Try a local rule before outcome scoring.** Buhl et al. 2005 get nest volume growing with colony size from local
+  density feedback alone, so sizing may be a local lesson (encounter rate, or `f::ROOM`) before it is handed to
+  selection -- remembering that the old creature's crowding-driven digging fired and built no rooms.
+- **Teacher-free first**: run the existing brain in 2- and 4-ant boxes. Does dug area already grow with N? And vary the
+  switching cost. Both are cheap and say whether the colony tier needs a teacher for sizing at all.
+- **Price it**: outcome scoring sends the hardest parts to selection on a colony score; the guidelines priced one
+  Ferrante-sized run at $40-50 of the $100 budget. The labelling cost of counterfactual search grows with ants ×
+  decisions, so it is sampled.
+- **T1 is amended in the guidelines file** (privileged computation is allowed; privileged *information* is allowed only
+  where a probe shows the student can recover it), with the owner's date.
 
 ## 8. The search teacher's place
 
-In full in [`search-teacher-design-2026-10-21.md`](search-teacher-design-2026-10-21.md). In this framework:
+In full in [`search-teacher-design-2026-10-21.md`](search-teacher-design-2026-10-21.md). **Moved ahead of the
+planners**: its pilot, dig-or-not on the 8-row step, attacks the lesson that failed, and its sharp prediction -- labels
+computed under the brain's own continuation never veto a wall cut descent needs -- is the clean test of the coupling
+story. It also judges planners ("the planner proposes, the search disposes") and labels the big calls, while planners'
+cost-to-go labels the steps.
 
-- **It is the judge of planners**, and the teacher where no planner exists. A planner proposes options (dig sites,
-  put-down sites) and supplies a value at the horizon; the search plays the options out with the brain carrying on and
-  keeps what actually scores. "The planner proposes, the search disposes" catches a bad heuristic instead of teaching
-  it.
-- **Its key prediction is about cost**: big single calls (dig here or walk on: ~0.3-0.5 full loads at stake) need
-  only a few rollouts; a single step (~0.02 at stake) needs thousands. So **search labels the big calls, and planners'
-  own cost-to-go labels the steps.**
-- **Its pilot is dig-or-not on the 8-row step**, checked against the hand rule (B2a: must find "dig at the foot"), with
-  a positive control of known sign (B2c: put down clear of the zone).
+Decisions on its open questions: **R1** (the brain inside the rollouts) as the main arm, **R2** (hand teacher inside) as
+the control; **energy charged** at the current student's loads per joule, with the uncharged score beside it;
+**persistent deviations allowed** (they name a kind of behaviour, not when to use it).
 
-**Decisions on the search design's three open questions** (for the review to challenge):
-
-1. **Main arm R1** (the brain inside the rollouts; no human rules), **R2** (hand teacher inside) as its control. R1 is
-   the one not limited by what a person writes, and R2 tells us whether a failure is the rollout policy or the search.
-2. **Charge energy in the outcome**, at s161's measured exchange rate of full loads per joule (the soil arena runs on a
-   fixed 2,400 J budget), and report the uncharged score beside it.
-3. **Persistent deviations are allowed** ("take the deepest step for the next ten steps"). They name a kind of
-   behaviour, not when to use it; the search still decides when.
-
-## 9. How each planner is tested: the gauntlet
-
-Every planner passes the same stages. Each can stop the work, and each has controls that can fail.
+## 9. The gauntlet for every planner
 
 | Stage | What | Pass | Controls |
 |---|---|---|---|
-| 0. **Look at the plan** | Render the planner's target (the ring, the blueprint, the dig order) on a real bed, for the owner | The owner's eye | -- |
-| 1. **The planner acting** (T9) | The planner drives s161 on the decisions it labels; the brain does the rest. Count every force and veto. GIF of sealed world 2 for the owner, counts in the card's `meta` | Full loads (or blueprint match) above the brain alone by more than two seed-clustered standard errors; kept skills not run | The step-1 ceiling as a reference (20.66); a planner with its plan shuffled (expect no gain) |
-| 2. **Copyability** | The probe, per decision type, held out by world; the context probe (section 7) | Well above the floor; the context probe separates taught from kept-skill states | Positive: a pure function of the senses; negative: the within-decision shuffle |
-| 3. **Copy alone** | Into quieted s161 (and s171), regularised target, anchors | -- | The copier's controls from step 1 (round trip, reachable target, shuffle) |
-| 4. **Closed loop** | 96 evaluation worlds, standard errors clustered by seed, fetch and trail on their fixed worlds | Beats the start by more than two s.e. with kept skills at floor | -- |
-| 5. **Combine** | Copy onto the previous lesson's copy | Above both alone | -- |
-| 6. **Select from the copy** | A selection run from the copy with the kept-skill floor and protected links | Holds or improves the copy's gain | Selection from the uncopied start, same budget |
-| 7. **Look again** | GIF of the copy against the start, for the owner, before anything is called done | The owner's eye | -- |
+| 0. **Look at the plan** | The plan cut into a real bed in the engine (lining, ants walking in it), not a flat drawing; event counts in the card's `meta` | The owner's eye | -- |
+| 1. **The planner acting** (T9) | Drives s161 on the decisions it labels; every force and veto counted; GIF | Above the brain alone by > 2 seed-clustered s.e., **and non-inferior** (within 2 s.e.) to the rules it replaces, acting | Known-negative plan (e.g. a mound whose crest sits inside the scoring zone); known-positive: the hand rules |
+| 1b. **Rollout check** | ~100 sampled decisions: planner ranking against short rollouts under the brain's continuation | Agreement ≥ the rollouts' own test-retest agreement − 0.1 | -- |
+| 2. **The three probes** | Section 3 | The bars there | Positive: a pure function of the senses; negative: within-decision shuffle |
+| 3. **Copy alone** | Into quieted s161 (and s171) | Gain > 2 s.e. | The copier's controls (round trip, reachable target, shuffle) |
+| 4. **Closed loop** | 96 evaluation worlds, seed-clustered; fetch and trail | Kept skills within 1 trip / 0.03 of the start | -- |
+| 5. **Combine** | Onto the previous lesson's copy | Above both alone by > 1 s.e. | -- |
+| 6. **Select from the copy** | Selection with the kept-skill floor and protected links | Holds or improves the copy's gain | Selection from the uncopied start, same budget |
+| 7. **Look again** | GIF of the copy against the start | The owner's eye | -- |
 
 ## 10. Order of work, and cost
 
@@ -370,42 +374,30 @@ All local unless the owner says otherwise (no VM without the owner's go).
 
 | # | Step | Cost (estimate) | Gives |
 |---|---|---|---|
-| 0 | **Finish step 1**: the go-down copy's seed-to-seed spread; go-down into s171; the step-1 write-up with a GIF | hours | Whether 10.57 is a copy or a lucky copy; the first selection-from-a-copy candidate |
-| 1 | **The owner picks a blueprint** from the renders (and a ring or a crescent) | owner's time | The nest planner's goal; the chamber height |
-| 2 | **Soil planner**: build; render the ring; stage 1 on the 8-row arena (it should beat the brain's put-downs, and its trial drops should show how many of s161's pellets slide back) | ~1 day to build; ~1 CPU-hour to act | The first planner, and the size of the gain where the soil goes |
-| 3 | **Search instrument** in parallel: force-option hook, determinism, clone cost, the pairing measurement S1 (~4 min) | ~1 day | Whether search is affordable at all; it gates step 6 |
-| 4 | Soil planner stages 2-7 | ~1 day | A second copied lesson, or a named missing sense |
-| 5 | **Nest planner** solo, on the roof and chamber rungs (8, 10-11): the shaft and the chamber's floor and roof | ~2 days | Chambers shaped like real ones, copyable or not |
-| 6 | **Search pilot**, dig-or-not (B1-B3, then C) | ~1-2 CPU-hours | Whether search finds what the hand rule found, without being told |
-| 7 | **Colony tier** at rung 9 (twelve ants): the nest planner in the crowd, assignment, the probe on crowd decisions; outcome scoring for size | days | Room sizing by crowding; the first colony lessons |
-| 8 | **Foraging planner** (return leg and known-food leg; needs `LAST_FOOD` if the probe asks for it) | ~1 day | Straighter trips; measure the fetch ceiling first, against s91 |
+| 0 | Step 1 finished: the copy repeats (10.57 / 10.60 / 9.80); DAgger round 1 9.50; s171's headroom is dig and walk home | done | -- |
+| 0.5 | **Why copying fails** (section 4), with the go/no-go | ~1 day | Which lever: capacity, context, or the teacher |
+| 1 | **Search instrument and pilot on dig-or-not** (force hook, determinism, clone cost, pairing S1, then B1-B3, C) | ~1-2 days; 1-2 CPU-hours | Whether search finds "dig at the foot" unaided, and whether its labels copy |
+| 2 | **Nest score on real nests; Rust port** into the arena beside `nestcensus` | ~1 day | A nest score the dig rungs can pay |
+| 3 | **Nest planner** from the harvester profile, solo, on the roof and chamber rungs | ~2 days | Chambers, copyable or not |
+| 4 | **Ring against crescent** render for the owner; then the soil planner, scored on the mound | ~1 day | The mound |
+| 5 | **Colony**: teacher-free 2/4-ant scaling and switching-cost runs; the assignment pre-gate on 12-ant logs | days | Whether the colony tier needs a teacher |
+| 6 | Foraging planner (needs `LAST_FOOD`, a memory, if a probe asks) | ~1 day | Straighter trips; measure the fetch ceiling first |
 
-**Compute is not the constraint for planners**: a path search or a short trial drop per decision is milliseconds,
-against ~58 µs a frame for the whole world. Search is the expensive tier, and its own design prices it at 2-4% of a
-selection run for a sampled round.
+## 11. Risks, and when to stop
 
-## 11. Risks, and what would make us stop
+| Risk | Signal | Response | Abandon if |
+|---|---|---|---|
+| **The student cannot hold more lessons** | Step 0.5: only the all-slots fit holds lesson and anchors | Revive a dead scorer unit; then the brain lane | Neither dig nor walk home copies after step 0.5 (the go/no-go) |
+| **A planner improves its own goal, not full loads** | Stage 1: nest score up, full loads flat or down | Ask the owner which the arena should pay | -- |
+| **The nest score is gamed** | A GIF that looks wrong while the score rises | Add the gaming shape to the controls; fix the score | A shape that scores above the harvester and looks wrong to the owner, twice after fixes |
+| **Lessons interfere** | Stage 5 below either alone | Step 0.5's lever | -- |
+| **A crowd decision depends on other ants** | The assignment pre-gate fails | Counterfactual search; outcome scoring | -- |
+| **Search too noisy** | S1: dig call needs K > 50 | -- | As the search design's own table |
+| **Planner step labels too weak** | Retrofit: soft target loses go-down's gain | Hard targets for steps, or persistent lessons (a whole path as one) | -- |
 
-| Risk | Signal | Response |
-|---|---|---|
-| **A planner improves its own goal, not full loads** | Stage 1: blueprint match up, full loads flat or down | The goal is wrong for the score; ask the owner which the arena should pay |
-| **The planner exploits the simulation** | A GIF that looks wrong while the score rises (posts by the mouth; chambers that no ant would dig) | The owner's eye is the bar; change the goal, not the brain |
-| **Lessons copy alone and interfere together** (step 1 again) | Stage 5 below either alone | Section 7, in order; capacity last |
-| **The blueprint's place cannot be sensed** | Stage 2 fails for chamber placement | Way out 3 (a goal generated by local rules) before way out 4 (a sense) |
-| **The soil planner fixes placement and not spill-back** | Fill in the shaft unchanged, by cause: rim | Expected (section 4.4); it is the nest planner's rim rule |
-| **A crowd decision depends on other ants' futures** | Stage 2 fails on crowd decisions | Outcome scoring for that decision type (6.2) |
-| **Planner labels for steps are too weak to matter** | Copying step lessons moves nothing | Persistent lessons (a whole carry path as one lesson), as the search design's persistent deviations |
+## Questions for the owner
 
-## Questions for the review
-
-1. Is "one lesson form for every teacher" (the regularised target from a planner's cost) sound, or does converting a
-   path length into full-load units at one exchange rate hide a bias (e.g. against long carries that pay at the
-   settle)?
-2. Is the soil planner's trial drop in a copy of the world the right way to value a put-down, given the 2,000-frame
-   settle and that later pellets land on earlier ones?
-3. Does "change the goal to one local rules generate" (way out 3) quietly make the teacher a hand-written rule again,
-   which is what the owner wanted to move past?
-4. Is the order right: soil before nest before food, search instrument in parallel?
-5. What should the first colony experiment be, given C2 (no division of labour without a switching cost)?
-6. Are there planning methods for agents that learn from a planner (beyond DAgger, AggreVaTe, expert iteration and
-   coaching) that would change any of this?
+1. **Ring or crescent?** To be shown as a paired render with the foragers' route; the record says a 2D ring is a wall
+   across the road to food.
+2. **Should a freshly placed surface pellet settle a cell or two before it packs?** It would make the real ants' "loads
+   roll outward" true here, and is visible feedback; the cost is the record against loose pellets near galleries.

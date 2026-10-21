@@ -148,25 +148,74 @@ def mound(b, dug):
     return profile(h, ro), h, ro, one_side
 
 
-def render(b, out, ladder=False):
+def owner_scale(b, height_bl=3.5, widen=1.4, deepest_bl=28.0):
+    """**The owner's chamber size** (2026-10-21, "7 cells tall"): every chamber 3.5 BL = 7 cells tall and 1.4x as wide
+    as the spec, so width:height stays where the spec had it. Each floor moves down by the height added above it
+    (chambers stacked on one shaft must not merge), then all depths are squeezed so the deepest floor sits at
+    `deepest_bl` and nothing is cut off by the box's floor."""
+    import copy
+    b = copy.deepcopy(b)
+    order = sorted(b["chambers"], key=lambda c: c["floor_depth_bl"])
+    olds = [c["floor_depth_bl"] for c in order]
+    added = 0.0
+    for c in order:
+        if c["height_legible_bl"] >= height_bl:   # already as tall (the round room's 4 BL): left as the spec drew it
+            c["floor_depth_bl"] += added
+            continue
+        added += (height_bl - c["height_legible_bl"]) * 0.55
+        c["floor_depth_bl"] += added
+        c["height_legible_bl"] = height_bl
+        c["width_bl"] = round(c["width_bl"] * widen, 2)
+    deep = max(c["floor_depth_bl"] for c in order)
+    k = min(1.0, deepest_bl / deep)
+    for c in order:
+        c["floor_depth_bl"] = round(c["floor_depth_bl"] * k, 2)
+    # one monotone depth map, old floor -> new floor, so the tunnels move with the chambers they join
+    b["_remap"] = [(0.0, 0.0)] + [(o, c["floor_depth_bl"]) for o, c in zip(olds, order)]
+    return b
+
+
+def remap(pairs):
+    """Piecewise-linear depth map through `pairs` (old, new), extended flat-sloped past the last pair."""
+    if not pairs:
+        return lambda d: d
+    pairs = sorted(set(pairs))
+
+    def f(d):
+        for (a, fa), (b2, fb) in zip(pairs, pairs[1:]):
+            if d <= b2:
+                return fa + (fb - fa) * (d - a) / max(b2 - a, 1e-9)
+        return pairs[-1][1] + (d - pairs[-1][0])
+    return f
+
+
+def build(b, ladder=False):
+    """The open cells of a blueprint (or of the ladder's plan), clipped to the soil."""
     open_ = set()
     if ladder:
         tube(open_, [(X0, G), (X0, G + 16)], 4)
         lens(open_, X0 - 10, X0 + 10, G + 16 + 12, 12, 0.85)
         tube(open_, [(X0 + 10, G + 22), (X0 + 26, G + 30)], 4)
         lens(open_, X0 + 22, X0 + 38, G + 30 + 8, 8, 0.85)
-        name, sig = "The ladder's current plan (dig-rung-design steps 10-11)", "chambers 8-16 cells tall, width >= height"
-        b = {"surface_mound": {"box_fit": {"inner_radius_bl": 2.5, "crest_radius_bl": 4, "outer_radius_bl": 10}}}
     else:
-        tunnels_ = tunnels(b)
+        f = remap(b.get("_remap"))
+        tunnels_ = [(t[0], [(x, f(d)) for x, d in t[1]]) if t[0] == "bud" else [(x, f(d)) for x, d in t] for t in tunnels(b)]
         for t in tunnels_:
             if t[0] == "bud":
                 tube(open_, bl(t[1]), 2)
             else:
                 tube(open_, bl(t), 4)
         chambers(b, open_)
+    return {(x, y) for x, y in open_ if 0 <= x < W and G <= y < H}
+
+
+def render(b, out, ladder=False):
+    open_ = build(b, ladder)
+    if ladder:
+        name, sig = "The ladder's current plan (dig-rung-design steps 10-11)", "chambers 8-16 cells tall, width >= height"
+        b = {"surface_mound": {"box_fit": {"inner_radius_bl": 2.5, "crest_radius_bl": 4, "outer_radius_bl": 10}}}
+    else:
         name, sig = b["name"], b["visual_signature"]
-    open_ = {(x, y) for x, y in open_ if 0 <= x < W and G <= y < H}
     # the mouth: the top of the shaft is open to the sky at the entrance
     dug = len(open_)
     prof, mh, mro, one = mound(b, dug)
@@ -215,6 +264,7 @@ if __name__ == "__main__":
     spec, outdir = json.load(open(sys.argv[1])), sys.argv[2]
     rows = []
     for k, b in enumerate(spec["blueprints"], 1):
+        b = owner_scale(b)
         r = render(b, f"{outdir}/{k}-{b['id']}.png")
         rows.append((b["id"], *r))
     rows.append(("ladder_plan", *render(None, f"{outdir}/6-ladder-plan.png", ladder=True)))

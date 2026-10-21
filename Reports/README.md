@@ -5579,14 +5579,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   not help (9.50); on s171 the per-rule headroom moves to dig and walk
   home (+5.75, +5.40), with the same all-rules ceiling (20.50).
   [teacher-design-2026-10-21.md](brain-training/teacher-training/teacher-design-2026-10-21.md)
-  — **design doc, for adversarial and improvement review, nothing new
-  built:** keep the three-rule teacher for the 8-row step and grow it
-  into planners (soil placement onto a ring mound first, then digging a
-  nest from a blueprint chosen by eye, then foraging routes), with search
-  as their judge and a colony tier (a central planner in a real crowd;
-  colony-level choices taught as outcomes). One lesson form for every
-  teacher (a regularised target from the planner's costs); the
-  copyability probe as the gate, with five ways out where it fails.
+  — **design v2, revised after three adversarial reviews** (disposition:
+  [teacher-design-review-2026-10-21.md](brain-training/teacher-training/teacher-design-review-2026-10-21.md),
+  reviews verbatim in `review/design-*.md`). Keep the three-rule teacher;
+  first find out why copying fails (step 0.5, offline, with a go/no-go),
+  then the search pilot on dig-or-not, then planners: nest digging scored
+  by a **general nest score** (built: well-proportioned chambers 7 cells
+  tall, tunnels credited only as far as they serve, cracks and craters
+  charged; blueprints score 210-936, every built-bad shape near zero or
+  below, the shipped colony's real nests -7 -> ~180 over 150k frames),
+  then soil placement for the mound (placed spoil never slides here, and
+  a 2D ring is a wall to the food: ring vs crescent goes to the owner).
+  Three probes gate copying (all features, the brain's own channel,
+  context); guideline T1 amended.
   Companions:
   [search-teacher-design-2026-10-21.md](brain-training/teacher-training/search-teacher-design-2026-10-21.md)
   (rollouts from cloned worlds with paired random streams; pilot on
