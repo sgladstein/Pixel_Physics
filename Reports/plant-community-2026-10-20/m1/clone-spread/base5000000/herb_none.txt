@@ -1,0 +1,47 @@
+plant_m0 plastic axis=shade: species=herb frames=60000 seeds=16 genes=none
+    bright, off: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    bright, off: founder dead at the end; deaths in the bed by cause ["STARVED:1", "LOST ITS TISSUE:12", "FELLED:21", "OLD AGE:2", "ROTTED:79", "WITHERED:1", "OVERRUN:2", "SPREAD:81"]
+    SEED bright, off s=0 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=1 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=2 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=3 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=4 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=5 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=6 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=7 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=8 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=9 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=10 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=11 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=12 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=13 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=14 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=15 shoot dead
+  bright, off  alive 0/16 leaf light -0.00 | shoot -0.00+--0.00 height -0.00+--0.00 width -0.00+--0.00 leaf_share -0.00+--0.00 root -0.00+--0.00 root_depth -0.00+--0.00
+
+thread 'main' (9597) panicked at examples/plant_m0.rs:1206:46:
+index out of bounds: the len is 1 but the index is 1
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::panicking::panic_bounds_check
+   3: plant_m0::plastic
+   4: plant_m0::main
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+  dim - bright, genes ignored 

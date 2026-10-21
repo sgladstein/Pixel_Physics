@@ -1,0 +1,47 @@
+plant_m0 plastic axis=shade: species=shrub frames=60000 seeds=16 genes=none
+    bright, off: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    bright, off: founder alive at the end; deaths in the bed by cause ["FELLED:1", "ROTTED:9"]
+    SEED bright, off s=0 shoot 206
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=1 shoot 28
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=2 shoot 753
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=3 shoot 370
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=4 shoot 801
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=5 shoot 1095
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=6 shoot 660
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=7 shoot 956
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=8 shoot 487
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=9 shoot 1143
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=10 shoot 460
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=11 shoot 822
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=12 shoot 844
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=13 shoot 926
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=14 shoot 478
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=15 shoot 838
+  bright, off  alive 16/16 leaf light 0.41 | shoot 679.19+-314.96 height 27.56+-9.72 width 44.94+-15.01 leaf_share 0.45+-0.12 root 188.88+-139.31 root_depth 19.44+-8.64
+
+thread 'main' (9593) panicked at examples/plant_m0.rs:1206:46:
+index out of bounds: the len is 1 but the index is 1
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::panicking::panic_bounds_check
+   3: plant_m0::plastic
+   4: plant_m0::main
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+  dim - bright, genes ignored 

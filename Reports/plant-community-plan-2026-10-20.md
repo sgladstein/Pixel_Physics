@@ -595,9 +595,19 @@ This session cannot launch anything.
 > 4. **A2, development keying: built, parked off, 2026-10-21**
 >    (`World::node_keyed_growth`; `.../m1/a2-node-key/`). It does not shrink
 >    the spread: grass tightens, herb and shrub widen, because the spread is
->    the seedling stall lottery, which keying reshuffles. **So the rest of
->    A3 comes first** (tip survival, the taper as a carried fraction), and
->    A2 is re-measured after it; then A4.
+>    the seedling stall lottery, which keying reshuffles. A3's laterals by
+>    node count (`World::branch_by_node`, `.../m1/a3-branch-by-node/`)
+>    failed the same way, parked off. **Then the decomposition
+>    (`.../m1/clone-spread/`) said why: the spread is a sensitivity, not
+>    dice.** Under A4's per-plant key, the dice held fixed and the shrub
+>    moved one column at a time, it still spans 442-1,206 cells (CV 0.33,
+>    the same as with the dice varying); the same column under two keys
+>    agrees at r = 0.27. Any early difference is amplified by the stall, so
+>    no keying or dice-shrinking lever can narrow it, and A2-A4 stop here as
+>    spread levers. The herb, by contrast, tracks its site (r = 0.76). The
+>    remaining lever is to damp the stall itself: a stunted seedling with
+>    carbon in store gets to catch up, without reopening the stock-funded
+>    runaway in `Reports/dead-ends.md`.
 > 5. **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the

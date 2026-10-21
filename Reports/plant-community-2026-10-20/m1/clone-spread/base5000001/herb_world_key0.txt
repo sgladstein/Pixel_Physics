@@ -1,0 +1,39 @@
+plant_m0 plastic axis=shade: species=herb frames=60000 seeds=12 genes=none
+    bright, off: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    bright, off: founder alive at the end; deaths in the bed by cause ["LOST ITS TISSUE:10", "FELLED:13", "ROTTED:88", "SPREAD:57"]
+    SEED bright, off s=0 shoot 233
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=1 shoot 198
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=2 shoot 172
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=3 shoot 240
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=4 shoot dead
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=5 shoot 358
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=6 shoot 141
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=7 shoot 321
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=8 shoot 97
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=9 shoot 175
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=10 shoot 76
+plant_m0 shade_plasticity=false open_light=2.40 genes=none
+    SEED bright, off s=11 shoot 210
+  bright, off  alive 11/12 leaf light 0.39 | shoot 201.91+-85.58 height 42.55+-9.60 width 27.45+-10.45 leaf_share 0.45+-0.12 root 150.18+-50.30 root_depth 32.18+-25.49
+
+thread 'main' (9970) panicked at examples/plant_m0.rs:1221:46:
+index out of bounds: the len is 1 but the index is 1
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::panicking::panic_bounds_check
+   3: plant_m0::plastic
+   4: plant_m0::main
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+  dim - bright, genes ignored 
