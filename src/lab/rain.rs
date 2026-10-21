@@ -240,6 +240,30 @@ pub const PLAYED_BED_STEADY_SEED2_FRAME6000: (u64, u64) = (25_093_345, 28_839_26
 /// tight tolerance instead of a loose one.
 const DROP_INTERVAL_FRAMES: u64 = 40;
 
+/// **A rate is rain per column, stated for a box this wide** -- the lab as
+/// it ships. The mister used to place a rate's cells per drop whatever the
+/// box's width, so a narrow box was drenched: the plant trainer's 48-wide
+/// beds took about 10.7 times the lab's rain on every column and its
+/// 96-wide whole-life beds 5.3 times, so every species re-fit on them was
+/// trained in a far wetter world than the game it was for (found by the
+/// plant performance thread, 2026-10-21: in steady state that flux
+/// trickled down every column to the drain and the soil-water pass was 73%
+/// of a training bed's cost). Now a box `w` wide gets `w / RATE_WIDTH` of
+/// a rate's cells, carried between drops so nothing is lost to rounding
+/// ([`drops_due`]), and a 512-wide box is exactly as before.
+pub const RATE_WIDTH: i32 = 512;
+
+/// How many drops fall on the `k`th due frame of a rate placing `cells` a
+/// drop across [`RATE_WIDTH`] columns, on a box `width` wide. The running
+/// total `floor(k * cells * width / RATE_WIDTH)` differenced, so the
+/// fraction a narrow box is owed carries to the next due frame instead of
+/// being rounded away, and needs no state: it is a function of the frame.
+fn drops_due(cells: u32, width: i32, k: u64) -> u32 {
+    let per = cells as u64 * width.max(1) as u64;
+    let r = RATE_WIDTH as u64;
+    ((k + 1) * per / r - k * per / r) as u32
+}
+
 /// How hard the mister above the bed is running.
 ///
 /// **Off/Light/Steady/Heavy, not a bool** — `CLAUDE.md`'s ethos law, stated
@@ -320,7 +344,8 @@ impl Rain {
         }
     }
 
-    /// Cells this rate places per 1,000 sim frames, at the shipped cadence —
+    /// Cells this rate places per 1,000 sim frames on a [`RATE_WIDTH`]-wide
+    /// box, at the shipped cadence; a box of another width gets its share —
     /// what the per-setting test below checks a real run against, and what
     /// the BOX page's hover note quotes so the player is told a real number
     /// rather than a label alone.
@@ -368,6 +393,10 @@ pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
     let Some(water) = world.materials.id_of("water") else { return 0 };
     let y = spec.room_top();
     let width = spec.width.max(1);
+    let cells = drops_due(cells, width, world.frame / interval);
+    if cells == 0 {
+        return 0;
+    }
     // Even bins across the width, jittered inside each bin.
     //
     // **The mister rolls its own dice, keyed on the frame, and lends them to
@@ -613,6 +642,33 @@ mod tests {
             placed.abs_diff(want) <= tolerance,
             "default rate {rate:?}: placed {placed} cells in 1,000 frames, want {want} +/- {tolerance}"
         );
+    }
+
+    /// **A rate is rain per column.** The lab's own width gets exactly a
+    /// rate's cells on every due frame (so the shipped box is unchanged),
+    /// and any other width its share, with nothing lost to rounding over a
+    /// run: a 48-wide training bed gets 48/512 of the lab's rain, not all of
+    /// it on a tenth of the columns.
+    #[test]
+    fn a_rate_is_rain_per_column_whatever_the_width() {
+        for k in 0..100 {
+            assert_eq!(drops_due(2, RATE_WIDTH, k), 2, "the lab's own width is exactly as before");
+        }
+        let total = |cells: u32, width: i32, n: u64| (0..n).map(|k| drops_due(cells, width, k) as u64).sum::<u64>();
+        assert_eq!(total(2, 48, 1600), 300, "48 columns of a 512-column rate");
+        assert_eq!(total(16, 96, 1000), 3000);
+        assert_eq!(total(2, 1024, 50), 200, "a wider box gets more, not the same spread thinner");
+        // Through the real tick: a narrow box over a 1,000-frame window gets
+        // its share of Light's 50 cells (4.7), not all 50.
+        let spec = LabBox { founders: 0, colonies: 0, width: 48, ..LabBox::default() };
+        let mut world = spec.build();
+        let placed: u32 = (0..1000u64)
+            .map(|f| {
+                world.frame = f;
+                tick(&mut world, &spec, Rain::Light)
+            })
+            .sum();
+        assert!((3..=5).contains(&placed), "a 48-wide box placed {placed} cells in 1,000 frames");
     }
 
     /// **Specificity: `Off` places nothing, ever.** The one rate with no
