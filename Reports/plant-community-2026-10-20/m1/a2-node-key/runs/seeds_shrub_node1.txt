@@ -1,0 +1,15 @@
+clone_variance: species=shrub founders=8 frames=20000 worldseed=None shift=0 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, same spot, a different developmental seed each run (8 seeds):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  seed 0              23.000     10.000      7.000      1.429      0.304      0.435      0.543
+  seed 1            2172.000     66.000     64.000      1.031      0.305      0.399      0.728
+  seed 2              41.000     11.000      8.000      1.375      0.390      0.488      0.750
+  seed 3              28.000     11.000      8.000      1.375      0.286      0.500      0.602
+  seed 4            2093.000     72.000     59.000      1.220      0.286      0.377      0.718
+  seed 5            1501.000     76.000     45.000      1.689      0.272      0.479      0.634
+  seed 6              54.000     11.000     12.000      0.917      0.426      0.500      0.806
+  seed 7              42.000     10.000     11.000      0.909      0.381      0.524      0.738
+  CV                   1.337      0.945      0.929      0.222      0.176      0.114      0.127
+  -- one genome, one spot: whatever spread this shows is the developmental dice alone.

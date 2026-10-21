@@ -1,0 +1,15 @@
+clone_variance: species=grass founders=8 frames=20000 worldseed=None shift=0 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, same spot, a different developmental seed each run (8 seeds):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  seed 0              29.000     10.000      7.000      1.429      0.000      0.517      0.000
+  seed 1              41.000     13.000     12.000      1.083      0.000      0.512      0.000
+  seed 2              39.000     12.000      7.000      1.714      0.000      0.564      0.000
+  seed 3              30.000     12.000      7.000      1.714      0.000      0.533      0.000
+  seed 4              69.000     12.000     13.000      0.923      0.000      0.507      0.000
+  seed 5              30.000     10.000      8.000      1.250      0.000      0.533      0.000
+  seed 6              36.000     10.000      6.000      1.667      0.000      0.583      0.000
+  seed 7              22.000      9.000      7.000      1.286      0.000      0.500      0.000
+  CV                   0.387      0.129      0.312      0.217      0.000      0.055      0.000
+  -- one genome, one spot: whatever spread this shows is the developmental dice alone.

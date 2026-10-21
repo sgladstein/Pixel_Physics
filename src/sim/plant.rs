@@ -2427,6 +2427,48 @@ fn growth_stream(world: &World, organism_id: OrganismId, x: i32, y: i32) -> Rng 
     }
 }
 
+/// **A2 of the plant-community plan: a growing tip's dice keyed on its place
+/// in its own development** -- the plant's developmental seed, the cell
+/// relative to the collar, the node count of its lineage (`plastochron`) and
+/// how many visits it has gone without a candidate (`stale_ticks`) -- and
+/// **not on its age in frames**. Under `growth_stream`'s plant key a tip one
+/// tick late (a neighbour's shade, a later tick phase, a slower carbon
+/// supply) rolls an entirely different sequence from then on, so any small
+/// difference between two clones is amplified into a different plant. Keyed
+/// on the node, a delayed tip rolls the same numbers when it gets there.
+///
+/// `stale_ticks` is in the key so a tip whose every candidate was refused
+/// (the taper roll) draws afresh next visit rather than repeating a refusal
+/// for ever; a tip that had a candidate and waited (short of carbon) keeps
+/// its draws, which is the point. Only tips are keyed this way -- a per-tick
+/// hazard (a leaf's shade or drought death, a seed's half-life) must keep
+/// the clock or it would fire every visit or never.
+///
+/// `None` unless `World::node_keyed_growth` is on, the world uses the plant
+/// key, and the plant has an origin -- then the caller's `growth_stream`
+/// stands, so off is the build before this existed.
+fn node_stream(world: &World, organism_id: OrganismId, x: i32, y: i32, stale_ticks: u8, plastochron: u8) -> Option<Rng> {
+    if !world.node_keyed_growth || matches!(world.developmental_key, organism::DevelopmentalKey::World) {
+        return None;
+    }
+    let s = world.organism(organism_id)?;
+    let (ox, oy) = s.origin?;
+    Some(rng::stream(s.dev_seed ^ NODE_KEY_SALT, (x - ox) as u64, (y - oy) as u64, (u64::from(plastochron) << 8) | u64::from(stale_ticks)))
+}
+
+/// `World::node_keyed_growth`'s default: off, unless
+/// `PIXEL_PHYSICS_NODE_KEY=1` -- the instrument that lets every harness
+/// (`clone_variance`, `plant_m0`) run the A2 arm without a flag of its own.
+pub(crate) fn node_key_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_NODE_KEY").as_deref(), Ok("1")))
+}
+
+/// Separates `node_stream` from `growth_stream`'s plant key, which hashes the
+/// same `(dev_seed, dx, dy, ...)` with age in the last slot.
+const NODE_KEY_SALT: u64 = 0x4E6F_6465_4B65_7932;
+
 /// **Stamp where and when this plant started**, once, at the moment its real
 /// position is finally known.
 ///
@@ -5429,7 +5471,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // it. `world.frame` is in the seed so a cell that ticks repeatedly does
     // not redraw the same numbers; `(x, y)` so two cells of one organism
     // ticking on the same frame diverge.
-    let mut rng = growth_stream(world, organism_id, x, y);
+    //
+    // **A2: a growing tip draws on where it is in its own development**
+    // (`World::node_keyed_growth`), not on the clock: see `node_stream`.
+    let mut rng = match entered_as {
+        CellType::GrowingTip | CellType::RootTip => node_stream(world, organism_id, x, y, stale_ticks, plastochron),
+        _ => None,
+    }
+    .unwrap_or_else(|| growth_stream(world, organism_id, x, y));
     // Once per tick rather than once per `is_foliage` call -- see that
     // function's own note.
     let has_leaf_stage = world.species.get(species_id).has_leaf_stage();

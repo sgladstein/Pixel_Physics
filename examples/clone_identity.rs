@@ -171,9 +171,12 @@ fn main() {
         organism::DevelopmentalKey::Plant { coarseness: devarg.parse().expect("dev=world or an integer") }
     };
 
+    // `node=1`: `World::node_keyed_growth` (A2) -- a tip draws on its node,
+    // not its age. Set on every world this harness builds.
+    let node: bool = arg::<u32>("node").unwrap_or(0) != 0;
     println!(
         "clone_identity: species={species} plants={plants} frames={frames} worldseed={worldseed} gap={gap} \
-         dev={devarg} sterile={sterile} clear={clear}"
+         dev={devarg} node={node} sterile={sterile} clear={clear}"
     );
 
     let width = gap * (plants as i32 + 1);
@@ -186,6 +189,7 @@ fn main() {
     };
     let mut w = scene.build();
     w.developmental_key = key;
+    w.node_keyed_growth = node;
     if clear {
         // The negative control for "the weather broke the tie". `Pin::Clear`
         // is the zero arm of the pin set -- measured at 0 gusts delivered and
@@ -237,6 +241,7 @@ fn main() {
         for &(keep, kx, _) in &ids {
             let mut wk = scene.build();
             wk.developmental_key = key;
+            wk.node_keyed_growth = node;
             if clear {
                 wk.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
             }
@@ -315,6 +320,7 @@ fn main() {
         for &cx in &cols {
             let mut wk = scene.build();
             wk.developmental_key = key;
+            wk.node_keyed_growth = node;
             if clear {
                 wk.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
             }

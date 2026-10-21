@@ -1,0 +1,15 @@
+clone_variance: species=grass founders=8 frames=20000 worldseed=None shift=1 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, moved one column at a time (8 positions):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  +0 col              42.000     12.000      8.000      1.500      0.000      0.500      0.000
+  +1 col              33.000     10.000      8.000      1.250      0.000      0.576      0.000
+  +2 col              28.000     10.000      8.000      1.250      0.000      0.500      0.000
+  +3 col              32.000     10.000      9.000      1.111      0.000      0.500      0.000
+  +4 col              24.000      9.000      6.000      1.500      0.000      0.500      0.000
+  +5 col              48.000     16.000     14.000      1.143      0.000      0.521      0.000
+  +6 col              31.000     10.000      8.000      1.250      0.000      0.516      0.000
+  +7 col              31.000     10.000      8.000      1.250      0.000      0.484      0.000
+  CV                   0.230      0.205      0.270      0.113      0.000      0.055      0.000
+  -- every row above is the SAME genome. Whatever spread this shows is the floor under any claim that two genomes differ.
