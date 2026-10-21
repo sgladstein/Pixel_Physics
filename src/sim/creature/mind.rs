@@ -43,7 +43,7 @@ use super::{
     blend_with_kin, crop_take, crop_to_feed, food_at_home, food_value, nest_within_reach, note_drop, note_feed,
     quantise_worth, DropWhy, FEED_SHARE, SHARE_FRACTION,
 };
-use super::{cut_cell, spoil_site_open};
+use super::{cut_cell, place_spoil, spoil_site_open};
 use crate::sim::cell::Cell;
 use crate::sim::cell::OrganismId;
 use crate::sim::organism::{self, BroodStage, Crop, DeathCause};
@@ -2049,7 +2049,8 @@ fn put_down_pellet(world: &mut World, organism: OrganismId, (dx, dy): (i32, i32)
     if !spoil_site_open(world, dx, dy, true) {
         return false;
     }
-    world.set(dx, dy, spoil.cell);
+    // where it comes to rest (`creature::spoil_rest`), which is also where the dump log scores it
+    let (dx, dy) = place_spoil(world, (dx, dy), spoil.cell);
     if let Some(state) = world.organism_mut(organism) {
         state.spoil = None;
         state.spoil_ring = None;
