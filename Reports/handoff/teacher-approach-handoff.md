@@ -7,7 +7,7 @@ of the teacher approach in its own session, without pulling the brain lane off i
 ## Your job
 
 **Explore, with the owner, whether and how to teach the trained ant brain by copying -- and design the test of it.** This
-is a discussion and design lane first. The owner's question, in his words: "How do we create a teacher that has the
+is a discussion and design lane first. The owner's question, in their words: "How do we create a teacher that has the
 exact behavior that we would want it to?", followed by a caution worth taking seriously:
 
 > "The entire first part of this project was spending weeks manually encoding behaviors and we recently switched to
@@ -21,7 +21,7 @@ stuck on a ledge, a pellet falling back, two rules fighting) that broke hand-enc
 
 ## What the owner has decided (2026-10-20)
 
-- **Test both label sources, side by side** (his words: "I am not sure which is better and I think we should probably
+- **Test both label sources, side by side** (their words: "I am not sure which is better and I think we should probably
   test both"):
   - **(A) Self-imitation:** label the brain's own decisions by outcome -- keep those from trips that became full loads,
     drop those that started unpaid trips or walked past the drop point -- and train the brain to copy its better self
@@ -46,7 +46,7 @@ stuck on a ledge, a pellet falling back, two rules fighting) that broke hand-enc
    full loads, unpaid trips, put-down distance; and fetch and trail against the fixed s91 floor (`keepref=`), so copying
    does not erase old skills (copy from a mix of digging, fetch and trail decisions).
 3. Survivors get a short 8-row training run beside plain s161 (the brain lane's runs `dig-8-s171`/`s172`, due about 00:35
-   UTC 2026-10-21, are that control arm). GIFs for the owner at each stage; nothing "passes" before he has seen one.
+   UTC 2026-10-21, are that control arm). GIFs for the owner at each stage; nothing "passes" before the owner has seen one.
 4. Known catches to design for: drift into states the teacher never visited (DAgger: let the student drive, the teacher
    labels, retrain); the brain's 12 recurrent memory units (first version: train the parts that read the current
    situation, leave memory; full training needs backprop through time, which RL would need too); decisions the brain
