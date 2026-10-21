@@ -2260,6 +2260,11 @@ pub struct CreatureStats {
     /// exists to make visible — matter that entered an animal and did not
     /// leave it — and neither counter alone can see it.
     pub spoil_dumped: u64,
+    /// **Of those, the ones that rolled** before they settled
+    /// (`creature::spoil_rest`, `PIXEL_PHYSICS_SPOIL_ROLL`), and the cells
+    /// they rolled in all: the switch's "did it fire" pair.
+    pub spoil_rolled: u64,
+    pub spoil_roll_cells: u64,
     /// **Of those, the ones the drop could not place beside the animal and
     /// sent *up the column* instead** — and the largest such lift in rows.
     ///
@@ -4455,6 +4460,9 @@ pub struct World {
     /// `creature::door_column_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_COLUMN`.
     pub door_column: Option<crate::sim::creature::DoorColumn>,
+    /// `creature::spoil_roll_of` for this world, in cells (0 = off); `None`
+    /// reads `PIXEL_PHYSICS_SPOIL_ROLL`.
+    pub spoil_roll: Option<u8>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -7341,6 +7349,7 @@ impl World {
             nurse: None,
             door_loose: None,
             door_column: None,
+            spoil_roll: None,
             kin_footing: None,
             water_footing: None,
             mutation: None,

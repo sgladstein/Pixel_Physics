@@ -14159,7 +14159,12 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     let need = (rule.hungry && hungry) || (rule.laden && donor && !load.store && hungry_larva_beside(world, organism, def, head)) || (rule.job && !load.store && store_job_waits(world, organism, def, head));
     if need {
         if let Some((px, py)) = need_drop_site(world, head) {
-            world.set(px, py, load.cell);
+            // a store pellet is food going into the larder, not soil: it does not roll
+            if load.store {
+                world.set(px, py, load.cell);
+            } else {
+                place_spoil(world, (px, py), load.cell);
+            }
             if let Some(s) = world.organism_mut(organism) {
                 s.spoil = None;
                 s.spoil_ring = None;
@@ -17242,6 +17247,87 @@ pub fn clear_door_column(world: &mut World) {
 
 /// Is `(x, y)` kept clear of pellets by [`door_column_of`]: within one column
 /// of a founding shaft, at or above its mouth's row. False with the switch off.
+/// How far [`spoil_rest`] lets a pellet roll when `PIXEL_PHYSICS_SPOIL_ROLL=on`.
+pub const SPOIL_ROLL_CELLS: u8 = 2;
+
+/// **`PIXEL_PHYSICS_SPOIL_ROLL=on|off|<cells>`: a pellet put down on the
+/// mound rolls a cell or two down its outer flank before it settles.**
+/// Off when unset, until measured (owner, 2026-10-21: "go with your
+/// suggestion"); `World::spoil_roll` overrides it per world, which is how a
+/// training arena keeps its physics while a game turns it on.
+///
+/// **Why placement and not physics.** Placed spoil is `self_supporting`: it
+/// stands wherever it has footing, at any slope, so the real ants' self-
+/// correcting heap -- Dorymyrmex dump just past the crest and the misses roll
+/// down the *outer* slope, almost never back to the hole (Tofilski & Ratnieks
+/// 2005) -- has no counterpart, and a badly placed pellet stays where it is.
+/// Making placed pellets loose instead is the record's worst result for a
+/// nest: loose tilth near a gallery runs along it and closes it (roofed void
+/// 197/179 -> 2/1, `dead-ends.md`, "putting a dug pellet back loose"), and a
+/// loose crust costs a third of the nest. So the roll is decided at the
+/// moment of placement and the pellet is tamped where it stops: no loose
+/// soil ever exists. Three limits keep it off the nest: it rolls only
+/// **away from the nearest door**, only **above the ground that nest was
+/// founded on** (never inside a tunnel), and each step is a 1:1 diagonal
+/// onto a cell that [`spoil_site_open`] would itself accept.
+pub fn spoil_roll_of(world: &World) -> u8 {
+    world.spoil_roll.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+        *V.get_or_init(|| {
+            std::env::var("PIXEL_PHYSICS_SPOIL_ROLL").map_or(0, |v| match v.as_str() {
+                "on" => SPOIL_ROLL_CELLS,
+                "off" => 0,
+                n => n.parse::<u8>().unwrap_or(0).min(8),
+            })
+        })
+    })
+}
+
+/// **Where a pellet put down at `(px, py)` comes to rest** under
+/// [`spoil_roll_of`]: `(px, py)` itself when the switch is off, when no nest
+/// is near, when the pellet is at or below that nest's founding ground, or
+/// when the next cell down the outer flank is not a place a pellet could be
+/// put. Otherwise one diagonal step away from the door at a time, up to the
+/// switch's count.
+pub(crate) fn spoil_rest(world: &World, (px, py): (i32, i32)) -> (i32, i32) {
+    let cells = spoil_roll_of(world);
+    if cells == 0 {
+        return (px, py);
+    }
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - px).abs()) else {
+        return (px, py);
+    };
+    let door_x = site.shaft.map_or(site.x, |c| (c.x0 + c.x1) / 2);
+    let s = (px - door_x).signum();
+    if s == 0 || py >= site.surface {
+        return (px, py);
+    }
+    let (mut x, mut y) = (px, py);
+    for _ in 0..cells {
+        let (nx, ny) = (x + s, y + 1);
+        // Above the founding ground, past the cell beside it (a clear way
+        // down, not through a wall), and onto a cell the drop itself accepts.
+        if ny >= site.surface || !world.is_empty(nx, y) || !spoil_site_open(world, nx, ny, true) {
+            break;
+        }
+        (x, y) = (nx, ny);
+    }
+    (x, y)
+}
+
+/// **Set a pellet down**: where [`spoil_rest`] says it stops, counted. Every
+/// placement of dug soil goes through this (the mind's put-down and the
+/// game's drops), so the switch reaches all of them.
+pub(crate) fn place_spoil(world: &mut World, (px, py): (i32, i32), cell: Cell) -> (i32, i32) {
+    let at = spoil_rest(world, (px, py));
+    if at != (px, py) {
+        world.creature_stats.spoil_rolled += 1;
+        world.creature_stats.spoil_roll_cells += (at.0 - px).unsigned_abs() as u64;
+    }
+    world.set(at.0, at.1, cell);
+    at
+}
+
 fn in_door_column(world: &World, (x, y): (i32, i32)) -> bool {
     door_column_of(world).drop
         && world
@@ -19485,7 +19571,7 @@ fn drop_by_scorer(world: &mut World, organism: OrganismId, spoil: Spoil, sites: 
         return;
     };
     let inside = inside_nest(world, px, py);
-    world.set(px, py, spoil.cell);
+    place_spoil(world, (px, py), spoil.cell);
     if let Some(state) = world.organism_mut(organism) {
         state.spoil = None;
         state.spoil_ring = None;
@@ -20948,7 +21034,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // never takes it to food -- see [`SoilWay`]'s `lean`.
         if lean && lean_forage_of(world).drop && !(soil_way_of(world).lean && below_founding_ground(world, x, y)) {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
-                world.set(px, py, spoil.cell);
+                place_spoil(world, (px, py), spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -21239,7 +21325,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 spoil_p,
             );
             if let Some((px, py)) = site {
-                world.set(px, py, spoil.cell);
+                let py = place_spoil(world, (px, py), spoil.cell).1;
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -22828,7 +22914,54 @@ fn packed_form(world: &World, cell: Cell, (x, y): (i32, i32), keep_spoil: bool) 
     Some(packed)
 }
 
-/// **Whether cutting `t` drops a roof cell** -- a mind's `f::ROOF_DROP`
+/// **Whether the ant's bite at `t` is hanging** -- a mind's `f::ROOF_DROP`
+/// since 2026-10-21: some grain touching `t` rests on `t` or on open air and
+/// is held by two or fewer other grains, or a pellet rests on `t`. Every term
+/// is something a body pressed against the face feels now: a grain sitting
+/// on what it bites, open space under a grain beside it, how little else that
+/// grain is wedged against. Nothing is built ahead.
+///
+/// **Why it replaced the forecast** ([`cut_drops_roof`], which ran the
+/// engine's collapse rule one cut into the future; owner, 2026-10-21:
+/// "local signals and true biology" for the trained ant). The soil-physics
+/// report (`Reports/soil-physics-realism-2026-10-21.md`, PR 751) found this
+/// reading agrees with the forecast on all 116,388 of s171's Dig options over
+/// 48 soil-arena worlds (8,186 flagged, none apart), and the brain lane
+/// measured the forecast load-bearing (blanked: s171 1.4-1.7 full loads
+/// fewer, soil into the hole 0.1 -> 1-1.6 a world), so a sense that reads the
+/// same keeps both. It is the grain-scale form of what Buarque de Macedo et
+/// al. (2021) describe ants using -- how firmly the material around the face
+/// is held -- and stops short of a stability prediction: it says which grain
+/// is barely held, not what will happen.
+///
+/// Grains are powder ground with no animal in them (stone is held by
+/// `load.rs`); an animal is open, never a hold, as in the forecast.
+pub(crate) fn bite_is_hanging(world: &World, t: (i32, i32)) -> bool {
+    let open = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Creature
+    };
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+        let (nx, ny) = (t.0 + dx, t.1 + dy);
+        let c = world.get(nx, ny);
+        let m = world.materials.get(c.material);
+        if c.material == material::EMPTY || c.organism_id() != 0 || m.kind != MaterialKind::Powder {
+            return false;
+        }
+        let below = (nx, ny + 1);
+        if below != t && !open(below.0, below.1) {
+            return false;
+        }
+        if m.needs_footing && below == t {
+            return true;
+        }
+        let held = NEIGHBOURS_8.iter().filter(|&&(ex, ey)| (nx + ex, ny + ey) != t && !open(nx + ex, ny + ey)).count();
+        held <= 2
+    })
+}
+
+/// **Whether cutting `t` drops a roof cell** -- the forecast `f::ROOF_DROP` read until 2026-10-21, kept as
+/// [`bite_is_hanging`]'s reference in the tests
 /// (PR 2; ladder lane, `dig-rung-design.md` 9). The world one cut ahead is
 /// built as [`cut_cell`] leaves it: `t` open, its neighbours lined by
 /// [`packed_form`]. Then a neighbour of `t` drops when it gives way there by
@@ -22853,6 +22986,7 @@ fn packed_form(world: &World, cell: Cell, (x, y): (i32, i32), keep_spoil: bool) 
 ///
 /// **Cost**: on Dig options only, a cell read per neighbour and per side of
 /// the cut, and the contact ring only for a neighbour with air beneath.
+#[cfg(test)]
 pub(crate) fn cut_drops_roof(world: &World, t: (i32, i32)) -> bool {
     let bare = |x: i32, y: i32| {
         let c = world.get(x, y);
@@ -34056,6 +34190,7 @@ mod tests {
                 }
                 targets += 1;
                 let predicted = cut_drops_roof(&w, (x, y));
+                assert_eq!(bite_is_hanging(&w, (x, y)), predicted, "the touch reading and the forecast part at ({x},{y})");
                 let mut cut = w.clone();
                 cut.set(x, y, Cell::EMPTY);
                 line_burrow(&mut cut, x, y);
@@ -34152,6 +34287,53 @@ mod tests {
             [(false, false), (false, false), (true, true)],
             "on: over the door and beside it refused, three columns out not"
         );
+    }
+
+    /// **A pellet put down on a 1:1 staircase rolls down it, two cells, away
+    /// from the door -- and nowhere else** ([`spoil_rest`]). Four arms on one
+    /// scene: off (stays: the control that the scene, not the rule, is what
+    /// holds it), on (rolls two cells east and down), the staircase mirrored
+    /// so it falls *toward* the door (stays: never toward the hole), and the
+    /// same staircase cut below the founding ground (stays: never inside a
+    /// tunnel). And the counter fires only on the arm that rolled.
+    #[test]
+    fn a_pellet_rolls_down_the_outer_flank_only() {
+        let arm = |roll: u8, toward_door: bool, buried: bool| {
+            let mut w = founding_bed();
+            assert!(w.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0, "the cut removed nothing");
+            let c = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let s = w.nest_sites[0].surface;
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let x0 = c.x1 + 10;
+            // buried: the same scene 12 rows down, in a pit cut below the founding ground
+            let base = if buried { s + 12 } else { s };
+            if buried {
+                for x in x0 - 3..x0 + 9 {
+                    for y in base - 10..base {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            }
+            // a two-wide top (a pellet needs ground under two of its three cells), then a 1:1 fall: heights 5, 5,
+            // 4, 3, 2, 1 falling east (away from the door), or mirrored to fall west, towards it
+            for i in -1..6 {
+                let h = if toward_door { (i + 1).min(5) } else { (5 - i).min(5) };
+                for k in 0..h {
+                    w.set(x0 + i, base - 1 - k, Cell::new(soil, 0));
+                }
+            }
+            let top = if toward_door { (x0 + 4, base - 6) } else { (x0, base - 6) };
+            w.spoil_roll = Some(roll);
+            assert!(spoil_site_open(&w, top.0, top.1, true), "the scene's put-down cell is not a site");
+            let spoil = w.materials.id_of("spoil").expect("spoil material");
+            let before = w.creature_stats.spoil_rolled;
+            let at = place_spoil(&mut w, top, Cell::new(spoil, 0));
+            (at.0 - top.0, at.1 - top.1, w.creature_stats.spoil_rolled - before)
+        };
+        assert_eq!(arm(0, false, false), (0, 0, 0), "off: the pellet stays where it was put");
+        assert_eq!(arm(2, false, false), (2, 2, 1), "on: two cells down the flank, away from the door, counted");
+        assert_eq!(arm(2, true, false), (0, 0, 0), "a flank falling towards the door: it stays");
+        assert_eq!(arm(2, false, true), (0, 0, 0), "below the founding ground: it stays");
     }
 
     /// **Soil over the door is taken away** under [`DoorColumn`]'s `clear`:

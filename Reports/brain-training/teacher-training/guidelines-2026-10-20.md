@@ -1,0 +1,349 @@
+# Teacher training: guidelines, and whether colony behaviours are affordable
+
+*Written 2026-10-20 by the teacher-approach session (claims checked through PubMed and SciSpace the same day:
+[`notes/verification-pass.md`](notes/verification-pass.md), 14 of 17 verified, 2 corrected and applied here), at the owner's request, after the discussion opened by
+`Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines; steps 0a, 0b and the ceiling test (0c, 2026-10-21) measured ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)), nothing else built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
+abstract level -- see its caveat) and the brain lane's investigation (`Reports/brain-training/investigation-2026-10-20.md`
+on the same branch), cited below as "investigation part N".*
+
+## The answer, first
+
+**Colony behaviours are not infeasible, but they are unaffordable the way we train today, and the reason is not that
+the simulation is slow. It is that training throws away almost everything a simulation tells it.** Each world gives the
+genetic algorithm one noisy number. The same world contains hundreds of decisions, and a teacher can say for each one
+what the ant should have done -- with no world-to-world luck in that answer. Copying a teacher is the one lever the
+literature has measured at about 10x, repeatedly (kickstarting: "almost 10x" fewer steps and 42% better at the end, with
+several teachers on DMLab-30; Nair et al. 2018: an order of magnitude on long sparse tasks). The rest of the saving comes from stacking several 2-5x levers on
+evaluation, each of which has to be measured on our simulator before it is trusted.
+
+The budget makes the stakes concrete. A 32-vCPU VM does 100 generations of the solo dig suite for about $0.65, so the
+$100 buys about **15,000 solo generations**, or about **9,000 in a 4-ant box** (measured at 1.7x a solo box). The two
+published group-evolution runs closest to ours took **500 and 2,000 generations**, with networks of 33 weights or
+hand-built rule blocks (Waibel, Floreano & Keller 2011; Ferrante et al. 2015). A Ferrante-sized run with 4 ants at 12,000
+frames would cost roughly $40-50 at today's settings ($0.65 x 1.7 for four ants x 2 for the longer run, per 100
+generations) -- half the budget for one experiment. With the levers below it is plausibly $5-15 -- an estimate, which
+needs racing and copying together to deliver 3-8x on our simulator (paired worlds, once counted among them, measured no
+saving: see below). Without them, colony training happens once or twice, total.
+
+**What a teacher is worth, measured (2026-10-21):** three hand-written rules driving s161 directly -- dig only at the
+foot, go down, walk home -- take it from 6.8 to **20.5 full loads a world at 8 rows (3.0x)**, with no world under 3
+(T9). That is the ceiling copying is aiming at.
+
+**Three cheap measurements decide how the budget should be split**, and all three can be taken locally, without VMs:
+
+1. **How correlated two near-identical brains are on the same world** (rho). It sets how much paired worlds can save:
+   rho 0.75 halves the worlds a brain needs, rho 0.9 cuts them about fivefold. **Measured the same day: 0.05 for the
+   trainer's children -- no saving; pairing would cost about 2x** ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)).
+2. **Which decisions a teacher can actually teach** (the copyability probe, guideline T5). It sets which skills copying
+   can speed up. **Measured: all three dig corrections, 94-100% from the brain's own inputs on held-out worlds, where the
+   brain today agrees 53-55% on put-down and walk-home** (same report).
+3. **Whether a 2-4-ant short run ranks brains the way a full colony does.** It sets whether colony training is
+   affordable at all.
+
+## What we decided in discussion (2026-10-20)
+
+- **Copying for individual skills; colony-level scoring, or a planner-teacher in a real crowd, for collective ones.**
+- **Solo first, then colony** has always been the plan; nothing here changes it.
+- The owner's insight that a teacher need not obey the old rules (local signals, true biology) stands -- with one limit,
+  which the literature names and which is the first guideline below.
+
+## Guidelines for a teacher
+
+### T1. Privileged computation, never privileged information
+
+> **Amended 2026-10-21** (owner, in discussion: "I want to make sure we are not limiting ourselves"; recorded by the
+> teacher design review, [`teacher-design-review-2026-10-21.md`](teacher-design-review-2026-10-21.md) item 13). The
+> teacher may *compute* anything over the true world, and may use information the ant does not sense **only where a
+> probe shows the student can recover the choice from its own inputs** -- the three probes of
+> [`teacher-design-2026-10-21.md`](teacher-design-2026-10-21.md) §3 (all features, the brain's own channel, context).
+> Where the probe fails, the ways out are listed there; the warning below about learning the average still holds, and
+> it is what the probe measures. A colony planner's "your face, given where the other eleven are" is privileged
+> information under this rule and is pre-gated (design §7).
+
+The teacher may compute anything exactly -- pathfinding, geometry, counting -- **but only over what the ant has sensed or
+could plausibly remember.** This is the one place the owner's "god-like teacher" idea needs a limit. When the teacher
+decides from something the student cannot sense, the student does not learn the teacher's behaviour; it learns the
+teacher's *average* behaviour over every situation that looks the same to it (Weihs et al. 2021, "the imitation gap";
+Swamy et al. 2022). Worse, it never learns to *search*, because a teacher that knows where the food is never searches
+(Vuorio et al.; the review cites arXiv 2407.00495, the verification pass found the 2022 "Deconfounded Imitation Learning", arXiv 2211.02667 -- which version, unconfirmed).
+
+The famous privileged-teacher successes do not contradict this: in "Learning by Cheating" (driving, 100% on the CARLA
+benchmark) and the legged-robot teachers, the privileged input was either visible in the student's own camera or slowly
+varying and recoverable from history (terrain, friction). Ours sorts the same way:
+
+| Teacher knowledge | Can the ant recover it? | Use it? |
+|---|---|---|
+| Exact depth, row and wall/foot status of a candidate dig cell | Yes: every option carries 45 features (`DEPTH`, `UP`, `HEADROOM`...); investigation part 1 shows a foot target and a wall target read differently | **Yes** |
+| Exact put-down rule (3 cells clear of the hole) | Mostly: `home_dist` and the drop hidden unit already track it (part 2) | **Yes** |
+| Shortest path back to the nest | Partly: `home_dist`, `d_home` and trail scent | Only as far as the senses go |
+| Where food is, three screens away | No | **No** -- teach the search, not the destination |
+| "The colony needs three more diggers" | No, unless a sense stands in for it (C5) | Only through a proxy |
+
+### T2. Label the brain's own runs, never the teacher's
+
+Train on decisions from runs the *brain* drove, with the teacher labelling each one (DAgger, Ross et al. 2011): copying
+the teacher's own runs lets small errors carry the student into states the teacher never visited. The 12 memory units
+make it sharper: a student given history can learn to predict the teacher's *previous* action instead of the next one
+(the "copycat" problem, Wen et al. 2020). Swamy et al. 2022 prove the strongest version ("latching": off-policy copying
+with history performs *worse*) for a teacher acting on information the student lacks -- which T1 forbids, so for us it
+is the warning for a teacher that breaks T1, not the main reason. The teacher is a program, so a label costs CPU, not a person:
+label every decision the brain makes.
+
+### T3. Score every option, and let the teacher abstain
+
+The teacher should give **every option a score** (for a dig cell: the cost to finish the trip from it, including the
+carry), not only its pick. Soft targets carry the ranking -- which wall cell is nearly as good as the foot -- and copy
+better (Hinton et al. 2015; Rusu et al. 2016). It also fits the house law that an outcome is a distribution.
+
+Where the teacher has no confident answer it **abstains**, and that decision contributes nothing to the copy loss. This is
+what keeps the long tail out (the ant on a ledge, the pellet falling back, two rules fighting): the teacher writes rules
+only for the decisions we can state exactly. For the 8-row dig step the ceiling test (T9) settled it at **three
+rules, one of which investigation part 1 did not predict**:
+
+1. **Dig only where a foot cell is in reach** (3.2 wasted wall trips a world at 4 rows, 5.6 at 8). A dig-or-not call,
+   not a pick among cells: the cells in reach are almost never a mix, and 65% of s161's digs at 8 rows are made with no
+   foot cell in reach. Alone: +4.74 full loads.
+2. **Go down when empty below ground with no foot cell in reach.** Not in the original list: without it, rules 1 and 3 together strand
+   the ant mid-shaft (T9). With rule 1: +10.11.
+3. **Walk home when empty on the surface.** With rules 1-2: +13.74 -- 20.5 full loads a world against 6.8.
+
+**Put the load down at the first clear spot -- dropped.** Investigation part 1 read the 10-column carry as waste; the
+ceiling test says it is coupled to the turn home (alone it cost -0.97), and with walk-home taught it adds only +0.4
+while stacking pellets into posts beside the mouth. Not taught until it builds a heap.
+
+### T4. Selection stays the judge
+
+Copying changes where selection starts, or adds a term to what it sees; it never replaces it. This keeps the owner's
+"one general brain, found by selection" ruling intact: the brain has the same structure and senses, and a copy that
+lowers the real score dies. Two ways to plug it in, in the order to try them:
+
+- **Offline copy, then select** (the handoff's planned test). Copy in Python with the exact brain math
+  (`brainmath.py`, median error 0.000025), write a normal genome file, judge it, and use the survivors as training
+  starts. No VMs.
+- **Copy agreement as a fitness term**, later: score = outcome - lambda x copy-loss, with lambda decayed over a run so the
+  student can pass its teacher (kickstarting's annealing). It needs no gradients and is measured on the runs the GA
+  already does; per decision it is far less noisy than the outcome.
+
+**A dead link can be revived by copying, and selection can delete it again.** A pruned connection is a plain zero weight
+in the genome (`src/train/mod.rs` `mutate`), so a copying gradient can bring back the target-depth link the dig scorer
+lacks (part 2). Pruning and the per-connection energy cost will delete it in the next run unless it pays its way, so
+link protection (the brain lane's work) must cover links that copying revives.
+
+### T5. Check copyability before training anything
+
+Before spending a training run, log (what the brain sensed, the teacher's score for every option) from the brain's own
+runs, fit the simplest predictor of the teacher's choice from the brain's senses, and report the agreement **per decision
+type**. Run it with both controls the repo requires:
+
+- **Positive control:** a label that is a pure function of current senses must reach ~100%.
+- **Negative control:** labels shuffled across worlds must fall to the majority-label floor.
+
+A decision type stuck near the floor is an imitation gap. Either take it out of the copy loss, or rewrite the teacher
+(T1), or add the missing sense -- and the probe says which sense is missing. **The brain lane's logger records only the
+chosen option's features; extend it to the whole option list first** (handoff, "What the log lacks").
+
+### T6. Judge by the score on paired worlds, never by agreement
+
+Low copy loss proves nothing: an agent can match its teacher's labels and still do badly when it drives itself (Pfrommer
+et al. 2023). Every copied brain is judged against its parent on the same sealed worlds -- by mean and standard error over enough
+worlds, since a brain that behaves differently decorrelates from its source and pairing does not cut the noise (full loads,
+unpaid trips, put-down distance), with fetch and trail against the fixed s91 floor -- and **a GIF for the owner before
+anything passes**.
+
+### T7. Self-imitation needs a bar above the noise, and must rank by speed
+
+Per-world noise is about ten times the difference between brains (part 4), so a trip that paid is weak evidence that its
+decisions were good. Two rules:
+
+- Copy only trips that beat the brain's own typical result by more than the noise measured from repeat runs of the same
+  brain on the same world.
+- Rank successful trips by **time**, not only by paying. Every full load today also contains the 10-column carry and the
+  overshoot, so copying "trips that paid" copies the waste along with the foot cut.
+
+Expected outcome (a forecast, not a finding): the hand-written teacher wins on which cell to cut, where geometry is
+computable; self-imitation competes only where nobody can write the rule.
+
+### T8. The first test, including its controls
+
+The handoff's test stands, with three additions:
+
+1. **Round-trip control first**: copy the brain onto its own unchanged choices and confirm it scores the same as s161
+   offline. If the copying code alone moves the score, nothing after it can be trusted.
+2. **Score each correction on its own number**: wall cuts per world, median carry distance, and surface time 10+ columns
+   out. Full loads are too noisy to see one correction.
+3. **The one-day time box is a measurement**: record what the day produced and what it did not, as evidence on how hard
+   the teacher is to write.
+
+### T9. Run the teacher before copying it -- the ceiling test
+
+**A bad teacher makes a bad student, and the only way to find out whether a teacher is good is to let it drive.**
+Before any copying, put the teacher's rules into the running simulation, have them make their calls while the current
+brain makes every other decision, and score it on the same worlds as the brain alone. That number is the ceiling:
+what copying could at most deliver. Run every rule alone and in combination, count every force and veto (an arm whose
+teacher never fired is not a result), check the teacher-off arm reproduces the brain to the last digit, and look at a
+GIF. The first ceiling test (2026-10-21, [`measurements-2026-10-20.md`](measurements-2026-10-20.md) section 3) taught
+three things a teacher designed on paper got wrong:
+
+- **Rules act on each other through the brain's state; test every combination.** Dig alone was fine and walk-home
+  alone was fine, but dig + walk home stranded the ant mid-shaft in 7 of 48 seeds -- the walk-home calls shifted some
+  state the brain's own descent depends on (it takes the deepest step 50-73% of the time alone, ~40% under dig + home).
+  A third rule, "go down", removed the collapse. Every "don't" and every redirect needs checking against what the brain
+  does *around* it, in combination. *(The first version of this bullet said the brain "had only ever got down by
+  digging"; the adversarial review showed that wrong, 2026-10-21.)*
+- **Behaviours the brain has coupled must be taught together.** "Put the load down sooner" cost loads alone, because
+  the brain's turn home fires only after it has gone far; taught alongside walk-home it helped. Before writing a rule,
+  ask what the behaviour it removes was *also* doing -- the same lesson as CLAUDE.md's "a fix exposes a constant that was
+  compensating", applied to a teacher.
+- **Look at it.** The put-down rule scored inside the noise and built two posts beside the mouth. Numbers alone would
+  have kept it; the picture says it is not what an ant does.
+
+The ceiling test is cheap (two minutes on 4 cores for 96 worlds), so it runs after every change to a rule, not once.
+
+## Guidelines for colony behaviours
+
+### C1. Clone the colony and score the colony
+
+Every ant shares one genome, so the colony is a clone and scoring the colony is the textbook setting. Waibel, Keller &
+Floreano 2009 (*IEEE Trans. Evol. Comput.*) crossed team make-up with level of selection and found the best combination
+"depends on the amount of cooperation required by the task" (the abstract does not say more, and the full text was not
+reachable); the field's default for cooperative tasks is same-genome teams (Floreano & Keller 2010). With relatedness 1,
+helping the colony is always favoured: altruism evolved whenever relatedness exceeded cost/benefit (Waibel, Floreano &
+Keller 2011, *PLoS Biology* -- a selection-on-individuals study with relatedness set by cloning). There is no
+altruism problem, only a search problem: one number per colony. Cut its noise with a **decomposed colony score** (cells
+dug + food home + brood raised, each attributable) rather than one end-state number. **Keep it a count of work done,
+not a target split of jobs**: costly switching produces division of labour when selection is strongest on the amount of
+work performed, and less when it is on how workers are spread over tasks (Duarte, Pen, Keller & Weissing 2012).
+
+### C2. The world must charge for switching jobs, or no division of labour will appear
+
+**This is the most important result for division of labour, and it is about the arena, not the learner.** Ferrante
+et al. 2015 evolved identical 4-robot teams on team score alone. On a slope -- where robots climb at a tenth of their
+flat speed and an item dropped at the top slides down by itself -- 13 of 22 runs evolved a split into droppers and
+collectors. **On flat ground, none did.** The split they evolved was **not fixed roles**: it was a dynamic allocation
+that followed the size of the item cache. The fixed 2 droppers + 2 collectors optimum came from an exhaustive search over
+hand-built blocks, not from evolution. Digital organisms (Goldsby et al. 2012) and threshold models (Duarte et al. 2012)
+agree: if switching tasks costs nothing, a generalist wins, and no training method will divide the work. Expect, then,
+that the first thing to appear is *graded, switching* roles; lifelong castes are a further step that may need the
+caste input below. So **the first colony experiment varies the world, not the brain**: separate the
+work sites in space, make a load costly to hand over, or put a warm-up on a new task.
+
+### C3. The ingredients for division of labour are already wired -- protect them through the solo ladder
+
+Identical brains can only behave differently if something differs between ants, and the brain already has all three
+things the literature says are needed:
+
+- **`SELF`**, a fixed random value per ant (`src/sim/creature/mind.rs:1451`): the individual difference that threshold
+  models need.
+- **`AGE`**: young ants nurse and older ants forage in most real species (Mersch et al. 2013: three groups by place, moved
+  through by age).
+- **12 memory units**: feedforward networks only evolved specialisation fixed in the genes; adding self-feedback let it
+  evolve over a much wider range (Duarte, Scholtens & Weissing 2012). In clonal raider ants, experience alone made
+  lasting specialists: workers made to succeed at foraging kept foraging a month later (Ravary et al. 2007).
+
+The danger is the solo ladder. In a solo arena **crowding always reads 0** (part 2's switch-off test changed nothing),
+and anything that never matters gets pruned (part 3). Link protection should cover the links from crowding, `SELF` and
+`AGE`, not only the fetch links. *To check:* `SELF` is keyed on the ant's id, so if the solo arena's ant always has the
+same id, `SELF` is a constant the brain may be using as a bias -- and a colony would then hand each ant a value the
+brain has never seen.
+
+### C4. Rooms sized by crowding: at least two ants, and a teacher that reads crowding
+
+No ant measures nest volume. *Messor* groups dig on a saturating curve and end with volume nearly proportional to
+worker number; a model reproduces it with no explicit stop rule (Buhl et al. 2005). Crowding at the dig face shapes the
+cavity (Toffin et al. 2009). So:
+
+- **No solo rung can teach room sizing.** The first useful rung has 2+ ants. (Or fake the crowd in a solo arena: feed the
+  crowding sense a virtual population divided by the room's size, which keeps the "digging lowers crowding" loop. It is
+  cheap, but its crowd is smoother than a real one, so it must be checked once in a real colony.)
+- A teacher rule such as "dig while crowding at the face is above c" is **copyable by construction**: its label is a
+  function of what the ant senses. It is a threshold rule, not a planner.
+- **The acceptance test is cheap**: the same brain in colonies of N and 2N, and the dug area should grow with N, on a
+  saturating time course. "Roughly doubles" is the *Messor* result; in Argentine ants and leaf-cutters nest size grows
+  less than linearly with workers (Halley et al. 2005; Römer & Roces 2015), so the bar is "grows clearly with N", not a
+  ratio. Unequal workload is expected (Aguilar et al. 2018: tunnels dig best when some ants idle).
+
+### C5. A planner-teacher works in a crowd only through a sense that stands in for the group
+
+Robots copying a central planner reach near-planner performance and scale to teams 100x larger -- **but through explicit
+messages between robots** (Tolstaya et al. 2019; Li et al. 2020). Copying from immediate neighbours' states alone is
+reported insufficient (Chen et al. 2023), and **no study was found that teaches through a shared field like scent**. So a
+planner that says "this colony needs three more diggers" is the imitation gap at its worst, unless some sense carries
+that need. The best candidate from biology: harvester ants set their foraging rate from **how often they meet foragers
+coming home with food** (Prabhakar, Dektar & Gordon 2012) -- a local encounter rate, which a memory unit could integrate
+or a new sense could supply. Run the copyability probe on the planner's labels in a real crowd before writing more
+planner; where it fails, add a local sense rather than a bigger brain, and fall back to colony scoring.
+
+### C6. Train small, vary the size, check at full size
+
+Ferrante's best 8 controllers evolved at 4 robots ran at 20 with 4.4x the output (5x ideal); the swarm-bot work drew team size
+at random between 4 and 8 and held at larger sizes. It breaks where crowding changes behaviour -- exactly the room-sizing
+regime -- so train across the density range, and post-check only the elites at full colony size. Carry **several
+lineages** into the colony rungs: the best small-colony brains are not always the best seeds for larger colonies (Long
+et al. 2020).
+
+## Guidelines for keeping old skills
+
+**An old skill survives only if selection still sees it, or its links are shielded.** A connection cost makes networks
+modular, but the modules do not line up with skills, and a link no current arena tests is still taxed -- which is how
+"don't eat the cargo" died (part 3). Cheapest first:
+
+1. **Rehearsal**: score each brain on the current arena plus one earlier arena drawn at random, perhaps on a short run
+   (about 1.1-1.5x the evaluation cost).
+2. **A retention gate** -- the fixed `keepref=` floor, in use.
+3. **Shield links whose removal hurts an earlier rung** -- the link protection being built, a gradient-free stand-in for
+   EWC (Kirkpatrick et al. 2017).
+4. **A milestone pool**: re-insert children of past champions (D'Silva et al. 2005).
+5. **Freeze** a mastered skill's links (strongest; least compatible with "one brain found by selection").
+
+## Guidelines for cutting cost
+
+| Lever | What it saves (literature) | Measure first, on our simulator |
+|---|---|---|
+| Copying (individual skills) | "Almost 10x" fewer steps with several teachers (Schmitt et al. 2018); an order of magnitude (Nair et al. 2018) | Copyability per decision type (T5) |
+| ~~Paired worlds~~ | Worlds needed x 2(1 - rho) against a well-measured parent | **Measured: rho 0.05 for the trainer's children, so no saving (about 2x worse); it pays only for children a weight or two from the parent** |
+| Racing to the cut line | Ours already 48 to 22 worlds a brain. Related: setting evaluation length per candidate cost 29-76% less than the best fixed length on four simulated landscapes (Martin & Collins 2026) | Most mutants are clearly worse (4.9 vs 6.6 loads): let them leave after 1-4 worlds; parents carry their worlds forward |
+| Cheap rungs (few ants, short runs) | Successive halving 5-30x (Hyperband; a distant domain) | Rank correlation of cheap vs full on ~50 brains |
+| Inherited fitness | Few-sample evolution competitive on 1,000+ weights (Morse & Stanley 2016) | Bias from lucky early scores |
+| A surrogate that only discards | "Several times fewer" evaluations (Gaier et al. 2018) | Never let it promote |
+| GPU simulation | 100-10,000x for grid multi-agent sims (JaxMARL) | A rewrite of the cell sweep; profile before considering |
+
+Two notes on the table:
+
+- **Paired worlds were built right and still do not pay.** The usual failure, one shared random stream (arXiv
+  2409.02086), is designed out: every draw is keyed by world seed, ant, frame and purpose (`mind.rs:1732`), and a copy of
+  the parent reproduces it on every world exactly. But a child made by the trainer's rule changes behaviour enough to
+  reshuffle every world's luck (median rho 0.05), and two good brains agree on which worlds go well only at 0.12. The
+  noise is the run's own luck, not the world's difficulty -- so evaluation can only buy precision with more or longer
+  worlds, and a per-decision signal is worth more than this table's literature figures suggest.
+- **Before choosing between racing and novelty search, find out what blocked the 600-generation step.** If better mutants
+  appeared and were thrown away, it was noise, and racing and pairing fix it. If none appeared, it was a dead end in the
+  search, and shaping or quality-diversity fixes it. A trace of the line's mutants separates the two.
+
+## Proposed order of work
+
+| Step | What | Needs VMs? | Decides |
+|---|---|---|---|
+| 0a | **Done**: rho of parent and children on the same 96 worlds | No | Pairing saves nothing at the trainer's step size |
+| 0b | **Done**: logger extended to every option; copyability probe on the three dig corrections, both controls | No | All three are teachable from the brain's own inputs |
+| 0c | **Done**: the ceiling test (T9) -- the teacher driving s161 | No | Dig + go down + walk home is worth 3.0x (20.5 vs 6.8 full loads); put-down dropped |
+| 1 | Copyability of "go down"; then the teacher (dig, down, home) and self-imitation, copied offline, judged against s161 over 96 worlds with the round-trip control (T8) | No | Whether copying reaches the ceiling, and how much of it |
+| 2 | Racing to the cut line on raw scores, A/B'd against the current trainer | Yes, short | The evaluation saving, measured |
+| 3 | First colony arena, **varying the world**: 4 ants, two work sites, with and without a switching cost; does a split appear with a solo-trained brain plus `SELF`/`AGE`? Measure the cheap-vs-full rank correlation alongside | Yes | Whether colony training is affordable, and whether the arena makes castes pay |
+| 4 | Room sizing at 2-8 ants with the crowding threshold teacher; acceptance test N vs 2N | Yes | Whether crowd behaviour can be taught |
+| later | Reinforcement learning head-to-head with selection on one step, design doc first (standing ruling) | -- | -- |
+
+Before step 0: link protection should cover crowding, `SELF` and `AGE`, so the solo dig steps the brain lane is running
+do not delete them in the meantime.
+
+## What nobody has measured -- where we are on our own
+
+- **No study trains a network this small (~700 links) by copying**: every distilled student in the literature has at
+  least ~10,000 parameters.
+- **No study teaches through a shared field like scent**: multi-robot copying works through explicit messages.
+- **No controlled study compares solo-first training with training the colony from the start.** The closest evidence
+  (Ferrante's smooth search with pre-built skills; Christensen & Dorigo 2006, where staging *across* intertwined skills
+  bought nothing) says solo-first should work when colony behaviour is mostly *choosing among skills the ant already has,
+  under new cues* -- and may not when it needs a new skill. Carrying several lineages is the hedge.
+
+These are the three places where our own measurements are the only evidence there will be, which is why steps 0a, 0b and
+the cheap-vs-full correlation in step 3 come before any money is spent.

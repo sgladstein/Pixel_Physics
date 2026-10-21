@@ -204,8 +204,13 @@ pub mod f {
     /// **Worked wall**: packed soil, the lining a cut leaves round itself.
     /// The tenth kind of thing in the cell, split out of [`SPOIL`] (PR 2).
     pub const LINED: usize = 43;
-    /// **Cutting it drops a roof cell** (Dig targets only): the crumb rule
-    /// read one cut ahead (PR 2; ladder lane, `dig-rung-design.md` 9).
+    /// **The bite is hanging** (Dig targets only; `creature::bite_is_hanging`):
+    /// a grain touching it rests on it or on air with two or fewer other
+    /// grains holding it, or a pellet rests on it -- a touch reading since
+    /// 2026-10-21. Until then the crumb rule read one cut ahead (PR 2;
+    /// ladder lane, `dig-rung-design.md` 9), which it matches on every Dig
+    /// option of s171's soil-arena runs; the index and its trained weights
+    /// carry over unchanged.
     pub const ROOF_DROP: usize = 44;
     /// The one-hot kinds of thing, in order.
     pub const KINDS: [usize; 10] = [AIR, SOIL, SPOIL, FOOD, BROOD, CORPSE, STONE, WATER, ANT, LINED];
@@ -323,7 +328,7 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 }
 
 /// [`build`], reading [`f::ROOF_DROP`] only when `roof` is set. **Why**:
-/// it is the dearest feature on the list (`creature::cut_drops_roof`,
+/// it was the dearest feature on the list as a forecast (`creature::cut_drops_roof`,
 /// about 1-3% of a soil hold-out run and 4-6% of a scarce one, paired
 /// timings with it on and off, PR 2), it sits only on Dig options, and a
 /// mind whose Dig is switched off never scores one (`mind::decide`). So
@@ -412,7 +417,7 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         if jaws_free && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
-                    feats[f::ROOF_DROP] = f32::from(u8::from(super::cut_drops_roof(world, t)));
+                    feats[f::ROOF_DROP] = f32::from(u8::from(super::bite_is_hanging(world, t)));
                 }
             });
         }

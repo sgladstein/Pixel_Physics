@@ -1,0 +1,31 @@
+quiet_unread: 184 links of unread units zeroed; live links 706 -> 522
+trainable slots: 320 (live 311, allow-list 9)
+rules copied: ['down']
+group none : train   6866  held out   1134  target ref
+group down : train   6780  held out   1220  target teacher
+group keep : train   5343  held out   2657  target ref
+step 0: held-out KL none 0.0000 down 2.2931 keep 0.0000
+step 100: held-out KL none 0.0470 down 1.3906 keep 0.1190  sum 1.5566  (9 s)
+step 200: held-out KL none 0.0423 down 1.1470 keep 0.1048  sum 1.2941  (19 s)
+step 300: held-out KL none 0.0391 down 0.8771 keep 0.0949  sum 1.0111  (29 s)
+step 400: held-out KL none 0.0432 down 0.7735 keep 0.1168  sum 0.9335  (39 s)
+step 500: held-out KL none 0.0347 down 0.7149 keep 0.1133  sum 0.8629  (47 s)
+step 600: held-out KL none 0.0306 down 0.7076 keep 0.1092  sum 0.8474  (56 s)
+step 700: held-out KL none 0.0316 down 0.6847 keep 0.1115  sum 0.8277  (66 s)
+step 800: held-out KL none 0.0291 down 0.6880 keep 0.1088  sum 0.8259  (75 s)
+step 900: held-out KL none 0.0317 down 0.6673 keep 0.1188  sum 0.8179  (84 s)
+step 1000: held-out KL none 0.0304 down 0.6665 keep 0.1102  sum 0.8071  (94 s)
+step 1100: held-out KL none 0.0328 down 0.6465 keep 0.1145  sum 0.7938  (104 s)
+step 1200: held-out KL none 0.0303 down 0.6364 keep 0.1171  sum 0.7837  (113 s)
+step 1300: held-out KL none 0.0379 down 0.6182 keep 0.1249  sum 0.7811  (122 s)
+step 1400: held-out KL none 0.0346 down 0.6269 keep 0.1190  sum 0.7805  (131 s)
+step 1500: held-out KL none 0.0339 down 0.5915 keep 0.1278  sum 0.7532  (139 s)
+step 1600: held-out KL none 0.0342 down 0.5884 keep 0.1314  sum 0.7541  (149 s)
+step 1700: held-out KL none 0.0334 down 0.5854 keep 0.1353  sum 0.7540  (158 s)
+step 1800: held-out KL none 0.0338 down 0.5958 keep 0.1315  sum 0.7610  (167 s)
+step 1900: held-out KL none 0.0347 down 0.5711 keep 0.1366  sum 0.7424  (176 s)
+step 2000: held-out KL none 0.0399 down 0.5390 keep 0.1521  sum 0.7310  (186 s)
+wrote /home/user/seeds/down-s2.txt: best step 2000, live links 531 (start 706), moved 273, revived 9 [np.int64(654), np.int64(699), np.int64(789), np.int64(834), np.int64(924), np.int64(1059), np.int64(1149), np.int64(1239), np.int64(1498)]
+  none  start: overlap with target 1.000 | copy: overlap with target 0.955
+  down  start: overlap with target 0.266 | copy: overlap with target 0.628
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.884

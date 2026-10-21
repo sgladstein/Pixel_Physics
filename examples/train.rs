@@ -58,6 +58,9 @@
 //! `race=N` (off unless set): each generation's genomes on the first N of its
 //! layouts, the better half on the rest (`train::race`); N even for a mirrored
 //! arena.
+//! `noprune=1498,654,...` (or `noprune=@file`): slots selection may tune but
+//! never prune (`train::Settings::no_prune`), for a run from a copied brain;
+//! a listed scorer input brings its unit's output weight with it.
 //! `protect=0|1` (1 unless set): leave the connections of verbs a suite's
 //! learning arena can never use (Eat while digging) out of mutation and
 //! pruning (`train::Settings::protect`).
@@ -396,6 +399,14 @@ fn main() {
             }
             "keepref" => keepref = v.into(),
             "race" => set.race = v.parse().unwrap_or_else(|_| panic!("race={v}: the first round's layouts, 0 for off")),
+            "noprune" => {
+                // A list (`1498,654`) or `@file`, one slot per line.
+                let text = match v.strip_prefix('@') {
+                    Some(f) => std::fs::read_to_string(f).unwrap_or_else(|e| panic!("noprune=@{f}: {e}")),
+                    None => v.replace(',', "\n"),
+                };
+                set.no_prune = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).map(|l| l.parse().unwrap_or_else(|_| panic!("noprune: {l} is not a slot number"))).collect();
+            }
             "protect" => {
                 assert!(v == "0" || v == "1", "protect={v}: 1 leaves untestable verbs' connections alone (the default), 0 trains every slot");
                 set.protect = v == "1";
@@ -426,7 +437,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} noprune={:?} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -435,6 +446,7 @@ fn main() {
         set.patience,
         set.resume,
         set.protect,
+        set.no_prune,
         set.race,
         set.seed,
         set.pop,
