@@ -646,6 +646,22 @@ by somebody about to try it on creatures.
   (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab stand less
   than seed-to-seed spread. The touch roof sense shipped on `main` as the
   default (`be3bf9a2`).
+- [soil-water-performance-ideas-2026-10-21.md](soil-water-performance-ideas-2026-10-21.md) —
+  **measured 2026-10-21, both gates passed 2026-10-22; the rule change lands
+  through the lab world performance lane.** Why the soil-moisture pass is
+  41% of the played lab box's tick and 73% of a 48-wide training bed: the
+  drainage rule moves a quarter of a cell's surplus and truncates, so every
+  raindrop decays into a one-unit-per-tick conveyor that walks every cell of
+  its column to the floor drain (5,980 drainage writes a tick, 63% of one
+  unit; the bed rests at field capacity + 3). Bit-identical work tops out
+  near 1.3x on the pass (an infiltration-read skip measured −9.6%
+  instructions, hashes equal); the lever is the rule. Three rules sized with
+  pictures: a surplus-under-16-leaves-whole variant keeps the plume (2.42 →
+  1.59 ms a tick), rate 1.0 all but removes the pass (1.31 ms). Owner chose
+  the fastest; plants unchanged beyond noise, ant bench inside noise, lab run
+  220 → 180 s. Carries the drying-schedule coupling any rule change needs
+  (a cell that drinks a drop and passes it all on in one visit was never
+  armed for drying) and the switch gap found at the root-mat pull site.
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
