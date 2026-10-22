@@ -95,16 +95,45 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
 }
 /// Write a `nestmap.txt` into a fresh world: every cell whose recorded material differs is set to it, except cells
 /// that hold an organism now (the founders, plants) and `?` cells. Returns how many cells changed.
-fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str) -> usize {
+///
+/// `nest_only` (`inherit_nest=1`): carry the nest and nothing else. colselinh-1022 carried the whole terrain and every
+/// arm got worse (lexicase: starved 8.0 vs 2.2 of 24 in the garden, rooms 0.35 vs 1.0; in-run starvation 4x in round
+/// 1): the crater, the spoil let go in old tunnels and the packed mounds round the food heaps all carried over and
+/// grew round on round. So here only the open cells joined to the door below the datum are carved, and of those only
+/// roofed ones (some ground above them in the recorded column) plus the door's own shaft (NEST +-1): the crater is
+/// sky-open and stays behind, and everything else is the fresh world's.
+fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>) -> usize {
     let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
     let mut lines = t.lines();
     let head: Vec<&str> = lines.next().expect("nestmap header").split(' ').collect();
     let (x0, y0): (i32, i32) = (head[0].parse().unwrap(), head[1].parse().unwrap());
     let ids: Vec<_> = head.get(2).map_or(vec![], |l| l.split(',').map(|n| w.materials.id_of(n).unwrap_or_else(|| panic!("nestmap material {n}"))).collect());
+    let grid: Vec<&[u8]> = lines.map(|l| l.as_bytes()).filter(|l| !l.is_empty()).collect();
+    let empty = ids.iter().position(|&m| m == pixel_physics::sim::material::EMPTY).map(|k| b'A' + k as u8);
+    // nest_only: flood the open cells below the datum from the door, keep the roofed ones and the shaft.
+    let keep: Option<std::collections::HashSet<(usize, usize)>> = nest_only.map(|surf| {
+        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|&c| Some(c) == empty || c == b'?');
+        let below = |dx: usize, dy: usize| { let x = x0 + dx as i32; x >= 0 && (x as usize) < surf.len() && y0 + dy as i32 >= surf[x as usize] };
+        let door = (inrun::NEST - x0) as usize;
+        let mut seen = std::collections::HashSet::new();
+        let mut stack: Vec<(usize, usize)> = (0..grid.len()).filter(|&dy| open(door, dy) && below(door, dy)).map(|dy| (door, dy)).collect();
+        while let Some((dx, dy)) = stack.pop() {
+            if !seen.insert((dx, dy)) {
+                continue;
+            }
+            for (ex, ey) in [(dx.wrapping_sub(1), dy), (dx + 1, dy), (dx, dy.wrapping_sub(1)), (dx, dy + 1)] {
+                if ey < grid.len() && open(ex, ey) && below(ex, ey) && !seen.contains(&(ex, ey)) {
+                    stack.push((ex, ey));
+                }
+            }
+        }
+        let roofed = |dx: usize, dy: usize| (0..dy).any(|yy| grid[yy].get(dx).is_some_and(|&c| Some(c) != empty && c != b'?'));
+        seen.into_iter().filter(|&(dx, dy)| (dx as i32 - door as i32).abs() <= 1 || roofed(dx, dy)).collect()
+    });
     let mut n = 0;
-    for (dy, row) in lines.enumerate() {
-        for (dx, ch) in row.bytes().enumerate() {
-            if ch == b'?' {
+    for (dy, row) in grid.iter().enumerate() {
+        for (dx, &ch) in row.iter().enumerate() {
+            if ch == b'?' || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
@@ -233,7 +262,8 @@ fn main() {
     // inherit=PATH: start in the nest a previous round dug (see `read_nestmap`). Before the datum and the original
     // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
     if let Some(p) = arg(&a, "inherit") {
-        let n = read_nestmap(&mut w, p);
+        let surf: Vec<i32> = (0..256).map(|x| inrun::surface(&w, &sc, x)).collect();
+        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]));
         eprintln!("inherit: {n} cells set from {p}");
     }
     // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the

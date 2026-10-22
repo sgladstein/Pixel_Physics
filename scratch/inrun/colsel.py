@@ -20,6 +20,8 @@ came from: the colony's own last round, or its donor's when it was refounded; in
 Writes OUT/colsel.csv (one row per colony-round) and OUT/cg.csv (one row per colony per garden).
 """
 import csv, os, subprocess, sys, gzip, random, shutil
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nestcount
 from concurrent.futures import ThreadPoolExecutor
 
 OUT, MODE, NCOL, R, F, G = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
@@ -27,6 +29,14 @@ EXTRA = sys.argv[7:]
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
+# DIG=nest (default since 2026-10-22 17:00Z): the dig gate and the lexicase dig cases read the nest the colony actually
+# kept (nestcount.py: late cuts whose cell is still roofed nest joined to the door at the end, and the nest's size)
+# instead of raw late cuts and nest-score rooms. Owner asked for cuts that expand the nest; measured the same day, the
+# replay's "best" colony made 272 cuts near the door and kept a nest of 19 cells (old ant 278), its cuts all crater.
+# DIG=cuts is colsel-1022's rule. GATE then defaults to 5 kept late cuts (one round of hA1: 19; old ant: 48).
+DIG = os.environ.get('DIG', 'nest')
+if DIG == 'nest' and 'GATE' not in os.environ:
+    GATE = 5
 CG_EVERY = int(os.environ.get('CG_EVERY', '2'))
 INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # MODE 'lex+inherit' = INHERIT=1
 MODE = MODE.removesuffix('+inherit')
@@ -86,7 +96,9 @@ def result(rdir, frames):
             n = rows[-1]
             rooms, alive = int(n['chambers']) + int(n['niches']), int(n['alive'])
             dug, pit = int(n['dug']), int(n['pit'])
-    return home, late, starved, rooms, alive, cuts, dug, pit
+    n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
+    return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
+            n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0)
 
 
 def ranks(vals, higher_better=True):
@@ -104,8 +116,13 @@ def ranks(vals, higher_better=True):
 
 
 def cases(v):
-    """The lexicase/rank cases of a colony result, every one higher-is-better."""
-    return (v[0], -v[2], v[1], v[3])
+    """The lexicase/rank cases of a colony result, every one higher-is-better: food home, fewer starved, then digging
+    (DIG=nest: kept late cuts and nest size; DIG=cuts: raw late cuts and rooms)."""
+    return (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
+
+
+def dig_passed(v):
+    return (v[10] if DIG == 'nest' else v[1]) >= GATE
 
 
 def lexicase(pool, res, rng):
@@ -137,7 +154,7 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in\n')
         for c in sorted(got):
             f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + '\n')
 
@@ -146,7 +163,7 @@ rng = random.Random(12345)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,passed_gate,rank,refounded_from\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,passed_gate,rank,refounded_from\n')
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
@@ -164,7 +181,7 @@ for r in range(R):
     # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
-    passed = {c: c in ok and res[c][1] >= GATE for c in cols}
+    passed = {c: c in ok and dig_passed(res[c]) for c in cols}
     if MODE == 'plain':
         order = sorted(ok, key=lambda c: c)
     else:
@@ -187,7 +204,7 @@ for r in range(R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * 8
+        v = res[c] or (0,) * 14
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
