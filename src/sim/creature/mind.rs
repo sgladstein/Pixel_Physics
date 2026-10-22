@@ -1834,6 +1834,39 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                     }
                 }
             }
+            // SCRATCH (dig-scoring thread, 2026-10-22): `PP_SPOILVETO=R` refuses letting go of a pellet of spoil below
+            // the frozen datum (inside the nest or the crater) or within R columns of `PP_RIMVETO_X` (default 128): when
+            // the brain picks such a Drop with spoil in the jaws, every such Drop is taken off and it redraws. Late in a
+            // 200k round a third of carried spoil was let go in the shaft (median 6 rows down, 6 columns from the door)
+            // and a third of re-cuts were soil sliding back from beside the door (hA1, 8 seeds); with PP_RIMVETO on, a
+            // third of spoil went down within 5 columns of the door. The spoil teacher, for copying.
+            static SPOILVETO: std::sync::OnceLock<Option<(i32, i32)>> = std::sync::OnceLock::new();
+            let sv = *SPOILVETO.get_or_init(|| {
+                let r = std::env::var("PP_SPOILVETO").ok()?.parse::<i32>().ok()?;
+                Some((r, std::env::var("PP_RIMVETO_X").ok().and_then(|v| v.parse().ok()).unwrap_or(128)))
+            });
+            if let Some((r, nx)) = sv {
+                if world.organism(organism).is_some_and(|s| s.spoil.is_some()) {
+                    let near = |o: &Opt| {
+                        let (tx, ty) = o.target;
+                        o.verb == Verb::Drop && ((tx - nx).abs() <= r || world.room_surface_at(tx).is_some_and(|s| ty >= s))
+                    };
+                    if let Some(i) = d.as_ref().map(|d| d.pick) {
+                        if near(&opts[i]) {
+                            let allowed: Vec<Opt> = opts.iter().copied().filter(|o| !near(o)).collect();
+                            if !allowed.is_empty() {
+                                mind.state.mem = mem0;
+                                mind.state.last_verb = last0;
+                                let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1003);
+                                if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
+                                    d = Some(d2);
+                                    redrawn = Some(allowed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if scratch_log::teach_on() {
                 if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
                     let own_verb = opts[pick].verb;
