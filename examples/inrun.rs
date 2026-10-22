@@ -477,7 +477,10 @@ fn main() {
             }
         }
         // A pellet let go: where the head is now.
-        let gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
+        // Sorted: `held` is a HashMap, and the order pellets are handled in moves `loose_n` (an out-pellet's clear price
+        // reads it) and the order credits are summed. Unsorted, 2 of 64 seeds diverged between two runs of one build.
+        let mut gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
+        gone.sort_unstable();
         for id in gone {
             let (tag, nest) = held.remove(&id).unwrap();
             let Some(&(x, y)) = w.organism(id).and_then(|s| s.chain.first()) else { continue };
