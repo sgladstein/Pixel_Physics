@@ -463,7 +463,9 @@ pub fn tick(world: &mut World, site: &ActiveSite, ahead: &SpecWindow) -> Vec<Act
     // the worm, which keeps its own researched burrowing economics. See
     // the section header above `plant_creature_seed` for why these are
     // deliberately two locomotion models rather than one parameterised one.
-    match world.species.get(state.species).creature.clone() {
+    // Shared, not cloned: the copy and its drop were ~1% of the new ant's
+    // frame (`SpeciesRegistry::creature_shared`).
+    match world.species.creature_shared(state.species) {
         Some(def) => creature_tick(world, site.x, site.y, organism, &def, ahead),
         None => worm_tick(world, site.x, site.y, organism),
     }
@@ -27389,9 +27391,18 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
 /// The support check and fall of `fall_if_unsupported`, for a caller that
 /// has not already read the body.
 fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef) -> bool {
-    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
+    let Some(state) = world.organism(organism) else {
         return false;
     };
+    // **Standing on ground is settled with the body borrowed**, and the
+    // body is copied only for an animal that may fall: the two clones
+    // every tick were 0.3% of the new ant's frame (callgrind, 2026-10-22),
+    // and `touches_ground` is a pure read that `fall_if_unsupported` asks
+    // first anyway, so the answer is the same.
+    if touches_ground(world, &state.chain) {
+        return false;
+    }
+    let (chain, groups) = (state.chain.clone(), state.segment_groups.clone());
     let stacker = stacker_of(world, organism);
     fall_if_unsupported(world, organism, def, &chain, &groups, stacker)
 }
@@ -31454,6 +31465,32 @@ fn body_after_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32
         segmented_body_after_step(world, body, head, push)
     } else {
         (chain_follow(chain, head), groups.to_vec())
+    }
+}
+
+/// [`body_after_step`]'s landing alone, written into `out` -- for a
+/// caller that tries several headings and keeps none of the landings, so
+/// one buffer serves them all. A chain's follow is built in place; the
+/// other two plans copy `body_after_step`'s answer, so every plan lands
+/// exactly where it would. The options' eight walk landings were 384 k
+/// `Vec`s a 600 frames, ~1% of the new ant's frame with their frees
+/// (callgrind, 2026-10-22).
+fn landing_after_step_into(
+    world: &World,
+    def: &CreatureDef,
+    body: BodyShape,
+    head: (i32, i32),
+    headings: (u8, u8),
+    push: bool,
+    out: &mut Vec<(i32, i32)>,
+) {
+    out.clear();
+    if def.body.is_rigid() || matches!(def.body, BodyPlan::Segmented(_)) {
+        out.extend_from_slice(&body_after_step(world, def, body, head, headings.0, headings.1, push).0);
+    } else {
+        // `chain_follow`, into the buffer.
+        out.push(head);
+        out.extend(body.chain.iter().take(body.chain.len().saturating_sub(1)).copied());
     }
 }
 

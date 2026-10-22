@@ -1172,6 +1172,26 @@ impl<'a, T: TileLookup + ?Sized> BilinearSampler<'a, T> {
 
     /// `World::field_at_bilinear(fx, fy)`.
     pub(crate) fn at(&mut self, fx: f32, fy: f32) -> FieldCell {
+        let (corners, tx, ty) = self.corners(fx, fy);
+        bilinear_mix(corners, tx, ty)
+    }
+
+    /// `World::field_at_bilinear(fx, fy).temperature`, blending that one
+    /// channel: each channel is lerped on its own in [`bilinear_mix`], so
+    /// this is the same arithmetic on the same corners. The ant reads only
+    /// the temperature, and mixing the other seven was most of the cost
+    /// once the corners were shared (performance lane, 2026-10-22).
+    pub(crate) fn temperature_at(&mut self, fx: f32, fy: f32) -> f32 {
+        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let ([c00, c10, c01, c11], tx, ty) = self.corners(fx, fy);
+        lerp(lerp(c00.temperature, c10.temperature, tx), lerp(c01.temperature, c11.temperature, tx), ty)
+    }
+
+    /// The point's block corners, from the last block when it is the same
+    /// one, and the weights within it. Always inlined: as a call, its
+    /// 128-byte return cost the old ant's sampler reads 0.2% of a frame.
+    #[inline(always)]
+    fn corners(&mut self, fx: f32, fy: f32) -> ([FieldCell; 4], f32, f32) {
         let (x0, y0, tx, ty) = bilinear_origin(fx, fy);
         let (px, py) = (fx.floor() as i32, fy.floor() as i32);
         let key = (x0, y0, self.bounds.is_none_or(|b| b.contains(px, py)), field_coord_of(px, py));
@@ -1184,7 +1204,7 @@ impl<'a, T: TileLookup + ?Sized> BilinearSampler<'a, T> {
                 corners
             }
         };
-        bilinear_mix(corners, tx, ty)
+        (corners, tx, ty)
     }
 }
 
@@ -5785,6 +5805,8 @@ mod tests {
                 }
                 let want = w.field_at_bilinear(x, y);
                 assert_eq!(format!("{:?}", sampler.at(x, y)), format!("{want:?}"), "({x}, {y}) in {bounds:?}");
+                // ...and the ant's temperature-only read, to the bit.
+                assert_eq!(sampler.temperature_at(x, y).to_bits(), want.temperature.to_bits(), "temperature at ({x}, {y}) in {bounds:?}");
                 points += 1;
                 let (x0, y0, _, _) = bilinear_origin(x, y);
                 blocked += usize::from([(0, 0), (FIELD_SCALE, 0), (0, FIELD_SCALE), (FIELD_SCALE, FIELD_SCALE)].iter().any(|&(dx, dy)| is_blocked(w.fields_ref(), w.bounds(), x0 + dx, y0 + dy)));

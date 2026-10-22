@@ -32,6 +32,7 @@
 //! are `x / (1 + |x|)`, and the one draw per pick comes from a stream keyed
 //! on the seed, the ant and the frame.
 
+use crate::sim::material::Known;
 use super::options::{self, Opt, Verb, FEATURES, VERBS};
 use super::{
     adjacent_nest, armour_of, bite_force_of, blend_with_nest, carried_cells, choose_weighted, commit_step,
@@ -2025,7 +2026,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     // the settle, since a dead ant's body is corpse, and corpse is food.
     let soil = world.organism(organism).is_some_and(|s| s.spoil.is_some());
     let food_near = soil && {
-        let corpse = world.materials.id_of("corpse");
+        let corpse = world.materials.known(Known::Corpse);
         DIRS.iter().any(|&(dx, dy)| {
             let cell = world.get(hx + dx, hy + dy);
             world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0 && Some(cell.material) != corpse
@@ -2117,7 +2118,7 @@ fn pick_up(
     let food = bite.material;
     if jaws
         || world.materials.get(food).food_energy <= 0.0
-        || world.materials.id_of("corpse") == Some(food)
+        || world.materials.known(Known::Corpse) == Some(food)
         || bite.organism_id() != 0
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {

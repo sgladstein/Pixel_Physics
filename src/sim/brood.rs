@@ -898,7 +898,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         return Vec::new();
     };
     let species = state.species;
-    let Some(def) = world.species.get(species).creature.clone() else {
+    let Some(def) = world.species.creature_shared(species) else {
         return Vec::new();
     };
     // A world that switched brood off mid-life still runs what is already

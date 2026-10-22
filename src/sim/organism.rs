@@ -8134,6 +8134,14 @@ pub struct SpeciesRegistry {
     /// fixed for a world's whole life (`World::cell_scale`). Scaling once,
     /// at the funnel, is the version that cannot be forgotten at a site.
     cell_scale: f32,
+    /// **Each species' creature def, shared rather than copied**, filled on
+    /// first ask by [`Self::creature_shared`]. Every creature tick needs the
+    /// def by value while it holds `&mut World`, and cloning it (a dozen
+    /// `Vec`s) and dropping it again was ~1% of the new ant's frame
+    /// (callgrind, 2026-10-22: 50 k clones and drops a 600 frames). Emptied
+    /// by every `&mut self` method, which are the only writers of `species`,
+    /// so a shared def can never be older than the species it came from.
+    shared: Vec<std::sync::OnceLock<Option<std::sync::Arc<CreatureDef>>>>,
 }
 
 const EMBEDDED: &[&str] = &[
@@ -8312,7 +8320,24 @@ fn life_half_life_override() -> &'static [(String, f32)] {
 }
 impl SpeciesRegistry {
     fn empty() -> Self {
-        Self { species: Vec::new(), by_name: super::fxhash::FxHashMap::default(), cell_scale: 1.0 }
+        Self { species: Vec::new(), by_name: super::fxhash::FxHashMap::default(), cell_scale: 1.0, shared: Vec::new() }
+    }
+
+    /// **This species' creature def, shared** -- the same value as
+    /// `get(id).creature.clone()`, without the copy. See `shared`.
+    pub fn creature_shared(&self, id: SpeciesId) -> Option<std::sync::Arc<CreatureDef>> {
+        match self.shared.get(id.0 as usize) {
+            Some(slot) => slot.get_or_init(|| self.species[id.0 as usize].creature.clone().map(std::sync::Arc::new)).clone(),
+            None => self.species[id.0 as usize].creature.clone().map(std::sync::Arc::new),
+        }
+    }
+
+    /// Empty [`Self::creature_shared`]'s memo. Called first by every
+    /// `&mut self` method: a write anywhere in `species` must not be read
+    /// back stale.
+    fn forget_shared(&mut self) {
+        self.shared.clear();
+        self.shared.resize_with(self.species.len(), std::sync::OnceLock::new);
     }
 
     /// What resolution the creature defs in here are built for. `1.0` is
@@ -8330,6 +8355,7 @@ impl SpeciesRegistry {
     /// to say so. `World::cell_scale`'s own doc has the same rule for the
     /// same reason -- a world is built at one resolution and stays there.
     pub fn set_cell_scale(&mut self, k: f32) {
+        self.forget_shared();
         debug_assert!(
             (self.cell_scale - 1.0).abs() < f32::EPSILON || (self.cell_scale - k).abs() < f32::EPSILON,
             "species registry is already at cell_scale {}, refusing to re-scale to {k}",
@@ -8457,6 +8483,8 @@ impl SpeciesRegistry {
                 self.species.push(species);
             }
         }
+        // Last, so the memo is sized to the species just pushed.
+        self.forget_shared();
     }
 
     #[inline]
@@ -8479,6 +8507,7 @@ impl SpeciesRegistry {
     /// of a species inside the tick goes through [`Self::get`], which is what
     /// lets an edit here be felt on the very next tick with no reload path.
     pub fn get_mut(&mut self, id: SpeciesId) -> &mut Species {
+        self.forget_shared();
         &mut self.species[id.0 as usize]
     }
 
@@ -8490,6 +8519,7 @@ impl SpeciesRegistry {
     /// points cannot vary a knob within one process, so it cannot hold
     /// everything else fixed.
     pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
+        self.forget_shared();
         self.species[id.0 as usize].genome = genome;
     }
 
@@ -8536,6 +8566,7 @@ impl SpeciesRegistry {
     /// `apply_one`/`read_param`, so they cannot disagree about which field a
     /// `ParamId` names.
     pub fn set_param(&mut self, id: SpeciesId, cell_type: CellType, param: ParamId, tier: u8, value: f32) -> bool {
+        self.forget_shared();
         let o = ParamOverride { cell_type, param, tier, value };
         let mut wrote = false;
         for b in self.species[id.0 as usize].behaviors_mut(cell_type) {
@@ -8548,6 +8579,7 @@ impl SpeciesRegistry {
     }
 
     pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
+        self.forget_shared();
         let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
             return;
         };
@@ -8579,6 +8611,7 @@ impl SpeciesRegistry {
     /// world and writes it into a 2x one, so the arms differ by the scaling
     /// pass and by nothing else.
     pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
+        self.forget_shared();
         self.species[id.0 as usize].creature = Some(def);
     }
 
@@ -8594,6 +8627,7 @@ impl SpeciesRegistry {
     /// the real shipped shape back instead of the one it asked for. Clearing
     /// the table here is how a test gets `def.body` honoured again.
     pub fn set_fates(&mut self, id: SpeciesId, fates: Vec<(CellType, Vec<Fate>)>) {
+        self.forget_shared();
         self.species[id.0 as usize].fates = fates;
     }
 
