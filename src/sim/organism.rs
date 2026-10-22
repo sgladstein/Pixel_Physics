@@ -34,7 +34,7 @@
 //! only becomes worth its own `CellSurface` plumbing once a real species
 //! wants a cell type that deliberately *doesn't* transport.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -8117,7 +8117,9 @@ pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
 #[derive(Clone)]
 pub struct SpeciesRegistry {
     species: Vec<Species>,
-    by_name: HashMap<String, SpeciesId>,
+    /// `FxHashMap` for the same reason as `MaterialRegistry::by_name`: looked
+    /// up by name on per-tick paths, never iterated.
+    by_name: super::fxhash::FxHashMap<String, SpeciesId>,
     /// **The resolution every creature def in here has been scaled to**, so
     /// that a species arriving *later* -- an F5 reload, a harness calling
     /// `register_ron` -- lands at the same size as the ones already here.
@@ -8306,7 +8308,7 @@ fn life_half_life_override() -> &'static [(String, f32)] {
 }
 impl SpeciesRegistry {
     fn empty() -> Self {
-        Self { species: Vec::new(), by_name: HashMap::new(), cell_scale: 1.0 }
+        Self { species: Vec::new(), by_name: super::fxhash::FxHashMap::default(), cell_scale: 1.0 }
     }
 
     /// What resolution the creature defs in here are built for. `1.0` is

@@ -8,7 +8,7 @@
 //! Only vacuum and the out-of-bounds wall are built in, because the engine
 //! itself refers to them.
 
-use std::collections::HashMap;
+use super::fxhash::FxHashMap;
 use std::fmt;
 use std::path::Path;
 
@@ -2806,7 +2806,14 @@ impl std::error::Error for MaterialError {}
 #[derive(Clone)]
 pub struct MaterialRegistry {
     materials: Vec<Material>,
-    by_name: HashMap<String, MaterialId>,
+    /// **`FxHashMap`, not std's `HashMap`.** `id_of` is called by name on
+    /// hot paths -- every dormant seed's tick asks for `buriedseed`, its own
+    /// seed material, `litter`, `deadleaf` and `pip` -- and std's SipHash
+    /// over those short keys was 3.1% of a 512-wide mixed plant bed's
+    /// instructions (`examples/plantcost scene=community`, callgrind,
+    /// 2026-10-22). The map is only ever looked up, inserted into and
+    /// cloned, never iterated, so the hasher cannot reach any result.
+    by_name: FxHashMap<String, MaterialId>,
 }
 
 impl MaterialRegistry {
@@ -2815,7 +2822,7 @@ impl MaterialRegistry {
     fn base() -> Self {
         let mut reg = Self {
             materials: Vec::new(),
-            by_name: HashMap::new(),
+            by_name: FxHashMap::default(),
         };
         reg.insert(Material::from(MaterialDef {
             name: "empty".into(),
