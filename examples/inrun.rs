@@ -247,6 +247,13 @@ fn main() {
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
     let w_home_eat = fnum("w_home_eat", 0.0);
+    // strict=1 closes four holes the design doc's adversarial review found (2026-10-22), all off by default so the
+    // earlier batches reproduce: (a) a trip cell put down more than 12 columns from the nest is not a delivery (the
+    // food log books every trip put-down, home or not: 43 of 674 'deliveries' in two seed-3 runs lay 13+ columns out);
+    // (b) the meal at home pays after a trip out only if the trip bit food (a walk out and back was enough); (c) the
+    // hungry departure pays at the trip's first field bite, not at the crossing; (d) progress pay is taken back per
+    // cell not delivered, not only when none arrives.
+    let strict = num("strict", 0) > 0;
     // A floor on turnover: when `turnover` frames pass with no birth, the adult with the lowest z is replaced by a
     // child of the adult with the highest (random arm: both at random). A healthy colony otherwise froze: in the
     // nest-purpose rounds, once the headcount sat in its band no ant cleared the bars and rounds 2-3 had 0-47 births
@@ -364,6 +371,11 @@ fn main() {
     let progress = num("progress", 0) > 0;
     // Per carrier: (start columns, best columns, progress paid, cells delivered this trip).
     let mut carry: HashMap<u32, (f64, f64, f64, u32)> = HashMap::new();
+    // strict: the most cells each carrier held this trip, who has bitten food on this trip out, and hungry departures
+    // waiting for their first field bite (departure frame).
+    let mut carried: HashMap<u32, u32> = HashMap::new();
+    let mut bit: std::collections::HashSet<u32> = Default::default();
+    let mut hungry_due: HashMap<u32, u64> = HashMap::new();
     // starve_at=F:G (a probe, not training): at frame F every ant's bank is set to G full grants, to see which brains
     // leave home when hungry (die-offs: nobody did).
     let starve_at: Option<(u64, f64)> = arg(&a, "starve_at").map(|v| {
@@ -469,6 +481,7 @@ fn main() {
                     if let Some(b) = book.get_mut(&r.who) {
                         if b.tripped && w_home_eat > 0.0 {
                             b.tripped = false;
+                            bit.remove(&r.who);
                             b.credit += w_home_eat;
                             b.g2 += w_home_eat * w_home_eat;
                         }
@@ -476,6 +489,17 @@ fn main() {
                     writeln!(ev, "{frame},{},homeeat,{x},{y},{},0", r.who, r.worth).unwrap()
                 }
                 creature::FOOD_SWALLOW if !r.flag => {
+                    if strict {
+                        bit.insert(r.who);
+                        if let Some(at) = hungry_due.remove(&r.who) {
+                            hungry_paid += 1;
+                            if let Some(b) = book.get_mut(&r.who) {
+                                b.credit += w_hungry;
+                                b.g2 += w_hungry * w_hungry;
+                            }
+                            writeln!(ev, "{frame},{},hungryout,{x},0,{at},0", r.who).unwrap();
+                        }
+                    }
                     n_field += 1;
                     cell_worth += (r.worth as f64 - cell_worth) / n_field as f64;
                     if let Some(b) = book.get_mut(&r.who) {
@@ -484,6 +508,7 @@ fn main() {
                     }
                     writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
                 }
+                creature::FOOD_DROP if r.flag && strict && !home => writeln!(ev, "{frame},{},tdrop,{x},{y},0,0", r.who).unwrap(),
                 creature::FOOD_DROP if r.flag => {
                     food_home += 1;
                     delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
@@ -571,6 +596,8 @@ fn main() {
                 if trip > 0 && cells > 0 {
                     let d = (x - inrun::NEST).abs() as f64;
                     let c = carry.entry(id).or_insert((d.max(1.0), d, 0.0, 0));
+                    let most = carried.entry(id).or_insert(0);
+                    *most = (*most).max(cells as u32);
                     if d < c.1 {
                         let g = 0.5 * w_del * fpr_now * cells as f64 * (c.1 - d) / c.0;
                         c.1 = d;
@@ -580,7 +607,12 @@ fn main() {
                         b.g2 += g * g;
                     }
                 } else if let Some(c) = carry.remove(&id) {
-                    if c.3 == 0 && c.2 > 0.0 {
+                    let most = carried.remove(&id).unwrap_or(0).max(1) as f64;
+                    if strict && c.2 > 0.0 {
+                        let back = c.2 * (1.0 - (c.3 as f64 / most).min(1.0));
+                        let b = book.get_mut(&id).unwrap();
+                        b.credit -= back;
+                    } else if c.3 == 0 && c.2 > 0.0 {
                         let b = book.get_mut(&id).unwrap();
                         b.credit -= c.2;
                     }
@@ -604,10 +636,15 @@ fn main() {
                     let st = leave.entry(id).or_insert((true, 0));
                     if dx <= 12 {
                         st.0 = true;
+                        hungry_due.remove(&id);
                     } else if dx >= 15 && st.0 {
                         st.0 = false;
                         if e < hungry_at * start_e && (st.1 == 0 || frame - st.1 >= hungry_gap) {
                             st.1 = frame;
+                            if strict {
+                                hungry_due.insert(id, frame);
+                                continue;
+                            }
                             hungry_paid += 1;
                             let b = book.get_mut(&id).unwrap();
                             b.credit += w_hungry;
@@ -619,7 +656,7 @@ fn main() {
             }
             for (id, b) in book.iter_mut() {
                 if let Some(&(x, _)) = w.organism(*id).and_then(|s| s.chain.first()) {
-                    if (x - inrun::NEST).abs() >= 15 {
+                    if (x - inrun::NEST).abs() >= 15 && (!strict || bit.contains(id)) {
                         b.tripped = true;
                     }
                 }
