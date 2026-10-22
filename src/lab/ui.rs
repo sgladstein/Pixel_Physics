@@ -236,6 +236,9 @@ const SUB_ON: [u8; 4] = [156, 202, 176, 255];
 const READOUT_BG: [u8; 4] = [14, 16, 20, 255];
 const PANEL_BG: [u8; 4] = [17, 19, 24, 255];
 const PANEL_EDGE: [u8; 4] = [88, 98, 114, 255];
+/// The title band of every window (`window_frame`), and the rule under it.
+const TITLE_BAND: [u8; 4] = [28, 33, 44, 255];
+const ACCENT: [u8; 4] = [86, 150, 214, 255];
 const TITLE: [u8; 4] = [238, 238, 210, 255];
 const VALUE: [u8; 4] = [228, 234, 240, 255];
 const FAINT: [u8; 4] = [132, 139, 153, 255];
@@ -244,6 +247,10 @@ const GOOD: [u8; 4] = [112, 208, 132, 255];
 const FAIR: [u8; 4] = [224, 192, 92, 255];
 const POOR: [u8; 4] = [224, 112, 92, 255];
 const MARKER: [u8; 4] = [255, 214, 92, 255];
+
+/// The ANTS page's views: the population at a glance, and the groups
+/// (colonies or species) over time with the toggles that colour them.
+const ANTS_TABS: [&str; 2] = ["SUMMARY", "GROUPS"];
 
 /// The TRAINING page's views, in the order its SHOWING row steps them.
 const TRAINING_TABS: [&str; 4] = ["STATUS", "SETTINGS", "BEST ANTS", "WHAT HAPPENED"];
@@ -288,6 +295,15 @@ impl Rect {
     }
     fn bottom(&self) -> i32 {
         self.y + self.h
+    }
+    /// Whether the two share a pixel, or come within a pixel of it: two
+    /// windows edge to edge read as one window with a seam.
+    pub fn touches(&self, other: &Rect) -> bool {
+        self.x <= other.right() && other.x <= self.right() && self.y <= other.bottom() && other.y <= self.bottom()
+    }
+    pub fn union(&self, other: &Rect) -> Rect {
+        let (x, y) = (self.x.min(other.x), self.y.min(other.y));
+        Rect { x, y, w: self.right().max(other.right()) - x, h: self.bottom().max(other.bottom()) - y }
     }
 }
 
@@ -378,6 +394,29 @@ fn draw_icon(hc: render::Hud, frame: &mut [u8], icon: Icon, x: i32, y: i32, colo
 pub enum TypedField {
     Copies,
     Frames,
+}
+
+/// **The three windows that share the screen with the box**, for the
+/// rule that keeps them off each other (owner, 2026-10-22: *"sometimes
+/// windows overlap or refuse to close"*).
+///
+/// The open page docks on the left; the cell page and the BIOSPHERE page
+/// dock on the right, under the BATTLE panel when it is up. When two of them
+/// would still touch -- a wide table beside a wide cell page, BIOSPHERE above
+/// a tall cell page -- **the one opened last stays open and the other folds
+/// to its title strip**, which one click brings back. Folding rather than
+/// shrinking, because every page here is laid out at its natural width and a
+/// squeezed one would clip its own text; folding rather than closing,
+/// because the folded one is still what the player opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Window {
+    #[default]
+    Page,
+    Cell,
+    Stats,
+    /// BATTLE, at the top of the right-hand column. It docks over nothing,
+    /// but a wide page (MENU, NUMBERS, a roster) reaches it from the left.
+    Battle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -489,6 +528,20 @@ pub enum Action {
     /// no other way to put the page away. Owner: "there is no easy way to
     /// make the CELL info box close."
     CloseInspected,
+    /// **Put the open page away from its own close box.** Every page
+    /// carries one in its title bar since 2026-10-22, owner: *"sometimes
+    /// windows overlap or refuse to close"*. Before it, PLANTS, ANTS and THE
+    /// BOX closed only by finding their key, or by opening some other page.
+    ClosePage,
+    /// Shut BIOSPHERE from its own X. Not [`Action::Stats`], which on a
+    /// folded BIOSPHERE brings it back instead.
+    CloseStats,
+    /// Show tab `usize` of the page named -- the tabs along the top of a
+    /// page with more than one view ([`Body::Tabs`]).
+    PageTab(Panel, usize),
+    /// **Bring a folded window back** -- the click on its title strip. See
+    /// [`Window`] and `Ui::place_windows`.
+    Focus(Window),
     /// **Arm the armed jar for placing**, and get the rack out of the way so
     /// there is a box to place it in. The button that replaced the `FREE`
     /// tool.
@@ -1158,9 +1211,11 @@ impl Panel {
             Panel::Plants => "PLANTS",
             Panel::Ants => "ANTS",
             Panel::Box => "THE BOX",
-            Panel::Params => "PARAMETERS",
-            Panel::Shelf => "THE SHELF",
-            Panel::Chambers => "THE RACK",
+            // Plain names (`Reports/lab-ui-redesign-2026-10-22.md` step 3):
+            // what a player would call them, not what the code does.
+            Panel::Params => "NUMBERS",
+            Panel::Shelf => "KEPT JARS",
+            Panel::Chambers => "CHAMBERS",
             Panel::PlantList => "EVERY PLANT",
             Panel::AntList => "EVERY ANIMAL",
             Panel::Log => "WHAT HAPPENED",
@@ -1893,6 +1948,27 @@ enum Body {
     /// anything, where a page that quietly stopped at the bottom of the
     /// screen had.
     Head { label: String, open: bool, hidden: usize, action: Action },
+    /// **A heading inside a list**, not clickable: MENU's WATCH,
+    /// INDIVIDUALS, EXPERIMENT. A rule above it so a group reads as a group.
+    Section { label: String },
+    /// **A page's tabs**, as a row of chips: the active one lit, each a
+    /// click to [`Action::PageTab`]. A page with more than fits is split
+    /// into views rather than trimmed by `fit_rows`.
+    Tabs { names: Vec<&'static str>, active: usize, panel: Panel },
+    /// **A whole split into its parts**: one bar, each part's share in its
+    /// own colour, the counts on a line under it. What a column of `STATE`
+    /// words in a roster says one row at a time, said once for the whole
+    /// population (`Reports/lab-ui-redesign-2026-10-22.md` step 4).
+    Stack { parts: Vec<(String, u32, [u8; 4])> },
+    /// **A distribution**: how many fall in each of `bins` equal bins, left
+    /// to right, each bin a stack of coloured parts (one part for a plain
+    /// histogram, one per cause of death for HISTORY's lifespans); `caption`
+    /// under it carries the range and the summary numbers.
+    Hist { caption: String, bins: Vec<Vec<(u32, [u8; 4])>> },
+    /// **Every individual as a dot**: `x` and `y` already in `0.0..=1.0`, in
+    /// the colour of its state. 3 px dots, so one stands out and a crowd
+    /// reads as a crowd.
+    Scatter { caption: String, points: Vec<(f32, f32, [u8; 4])> },
     Gap,
 }
 
@@ -1946,6 +2022,21 @@ impl Row {
     fn gap() -> Self {
         Self { body: Body::Gap, note: String::new() }
     }
+    fn section(label: impl Into<String>) -> Self {
+        Self { body: Body::Section { label: label.into() }, note: String::new() }
+    }
+    fn tabs(names: &[&'static str], active: usize, panel: Panel, note: impl Into<String>) -> Self {
+        Self { body: Body::Tabs { names: names.to_vec(), active, panel }, note: note.into() }
+    }
+    fn stack(parts: Vec<(String, u32, [u8; 4])>, note: impl Into<String>) -> Self {
+        Self { body: Body::Stack { parts }, note: note.into() }
+    }
+    fn hist(caption: impl Into<String>, bins: Vec<Vec<(u32, [u8; 4])>>, note: impl Into<String>) -> Self {
+        Self { body: Body::Hist { caption: caption.into(), bins }, note: note.into() }
+    }
+    fn scatter(caption: impl Into<String>, points: Vec<(f32, f32, [u8; 4])>, note: impl Into<String>) -> Self {
+        Self { body: Body::Scatter { caption: caption.into(), points }, note: note.into() }
+    }
     fn head(label: &str, open: bool, hidden: usize, action: Action, note: impl Into<String>) -> Self {
         Self {
             body: Body::Head { label: label.into(), open, hidden, action },
@@ -1972,6 +2063,12 @@ impl Row {
             // pixels under the chart, not inside it, so a row measuring only
             // the chart lets the caption overprint the legend row below it.
             Body::Lines { .. } => CHART_H + 10,
+            Body::Tabs { .. } => LINE + 5,
+            Body::Section { .. } => LINE + 3,
+            // The bar and, under it, one line of counts.
+            Body::Stack { .. } => STACK_H + 2 + LINE,
+            Body::Hist { .. } => HIST_H + 12,
+            Body::Scatter { .. } => SCATTER_H + 12,
             Body::Gap => 4,
         }
     }
@@ -1983,6 +2080,10 @@ impl Row {
             Body::Choice { label, value, .. } => hud::text_width(label) + 12 + hud::text_width(value),
             Body::Spark { label, .. } => hud::text_width(label).max(96),
             Body::Lines { caption, .. } => hud::text_width(caption).max(96),
+            Body::Tabs { names, .. } => names.iter().map(|n| hud::text_width(n) + 10).sum::<i32>(),
+            Body::Section { label } => hud::text_width(label),
+            Body::Stack { parts } => stack_legend(parts).iter().map(|(t, _)| hud::text_width(t) + 6).sum::<i32>().clamp(120, STACK_LEGEND_W),
+            Body::Hist { caption, .. } | Body::Scatter { caption, .. } => hud::text_width(caption).max(120),
             Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
             Body::Gap => 0,
         }
@@ -3278,6 +3379,58 @@ pub struct Ui {
     /// module exists to avoid.
     panel_box: Option<Rect>,
     inspect_box: Option<Rect>,
+    /// **Where the BATTLE panel and the BIOSPHERE page were drawn last
+    /// frame**, for [`Ui::covers`] and nothing else.
+    ///
+    /// Both were missing from `covers` until 2026-10-22, so a click on
+    /// either went straight through it into the box: measured in the real
+    /// app, a click on the BIOSPHERE page opened a CELL window for the empty
+    /// cell behind it, and with PLANT or a brush armed the same click planted
+    /// or poured into the box behind the panel. Owner, the same day: *"windows
+    /// overlap or refuse to close"* -- a panel that does not stop a click is
+    /// half of that. Both are set in `draw`, by the window rule.
+    battle_box: Option<Rect>,
+    /// Where BATTLE was last drawn open, and whether it is folded this
+    /// frame: it is painted before the page, so it folds against the page's
+    /// last rect (`page_last`), as the page does against the cell page.
+    battle_last: Option<Rect>,
+    battle_folded: bool,
+    stats_box: Option<Rect>,
+    /// **The window rule's state** -- see [`Window`]. Which window was
+    /// opened or touched last, where the page was last drawn open (the cell
+    /// page decides whether it would touch the page *before* the page is
+    /// painted, and a page's size is only known once it has been), and what
+    /// folded this frame.
+    focus: Window,
+    /// Which tab the ANTS page shows -- see [`ANTS_TABS`].
+    ants_tab: usize,
+    /// The hover explanation showing, and since when -- see `NOTE_REST`.
+    note_seen: Option<(String, std::time::Instant)>,
+    /// **Every hover note shown whole at once**, for a harness: `NOTE_REST`
+    /// reads the wall clock, so a contact sheet drawn in microseconds would
+    /// otherwise show first sentences, or not, by how long the step before
+    /// took. `labui` sets it, so its tiles and its census see the larger,
+    /// harder-to-place note, the same one every run.
+    pub notes_rested: bool,
+    /// `note_seen` for BIOSPHERE's notes, which are painted after `draw`.
+    stats_note_seen: Option<(String, std::time::Instant)>,
+    page_last: Option<Rect>,
+    page_folded: bool,
+    cell_folded: bool,
+    /// BIOSPHERE's natural size, handed in by `Lab::draw` before the bar is
+    /// painted, and where the rule put it -- read back by `Lab::draw`, which
+    /// paints the page after the bar.
+    stats_size: Option<(i32, i32)>,
+    stats_place: Option<(Rect, bool)>,
+    /// The top of the right-hand column: under BATTLE when it is up.
+    right_ceiling: i32,
+    /// Every window drawn this frame, for placing what floats over the box
+    /// (the hover card, hover explanations) where none of them is.
+    drawn: Vec<Rect>,
+    /// The close boxes and the folded title strips. Retained like every
+    /// other bar here, and hit-tested first, because they sit on top of the
+    /// windows they belong to.
+    chrome: Bar,
     /// Which page of the parameters panel is showing — an index into
     /// `params::GROUPS`, wrapped at use so a shorter list can never leave it
     /// dangling (`species`' reason).
@@ -3694,6 +3847,66 @@ impl Ui {
             || self.roster_box.is_some_and(|r| r.contains(x, y))
             || self.history_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
+            || self.battle_box.is_some_and(|r| r.contains(x, y))
+            || self.stats_box.is_some_and(|r| r.contains(x, y))
+            || self.chrome.widgets.iter().any(|wid| wid.rect.contains(x, y))
+    }
+
+    /// Where `Lab::draw` painted the BIOSPHERE page this frame, or `None`
+    /// when it is shut. See `stats_box`.
+    pub fn set_stats_box(&mut self, r: Option<Rect>) {
+        self.stats_box = r;
+    }
+
+    /// BIOSPHERE's natural size, or `None` while it is shut -- handed in by
+    /// `Lab::draw` before [`Ui::draw`], so the window rule can place it with
+    /// the others (`Window`). The page itself is painted by `Lab` after the
+    /// bar, into [`Ui::stats_place`].
+    pub fn set_stats_size(&mut self, size: Option<(i32, i32)>) {
+        self.stats_size = size;
+    }
+
+    /// Where the window rule put BIOSPHERE this frame, and whether it is
+    /// folded to its title strip (in which case the strip is already drawn
+    /// and the page must not be).
+    pub fn stats_place(&self) -> Option<(Rect, bool)> {
+        self.stats_place
+    }
+
+    /// BIOSPHERE's close box, painted after the page so the page does not
+    /// paint over it. Its own `TAB CLOSE` was a legend, not a button.
+    pub fn paint_stats_close(&mut self, renderer: &crate::render::Renderer, frame: &mut [u8]) {
+        let Some((r, false)) = self.stats_place else {
+            return;
+        };
+        let hc = hud_canvas(renderer);
+        let close = close_box(r, Action::CloseStats, "CLOSE THE BIOSPHERE PAGE. TAB, OR THE STATS BUTTON, OPENS IT AGAIN.");
+        let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+        paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
+        self.chrome.widgets.push(close);
+    }
+
+    /// BIOSPHERE's hover note, placed the way every other note is: clear of
+    /// every window (`draw_note`), first sentence until the pointer rests.
+    pub fn paint_stats_note(&mut self, renderer: &crate::render::Renderer, frame: &mut [u8], note: Option<String>) {
+        let (Some(note), Some((r, false)), Some((_, cy))) = (note, self.stats_place, self.cursor) else {
+            self.stats_note_seen = None;
+            return;
+        };
+        let hc = hud_canvas(renderer);
+        let since = match &self.stats_note_seen {
+            Some((seen, at)) if *seen == note => *at,
+            _ => {
+                let now = std::time::Instant::now();
+                self.stats_note_seen = Some((note.clone(), now));
+                now
+            }
+        };
+        let shown = if self.notes_rested || since.elapsed() >= NOTE_REST { note } else { first_sentence(&note) };
+        let mut others = self.drawn.clone();
+        others.extend(self.tabs.widgets.iter().map(|wid| wid.rect));
+        render::paint_owner::set("NOTE");
+        draw_note(hc, frame, &shown, r, cy - 4, Note::BesidePage, &others);
     }
 
     /// Arm a press. Fires nothing: a button that acted on press could not be
@@ -3717,6 +3930,22 @@ impl Ui {
             };
         }
         if inside || self.covers(x, y) {
+            // **A click on a window's body brings it to the front**, the way
+            // every desktop does: the window rule folds whatever it now
+            // touches (`Window`).
+            let on = |r: Option<Rect>| r.is_some_and(|r| r.contains(x, y));
+            if on(self.inspect_box) {
+                self.focus = Window::Cell;
+            } else if on(self.stats_box) {
+                self.focus = Window::Stats;
+            } else if on(self.battle_box) {
+                self.focus = Window::Battle;
+            } else if [self.panel_box, self.params_box, self.shelf_box, self.rack_box, self.roster_box, self.history_box]
+                .into_iter()
+                .any(on)
+            {
+                self.focus = Window::Page;
+            }
             Release::Consumed
         } else {
             Release::World
@@ -3745,12 +3974,20 @@ impl Ui {
             _ => None,
         };
         let same = self.inspect == Some(cell) || (organism.is_some() && organism == self.inspect_organism);
-        if same {
+        if same && self.cell_folded {
+            // Its page is folded: the click asks to see it, not to shut it.
+            self.focus = Window::Cell;
+        } else if same {
             self.inspect = None;
             self.inspect_organism = None;
         } else {
             self.inspect = Some(cell);
             self.inspect_organism = organism;
+            // A cell clicked in the box is the newest thing the player asked
+            // for, so it is the window that stays open if it would touch the
+            // page (`Window`). A pin from a list does not come through here
+            // (`inspect_at`), and leaves the list in front.
+            self.focus = Window::Cell;
         }
     }
 
@@ -3837,6 +4074,90 @@ impl Ui {
 
     pub fn toggle_panel(&mut self, panel: Panel) {
         self.panel = if self.panel == Some(panel) { None } else { Some(panel) };
+        if self.panel.is_some() {
+            self.focus = Window::Page;
+        }
+    }
+
+    /// Make `w` the window that stays open when two would touch -- the click
+    /// on a folded title strip, or opening BIOSPHERE. See [`Window`].
+    pub fn set_focus(&mut self, w: Window) {
+        self.focus = w;
+    }
+
+    /// Show tab `i` of `panel` ([`Action::PageTab`]).
+    pub fn set_page_tab(&mut self, panel: Panel, i: usize) {
+        if panel == Panel::Ants {
+            self.ants_tab = i % ANTS_TABS.len();
+        }
+    }
+
+    /// What the mouse wheel does at `(x, y)`: `None` when it is over the
+    /// box (the caller zooms), `Some(None)` when it is over a window or the
+    /// bar with nothing to scroll (swallowed -- the box must not zoom behind
+    /// a window you are reading), `Some(Some(a))` to scroll that window.
+    ///
+    /// The wheel always zoomed the box, whatever it was over: on a roster of
+    /// fifty you scrolled and the world behind the page moved instead.
+    pub fn wheel_at(&self, x: i32, y: i32, down: bool) -> Option<Option<Action>> {
+        let step = if down { 1 } else { -1 };
+        let over = |r: Option<Rect>| r.is_some_and(|r| r.contains(x, y));
+        if over(self.params_box) {
+            return Some(Some(Action::ParamScroll(step)));
+        }
+        if over(self.roster_box) {
+            return Some(Some(Action::RosterScroll(step)));
+        }
+        if over(self.rack_box) {
+            return Some(Some(Action::RackScroll(step)));
+        }
+        if over(self.history_box) {
+            return Some(Some(Action::HistoryScroll(step)));
+        }
+        self.covers(x, y).then_some(None)
+    }
+
+    /// **Close whatever is on top**, for `Esc`: the window that was opened or
+    /// touched last, then the others. `None` when nothing was open, which is
+    /// the caller's cue that the second `Esc` means quit. BIOSPHERE is the
+    /// caller's to shut (`Lab` owns it); BATTLE closes only when it is the
+    /// one in front, because it is a view switch (F9) more than a window.
+    pub fn close_top(&mut self, stats_open: bool) -> Option<Window> {
+        let open = |w: Window| match w {
+            Window::Page => self.panel.is_some(),
+            // Not while SIDE BY SIDE hides it: an Esc that shuts a window
+            // nobody can see looks like an Esc that did nothing.
+            Window::Cell => self.inspect.is_some() && self.panel != Some(Panel::Compare),
+            Window::Stats => stats_open,
+            Window::Battle => self.battle.shown(),
+        };
+        let order = match self.focus {
+            Window::Page => [Window::Page, Window::Cell, Window::Stats],
+            Window::Cell => [Window::Cell, Window::Page, Window::Stats],
+            Window::Stats => [Window::Stats, Window::Page, Window::Cell],
+            Window::Battle => [Window::Battle, Window::Page, Window::Cell],
+        };
+        let top = order.into_iter().chain([Window::Stats]).find(|w| open(*w))?;
+        match top {
+            Window::Page => self.close_panel(),
+            Window::Cell => self.close_inspected(),
+            Window::Battle => {
+                self.battle.toggle();
+                self.focus = Window::Page;
+            }
+            Window::Stats => {}
+        }
+        Some(top)
+    }
+
+    /// Is `w` folded to its title strip this frame?
+    pub fn folded(&self, w: Window) -> bool {
+        match w {
+            Window::Page => self.page_folded,
+            Window::Cell => self.cell_folded,
+            Window::Stats => self.stats_place.is_some_and(|(_, f)| f),
+            Window::Battle => self.battle_folded,
+        }
     }
 
     /// Put whatever page is open away. For a button *on* a page whose verb
@@ -4084,6 +4405,7 @@ impl Ui {
             .chain(self.history_bar.widgets.iter())
             .chain(self.panel_bar.widgets.iter())
             .chain(self.inspect_bar.widgets.iter())
+            .chain(self.chrome.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
     }
@@ -4093,8 +4415,9 @@ impl Ui {
     /// above `bar_top`), so the order is documentation rather than a rule: the
     /// bar is painted over everything and must win any seam.
     pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
-        self.bar
+        self.chrome
             .hit(x, y)
+            .or_else(|| self.bar.hit(x, y))
             .or_else(|| self.params_bar.hit(x, y))
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
@@ -4765,39 +5088,52 @@ impl Ui {
     /// instead. Every row fires the identical `Action` its key or its old
     /// bar chip already fired; nothing here is a second definition of what a
     /// control does.
+    /// **MENU, grouped by what a player is doing** (`Reports/lab-ui-redesign-
+    /// 2026-10-22.md` step 3), where it was two flat lists of 31 rows in the
+    /// order they were added. Left: WATCH, INDIVIDUALS, EXPERIMENT and the
+    /// box's own verbs; right, after the `Row::gap()` that splits the
+    /// columns: every display toggle, grouped by what it changes. FOOD is
+    /// not listed: it is a view of the ANTS page and is reached from there,
+    /// so no page is in the menu twice under two names.
     fn menu_rows(&self, world: &World) -> Vec<Row> {
         let ended = ended_lines(world).len();
         vec![
+            Row::section("WATCH"),
             Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
                 "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
             Row::choice("ANTS", "F2", Action::Panel(Panel::Ants),
                 "THE COLONY: HOW MANY ANIMALS ARE ALIVE AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING."),
-            Row::choice("BOX", "F3", Action::Panel(Panel::Box),
-                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
-            Row::choice("PARAMS", "P", Action::Panel(Panel::Params),
-                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
-            Row::choice("SHELF", "G", Action::Panel(Panel::Shelf),
-                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
-            Row::choice("THE RACK", "F4", Action::Panel(Panel::Chambers),
-                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
             Row::choice("HISTORY", "F5", Action::Panel(Panel::History),
                 format!("EVERY FOUNDING LINE THAT HAS ENDED -- {ended} SO FAR.")),
+            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
+                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::section("INDIVIDUALS"),
             Row::choice("EVERY PLANT", "MOUSE", Action::Panel(Panel::PlantList),
                 "EVERY PLANT IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE PLANTS PAGE UNTIL NOW."),
             Row::choice("EVERY ANIMAL", "MOUSE", Action::Panel(Panel::AntList),
                 "EVERY ANIMAL IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE ANTS PAGE UNTIL NOW."),
-            Row::choice("FOOD", "MOUSE", Action::Panel(Panel::Food),
-                "WHAT EACH COLONY IS LIVING ON, IN JOULES: WHERE THE FOOD COMES FROM, WHAT IT IS SPENT ON, AND HOW MANY ANIMALS ARE RUNNING ON EMPTY. NO KEY -- REACHED FROM THE ANTS PAGE."),
+            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
+                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::choice("KEPT JARS", "G", Action::Panel(Panel::Shelf),
+                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
+            Row::section("EXPERIMENT"),
+            Row::choice("THE BOX", "F3", Action::Panel(Panel::Box),
+                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
+            Row::choice("NUMBERS", "P", Action::Panel(Panel::Params),
+                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
+            Row::choice("CHAMBERS", "F4", Action::Panel(Panel::Chambers),
+                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
+            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
+                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
             Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
                 "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
             Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
-            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
-                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
-            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
-                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
-            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
-                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::choice("REBUILD", "R", Action::Reset,
+                "THROW THIS BOX AWAY AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. ASKS FOR A SECOND PRESS FIRST. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT."),
+            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
+                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
             Row::gap(),
+            Row::section("PAINT OVER THE BOX"),
             Row::choice("ANIMAL COLOUR", "H", Action::CycleCreatureColour,
                 format!("WHAT HUE EVERY ANIMAL WEARS. CURRENTLY {}. ALSO A ROW ON THE ANTS PAGE.", self.creature_colour().label())),
             Row::choice("LIFE MARKS", "Y", Action::CycleLifeMarks,
@@ -4810,16 +5146,16 @@ impl Ui {
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
             Row::choice("DIG MAP", "F10", Action::CycleDigOverlay,
                 "WHERE THE COLONY HAS BEEN DIGGING: EVERY CELL CUT IN THE LAST 20,000 FRAMES, WHITE WHEN JUST CUT, FADING THROUGH CYAN TO DARK TEAL. A HOLE FILLED IN AGAIN STOPS SHOWING."),
-            Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
-                "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
             Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
                 "SEE THE COLONY UNDERGROUND: TUNNELS PALE, NEST WHITE, EGGS AND YOUNG PINK, FOOD GREEN, THE GROUND DARK. ANTS AND WATER DRAW AS THEMSELVES."),
-            Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
+            Row::section("PANELS AND CLOCK"),
+            Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
+                "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
+            Row::choice("ON AN EVENT", "T", Action::CycleReaction,
                 "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
-            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
-                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
-            Row::choice("DISPLAY FLOOR", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
+            Row::choice("LOWEST FRAME RATE", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
                 "THE FLOOR UNDER THE DISPLAY RATE -- KEY F. THIS ROW IS ITS ONLY OTHER READOUT ANYWHERE IN THE LAB."),
+            Row::section("MAGNIFIER"),
             Row::choice("MAGNIFY STYLE", self.magnify_style.label().split(" (").next().unwrap_or(""), Action::CycleMagnifyStyle,
                 format!("THE ZOOMED-IN CELL LOOK -- KEY 0. {}", self.magnify_style.label())),
             Row::choice(
@@ -5562,7 +5898,11 @@ impl Ui {
                 "HOW MANY ROWS BELOW ARE NOT IDENTICAL. THEY ARE LISTED FIRST, BRIGHT, WITH THE MATCHING ONES DIMMED UNDER THEM -- SO WHAT YOU OPENED THIS PAGE TO SEE IS AT THE TOP OF IT. ZERO IS A REAL ANSWER AND NOT A BROKEN PAGE: TWO COPIES OF ONE JAR, PLACED THE SAME MOMENT, DIFFER NOWHERE UNTIL THE BOX HAS DONE SOMETHING TO THEM.".to_string(),
             ),
         );
-        rows
+        // The one page that was never fitted: two shipped ants made it 41
+        // rows, and it ran under the tab strip and the bar (`labui`'s
+        // census: `BAR OVER PAGE` 16,912 px). The dimmed alike rows are last,
+        // so they are the ones the fit drops.
+        fit_rows(rows, page_content_budget())
     }
 
     fn panel_rows(&self, panel: Panel, world: &World, spec: &LabBox, fps: f32) -> Vec<Row> {
@@ -5594,7 +5934,8 @@ impl Ui {
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
                 let series = self.history.series(|s| s.plants);
                 let peak = series.iter().copied().max().unwrap_or(0);
-                vec![
+                let charts = population_charts(world, roster::Kingdom::Plants);
+                let mut rows = vec![
                     Row::value(
                         "STANDING",
                         plants.to_string(),
@@ -5650,7 +5991,12 @@ impl Ui {
                         Action::Panel(Panel::PlantList),
                         "OPEN THE ROSTER: ONE ROW PER PLANT, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT PLANT IN THE BOX AND ITS NUMBERS ON SCREEN. THIS PAGE IS THE STAND; THAT ONE IS THE INDIVIDUALS IN IT.",
                     ),
-                ]
+                ];
+                // The charts go above the trend, under the counts: the
+                // counts say how many, the charts say how they are doing.
+                let at = rows.len() - 2;
+                rows.splice(at..at, charts);
+                rows
             }
             Panel::Ants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.ants as i64));
@@ -5832,7 +6178,32 @@ impl Ui {
                     Action::Panel(Panel::Training),
                     "OPEN THE TRAINING PAGE: SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT -- THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND.",
                 ));
-                rows
+                // **Two views, because the charts and the groups do not fit
+                // one page** (~270 px against ~206). SUMMARY: the counts, the
+                // population charts and the ways onward. GROUPS: the
+                // per-group line chart, its legend, and the toggles that
+                // colour both. Split by position in the list above, which
+                // is built once so neither view can drift from the other.
+                let tab = self.ants_tab % ANTS_TABS.len();
+                let n = rows.len();
+                let mut rows: Vec<Option<Row>> = rows.into_iter().map(Some).collect();
+                let mut take = |i: usize| rows[i].take().expect("each row is taken once");
+                let mut out = vec![Row::tabs(
+                    &ANTS_TABS,
+                    tab,
+                    Panel::Ants,
+                    "THIS PAGE'S TWO VIEWS: SUMMARY, THE WHOLE POPULATION AT A GLANCE; GROUPS, EACH COLONY OR SPECIES OVER TIME AND THE SWITCHES THAT COLOUR THEM.",
+                )];
+                if tab == 0 {
+                    out.extend((0..5).map(&mut take));
+                    out.extend(population_charts(world, roster::Kingdom::Creatures));
+                    out.push(take(6));
+                    out.push(take(n - 2));
+                    out.push(take(n - 1));
+                } else {
+                    out.extend((7..n - 2).map(&mut take));
+                }
+                out
             }
             Panel::Box => vec![
                 Row::value(
@@ -6064,17 +6435,11 @@ impl Ui {
     /// [`Ui::covers`] refuses to pass a click on the page through to the
     /// world behind it.
     fn close_inspect_button(rect: Rect) -> Widget {
-        let w = cell_width(hud::text_width("CLOSE"), "", PAD);
-        Widget {
-            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
-            line1: "CLOSE".into(),
-            line2: String::new(),
-            action: Some(Action::CloseInspected),
-            latched: false,
-            icon: None,
-            ratio: None,
-            note: "PUT THE CELL PAGE AWAY. CLICKING THE SAME CELL OR ANIMAL AGAIN STILL WORKS TOO -- THIS IS THE BUTTON FOR WHEN THE PAGE ITSELF IS SITTING ON TOP OF WHAT YOU CLICKED, WHICH A CLICK CANNOT REACH THROUGH.".into(),
-        }
+        close_box(
+            rect,
+            Action::CloseInspected,
+            "PUT THE CELL PAGE AWAY. CLICKING THE SAME CELL OR ANIMAL AGAIN STILL WORKS TOO -- THIS IS THE BUTTON FOR WHEN THE PAGE ITSELF IS SITTING ON TOP OF WHAT YOU CLICKED, WHICH A CLICK CANNOT REACH THROUGH.",
+        )
     }
 
     /// **The cell page's other button**, or `None` when the cell it is open
@@ -6254,7 +6619,15 @@ impl Ui {
         Some(out)
     }
 
+    #[cfg(test)]
     fn inspect_rows(&self, world: &World, at: (i32, i32)) -> Vec<Row> {
+        self.inspect_rows_within(world, at, page_content_budget())
+    }
+
+    /// [`Self::inspect_rows`] fitted to `budget` pixels of rows rather than
+    /// the full page height: the cell page docks under BATTLE (`Window`), so
+    /// its room is whatever the right-hand column has left.
+    fn inspect_rows_within(&self, world: &World, at: (i32, i32), budget: i32) -> Vec<Row> {
         let (x, y) = at;
         let cell = world.get(x, y);
         let material = world.materials.get(cell.material).display.clone();
@@ -6297,7 +6670,7 @@ impl Ui {
         // did not look truncated -- it looked like a page that started at
         // ENERGY.
         let head_h = Row::head("", false, 0, Action::SpecimenSection(0), "").height();
-        let mut room = page_content_budget()
+        let mut room = budget
             - rows.iter().map(Row::height).sum::<i32>()
             - sections.len() as i32 * head_h;
         let mut open = vec![false; sections.len()];
@@ -6373,19 +6746,46 @@ impl Ui {
                 },
             ));
             if open {
-                for (label, value, note) in section {
-                    rows.push(Row::value(label, value, VALUE, note));
-                }
+                let mut group: Vec<Row> = section.iter().map(|(label, value, note)| Row::value(label, value, VALUE, note)).collect();
                 if state_at == Some(i) {
                     // Moved rather than copied: `Row` is not `Clone` and does
                     // not need to be -- there is one `STATE` group, so these
                     // rows have exactly one destination.
-                    rows.append(&mut sparks);
+                    group.append(&mut sparks);
                 }
+                // **An oversized group is trimmed inside itself**, so the
+                // headings under it stay on the page. Trimmed at the end of
+                // the page instead, a long STATE took the GENOME heading
+                // with it -- a group you could no longer open, found when
+                // the cell page lost two rows to docking under BATTLE.
+                if room < 0 && chosen == Some(i) {
+                    let h: i32 = group.iter().map(Row::height).sum();
+                    group = fit_rows(group, h + room);
+                }
+                rows.append(&mut group);
             }
         }
-        fit_rows(rows, page_content_budget())
+        fit_rows(rows, budget)
     }
+}
+
+/// **The top edge every window stops at: one clock line clear.**
+///
+/// Pages used to stop at `MARGIN`, which is the clock's own row, so a tall
+/// page (CELL on a plant, SIDE BY SIDE) drew its title over `FRAME 30461` --
+/// counted by `labui`'s window census, 2026-10-22, as `CELL OVER CLOCK` on
+/// every specimen tile. The clock is one line (`time::TimeControl::readout`);
+/// a second would need this moved with it.
+pub const DOCK_TOP: i32 = 16;
+
+/// **The bottom edge every window stops at: two pixels above the tab strip.**
+///
+/// Pages used to stop at `bar_top() - 4`, eight pixels *below* the tab
+/// strip's top, and the strip is painted after them -- so every page and
+/// every CELL window lost its bottom eight rows under the tabs. The census
+/// counted it on 70 of 74 tiles (`TABS OVER PAGE`, `TABS OVER CELL`).
+pub fn dock_bottom() -> i32 {
+    tab_strip_y(0) - 2
 }
 
 /// The tallest a page's rows may be before the page runs off the top.
@@ -6394,7 +6794,7 @@ impl Ui {
 /// upward from just above the bar, so what it may not exceed is the gap
 /// between the bar and the top margin, less its own header and padding.
 fn page_content_budget() -> i32 {
-    bar_top() - 4 - MARGIN - PAGE_HEADER - PAGE_PAD
+    dock_bottom() - DOCK_TOP - PAGE_HEADER - PAGE_PAD
 }
 
 /// **Guarantee the rows fit, and say so when they did not.**
@@ -6455,7 +6855,98 @@ fn page_rect(rows: &[Row], anchor_x: i32, bottom: i32) -> Rect {
     // silent loss for another: it now runs off the *bottom* instead. What
     // actually keeps the page whole is `fit_rows`, which trims to
     // `page_content_budget` and prints the count of what it dropped.
-    Rect { x, y: (bottom - h).max(MARGIN), w, h }
+    Rect { x, y: (bottom - h).max(DOCK_TOP), w, h }
+}
+
+/// [`page_rect`] for a window docked to the right-hand column: right-aligned,
+/// standing on `bottom`, and never above `ceiling` (under BATTLE). The rows
+/// were already fitted to that room, so the ceiling only ever bites by the
+/// rounding of a row's height.
+fn page_rect_under(rows: &[Row], right: i32, bottom: i32, ceiling: i32) -> Rect {
+    let r = page_rect(rows, right, bottom);
+    let y = r.y.max(ceiling);
+    Rect { y, h: r.h.min(bottom - y), ..r }
+}
+
+/// The width of a window's close box: an `X` with the bar's own padding.
+const CLOSE_W: i32 = hud::GLYPH_WIDTH + 2 * 4;
+
+/// **Every window's close box: an `X` in the same corner.** Before this one
+/// window said `CLOSE`, BIOSPHERE said `TAB CLOSE` in plain text that was not
+/// a button, BATTLE said `F9 HIDES`, and the rest said nothing -- the owner's
+/// "windows refuse to close" was mostly windows that never said how.
+fn close_box(rect: Rect, action: Action, note: &str) -> Widget {
+    Widget {
+        rect: Rect { x: rect.right() - 3 - CLOSE_W, y: rect.y + 3, w: CLOSE_W, h: 11 },
+        line1: "X".into(),
+        line2: String::new(),
+        action: Some(action),
+        latched: false,
+        icon: None,
+        ratio: None,
+        note: note.into(),
+    }
+}
+
+/// Where a folded window's strip goes.
+#[derive(Clone, Copy)]
+enum Side {
+    /// The page's: bottom-left, on the dock floor.
+    Left,
+    /// The cell page's: bottom-right, on the dock floor.
+    RightBottom,
+    /// BIOSPHERE's: top-right, at this `y` (under BATTLE).
+    RightTop(i32),
+}
+
+/// The height of a folded window: one title line in a frame.
+pub const STRIP_H: i32 = 14;
+
+/// **A window folded to its title**, and its close box: `[title bar, X]`.
+/// Clicking the title brings the window back to the front (`Action::Focus`)
+/// and folds whatever it would have touched -- the window rule
+/// ([`Window`]): two windows never share a pixel, and the one you reached
+/// for last is the one you see.
+fn fold_strip(title: &str, w: Window, close: Action, side: Side) -> [Widget; 2] {
+    let width = hud::text_width(title) + 2 * PAGE_PAD + CLOSE_W + 6;
+    let (x, y) = match side {
+        Side::Left => (MARGIN, dock_bottom() - STRIP_H),
+        Side::RightBottom => (W as i32 - MARGIN - width, dock_bottom() - STRIP_H),
+        Side::RightTop(y) => (W as i32 - MARGIN - width, y),
+    };
+    let body = Rect { x, y, w: width - CLOSE_W - 3, h: STRIP_H };
+    let whole = Rect { x, y, w: width, h: STRIP_H };
+    let mut x_box = close_box(whole, close, "CLOSE THIS WINDOW.");
+    x_box.rect.y = y + 1;
+    x_box.rect.h = STRIP_H - 2;
+    [
+        Widget {
+            rect: body,
+            line1: format!("+ {title}"),
+            line2: String::new(),
+            action: Some(Action::Focus(w)),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "FOLDED TO MAKE ROOM FOR THE WINDOW YOU OPENED LAST. CLICK TO BRING IT BACK; THE OTHER ONE FOLDS INSTEAD.".into(),
+        },
+        x_box,
+    ]
+}
+
+/// **Every page's frame, in one place** (plan step 5, one look): the
+/// body, a title band a shade lighter than it so the eye finds the title and
+/// the X before the rows, and the outline. The accent rule under the band is
+/// drawn by each page, where it always was. No drop shadow: a shadow paints
+/// outside the window's rect, which `Ui::covers` and the overlap census
+/// (`render::paint_owner`) would both have to learn about, and at 512x320 the
+/// two pixels it costs are the gap that keeps docked windows apart. BATTLE
+/// and BIOSPHERE keep their own painters (BIOSPHERE's is the held world's
+/// too).
+fn window_frame(hc: render::Hud, frame: &mut [u8], rect: Rect) {
+    fill(hc, frame, rect, PANEL_BG);
+    fill(hc, frame, Rect { x: rect.x, y: rect.y, w: rect.w, h: PAGE_HEADER - 4 }, TITLE_BAND);
+    outline(hc, frame, rect, PANEL_EDGE);
 }
 
 /// Draw one page and return the note under the cursor, if any.
@@ -6472,11 +6963,10 @@ fn paint_page(
     cursor: Option<(i32, i32)>,
     (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(hc, frame, rect, PANEL_BG);
-    outline(hc, frame, rect, PANEL_EDGE);
+    window_frame(hc, frame, rect);
     text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, title, TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
     }
     let col = Rect { x: rect.x, y: rect.y + PAGE_HEADER, w: rect.w, h: rect.h - PAGE_HEADER };
     paint_rows(hc, frame, col, rows, cursor, taps, pressed)
@@ -6532,6 +7022,60 @@ fn paint_rows(
             Body::Lines { caption, series } => {
                 draw_lines(hc, frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
                 text(hc, frame, left, y + CHART_H + 2, caption, FAINT);
+            }
+            Body::Section { label } => {
+                for x in col.x + 1..col.right() - 1 {
+                    hc.put(frame, x, y + 1, DIVIDER);
+                }
+                text(hc, frame, left, y + 3, label, TITLE);
+            }
+            Body::Tabs { names, active, panel } => {
+                let mut x = left;
+                for (i, name) in names.iter().enumerate() {
+                    let r = Rect { x, y, w: hud::text_width(name) + 8, h: LINE + 2 };
+                    let on = i == *active;
+                    let over = cursor.is_some_and(|(cx, cy)| r.contains(cx, cy));
+                    let face = if on { FACE_ON } else if over { FACE_HOVER } else { FACE };
+                    fill(hc, frame, r, face);
+                    outline(hc, frame, r, if on { EDGE_ON } else { EDGE });
+                    text(hc, frame, x + 4, y + 2, name, if on { LABEL_ON } else { LABEL });
+                    taps.push(Widget {
+                        rect: r,
+                        line1: String::new(),
+                        line2: String::new(),
+                        action: Some(Action::PageTab(*panel, i)),
+                        latched: false,
+                        icon: None,
+                        ratio: None,
+                        note: String::new(),
+                    });
+                    x = r.right() + 2;
+                }
+            }
+            Body::Stack { parts } => {
+                draw_stack(hc, frame, Rect { x: left, y: y + 1, w: right - left, h: STACK_H }, parts);
+                // One line, cut short with "+N" for the parts that do not fit
+                // (`STACK_LEGEND_W`); the bar above still shows every part.
+                let legend = stack_legend(parts);
+                let mut x = left;
+                for (i, (t, tint)) in legend.iter().enumerate() {
+                    let rest = legend.len() - i - 1;
+                    let tail = if rest > 0 { hud::text_width(&format!("+{rest}")) + 6 } else { 0 };
+                    if x + hud::text_width(t) + tail > right {
+                        text(hc, frame, x, y + STACK_H + 3, &format!("+{}", rest + 1), FAINT);
+                        break;
+                    }
+                    text(hc, frame, x, y + STACK_H + 3, t, *tint);
+                    x += hud::text_width(t) + 6;
+                }
+            }
+            Body::Hist { caption, bins } => {
+                draw_hist(hc, frame, Rect { x: left, y, w: right - left, h: HIST_H }, bins);
+                text(hc, frame, left, y + HIST_H + 2, caption, FAINT);
+            }
+            Body::Scatter { caption, points } => {
+                draw_scatter(hc, frame, Rect { x: left, y, w: right - left, h: SCATTER_H }, points);
+                text(hc, frame, left, y + SCATTER_H + 2, caption, FAINT);
             }
             Body::Choice { label, value, action, tint } => {
                 // The bar button's own idiom (`paint_widget`), scaled to one
@@ -6607,7 +7151,7 @@ fn paint_rows(
 /// drawn as `VIEW` a blank `TOGGLES` -- caught by looking at the rendered
 /// page, not by any test, since nothing here asserts the font covers a
 /// literal.
-const TOGGLES_HEADER: &str = "VIEW / TOGGLES";
+const TOGGLES_HEADER: &str = "VIEW";
 
 /// Two columns of rows under one MENU header, and the note under the cursor
 /// if either column has one.
@@ -6631,11 +7175,10 @@ fn paint_menu(
     cursor: Option<(i32, i32)>,
     (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(hc, frame, rect, PANEL_BG);
-    outline(hc, frame, rect, PANEL_EDGE);
+    window_frame(hc, frame, rect);
     text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, "MENU", TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
     }
 
     let pages_w = menu_col_inner(pages, "PAGES") + PAGE_PAD * 2;
@@ -6670,7 +7213,245 @@ fn menu_rect(pages: &[Row], toggles: &[Row], anchor_x: i32, bottom: i32) -> Rect
         + 2;
     let h = PAGE_HEADER + content + PAGE_PAD;
     let x = anchor_x.min(W as i32 - MARGIN - w).max(MARGIN);
-    Rect { x, y: (bottom - h).max(MARGIN), w, h }
+    Rect { x, y: (bottom - h).max(DOCK_TOP), w, h }
+}
+
+/// The heights of the three population charts ([`Body::Stack`],
+/// [`Body::Hist`], [`Body::Scatter`]). Small on purpose: a page is ~230 px
+/// tall and these sit above its rows, not instead of them.
+const STACK_H: i32 = 8;
+const HIST_H: i32 = 22;
+const SCATTER_H: i32 = 40;
+const CHART_BG: [u8; 4] = [24, 27, 33, 255];
+
+/// The colour a live individual's state wears on every population chart.
+/// Green for doing fine, blue for an animal carrying food, violet for one
+/// deep in an excursion (doing its job, not lost), amber hungry, red
+/// starving, brown rotting.
+fn state_tint(state: roster::RowState) -> [u8; 4] {
+    use roster::RowState::*;
+    match state {
+        Ok => GOOD,
+        Carrying => [110, 170, 240, 255],
+        Far => [160, 140, 225, 255],
+        Hungry => FAIR,
+        Starving => POOR,
+        Senescent => [150, 118, 84, 255],
+        Dead(_) => FAINT,
+    }
+}
+
+/// **A whole population in three charts** -- what it is doing, how its
+/// energy (animals) or size (plants) is spread, and age against that, one
+/// dot each. The opening view of the PLANTS and ANTS pages, in place of
+/// the roster's fifty rows as the first thing seen; the roster is still one
+/// click below (`LIST EVERY ...`). Owner, 2026-10-22: "lots of the info
+/// tabs are long lists ... graphs are better".
+///
+/// Read off `roster::rows`, the same enumeration the roster draws, so the
+/// chart and the table cannot disagree about who is alive or what state
+/// they are in.
+fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
+    use roster::RowState;
+    let all = roster::rows(world, kingdom, roster::SortKey::Slot, false, roster::Filter::All);
+    let animals = kingdom == roster::Kingdom::Creatures;
+    let order: &[(RowState, &str)] = if animals {
+        &[(RowState::Ok, "OK"), (RowState::Carrying, "LADEN"), (RowState::Far, "FAR"), (RowState::Hungry, "HUNGRY"), (RowState::Starving, "STARVING")]
+    } else {
+        &[(RowState::Ok, "OK"), (RowState::Starving, "STARVING"), (RowState::Senescent, "ROTTING")]
+    };
+    let parts: Vec<(String, u32, [u8; 4])> = order
+        .iter()
+        .map(|&(st, word)| (word.to_string(), all.iter().filter(|r| r.state == st).count() as u32, state_tint(st)))
+        .collect();
+    // Energy for an animal, cells for a plant: the quantity each roster
+    // sorts on first, and the one that says whether it is doing well.
+    let measure = |r: &roster::RosterRow| if animals { r.energy.max(0.0) } else { r.cells as f32 };
+    let top = all.iter().map(measure).fold(0.0f32, f32::max);
+    const BINS: usize = 12;
+    let mut bins = [0u32; BINS];
+    for r in &all {
+        let i = if top > 0.0 { ((measure(r) / top) * BINS as f32) as usize } else { 0 };
+        bins[i.min(BINS - 1)] += 1;
+    }
+    // A ramp from red at the bottom bin to green at the top, so the low end
+    // reads as the end to worry about without reading a number.
+    let ramp = |i: usize| -> [u8; 4] {
+        let t = i as f32 / (BINS - 1) as f32;
+        let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+        [mix(POOR[0], GOOD[0]), mix(POOR[1], GOOD[1]), mix(POOR[2], GOOD[2]), 255]
+    };
+    let mut sorted: Vec<f32> = all.iter().map(measure).collect();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let median = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+    let what = if animals { "ENERGY" } else { "CELLS" };
+    let caption = format!("{what} 0 TO {}  MEDIAN {}", compact(top as f64), compact(median as f64));
+    let now = world.frame;
+    // Across runs youngest to oldest, not zero to oldest: a box of founders
+    // all born on frame 0 otherwise stacks every dot on the right edge.
+    let ages = all.iter().map(|r| now.saturating_sub(r.born_frame));
+    let (youngest, oldest) = ages.fold((u64::MAX, 0), |(lo, hi), a| (lo.min(a), hi.max(a)));
+    let span = oldest.saturating_sub(youngest);
+    let points: Vec<(f32, f32, [u8; 4])> = all
+        .iter()
+        .map(|r| {
+            let a = now.saturating_sub(r.born_frame);
+            let age = if span == 0 { 0.5 } else { (a - youngest) as f32 / span as f32 };
+            let y = if top > 0.0 { measure(r) / top } else { 0.0 };
+            (age, y, state_tint(r.state))
+        })
+        .collect();
+    let who = if animals { "ANIMAL" } else { "PLANT" };
+    vec![
+        Row::stack(
+            parts,
+            format!("WHAT EVERY {who} ALIVE IS DOING, AS SHARES OF ONE BAR: THE STATE COLUMN OF THE LIST, COUNTED. THE SAME COLOURS ARE THE DOTS BELOW."),
+        ),
+        Row::hist(
+            caption,
+            (0..BINS).map(|i| vec![(bins[i], ramp(i))]).collect(),
+            format!("HOW MANY {who}S HOLD HOW MUCH {what}, IN TWELVE EQUAL STEPS FROM NONE TO THE MOST ANY ONE HOLDS. A PILE AT THE LEFT IS A POPULATION RUNNING DOWN; A PILE AT THE RIGHT IS ONE DOING WELL. THE NUMBER TOP RIGHT IS THE TALLEST BAR."),
+        ),
+        Row::scatter(
+            format!("AGE {} TO {} FRAMES, AGAINST {what}", compact(youngest.min(oldest) as f64), compact(oldest as f64)),
+            points,
+            format!("ONE DOT PER {who}: HOW OLD IT IS ACROSS, HOW MUCH {what} IT HOLDS UP, COLOURED BY WHAT IT IS DOING. A DOT LOW AND TO THE RIGHT IS OLD AND POOR. OPEN THE LIST TO PICK ONE OUT."),
+        ),
+    ]
+}
+
+/// The colour a cause of death wears on HISTORY's charts.
+fn cause_tint(cause: Option<crate::sim::organism::DeathCause>) -> [u8; 4] {
+    use crate::sim::organism::DeathCause::*;
+    match cause {
+        Some(Starved | StarvedInFlight | ShadedOut | DriedOut | Withered) => POOR,
+        Some(Killed | Eaten | Overgrown) => [214, 96, 170, 255],
+        Some(OldAge) => [120, 150, 200, 255],
+        Some(Culled | FelledOrLost) => [150, 118, 84, 255],
+        Some(SeedRotted | LostVitalTissue | Spread) => FAIR,
+        Some(Unknown) | None => FAINT,
+    }
+}
+
+/// **How the run's founding lines ended, and how long they lasted** -- the
+/// two charts over HISTORY's table (`Reports/lab-ui-redesign-2026-10-22.md`
+/// step 4). The table answers *which* lines; these answer *how it is going*
+/// for all of them at once, and scale to a thousand lines where a row per
+/// line does not.
+///
+/// Lifespan is founded-to-ended in world frames, never wall time, because
+/// the speed dial runs from 1x to 1024x.
+fn history_charts(lines: &[EndedLine]) -> Vec<Row> {
+    use crate::sim::organism::DEATH_CAUSE_LIST;
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    let key = |c: Option<crate::sim::organism::DeathCause>| c.map_or(DEATH_CAUSE_LIST.len(), |c| c.index());
+    let mut by_cause = vec![0u32; DEATH_CAUSE_LIST.len() + 1];
+    for l in lines {
+        by_cause[key(l.cause)] += 1;
+    }
+    let label = |i: usize| DEATH_CAUSE_LIST.get(i).map_or("NOT KNOWN", |c| c.label());
+    let tint = |i: usize| cause_tint(DEATH_CAUSE_LIST.get(i).copied());
+    let parts: Vec<(String, u32, [u8; 4])> = (0..by_cause.len()).map(|i| (label(i).to_string(), by_cause[i], tint(i))).collect();
+    let life = |l: &EndedLine| l.ended_frame.saturating_sub(l.founder_frame);
+    let longest = lines.iter().map(life).max().unwrap_or(0).max(1);
+    const BINS: usize = 16;
+    let mut bins = vec![vec![0u32; by_cause.len()]; BINS];
+    for l in lines {
+        let b = ((life(l) as f64 / longest as f64) * BINS as f64) as usize;
+        bins[b.min(BINS - 1)][key(l.cause)] += 1;
+    }
+    let mut sorted: Vec<u64> = lines.iter().map(life).collect();
+    sorted.sort_unstable();
+    let median = sorted[sorted.len() / 2];
+    vec![
+        Row::stack(
+            parts,
+            "HOW EVERY FOUNDING LINE THAT HAS ENDED ENDED: THE CAUSE OF DEATH OF ITS LAST MEMBER, COUNTED. RED IS HUNGER OF ONE KIND OR ANOTHER, PINK IS BEING KILLED OR EATEN, BLUE IS OLD AGE, BROWN IS YOUR CULLS.",
+        ),
+        Row::hist(
+            format!("HOW LONG LINES LASTED  0 TO {} FRAMES  MEDIAN {}", compact(longest as f64), compact(median as f64)),
+            bins.into_iter()
+                .map(|b| b.into_iter().enumerate().map(|(i, n)| (n, tint(i))).collect())
+                .collect(),
+            "EVERY ENDED LINE BY HOW LONG IT LIVED, FROM ITS FOUNDER TO ITS LAST MEMBER, IN SIXTEEN EQUAL STEPS -- COLOURED BY HOW IT ENDED. LINES DYING YOUNG PILE UP ON THE LEFT. IN SIMULATED FRAMES, SO THE SHAPE IS THE SAME WHATEVER SPEED IT RAN AT.",
+        ),
+    ]
+}
+
+/// The words under a stacked bar: `OK 31` and so on, in each part's colour,
+/// zero parts left out -- an empty category is not news, and every word it
+/// costs pushes the page wider.
+/// The widest a stacked bar's one-line legend may make its page. HISTORY's
+/// page is as wide as its widest chart, and a box with every cause of death
+/// in it ran the legend past 420 px, into the fold strips docked on the
+/// right (code review of the window rule, 2026-10-22).
+const STACK_LEGEND_W: i32 = 260;
+
+fn stack_legend(parts: &[(String, u32, [u8; 4])]) -> Vec<(String, [u8; 4])> {
+    parts.iter().filter(|(_, n, _)| *n > 0).map(|(l, n, t)| (format!("{l} {n}"), *t)).collect()
+}
+
+/// One bar split by share. Each part gets at least a pixel when it is
+/// non-zero, so one starving animal among a hundred is still on the bar.
+fn draw_stack(hc: render::Hud, frame: &mut [u8], area: Rect, parts: &[(String, u32, [u8; 4])]) {
+    fill(hc, frame, area, CHART_BG);
+    let total: u32 = parts.iter().map(|(_, n, _)| n).sum();
+    if total == 0 {
+        return;
+    }
+    let mut x = area.x;
+    let mut used = 0u32;
+    for (_, n, tint) in parts.iter().filter(|(_, n, _)| *n > 0) {
+        used += n;
+        let end = area.x + ((used as i64 * area.w as i64) / total as i64) as i32;
+        let end = end.max(x + 1).min(area.right());
+        fill(hc, frame, Rect { x, y: area.y, w: end - x, h: area.h }, *tint);
+        x = end;
+    }
+}
+
+/// A histogram, tallest bin to the top. Bins are separated by a pixel so a
+/// bin of one reads as a bar and not as a smear.
+fn draw_hist(hc: render::Hud, frame: &mut [u8], area: Rect, bins: &[Vec<(u32, [u8; 4])>]) {
+    fill(hc, frame, area, CHART_BG);
+    let peak = bins.iter().map(|b| b.iter().map(|(n, _)| *n).sum::<u32>()).max().unwrap_or(0);
+    if bins.is_empty() || peak == 0 {
+        text(hc, frame, area.x + 2, area.y + 2, "NONE YET", FAINT);
+        return;
+    }
+    let n = bins.len() as i32;
+    let scale = |v: u32| ((v as f32 / peak as f32) * (area.h - 2) as f32).round() as i32;
+    for (i, parts) in bins.iter().enumerate() {
+        let x0 = area.x + (i as i32 * area.w) / n;
+        let x1 = area.x + ((i as i32 + 1) * area.w) / n - 1;
+        // Stacked from the floor; each part's top is the running sum's
+        // height, so rounding never opens a gap between two parts.
+        let mut below = 0u32;
+        for (v, tint) in parts.iter().filter(|(v, _)| *v > 0) {
+            let y0 = area.bottom() - scale(below);
+            below += v;
+            let y1 = (area.bottom() - scale(below)).min(y0 - 1);
+            fill(hc, frame, Rect { x: x0, y: y1, w: (x1 - x0).max(1), h: y0 - y1 }, *tint);
+        }
+    }
+    let top = peak.to_string();
+    text(hc, frame, area.right() - hud::text_width(&top) - 2, area.y + 2, &top, FAINT);
+}
+
+/// Every individual as a 3 px dot.
+fn draw_scatter(hc: render::Hud, frame: &mut [u8], area: Rect, points: &[(f32, f32, [u8; 4])]) {
+    fill(hc, frame, area, CHART_BG);
+    if points.is_empty() {
+        text(hc, frame, area.x + 2, area.y + 2, "NONE YET", FAINT);
+        return;
+    }
+    for &(px, py, tint) in points {
+        let x = area.x + 1 + (px.clamp(0.0, 1.0) * (area.w - 3) as f32).round() as i32;
+        let y = area.bottom() - 2 - (py.clamp(0.0, 1.0) * (area.h - 3) as f32).round() as i32;
+        fill(hc, frame, Rect { x: x - 1, y: y - 1, w: 3, h: 3 }, tint);
+    }
 }
 
 /// A population over time, oldest on the left.
@@ -7013,6 +7794,7 @@ fn roster_page_width(kingdom: roster::Kingdom) -> i32 {
 /// already says why: a wider one *"will widen the cell page and slide it
 /// over the roster"*. Built through `Row::width` and `page_rect`'s own
 /// arithmetic rather than written down, so it cannot drift from them.
+#[cfg(test)]
 fn widest_cell_page() -> i32 {
     let phrase = "W".repeat(plainspeak::PHRASE_COLUMNS);
     Row::value(&phrase, "", VALUE, "").width().max(120) + PAGE_PAD * 2
@@ -8272,7 +9054,7 @@ impl Ui {
         // for it whenever the rack could overflow one screen and drop it
         // below.
         let fixed = PAGE_HEADER + RACK_HEAD + verbs_h + picture_h + batch_h + PARAM_TABS + PAGE_PAD + 13;
-        let room = ((bar_top() - 4 - MARGIN - fixed) / RACK_ROW).max(1) as usize;
+        let room = ((dock_bottom() - DOCK_TOP - fixed) / RACK_ROW).max(1) as usize;
         let shown = chambers.len().min(RACK_ROWS).min(room);
         self.rack_scroll = self.rack_scroll.min(chambers.len().saturating_sub(shown));
 
@@ -8293,15 +9075,14 @@ impl Ui {
             + batch_h
             + PARAM_TABS
             + PAGE_PAD;
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.rack_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "THE RACK", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Chambers.title(), TITLE);
 
         // NEW, in the header. The rack's own verb, and it reseeds: at the same
         // seed every draw in the engine is a pure function of `(world.seed,
@@ -8309,7 +9090,7 @@ impl Ui {
         // a rack of them is one sample wearing many labels.
         let new_w = cell_width(hud::text_width("NEW"), "", PAD);
         widgets.push(Widget {
-            rect: Rect { x: right - new_w, y: rect.y + 3, w: new_w, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - new_w, y: rect.y + 3, w: new_w, h: 11 },
             line1: "NEW".into(),
             line2: String::new(),
             action: Some(Action::ChamberAdd),
@@ -8323,7 +9104,7 @@ impl Ui {
         // and a verb nobody would use.
         let clear_w = cell_width(hud::text_width("CLEAR"), "", PAD);
         widgets.push(Widget {
-            rect: Rect { x: right - new_w - clear_w - 4, y: rect.y + 3, w: clear_w, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - new_w - clear_w - 4, y: rect.y + 3, w: clear_w, h: 11 },
             line1: "CLEAR".into(),
             line2: String::new(),
             action: Some(Action::ChamberClear),
@@ -8337,7 +9118,7 @@ impl Ui {
         // between the settings.
         let group_w = cell_width(hud::text_width("GROUP"), "", PAD);
         widgets.push(Widget {
-            rect: Rect { x: right - new_w - clear_w - group_w - 8, y: rect.y + 3, w: group_w, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - new_w - clear_w - group_w - 8, y: rect.y + 3, w: group_w, h: 11 },
             line1: "GROUP".into(),
             line2: String::new(),
             action: Some(Action::RackGroup),
@@ -8347,7 +9128,7 @@ impl Ui {
             note: "COLLAPSE THE RACK TO ONE ROW PER SWEPT SETTING: THE MEDIAN ON TOP AND THE LOW-TO-HIGH RANGE UNDER IT. READ THE RANGE FIRST -- TWELVE COPIES OF ONE BOX DIFFERING IN NOTHING AT ALL ALREADY SPREAD 2.4X ON PLANTS AND 3.1X ON ANIMALS, SO TWO SETTINGS CLOSER TOGETHER THAN THAT HAVE NOT BEEN TOLD APART.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header.
@@ -8812,11 +9593,13 @@ impl Ui {
 
         let rows = history_summary(world);
         let total = rows.len();
+        let charts = history_charts(&ended_lines(world));
+        let charts_h: i32 = charts.iter().map(Row::height).sum::<i32>() + if charts.is_empty() { 0 } else { 4 };
 
         // How many rows fit is computed, not assumed -- `paint_rack`'s own
         // scar (a fixed count once made that page taller than the screen).
-        let fixed = PAGE_HEADER + HISTORY_HEAD + PAGE_PAD + 13;
-        let room = ((bar_top() - 4 - MARGIN - fixed) / HISTORY_ROW).max(1) as usize;
+        let fixed = PAGE_HEADER + charts_h + HISTORY_HEAD + PAGE_PAD + 13;
+        let room = ((dock_bottom() - DOCK_TOP - fixed) / HISTORY_ROW).max(1) as usize;
         let shown = total.min(HISTORY_ROWS).min(room);
         self.history_scroll = self.history_scroll.min(total.saturating_sub(shown));
         let scroll = self.history_scroll;
@@ -8837,7 +9620,9 @@ impl Ui {
         let col_alive = col_kingdom + kingdom_w + RACK_GAP;
         let col_ended = col_alive + alive_w + RACK_GAP;
         let col_causes = col_ended + ended_w + RACK_GAP;
-        let w = (col_causes + causes_w + PAGE_PAD * 2).min(W as i32 - MARGIN * 2);
+        let charts_w = charts.iter().map(Row::width).max().unwrap_or(0);
+        let w = (col_causes + causes_w).max(charts_w) + PAGE_PAD * 2;
+        let w = w.min(W as i32 - MARGIN * 2);
         // **The room CAUSES actually has, after the clamp above.** The
         // column width computed into `w` is what the *ideal* row needs; a
         // wide bed can still clamp `w` short of that, and without this a
@@ -8846,13 +9631,12 @@ impl Ui {
         let causes_budget = (w - PAGE_PAD * 2 - col_causes).max(0);
 
         let pager_h = if total > shown { 13 } else { 0 };
-        let h = PAGE_HEADER + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let h = PAGE_HEADER + charts_h + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.history_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, Panel::History.title(), TITLE);
@@ -8864,7 +9648,7 @@ impl Ui {
         // which painter drew it.
         let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - bw, y: rect.y + 3, w: bw, h: 11 },
             line1: "BACK".into(),
             line2: String::new(),
             action: Some(Action::Panel(Panel::Log)),
@@ -8875,10 +9659,17 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         let mut y = rect.y + PAGE_HEADER;
+        if !charts.is_empty() {
+            let col = Rect { x: rect.x, y, w: rect.w, h: charts_h };
+            if let Some((text, at)) = paint_rows(hc, frame, col, &charts, self.cursor, &mut widgets, self.pressed) {
+                note = Some((text, rect, at));
+            }
+            y += charts_h;
+        }
         text(hc, frame, left, y, "NAME", FAINT);
         for (x, head) in [col_kingdom, col_alive, col_ended, col_causes].into_iter().zip(SUMMARY_COLS) {
             text(hc, frame, left + x, y, head, FAINT);
@@ -8984,6 +9775,10 @@ impl Ui {
 
         let rows = history_lines_for_colony(world, colony);
         let total = rows.len();
+        // The colony's own lines, charted over its table -- see
+        // `history_charts`.
+        let charts = history_charts(&rows);
+        let charts_h: i32 = charts.iter().map(Row::height).sum::<i32>() + if charts.is_empty() { 0 } else { 4 };
         // The colony's own name, read off whichever of its lines is on hand
         // -- `world.group_deaths` carries the `(species, colony)` pair even
         // for a colony with nothing yet in `history_lines_for_colony`
@@ -8998,21 +9793,20 @@ impl Ui {
 
         // How many rows fit is computed, not assumed -- `paint_rack`'s own
         // scar (a fixed count once made that page taller than the screen).
-        let fixed = PAGE_HEADER + HISTORY_HEAD + PAGE_PAD + 13;
-        let room = ((bar_top() - 4 - MARGIN - fixed) / HISTORY_ROW).max(1) as usize;
+        let fixed = PAGE_HEADER + charts_h + HISTORY_HEAD + PAGE_PAD + 13;
+        let room = ((dock_bottom() - DOCK_TOP - fixed) / HISTORY_ROW).max(1) as usize;
         let shown = total.min(HISTORY_ROWS).min(room);
         self.history_scroll = self.history_scroll.min(total.saturating_sub(shown));
         let scroll = self.history_scroll;
 
         let pager_h = if total > shown { 13 } else { 0 };
-        let h = PAGE_HEADER + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
+        let h = PAGE_HEADER + charts_h + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
         let w = history_page_width().max(hud::text_width(&name) + hud::text_width("HISTORY -- ") + PAGE_PAD * 2);
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.history_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, &format!("HISTORY -- {name}"), TITLE);
@@ -9021,7 +9815,7 @@ impl Ui {
         // BACK goes to the LOG page instead, `Action::HistoryBack`'s own doc.
         let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - bw, y: rect.y + 3, w: bw, h: 11 },
             line1: "BACK".into(),
             line2: String::new(),
             action: Some(Action::HistoryBack),
@@ -9032,7 +9826,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -9040,6 +9834,13 @@ impl Ui {
         // rule -- a header hand-counted first overlapped its neighbour by
         // eight pixels, reported from play.
         let mut y = rect.y + PAGE_HEADER;
+        if !charts.is_empty() {
+            let area = Rect { x: rect.x, y, w: rect.w, h: charts_h };
+            if let Some((text, at)) = paint_rows(hc, frame, area, &charts, self.cursor, &mut widgets, self.pressed) {
+                note = Some((text, rect, at));
+            }
+            y += charts_h;
+        }
         let col = history_col_x();
         text(hc, frame, left, y, "NAME", FAINT);
         for (i, (head, _)) in HISTORY_COLS.iter().enumerate() {
@@ -9162,7 +9963,7 @@ impl Ui {
         // 320 px screen and everything past the fold fell behind the bar.
         let verbs_h = if self.pinned.is_some() { 14 } else { 0 };
         let fixed = PAGE_HEADER + RACK_HEAD + verbs_h + PAGE_PAD + 13 + 13;
-        let room = ((bar_top() - 4 - MARGIN - fixed) / RACK_ROW).max(1) as usize;
+        let room = ((dock_bottom() - DOCK_TOP - fixed) / RACK_ROW).max(1) as usize;
         let shown = total.min(ROSTER_ROWS).min(room);
         self.view_mut(kingdom).scroll = view.scroll.min(total.saturating_sub(shown));
         let scroll = self.view(kingdom).scroll;
@@ -9170,12 +9971,11 @@ impl Ui {
         let pager_h = if total > shown { 13 } else { 0 };
         let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + pager_h + verbs_h + 13 + PAGE_PAD;
         let w = roster_page_width(kingdom);
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.roster_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         let title = if kingdom == roster::Kingdom::Plants { "EVERY PLANT" } else { "EVERY ANIMAL" };
@@ -9211,14 +10011,16 @@ impl Ui {
         // event that widens the page, so the frame that clips is the frame
         // last frame's rectangle knows nothing about. That is the version
         // that shipped and was photographed.
-        let bar_right = if self.inspect.is_some() {
-            right.min(W as i32 - MARGIN - widest_cell_page() - 3)
-        } else {
-            right
-        };
+        //
+        // **Superseded 2026-10-22 by the window rule** (`Ui::place_windows`):
+        // the cell page now docks on the right and, when it and this page
+        // would touch, whichever was opened first folds to a title strip.
+        // So the two can no longer be drawn over each other, and the buttons
+        // sit at the page's own right edge again, beside its close box.
+        let bar_right = right;
         let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: bar_right - bw, y: rect.y + 3, w: bw, h: 11 },
+            rect: Rect { x: bar_right - CLOSE_W - 3 - bw, y: rect.y + 3, w: bw, h: 11 },
             line1: "BACK".into(),
             line2: String::new(),
             action: Some(Action::Panel(cover)),
@@ -9234,7 +10036,7 @@ impl Ui {
         let filter_label = view.filter.label();
         let fw = cell_width(hud::text_width(&filter_label), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: bar_right - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
+            rect: Rect { x: bar_right - CLOSE_W - 3 - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
             line1: filter_label,
             line2: String::new(),
             action: Some(Action::RosterFilter),
@@ -9262,7 +10064,7 @@ impl Ui {
         let cull_label = format!("CULL REST {doomed}");
         let cw = cell_width(hud::text_width(&cull_label), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: bar_right - bw - fw - cw - 8, y: rect.y + 3, w: cw, h: 11 },
+            rect: Rect { x: bar_right - CLOSE_W - 3 - bw - fw - cw - 8, y: rect.y + 3, w: cw, h: 11 },
             line1: cull_label,
             line2: String::new(),
             action: Some(Action::RosterCullRest),
@@ -9276,7 +10078,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -9486,7 +10288,10 @@ impl Ui {
             // otherwise simply stop having numbers on it, which reads as the
             // interface having broken rather than as the animal having died.
             if !alive {
-                text(hc, frame, vx + 4, vy + 2, ROSTER_LITERALS[2], POOR);
+                // Short form when the long one would run out of the page --
+                // it did, by 50 pixels on a page of ants, into the cell page.
+                let said = if vx + 4 + hud::text_width(ROSTER_LITERALS[2]) <= right { ROSTER_LITERALS[2] } else { "DIED" };
+                text(hc, frame, vx + 4, vy + 2, said, POOR);
             }
         } else {
             text(hc, frame, left, vy + 2, ROSTER_LITERALS[3], FAINT);
@@ -9520,21 +10325,20 @@ impl Ui {
         let rows_h = SHELF_ROW * shown.max(1) as i32;
         let w = shelf_page_width();
         let h = PAGE_HEADER + PARAM_TABS + rows_h + PARAM_TABS + PAGE_PAD;
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.shelf_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "THE SHELF", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Shelf.title(), TITLE);
 
         // RELOAD, in the header. The rack is read off a directory, so it can
         // change without the game touching it.
         let reload_w = cell_width(hud::text_width("RELOAD"), "", PAD);
         widgets.push(Widget {
-            rect: Rect { x: right - reload_w, y: rect.y + 3, w: reload_w, h: 11 },
+            rect: Rect { x: right - CLOSE_W - 3 - reload_w, y: rect.y + 3, w: reload_w, h: 11 },
             line1: "RELOAD".into(),
             line2: String::new(),
             action: Some(Action::ShelfReload),
@@ -9544,7 +10348,7 @@ impl Ui {
             note: "RE-READ THE SHELF DIRECTORY. JARS ARE FILES IN ASSETS/SHELF, SO YOU CAN COPY ONE IN FROM ANOTHER RUN OR ANOTHER MACHINE AND IT WILL BE HERE.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the dial strip, and the three verbs that act on the armed jar.
@@ -9725,21 +10529,20 @@ impl Ui {
         let w = param_page_width();
         let content: i32 = shown.iter().map(|l| l.height()).sum();
         let h = PAGE_HEADER + PARAM_TABS + content + if paged { PARAM_TABS } else { 0 } + PAGE_PAD;
-        let bottom = bar_top() - 4;
-        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        let bottom = dock_bottom();
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.params_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "PARAMETERS", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Params.title(), TITLE);
 
         // SAVE, in the header, acting on whatever row was last touched. Verb
         // on the button and the object named beside it, so a press cannot mean
         // something the screen did not say.
         let save_w = cell_width(hud::text_width("SAVE"), "", PAD);
-        let save = Rect { x: right - save_w, y: rect.y + 3, w: save_w, h: 11 };
+        let save = Rect { x: right - CLOSE_W - 3 - save_w, y: rect.y + 3, w: save_w, h: 11 };
         let armed = self.param_selected.and_then(|i| list.get(i));
         widgets.push(Widget {
             rect: save,
@@ -9760,7 +10563,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // The tab strip.
@@ -9906,6 +10709,25 @@ impl Ui {
     }
 }
 
+/// How long the pointer rests on one thing before its whole explanation
+/// opens; before that only the first sentence shows.
+const NOTE_REST: std::time::Duration = std::time::Duration::from_millis(900);
+
+/// The opening sentence of a hover explanation, with `...` when there is
+/// more -- or all of it when the opening is under 40 characters, which is a
+/// label rather than a sentence (`OFF.`).
+fn first_sentence(note: &str) -> String {
+    let mut from = 0;
+    while let Some(i) = note[from..].find(". ").map(|i| from + i) {
+        if i >= 40 {
+            let rest = note[i + 2..].trim();
+            return if rest.is_empty() { note.to_string() } else { format!("{} ...", &note[..=i]) };
+        }
+        from = i + 2;
+    }
+    note.to_string()
+}
+
 /// Narrowest a hover explanation may be squeezed to. Below about fifteen
 /// columns a sentence becomes a vertical strip of words, which is unreadable
 /// in a different way from being covered up.
@@ -9920,13 +10742,66 @@ enum Note {
     BesidePage,
 }
 
+/// **The spot nearest `prefer` where a `w` x `h` box covers none of
+/// `others`**, or, when every spot covers something, the one that covers
+/// least. Searched over the space between the clock and the tab strip on an
+/// 8-pixel grid, which is ~2,000 candidates and runs only while something is
+/// hovered.
+///
+/// This is the window rule ([`Window`]) for the things that float: a hover
+/// explanation and the LOOK readout used to try one or two fixed spots and
+/// then fall back to their first choice regardless, which is how a note came
+/// to be drawn over the cell page beside the page it explained -- 167,948
+/// pixels over 17 tiles of `labui`'s census, 2026-10-22, the largest
+/// remaining overlap once the windows themselves were docked.
+fn place_clear(w: i32, h: i32, prefer: (i32, i32), others: &[Rect]) -> (i32, i32) {
+    place_clear_cost(w, h, prefer, others).1
+}
+
+/// [`place_clear`], with the pixels the chosen spot still covers.
+fn place_clear_cost(w: i32, h: i32, prefer: (i32, i32), others: &[Rect]) -> (i64, (i32, i32)) {
+    let (x_max, y_max) = (W as i32 - MARGIN - w, dock_bottom() - h);
+    let clamp = |(x, y): (i32, i32)| (x.min(x_max).max(MARGIN), y.min(y_max).max(DOCK_TOP));
+    let cost = |(x, y): (i32, i32)| -> (i64, i64) {
+        let r = Rect { x, y, w, h };
+        let covered: i64 = others
+            .iter()
+            .map(|o| {
+                let ow = (r.right().min(o.right()) - r.x.max(o.x)).max(0);
+                let oh = (r.bottom().min(o.bottom()) - r.y.max(o.y)).max(0);
+                (ow * oh) as i64
+            })
+            .sum();
+        let (dx, dy) = ((x - prefer.0) as i64, (y - prefer.1) as i64);
+        (covered, dx * dx + dy * dy)
+    };
+    let start = clamp(prefer);
+    let mut best = (cost(start), start);
+    if best.0 .0 == 0 {
+        return (0, start);
+    }
+    let mut y = DOCK_TOP;
+    while y <= y_max {
+        let mut x = MARGIN;
+        while x <= x_max {
+            let c = cost((x, y));
+            if c < best.0 {
+                best = (c, (x, y));
+            }
+            x += 8;
+        }
+        y += 8;
+    }
+    (best.0 .0, best.1)
+}
+
 /// The hover explanation.
 ///
 /// Placed **beside** what it explains, never under the cursor: a box that
 /// follows the pointer covers the row it is describing, so you read the
 /// explanation having lost the thing it was about. Lane A's `stats.rs` reached
 /// this the same way and opens its note to the left for the same reason.
-fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note) {
+fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note, others: &[Rect]) {
     // **Sized to the gap it is going into, not to a constant.** At a fixed
     // 210 the parameters page — the widest thing that opens here — left 209
     // pixels beside it, so the box missed by *one pixel*, fell through to the
@@ -9937,7 +10812,44 @@ fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: 
         Note::AboveBar => W as i32 - MARGIN * 2,
         Note::BesidePage => (W as i32 - MARGIN - (avoid.right() + 6)).max(avoid.x - 6 - MARGIN),
     };
-    let width = 210.min(gap).min(W as i32 - MARGIN * 2).max(NOTE_MIN_WIDTH);
+    let mut width = 210.min(gap).min(W as i32 - MARGIN * 2).max(NOTE_MIN_WIDTH);
+    let mut keep_clear: Vec<Rect> = others.to_vec();
+    keep_clear.push(avoid);
+    // **Narrower and taller before it covers a window**: a long note in the
+    // gap between a wide page and the cell page fits as a column where it
+    // did not fit as a block.
+    // Only while it still fits the screen's height, and when nothing is
+    // clear at any width the widest wins -- a column of one word a line that
+    // runs into the bar is worse than a box over the corner of a window.
+    let mut best: Option<(i64, i32)> = None;
+    let mut trial = width;
+    loop {
+        let columns = ((trial - 12) / (hud::GLYPH_WIDTH + 1)).max(8) as usize;
+        let height = wrap_words(note, columns).len() as i32 * LINE + 10;
+        if height > dock_bottom() - DOCK_TOP {
+            break;
+        }
+        let covered = place_clear_cost(trial, height, (avoid.right() + 6, row_y - 6), &keep_clear).0;
+        if best.is_none_or(|(c, _)| covered < c) {
+            best = Some((covered, trial));
+        }
+        if covered == 0 || trial <= NOTE_MIN_WIDTH {
+            break;
+        }
+        trial = (trial - 24).max(NOTE_MIN_WIDTH);
+    }
+    // **A rested note that has no clear spot falls back to its first
+    // sentence** rather than covering a window: the whole of a long note
+    // beside NUMBERS with the cell page up has nowhere to go (`labui`'s
+    // census, once its notes were shown whole: 5-19k pixels over the cell
+    // page on four NUMBERS tabs).
+    let short = first_sentence(note);
+    if best.is_none_or(|(c, _)| c > 0) && short.len() < note.len() {
+        return draw_note(hc, frame, &short, avoid, row_y, place, others);
+    }
+    if let Some((_, w)) = best {
+        width = w;
+    }
     let columns = ((width - 12) / (hud::GLYPH_WIDTH + 1)).max(8) as usize;
     let lines = wrap_words(note, columns);
     let height = lines.len() as i32 * LINE + 10;
@@ -9963,6 +10875,10 @@ fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: 
             (x, (row_y - 6).min(bar_top() - MARGIN - height).max(MARGIN))
         }
     };
+    // The spot above is the *preference*; the window rule decides. Every
+    // window drawn this frame and the thing explained are both kept clear
+    // where the screen has room for it (`place_clear`).
+    let (x, y) = place_clear(width, height, (x, y), &keep_clear);
     let r = Rect { x, y, w: width, h: height };
     fill(hc, frame, r, NOTE_BG);
     outline(hc, frame, r, PANEL_EDGE);
@@ -10060,13 +10976,57 @@ impl Ui {
         // against the reticle, one layer further out. See
         // `draw_life_marks`'s own doc for the shapes, the colour rule, and
         // why this reads the world fresh rather than sampling a ring.
+        render::paint_owner::set(render::paint_owner::WORLD);
         draw_life_marks(frame, world, renderer, self.creature_colour(), self.life_marks);
         // **The battle view**, over the animals and under every page: it
         // reads the world fresh each draw and keeps only what it needs to
         // draw (`battle`'s module doc).
         self.battle.update(world);
         self.battle.draw_world(hc, frame, world, renderer, bar_top());
-        self.battle.draw_panel(hc, frame, world, W as i32 - MARGIN, MARGIN + 14);
+        render::paint_owner::set("BATTLE");
+        // **At the top of the right-hand column, one clock line down**, and
+        // the cell page and BIOSPHERE dock under it (`Window`). It used to sit
+        // at the same corner BIOSPHERE did, and BIOSPHERE painted over all of
+        // it -- 22,008 pixels in `labui`'s census, the largest single overlap
+        // on the sheet.
+        self.chrome = Bar::default();
+        self.drawn.clear();
+        // **Folds when a page reaches it**, unless it is the one in front
+        // (`Window::Battle`); found by the code review of this rule, since
+        // `labui` never shows a battle: MENU beside a two-colony BATTLE
+        // painted ~5k pixels over it.
+        self.battle_folded = self.battle.shown()
+            && self.focus != Window::Battle
+            && self.panel.is_some()
+            && self.page_last.zip(self.battle_last).is_some_and(|(p, b)| p.touches(&b));
+        if self.battle_folded {
+            let strip = fold_strip("BATTLE", Window::Battle, Action::ToggleBattle, Side::RightTop(DOCK_TOP));
+            let r = strip[0].rect.union(&strip[1].rect);
+            for wid in &strip {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
+            }
+            self.chrome.widgets.extend(strip);
+            self.battle_box = Some(r);
+            self.drawn.push(r);
+        } else {
+            // Half the column at most, so the cell page and BIOSPHERE under
+            // it always have room to open.
+            self.battle_box = self
+                .battle
+                .draw_panel(hc, frame, world, W as i32 - MARGIN, DOCK_TOP, (dock_bottom() - DOCK_TOP) / 2)
+                .map(|(x, y, w, h)| Rect { x, y, w, h });
+            self.battle_last = self.battle_box.or(self.battle_last.filter(|_| self.battle.shown()));
+        }
+        if let Some(r) = self.battle_box.filter(|_| !self.battle_folded) {
+            self.drawn.push(r);
+            let close = close_box(r, Action::ToggleBattle, "HIDE THE BATTLE PANEL. F9, OR VIEW IN THE MENU, BRINGS IT BACK.");
+            let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+            paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
+            self.chrome.widgets.push(close);
+        }
+        self.right_ceiling = self.battle_box.map_or(DOCK_TOP, |r| r.bottom() + 4);
+        render::paint_owner::set(render::paint_owner::WORLD);
 
         if self.pinned.is_some() {
             let n = self.watch.len();
@@ -10174,9 +11134,90 @@ impl Ui {
             }
         }
 
+        render::paint_owner::set("PAGE");
         let mut note: Option<(String, Rect, i32, Note)> = None;
 
-        if self.panel == Some(Panel::Params) {
+        // ------------------------------------------------- the window rule
+        //
+        // **Decided before anything paints**, so no window is drawn and then
+        // drawn over. The page docks left, the cell page and BIOSPHERE dock
+        // right under BATTLE, and when two would still touch the one opened
+        // last stays and the other folds to a title strip -- [`Window`].
+        // Before this each window placed itself and only the cell page knew
+        // the page existed: `labui`'s pixel census found two windows painted
+        // over each other on 72 of its 74 tiles, 2026-10-22.
+        //
+        // Every page's box and bar is cleared here and set again only by the
+        // branch that paints it. Each branch used to clear the *others'*, and
+        // two of them missed `rack_box` and `history_box` -- a stale box that
+        // swallowed clicks over bare soil after its page had shut.
+        self.panel_box = None;
+        self.panel_bar = Bar::default();
+        self.params_box = None;
+        self.params_bar = Bar::default();
+        self.shelf_box = None;
+        self.shelf_bar = Bar::default();
+        self.rack_box = None;
+        self.rack_bar = Bar::default();
+        self.roster_box = None;
+        self.roster_bar = Bar::default();
+        self.history_box = None;
+        self.history_bar = Bar::default();
+        let stats_open = self.stats_size.is_some();
+        // The cell page's ceiling leaves a strip's height for BIOSPHERE when
+        // that is up too, so whichever of the two folds still has a place to
+        // fold to.
+        let cell_ceiling = self.right_ceiling + if stats_open { STRIP_H + 4 } else { 0 };
+        let cell_at = self.inspect.filter(|_| self.panel != Some(Panel::Compare));
+        let cell_rows = cell_at.map(|at| {
+            let mut rows = self.inspect_rows_within(world, at, dock_bottom() - cell_ceiling - PAGE_HEADER - PAGE_PAD);
+            // **What is painted over the cell, when something is** -- see
+            // `mark_at`. Here rather than in `inspect_rows` because the
+            // geometry needs the renderer, which that function is not given.
+            if let Some(mark) = mark_at(world, renderer, self.life_marks, at) {
+                rows.push(Row::value(
+                    "MARK",
+                    mark,
+                    VALUE,
+                    "AN OVERLAY IS PAINTED OVER THIS CELL IN A COLONY'S COLOUR -- THE HALO OR TICK THAT MARKS (Y) DRAWS AROUND EVERY LIVING ANIMAL, OR THE HARVEST MAP (F7) ON GROUND A COLONY HAS EATEN FROM. IT IS PAINT, NOT AN ANIMAL: THE ROWS ABOVE ARE WHAT THE CELL REALLY HOLDS.",
+                ));
+            }
+            rows
+        });
+        let cell_full = cell_rows.as_ref().map(|rows| page_rect_under(rows, W as i32, dock_bottom(), cell_ceiling));
+        let stats_floor = dock_bottom() - if cell_full.is_some() { STRIP_H + 4 } else { 0 };
+        let stats_full = self.stats_size.map(|(w, h)| Rect {
+            x: W as i32 - MARGIN - w,
+            y: self.right_ceiling,
+            w,
+            h: h.min(stats_floor - self.right_ceiling),
+        });
+        // **Who folds: the window in front never does; the others, in a
+        // fixed order (page, cell page, BIOSPHERE), fold if they would touch
+        // one already standing.** The page is decided first and only
+        // against the window in front, because it is painted before the
+        // other two and its size is only known from last frame
+        // (`page_last`); the other two are decided after it, against what
+        // was actually painted.
+        let front = match self.focus {
+            Window::Cell => cell_full,
+            Window::Stats => stats_full,
+            Window::Battle => self.battle_box,
+            Window::Page => None,
+        };
+        self.page_folded =
+            self.panel.is_some() && self.focus != Window::Page && front.zip(self.page_last).is_some_and(|(f, p)| f.touches(&p));
+
+        if self.page_folded {
+            let title = self.panel.map_or("", |p| p.title());
+            let strip = fold_strip(title, Window::Page, Action::ClosePage, Side::Left);
+            self.panel_box = Some(strip[0].rect.union(&strip[1].rect));
+            for wid in &strip {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
+            }
+            self.chrome.widgets.extend(strip);
+        } else if self.panel == Some(Panel::Params) {
             // Its own painter: the rows carry buttons, so they are not `Row`s
             // and the page is not a `paint_page`.
             if let Some((body, avoid, y)) = self.paint_params(hc, frame, world, spec) {
@@ -10275,13 +11316,9 @@ impl Ui {
             self.history_box = None;
             self.history_bar = Bar::default();
             let (pages, toggles) = self.menu_columns(world);
-            let anchor = self
-                .bar
-                .widgets
-                .iter()
-                .find(|wid| wid.action == Some(Action::Panel(Panel::Menu)))
-                .map_or(MARGIN, |wid| wid.rect.x);
-            let rect = menu_rect(&pages, &toggles, anchor, bar_top() - 4);
+            // Docked left like every page (`Window`). Anchored at its button
+            // on the right, it landed on the cell page's folded strip.
+            let rect = menu_rect(&pages, &toggles, MARGIN, dock_bottom());
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
             if let Some((text, y)) = paint_menu(hc, frame, rect, &pages, &toggles, self.cursor, (&mut taps, self.pressed)) {
@@ -10299,34 +11336,73 @@ impl Ui {
             self.roster_bar = Bar::default();
             self.history_box = None;
             self.history_bar = Bar::default();
-            let rows = self.panel_rows(panel, world, spec, fps);
-            // Anchored under the button that opened it, which is only
-            // available because `Lab::act` closes the biosphere page when one
-            // of these opens — see the note there. Both pages drawn at once
-            // interleave into something neither of them is, and a contact
-            // sheet with both open was the only thing that showed it.
-            let anchor = self
-                .bar
-                .widgets
-                .iter()
-                .find(|wid| wid.action == Some(Action::Panel(panel)))
-                .map_or(MARGIN, |wid| wid.rect.x);
-            let rect = page_rect(&rows, anchor, bar_top() - 4);
+            // **Fitted here as well as by each page**: a page that forgot
+            // (SCENARIOS, 2026-10-22) ran under the tab strip and the bar --
+            // `no_two_windows_share_a_pixel` found 22,712 pixels of it. A
+            // page that already fits is returned untouched.
+            let rows = fit_rows(self.panel_rows(panel, world, spec, fps), page_content_budget());
+            // **Docked left, at the screen edge**, rather than under the
+            // button that opened it: the buttons moved (MENU now lists most
+            // pages) and a page that lands wherever its button happens to be
+            // is a page that lands on whatever else is there. `Window`.
+            let rect = page_rect(&rows, MARGIN, dock_bottom());
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
             if let Some((text, y)) = paint_page(hc, frame, rect, panel.title(), &rows, self.cursor, (&mut taps, self.pressed)) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
+        }
+        let page_now = [self.panel_box, self.params_box, self.shelf_box, self.rack_box, self.roster_box, self.history_box]
+            .into_iter()
+            .flatten()
+            .next();
+        if let Some(r) = page_now {
+            self.drawn.push(r);
+            if !self.page_folded {
+                self.page_last = Some(r);
+                let close = close_box(r, Action::ClosePage, "CLOSE THIS PAGE. ESC CLOSES WHATEVER WAS OPENED LAST.");
+                let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+                paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
+                self.chrome.widgets.push(close);
+            }
         } else {
-            self.panel_box = None;
-            self.panel_bar = Bar::default();
-            self.params_box = None;
-            self.params_bar = Bar::default();
-            self.shelf_box = None;
-            self.shelf_bar = Bar::default();
-            self.roster_box = None;
-            self.roster_bar = Bar::default();
+            self.page_last = None;
+        }
+        let mut standing: Vec<Rect> = front.into_iter().collect();
+        standing.extend(page_now.filter(|_| !self.page_folded));
+        let mut fold = |own: Option<Rect>, is_front: bool| -> bool {
+            let Some(r) = own else { return false };
+            if is_front {
+                return false;
+            }
+            let folds = standing.iter().any(|o| o.touches(&r));
+            if !folds {
+                standing.push(r);
+            }
+            folds
+        };
+        self.cell_folded = fold(cell_full, self.focus == Window::Cell);
+        let stats_folded = fold(stats_full, self.focus == Window::Stats);
+        self.stats_place = stats_full.map(|st| {
+            if stats_folded {
+                let strip = fold_strip("BIOSPHERE", Window::Stats, Action::CloseStats, Side::RightTop(self.right_ceiling));
+                let r = strip[0].rect.union(&strip[1].rect);
+                render::paint_owner::set("STATS");
+                for wid in &strip {
+                    let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                    paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
+                }
+                render::paint_owner::set("PAGE");
+                self.chrome.widgets.extend(strip);
+                (r, true)
+            } else {
+                (st, false)
+            }
+        });
+        self.stats_box = self.stats_place.map(|(r, _)| r);
+        if let Some(r) = self.stats_box {
+            self.drawn.push(r);
         }
 
         // **Not beside `Panel::Compare`, which is the one page that already
@@ -10336,43 +11412,27 @@ impl Ui {
         // `inspect` open -- so leaving both up draws the same numbers twice,
         // takes the width that made the comparison legible, and puts the
         // duplicate on the side the reader is scanning toward.
-        if let Some(at) = self.inspect.filter(|_| self.panel != Some(Panel::Compare)) {
-            let mut rows = self.inspect_rows(world, at);
-            // **What is painted over the cell, when something is** -- see
-            // `mark_at`. Here rather than in `inspect_rows` because the
-            // geometry needs the renderer, which that function is not given.
-            if let Some(mark) = mark_at(world, renderer, self.life_marks, at) {
-                rows.push(Row::value(
-                    "MARK",
-                    mark,
-                    VALUE,
-                    "AN OVERLAY IS PAINTED OVER THIS CELL IN A COLONY'S COLOUR -- THE HALO OR TICK THAT MARKS (Y) DRAWS AROUND EVERY LIVING ANIMAL, OR THE HARVEST MAP (F7) ON GROUND A COLONY HAS EATEN FROM. IT IS PAINT, NOT AN ANIMAL: THE ROWS ABOVE ARE WHAT THE CELL REALLY HOLDS.",
-                ));
+        render::paint_owner::set("CELL");
+        if let (Some(_), true) = (cell_at, self.cell_folded) {
+            let strip = fold_strip("CELL", Window::Cell, Action::CloseInspected, Side::RightBottom);
+            let r = strip[0].rect.union(&strip[1].rect);
+            self.inspect_box = Some(r);
+            self.drawn.push(r);
+            for wid in &strip {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
             }
-            // Beside the open page rather than under it, so opening a page
-            // does not hide the cell you are inspecting.
-            // **`history_box` belongs in this chain.** Found by looking at a
-            // rendered frame, `CLAUDE.md`'s own method: a cell pinned from
-            // earlier in a session and left open stays open under HISTORY
-            // (`Action::Panel` never closes the inspector, only the page
-            // list does), and without this the cell page fell back to
-            // `MARGIN` -- the same left edge HISTORY itself starts at --
-            // and the two panels painted directly on top of each other.
-            // **`rack_box` had the identical omission.** Left for a later
-            // lane when `history_box` was added; closed now, same fix,
-            // same reason -- a cell pinned before RACK is opened otherwise
-            // falls back to `MARGIN` and draws directly under the rack's
-            // own left edge. Owner: "menus overlap regularly."
-            let anchor = self
-                .panel_box
-                .or(self.params_box)
-                .or(self.shelf_box)
-                .or(self.roster_box)
-                .or(self.history_box)
-                .or(self.rack_box)
-                .map_or(MARGIN, |r| r.right() + 6);
-            let rect = page_rect(&rows, anchor, bar_top() - 4);
+            self.inspect_bar = Bar { widgets: Vec::from(strip), dividers: Vec::new() };
+        } else if let (Some(at), Some(rows), Some(full)) = (cell_at, cell_rows, cell_full) {
+            // **Docked right, under BATTLE**, and folded rather than drawn
+            // over the page when the two would touch (`Window`). It used to
+            // be anchored beside the page and slid left when it would not
+            // fit, which is exactly how it came to be drawn over the page --
+            // history, the rack and the roster each found that once, and
+            // each was patched alone (owner: "menus overlap regularly").
+            let rect = full;
             self.inspect_box = Some(rect);
+            self.drawn.push(rect);
             // The group headings are hit targets, and they are collected by
             // the paint loop rather than measured again afterwards: a second
             // pass over the same arithmetic is how a label and the thing it
@@ -10424,6 +11484,7 @@ impl Ui {
 
         // The bar itself, over everything a page drew, because a page opens
         // *above* it and the two must not fight over the seam.
+        render::paint_owner::set("BAR");
         let bar = Rect { x: 0, y: bar_top(), w: W as i32, h: BAR_HEIGHT };
         fill(hc, frame, bar, BAR_BG);
         for x in 0..W as i32 {
@@ -10448,6 +11509,7 @@ impl Ui {
         // cannot take another cell at any spacing (see `tab_strip_y`). Drawn after
         // the bar so that `AboveBar` sits against its top edge rather than
         // under it.
+        render::paint_owner::set("TABS");
         self.tabs = lay_out_tabs(state.chambers, tab_strip_y(state.chambers.len()));
         {
             let y = tab_strip_y(state.chambers.len());
@@ -10493,11 +11555,12 @@ impl Ui {
         // paints it after this, so a top-right box spends its life half
         // hidden — which a contact sheet showed and no test could have. The
         // left column is free below the clock.
+        render::paint_owner::set("HOVER");
         if self.tool == Tool::Look {
             if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
                 let (wx, wy) = renderer.logical_to_world(cx, cy);
                 let mark = mark_at(world, renderer, self.life_marks, (wx, wy));
-                paint_hover_cell(hc, frame, world, (wx, wy), self.inspect_box, mark);
+                paint_hover_cell(hc, frame, world, (wx, wy), (cx, cy), &self.drawn, mark);
             }
         }
 
@@ -10505,6 +11568,7 @@ impl Ui {
         // up** -- whatever the tool, because the trail is the thing being
         // watched and the overlay is how the player said so. See
         // `paint_scent_strip`.
+        render::paint_owner::set("SCENT");
         if matches!(
             renderer.field_overlay,
             render::FieldOverlay::PheromoneA | render::FieldOverlay::PheromoneB
@@ -10517,23 +11581,51 @@ impl Ui {
         }
 
         // The last verb's notice, over everything, just above the bar.
+        // Tagged as the strip's own paint: the notice lives in the strip now.
+        render::paint_owner::set("TABS");
         if let Some((text, at)) = &self.notice {
             if at.elapsed().as_secs_f32() < NOTICE_SECONDS {
-                let w = hud::text_width(text) + 12;
-                let r = Rect {
-                    x: ((W as i32 - w) / 2).max(MARGIN),
-                    y: bar_top() - 16,
-                    w: w.min(W as i32 - MARGIN * 2),
-                    h: 13,
+                // **In the tab strip, right of the tabs**, rather than a box
+                // floated over whatever sat 16 pixels above the bar -- a
+                // page's last rows, the tabs, the cell page. The census
+                // counted it on 66 of 74 tiles. The strip is the one band
+                // nothing else docks in, and a notice is one line.
+                let y = tab_strip_y(state.chambers.len());
+                let left = self.tabs.widgets.iter().map(|wid| wid.rect.right()).max().unwrap_or(0) + 8;
+                let room = ((W as i32 - MARGIN - left - 12) / (hud::GLYPH_WIDTH + 1)).max(0) as usize;
+                let shown: String = if text.chars().count() > room {
+                    text.chars().take(room.saturating_sub(2)).chain("..".chars()).collect()
+                } else {
+                    text.clone()
                 };
+                let w = hud::text_width(&shown) + 12;
+                let r = Rect { x: (W as i32 - MARGIN - w).max(left), y: y + 1, w, h: TAB_H - 1 };
                 fill(hc, frame, r, NOTE_BG);
                 outline(hc, frame, r, MARKER);
-                text_at(hc, frame, r.x + 6, r.y + 3, text, MARKER);
+                text_at(hc, frame, r.x + 6, r.y + (r.h - hud::GLYPH_HEIGHT) / 2, &shown, MARKER);
             }
         }
 
+        render::paint_owner::set("NOTE");
         if let Some((body, avoid, y, place)) = note {
-            draw_note(hc, frame, &body, avoid, y, place);
+            let mut others = self.drawn.clone();
+            others.extend(self.tabs.widgets.iter().map(|wid| wid.rect));
+            // **The first sentence at once, the rest once the pointer has
+            // rested** (`NOTE_REST`). Some of these run to a hundred words
+            // and covered half the screen the moment the pointer crossed a
+            // row on its way somewhere else.
+            let since = match &self.note_seen {
+                Some((seen, at)) if *seen == body => *at,
+                _ => {
+                    let now = std::time::Instant::now();
+                    self.note_seen = Some((body.clone(), now));
+                    now
+                }
+            };
+            let shown = if self.notes_rested || since.elapsed() >= NOTE_REST { body } else { first_sentence(&body) };
+            draw_note(hc, frame, &shown, avoid, y, place, &others);
+        } else {
+            self.note_seen = None;
         }
     }
 }
@@ -10573,7 +11665,7 @@ impl Ui {
 /// **The transient one moves.** The readout follows the cursor and is gone
 /// the moment it leaves; the page is pinned and is what the player is
 /// reading.
-fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>, mark: Option<String>) {
+fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), cursor: (i32, i32), others: &[Rect], mark: Option<String>) {
     use crate::sim::material::MaterialKind;
     use crate::sim::pheromone::Channel;
     let cell = world.get(x, y);
@@ -10611,20 +11703,14 @@ fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i
     ];
     let w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0) + 12;
     let h = lines.len() as i32 * LINE + 8;
-    let mut r = Rect { x: MARGIN, y: HOVER_TOP, w, h };
-    if let Some(page) = avoid {
-        if page.contains(r.x, r.y) || page.contains(r.right(), r.bottom()) || (r.x < page.right() && r.right() > page.x && r.y < page.bottom() && r.bottom() > page.y) {
-            // Beside it if there is room, under it if there is not, and back
-            // where it started if neither -- a readout squeezed off the
-            // screen is worse than one overlapping something.
-            let beside = page.right() + 6;
-            r.x = if beside + w <= W as i32 - MARGIN { beside } else { r.x };
-            if r.x == MARGIN {
-                let under = page.bottom() + 6;
-                r.y = if under + h <= bar_top() - MARGIN { under } else { r.y };
-            }
-        }
-    }
+    // **Under the clock by preference, and wherever the window rule finds
+    // room otherwise** (`place_clear`) -- never over an open window, and
+    // never under the pointer it is reading for. It tried beside the cell
+    // page, then under it, then gave up and drew over it.
+    let mut keep_clear = others.to_vec();
+    keep_clear.push(Rect { x: cursor.0 - 8, y: cursor.1 - 8, w: 17, h: 17 });
+    let (rx, ry) = place_clear(w, h, (MARGIN, HOVER_TOP), &keep_clear);
+    let r = Rect { x: rx, y: ry, w, h };
     fill(hc, frame, r, READOUT_BG);
     outline(hc, frame, r, PANEL_EDGE);
     for (i, line) in lines.iter().enumerate() {
@@ -11230,62 +12316,54 @@ mod tests {
         assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
     }
 
-    /// **The roster's header buttons are never under the cell page.**
+    /// **No two windows share a pixel** -- the window rule ([`Window`]),
+    /// read off the pixels by `render::paint_owner` rather than from the
+    /// layout's own rectangles, which is the only way a window that paints
+    /// outside its box (a footer that overran, a page never fitted) can be
+    /// caught. Every page, with the cell page pinned and BIOSPHERE up, with
+    /// each of the three in front in turn.
     ///
-    /// Both pages are open together by design and the cell page is painted
-    /// second, sized to its own widest row and slid left when it will not fit
-    /// beside this one -- so a wide one silently overpaints this page's
-    /// header. It had been eating the right-hand end of BACK since both pages
-    /// existed, found by cropping a contact sheet rather than by anything
-    /// here, and the row now also carries CULL REST.
-    ///
-    /// **Asserted against the bound, not against a rendered page.** The first
-    /// version of this guard read `inspect_box` -- last frame's rectangle --
-    /// and passed for the broken build, because the frame that clips is the
-    /// frame the WORDS group opens and the page has not been that wide
-    /// before. Blind, in the way `CLAUDE.md` means it.
+    /// Before the rule `labui`'s census counted 627,757 such pixels over 71
+    /// of its tiles; this replaces a guard that held one page's buttons left
+    /// of one hand-measured cell-page width (`widest_cell_page`), which the
+    /// rule made moot.
     #[test]
-    fn the_roster_header_stays_clear_of_the_cell_page() {
-        let world = world();
-        let edge = W as i32 - MARGIN - widest_cell_page();
-        // 177 is what the widest cell page actually measured in
-        // `labui-roster--plants-pinned.png`, WORDS open, read off the pixels;
-        // BACK ended at 339 there and the page began at 331.
-        assert!(widest_cell_page() >= 177, "the bound is under the widest page ever photographed");
-        for open in [false, true] {
-            for kingdom in [roster::Kingdom::Plants, roster::Kingdom::Creatures] {
-                let mut ui = Ui::new();
-                ui.panel = Some(if kingdom == roster::Kingdom::Plants {
-                    Panel::PlantList
-                } else {
-                    Panel::AntList
-                });
-                if open {
-                    ui.inspect = Some((10, 10));
-                }
-                let mut buf = vec![0u8; (W * H * 4) as usize];
-                let _ = ui.paint_roster(hud(), &mut buf, &world, kingdom);
-                let mut seen = 0;
-                for wid in &ui.roster_bar.widgets {
-                    let Some(action) = wid.action else { continue };
-                    if !matches!(action, Action::Panel(_) | Action::RosterFilter | Action::RosterCullRest) {
-                        continue;
-                    }
-                    seen += 1;
-                    if open {
-                        assert!(
-                            wid.rect.right() <= edge,
-                            "{kingdom:?}: {action:?} ends at {} and the cell page can reach {edge}",
-                            wid.rect.right()
-                        );
-                    }
-                    // ...and still on the page rather than shoved off its left
-                    // side, which is the way a clamp fails quietly.
-                    assert!(wid.rect.x > MARGIN, "{kingdom:?}: {action:?} was pushed off the page");
-                }
-                assert_eq!(seen, 3, "{kingdom:?}: the header should carry CULL REST, the filter and BACK");
+    fn no_two_windows_share_a_pixel() {
+        let census = |lab: &mut crate::lab::Lab| {
+            let mut buf = vec![0u8; (W * H * 4) as usize];
+            // Twice: the page folds from where it was drawn last frame, and
+            // the app draws every frame (`labui`'s `shot` says the same).
+            lab.draw(&mut buf, 60.0);
+            render::paint_owner::begin(W, H);
+            lab.draw(&mut buf, 60.0);
+            render::paint_owner::end(0, H as i32).0
+        };
+        let panels = [
+            Panel::Plants, Panel::Ants, Panel::Box, Panel::Params, Panel::Shelf, Panel::Chambers,
+            Panel::PlantList, Panel::AntList, Panel::Log, Panel::Scenarios, Panel::History,
+            Panel::Menu, Panel::Food, Panel::Training,
+        ];
+        // Two colonies, so BATTLE is up too: the code review found MENU
+        // drawn over it, in a case the one-colony box never reached.
+        let bed = crate::lab::scene::LabBox { colonies: 2, ..crate::lab::scene::LabBox::default() };
+        let mut cases = 0;
+        for panel in panels {
+            for front in [Window::Page, Window::Cell, Window::Stats, Window::Battle] {
+                let mut lab = crate::lab::Lab::new(bed.clone());
+                lab.show_help = false;
+                lab.act(Action::Stats);
+                assert!(lab.stats.showing(), "test setup: BIOSPHERE did not open");
+                lab.ui.toggle_panel(panel);
+                let world = &lab.world;
+                lab.ui.inspect(world, (200, 200));
+                lab.act(Action::Focus(front));
+                let overlaps = census(&mut lab);
+                assert!(lab.ui.battle.shown(), "test setup: no BATTLE panel with two colonies");
+                assert!(overlaps.is_empty(), "{panel:?} with {front:?} in front: {overlaps:?}");
+                cases += 1;
             }
         }
+        assert_eq!(cases, 56);
     }
 
     /// **Every cause of death fits the HISTORY page's CAUSE column**, which
@@ -11600,6 +12678,18 @@ mod tests {
                     }
                     Body::Spark { label, .. } => check(label, "strip caption"),
                     Body::Lines { caption, .. } => check(caption, "chart caption"),
+                    Body::Hist { caption, .. } | Body::Scatter { caption, .. } => check(caption, "chart caption"),
+                    Body::Tabs { names, .. } => {
+                        for name in names {
+                            check(name, "page tab");
+                        }
+                    }
+                    Body::Section { label } => check(label, "section heading"),
+                    Body::Stack { parts } => {
+                        for (label, _) in stack_legend(parts) {
+                            check(&label, "stack legend");
+                        }
+                    }
                     Body::Head { label, .. } => check(label, "group heading"),
                     Body::Gap => {}
                 }
@@ -12319,9 +13409,9 @@ mod tests {
         use crate::sim::pheromone::{Channel, SCALE};
         let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
         lab.show_help = false;
-        // The biosphere page covers the right half; shut it so every
+        // The biosphere page covers the right half; it opens shut, so every
         // column of the strip is ours to read.
-        lab.act(Action::Stats);
+        assert!(!lab.stats.showing(), "test setup: BIOSPHERE opens shut");
         let cursor = (60, 150);
         lab.set_cursor(Some(cursor));
         let (wx, wy) = lab.renderer.logical_to_world(cursor.0, cursor.1);
@@ -12419,7 +13509,7 @@ mod tests {
         for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
             let rows = ui.panel_rows(panel, &world, &spec, 60.0);
             for anchor in [0, 200, W as i32 - 10] {
-                let r = page_rect(&rows, anchor, bar_top() - 4);
+                let r = page_rect(&rows, anchor, dock_bottom());
                 assert!(r.x >= 0 && r.right() <= W as i32, "{panel:?} page runs off the screen");
                 assert!(r.bottom() <= bar_top(), "{panel:?} page overlaps the bar");
                 assert!(r.y >= 0, "{panel:?} page runs off the top");
@@ -13252,7 +14342,7 @@ mod tests {
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
             assert_eq!(shut, sections.len(), "{name}: the cell page did not start with every group folded shut");
             for anchor in [0, 200, W as i32 - 10] {
-                let r = page_rect(&rows, anchor, bar_top() - 4);
+                let r = page_rect(&rows, anchor, dock_bottom());
                 assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
                 assert!(r.bottom() <= bar_top(), "the {kingdom} cell page runs into the bar");
                 assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
@@ -13266,7 +14356,7 @@ mod tests {
             ui.show_specimen_section(0);
             let rows = ui.inspect_rows(&world, (10, 10));
             for anchor in [0, 200, W as i32 - 10] {
-                let r = page_rect(&rows, anchor, bar_top() - 4);
+                let r = page_rect(&rows, anchor, dock_bottom());
                 assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
                 assert!(r.bottom() <= bar_top(), "the {kingdom} cell page runs into the bar");
                 assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
@@ -13274,10 +14364,18 @@ mod tests {
             // **The fold is what fits it, not the backstop.** `fit_rows` will
             // trim anything to size, so a page that fits only because rows
             // were dropped is a page that has quietly stopped saying things.
-            assert!(
-                !rows.iter().any(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))),
-                "the {kingdom} cell page fits only because rows were dropped"
-            );
+            // Since the window rule docked the cell page (2026-10-22) it
+            // has ~20 px less height, and an ant's WORDS group no longer
+            // fits whole: it is trimmed *inside itself*, with its count, so
+            // every heading under it stays. What must never happen is the
+            // page's own end being cut -- so a `+N MORE` may only sit
+            // directly above another heading, never last.
+            if let Some(i) = rows.iter().position(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))) {
+                assert!(
+                    matches!(rows.get(i + 1).map(|r| &r.body), Some(Body::Head { .. })),
+                    "the {kingdom} cell page dropped rows from its end, not from inside the open group"
+                );
+            }
             // **Both kingdoms fold now**, where only the plant did before:
             // the `WORDS` group adds eight to fourteen rows and neither page
             // holds all four groups at once. What matters is not how many are
@@ -13956,6 +15054,8 @@ mod tests {
         ui.observe(&world);
 
         let spec = LabBox::default();
+        // The legend lives on the page's GROUPS view since 2026-10-22.
+        ui.set_page_tab(Panel::Ants, 1);
         let rows = ui.panel_rows(Panel::Ants, &world, &spec, 60.0);
         let labels: Vec<&str> = rows
             .iter()

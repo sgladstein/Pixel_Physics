@@ -144,6 +144,11 @@ impl BattleView {
         self.on
     }
 
+    /// Is the panel up: switched on, and a battle to show.
+    pub fn shown(&self) -> bool {
+        self.on && self.has_battle()
+    }
+
     /// **Is there a battle to show?** Two colonies have had ants in the box,
     /// or a predator has killed or been killed by a colony animal.
     pub fn has_battle(&self) -> bool {
@@ -334,13 +339,24 @@ impl BattleView {
 
     /// The scoreboard and strength strip, in a panel at `(x, y)` (top-right
     /// corner of the panel at `right`).
-    pub fn draw_panel(&self, hc: Hud, frame: &mut [u8], world: &World, right: i32, y: i32) {
-        if !self.on || !self.has_battle() {
-            return;
+    ///
+    /// Returns the panel's rectangle as `(x, y, w, h)`, or `None` when it is
+    /// not drawn -- for `lab::ui`'s window rule, which docks the cell page and
+    /// BIOSPHERE under it, stops clicks going through it, and puts a close box
+    /// in its corner (it said `F9 HIDES` and had no way to be clicked shut).
+    ///
+    /// `max_h` bounds the panel: a box with many colonies and predators
+    /// lists only the first that fit, so the windows docked under it keep
+    /// their room (`ui::Window`).
+    pub fn draw_panel(&self, hc: Hud, frame: &mut [u8], world: &World, right: i32, y: i32, max_h: i32) -> Option<(i32, i32, i32, i32)> {
+        if !self.shown() {
+            return None;
         }
-        let lines = self.score_lines(world);
+        let mut lines = self.score_lines(world);
         let line_h = hud::GLYPH_HEIGHT + 2;
-        let text_w = lines.iter().map(|(_, s)| hud::text_width(s)).max().unwrap_or(0).max(hud::text_width("BATTLE  F9 HIDES"));
+        let fixed = 6 + line_h + 4 + 34 + line_h + 4;
+        lines.truncate(((max_h - fixed) / line_h).max(1) as usize);
+        let text_w = lines.iter().map(|(_, s)| hud::text_width(s)).max().unwrap_or(0).max(hud::text_width("BATTLE") + 24);
         let strip_h = 34;
         let w = text_w + 18;
         let h = 6 + line_h * (lines.len() as i32 + 1) + 4 + strip_h + line_h + 4;
@@ -358,7 +374,7 @@ impl BattleView {
             hc.put(frame, x, yy, PANEL_EDGE);
             hc.put(frame, x + w - 1, yy, PANEL_EDGE);
         }
-        hc.text(frame, x + 6, y + 4, "BATTLE  F9 HIDES", TITLE);
+        hc.text(frame, x + 6, y + 4, "BATTLE", TITLE);
         for (i, (c, s)) in lines.iter().enumerate() {
             let ly = y + 4 + line_h * (i as i32 + 1);
             for dy in 1..hud::GLYPH_HEIGHT - 1 {
@@ -399,6 +415,7 @@ impl BattleView {
             }
         }
         hc.text(frame, x + 6, sy + strip_h + 3, "LINE ANTS ALIVE  DOTS FOOD IN", FAINT);
+        Some((x, y, w, h))
     }
 }
 

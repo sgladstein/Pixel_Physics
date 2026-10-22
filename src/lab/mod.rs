@@ -82,6 +82,11 @@ pub use crate::app::{HEIGHT, WIDTH};
 /// over the ticks rather than paid by each.
 pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
 
+/// How long a "press again" question stays asked: ESC to quit, REBUILD to
+/// rebuild. Long enough to read the notice, short enough that a press a
+/// minute later is a new question.
+const CONFIRM: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
@@ -181,6 +186,16 @@ pub struct Lab {
     /// along the bottom shows every control as a button and prints its key
     /// under it, so the page is now a reference rather than the interface.
     pub show_help: bool,
+    /// Whether the modal page is the full key list (`?`) or the short
+    /// welcome card a fresh lab opens on. The card is the default: a wall of
+    /// thirty key bindings is a reference, not a first screen.
+    pub help_full: bool,
+    /// When ESC last asked "again to quit", with nothing left open to close
+    /// -- see [`Lab::escape`]. Interface state only: never read by a tick.
+    quit_armed: Option<std::time::Instant>,
+    /// When REBUILD last asked "again to rebuild" -- the box is thrown away
+    /// on the second press within [`CONFIRM`], never on one.
+    reset_armed: Option<std::time::Instant>,
     /// `+` — how many buffer pixels a logical pixel may be given at zoom-out.
     ///
     /// **The lab is where the owner picked the finest setting.** Shown the
@@ -558,7 +573,7 @@ impl Lab {
             renderer,
             player_tuning: player::Tuning::default(),
             time,
-            stats: stats::Stats::new(),
+            stats: stats::Stats::closed(),
             chronicle_census: Vec::new(),
             chronicle_stamp: None,
             ui,
@@ -569,6 +584,9 @@ impl Lab {
             // key list, which is otherwise unreachable without a keypress and
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
+            help_full: false,
+            quit_armed: None,
+            reset_armed: None,
             pixel_budget: DEFAULT_PIXEL_BUDGET,
             pixel_scale_cap: 1,
             stroke: None,
@@ -785,7 +803,10 @@ impl Lab {
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
+        // A fresh census, and the page as open or shut as it was.
+        let showing = self.stats.showing();
         self.stats = stats::Stats::new();
+        self.stats.set_showing(showing);
         // The outgoing run's CENSUS rows just went out with it above
         // (`write_chronicle`, before `spec.build()` replaced `self.world`);
         // the box that replaces it starts its own history at frame 0, same
@@ -1141,7 +1162,14 @@ impl Lab {
             world: std::mem::replace(&mut self.world, incoming.world),
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
-            stats: std::mem::replace(&mut self.stats, incoming.stats),
+            stats: {
+                // The page stays as open or shut as it was across the switch:
+                // each chamber carries its own census, not its own window.
+                let showing = self.stats.showing();
+                let mut stats = incoming.stats;
+                stats.set_showing(showing);
+                std::mem::replace(&mut self.stats, stats)
+            },
             chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
             chronicle_stamp: std::mem::replace(&mut self.chronicle_stamp, incoming.chronicle_stamp),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
@@ -2152,6 +2180,7 @@ impl Lab {
             viewport,
             force_full,
         );
+        crate::render::paint_owner::set("CLOCK");
         self.time.draw(hc, frame_buf, &self.world);
         // **A request the machine cannot meet has to say so**, which is the
         // same principle `time::PRESETS` already states for the speed dial:
@@ -2166,8 +2195,17 @@ impl Lab {
         // 508 of 508 pixels at its tightest spacing, so a widget there would
         // overflow it. Drawn only when the request is *not* met, so the usual
         // case costs one integer comparison and no pixels.
+        //
+        // **Not when the view could not spend a single extra pixel anyway.**
+        // At the shipped zoom no budget buys anything -- the buffer only grows
+        // at a zoom-out rung that divides it -- so the line used to show on
+        // every frame of a fresh lab, `PIXELS X4 -> X1 (WINDOW)`, warning about
+        // a refusal that cost nothing and sitting where the left page's title
+        // goes (the redesign review, 2026-10-22). It now shows only at a rung
+        // that could spend more than it got.
         let (want, got) = (self.effective_pixel_budget().max(self.pixel_budget), self.pixel_scale());
-        if want != got {
+        let spendable = self.renderer.pixel_scale_for(i32::MAX) > 1;
+        if want != got && spendable {
             let why = if self.pixel_budget > self.pixel_scale_cap { "WINDOW" } else { "THIS ZOOM" };
             hc.text(frame_buf, 4, 14, &format!("PIXELS X{} -> X{got} ({why})", self.pixel_budget), [190, 170, 110, 255]);
         }
@@ -2225,6 +2263,8 @@ impl Lab {
             _ => None,
         };
         self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
+        let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
+        self.ui.set_stats_size(stats_size);
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
         // the bar, and a control you can see but not reach is worse than one
@@ -2245,9 +2285,24 @@ impl Lab {
         // a second path. One owner, because two positions that disagree by a
         // frame is exactly the class of bug the retained bar exists to avoid.
         if self.show_help {
-            draw_help(hc, frame_buf);
+            crate::render::paint_owner::set(crate::render::paint_owner::MODAL);
+            if self.help_full {
+                draw_help(hc, frame_buf);
+            } else {
+                draw_welcome(hc, frame_buf);
+            }
         } else {
-            self.stats.draw_at(hc, frame_buf, &self.world, self.ui.cursor());
+            // Placed by the window rule (`ui::Window`): docked under BATTLE,
+            // folded to its title when it would touch the cell page you
+            // opened after it. `draw_at` placed it itself, at the corner
+            // BATTLE also used.
+            crate::render::paint_owner::set("STATS");
+            let note = match self.ui.stats_place() {
+                Some((r, false)) => self.stats.draw_placed(hc, frame_buf, &self.world, self.ui.cursor(), (r.x, r.y, r.w, r.h)),
+                _ => None,
+            };
+            self.ui.paint_stats_close(&self.renderer, frame_buf);
+            self.ui.paint_stats_note(&self.renderer, frame_buf, note);
         }
     }
 
@@ -3274,12 +3329,58 @@ impl Lab {
         }
     }
 
+    /// ESC: put away whatever was opened last; with nothing open, ask, and
+    /// quit on a second ESC within [`CONFIRM`]. Returns `true` to quit.
+    ///
+    /// It quit on the first press, from anywhere -- with a page open, ESC
+    /// is the key a player reaches for to close it, and got the window shut
+    /// instead.
+    pub fn escape(&mut self) -> bool {
+        if self.show_help {
+            self.show_help = false;
+            return false;
+        }
+        if let Some(closed) = self.ui.close_top(self.stats.showing()) {
+            if closed == ui::Window::Stats {
+                self.stats.toggle();
+            }
+            self.quit_armed = None;
+            return false;
+        }
+        if self.quit_armed.is_some_and(|t| t.elapsed() < CONFIRM) {
+            return true;
+        }
+        self.quit_armed = Some(std::time::Instant::now());
+        self.ui.say("PRESS ESC AGAIN TO QUIT");
+        false
+    }
+
+    /// The mouse wheel at `(x, y)`; `true` when a window took it, `false`
+    /// when it is the box's to zoom. See [`ui::Ui::wheel_at`].
+    pub fn wheel(&mut self, x: i32, y: i32, down: bool) -> bool {
+        match self.ui.wheel_at(x, y, down) {
+            None => false,
+            Some(None) => true,
+            Some(Some(action)) => {
+                self.act(action);
+                true
+            }
+        }
+    }
+
     /// Do one of the bar's verbs.
     ///
     /// **The single place a control turns into a change**, so a button and its
     /// keyboard shortcut cannot drift: `bin/lab.rs`'s key handler routes
     /// through here too, and there is no second copy of "what SPACE does".
     pub fn act(&mut self, action: ui::Action) {
+        // **Any other verb takes a pending confirm back**, so a second Esc
+        // or R reads as "yes" only when nothing happened in between (the
+        // code review's case: Esc, open and close MENU, Esc quit unasked).
+        self.quit_armed = None;
+        if action != ui::Action::Reset {
+            self.reset_armed = None;
+        }
         match action {
             // **The speed dial, chronicled** (round 31). `self.time.phase`/
             // `.requested` are read *after* the call, since every one of
@@ -3307,24 +3408,20 @@ impl Lab {
                 self.time.set_preset(i);
                 self.world.log_player_action(format!("SPEED {}X", self.time.requested));
             }
-            // **One page at a time**, the rule this file already applies to
-            // the key list against the biosphere page, extended to the bar's
-            // three. The screen is 512x320, the biosphere page is a full-
-            // height right-hand column and these open above the bar's own
-            // right-hand group, so two of them drawn together interleave into
-            // something neither of them is. Made exclusive in *state* rather
-            // than only in the paint, so the latch on the bar tells the truth
-            // about what is on screen.
-            ui::Action::Panel(panel) => {
-                self.ui.toggle_panel(panel);
-                if self.ui.panel.is_some() && self.stats.showing() {
+            // **A page and BIOSPHERE may both be up.** Each used to shut the
+            // other, because they were drawn over each other; the window
+            // rule (`ui::Window`) docks them apart -- page left, BIOSPHERE
+            // right -- so the overview can stay up beside the page it
+            // explains.
+            ui::Action::Panel(panel) => self.ui.toggle_panel(panel),
+            ui::Action::Stats => {
+                // TAB on a folded BIOSPHERE brings it back rather than
+                // shutting it, as a click on its strip does.
+                if !(self.stats.showing() && self.ui.folded(ui::Window::Stats)) {
                     self.stats.toggle();
                 }
-            }
-            ui::Action::Stats => {
-                self.stats.toggle();
                 if self.stats.showing() {
-                    self.ui.panel = None;
+                    self.ui.set_focus(ui::Window::Stats);
                 }
             }
             // **Arms `SCENT` and says which plane it is laying**, ahead of
@@ -3441,8 +3538,21 @@ impl Lab {
                 self.ui.set_creature_colour(self.renderer.creature_colour);
                 self.ui.say(format!("ANIMALS WEAR {}", self.renderer.creature_colour.label()));
             }
-            ui::Action::Help => self.show_help = !self.show_help,
+            ui::Action::Help => {
+                // `?` from the welcome card goes to the key list, not away.
+                self.show_help = !(self.show_help && self.help_full);
+                self.help_full = true;
+            }
             ui::Action::Reset => {
+                // **Two presses, never one.** R sits beside the digit row
+                // the dial lives on, and one stray press threw the whole box
+                // away with nothing to take it back.
+                if !self.reset_armed.is_some_and(|t| t.elapsed() < CONFIRM) {
+                    self.reset_armed = Some(std::time::Instant::now());
+                    self.ui.say("PRESS REBUILD (R) AGAIN TO THROW THIS BOX AWAY AND BUILD A FRESH ONE");
+                    return;
+                }
+                self.reset_armed = None;
                 // **A REBUILD of the training bed is a fresh run** -- the
                 // bed's scenario has no colony of its own (the round founds
                 // it), so a plain rebuild would leave an empty bed with a
@@ -3509,6 +3619,14 @@ impl Lab {
             // they act on is chosen.
             ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
             ui::Action::CloseInspected => self.ui.close_inspected(),
+            ui::Action::ClosePage => self.ui.close_panel(),
+            ui::Action::CloseStats => {
+                if self.stats.showing() {
+                    self.stats.toggle();
+                }
+            }
+            ui::Action::PageTab(panel, i) => self.ui.set_page_tab(panel, i),
+            ui::Action::Focus(w) => self.ui.set_focus(w),
             ui::Action::KeepInspected => match self.ui.inspecting() {
                 // The cell page's own coordinate, so what is kept is what the
                 // page is showing. It is re-read every frame, which is the
@@ -3786,6 +3904,9 @@ impl Lab {
             }
             ui::Action::ToggleBattle => {
                 let on = self.ui.battle.toggle();
+                if on {
+                    self.ui.set_focus(ui::Window::Battle);
+                }
                 self.ui.say(if on { "BATTLE VIEW ON" } else { "BATTLE VIEW OFF" });
             }
             ui::Action::ToggleWindfallRot => {
@@ -4442,6 +4563,49 @@ const HELP: [&str; 30] = [
     "",
 ];
 
+/// **The card a fresh lab opens on**: what the box is, the three keys that
+/// matter first, and where the rest live. It replaced the full key list as
+/// the first screen (`Reports/lab-ui-redesign-2026-10-22.md`): thirty lines
+/// of bindings is the reference a player comes back to, and was the wall
+/// they met before they had seen the box. Any key or click puts it away.
+const WELCOME: [&str; 9] = [
+    "THE EVOLUTION LAB",
+    "",
+    "A SEALED BOX OF SOIL UNDER GROW LIGHTS.",
+    "PLANTS AND ANTS LIVE, BREED AND EVOLVE IN IT.",
+    "",
+    "SPACE  RUN OR STOP THE BOX",
+    "MENU   EVERY PAGE AND VIEW    ESC  CLOSE A WINDOW",
+    "?      EVERY KEY",
+    "",
+];
+
+fn draw_welcome(hc: crate::render::Hud, frame: &mut [u8]) {
+    const EDGE: [u8; 4] = [90, 170, 240, 255];
+    let w = WELCOME.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
+    let (bw, bh) = (w + 32, WELCOME.len() as i32 * 10 + 30);
+    let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2 - 20);
+    for y in y0..(y0 + bh) {
+        for x in x0..(x0 + bw) {
+            hc.blend(frame, x, y, [12, 14, 20, 255], 0.9);
+        }
+    }
+    for x in x0..x0 + bw {
+        hc.put(frame, x, y0, EDGE);
+        hc.put(frame, x, y0 + bh - 1, EDGE);
+    }
+    for y in y0..y0 + bh {
+        hc.put(frame, x0, y, EDGE);
+        hc.put(frame, x0 + bw - 1, y, EDGE);
+    }
+    for (i, line) in WELCOME.iter().enumerate() {
+        let colour = if i == 0 { [255, 220, 100, 255] } else { [210, 214, 222, 255] };
+        hc.text(frame, x0 + 16, y0 + 14 + i as i32 * 10, line, colour);
+    }
+    let foot = "PRESS ANY KEY OR CLICK TO BEGIN";
+    hc.text(frame, x0 + (bw - crate::hud::text_width(foot)) / 2, y0 + bh - 14, foot, [130, 136, 150, 255]);
+}
+
 fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
     let w = HELP.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
     let (bw, bh) = (w + 24, HELP.len() as i32 * 10 + 20);
@@ -4580,6 +4744,49 @@ mod tests {
             // ...and the buffer really did grow, or the arms are the same arm.
             assert_eq!(viewport, (WIDTH * budget as u32, HEIGHT * budget as u32), "budget x{budget} did not size its buffer");
         }
+    }
+
+    /// **A confirm is taken back by any other verb** (code review of the
+    /// window rule, 2026-10-22): Esc with nothing open, then MENU opened and
+    /// shut from its X, then Esc, quit the lab with no fresh prompt.
+    #[test]
+    fn a_pending_quit_or_rebuild_is_taken_back_by_any_other_verb() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        assert!(!lab.escape(), "the first Esc with nothing open only asks");
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.act(ui::Action::ClosePage);
+        assert!(!lab.escape(), "an Esc after another verb must ask again, not quit");
+        assert!(lab.escape(), "...and the Esc straight after it quits");
+
+        let frame = lab.world.frame;
+        lab.act(ui::Action::Reset);
+        lab.act(ui::Action::TogglePhase);
+        lab.act(ui::Action::Reset);
+        assert!(lab.reset_armed.is_some(), "a REBUILD after another verb must ask again");
+        assert_eq!(lab.world.frame, frame, "...and must not have rebuilt");
+    }
+
+    /// **TAB on a folded BIOSPHERE brings it back**, as a click on its strip
+    /// does; it used to shut it.
+    #[test]
+    fn tab_on_a_folded_biosphere_unfolds_it() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.show_help = false;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.act(ui::Action::Stats);
+        // MENU is wide enough to reach BIOSPHERE's column, and opened after
+        // it, so BIOSPHERE is the one that folds.
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.draw(&mut buf, 60.0);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.ui.folded(ui::Window::Stats), "test setup: BIOSPHERE should fold beside MENU");
+        lab.act(ui::Action::Stats);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.stats.showing(), "TAB shut a folded BIOSPHERE");
+        assert!(!lab.ui.folded(ui::Window::Stats), "TAB left BIOSPHERE folded");
+        lab.act(ui::Action::Stats);
+        assert!(!lab.stats.showing(), "TAB on an open BIOSPHERE shuts it");
     }
 
     /// **The shipped bed cannot zoom out at all, so the budget is a no-op
@@ -6842,8 +7049,12 @@ mod tests {
         // stops to 8 keeps the colony (span 70) comfortably clear of the
         // panel at this same click point, with "two lines" just as true of
         // 8 independently-founded ants as of 52.
+        //
+        // **Stocked on the left since 2026-10-22**: the cell page docks to
+        // the *right* column now (`ui::Window`), so the right of the bed is
+        // where it stands.
         lab.act(ui::Action::Stock(-3));
-        let x = lab.spec.width * 4 / 5;
+        let x = lab.spec.width / 5;
         let surface = lab.spec.ground_y;
         lab.act(ui::Action::Tool(ui::Tool::Colony));
         click_cell(&mut lab, x, surface);
@@ -7558,7 +7769,7 @@ mod tests {
     /// cheap standing check, not a discipline.
     #[test]
     fn every_help_line_is_drawable() {
-        for line in super::HELP {
+        for line in super::HELP.iter().chain(super::WELCOME.iter()).chain(["PRESS ANY KEY OR CLICK TO BEGIN"].iter()) {
             for c in line.chars() {
                 assert!(crate::hud::has_glyph(c), "the HUD font has no glyph for {c:?} in {line:?}");
             }

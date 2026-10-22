@@ -383,6 +383,7 @@ TOPICS = {
     # has no reason to look under a lab heading for them.
     "putting things in the box, and what the view shows": [
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
+        "Lab windows status — every window docks, folds or closes, and none is drawn over another",
     ],
     # 2026-09-09: the instrument turned toward the player. Names and a
     # chronicle bounded per lineage, the clock reacting to line events, and
