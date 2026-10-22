@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -281,9 +281,12 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
 /// `shade=1` turns on `World::shade_plasticity` (A5), and
 /// `genes=SPECIES:avoid|tolerate:VALUE,...` sets a species' shade genes on
 /// this bed only -- the A/B the shade genes are measured on before any
-/// species file changes. Prints what it set.
+/// species file changes. `scald=1` turns on `World::shade_scald` (A5's
+/// bright-light price). Prints what it set.
 fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
     w.shade_plasticity = get(m, "shade", u8::from(w.shade_plasticity)) != 0;
+    w.shade_scald = get(m, "scald", u8::from(w.shade_scald)) != 0;
+    w.seedling_waits = get(m, "waits", u8::from(w.seedling_waits)) != 0;
     if let Some(spec) = m.get("genes") {
         for item in spec.split(',') {
             let parts: Vec<&str> = item.split(':').collect();
@@ -297,7 +300,7 @@ fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
             assert!(w.species.set_param(id, CellType::GrowingTip, param, 0, value.parse().expect("gene value")), "genes: {name} has no Grow on its growing tip");
         }
     }
-    println!("plant_m0 shade_plasticity={} open_light={:.2} genes={}", w.shade_plasticity, w.open_light, m.get("genes").map_or("none", String::as_str));
+    println!("plant_m0 shade_plasticity={} shade_scald={} open_light={:.2} genes={}", w.shade_plasticity, w.shade_scald, w.open_light, m.get("genes").map_or("none", String::as_str));
 }
 
 fn community(m: &BTreeMap<String, String>) {
@@ -1190,6 +1193,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                 let mut args = m.clone();
                 args.insert("shade".into(), u8::from(plastic).to_string());
                 apply_shade(&args, &mut w);
+                // `endow=X`: the founder seed carries X carbon, as a seed its
+                // parent bred would (`Reproduce.seed_cost`), instead of a
+                // planted seed's 0. Under a canopy the first step is paid
+                // from this or not at all.
+                if let Some(e) = m.get("endow") {
+                    pixel_physics::sim::plant::endow_seed(&mut w, id, e.parse().expect("endow=X"));
+                }
                 let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
                 // `trace=N`: the first seed's founder every N frames -- its
                 // organs, its earnings against its bill, and its stores.
@@ -1243,9 +1253,12 @@ fn plastic(m: &BTreeMap<String, String>) {
                 // within seed rather than by mean of survivors: a shoot's
                 // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
                 println!(
-                    "    SEED {label} s={s} shoot {} sprouts {}",
+                    "    SEED {label} s={s} shoot {} sprouts {} shed shade {} scald {} waits {}",
                     form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])),
-                    w.collar_sprouts
+                    w.collar_sprouts,
+                    w.shed_shade,
+                    w.shed_scald,
+                    w.seedling_waits_held
                 );
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);

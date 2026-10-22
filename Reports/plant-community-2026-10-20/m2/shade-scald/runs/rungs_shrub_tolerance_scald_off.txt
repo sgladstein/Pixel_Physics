@@ -1,0 +1,23 @@
+plantrain rungs: species=shrub,shrub_t0.35.ron,shrub_t0.7.ron,shrub_t1.0.ron rungs=grow,life stations=bright,shade layouts=8 base=3000000 threads=4
+  grow bright (width 48 frames 10000 n_est 20 lamp 1 rain Light soil 1): 0.36 core-s a bed
+    shrub    germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   144 p50   302 p75   405 cv 0.63 | rgr/1k p25 0.22 p50 0.30 p75 0.33
+    shrub_t0.35.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   145 p50   305 p75   365 cv 0.65 | rgr/1k p25 0.22 p50 0.30 p75 0.32
+    shrub_t0.7.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   148 p50   307 p75   371 cv 0.61 | rgr/1k p25 0.22 p50 0.30 p75 0.32
+    shrub_t1.0.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   147 p50   209 p75   311 cv 0.67 | rgr/1k p25 0.22 p50 0.26 p75 0.30
+  grow shade (width 48 frames 10000 n_est 20 lamp 0.2 rain Light soil 1): 0.31 core-s a bed
+    shrub    germ  8/8 est  3/8 est@ p50   4500 | end shoot p25     3 p50    12 p75    29 cv 1.17 | rgr/1k p25 0.21 p50 0.21 p75 0.37
+    shrub_t0.35.ron germ  8/8 est  3/8 est@ p50   5000 | end shoot p25     3 p50    12 p75    41 cv 1.17 | rgr/1k p25 0.24 p50 0.24 p75 0.72
+    shrub_t0.7.ron germ  8/8 est  4/8 est@ p50   6250 | end shoot p25    12 p50    29 p75    42 cv 0.86 | rgr/1k p25 0.21 p50 0.25 p75 0.25
+    shrub_t1.0.ron germ  8/8 est  4/8 est@ p50   4500 | end shoot p25    12 p50    42 p75    61 cv 0.84 | rgr/1k p25 0.18 p50 0.24 p75 0.24
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.06 core-s a bed
+    shrub    germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   345 p50   407 p75   684 cv 0.51 | rgr/1k p25 0.07 p50 0.08 p75 0.09
+    shrub_t0.35.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   331 p50   408 p75   416 cv 0.64 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+    shrub_t0.7.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   331 p50   377 p75   483 cv 0.70 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+    shrub_t1.0.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   339 p50   459 p75   496 cv 0.63 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+  life shade (width 96 frames 40000 n_est 20 lamp 0.2 rain Light soil 1): 1.69 core-s a bed
+    shrub    germ  8/8 est  1/8 est@ p50  10000 | end shoot p25     0 p50     0 p75     0 cv 2.83 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+    shrub_t0.35.ron germ  8/8 est  2/8 est@ p50   9500 | end shoot p25     0 p50     0 p75     0 cv 2.09 | rgr/1k p25 0.07 p50 0.09 p75 0.09
+    shrub_t0.7.ron germ  8/8 est  2/8 est@ p50   9250 | end shoot p25     0 p50     0 p75     0 cv 2.22 | rgr/1k p25 0.06 p50 0.09 p75 0.09
+    shrub_t1.0.ron germ  8/8 est  4/8 est@ p50   8250 | end shoot p25     0 p50   115 p75   119 cv 1.31 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+
+[exited with code 0]

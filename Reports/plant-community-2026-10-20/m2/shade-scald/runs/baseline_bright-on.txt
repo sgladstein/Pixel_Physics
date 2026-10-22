@@ -1,0 +1,35 @@
+    bright, on: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    bright, on: founder alive at the end; deaths in the bed by cause ["FELLED:1", "ROTTED:10"]
+    SEED bright, on s=0 shoot 399 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=1 shoot 572 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=2 shoot 499 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=3 shoot 523 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=4 shoot 601 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=5 shoot 818 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=6 shoot 502 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=7 shoot 1235 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=8 shoot 666 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=9 shoot 1095 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=10 shoot 803 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=11 shoot 317 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=12 shoot 1324 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=13 shoot 489 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=14 shoot 482 sprouts 0
+plant_m0 shade_plasticity=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED bright, on s=15 shoot 782 sprouts 0
+  bright, on   alive 16/16 leaf light 0.42 | shoot 694.19+-297.76 height 29.75+-8.47 width 44.25+-11.25 leaf_share 0.49+-0.09 root 210.75+-87.29 root_depth 28.06+-13.83

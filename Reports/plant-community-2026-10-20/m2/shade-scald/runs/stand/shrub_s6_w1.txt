@@ -1,0 +1,26 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=60000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=shrub mix=stand-shrub ["tree", "herb", "creeper"] seed=6 width=192 grow=60000 window=80000 sample=10000 sow=4 arms=shipped,shrub_t1.0.ron plants_placed=9
+grown f=60000 | tree 3/27/1798/4828 | herb 19/21/512/1677 | creeper 6/1/98/235 | shrub 0/0/0/0  (plants/bank/leaf/shoot)
+arm=shipped sown 4 of 4
+arm=shipped f=10000 | tree 6/22/1839/4983 | herb 16/20/328/1163 | creeper 4/3/41/84 | shrub 0/0/0/0
+arm=shipped f=20000 | tree 12/21/1876/5263 | herb 10/12/208/703 | creeper 2/5/6/7 | shrub 0/0/0/0
+arm=shipped f=30000 | tree 15/25/1953/5550 | herb 15/12/184/649 | creeper 1/6/3/3 | shrub 0/0/0/0
+arm=shipped f=40000 | tree 11/33/1995/5753 | herb 18/15/193/827 | creeper 0/6/0/0 | shrub 0/0/0/0
+arm=shipped f=50000 | tree 11/37/1993/5800 | herb 12/17/137/506 | creeper 0/5/0/0 | shrub 0/0/0/0
+arm=shipped f=60000 | tree 8/45/2019/5885 | herb 7/17/45/223 | creeper 0/4/0/0 | shrub 0/0/0/0
+arm=shipped f=70000 | tree 9/31/2007/6030 | herb 10/6/55/269 | creeper 0/3/0/0 | shrub 0/0/0/0
+arm=shipped f=80000 | tree 11/25/1994/6134 | herb 15/5/56/339 | creeper 0/0/0/0 | shrub 0/0/0/0
+arm=shrub_t1.0.ron sown 4 of 4
+arm=shrub_t1.0.ron f=10000 | tree 6/22/1839/4983 | herb 16/20/328/1163 | creeper 4/3/41/84 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=20000 | tree 12/21/1876/5263 | herb 10/12/208/703 | creeper 2/5/6/7 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=30000 | tree 15/25/1953/5550 | herb 15/12/184/649 | creeper 1/6/3/3 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=40000 | tree 11/33/1995/5753 | herb 18/15/193/827 | creeper 0/6/0/0 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=50000 | tree 11/37/1993/5800 | herb 12/17/137/506 | creeper 0/5/0/0 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=60000 | tree 8/45/2019/5885 | herb 7/17/45/223 | creeper 0/4/0/0 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=70000 | tree 9/31/2007/6030 | herb 10/6/55/269 | creeper 0/3/0/0 | shrub 0/0/0/0
+arm=shrub_t1.0.ron f=80000 | tree 11/25/1994/6134 | herb 15/5/56/339 | creeper 0/0/0/0 | shrub 0/0/0/0
+plant_m0 done: 35.9 s
