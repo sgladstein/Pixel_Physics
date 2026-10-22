@@ -23,10 +23,13 @@ def one(name):
             mm = re.match(r'[^/]+/r(\d+)/ants_f0200000\.txt$', m.name)
             if mm: ants[int(mm.group(1))] = sum(1 for _ in t.extractfile(m))
         for m in t.getmembers():
-            mm = re.match(r'[^/]+/r(\d+)/events\.csv$', m.name)
+            mm = re.match(r'[^/]+/r(\d+)/events\.csv(\.gz)?$', m.name)
             if not mm: continue
+            raw = t.extractfile(m)
+            if mm.group(2):
+                import gzip; raw = gzip.GzipFile(fileobj=raw)
             c = collections.Counter(); last = 0
-            for e in csv.DictReader(io.TextIOWrapper(t.extractfile(m))):
+            for e in csv.DictReader(io.TextIOWrapper(raw)):
                 k = e['kind']; last = max(last, int(e['frame']))
                 if k == 'deliver':
                     dx = abs(int(e['x']) - 128); c['deliver'] += 1; c['deliver_far'] += dx >= 13; c['deliver_home8'] += dx <= 8

@@ -21,5 +21,7 @@ print(','.join(f\"$p/final/{x['id']}.raw.txt@{x['family']}.{x['id']}:{30//n + (1
   $B founders=$list seed=$((S*1000+r)) $C out=$O/r$r > /dev/null 2>&1
   # long runs (more than 10 rounds): drop the every-4k maps and ant lists of the round before (the small pull never
   # fetched them; the round-end ones stay) so 60+ rounds fit the VM's disk
-  [ $R -gt 10 ] && rm -f $p/map_f0[01]* $p/ants_f0[01]*
+  # ...and gzip its event log (about 5x): 64 jobs x 60 rounds of plain events.csv filled a 60 GB disk on 2026-10-22,
+  # and every job started after that crashed at once and read as extinct. evreduce.py reads events.csv.gz too.
+  [ $R -gt 10 ] && rm -f $p/map_f0[01]* $p/ants_f0[01]* && gzip -f $p/events.csv
 done

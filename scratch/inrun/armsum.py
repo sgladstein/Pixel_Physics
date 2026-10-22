@@ -1,7 +1,7 @@
 """SCRATCH: per-arm summary of an arms batch dir (teacher lane, 2026-10-21). usage: armsum.py DIR
 Per arm: food delivered and starved per seed (all rounds), extinct seeds and the round they died in, colonies healthy
 (12+ ants) at the end of their last round, and food delivered per round among seeds still alive in that round."""
-import sys, os, csv, glob, re
+import gzip, sys, os, csv, glob, re
 D = sys.argv[1]
 arms = sorted({re.sub(r'_\d+$', '', os.path.basename(p)) for p in glob.glob(D + '/*_*') if os.path.isdir(p)})
 for a in arms:
@@ -11,7 +11,8 @@ for a in arms:
         rs = sorted(glob.glob(d + '/r*'), key=lambda p: int(p.rsplit('r', 1)[1]))
         for r in rs:
             fr = 0
-            for e in csv.DictReader(open(r + '/events.csv')) if os.path.exists(r + '/events.csv') else []:
+            evf = r + '/events.csv' if os.path.exists(r + '/events.csv') else (r + '/events.csv.gz' if os.path.exists(r + '/events.csv.gz') else None)
+            for e in csv.DictReader(gzip.open(evf, 'rt') if evf and evf.endswith('.gz') else open(evf)) if evf else []:
                 fr += e['kind'] == 'deliver'
                 st += e['kind'] == 'death' and e['v'] == '1'
             food += fr; per.setdefault(int(r.rsplit('r', 1)[1]), []).append(fr)

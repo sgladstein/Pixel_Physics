@@ -287,7 +287,7 @@ def cmd_start(a):
                 boot=True, auto_delete=True,
                 initialize_params=compute_v1.AttachedDiskInitializeParams(
                     source_image="projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64",
-                    disk_size_gb=60, disk_type=f"zones/{zone}/diskTypes/hyperdisk-balanced"))],
+                    disk_size_gb=getattr(a, "disk", 60), disk_type=f"zones/{zone}/diskTypes/hyperdisk-balanced"))],
             network_interfaces=[compute_v1.NetworkInterface(
                 network="global/networks/default",
                 access_configs=[compute_v1.AccessConfig(name="External NAT", type_="ONE_TO_ONE_NAT")])],

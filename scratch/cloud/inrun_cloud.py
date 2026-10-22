@@ -64,7 +64,7 @@ run_one() {
   bash scratch/inrun/rounds.sh $W/out/$o "$@"
   tar -C $W/out -czf $W/tgz/$o.tgz $o && put $W/tgz/$o.tgz jobs/$o.tgz && rm -f $W/tgz/$o.tgz
   # the small copy pull fetches: everything but the event log and the 4k-frame maps and ant lists (last one of each kept)
-  tar -C $W/out -czf $W/tgz/$o-s.tgz --exclude=events.csv --exclude='map_f0[01]*' --exclude='ants_f0[01]*' $o && put $W/tgz/$o-s.tgz small/$o.tgz && rm -f $W/tgz/$o-s.tgz
+  tar -C $W/out -czf $W/tgz/$o-s.tgz --exclude=events.csv --exclude=events.csv.gz --exclude='map_f0[01]*' --exclude='ants_f0[01]*' $o && put $W/tgz/$o-s.tgz small/$o.tgz && rm -f $W/tgz/$o-s.tgz
   echo $o >> $W/done.list
 }
 export -f run_one
@@ -121,7 +121,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start"); s.add_argument("name"); s.add_argument("args")
     s.add_argument("--ref", required=True); s.add_argument("--type", default="c4d-highcpu-48")
-    s.add_argument("--hours", type=float, default=2); s.add_argument("--seed", default=None)
+    s.add_argument("--hours", type=float, default=2); s.add_argument("--disk", type=int, default=60, help="boot disk GB (long runs: 200)"); s.add_argument("--seed", default=None)
     pl = sub.add_parser("pull"); pl.add_argument("name"); pl.add_argument("dest")
     pl.add_argument("--which", default="small", choices=("small", "jobs"), help="small: no event logs (default); jobs: everything")
     for c in ("status", "delete"):
