@@ -609,37 +609,4 @@ mod tests {
         let (through, reflect) = (read(Walls::Through), read(Walls::Reflect));
         assert!(reflect > through + 0.15, "through {through:.3}, reflect {reflect:.3}");
     }
-
-    /// **The shipped plane, walled, is the model's reflect rule**: the same
-    /// trail spread 12 passes by `spread_trail` (f32) and by the real plane
-    /// with `set_walls(true)` (u16, rounded each pass) agree to a few units in
-    /// every open cell, and the real plane leaves nothing in rock. Unwalled,
-    /// the real plane leaks into rock, which is the difference the switch
-    /// exists for.
-    #[test]
-    fn the_walled_plane_spreads_as_the_reflect_model_does() {
-        let layout = super::super::super::holdout_layouts(1)[0];
-        let m = maze();
-        let (mut model, plan) = m.world(layout);
-        spread_trail(&mut model, &plan, 12, pheromone::b_diffuse(), Walls::Reflect);
-        let (mut real, _) = m.world(layout);
-        real.pheromones.set_walls(true);
-        for f in 0..12 * pheromone::PHEROMONE_INTERVAL {
-            real.frame = f;
-            real.step_pheromones();
-        }
-        let (mut worst, mut in_rock) = (0i32, 0u32);
-        for y in 0..H {
-            for x in 0..W {
-                let (a, b) = (model.pheromone_at(Channel::B, x, y), real.pheromone_at(Channel::B, x, y));
-                if plan.at(x, y) == Kind::Rock {
-                    in_rock += u32::from(b > 0);
-                } else {
-                    worst = worst.max((i32::from(a) - i32::from(b)).abs());
-                }
-            }
-        }
-        assert_eq!(in_rock, 0, "the walled plane kept scent in rock");
-        assert!(worst < 64, "walled plane and model differ by {worst} in an open cell");
-    }
 }

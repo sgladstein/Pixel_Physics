@@ -7702,37 +7702,6 @@ impl World {
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
         let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
-        // Rock blocks the spread only under `pheromone::trail_walls`: open
-        // is anything not ground -- air, gas, liquid, or any organism's cell,
-        // since an ant stands in and lays on its own body's cells.
-        if self.pheromones.walled() && self.frame.is_multiple_of(interval.max(1)) {
-            use super::material::MaterialKind;
-            let ground: Vec<bool> = (0..self.materials.len())
-                .map(|m| matches!(self.materials.kind(super::material::MaterialId(m as u16)), MaterialKind::Powder | MaterialKind::Solid))
-                .collect();
-            let (chunks, bounds) = (&self.chunks, self.bounds);
-            self.pheromones.refresh_walls(|y, x0, out| {
-                // A chunk at a time along the row: one map lookup per run.
-                let mut k = 0;
-                while k < out.len() {
-                    let x = x0 + k as i32;
-                    let end = ((x.div_euclid(CHUNK_SIZE) + 1) * CHUNK_SIZE - x0) as usize;
-                    let end = end.min(out.len());
-                    let inside = bounds.is_none_or(|b| b.contains(x, y));
-                    match chunks.get(&ChunkCoord::containing(x, y)).filter(|_| inside) {
-                        Some(chunk) => {
-                            for (j, o) in out[k..end].iter_mut().enumerate() {
-                                let c = chunk.get_world(x + j as i32, y);
-                                *o = u8::from(c.organism_id() != 0 || !ground[usize::from(c.material.0)]);
-                            }
-                        }
-                        // Not resident (empty) or outside the world: open.
-                        None => out[k..end].fill(1),
-                    }
-                    k = end;
-                }
-            });
-        }
         self.pheromones.step(self.frame, interval);
     }
 

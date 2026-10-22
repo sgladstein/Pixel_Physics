@@ -1,0 +1,207 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index e30d3f3f..5246b482 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -1341,6 +1341,18 @@ fn main() {
+                     writeln!(pf, "{id} {x} {y} {:.1} {} {cr:.3} {fam}", st.energy, u8::from(st.spoil.is_some())).unwrap();
+                 }
+             }
++            if maps && std::env::var("PP_PHERMAP").is_ok() {
++                // Trail trace (maze thread): channels A and B over the map's window, one row per y, `a/b` per cell.
++                let (x0, x1, y0, y1) = (inrun::NEST - 100, inrun::NEST + 100, 40, bh - 1);
++                let mut m = std::fs::File::create(out.join(format!("pher_f{fr:07}.txt"))).unwrap();
++                writeln!(m, "{x0} {y0} {} {}", x1 - x0 + 1, y1 - y0 + 1).unwrap();
++                for y in y0..=y1 {
++                    let row: Vec<String> = (x0..=x1)
++                        .map(|x| format!("{}/{}", w.pheromone_at(pixel_physics::sim::pheromone::Channel::A, x, y), w.pheromone_at(pixel_physics::sim::pheromone::Channel::B, x, y)))
++                        .collect();
++                    writeln!(m, "{}", row.join(" ")).unwrap();
++                }
++            }
+             if maps {
+                 let (x0, x1, y0, y1) = (inrun::NEST - 100, inrun::NEST + 100, 40, bh - 1);
+                 let mut m = std::fs::File::create(out.join(format!("map_f{fr:07}.txt"))).unwrap();
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 04607e5d..92b0ef4f 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1806,6 +1806,18 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+                 scratch_log::dlog(world, organism, (x, y), &ctx, &opts, d);
+             }
++            // SCRATCH (maze thread, 2026-10-22): `PP_TRAIL_ACT=1` (with `PP_TRAIL_LABEL`) lets the recruitment-trail
++            // teacher act: when the brain chose to walk and the label applies, the step goes up B instead. The verb is
++            // the brain's, so memory (written by decide with the same verb) stays consistent.
++            if let Some(d) = d.as_mut() {
++                if scratch_log::trail_act() && opts[d.pick].verb == Verb::Walk {
++                    if let Some(up) = scratch_log::trail_up(world, organism, &ctx, &opts) {
++                        if !up.contains(&d.pick) {
++                            d.pick = up[0];
++                        }
++                    }
++                }
++            }
+             // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
+             let mut redrawn: Option<Vec<Opt>> = None;
+             // SCRATCH (dig-scoring thread, 2026-10-22; owner: "refusal as a teacher makes sense"): `PP_RIMVETO=N`
+@@ -4202,21 +4214,111 @@ pub mod scratch_log {
+             .iter()
+             .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+             .collect();
+-        cline(&format!(
+-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},-,{}",
+-            world.frame,
+-            at.0,
+-            at.1,
+-            u8::from(SETTLE.with(|s| s.get())),
+-            d.pick,
+-            last.map_or(-1, |v| v as i32),
+-            u8::from(carrying),
+-            f(ctx),
+-            f(mem0),
+-            all.join(";"),
+-            bottom.join(";"),
+-            refused
+-        ));
++        // SCRATCH (maze thread, 2026-10-22): the recruitment-trail teacher's label in the 16th field, `hp|i;j` as the
++        // copier reads it. `PP_TRAIL_LABEL=hp[:spread]`: an ant with an empty crop and empty jaws, away from the nest,
++        // with 2+ Walk options whose B there-minus-here differs by at least `spread`, is labelled with the steps up B.
++        // Read only while empty, on a trail only food carriers lay (the old ant's wiring, and real recruitment).
++        let trail = trail_label().map_or_else(|| "-".to_string(), |(hp, _)| {
++            trail_up(world, organism, ctx, opts).map_or_else(|| "-".to_string(), |up| {
++                format!("{hp}|{}", up.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";"))
++            })
++        });
++        let row = |settle: u8| {
++            format!(
++                "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{trail},{}",
++                world.frame,
++                at.0,
++                at.1,
++                settle,
++                d.pick,
++                last.map_or(-1, |v| v as i32),
++                u8::from(carrying),
++                f(ctx),
++                f(mem0),
++                all.join(";"),
++                bottom.join(";"),
++                refused
++            )
++        };
++        // `PP_COPY_SAMPLE=k[:m]` (the hungry lane's sampler, ported): keep one in m labelled rows and one in k of the
++        // rest, each kept row preceded by the same ant's previous decision marked settle=2 (memory context only).
++        let (k, m) = sample_km();
++        let settle = u8::from(SETTLE.with(|s| s.get()));
++        if k <= 1 && m <= 1 {
++            cline(&row(settle));
++            return;
++        }
++        let r = rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64();
++        let keep = if trail != "-" || refused != "-" { r % m == 0 } else { r % k == 0 };
++        PREV_ROW.with(|pm| {
++            let mut pm = pm.borrow_mut();
++            if keep {
++                if let Some((written, prev)) = pm.get(&organism) {
++                    if !*written {
++                        cline(prev);
++                    }
++                }
++                cline(&row(settle));
++            }
++            pm.insert(organism, (keep, row(2)));
++        });
++    }
++    thread_local! {
++        static PREV_ROW: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
++    }
++    fn sample_km() -> (u64, u64) {
++        static K: OnceLock<(u64, u64)> = OnceLock::new();
++        *K.get_or_init(|| {
++            std::env::var("PP_COPY_SAMPLE").ok().map_or((1, 1), |v| {
++                let p: Vec<u64> = v.split(':').map(|x| x.parse().expect("PP_COPY_SAMPLE k[:m]")).collect();
++                (p[0], p.get(1).copied().unwrap_or(1))
++            })
++        })
++    }
++    /// The recruitment-trail teacher's steps: for an ant with an empty crop and empty jaws, away from the nest, with
++    /// 2+ Walk options whose B there-minus-here differs by at least the label's `spread`, the steps up B.
++    pub fn trail_up(world: &World, organism: OrganismId, ctx: &[f32; CONTEXT], opts: &[Opt]) -> Option<Vec<usize>> {
++        let (_, spread) = trail_label()?;
++        let empty = world.organism(organism).is_some_and(|s| s.crop.map_or(0, |c| c.cells) == 0 && s.spoil.is_none());
++        let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++        if !empty || ctx[c::AT_NEST] > 0.0 || walks.len() < 2 {
++            return None;
++        }
++        // `PP_TRAIL_OUT=1`: the second rule (biology-shaped, after the first one trapped climbers on a runaway B peak
++        // short of the food): stay on the trail -- Walk options whose B there is at least half the best -- and of
++        // those take the step farthest from the nest's column (outward). No trail in reach (best B there < 0.05):
++        // abstain. The direction comes from home, not from the trail.
++        if trail_out() {
++            let bt = |i: usize| opts[i].feats[options::f::SCENT + 3];
++            let best = walks.iter().map(|&i| bt(i)).fold(f32::NEG_INFINITY, f32::max);
++            if best < 0.05 {
++                return None;
++            }
++            let on: Vec<usize> = walks.iter().copied().filter(|&i| bt(i) >= 0.5 * best).collect();
++            let out = |i: usize| (opts[i].target.0 - 128).abs();
++            let far = on.iter().map(|&i| out(i)).max()?;
++            return Some(on.into_iter().filter(|&i| out(i) == far).collect());
++        }
++        let bd = |i: usize| opts[i].feats[options::f::SCENT + 4];
++        let hi = walks.iter().map(|&i| bd(i)).fold(f32::NEG_INFINITY, f32::max);
++        let lo = walks.iter().map(|&i| bd(i)).fold(f32::INFINITY, f32::min);
++        (hi - lo >= spread).then(|| walks.iter().copied().filter(|&i| bd(i) == hi).collect())
++    }
++    fn trail_out() -> bool {
++        static O: OnceLock<bool> = OnceLock::new();
++        *O.get_or_init(|| std::env::var("PP_TRAIL_OUT").is_ok())
++    }
++    pub fn trail_act() -> bool {
++        static A: OnceLock<bool> = OnceLock::new();
++        *A.get_or_init(|| std::env::var("PP_TRAIL_ACT").is_ok())
++    }
++    fn trail_label() -> Option<(f32, f32)> {
++        static T: OnceLock<Option<(f32, f32)>> = OnceLock::new();
++        *T.get_or_init(|| {
++            let v = std::env::var("PP_TRAIL_LABEL").ok()?;
++            let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_TRAIL_LABEL hp[:spread]")).collect();
++            Some((p[0], p.get(1).copied().unwrap_or(0.2)))
++        })
+     }
+     pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
+     /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
+@@ -4286,6 +4388,11 @@ pub mod scratch_log {
+         else {
+             return;
+         };
++        static MODN: OnceLock<u64> = OnceLock::new();
++        let m = *MODN.get_or_init(|| std::env::var("PP_DLOG_MOD").ok().and_then(|v| v.parse().ok()).unwrap_or(1));
++        if world.frame % m != 0 {
++            return;
++        }
+         let Some(s) = world.organism(organism) else { return };
+         let mut n = [0u32; VERBS];
+         for o in opts {
+@@ -4295,9 +4402,20 @@ pub mod scratch_log {
+         let ns: Vec<String> = n.iter().map(|v| v.to_string()).collect();
+         let js: Vec<String> = d.jobs.iter().map(|j| j.map_or("-".into(), |j| format!("{j:.2}"))).collect();
+         let cs: Vec<String> = ctx.iter().map(|v| format!("{v:.2}")).collect();
++        // Trail trace (maze thread): the chosen option's B reads (there, stronger, two on), its food and soil
++        // flags, and the walk options' least and greatest B "stronger" -- did the pick climb the trail it had.
++        use super::options::f as ff;
++        let b = ff::SCENT + 3;
++        let walks: Vec<f32> = opts.iter().filter(|o| o.verb == Verb::Walk).map(|o| o.feats[b + 1]).collect();
++        let (wlo, whi) = walks.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, z), &v| (a.min(v), z.max(v)));
++        let tr = format!(
++            "{:.3} {:.3} {:.3} {:.0} {:.0} {:.3} {:.3}",
++            o.feats[b], o.feats[b + 1], o.feats[b + 2], o.feats[ff::FOOD], o.feats[ff::SOIL],
++            if walks.is_empty() { 0.0 } else { wlo }, if walks.is_empty() { 0.0 } else { whi }
++        );
+         let _ = writeln!(
+             f.lock().unwrap(),
+-            "{},{organism},{},{},{:.0},{},{},{},{},{},{},{},{}",
++            "{},{organism},{},{},{:.0},{},{},{},{},{},{},{},{},{tr}",
+             world.frame,
+             at.0,
+             at.1,

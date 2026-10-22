@@ -5792,6 +5792,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   died, at the same food. The Teacher lane confirmed it at 64x6 and made hA1 the founder. Founders, the env-gated
   scratch patches and the scripts are in [foraging-loop/](brain-training/foraging-loop/README.md).
 
+- [brain-training/trail-following/trail-following-2026-10-22.md](brain-training/trail-following/trail-following-2026-10-22.md) —
+  **done: why trail following hurt the colony, and a trail teacher session.** c1 and hA1 lay channel B as a crowd
+  scent, so it peaks at the nest and every "follow stronger B" lesson kept ants home; silencing hA1's B laying
+  raised food home 271 -> 374 (more on 28 of 32 seeds), a one-row edit now with the Teacher lane. A rule shaped on
+  real ants (lay less where B is strong, stay on the trail heading outward) works acting but two DAgger copies
+  failed; a climb-B rule traps ants on a runaway peak. The rock-blocks-trail switch was dropped. Genomes, the
+  scratch patch, copier and scripts in [trail-following/](brain-training/trail-following/README.md).
+
 - [brain-training/teacher-training/hungry-lesson-2026-10-22.md](brain-training/teacher-training/hungry-lesson-2026-10-22.md) —
   **"go out when hungry": why in-run colonies die, the lesson, two founders.** Hungry ants hold a soil pellet at
   the chamber bottom (94% of hungry decisions before a die-off). A scratch teacher, obeyed every time, lifts
