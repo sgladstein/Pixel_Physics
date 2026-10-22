@@ -11552,7 +11552,8 @@ impl World {
         // project keeps rediscovering" this function's other three hooks are
         // placed for.
         let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
-        chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
+        let shape = crate::sim::field::changes_block_shape(&self.materials, old.material, cell.material);
+        chunk.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape);
         self.touch_neighbours(x, y, coord);
         old
     }
@@ -13329,7 +13330,8 @@ impl CellSurface for MoistureView<'_> {
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
             let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
-            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
+            let shape = crate::sim::field::changes_block_shape(&self.world.materials, old.material, cell.material);
+            self.chunk.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape);
             // `touch_neighbours` skips the owning chunk, so every mark it
             // makes lands somewhere still resident and it can run now.
             self.world.touch_neighbours(x, y, self.coord);
