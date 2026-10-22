@@ -19,4 +19,7 @@ r=r[:30]; n=len(r)
 print(','.join(f\"$p/final/{x['id']}.raw.txt@{x['family']}.{x['id']}:{30//n + (1 if i < 30%n else 0)}\" for i,x in enumerate(r)) if n else '')")
   [ -n "$list" ] || { echo "extinct after round $((r-1))" > $O/EXTINCT; exit 0; }
   $B founders=$list seed=$((S*1000+r)) $C out=$O/r$r > /dev/null 2>&1
+  # long runs (more than 10 rounds): drop the every-4k maps and ant lists of the round before (the small pull never
+  # fetched them; the round-end ones stay) so 60+ rounds fit the VM's disk
+  [ $R -gt 10 ] && rm -f $p/map_f0[01]* $p/ants_f0[01]*
 done
