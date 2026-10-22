@@ -1,5 +1,5 @@
 """SCRATCH (teacher lane, 2026-10-22). Stream each full job tgz of a cloud batch from the bucket and reduce its event logs to one row per colony-round:
-batch,job,round,frames,deliver,deliver_far(13+ cols from door x=128),field,homeeat,hungryout,starved,culled,alive_end.
+batch,job,round,frames,deliver,deliver_far(13+ cols from door x=128),deliver_home8 (within 8 cols: the foraging lane's real home count),field,homeeat,hungryout,starved,culled,alive_end.
 usage: evreduce.py BATCH OUTCSV"""
 import sys, io, csv, tarfile, re, collections, concurrent.futures as cf
 sys.path.insert(0, __import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'cloud'))
@@ -29,14 +29,14 @@ def one(name):
             for e in csv.DictReader(io.TextIOWrapper(t.extractfile(m))):
                 k = e['kind']; last = max(last, int(e['frame']))
                 if k == 'deliver':
-                    c['deliver'] += 1; c['deliver_far'] += abs(int(e['x']) - 128) >= 13
+                    dx = abs(int(e['x']) - 128); c['deliver'] += 1; c['deliver_far'] += dx >= 13; c['deliver_home8'] += dx <= 8
                 elif k in ('field', 'homeeat', 'hungryout', 'tdrop'): c[k] += 1
                 elif k == 'death': c['starved'] += e['v'] == '1'; c['culled'] += e['v'] == '4'
             rr = int(mm.group(1))
-            rows.append([B, job, rr, last, c['deliver'], c['deliver_far'], c['field'], c['homeeat'], c['hungryout'], c['tdrop'], c['starved'], c['culled'], ants.get(rr, -1)])
+            rows.append([B, job, rr, last, c['deliver'], c['deliver_far'], c['field'], c['homeeat'], c['hungryout'], c['tdrop'], c['starved'], c['culled'], ants.get(rr, -1), c['deliver_home8']])
     return rows
 with open(OUT, 'w', newline='') as f, cf.ThreadPoolExecutor(8) as ex:
-    w = csv.writer(f); w.writerow(['batch','job','round','lastframe','deliver','deliver_far','field','homeeat','hungryout','tdrop','starved','culled','alive_end'])
+    w = csv.writer(f); w.writerow(['batch','job','round','lastframe','deliver','deliver_far','field','homeeat','hungryout','tdrop','starved','culled','alive_end','deliver_home8'])
     for rows in ex.map(one, names):
         w.writerows(rows)
 print(B, len(names), 'jobs')

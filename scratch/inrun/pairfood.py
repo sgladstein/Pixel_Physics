@@ -1,5 +1,6 @@
 """SCRATCH (teacher lane, 2026-10-22). Paired arm-vs-control from evreduce CSVs. usage: pairfood.py CTL_CSV:ARM ARM_CSV:ARM [...more ARM_CSV:ARM]
-Per seed, over the rounds BOTH colonies reached: home food (deliveries minus the 13+ column ones) and starved per colony-round.
+Per seed, over the rounds BOTH colonies reached: home food (deliveries within 8 columns of the founding hole, the foraging lane's count;
+older CSVs without that column fall back to deliveries minus the 13+ column ones) and starved per colony-round.
 Extinct = fewer than ROUNDS rounds, or nobody alive at the end of the last. Exact McNemar on extinction; on food, a sign test
 and the mean paired difference with a 95% bootstrap interval over seeds (fixed RNG seed, so the output repeats)."""
 import sys, csv, math, collections, random
@@ -21,7 +22,7 @@ for spec in sys.argv[2:]:
     for s in seeds:
         common = sorted(set(A[s]) & set(C[s]))
         if not common: continue
-        h = lambda R: sum(int(R[r]['deliver']) - int(R[r]['deliver_far']) for r in common) / len(common)
+        h = lambda R: sum((int(R[r]['deliver_home8']) if 'deliver_home8' in R[r] else int(R[r]['deliver']) - int(R[r]['deliver_far'])) for r in common) / len(common)
         st = lambda R: sum(int(R[r]['starved']) for r in common) / len(common)
         x, y = h(A[s]), h(C[s]); fa += x; fc += y; sa += st(A[s]); sc += st(C[s]); n += 1
         win += x > y; lose += x < y; df.append(x - y)
