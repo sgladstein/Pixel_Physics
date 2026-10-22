@@ -21,7 +21,7 @@
 //! surface both paths present to the rules.
 
 use super::cell::Cell;
-use super::fire::PhaseEvent;
+use super::fire::{FireTraits, PhaseEvent};
 use super::material::{MaterialId, MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
@@ -127,6 +127,17 @@ impl Default for VisitRng {
 
 pub trait CellSurface {
     fn get(&self, x: i32, y: i32) -> Cell;
+
+    /// `(x, y)`'s four neighbours, left, right, up, down -- exactly
+    /// `[get(x - 1, y), get(x + 1, y), get(x, y - 1), get(x, y + 1)]`. The
+    /// heat pass asks it of every conducting cell it visits. The default is
+    /// those four reads; `ChunkView` answers a cell whose whole cross is in
+    /// its own chunk with one bounds test and one index instead of four of
+    /// each.
+    #[inline]
+    fn get_four(&self, x: i32, y: i32) -> [Cell; 4] {
+        [self.get(x - 1, y), self.get(x + 1, y), self.get(x, y - 1), self.get(x, y + 1)]
+    }
     fn set(&mut self, x: i32, y: i32, cell: Cell);
     fn in_bounds(&self, x: i32, y: i32) -> bool;
 
@@ -220,6 +231,16 @@ pub trait CellSurface {
     #[inline]
     fn water_capacity_of(&self, id: MaterialId) -> u16 {
         self.materials().get(id).water_capacity
+    }
+
+    /// `fire::FireTraits` of `id`: the guards of the fire pass, asked once
+    /// per occupied cell the sweep visits. The default builds the entry from
+    /// the `Material`; `ChunkView`, the sweep's own surface, answers from a
+    /// table `parallel::step` builds once a frame, which holds the same
+    /// values.
+    #[inline]
+    fn fire_traits_of(&self, id: MaterialId) -> FireTraits {
+        FireTraits::of(self.materials().get(id))
     }
 
     /// `Material::kind` of `id`, for the same reason as
