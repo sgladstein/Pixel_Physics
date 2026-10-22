@@ -1328,6 +1328,27 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-cost-review-2026-10-22/README.md](ant-cost-review-2026-10-22/README.md)
+  — **review, 2026-10-22, delivered; its bit-identical items are with the
+  Creature performance lane and its rule changes with the owner. `engine`,
+  measured on the lab's goal-box colony.** Where the new (stage 2 mind)
+  ant's frame goes at 408 ants, counted rule by rule as the soil-water
+  review counted the drainage conveyor: the cost is mostly the rule at its
+  design rate (a decision every 6 frames, ~11 options x 45 features, and
+  the trained genome reads every feature and verb), the option list repeats
+  on 0.04% of decisions, ants rest 0.4% of the time, so no cache and no
+  rest-hold can pay. The one mispriced rule is the egg-site walk: 65-89% of
+  ticks are above the egg bar, 70-80% of walks find no home cell in reach
+  yet read 121 cells first, 12.7% of the frame for 1.1% hits; code, not
+  rule, fixable bit-identically with a per-chunk home-cell count (~-9%).
+  Allocation churn ~6%. Rule changes with gates and numbers: a retry wait
+  after a failed egg walk (-10.3% instructions, but births move; take the
+  exact fix first), warmth at the head only (-5%; warmth is 0 on 84-89% of
+  options), a dense scorer sum order (-4 to -6%, not bit-identical). Ruled
+  out by count: the egg walk only beside home (27-61% of eggs are laid two
+  to four steps from home); the tick cadence as a speed lever. Counters on
+  the scratch branch `claude/project-thread-oo9r0d`, never for main.
+
 - [ant-breeding-plan-2026-09-29.md](ant-breeding-plan-2026-09-29.md)
   — **plan, 2026-09-29, for the owner's reading; read it before any work on
   ant eggs, brood, castes, a colony's breeder or colonies founding colonies.
