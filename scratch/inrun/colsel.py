@@ -27,6 +27,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 OUT, MODE, NCOL, R, F, G = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
 EXTRA = sys.argv[7:]
+# dists=A,B,...: the food heaps' distance from the door, drawn per colony and round from the list (owner, 2026-10-22:
+# make foraging harder by moving the food farther, and switch its location so ants don't learn where the pile is).
+# The common garden keeps the first. A plain dist=N in EXTRA overrides the default 25 everywhere.
+DISTS = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('dists=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('dists=')]
+BASE_DIST = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('dist=')), DISTS[0] if DISTS else '25')
+EXTRA = [x for x in EXTRA if not x.startswith('dist=')]
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
@@ -55,7 +62,7 @@ while '+' in MODE:
     assert k in ('spoil', 'crater', 'rooms', 'shape'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
-C = [f'frames={F}', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
+C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 os.makedirs(OUT, exist_ok=True)
 
@@ -193,7 +200,8 @@ for r in range(R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
-        return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + C, f'{OUT}/c{c}/r{r}')
+        cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
+        return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
     cols = list(range(1, NCOL + 1))
