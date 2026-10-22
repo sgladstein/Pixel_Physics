@@ -1,0 +1,35 @@
+    bright, off: light at the planting site (3 rows up) 0.60 of full
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    bright, off: founder alive at the end; deaths in the bed by cause ["ROTTED:63", "SPREAD:19"]
+    SEED bright, off s=0 shoot 89 sprouts 0 shed shade 11 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=1 shoot 71 sprouts 0 shed shade 3 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=2 shoot 79 sprouts 0 shed shade 9 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=3 shoot 80 sprouts 0 shed shade 7 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=4 shoot 79 sprouts 0 shed shade 5 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=5 shoot 93 sprouts 0 shed shade 1 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=6 shoot 61 sprouts 0 shed shade 4 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=7 shoot 100 sprouts 0 shed shade 1 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=8 shoot 92 sprouts 0 shed shade 2 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=9 shoot 122 sprouts 0 shed shade 6 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=10 shoot 85 sprouts 0 shed shade 1 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=11 shoot 116 sprouts 0 shed shade 4 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=12 shoot 107 sprouts 0 shed shade 4 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=13 shoot 88 sprouts 0 shed shade 5 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=14 shoot 109 sprouts 0 shed shade 4 scald 0
+plant_m0 shade_plasticity=false shade_scald=true open_light=2.40 genes=creeper:tolerate:0.7
+    SEED bright, off s=15 shoot 87 sprouts 0 shed shade 2 scald 0
+  bright, off  alive 16/16 leaf light 0.56 | shoot 91.12+-16.38 height 11.06+-2.77 width 14.94+-1.88 leaf_share 0.55+-0.10 root 89.75+-14.51 root_depth 14.81+-2.20

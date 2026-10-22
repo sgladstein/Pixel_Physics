@@ -1,0 +1,27 @@
+    dim, on: light at the planting site (3 rows up) 0.06 of full
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    dim, on: founder dead at the end; deaths in the bed by cause ["STARVED:1"]
+    SEED dim, on s=0 shoot dead sprouts 0 shed shade 0 scald 0 waits 13
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=1 shoot 76 sprouts 0 shed shade 0 scald 0 waits 117
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=2 shoot dead sprouts 0 shed shade 0 scald 0 waits 15
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=3 shoot dead sprouts 0 shed shade 0 scald 0 waits 15
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=4 shoot dead sprouts 0 shed shade 0 scald 0 waits 129
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=5 shoot dead sprouts 0 shed shade 0 scald 0 waits 9
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=6 shoot dead sprouts 0 shed shade 0 scald 0 waits 13
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=7 shoot dead sprouts 0 shed shade 0 scald 0 waits 72
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=8 shoot dead sprouts 0 shed shade 0 scald 0 waits 13
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=9 shoot 157 sprouts 0 shed shade 0 scald 0 waits 5
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=10 shoot 175 sprouts 0 shed shade 0 scald 0 waits 9
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=11 shoot 172 sprouts 0 shed shade 0 scald 0 waits 5
+  dim, on      alive 4/12 leaf light 0.06 | shoot 145.00+-46.67 height 13.25+-5.25 width 37.50+-9.98 leaf_share 0.34+-0.24 root 0.75+-0.96 root_depth 0.00+-0.00
