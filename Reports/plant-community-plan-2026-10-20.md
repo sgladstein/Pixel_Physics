@@ -652,8 +652,13 @@ This session cannot launch anything.
 >    bed is now the judge** (`plant_m0 swap=ROLE:FILE.ron`, `.../m2/community/`,
 >    five minutes a run): the re-fits double the tree canopy and wipe out
 >    the herb or creeper; the floor champions keep the shipped tree's
->    canopy and the herb survives as fewer, larger plants. The creeper fails
->    in every arm, shipped included. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    canopy and the herb survives as fewer, larger plants -- at 200,000
+>    frames. **At the full 450,000 they do not hold** (six seeds): the
+>    trained herb sets a quarter of the shipped herb's seed and dies out on
+>    four seeds of six (shipped: one), because rung 4 pays one flowering
+>    however many seeds it sets. Rung 5 (recruitment) is next and nothing
+>    from rung 4 ships. The shipped bed itself ends as tree and herb: the
+>    creeper is gone on every seed, the shrub on four. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow

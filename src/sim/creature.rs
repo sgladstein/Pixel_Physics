@@ -9418,11 +9418,15 @@ fn sense(
     // for this and touches no memory.
     inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, x, y) as f32 / pheromone::Scent::MAX as f32;
 
-    let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
+    // Four points a sensor offset apart, nearly always in one field block:
+    // the block's corners read once (`field::BilinearSampler`), the same
+    // values `field_at_bilinear` reads.
+    let mut field_near = world.field_bilinear_sampler();
+    let mut moisture_at = |px: i32, py: i32| field_near.at(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
     inputs[I::MoistureFront as usize] = moisture_at(fx, fy);
     inputs[I::MoistureLateral as usize] = moisture_at(rx, ry) - moisture_at(lx, ly);
 
-    let here = world.field_at_bilinear(x as f32, y as f32);
+    let here = field_near.at(x as f32, y as f32);
     // Divided through by the day/night oscillator, per CLAUDE.md: a
     // threshold sampled at an arbitrary phase of a designed oscillator is a
     // different threshold every hour, and the light channel swings 20:1.
@@ -19874,7 +19878,8 @@ pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
 }
 
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
-    let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
+    let mut field_near = world.field_bilinear_sampler();
+    let mut m = |px: i32, py: i32| field_near.at(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
     let gy = m(x, y + 4) - m(x, y - 4);
     ((gx * gx + gy * gy).sqrt() / WORM_MOISTURE_SATURATION).clamp(0.0, 1.0)

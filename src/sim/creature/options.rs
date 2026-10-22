@@ -80,7 +80,8 @@ pub enum Verb {
     /// food, a dead ant or a live seed. Until fix plan step 1 the jaws could
     /// also cut food or a dead ant and carry it undigested, so putting it
     /// down counted no delivery; and Dig needed an empty crop, a rule rather
-    /// than physics (the jaws cut, the crop is inside).
+    /// than physics (the jaws cut, the crop is inside). **With a pellet in
+    /// the jaws, only when walled in**: the pack move ([`pack_on`]).
     Dig,
     /// Food in reach into the crop, with the jaws free: room for one more
     /// cell, the crop's one material, and a bite worth taking to this gut.
@@ -331,6 +332,23 @@ const MEMO_DOWN: i32 = REACH + 4;
 
 /// **Every option `organism` has right now**, appended to `out` (cleared
 /// first). A pure read of the world: no draw, no write.
+/// **A mind walled in with a pellet can pack its way out**, as the game's
+/// ant does (`NEEDS_FIRST`'s `pack`) and the player's ant does (G): it cuts a
+/// cell beside its head, steps in, and packs the pellet into the cell its tail
+/// leaves (`pack_behind`). Without it a mind holding soil in a pocket no
+/// bigger than its body has no move but stepping into itself, turning round or
+/// resting: its jaws are full, so no cut, and there is no room for a put-down.
+/// Owner's ruling, 2026-10-22, on the foraging-loop thread's measurement: in
+/// the in-run bed with the carry-home teacher acting, 25 of 55 starved ants
+/// died walled in holding a pellet; with the move, starvation went 55 -> 25
+/// of 192 (8 colonies, 200k frames). On by default;
+/// `PIXEL_PHYSICS_MIND_PACK=off` is the body before. Minds only: the game's
+/// ant has its own pack in `NEEDS_FIRST`.
+pub fn pack_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
+}
+
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
     build_with(world, organism, def, true, out);
 }
@@ -383,11 +401,14 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     // with `remember`, which is how `the_option_window_changes_no_feature`
     // holds both to the plain reads.
     let mut described: Vec<((i32, i32), [f32; FEATURES])> = Vec::with_capacity(24);
+    // The targets' temperatures, the field's corners read once for the few
+    // blocks they fall in (`field::BilinearSampler`). Off with `remember`.
+    let mut warm = remember.then(|| world.field_bilinear_sampler());
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
         let mut feats = match described.iter().find(|(t, _)| remember && *t == target) {
             Some(&(_, feats)) => feats,
             None => {
-                let feats = describe(world, &mut memo, &here, target);
+                let feats = describe(world, &mut memo, warm.as_mut(), &here, target);
                 described.push((target, feats));
                 feats
             }
@@ -450,11 +471,15 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     let gut = gut_of(world, organism, def);
     let room = crop.is_none_or(|c| c.worth() + c.unit <= organism_crop_capacity(world, organism, def));
     let feedable = crop_to_feed(world, st);
+    // **The pack move** ([`pack_on`]): walled in with a pellet in the jaws,
+    // every cut the jaws could make is offered, and `mind::dig` packs the
+    // pellet into the cell the tail leaves.
+    let pack = !jaws_free && pack_on() && st.spoil.is_some_and(|s| !s.store) && super::walled_in(world, organism, head);
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
         let food = world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0;
-        if jaws_free && diggable(world, def, organism, cell) {
+        if (jaws_free || pack) && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
                     feats[f::ROOF_DROP] = f32::from(u8::from(super::bite_is_hanging(world, t)));
@@ -564,7 +589,9 @@ fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::Organi
 
 /// The features every option reads at its target, verb-specific ones (the
 /// walk's footing) left for the caller to set.
-fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
+type Sampler<'w> = crate::sim::field::BilinearSampler<'w, crate::sim::fxhash::ChunkMap<crate::sim::field::FieldTile>>;
+
+fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'_>>, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     let mut v = [0.0f32; FEATURES];
     let cell = memo.cell(x, y);
     let kind = world.materials.kind(cell.material);
@@ -628,6 +655,10 @@ fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, 
         .take_while(|&d| memo.cell(x, y - d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
+    // Remembering each cell's cover answer in the memo, so targets sharing
+    // a column skip the repeat, measured no better (mind colony 6.963G ->
+    // 6.979G, callgrind, 2026-10-22): the scan stops at the first ground
+    // overhead, and an empty sky row is one compare.
     v[f::ROOFED] = f32::from(u8::from(under_cover_by(world, memo, x, y)));
 
     if let Some(o) = who {
@@ -681,7 +712,11 @@ fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, 
             v[f::HOME] = cos * squash(h2.sqrt() / 32.0);
         }
     }
-    v[f::WARMTH] = squash(world.field_at_bilinear(x as f32, y as f32).temperature - here.warmth);
+    let warmth = match warm {
+        Some(warm) => warm.at(x as f32, y as f32),
+        None => world.field_at_bilinear(x as f32, y as f32),
+    };
+    v[f::WARMTH] = squash(warmth.temperature - here.warmth);
     v[f::BACK] = f32::from(u8::from(here.neck == Some((x, y))));
     v
 }
@@ -972,7 +1007,9 @@ mod tests {
                 );
                 // The body's own cut, less food and dead ants, with free
                 // jaws: a full crop no longer stops it (fix plan step 1).
-                let digs: Vec<(i32, i32)> = if jaws {
+                // With soil in the jaws, only a walled-in ant cuts: the pack move.
+                let walled = jaws && pack_on() && st.spoil.is_some_and(|s| !s.store) && super::super::walled_in(&w, id, head);
+                let digs: Vec<(i32, i32)> = if jaws && !walled {
                     Vec::new()
                 } else {
                     targets::dig_candidates(&w, &def, id, head)
