@@ -5719,6 +5719,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
 
+- [brain-training/teacher-training/hungry-lesson-2026-10-22.md](brain-training/teacher-training/hungry-lesson-2026-10-22.md) —
+  **"go out when hungry": why in-run colonies die, the lesson, two founders.** Hungry ants hold a soil pellet at
+  the chamber bottom (94% of hungry decisions before a die-off). A scratch teacher, obeyed every time, lifts
+  clone-colony survival from 1.5 to 15.1 of 24; copies obey it 30-50% of the time. Founders h1 and h6 delivered;
+  in-colony selection ranks h1 first. The arenas' energy sense read the budget, not the tank: fixed by PR #781
+  (copy v2 soil 10.71 -> 10.12, no retrain). Genomes, copier, configs and the whole scratch tree as a patch in
+  `measurements/hungry-lesson/`.
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
