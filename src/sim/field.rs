@@ -955,6 +955,29 @@ fn pressure_read<T: TileLookup + ?Sized>(tiles: &T, bounds: Option<Rect>, world_
     }
 }
 
+/// `(sample, is_blocked)` through one bounds test and one tile fetch, for
+/// `step_advection`'s window. Out of bounds is ambient and a wall; a missing
+/// tile is ambient and open -- what the two functions answer.
+#[inline]
+fn cell_and_blocked<T: TileLookup + ?Sized>(
+    tiles: &T,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+) -> (FieldCell, bool) {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return (FieldCell::AMBIENT, true);
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    match tiles.tile(tile_coord) {
+        Some(tile) => (tile.get_local(lx, ly), tile.is_blocked_local(lx, ly)),
+        None => (FieldCell::AMBIENT, false),
+    }
+}
+
 /// **`(sample, is_blocked, glows, is_moisture_source)` at one position,
 /// through one bounds test and one tile fetch** -- the reads
 /// `step_diffusion`'s gather makes of every position it gathers. Until
@@ -4223,13 +4246,28 @@ fn step_advection(
     par_solve_tiles(coords, next, |coord, tile| {
         let pre = TileNear::new(&pre_advection, coord);
         let (ox, oy) = coord.origin();
+        // **The tile and its one-cell ring, corners included, read once**
+        // (2026-10-22): each cell's own read and blocked test, and the four
+        // corners of any back-trace that lands within one field cell of the
+        // tile -- which at the speeds a lab sees is nearly all of them. A
+        // back-trace landing further out reads through `sample_bilinear`
+        // exactly as before. Each window entry is `(sample, is_blocked)` at
+        // the coordinate the per-cell reads used, so the corners and the
+        // `fallback` substitution come out the same.
+        let mut window = [(FieldCell::AMBIENT, false); GATHER_AREA];
+        for py in 0..GATHER_SPAN {
+            for px in 0..GATHER_SPAN {
+                let (wx, wy) = (ox + (px - 1) * FIELD_SCALE, oy + (py - 1) * FIELD_SCALE);
+                window[gather_index(px - 1, py - 1)] = cell_and_blocked(&pre, bounds, wx, wy);
+            }
+        }
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
-                if is_blocked(&pre, bounds, wx, wy) {
+                let (here, blocked) = window[gather_index(lx, ly)];
+                if blocked {
                     continue;
                 }
-                let here = sample(&pre, bounds, wx, wy);
 
                 // Clamped to one *tile* of back-trace per axis — the width
                 // of the halo, which is what makes the clamp necessary and
@@ -4261,7 +4299,22 @@ fn step_advection(
                 let dy = (here.vy * FIELD_SCALE as f32).clamp(-max_step, max_step);
                 let src_x = wx as f32 - dx;
                 let src_y = wy as f32 - dy;
-                let transported = sample_bilinear(&pre, bounds, src_x, src_y, here);
+                let (x0, y0, tx, ty) = bilinear_origin(src_x, src_y);
+                let (cx, cy) = ((x0 - ox).div_euclid(FIELD_SCALE), (y0 - oy).div_euclid(FIELD_SCALE));
+                let in_window = (x0 - ox).rem_euclid(FIELD_SCALE) == 0
+                    && (y0 - oy).rem_euclid(FIELD_SCALE) == 0
+                    && (-1..FIELD_TILE_SIZE).contains(&cx)
+                    && (-1..FIELD_TILE_SIZE).contains(&cy);
+                let corners = if in_window {
+                    let at = |x: i32, y: i32| match window[gather_index(x, y)] {
+                        (_, true) => here,
+                        (cell, false) => cell,
+                    };
+                    [at(cx, cy), at(cx + 1, cy), at(cx, cy + 1), at(cx + 1, cy + 1)]
+                } else {
+                    bilinear_corners(&pre, bounds, x0, y0, here)
+                };
+                let transported = bilinear_mix(corners, tx, ty);
 
                 let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
                 let blended = FieldCell {
@@ -4734,6 +4787,98 @@ mod tests {
         // radius that started at zero.
         let spread = w.field_at(128 + 40, 128).pressure;
         assert!(spread.abs() > 0.001, "pressure never reached x+40: {spread}");
+    }
+
+    /// **`step_advection`'s gathered window reads exactly what the per-cell
+    /// `sample_bilinear` back-trace read** (2026-10-22). The reference below
+    /// is the per-cell solve as it stood before the window, run on the same
+    /// state. The state has walls (blocked corners take the `fallback`),
+    /// the world's edge (out-of-bounds corners), and velocities in both
+    /// directions large enough that some back-traces land outside the window
+    /// and take the general path -- both counts asserted, so neither path can
+    /// pass by not running. Positive control, run when written: answering a
+    /// blocked window corner with its own cell instead of `here` turns this red.
+    #[test]
+    fn advection_through_the_gathered_window_matches_the_per_cell_back_trace() {
+        let mut w = test_world();
+        for y in 100..140 {
+            for x in 60..90 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.end_step();
+        w.add_pressure_impulse(128, 128, 4, 100.0);
+        for _ in 0..3 {
+            step(&mut w);
+        }
+        let mut old = w.fields_ref().clone();
+        let mut coords: Vec<ChunkCoord> = old.keys().copied().collect();
+        coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
+        let mut seed = 0x2545_f491u32;
+        let mut next_v = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32 * 8.0 - 4.0
+        };
+        for coord in &coords {
+            let tile = old.get_mut(coord).expect("listed");
+            for ly in 0..FIELD_TILE_SIZE {
+                for lx in 0..FIELD_TILE_SIZE {
+                    let mut cell = tile.get_local(lx, ly);
+                    cell.vx = next_v();
+                    cell.vy = next_v();
+                    cell.temperature += next_v();
+                    tile.set_local(lx, ly, cell);
+                }
+            }
+        }
+        let bounds = w.bounds();
+        let mut next = old.clone();
+        step_advection(&coords, &coords, bounds, &old, &mut next);
+
+        let (mut windowed, mut general, mut blocked_corner) = (0, 0, 0);
+        for &coord in &coords {
+            let pre = TileNear::new(&old, coord);
+            let (ox, oy) = coord.origin();
+            for ly in 0..FIELD_TILE_SIZE {
+                for lx in 0..FIELD_TILE_SIZE {
+                    let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
+                    let got = next[&coord].get_local(lx, ly);
+                    if is_blocked(&pre, bounds, wx, wy) {
+                        assert_eq!(got, old[&coord].get_local(lx, ly), "a blocked cell moved");
+                        continue;
+                    }
+                    let here = sample(&pre, bounds, wx, wy);
+                    let max_step = (FIELD_TILE_SIZE * FIELD_SCALE * ADVECTION_MAX_TILES) as f32;
+                    let dx = (here.vx * FIELD_SCALE as f32).clamp(-max_step, max_step);
+                    let dy = (here.vy * FIELD_SCALE as f32).clamp(-max_step, max_step);
+                    let (src_x, src_y) = (wx as f32 - dx, wy as f32 - dy);
+                    let (x0, y0, _, _) = bilinear_origin(src_x, src_y);
+                    let (cx, cy) = ((x0 - ox).div_euclid(FIELD_SCALE), (y0 - oy).div_euclid(FIELD_SCALE));
+                    if (-1..FIELD_TILE_SIZE).contains(&cx) && (-1..FIELD_TILE_SIZE).contains(&cy) {
+                        windowed += 1;
+                        let corners = [(x0, y0), (x0 + FIELD_SCALE, y0), (x0, y0 + FIELD_SCALE), (x0 + FIELD_SCALE, y0 + FIELD_SCALE)];
+                        blocked_corner += corners.iter().filter(|&&(x, y)| is_blocked(&pre, bounds, x, y)).count();
+                    } else {
+                        general += 1;
+                    }
+                    let transported = sample_bilinear(&pre, bounds, src_x, src_y, here);
+                    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+                    let want = FieldCell {
+                        pressure: lerp(here.pressure, transported.pressure, ADVECTION_BLEND),
+                        vx: lerp(here.vx, transported.vx, ADVECTION_BLEND),
+                        vy: lerp(here.vy, transported.vy, ADVECTION_BLEND),
+                        temperature: lerp(here.temperature, transported.temperature, ADVECTION_BLEND),
+                        sky_temperature: lerp(here.sky_temperature, transported.sky_temperature, ADVECTION_BLEND),
+                        light: lerp(here.light, transported.light, ADVECTION_BLEND),
+                        moisture: lerp(here.moisture, transported.moisture, ADVECTION_BLEND),
+                    };
+                    assert_eq!(got, want, "{coord:?} ({lx}, {ly})");
+                }
+            }
+        }
+        assert!(windowed > 50, "vacuous: only {windowed} back-traces used the window");
+        assert!(general > 50, "vacuous: only {general} back-traces took the general path");
+        assert!(blocked_corner > 10, "vacuous: only {blocked_corner} window corners were walls");
     }
 
     #[test]
