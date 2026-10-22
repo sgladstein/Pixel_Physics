@@ -152,6 +152,7 @@ fn sweep_row<S: CellSurface>(surface: &mut S, y: i32, min_x: i32, max_x: i32, ri
     }
 }
 
+#[inline(always)]
 fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) {
     // Opens this cell's draw, before any rule can take one. Under the default
     // this is inert; under `PIXEL_PHYSICS_RNG=positional` it is what keys the
@@ -207,6 +208,25 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
         return;
     }
 
+    // **An empty cell has nothing left to do**, and most visits are to one:
+    // `fire::update_from` returns at once for `EMPTY`, the re-read below
+    // finds the same cell, and `Empty` dispatches to nothing. So it returns
+    // here, and everything below lives in `update_occupied_cell`, out of
+    // line, so the empty visit does not pay the occupied path's register
+    // saves and stack frame, and this front is `#[inline(always)]` into
+    // `sweep_row` (2026-10-22: lab box -4.5% instructions, -3.4% wall).
+    // Bit-identical: no rule below draws from the generator or writes for
+    // an empty cell.
+    if cell.material == material::EMPTY {
+        return;
+    }
+    update_occupied_cell(surface, x, y, cell, rightward);
+}
+
+/// The rest of [`update_cell`], for a visited cell that is not empty, not
+/// managed and did not arrive this sweep.
+#[inline(never)]
+fn update_occupied_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) {
     // Before movement: a phase change (stone crossing its melting point) must
     // land before this frame's movement dispatch decides how the cell
     // behaves, or it would move as stone for one more frame after already
