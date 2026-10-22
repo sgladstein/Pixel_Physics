@@ -100,7 +100,7 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
 /// arm got worse (lexicase: starved 8.0 vs 2.2 of 24 in the garden, rooms 0.35 vs 1.0; in-run starvation 4x in round
 /// 1): the crater, the spoil let go in old tunnels and the packed mounds round the food heaps all carried over and
 /// grew round on round. So here only the open cells joined to the door below the datum are carved, and of those only
-/// roofed ones (some ground above them in the recorded column) plus the door's own shaft (NEST +-1): the crater is
+/// roofed ones (ground at or below the datum above them) or under a mouth no wider than the stamped one: the crater is
 /// sky-open and stays behind, and everything else is the fresh world's.
 fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>) -> usize {
     let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
@@ -127,8 +127,29 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
                 }
             }
         }
-        let roofed = |dx: usize, dy: usize| (0..dy).any(|yy| grid[yy].get(dx).is_some_and(|&c| Some(c) != empty && c != b'?'));
-        seen.into_iter().filter(|&(dx, dy)| (dx as i32 - door as i32).abs() <= 1 || roofed(dx, dy)).collect()
+        // Nest = roofed by ground (soil, packed soil, spoil, stone) at or below the datum, or under a mouth no wider than
+        // the stamped one (5 cells, markers included) -- the same rule as nestcount.py (2026-10-22 20:50Z): the door
+        // markers and the 3-wide door column used to carry an open pit across as nest.
+        let ground: Vec<u8> = head.get(2).map_or(vec![], |l| l.split(',').enumerate().filter(|(_, m)| matches!(*m, "soil" | "packedsoil" | "spoil" | "stone")).map(|(k, _)| b'A' + k as u8).collect());
+        let width = grid.first().map_or(0, |r| r.len());
+        let top = |dx: usize| (surf[(x0 + dx as i32).clamp(0, surf.len() as i32 - 1) as usize] - y0).max(0) as usize;
+        let roofed = |dx: usize, dy: usize| (top(dx)..dy).any(|yy| grid[yy].get(dx).is_some_and(|c| ground.contains(c)));
+        let gap: Vec<bool> = (0..width).map(|dx| grid.get(top(dx)).and_then(|r| r.get(dx)).is_some_and(|c| !ground.contains(c))).collect();
+        let mut wide = vec![false; width];
+        let mut dx = 0;
+        while dx < width {
+            if !gap[dx] {
+                dx += 1;
+                continue;
+            }
+            let mut k = dx;
+            while k < width && gap[k] {
+                k += 1;
+            }
+            wide[dx..k].fill(k - dx > 5);
+            dx = k;
+        }
+        seen.into_iter().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect()
     });
     let mut n = 0;
     for (dy, row) in grid.iter().enumerate() {
@@ -732,6 +753,8 @@ fn main() {
                     writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
                 }
                 creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
+                // SCRATCH (foraging-loop thread): food put down in the field, so a load's fate closes.
+                creature::FOOD_DROP => writeln!(ev, "{frame},{},fdrop,{x},{y},{},0", r.who, r.worth).unwrap(),
                 _ => {}
             }
         }
@@ -1467,5 +1490,7 @@ fn main() {
         age30.flush().unwrap();
     }
     write_nestmap(&w, &out.join("nestmap.txt"));
+    creature::mind::scratch_log::copy_flush();
+    println!("{}", creature::mind::scratch_log::carry_report());
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }

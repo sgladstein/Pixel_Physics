@@ -2778,6 +2778,11 @@ pub mod inrun {
         def.reproduce_threshold = 1.0e30;
         // No old age (owner, 2026-10-21): selection's removals are the only deaths but starvation.
         def.life_half_life = 0;
+        // SCRATCH (foraging-loop thread): `PP_SYNAPSE_K=f` scales the brain's per-link bill, to price a copy's grown
+        // links (c1 1,347 against h1's 881) at the founder's bill and see whether the bill is what starves it.
+        if let Some(k) = std::env::var("PP_SYNAPSE_K").ok().and_then(|v| v.parse::<f32>().ok()) {
+            def.synapse_fraction *= k;
+        }
         w.species.set_creature(sp, def);
         // SCRATCH (foraging-loop thread's switch, 2026-10-22): PP_NOMIND=1 leaves every founder on the game's own ant
         // (chooser + act), the old ant, in this same bed. Unset: no change.
@@ -2785,6 +2790,12 @@ pub mod inrun {
         for (k, id) in ants_of(&w, sp).into_iter().enumerate() {
             if !nomind {
                 creature::mind::give(&mut w, id, genome_of(k));
+            }
+        }
+        // `PP_SHADOW=1` (mind.rs): minds watch the old ant, so the world builds the old ant's ways as it does with none.
+        if creature::mind::scratch_log::shadow_on() {
+            if let Some(m) = w.minds.as_mut() {
+                m.build_ways = true;
             }
         }
         (w, sc, sp)
