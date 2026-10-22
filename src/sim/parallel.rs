@@ -794,7 +794,8 @@ impl CellSurface for ChunkView<'_> {
             // `World::set`, so every hook that lives at that seam has to be
             // repeated here. `old` is already in hand from the check above.
             let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
-            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
+            let shape = crate::sim::field::changes_block_shape(&self.world.materials, old.material, cell.material);
+            self.chunk.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape);
         } else if self.world.in_bounds(x, y) {
             // Reach for this chunk's own tracked value is handled when this
             // write is replayed through the ordinary `World::set` after the
