@@ -1,0 +1,55 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: shrub=45000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=tree mix=stand-tree ["shrub", "herb", "creeper"] seed=8 width=192 grow=60000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron plants_placed=9
+grown f=60000 | shrub 10/12/666/1576 | herb 19/113/858/2193 | creeper 6/3/152/268 | tree 0/0/0/0  (plants/bank/leaf/shoot)
+arm=none f=10000 | shrub 11/5/514/1205 | herb 28/73/489/1333 | creeper 4/5/95/167 | tree 0/0/0/0
+arm=none f=20000 | shrub 10/4/567/1293 | herb 25/112/699/1782 | creeper 3/9/94/165 | tree 0/0/0/0
+arm=none f=30000 | shrub 7/3/569/1297 | herb 24/119/839/2056 | creeper 6/5/91/165 | tree 0/0/0/0
+arm=none f=40000 | shrub 6/5/591/1346 | herb 31/102/818/2250 | creeper 3/6/89/161 | tree 0/0/0/0
+arm=none f=50000 | shrub 5/2/593/1357 | herb 27/80/638/1815 | creeper 3/4/87/158 | tree 0/0/0/0
+arm=none f=60000 | shrub 6/6/591/1364 | herb 12/67/566/1592 | creeper 4/3/67/120 | tree 0/0/0/0
+arm=none f=70000 | shrub 7/5/600/1393 | herb 32/61/638/1913 | creeper 4/5/56/102 | tree 0/0/0/0
+arm=none f=80000 | shrub 9/5/597/1392 | herb 36/64/762/2268 | creeper 4/4/47/91 | tree 0/0/0/0
+arm=none f=90000 | shrub 7/5/594/1377 | herb 30/102/726/2338 | creeper 5/0/43/83 | tree 0/0/0/0
+arm=none f=100000 | shrub 7/7/560/1281 | herb 21/87/536/1664 | creeper 3/1/35/71 | tree 0/0/0/0
+arm=none f=110000 | shrub 5/9/476/1123 | herb 19/75/528/1684 | creeper 3/2/35/71 | tree 0/0/0/0
+arm=none f=120000 | shrub 6/12/357/903 | herb 12/68/331/987 | creeper 3/2/35/71 | tree 0/0/0/0
+arm=none f=130000 | shrub 9/14/354/902 | herb 25/28/322/993 | creeper 2/0/34/69 | tree 0/0/0/0
+arm=none f=140000 | shrub 10/8/355/899 | herb 31/31/458/1302 | creeper 3/0/61/114 | tree 0/0/0/0
+arm=none f=150000 | shrub 9/11/352/888 | herb 30/64/657/1762 | creeper 4/4/82/165 | tree 0/0/0/0
+arm=shipped sown 4 of 4
+arm=shipped f=10000 | shrub 11/3/522/1214 | herb 28/72/528/1367 | creeper 3/6/95/166 | tree 3/1/214/537
+arm=shipped f=20000 | shrub 10/4/569/1324 | herb 19/86/568/1374 | creeper 4/7/94/166 | tree 2/8/836/1848
+arm=shipped f=30000 | shrub 7/4/591/1391 | herb 16/70/571/1296 | creeper 3/8/92/163 | tree 2/12/953/2183
+arm=shipped f=40000 | shrub 6/6/582/1436 | herb 12/54/500/1171 | creeper 4/4/89/162 | tree 2/9/951/2221
+arm=shipped f=50000 | shrub 4/9/592/1497 | herb 9/52/440/1018 | creeper 4/3/87/162 | tree 1/8/961/2233
+arm=shipped f=60000 | shrub 4/9/616/1573 | herb 5/44/327/775 | creeper 4/0/83/159 | tree 1/7/952/2250
+arm=shipped f=70000 | shrub 7/6/603/1582 | herb 15/35/456/1046 | creeper 5/0/59/110 | tree 2/9/980/2446
+arm=shipped f=80000 | shrub 8/0/405/1138 | herb 15/45/523/1238 | creeper 2/3/45/87 | tree 2/12/1006/2576
+arm=shipped f=90000 | shrub 7/2/400/1119 | herb 12/45/439/1070 | creeper 2/2/42/81 | tree 3/19/1050/2839
+arm=shipped f=100000 | shrub 5/4/394/1101 | herb 11/37/367/979 | creeper 2/1/31/66 | tree 3/23/1094/3028
+arm=shipped f=110000 | shrub 6/5/387/1090 | herb 13/34/360/956 | creeper 0/3/0/0 | tree 5/17/1110/3091
+arm=shipped f=120000 | shrub 5/6/384/1080 | herb 7/26/321/795 | creeper 0/2/0/0 | tree 4/29/1141/3183
+arm=shipped f=130000 | shrub 5/4/383/1073 | herb 16/11/225/646 | creeper 0/2/0/0 | tree 12/19/1244/3471
+arm=shipped f=140000 | shrub 7/1/379/1049 | herb 17/19/221/749 | creeper 0/2/0/0 | tree 13/14/1277/3583
+arm=shipped f=150000 | shrub 4/1/375/1033 | herb 14/28/279/841 | creeper 0/2/0/0 | tree 9/19/1285/3688
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron sown 4 of 4
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=10000 | shrub 10/5/532/1219 | herb 25/85/498/1300 | creeper 4/4/95/167 | tree 3/5/538/1261
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=20000 | shrub 5/6/576/1340 | herb 17/57/463/1176 | creeper 4/6/94/166 | tree 2/37/2686/5989
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=30000 | shrub 4/5/606/1427 | herb 16/27/441/1098 | creeper 4/3/90/162 | tree 2/52/2913/7348
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=40000 | shrub 4/3/610/1453 | herb 13/19/376/1028 | creeper 4/2/87/160 | tree 3/56/2735/7490
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=50000 | shrub 4/2/618/1463 | herb 8/20/253/874 | creeper 4/2/67/122 | tree 3/45/2723/7808
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=60000 | shrub 4/3/605/1466 | herb 4/20/119/326 | creeper 3/0/52/98 | tree 3/35/2753/8186
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=70000 | shrub 4/1/570/1399 | herb 2/8/113/308 | creeper 3/0/25/57 | tree 3/50/2683/8471
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=80000 | shrub 4/1/523/1295 | herb 1/5/47/139 | creeper 0/2/0/0 | tree 3/58/2538/8493
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=90000 | shrub 3/2/462/1169 | herb 1/2/46/138 | creeper 0/2/0/0 | tree 3/64/2478/8530
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=100000 | shrub 3/1/223/604 | herb 1/2/45/137 | creeper 0/2/0/0 | tree 5/56/2397/8664
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=110000 | shrub 2/2/183/543 | herb 1/1/43/135 | creeper 0/2/0/0 | tree 4/43/2281/8683
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=120000 | shrub 2/1/138/444 | herb 0/1/0/0 | creeper 0/0/0/0 | tree 5/38/2185/8699
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=130000 | shrub 2/1/102/339 | herb 0/1/0/0 | creeper 0/0/0/0 | tree 6/36/2158/8839
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=140000 | shrub 2/1/33/145 | herb 0/0/0/0 | creeper 0/0/0/0 | tree 6/50/2099/8880
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/tree/score_best.ron f=150000 | shrub 2/1/9/18 | herb 0/0/0/0 | creeper 0/0/0/0 | tree 7/55/2076/9024
+plant_m0 done: 56.4 s

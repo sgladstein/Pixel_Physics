@@ -1,0 +1,27 @@
+    dim, on: light at the planting site (3 rows up) 0.06 of full
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    dim, on: founder dead at the end; deaths in the bed by cause ["LOST ITS TISSUE:1"]
+    SEED dim, on s=0 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=1 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=2 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=3 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=4 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=5 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=6 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=7 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=8 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=9 shoot 172 sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=10 shoot 131 sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=11 shoot 53 sprouts 0 shed shade 0 scald 0
+  dim, on      alive 3/12 leaf light 0.06 | shoot 118.67+-60.45 height 10.67+-1.15 width 40.67+-10.41 leaf_share 0.38+-0.18 root 0.00+-0.00 root_depth 0.00+-0.00

@@ -5770,6 +5770,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   calibration; mutation at `grow` 1 with no pruning adds up to ~65 links a child, braked only by starvation; colony competition should audit before
   it selects (Waibel 2009, Skolicki 2005); and the walk home should be taught first. Ten tests, ranked by cost.
 
+- [brain-training/research/in-colony-scoring-review-2026-10-22.md](brain-training/research/in-colony-scoring-review-2026-10-22.md) —
+  **scoring review lane: what the in-run ant score pays, and a test of selecting whole colonies.** Measured over 1,302
+  births, parents are picked 87% on food and 3% on digging, and the three need-driven prices are inert, so neither
+  weights nor adaptive weights can keep digging. Selecting colonies (12 colonies x 6 rounds, fixed-world judge) tripled
+  food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
+  win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
