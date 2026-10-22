@@ -7324,7 +7324,7 @@ fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
 fn cause_tint(cause: Option<crate::sim::organism::DeathCause>) -> [u8; 4] {
     use crate::sim::organism::DeathCause::*;
     match cause {
-        Some(Starved | StarvedInFlight | ShadedOut | DriedOut | Withered) => POOR,
+        Some(Starved | StarvedInFlight | ShadedOut | DriedOut | Withered | Scorched) => POOR,
         Some(Killed | Eaten | Overgrown) => [214, 96, 170, 255],
         Some(OldAge) => [120, 150, 200, 255],
         Some(Culled | FelledOrLost) => [150, 118, 84, 255],

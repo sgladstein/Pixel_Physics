@@ -11340,6 +11340,39 @@ const SHADE_UPKEEP_CUT: f32 = 0.5;
 /// which is rung 4's arena, not a lone plant's. 0.6 measured between.
 const SHADE_LEAF_PRICE: f32 = 0.9;
 
+/// **How fast a shade leaf scalds in full open light**, as a multiple of the
+/// species' own `shade_death` (`World::shade_scald`; A5's price in bright
+/// light). A fully tolerant leaf in the world's open light falls at
+/// `SCALD_RATE * shade_death` per tick, cubed in the glare as the shade
+/// roll is cubed in the dark, so a leaf half-lit is nearly safe and one in
+/// a canopy's shade entirely so.
+///
+/// **Why a leaf lost and not carbon withheld:** `SHADE_LEAF_PRICE` alone
+/// cannot make tolerance a loss in bright light, because a lone plant
+/// there is sized by development, not carbon (see its doc). Only a cost to
+/// what the plant *builds* reaches it. This one is real: thin shade leaves
+/// moved into the sun photo-inhibit and bleach. Read through
+/// `scald_rate()` for the sweep.
+const SCALD_RATE: f32 = 16.0;
+
+/// `SCALD_RATE`, or `PIXEL_PHYSICS_SCALD_RATE` when set: the sweep it is
+/// derived on. A measurement instrument, read once per process.
+fn scald_rate() -> f32 {
+    use std::sync::OnceLock;
+    static RATE: OnceLock<f32> = OnceLock::new();
+    *RATE.get_or_init(|| std::env::var("PIXEL_PHYSICS_SCALD_RATE").ok().and_then(|v| v.parse().ok()).unwrap_or(SCALD_RATE))
+}
+
+/// `World::shade_scald`, or on everywhere when `PIXEL_PHYSICS_SHADE_SCALD=1`:
+/// how a trainer whose beds are built inside `train_plant` turns the price
+/// on without a flag threaded through every bed. A measurement instrument,
+/// read once per process.
+fn scald_on(world: &World) -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    world.shade_scald || *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_SCALD").is_ok_and(|v| v == "1"))
+}
+
 /// `SHADE_LEAF_PRICE`, or `PIXEL_PHYSICS_SHADE_LEAF_PRICE` when set: the
 /// sweep the price is re-derived on (plan step 3, "re-price shade
 /// tolerance"). A measurement instrument, read once per process.
@@ -13298,6 +13331,27 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                             // reason.
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
+                        }
+                        // **Sun scald, the mirror of the roll above**
+                        // (`World::shade_scald`, A5): a shade leaf is thin,
+                        // and in bright light it bleaches and falls. The
+                        // same per-tick rate, at full *open* light rather
+                        // than total darkness, scaled by how tolerant the
+                        // plant is -- so tolerance moves where a leaf lives
+                        // best, from the sun to the shade, instead of
+                        // adding a shade bonus for nothing. See
+                        // `SCALD_RATE` for why the price has to be a leaf
+                        // lost and not carbon withheld. Drawn only when it
+                        // can fire, so a plant with no tolerance keeps its
+                        // dice.
+                        if shade_tolerate > 0.0 && scald_on(world) {
+                            let glare = (light / world.open_light).clamp(0.0, 1.0);
+                            if rng.chance(scald_rate() * shade_death * shade_tolerate * glare * glare * glare) {
+                                world.shed_scald += 1;
+                                shed_to_litter(world, cx, cy, organism::DeathCause::Scorched);
+                                shed_stranded_leaves(world, cx, cy, organism_id);
+                                continue;
+                            }
                         }
                     }
                     // Water first, carbon second and gated on it -- see the

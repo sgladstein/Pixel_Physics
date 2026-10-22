@@ -102,7 +102,15 @@ impl Station {
     /// is built at field capacity, and over 3,000 frames it read the same as
     /// the bright station on every species, to the cell.
     pub const DRY: Station = Station { name: "dry", lamp: 1.0, rain: Rain::Off, soil: 0.25 };
-    pub const ALL: [Station; 3] = [Station::BRIGHT, Station::DIM, Station::DRY];
+    /// Lamps at 0.2 of their beam: **canopy shade**, the light an
+    /// understory plant gets under a closed crown (leaves under the tree in
+    /// the roles bed read ~0.08 of full; here ~0.11). Where shade tolerance
+    /// earns its keep: a lone shipped shrub dies here on 16 of 16 layouts,
+    /// and one with `shade_tolerate` 0.7 lives on 5 (`plant_m0 axis=shade
+    /// dimlamp=0.2`, 60,000 frames; `Reports/plant-community-2026-10-20/
+    /// m2/shade-scald/`). At `DIM`'s 0.4 tolerance is neutral.
+    pub const SHADE: Station = Station { name: "shade", lamp: 0.2, rain: Rain::Light, soil: 1.0 };
+    pub const ALL: [Station; 4] = [Station::BRIGHT, Station::DIM, Station::DRY, Station::SHADE];
 
     pub fn named(name: &str) -> Option<Station> {
         Station::ALL.into_iter().find(|s| s.name == name)
