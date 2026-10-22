@@ -5733,10 +5733,24 @@ pub(super) fn try_bud(
     // samples), so nothing laid. Budding and a reach of 0 keep the head read.
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    // **After a walk that found no site, the layer waits** before walking
+    // again ([`super::brood::EGG_RETRY_FRAMES`], 2026-10-22): 70-80% of
+    // walks found nothing, and the walk was 11% of the new ant's frame.
+    let retry = super::brood::egg_retry_frames();
+    if retry > 0 && laying.is_some() && nest_gate && pile_reach > 0 && world.organism(organism).is_some_and(|s| world.frame < s.egg_walk_after) {
+        world.creature_stats.buds_held_for_nest += 1;
+        return None;
+    }
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
         Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
             Some(cell) => Some(cell),
             None => {
+                if retry > 0 {
+                    let frame = world.frame;
+                    if let Some(s) = world.organism_mut(organism) {
+                        s.egg_walk_after = frame + retry;
+                    }
+                }
                 world.creature_stats.buds_held_for_nest += 1;
                 return None;
             }

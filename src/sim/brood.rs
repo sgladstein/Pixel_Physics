@@ -203,6 +203,32 @@ pub fn egg_pile_reach() -> i32 {
     *V.get_or_init(|| parse_egg_pile(&std::env::var("PIXEL_PHYSICS_EGG_PILE").unwrap_or_default()))
 }
 
+/// **How long an ant whose egg walk found no site waits before walking
+/// again**, in frames ([`egg_retry_frames`]). Four ant ticks.
+///
+/// A rule change shipped for cost, by the owner's ruling (2026-10-22). The
+/// ant cost review (`/mnt/project-files/ant-cost-review/`, 2026-10-22) found
+/// 65-89% of ant ticks above the egg bar and 70-80% of those walks finding
+/// nothing: the walk was 11% of the new ant's frame after #801/#805, and
+/// this wait cuts about 9%. Gated on the 24-seed lab bench (`labforage`,
+/// game ant, 120k frames): births higher on 11 of 24 seeds, every gated
+/// metric p >= 0.15, no colony lost. What the ant gives up: a site that
+/// opens inside its wait goes to another ant. The training bed has egg
+/// laying off, so in-run results cannot see it.
+pub const EGG_RETRY_FRAMES: u64 = 24;
+
+/// [`EGG_RETRY_FRAMES`], or `PIXEL_PHYSICS_EGG_RETRY` (a number of frames;
+/// `off` or 0 for the rule before 2026-10-22, a walk every tick the ant
+/// could lay). Unknown values panic.
+pub fn egg_retry_frames() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_EGG_RETRY").as_deref() {
+        Ok("") | Ok("on") | Err(_) => EGG_RETRY_FRAMES,
+        Ok("off") => 0,
+        Ok(v) => v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_EGG_RETRY={v:?}: use on, off or a number of frames")),
+    })
+}
+
 fn parse_egg_pile(raw: &str) -> i32 {
     match raw.trim() {
         "" | "on" => EGG_PILE_REACH,
