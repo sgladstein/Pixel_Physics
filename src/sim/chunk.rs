@@ -778,6 +778,17 @@ impl Chunk {
         self.cells[local_index(x, y)]
     }
 
+    /// `(x, y)`'s four neighbours, left, right, up, down, for a cell whose
+    /// whole cross lies in this chunk -- the caller's promise, which
+    /// `ChunkView::get_four` checks: one index, then a step either way along
+    /// the row and a row either way.
+    #[inline]
+    pub fn get_four_world(&self, x: i32, y: i32) -> [Cell; 4] {
+        let i = local_index(x, y);
+        let row = CHUNK_SIZE as usize;
+        [self.cells[i - 1], self.cells[i + 1], self.cells[i - row], self.cells[i + row]]
+    }
+
     /// `reach` is the new cell's material's own `Material::sweep_reach`
     /// (the caller's job to look up, since `Chunk` has no `MaterialRegistry`
     /// access by design — only ever an opaque `MaterialId`). Only ever grows
