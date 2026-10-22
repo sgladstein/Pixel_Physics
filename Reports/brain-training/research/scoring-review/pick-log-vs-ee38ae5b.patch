@@ -1,0 +1,190 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 4d5c2b5d..fe22712a 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -379,17 +379,28 @@ fn main() {
+         // Lexicase objectives, counts: home deliveries (8 cols), new-ground cuts, spoil out, paid home meals, hungry
+         // departures.
+         m: [f64; 5],
++        // Read-only (scoring review, 2026-10-22): the credit split by what paid it, P_* below.
++        parts: [f64; 7],
+     }
++    const P_FOOD: usize = 0;
++    const P_CUT: usize = 1;
++    const P_EXIT: usize = 2;
++    const P_CLEAR: usize = 3;
++    const P_MEAL: usize = 4;
++    const P_HUNGRY: usize = 5;
++    const P_FIELD: usize = 6;
+     let mut book: HashMap<u32, Who> = HashMap::new();
+     // The recently starved adults: (death frame, score at death, record).
+     let mut hall: Vec<(u64, f64, Who)> = Vec::new();
+     let (home_colony, home_anchor) = founders.first().and_then(|&i| w.organism(i)).map(|s| (s.colony, s.forage_anchor)).unwrap();
+     for (k, id) in founders.iter().enumerate() {
+-        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
++        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5], parts: [0.0; 7] });
+     }
+     let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
+     let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
+     writeln!(births, "frame,id,parent,family,gen,kind,links").unwrap();
++    let mut pick_log = std::io::BufWriter::new(std::fs::File::create(out.join("pick.csv")).unwrap());
++    writeln!(pick_log, "frame,parent,p_food,p_cut,p_exit,p_clear,p_meal,p_hungry,p_field,a_food,a_cut,a_exit,a_clear,a_meal,a_hungry,a_field").unwrap();
+     let mut sel_log = std::io::BufWriter::new(std::fs::File::create(out.join("sel.csv")).unwrap());
+     // The colony's food stocks every 1,000 frames (owner, 2026-10-21: watch the store fall before anyone starves).
+     // nest_food: food cells at or below the ground datum within 12 columns of the nest (the heaps reach in to 15
+@@ -531,6 +542,7 @@ fn main() {
+                             if let Some(b) = book.get_mut(&who) {
+                                 let g = -zone_debit * 0.5 * w_dig * dig_price;
+                                 b.credit += g;
++                                b.parts[P_CUT] += g;
+                                 b.g2 += g * g;
+                             }
+                         }
+@@ -547,6 +559,7 @@ fn main() {
+                         if let Some(b) = book.get_mut(&who) {
+                             let g = -rim_debit * 0.5 * w_dig * dig_price;
+                             b.credit += g;
++                            b.parts[P_CUT] += g;
+                             b.g2 += g * g;
+                         }
+                     } else {
+@@ -563,6 +576,7 @@ fn main() {
+                     b.m[1] += 1.0;
+                     let g = worth * 0.5 * w_dig * dig_price;
+                     b.credit += g;
++                    b.parts[P_CUT] += g;
+                     b.g2 += g * g;
+                 }
+             } else {
+@@ -598,6 +612,7 @@ fn main() {
+                             b.tripped = false;
+                             bit.remove(&r.who);
+                             b.credit += w_home_eat;
++                            b.parts[P_MEAL] += w_home_eat;
+                             b.m[3] += 1.0;
+                             b.g2 += w_home_eat * w_home_eat;
+                         }
+@@ -611,6 +626,7 @@ fn main() {
+                             hungry_paid += 1;
+                             if let Some(b) = book.get_mut(&r.who) {
+                                 b.credit += w_hungry;
++                                b.parts[P_HUNGRY] += w_hungry;
+                                 b.g2 += w_hungry * w_hungry;
+                             }
+                             writeln!(ev, "{frame},{},hungryout,{x},0,{at},0", r.who).unwrap();
+@@ -620,6 +636,7 @@ fn main() {
+                     cell_worth += (r.worth as f64 - cell_worth) / n_field as f64;
+                     if let Some(b) = book.get_mut(&r.who) {
+                         b.credit -= w_field;
++                        b.parts[P_FIELD] -= w_field;
+                         b.g2 += w_field * w_field;
+                     }
+                     writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
+@@ -641,6 +658,7 @@ fn main() {
+                             c.3 += 1;
+                         }
+                         b.credit += g;
++                        b.parts[P_FOOD] += g;
+                         b.g2 += g * g;
+                     }
+                     writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
+@@ -685,6 +703,7 @@ fn main() {
+                 if let Some(b) = book.get_mut(&id) {
+                     b.tripped = true;
+                     b.credit += pc;
++                    b.parts[P_CLEAR] += pc;
+                     if far > 0.0 {
+                         b.m[2] += 1.0;
+                     }
+@@ -694,6 +713,7 @@ fn main() {
+                     if let Some(b) = book.get_mut(&tag) {
+                         let g = far * 0.5 * w_dig * dig_price;
+                         b.credit += g;
++                        b.parts[P_EXIT] += g;
+                         b.g2 += g * g;
+                     }
+                 }
+@@ -726,6 +746,7 @@ fn main() {
+                         c.2 += g;
+                         let b = book.get_mut(&id).unwrap();
+                         b.credit += g;
++                        b.parts[P_FOOD] += g;
+                         b.g2 += g * g;
+                     }
+                 } else if let Some(c) = carry.remove(&id) {
+@@ -734,9 +755,11 @@ fn main() {
+                         let back = c.2 * (1.0 - (c.3 as f64 / most).min(1.0));
+                         let b = book.get_mut(&id).unwrap();
+                         b.credit -= back;
++                        b.parts[P_FOOD] -= back;
+                     } else if c.3 == 0 && c.2 > 0.0 {
+                         let b = book.get_mut(&id).unwrap();
+                         b.credit -= c.2;
++                        b.parts[P_FOOD] -= c.2;
+                     }
+                 }
+             }
+@@ -776,6 +799,7 @@ fn main() {
+                             hungry_paid += 1;
+                             let b = book.get_mut(&id).unwrap();
+                             b.credit += w_hungry;
++                            b.parts[P_HUNGRY] += w_hungry;
+                             b.m[4] += 1.0;
+                             b.g2 += w_hungry * w_hungry;
+                             writeln!(ev, "{frame},{id},hungryout,{x},0,{e:.0},0").unwrap();
+@@ -1102,6 +1126,29 @@ fn main() {
+                             train::mutate(&base, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                         };
+                         let gen = p.gen + 1;
++                        // pick.csv (read-only): the parent's credit rates by part beside the adults' mean, at each quota birth.
++                        {
++                            let rate = |b: &Who| -> [f64; 7] {
++                                let t = ((frame - b.born) as f64 / 1000.0).max(0.1);
++                                let mut r = [0.0; 7];
++                                for k in 0..7 {
++                                    r[k] = b.parts[k] / t;
++                                }
++                                r
++                            };
++                            let pr = rate(p);
++                            let mut mean = [0.0; 7];
++                            for i in &adults {
++                                if let Some(b) = book.get(i) {
++                                    let r = rate(b);
++                                    for k in 0..7 {
++                                        mean[k] += r[k] / adults.len() as f64;
++                                    }
++                                }
++                            }
++                            let pm: Vec<String> = pr.iter().chain(mean.iter()).map(|v| format!("{v:.4}")).collect();
++                            writeln!(pick_log, "{frame},{pid},{}", pm.join(",")).unwrap();
++                        }
+                         let placed = inrun::birth(&mut w, sp, inrun::mind(&child), kid_grants);
+                         if placed.is_none() {
+                             birth_fail += 1;
+@@ -1119,7 +1166,7 @@ fn main() {
+                             }
+                             writeln!(births, "{frame},{cid},{pid},{f},{gen},{},{}", if crossed { "cross" } else { "birth" }, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{f}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5], parts: [0.0; 7] });
+                         }
+                     }
+                 }
+@@ -1211,7 +1258,7 @@ fn main() {
+                             let kind = if c.1.is_some() { "refill" } else { "hall" };
+                             writeln!(births, "{frame},{cid},{pid},{family},{},{kind},{}", gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{family}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5], parts: [0.0; 7] });
+                         }
+                     }
+                 }
+@@ -1361,6 +1408,7 @@ fn main() {
+     }
+     if sel != "off" {
+         sel_log.flush().unwrap();
++        pick_log.flush().unwrap();
+         births.flush().unwrap();
+         let dir = out.join("final");
+         std::fs::create_dir_all(&dir).unwrap();
