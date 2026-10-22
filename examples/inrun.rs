@@ -374,6 +374,11 @@ fn main() {
     let mut held: HashMap<u32, (u32, f64)> = HashMap::new();
     let mut loose: HashMap<(i32, i32), (u32, f64)> = HashMap::new();
     let t0 = std::time::Instant::now();
+    let trace = num("trace", 0);
+    let mut trace_log = (trace > 0).then(|| std::io::BufWriter::new(std::fs::File::create(out.join("trace.csv")).unwrap()));
+    if let Some(tl) = trace_log.as_mut() {
+        writeln!(tl, "frame,id,x,y,tank,crop,trip,spoil,since_nest,still").unwrap();
+    }
     let film = fnum("film", 0.0) as u64;
     let mut film_r = pixel_physics::render::Renderer::new();
     let film_p = pixel_physics::sim::ParticleSystem::new();
@@ -1026,6 +1031,16 @@ fn main() {
             let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
             writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
         }
+        // `trace=N` (read only): every N frames, one row per living ant, for tracing individuals through a die-off.
+        if let Some(tl) = trace_log.as_mut().filter(|_| fr % trace == 0) {
+            for id in inrun::ants(&w, sp) {
+                if let Some(s) = w.organism(id) {
+                    let (x, y) = s.chain.first().copied().unwrap_or((0, 0));
+                    let crop = s.crop.map_or(0, |c| c.cells);
+                    writeln!(tl, "{fr},{id},{x},{y},{:.2},{crop},{},{},{},{}", s.energy as f64 / start_e, s.trip_cells, u8::from(s.spoil.is_some()), s.since_nest, s.still_ticks).unwrap();
+                }
+            }
+        }
         // `film=N`: every N frames, the game's own renderer over the bed, as film/fNNNNNNN.png (for a video).
         if film > 0 && fr % film == 0 {
             let (fw, fh) = (pixel_physics::app::WIDTH, pixel_physics::app::HEIGHT);
@@ -1089,6 +1104,9 @@ fn main() {
         }
     }
     ev.flush().unwrap();
+    if let Some(tl) = trace_log.as_mut() {
+        tl.flush().unwrap();
+    }
     if sel != "off" {
         sel_log.flush().unwrap();
         births.flush().unwrap();
