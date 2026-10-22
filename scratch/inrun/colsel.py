@@ -15,7 +15,8 @@ usage: colsel.py OUT MODE NCOL ROUNDS FRAMES GENOME [inrun args...]
                keep donating. No weights.
 Round r of colony c runs in world seed c (r=0) or c*1000+r, as rounds.sh does, so arms are paired by colony.
 env: BIN, P (parallel runs), GATE (default 20), CG_EVERY (default 2: a common garden of every colony's carry after
-rounds 1, 3, 5...; 0 = off), CG_ARGS (the inrun args for the garden, default = the run's own args with sel=off).
+rounds 1, 3, 5...; 0 = off), INHERIT=1 (each round after the first starts in the nest its colony's ants
+came from: the colony's own last round, or its donor's when it was refounded; inrun's `inherit=`), CG_ARGS (the inrun args for the garden, default = the run's own args with sel=off).
 Writes OUT/colsel.csv (one row per colony-round) and OUT/cg.csv (one row per colony per garden).
 """
 import csv, os, subprocess, sys, gzip, random, shutil
@@ -27,6 +28,8 @@ BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
 CG_EVERY = int(os.environ.get('CG_EVERY', '2'))
+INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # MODE 'lex+inherit' = INHERIT=1
+MODE = MODE.removesuffix('+inherit')
 C = [f'frames={F}', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 os.makedirs(OUT, exist_ok=True)
@@ -146,10 +149,12 @@ if os.path.getsize(logp) == 0:
     log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,passed_gate,rank,refounded_from\n')
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
+nest = {c: None for c in range(1, NCOL + 1)}
 for r in range(R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
-        return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + C, f'{OUT}/c{c}/r{r}')
+        inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
+        return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + C, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
     cols = list(range(1, NCOL + 1))
@@ -186,6 +191,8 @@ for r in range(R):
         garden(r, carry)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
+        home = int(src[c]) if src[c] else c
+        nest[c] = f'{dirs[home]}/nestmap.txt' if home in dirs else None
     # the round before is no longer referenced by any carry: drop its genomes and event log, keep its csv summaries
     for c, d in prev_dirs.items():
         shutil.rmtree(f'{d}/final', ignore_errors=True)

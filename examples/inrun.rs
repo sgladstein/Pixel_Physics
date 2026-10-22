@@ -61,6 +61,65 @@ fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize
     c
 }
 
+/// SCRATCH (teacher lane, inherited nests, 2026-10-22): the ground around the nest as material names, one char per cell,
+/// written at the end of every run as `nestmap.txt` and read back by `inherit=PATH` into the next round's fresh world, so
+/// a colony keeps the nest it dug instead of starting every round from the 26-cell stamp (selection bred digging out
+/// because most generations lived where there was nothing left worth cutting: Reports/brain-training/inrun-selection/).
+/// `?` = leave the fresh world's cell (an organism's body, food, or an animal); other chars map through the legend line.
+const NESTMAP: (i32, i32, i32) = (100, 40, 128); // half-width about the door, first row, rows end (exclusive)
+fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
+    use pixel_physics::sim::material;
+    let (hw, y0, y1) = NESTMAP;
+    let mut legend: Vec<String> = Vec::new();
+    let mut rows = Vec::new();
+    let food = w.materials.id_of("provisions");
+    for y in y0..y1 {
+        let mut row = String::new();
+        for x in inrun::NEST - hw..=inrun::NEST + hw {
+            let c = w.get(x, y);
+            if c.organism_id() != 0 || Some(c.material) == food || w.materials.kind(c.material) == material::MaterialKind::Creature {
+                row.push('?');
+                continue;
+            }
+            let name = w.materials.get(c.material).name.to_string();
+            let k = legend.iter().position(|n| *n == name).unwrap_or_else(|| { legend.push(name); legend.len() - 1 });
+            row.push(char::from(b'A' + k as u8));
+        }
+        rows.push(row);
+    }
+    let mut f = std::fs::File::create(path).unwrap();
+    writeln!(f, "{} {y0} {}", inrun::NEST - hw, legend.join(",")).unwrap();
+    for r in rows {
+        writeln!(f, "{r}").unwrap();
+    }
+}
+/// Write a `nestmap.txt` into a fresh world: every cell whose recorded material differs is set to it, except cells
+/// that hold an organism now (the founders, plants) and `?` cells. Returns how many cells changed.
+fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str) -> usize {
+    let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
+    let mut lines = t.lines();
+    let head: Vec<&str> = lines.next().expect("nestmap header").split(' ').collect();
+    let (x0, y0): (i32, i32) = (head[0].parse().unwrap(), head[1].parse().unwrap());
+    let ids: Vec<_> = head.get(2).map_or(vec![], |l| l.split(',').map(|n| w.materials.id_of(n).unwrap_or_else(|| panic!("nestmap material {n}"))).collect());
+    let mut n = 0;
+    for (dy, row) in lines.enumerate() {
+        for (dx, ch) in row.bytes().enumerate() {
+            if ch == b'?' {
+                continue;
+            }
+            let (x, y) = (x0 + dx as i32, y0 + dy as i32);
+            let m = ids[(ch - b'A') as usize];
+            let c = w.get(x, y);
+            if c.organism_id() != 0 || c.material == m {
+                continue;
+            }
+            w.set(x, y, pixel_physics::sim::Cell::new(m, 0));
+            n += 1;
+        }
+    }
+    n
+}
+
 fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
@@ -171,6 +230,12 @@ fn main() {
     }
     let slot = |k: usize| order[k.min(ants - 1)];
     let (mut w, sc, sp) = inrun::colony(seed, ants, dist, drip, every, &|k| mix[slot(k)].1.clone());
+    // inherit=PATH: start in the nest a previous round dug (see `read_nestmap`). Before the datum and the original
+    // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
+    if let Some(p) = arg(&a, "inherit") {
+        let n = read_nestmap(&mut w, p);
+        eprintln!("inherit: {n} cells set from {p}");
+    }
     // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the
     // species file, where it would reach every world). Default: the species' own.
     if let Some(v) = arg(&a, "synapse") {
@@ -1376,5 +1441,6 @@ fn main() {
         println!("selection: hungry departures paid {hungry_paid}, quota due {q_due}, no eligible parent {q_noparent}, placements failed {birth_fail}; parents {} of which plain score agrees {}", zs_pick.0, zs_pick.1);
         age30.flush().unwrap();
     }
+    write_nestmap(&w, &out.join("nestmap.txt"));
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }
