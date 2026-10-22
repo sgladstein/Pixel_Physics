@@ -285,12 +285,6 @@ impl Handler {
             let msg = lab.set_new_ant(true);
             lab.ui.say(msg);
         }
-        // `-- trainedplants`: the seed-trained shrub and herb from the first
-        // frame (the PLANTS row).
-        if args.iter().any(|a| a == "trainedplants") {
-            let msg = lab.set_trained_plants(true);
-            lab.ui.say(msg);
-        }
         if args.iter().any(|a| a == "training") {
             lab.show_help = false;
             lab.act(Action::Panel(Panel::Training));

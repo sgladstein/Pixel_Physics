@@ -82,7 +82,7 @@
     // rounded to 16,000. A shrub carries many more simultaneous flowering
     // sites than a herb's single head or even a scrambler's trusses
     // (`max_active_tips: 14`, the same as `scrambler`, over a plant that
-    // lives many times longer), so the *bed* reads as continuously in
+    // lives many times longer; 16 since the 2026-10-22 selection), so the *bed* reads as continuously in
     // flower from the overlap of many sites cycling slowly rather than from
     // any one site cycling fast -- closer to how a real flowering shrub
     // blooms a season at a time than to a bedding annual's turnover.
@@ -137,7 +137,12 @@
             // herb.ron turgor trap (`Reports/dead-ends.md`'s entry on it):
             // that trap is a *whole-plant* path-length ceiling reached by
             // one long axis, and this plant's longest single axis is a
-            // fraction of that by design.
+            // fraction of that by design. (Written for the hand-set
+            // `plastochron: [3, 2]` / `internode: [2, 3]`; selection
+            // moved them to [9, 1, 4, 4] / [3, 1, 5, 3] on 2026-10-22, so
+            // a four-metamer run is now 4-16 cells on side axes but
+            // 36 on the main one (plastochron 9), close to the 40-row
+            // ceiling. It lived the 450,000-frame bed regardless.)
             //
             // **Applies to every axis, the basal tier included, and that is
             // deliberate rather than an omission of "side shoots only."**
@@ -203,28 +208,46 @@
         (GrowingTip, [
             Grow(
                 cost: 0.2,
-                branch_chance: [0.18, 0.3],
-                continuation_weight: 0.7,
-                light_weight: [0.3, 0.45],
-                wind_weight: 0.2,
-                upward_weight: [0.5, 0.25],
-                crowding_weight: 30.0,
-                max_active_tips: 14,
-                plastochron: [3, 2],
+                // **Found by selection, 2026-10-22, not written by hand.**
+                // Every value in this block and in `Leaf`'s and
+                // `DormantBud`'s that carries a long decimal is the
+                // plant trainer's seed-paying rung-4 champion
+                // (`Reports/plant-community-2026-10-20/m2/hold/seeds/shrub/`),
+                // shipped by the owner's choice after the long mixed bed:
+                // alone in an otherwise shipped four-role bed it lived to
+                // 450,000 frames on 11 seeds of 12 against the hand-written
+                // shrub's 2, and the shipped herb beside it on all 12
+                // (`m2/community/README.md`). The hand-written values are
+                // in this file's history (before PR #814); the notes below
+                // say why each was first chosen, and where selection moved
+                // a value the note now says so.
+                branch_chance: [0.18, 0.5, 0.058366984, 0.21794023],
+                continuation_weight: 0.83197796,
+                light_weight: [0.25568956, 0.738451, 1.5482166, 0.5964643],
+                wind_weight: 0.1639769,
+                upward_weight: [0.89160293, 0.2827649, 0.23785, 0.14817879],
+                crowding_weight: 23.37506,
+                max_active_tips: 16,
+                plastochron: [9, 1, 4, 4],
                 penetration_force: 0.0,
                 turgor_source: 0.4,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
                 turgor_taper: 0.35,
-                heading_inertia: 0.7,
+                // Selection: 0.7 -> 0.03, so a shrub tip now turns almost
+                // freely -- the "keep turning" the next note asks for.
+                heading_inertia: 0.030361831,
                 // Moderate angles and **short** runs: a thicket is made of
                 // many equivalent axes that keep turning, so a long
                 // straight internode is exactly what it should not have.
                 // The contrast with `conifer`'s 10 is the point -- this is
                 // the parameter carrying "bushy" rather than a scalar
                 // height budget doing it alone.
-                branch_angle: [50.0, 45.0],
-                internode: [2, 3],
+                //
+                // Selection widened the angles with order (50/45 ->
+                // 27/47/64/120) and kept the runs short.
+                branch_angle: [27.401783, 47.398964, 64.4757, 120.0],
+                internode: [3, 1, 5, 3],
                 // Deliberately the softest of the woody three: a shrub
                 // is twiggy and gnarled and should stay so. Enough to stop
                 // a stem dissolving into a wobble, not enough to rule it
@@ -246,7 +269,11 @@
                 // its own interior -- are what stop this being free, and
                 // both were measured here rather than argued: see the
                 // establishment and cell counts in the PR body.
-                leaf_cluster: 12,
+                //
+                // Selection: 12 -> 8, with the clusters spread
+                // (`leaf_spread` 0.48, was 0).
+                leaf_cluster: 8,
+                leaf_spread: 0.48365226,
                 // **Authored for the first time in round 28** -- it
                 // defaulted to 1 (a single-cell flower per axis end)
                 // since the organ package landed, which is right for
@@ -266,9 +293,9 @@
                 // not a size or slot-9-variance cost). The mechanism is
                 // shared, so it carries here without a second sweep.
                 organ_cluster: 3,
-                juvenile_size: 30,
+                juvenile_size: 26,
                 juvenile_plastochron: 0.4,
-                juvenile_branch: 1.3,
+                juvenile_branch: 3.195246,
                 // Slots 6-8 appended and 1/5 re-purposed to the root
                 // vector at the 2026-08-18 re-map -- tree.ron carries the
                 // full note.
@@ -276,8 +303,11 @@
                 // Every fork replaces its axis.
                 sympodial: [true],
                 tropism: [Orthotropic],
+                // Selected (0 shipped). Read only while
+                // `World::shade_plasticity` is on.
+                shade_avoid: 0.46934932,
             ),
-            Photosynthesize(rate: 0.5, shade_death: 0.0, drought_death: 0.0),
+            Photosynthesize(rate: 1.4631639, shade_death: 0.0, drought_death: 0.0),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
@@ -356,8 +386,9 @@
             BudBreak(
                 cost: 0.2,
                 thickening_survival: 0.7,
-                // The habit flip: strongly basitonous.
-                acrotony: -1.6,
+                // The habit flip: strongly basitonous. Selection pushed it
+                // further (-1.6 -> -8.2): renewal goes to the base.
+                acrotony: -8.221637,
             ),
             StructuralAnchor,
             SecondaryThicken(pipe_ratio: 5.5),
@@ -379,7 +410,13 @@
             // executing the answer he already gave, not a new call; if a
             // species should shed faster than the others that is a
             // separate, per-species decision and wants its own card.
-            Photosynthesize(rate: 0.35, shade_death: 0.00075, drought_death: 0.00075),
+            //
+            // **And it now is one: selection moved it (2026-10-22).** The
+            // trained shrub sheds 2.6x faster in shade and 2.9x in
+            // drought, and earns more per leaf (0.35 -> 0.55); the
+            // owner's card for this file (ship the trained shrub, 14:29Z)
+            // carried the whole genome as measured, this included.
+            Photosynthesize(rate: 0.55008274, shade_death: 0.0019515767, drought_death: 0.0021376126),
         ]),
         // **The organ cell types, 2026-09-10.** As `herb.ron`/`scrambler.ron`:
         // inert but for the clock, so building one is a real cost rather

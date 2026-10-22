@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-21 (**drier soil grows a smaller plant, gradually**: a seedling in dry ground grows less and leafs out less rather than growing exactly as in wet ground -- see *The three things a plant needs*, under water). Also 2026-10-21 (**a plant that has lost every growing shoot starts a new one from what it has stored**, so a shrub no longer stops for good at a few cells, and **a shrub dies of old age** -- see *A plant that has lost its shoots*). Also 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-22 (**the shrub is bred, not written**: its shape and economy came from the plant trainer, and it now lives under the trees in a mixed bed where the old shrub died out -- see *Species*). Also 2026-10-21 (**drier soil grows a smaller plant, gradually**: a seedling in dry ground grows less and leafs out less rather than growing exactly as in wet ground -- see *The three things a plant needs*, under water). Also 2026-10-21 (**a plant that has lost every growing shoot starts a new one from what it has stored**, so a shrub no longer stops for good at a few cells, and **a shrub dies of old age** -- see *A plant that has lost its shoots*). Also 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -745,10 +745,24 @@ however their individuals fall.
 same thing.** What a plant cannot spend on height it spends on leaf area at
 each node it does make, so the tallest of them — the conifer — carries the
 smallest, tightest sprays, and the ground-runner, which gets nowhere near
-knee height, carries the broadest leaf clusters of any of them. In between,
-a tree makes larger clusters than a conifer and a shrub larger still. That
-is the quickest way to tell two of them apart at a distance when the
-silhouettes are both just "green mass": count how coarse the foliage is.
+knee height, carries the broadest leaf clusters of any of them. A tree makes
+larger clusters than a conifer. That is the quickest way to tell two of them
+apart at a distance when the silhouettes are both just "green mass": count
+how coarse the foliage is.
+
+**The shrub is the first plant bred rather than written** (2026-10-22). Its
+shape and economy were found by the plant trainer: a shrub grown beside each
+of the other kinds, scored on how much seed it set while leaving its
+neighbour alive, kept for its best children over many generations. What came
+out is a lower, busier mound — renewal goes almost all to the base, tips
+wander freely and fork wide, and its leaf clusters are smaller and spread
+apart (it now sits between the conifer and the tree on that scale, not above
+the tree), each leaf earning more but dropping faster in shade or drought.
+The point was the bed, not the bush: in a long four-kind bed under trees the
+old shrub died out on most runs, leaving trees and herbs, while the bred one
+lives under the trees on nearly every run and the herbs beside it do as well
+as before. A herb was bred the same way and did no better than the one that
+ships, so it was not shipped.
 
 Where each one grows is decided by the ground — trees in damp deep soil,
 conifers on the high ground, shrubs on the dry margin, creepers on a skin of

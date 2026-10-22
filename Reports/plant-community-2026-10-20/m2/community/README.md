@@ -177,3 +177,9 @@ alone it lives on 11 beds of 12 and the shipped herb beside it on all 12.
 The trained herb alone does no better than shipped (alive on 11 of 12,
 fewer plants), and with the trained shrub it is lost on three. The
 recommendation is to ship the trained shrub and keep the shipped herb.
+
+**Shipped, 2026-10-22 (owner's card, 14:29Z): the trained shrub only.**
+`assets/species/shrub.ron` now exports byte-identical to
+`../hold/seeds/shrub/score_best.ron`, with the hand-written notes kept and
+each selected value marked. The lab's PLANTS switch (PR #811) is retired:
+its shrub is now the game's, and its herb was not wanted.
