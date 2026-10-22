@@ -70,3 +70,39 @@ on every seed from the first census (shipped: 8-14 at frame 40,000, 0-5 at
 herb and shrub changes nothing outside that spread. Four seeds of two or
 three plants cannot tell the arms apart. This is the open creeper question
 (lifespan, or ramets that root as their own plants), not a trainer result.
+
+## At full length, 450,000 frames: the floor champions do not hold the bed (2026-10-22)
+
+Shipped against all four floor champions, six seeds, the plan's full
+450,000 frames (`450k/`, about eight minutes a run). Frame 450,000, plants
+per role:
+
+| seed | shipped tree / shrub / herb / creeper | floor champions |
+|---|---|---|
+| 1 | 28 / 2 / 22 / 0 | 15 / 7 / **1** / 0 |
+| 2 | 21 / 2 / 41 / 0 | 17 / **0 / 0** / 0 |
+| 3 | 6 / 0 / 77 / 0 | 15 / 0 / **0** / 0 |
+| 4 | 19 / 0 / 67 / 0 | 10 / 25 / 19 / 0 |
+| 5 | 25 / 0 / **0** / 0 | 37 / 0 / **0** / 0 |
+| 6 | 10 / 0 / 16 / 0 | 10 / 0 / **0** / 0 |
+
+**The 200,000-frame result does not survive.** The trained herb goes
+extinct on four seeds of six (shipped: one), and on four of six the bed
+ends as trees alone (`450k/shipped-vs-floor-450k.png`). The cause is in
+the seed bank, which each row of `450k/*.txt` prints: the trained herb's
+waiting seed sits near 25 through the run against the shipped herb's
+~100. It grows as fewer, larger plants, and fewer plants make fewer seeds,
+so each bad spell takes it a step down that it does not climb back. Rung 4
+is one life and pays a flowering plant the same however many seeds it
+sets; this is the plan's rung 5 (recruitment) and the reason it comes
+before anything ships. **Not shipped, and not to be: no floor champion
+replaces a shipped species.**
+
+**The shipped bed does not keep four roles at this length either.** The
+creeper is gone on all six seeds by 450,000 and the shrub on four; what is
+left is tree and herb. The plan already records this for the four-role
+bed (its §M1 step 6 table: creeper gone by 120,000-180,000, shrub by
+720,000, nothing under the tree's canopy -- the niche A5 exists to open),
+and it is unchanged here. A trainer cannot fix a role the bed cannot carry
+at all, so the creeper's lifespan or ramets (open with the owner) and an
+understory under the canopy come before training those two.
