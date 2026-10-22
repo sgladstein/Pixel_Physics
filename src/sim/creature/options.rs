@@ -527,6 +527,48 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+    if census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+        use census::add;
+        add(&census::DECISIONS, 1);
+        add(&census::OPTIONS, out.len() as u64);
+        add(&census::DESCRIBES, described.len() as u64);
+        let head_roofed = under_cover_by(world, &mut memo, head.0, head.1);
+        let mut any_roof_diff = false;
+        let mut all_scent_zero = here.scent == [0.0; 3];
+        for o in out.iter() {
+            add(&census::BY_VERB[o.verb as usize], 1);
+            for (i, v) in o.feats.iter().enumerate() {
+                if *v != 0.0 {
+                    add(&census::FEAT_NONZERO[i], 1);
+                }
+            }
+            if (o.feats[f::ROOFED] == 1.0) != head_roofed {
+                add(&census::ROOFED_DIFFERS, 1);
+                any_roof_diff = true;
+            }
+            let w = o.feats[f::WARMTH];
+            if w == 0.0 {
+                add(&census::WARMTH_ZERO, 1);
+            }
+            if w.abs() < 0.01 {
+                add(&census::WARMTH_SMALL, 1);
+            }
+            if (f::SCENT..f::SCENT + 9).all(|i| o.feats[i] == 0.0) {
+                add(&census::SCENT_ALL_ZERO, 1);
+            } else {
+                all_scent_zero = false;
+            }
+            if o.feats[f::HOME] == 0.0 {
+                add(&census::HOME_ZERO, 1);
+            }
+        }
+        if any_roof_diff {
+            add(&census::ROOFED_DECISIONS_DIFFER, 1);
+        }
+        if all_scent_zero {
+            add(&census::SCENT_DECISION_ALL_ZERO, 1);
+        }
+    }
 }
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
@@ -709,6 +751,69 @@ pub fn shadow(world: &mut World, organism: OrganismId, def: &CreatureDef) {
             st.option_feature_sum += o.feats.iter().map(|&v| f64::from(v)).sum::<f64>();
         }
     });
+}
+
+/// **Scratch census (never for main)**: counts of what the option build and
+/// the mind's tick do, read by `needscost census=1`.
+pub mod census {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+    pub static ON: AtomicBool = AtomicBool::new(false);
+    macro_rules! counters {
+        ($($name:ident),* $(,)?) => {
+            $(pub static $name: AtomicU64 = AtomicU64::new(0);)*
+            pub static ALL: &[(&str, &AtomicU64)] = &[$((stringify!($name), &$name)),*];
+        };
+    }
+    counters!(
+        DECISIONS, OPTIONS, DESCRIBES, ROOFED_DIFFERS, ROOFED_DECISIONS_DIFFER,
+        WARMTH_ZERO, WARMTH_SMALL, SCENT_ALL_ZERO, SCENT_DECISION_ALL_ZERO,
+        HOME_ZERO, HEAD_UNMOVED, SAME_LIST, SAME_LIST_CELLS, SAME_LIST_UNMOVED,
+        SAME_VERB, SAME_PICK, VERB_RUNS, REST, REST_RUNS, OFF_OPTIONS, ON_OPTIONS,
+        OFF_DESCRIBES, AT_NEST, AT_NEST_FLIP, NO_CHOICE_VERB, ONE_VERB_ON_OFFER,
+        REGROUP_CALLS, REGROUP_PAIRWISE_GROUPS, REGROUP_MEMBERS, REGROUP_MINTED,
+        TICKS, FELL, WALK_PICKS, WALK_DID, FAILED,
+        BUD_CALLS, BUD_AFFORD, PILE_CALLS, PILE_NO_HOME, PILE_FOUND, TRY_UNMOVED, TRY_UNMOVED_RECENT, PILE_FOUND_AWAY, PILE_HELD_AT_NEST,
+    );
+    thread_local! {
+        static LAST_TRY: std::cell::RefCell<std::collections::HashMap<crate::sim::cell::OrganismId, ((i32, i32), u64)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+        pub static FRAME: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    /// An affordable-birth tick: was the ant where it was on its last one, and how long ago was that?
+    pub fn note_try(organism: crate::sim::cell::OrganismId, head: (i32, i32)) {
+        let frame = FRAME.with(|f| f.get());
+        LAST_TRY.with(|l| {
+            let mut l = l.borrow_mut();
+            if let Some(&(h, f)) = l.get(&organism) {
+                if h == head {
+                    add(&TRY_UNMOVED, 1);
+                    if frame - f <= 12 {
+                        add(&TRY_UNMOVED_RECENT, 1);
+                    }
+                }
+            }
+            l.insert(organism, (head, frame));
+        });
+    }
+    pub static BY_VERB: [AtomicU64; super::VERBS] = [const { AtomicU64::new(0) }; super::VERBS];
+    pub static CHOSE: [AtomicU64; super::VERBS] = [const { AtomicU64::new(0) }; super::VERBS];
+    pub static FEAT_NONZERO: [AtomicU64; super::FEATURES] = [const { AtomicU64::new(0) }; super::FEATURES];
+    /// Run lengths of consecutive identical picks of Rest, bucketed 1,2,3,4-7,8-15,16+.
+    pub static REST_RUN_HIST: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    #[inline]
+    pub fn add(c: &AtomicU64, n: u64) {
+        c.fetch_add(n, Relaxed);
+    }
+    pub fn reset() {
+        for (_, c) in ALL {
+            c.store(0, Relaxed);
+        }
+        for c in BY_VERB.iter().chain(CHOSE.iter()).chain(FEAT_NONZERO.iter()).chain(REST_RUN_HIST.iter()) {
+            c.store(0, Relaxed);
+        }
+    }
+    pub fn get(c: &AtomicU64) -> u64 {
+        c.load(Relaxed)
+    }
 }
 
 #[cfg(test)]

@@ -313,6 +313,52 @@ impl Arm {
     }
 }
 
+fn print_census(label: &str, window: u64, genome: Option<&[f32]>) {
+    use creature::options::census as c;
+    let g = |x: &std::sync::atomic::AtomicU64| c::get(x);
+    let pct = |a: u64, b: u64| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
+    let ticks = g(&c::TICKS);
+    let dec = g(&c::DECISIONS);
+    let opts = g(&c::OPTIONS);
+    println!("census {label}: {window} frames");
+    println!("  mind ticks {ticks} ({:.1} a frame), fell {} ({:.2}%), decisions {dec}, options {opts} ({:.2} a decision), describes {} ({:.2} a decision)",
+        ticks as f64 / window as f64, g(&c::FELL), pct(g(&c::FELL), ticks), opts as f64 / dec.max(1) as f64, g(&c::DESCRIBES), g(&c::DESCRIBES) as f64 / dec.max(1) as f64);
+    println!("  on-verb options {} ({:.1}%), off-verb options {} ({:.1}%), targets described only for off verbs {} ({:.1}% of describes)",
+        g(&c::ON_OPTIONS), pct(g(&c::ON_OPTIONS), opts), g(&c::OFF_OPTIONS), pct(g(&c::OFF_OPTIONS), opts), g(&c::OFF_DESCRIBES), pct(g(&c::OFF_DESCRIBES), g(&c::DESCRIBES)));
+    let verbs: Vec<String> = creature::options::Verb::ALL.iter().map(|v| format!("{} {}/{}", v.name(), g(&c::BY_VERB[*v as usize]), g(&c::CHOSE[*v as usize]))).collect();
+    println!("  options/chosen by verb: {}", verbs.join(", "));
+    println!("  head unmoved since last decision {} ({:.1}%), option list bit-identical to last {} ({:.1}%), identical and unmoved {} ({:.1}%), identical ignoring scent+warmth {} ({:.1}%)",
+        g(&c::HEAD_UNMOVED), pct(g(&c::HEAD_UNMOVED), dec), g(&c::SAME_LIST), pct(g(&c::SAME_LIST), dec), g(&c::SAME_LIST_UNMOVED), pct(g(&c::SAME_LIST_UNMOVED), dec), g(&c::SAME_LIST_CELLS), pct(g(&c::SAME_LIST_CELLS), dec));
+    println!("  same verb as last {} ({:.1}%; mean run {:.2}), same verb+target as last {} ({:.1}%), rest {} ({:.1}%; mean rest run {:.2}), rest run hist 1/2/3/4-7/8-15/16+: {}",
+        g(&c::SAME_VERB), pct(g(&c::SAME_VERB), dec), dec as f64 / g(&c::VERB_RUNS).max(1) as f64, g(&c::SAME_PICK), pct(g(&c::SAME_PICK), dec), g(&c::REST), pct(g(&c::REST), dec), g(&c::REST) as f64 / g(&c::REST_RUNS).max(1) as f64,
+        c::REST_RUN_HIST.iter().map(|x| g(x).to_string()).collect::<Vec<_>>().join("/"));
+    println!("  one verb on offer {} ({:.1}%), no pickable verb {}, walk picks {} did {} ({:.1}%), failed acts {}",
+        g(&c::ONE_VERB_ON_OFFER), pct(g(&c::ONE_VERB_ON_OFFER), dec), g(&c::NO_CHOICE_VERB), g(&c::WALK_PICKS), g(&c::WALK_DID), pct(g(&c::WALK_DID), g(&c::WALK_PICKS)), g(&c::FAILED));
+    println!("  at nest {} ({:.1}%), at-nest answer flipped since last {} ({:.2}%)", g(&c::AT_NEST), pct(g(&c::AT_NEST), dec), g(&c::AT_NEST_FLIP), pct(g(&c::AT_NEST_FLIP), dec));
+    println!("  roofed differs from the head's: options {} ({:.1}%), decisions with any {} ({:.1}%)", g(&c::ROOFED_DIFFERS), pct(g(&c::ROOFED_DIFFERS), opts), g(&c::ROOFED_DECISIONS_DIFFER), pct(g(&c::ROOFED_DECISIONS_DIFFER), dec));
+    println!("  warmth exactly 0: {} ({:.1}%), |warmth| < 0.01: {} ({:.1}%)", g(&c::WARMTH_ZERO), pct(g(&c::WARMTH_ZERO), opts), g(&c::WARMTH_SMALL), pct(g(&c::WARMTH_SMALL), opts));
+    println!("  all nine scent reads zero: options {} ({:.1}%), whole decisions {} ({:.1}%); home feature 0: {} ({:.1}%)", g(&c::SCENT_ALL_ZERO), pct(g(&c::SCENT_ALL_ZERO), opts), g(&c::SCENT_DECISION_ALL_ZERO), pct(g(&c::SCENT_DECISION_ALL_ZERO), dec), g(&c::HOME_ZERO), pct(g(&c::HOME_ZERO), opts));
+    println!("  try_bud calls {} ({:.1}% of mind ticks), affordable {} ({:.1}% of ticks), of those from the same cell as the last affordable tick {} ({:.1}%), within 12 frames of it {} ({:.1}%); pile_site calls {}, no home in the square {} ({:.1}%), site found {} ({:.1}%)",
+        g(&c::BUD_CALLS), pct(g(&c::BUD_CALLS), ticks), g(&c::BUD_AFFORD), pct(g(&c::BUD_AFFORD), ticks), g(&c::TRY_UNMOVED), pct(g(&c::TRY_UNMOVED), g(&c::BUD_AFFORD)), g(&c::TRY_UNMOVED_RECENT), pct(g(&c::TRY_UNMOVED_RECENT), g(&c::BUD_AFFORD)),
+        g(&c::PILE_CALLS), g(&c::PILE_NO_HOME), pct(g(&c::PILE_NO_HOME), g(&c::PILE_CALLS)), g(&c::PILE_FOUND), pct(g(&c::PILE_FOUND), g(&c::PILE_CALLS)));
+    println!("  egg walks that found a site while NOT beside home {} ({:.1}% of sites found); walks beside home that found none {}", g(&c::PILE_FOUND_AWAY), pct(g(&c::PILE_FOUND_AWAY), g(&c::PILE_FOUND)), g(&c::PILE_HELD_AT_NEST));
+    println!("  regroup_by_scent: calls {}, groups past the one-scent fast path {} (members {}), minted {}", g(&c::REGROUP_CALLS), g(&c::REGROUP_PAIRWISE_GROUPS), g(&c::REGROUP_MEMBERS), g(&c::REGROUP_MINTED));
+    let names = creature::options::feature_names();
+    let read = genome.map(creature::mind::census_read_set);
+    let mut rows: Vec<String> = Vec::new();
+    for (i, n) in names.iter().enumerate() {
+        let r = read.as_ref().map_or("?", |(f, _, _, _)| if f[i] { "read" } else { "UNREAD" });
+        rows.push(format!("{n} {:.1}% {r}", pct(g(&c::FEAT_NONZERO[i]), opts)));
+    }
+    println!("  feature nonzero share (of options) and whether this genome reads it: {}", rows.join("; "));
+    if let Some((_, verbs, ctx, units)) = read {
+        let on: Vec<&str> = creature::options::Verb::ALL.iter().filter(|v| verbs[**v as usize]).map(|v| v.name()).collect();
+        let cn = creature::mind::context_names();
+        let unread: Vec<&str> = cn.iter().enumerate().filter(|(i, _)| !ctx[*i]).map(|(_, n)| *n).collect();
+        println!("  genome: {} live scorer units with {} nonzero feature weights of {} possible, verbs on: {}; context inputs read by nothing: {}", units / 1000, units % 1000, (units / 1000) * creature::options::FEATURES, on.join(","), if unread.is_empty() { "none".to_string() } else { unread.join(",") });
+    }
+}
+
 fn main() {
     creature::mutation_off_for_measuring();
     let seed: u64 = arg("seed").unwrap_or(1);
@@ -322,6 +368,7 @@ fn main() {
     let reps: usize = arg("reps").unwrap_or(3);
     let target: usize = arg("food").unwrap_or(120);
     let cg = arg::<u8>("cg").unwrap_or(0) == 1;
+    let census_on = arg::<u8>("census").unwrap_or(0) == 1;
     let arms_arg: String = arg("arms").unwrap_or_else(|| "off".to_string());
     let scorer_path: Option<String> = arg("scorer");
     let free: String = arg("free").unwrap_or_default();
@@ -386,6 +433,10 @@ fn main() {
     for rep in 0..reps {
         for (k, arm) in arms.iter_mut().enumerate() {
             let before = arm.ants();
+            if census_on {
+                creature::options::census::reset();
+                creature::options::census::ON.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             if cg {
                 callgrind(CG_ZERO_STATS, 0);
                 callgrind(CG_START_INSTRUMENTATION, 0);
@@ -401,6 +452,10 @@ fn main() {
                 callgrind(CG_STOP_INSTRUMENTATION, 0);
             }
             let after = arm.ants();
+            if census_on {
+                creature::options::census::ON.store(false, std::sync::atomic::Ordering::Relaxed);
+                print_census(&arm.label, window, mind.as_deref());
+            }
             ms[k].push(dt * 1000.0 / window as f64);
             census[k].push((before + after) / 2);
             println!(

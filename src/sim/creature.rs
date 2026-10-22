@@ -5597,6 +5597,25 @@ pub fn bud_stack_of(world: &World) -> bool {
 /// `lay` is this tick's `BrainOutput::Lay`: a child the animal can afford is
 /// held while it is below [`brain::LAY_HOLD_BELOW`] (see that output for why
 /// an unwired row lays exactly as before).
+/// SCRATCH (never for main): `SCRATCH_EGG_AT_NEST=1` runs the egg walk only beside home.
+fn scratch_egg_at_nest() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SCRATCH_EGG_AT_NEST").as_deref() == Ok("1"))
+}
+
+/// SCRATCH: the frame the scratch rules switch on (`SCRATCH_FROM`, default 0), so a pre-run stays the shipped world.
+fn scratch_from() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("SCRATCH_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+fn scratch_egg_retry() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("SCRATCH_EGG_RETRY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+thread_local! {
+    static SCRATCH_LAST_FAIL: std::cell::RefCell<std::collections::HashMap<OrganismId, u64>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 pub(super) fn try_bud(
     world: &mut World,
     organism: OrganismId,
@@ -5604,6 +5623,9 @@ pub(super) fn try_bud(
     provision: f32,
     lay: f32,
 ) -> Option<ActiveSite> {
+    if options::census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+        options::census::add(&options::census::BUD_CALLS, 1);
+    }
     if world.births_paused {
         return None;
     }
@@ -5702,6 +5724,10 @@ pub(super) fn try_bud(
     if bank + reachable < bar {
         return None;
     }
+    if options::census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+        options::census::add(&options::census::BUD_AFFORD, 1);
+        options::census::note_try(organism, (hx, hy));
+    }
     // **Whether to lay is the animal's call** (`BrainOutput::Lay`), asked
     // only now that it could afford a child, and before any rule about
     // *where*: a lineage that has learned to hold its egg away from home is
@@ -5733,10 +5759,40 @@ pub(super) fn try_bud(
     // samples), so nothing laid. Budding and a reach of 0 keep the head read.
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    // SCRATCH rule A (never for main): look for an egg site only on a tick
+    // the ant stands beside home (`adjacent_nest`), the context's own read.
+    let census_on = options::census::ON.load(std::sync::atomic::Ordering::Relaxed);
+    let an = (census_on || scratch_egg_at_nest()) && nest_gate && pile_reach > 0 && adjacent_nest(world, hx, hy, def);
+    if scratch_egg_at_nest() && world.frame >= scratch_from() && nest_gate && pile_reach > 0 && !an {
+        world.creature_stats.buds_held_for_nest += 1;
+        return None;
+    }
+    // SCRATCH rule B (never for main): after a walk that found no site, the
+    // ant does not look again for `SCRATCH_EGG_RETRY` frames.
+    if scratch_egg_retry() > 0 && world.frame >= scratch_from() && nest_gate && pile_reach > 0 {
+        let frame = world.frame;
+        let wait = SCRATCH_LAST_FAIL.with(|l| l.borrow().get(&organism).is_some_and(|&f| frame < f + scratch_egg_retry()));
+        if wait {
+            world.creature_stats.buds_held_for_nest += 1;
+            return None;
+        }
+    }
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
         Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
-            Some(cell) => Some(cell),
+            Some(cell) => {
+                if census_on && !an {
+                    options::census::add(&options::census::PILE_FOUND_AWAY, 1);
+                }
+                Some(cell)
+            }
             None => {
+                if census_on && an {
+                    options::census::add(&options::census::PILE_HELD_AT_NEST, 1);
+                }
+                if scratch_egg_retry() > 0 {
+                    let frame = world.frame;
+                    SCRATCH_LAST_FAIL.with(|l| l.borrow_mut().insert(organism, frame));
+                }
                 world.creature_stats.buds_held_for_nest += 1;
                 return None;
             }

@@ -10125,6 +10125,7 @@ impl World {
     /// new kind, it is an ant on its own, and it keeps its old label until
     /// it has descendants enough to be a line on the graph.
     pub fn regroup_by_scent(&mut self) -> usize {
+        crate::sim::creature::options::census::add(&crate::sim::creature::options::census::REGROUP_CALLS, 1);
         /// One animal as the pass sees it: its handle, its founding line
         /// and the traits its scent and tolerance are read from.
         struct Member {
@@ -10159,6 +10160,8 @@ impl World {
             if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
                 continue;
             }
+            crate::sim::creature::options::census::add(&crate::sim::creature::options::census::REGROUP_PAIRWISE_GROUPS, 1);
+            crate::sim::creature::options::census::add(&crate::sim::creature::options::census::REGROUP_MEMBERS, members.len() as u64);
             // The mutual-kin components (`creature::kin_components`, which
             // pairs far fewer than all `n(n-1)/2` and finds the same ones).
             let traits: Vec<[f32; organism::CREATURE_TRAITS]> = members.iter().map(|m| m.traits).collect();
@@ -10204,6 +10207,7 @@ impl World {
                     }
                 }
                 minted += 1;
+                crate::sim::creature::options::census::add(&crate::sim::creature::options::census::REGROUP_MINTED, 1);
                 // **The mint itself, on the run log.** `id`/`born_frame` name
                 // the lowest-lineage member -- the same rule the label
                 // inheritance above uses -- so the line reads as "the group

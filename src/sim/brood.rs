@@ -385,6 +385,15 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
     // The walk stays inside the lens's square and chooses only a home cell,
     // so with none in the square there is nothing to find. Most calls stop
     // here: an ant that could lay, away from home.
+    {
+        use creature::options::census as cz;
+        if cz::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            cz::add(&cz::PILE_CALLS, 1);
+            if !lens.any_home() {
+                cz::add(&cz::PILE_NO_HOME, 1);
+            }
+        }
+    }
     if !lens.any_home() {
         return None;
     }
@@ -418,6 +427,9 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
             break;
         }
         frontier = next;
+    }
+    if creature::options::census::ON.load(std::sync::atomic::Ordering::Relaxed) && best.is_some() {
+        creature::options::census::add(&creature::options::census::PILE_FOUND, 1);
     }
     best.map(|(_, cell)| cell)
 }

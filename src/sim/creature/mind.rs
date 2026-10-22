@@ -1858,6 +1858,13 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     // and that is its decision.
     let fell = fall_now_if_unsupported(world, organism, def);
     let mut moved = fell;
+    if options::census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+        options::census::FRAME.with(|f| f.set(world.frame));
+        options::census::add(&options::census::TICKS, 1);
+        if fell {
+            options::census::add(&options::census::FELL, 1);
+        }
+    }
     if fell {
         if let Some(m) = world.minds.as_mut() {
             m.counts.falls += 1;
@@ -1880,6 +1887,9 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             for o in opts.iter() {
                 offered[o.verb as usize] = true;
             }
+            if options::census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+                census_decision(organism, (x, y), &opts, d.as_ref().map(|d| opts[d.pick]), &mind.genome.w, at_nest);
+            }
             (d.map(|d| (opts[d.pick], d.emits, opts.len())), offered)
         });
         let (decided, offered) = decided;
@@ -1895,6 +1905,13 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         if let Some((opt, emits, n)) = decided {
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_ACT);
             let did = act(world, organism, def, opt, &mut draw);
+            if options::census::ON.load(std::sync::atomic::Ordering::Relaxed) {
+                if opt.verb == Verb::Walk {
+                    options::census::add(&options::census::WALK_PICKS, 1);
+                    options::census::add(&options::census::WALK_DID, u64::from(did));
+                }
+                options::census::add(&options::census::FAILED, u64::from(!did));
+            }
             // **Feeding is mandible to mandible, priced as the game prices
             // a share** (`creature_tick`'s jaw bill): the same work whoever
             // decided it, from the bank or the crop.
@@ -2414,6 +2431,182 @@ fn lay(
     world.book(colony, Account::Metabolized, cost as f64);
     world.creature_stats.emit_energy += cost as f64;
     cost
+}
+
+// --- scratch census (never for main) ------------------------------------------
+
+struct CensusLast {
+    head: (i32, i32),
+    opts: Vec<Opt>,
+    verb: Option<Verb>,
+    pick: Option<(Verb, (i32, i32))>,
+    at_nest: bool,
+    rest_run: u64,
+}
+
+thread_local! {
+    static CENSUS_LAST: RefCell<HashMap<OrganismId, CensusLast>> = RefCell::new(HashMap::new());
+}
+
+/// Which features, verbs and context inputs a genome can read at all.
+pub fn census_read_set(g: &[f32]) -> ([bool; FEATURES], [bool; VERBS], [bool; CONTEXT], usize) {
+    let plan = ScorerPlan::new(g);
+    let mut feats = [false; FEATURES];
+    for (_, fs) in &plan.units {
+        for &(i, _) in fs {
+            feats[i] = true;
+        }
+    }
+    let mut verbs = [false; VERBS];
+    for v in Verb::ALL {
+        verbs[v as usize] = v.acts() && g[SWITCH + v as usize] > 0.0;
+    }
+    let mut ctx = [false; CONTEXT];
+    for u in 0..UNITS {
+        if g[S_OUT + u] == 0.0 {
+            continue;
+        }
+        for (i, c) in ctx.iter_mut().enumerate() {
+            *c |= g[S_CTX + u * S_IN + i] != 0.0;
+        }
+    }
+    for v in 0..VERBS {
+        for (i, c) in ctx.iter_mut().enumerate() {
+            *c |= g[JOB + v * J_IN + i] != 0.0;
+        }
+    }
+    for m in 0..MEMORY {
+        for (i, c) in ctx.iter_mut().enumerate() {
+            *c |= g[MEM + m * M_IN + i] != 0.0;
+        }
+    }
+    for e in 0..EMITS {
+        for (i, c) in ctx.iter_mut().enumerate() {
+            *c |= g[EMIT + e * E_IN + i] != 0.0;
+        }
+    }
+    for h in 0..HIDDEN {
+        if (0..VERBS).any(|v| g[HID_OUT + v * HIDDEN + h] != 0.0) {
+            for (i, c) in ctx.iter_mut().enumerate() {
+                *c |= g[HID + h * H_IN + i] != 0.0;
+            }
+        }
+    }
+    let pairs: usize = plan.units.iter().map(|(_, f)| f.len()).sum();
+    (feats, verbs, ctx, plan.units.len() * 1000 + pairs)
+}
+
+fn census_decision(organism: OrganismId, head: (i32, i32), opts: &[Opt], pick: Option<Opt>, g: &[f32], at_nest: bool) {
+    use options::census::{self as c, add};
+    let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
+    let mut verbs_on_offer = 0u64;
+    let mut seen = [false; VERBS];
+    for o in opts {
+        if on(o.verb) {
+            add(&c::ON_OPTIONS, 1);
+            if !seen[o.verb as usize] {
+                seen[o.verb as usize] = true;
+                verbs_on_offer += 1;
+            }
+        } else {
+            add(&c::OFF_OPTIONS, 1);
+        }
+    }
+    // Targets described only for off verbs (no on-verb option shares the cell).
+    for o in opts {
+        if !on(o.verb) && !opts.iter().any(|p| on(p.verb) && p.target == o.target) {
+            add(&c::OFF_DESCRIBES, 1);
+        }
+    }
+    if verbs_on_offer == 1 {
+        add(&c::ONE_VERB_ON_OFFER, 1);
+    }
+    if pick.is_none() {
+        add(&c::NO_CHOICE_VERB, 1);
+    }
+    if at_nest {
+        add(&c::AT_NEST, 1);
+    }
+    let verb = pick.map(|o| o.verb);
+    let pick_key = pick.map(|o| (o.verb, o.target));
+    if let Some(p) = pick {
+        add(&c::CHOSE[p.verb as usize], 1);
+    }
+    if verb == Some(Verb::Rest) {
+        add(&c::REST, 1);
+    }
+    let same_feats = |a: &Opt, b: &Opt, skip_sense: bool| {
+        a.verb == b.verb
+            && a.target == b.target
+            && a.feats.iter().enumerate().zip(b.feats.iter()).all(|((i, x), y)| {
+                (skip_sense && ((options::f::SCENT..options::f::SCENT + 9).contains(&i) || i == options::f::WARMTH)) || x.to_bits() == y.to_bits()
+            })
+    };
+    CENSUS_LAST.with(|l| {
+        let mut l = l.borrow_mut();
+        let mut rest_run = u64::from(verb == Some(Verb::Rest));
+        if let Some(last) = l.get(&organism) {
+            let unmoved = last.head == head;
+            if unmoved {
+                add(&c::HEAD_UNMOVED, 1);
+            }
+            let same = last.opts.len() == opts.len() && last.opts.iter().zip(opts).all(|(a, b)| same_feats(a, b, false));
+            let same_cells = last.opts.len() == opts.len() && last.opts.iter().zip(opts).all(|(a, b)| same_feats(a, b, true));
+            if same {
+                add(&c::SAME_LIST, 1);
+            }
+            if same && unmoved {
+                add(&c::SAME_LIST_UNMOVED, 1);
+            }
+            if same_cells {
+                add(&c::SAME_LIST_CELLS, 1);
+            }
+            if verb.is_some() && verb == last.verb {
+                add(&c::SAME_VERB, 1);
+            } else {
+                add(&c::VERB_RUNS, 1);
+            }
+            if pick_key.is_some() && pick_key == last.pick {
+                add(&c::SAME_PICK, 1);
+            }
+            if last.at_nest != at_nest {
+                add(&c::AT_NEST_FLIP, 1);
+            }
+            if verb == Some(Verb::Rest) {
+                if last.verb == Some(Verb::Rest) {
+                    rest_run = last.rest_run + 1;
+                } else {
+                    add(&c::REST_RUNS, 1);
+                }
+            } else if last.verb == Some(Verb::Rest) {
+                let b = match last.rest_run {
+                    1 => 0,
+                    2 => 1,
+                    3 => 2,
+                    4..=7 => 3,
+                    8..=15 => 4,
+                    _ => 5,
+                };
+                add(&c::REST_RUN_HIST[b], 1);
+            }
+        } else {
+            add(&c::VERB_RUNS, 1);
+            if verb == Some(Verb::Rest) {
+                add(&c::REST_RUNS, 1);
+            }
+        }
+        l.insert(
+            organism,
+            CensusLast {
+                head,
+                opts: opts.to_vec(),
+                verb,
+                pick: pick_key,
+                at_nest,
+                rest_run,
+            },
+        );
+    });
 }
 
 #[cfg(test)]
