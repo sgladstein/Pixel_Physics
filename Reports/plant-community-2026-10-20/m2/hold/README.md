@@ -49,3 +49,93 @@ shoot tip's `Grew` rule, and the shrub's tip also grows on `Node`, so a
 "seedbound" shrub scored the control's own score on 2 of 3 rung-2 beds and
 the teeth check refused every shrub run on rung 4. It now cuts every rule
 that grows a tip (rung 2: seedbound shrub 1.18 against control 2.30).
+
+## The rung-2 re-fits on rung 4 (`rung2_refits_on_rung4.txt`)
+
+The re-fits from `../refit/` (selected on juvenile growth alone) are bigger
+here too, and **they cost the plant beside them**. End shoot p50 of a
+neighbour, beside the shipped founder -> beside its re-fit:
+
+| founder | tree neighbour | shrub neighbour | herb neighbour |
+|---|---|---|---|
+| tree | 1,346 -> 585 | 200 -> 102 | 118 -> 126 (flowered 7 -> 6 of 8) |
+| shrub | 1,789 -> 1,224 | 367 -> 21 | 246 -> 186 (flowered 8 -> 5 of 8) |
+| herb | 1,862 -> 1,429 | 312 -> 166 | 225 -> 226 |
+| creeper | 1,568 -> 1,483 | 496 -> 267 | 230 -> 242 |
+
+So rung 2 bred plants that win by crowding: the re-fit shrub takes a
+shipped shrub beside it from 367 cells to 21, and costs a herb three of its
+eight flowerings. This is what rung 4 charges for.
+
+## Training on rung 4 from the shipped species (2026-10-22)
+
+`plantrain control=X rung=hold stations=bright pop=16 gens=12 layouts=2
+holdout=4 final=6 genes=8 sigma=0.9 seed=1`, beside the other three roles,
+with `select=random` beside each (tree, herb and creeper on runner threads
+with `/mnt/project-files/plant-community/runners/hold.sh`; shrub here).
+Final set, 18 beds, champion minus shipped:
+
+| role | score selection | random selection |
+|---|---|---|
+| shrub | +0.73 +/-0.38, ahead 14, behind 4 | +0.27 +/-0.21 |
+| tree | +0.02 +/-0.05 | +0.06 +/-0.13 |
+| herb | -0.02 +/-0.17 | -0.08 +/-0.21 |
+| creeper | -0.04 +/-0.14 | -0.15 +/-0.15 |
+
+**Only the shrub moved.** Its champion sets fruit within the 40,000 frames
+(own score 3.0 -> 4.0 beside every role; the shipped shrub flowers and
+stops) at about twice the shipped size, and costs its neighbours less than
+the rung-2 re-fit did: a shrub beside it 367 -> 183 cells (the re-fit: 21),
+a herb beside it flowered 7 of 8 (the re-fit: 5). `shrub-beside-herb.png`:
+shipped, rung-2 re-fit and rung-4 champion, each beside a herb, frame 40,000.
+
+Tree, herb and creeper are flat against shipped. The ladder's rule is that
+a rung starts from the last rung's champion, and these started from the
+shipped species, so the next runs start rung 4 from the rung-2 re-fits.
+
+## Training on rung 4 from the rung-2 re-fits (2026-10-22)
+
+The same runs, each starting from its role's rung-2 re-fit (`../refit/`)
+instead of the shipped species (tree, herb and creeper on runner threads
+with `/mnt/project-files/plant-community/runners/hold_from.sh`; shrub
+here). Data in `from-refit/<role>/`. Final set, 18 beds, against the shipped
+species as control:
+
+| role | start (re-fit) | score champion | random champion | control | score champion - control |
+|---|---|---|---|---|---|
+| tree | 2.36 | 2.33 | 2.24 | 2.17 | +0.16 +/-0.19 |
+| herb | 3.90 | 4.01 | 4.03 | 3.94 | +0.06 +/-0.11 |
+| creeper | 2.42 | 2.39 | 2.27 | 2.31 | +0.09 +/-0.03, ahead 18 of 18 |
+| shrub | 3.86 | 3.71 | 3.76 | 2.87 | +0.84 +/-0.23 |
+
+**Nothing improved on its start.** Every re-fit already beats shipped on
+rung 4, and twelve more generations of selection left each champion at or
+just below the file it started from -- the random-selection champion lands
+in the same place, so the score is not steering. The tree, herb and creeper
+starts all score within 0.1 of the champions.
+
+**Why: the neighbour term is too weak to push back.** The re-fits win by
+crowding (the table above), and the champions keep doing it. End shoot p50
+of the plant beside, from `from-refit/*/check.txt`:
+
+| founder | shrub beside it | herb beside it |
+|---|---|---|
+| shipped tree | 200 | 118 (flowered 7 of 8) |
+| tree re-fit | 102 | 126 (6) |
+| tree, rung-4 random champion | 66 | 92 (3 of 8, 2 dead) |
+| shipped shrub | 367 | 246 (8) |
+| shrub re-fit | 21 | 186 (5) |
+| shrub, rung-4 score champion | 182 | 219 (5) |
+
+On the log size scale a founder that doubles itself gains about as much as
+it loses for halving its neighbour, so crowding is close to free, and a
+champion that takes a herb from seven flowerings to three still scores
+level with the shipped tree. The plan's rule for a role is that *the others
+do not pay for it*; the rung-4 score does not yet say that. Two ways on:
+a floor, where a candidate that costs any neighbour more than some fraction
+of its control size scores zero; or move straight to the mixed community
+bed, which judges the whole set at once.
+
+(`own score` in `check.txt` is the old bed score, which pays every
+established non-flowering plant 3.00 whatever its size -- the trainer's
+`sized_score` is what selection used.)
