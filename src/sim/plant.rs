@@ -5715,6 +5715,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
 
     let mut next = Vec::new();
     let mut found_candidate = false;
+    // **A seedling's shoot tip too poor to take its first step waits rather
+    // than ages out** (`World::seedling_waits`): set by the `Grow` arm's
+    // carbon gate, read by the staleness counter at the bottom.
+    let mut seedling_waiting = false;
     // Why this tick's `Grow` visit ended where it did; `None` if the cell ran
     // no `Grow`. Written at each exit of the arm, read only by the census
     // below -- see `GrowWhy`.
@@ -6169,6 +6173,24 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
 
                 if resource < cost {
                     grow_why = Some(GrowWhy::TooPoor);
+                    // **A seedling in deep shade waits for its first leaf**
+                    // (`World::seedling_waits`). Staleness is how a plant
+                    // stops growing (`dead-ends.md`: marking this gate "had
+                    // somewhere to try" made a starved tree grow forever),
+                    // but on a seedling whose leaves earn nothing yet it
+                    // converts "not yet" into death: four poor ticks
+                    // (~180 frames) and the only tip retires, the plant has
+                    // no vital cell left, and it is booked
+                    // `LostVitalTissue` with its seed carbon unspent.
+                    // Traced at 5% of open light, 2026-10-22. Only a shoot
+                    // tip, only while the plant's leaves earn nothing, so a
+                    // plant with income still retires its tips as before;
+                    // starvation (`STARVATION_DEATH_TICKS`) still ends one
+                    // that never gets there.
+                    if world.seedling_waits && cell_type == CellType::GrowingTip && world.organism(organism_id).is_some_and(|st| st.income <= 0.0) {
+                        seedling_waiting = true;
+                        world.seedling_waits_held += 1;
+                    }
                     continue;
                 }
                 // **The height bound** -- `organism::Behavior::Grow`'s
@@ -7820,6 +7842,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
         next.push(reschedule_organism(x, y, organism_id, 0, plastochron, due));
+    } else if seedling_waiting {
+        // Neither reset nor aged: the seedling's tip keeps its count.
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks, plastochron, due));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
     } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
