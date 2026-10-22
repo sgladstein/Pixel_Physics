@@ -7,6 +7,8 @@
 //! cargo run --release --example plant_m0 -- mode=community mix=roles4 seed=1 frames=450000 sample=25000 ants=0
 //! # the crippled-species control: shrub's photosynthesis x0.1 at sowing
 //! cargo run --release --example plant_m0 -- mode=community mix=roles4 seed=1 cripple=shrub
+//! # trained species files standing in for shipped roles, under their names
+//! cargo run --release --example plant_m0 -- mode=community mix=roles seed=1 swap=shrub:best.ron,tree:t.ron
 //! # M0.6(a)'s control: two plants two columns apart against one alone
 //! cargo run --release --example plant_m0 -- mode=boxed
 //! # M1 A1: two copies of one bed in lockstep, one draw taken from the
@@ -40,7 +42,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -183,6 +185,24 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
         horizon: frames,
     };
     let (mut w, _, placed) = scenario.build();
+    // `swap=shrub:FILE.ron,tree:FILE.ron`: a trained species file stands in
+    // for a shipped role under the shipped name, so the mix, the census and
+    // the pictures all read it as that role -- the community bed as the
+    // judge of a trainer's champions (plant-community plan §6.2, rung 7).
+    // Registered after `build`, which has planted only seeds: a founder
+    // reads its species at germination (`seed_genotype`) and every tick
+    // after, and the seed material is the role's either way.
+    if let Some(spec) = m.get("swap") {
+        for item in spec.split(',') {
+            let (name, file) = item.split_once(':').expect("swap=NAME:FILE.ron,...");
+            let mut def = pixel_physics::train_plant::load(std::path::Path::new(file)).expect("the swapped species loads");
+            assert!(w.species.id_of(name).is_some(), "swap: no species {name} in the bed");
+            def.name = name.to_string();
+            let ron = pixel_physics::sim::species_export::to_ron(&def).expect("exports");
+            w.species.register_ron(&ron).expect("the swapped species registers");
+            println!("plant_m0 swap: {name} <- {file}");
+        }
+    }
     // In-bed heredity off, as on the bed of record: a census of today's
     // species, not of whatever they mutate into over 450,000 frames.
     w.fate_mutation_chance = 0.0;

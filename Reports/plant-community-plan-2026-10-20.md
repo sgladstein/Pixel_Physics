@@ -645,9 +645,15 @@ This session cannot launch anything.
 >    a +0.27 random null: it now sets fruit, at twice the size). From the
 >    re-fits nothing improved on its start, and the starts win by crowding:
 >    the re-fit shrub takes a shrub beside it from 367 cells to 21. The
->    neighbour term is too weak to stop that. Next, with the owner: a floor
->    on what a founder may cost its neighbour, or the mixed community bed
->    as the judge. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    neighbour term is too weak to stop that. **A neighbour floor**
+>    (`score::NEIGHBOUR_FLOOR`: the score shrinks once the neighbour is
+>    under half its usual size) made selection steer: the shrub and herb
+>    trained from the re-fits stopped smothering. **The mixed community
+>    bed is now the judge** (`plant_m0 swap=ROLE:FILE.ron`, `.../m2/community/`,
+>    five minutes a run): the re-fits double the tree canopy and wipe out
+>    the herb or creeper; the floor champions keep the shipped tree's
+>    canopy and the herb survives as fewer, larger plants. The creeper fails
+>    in every arm, shipped included. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow

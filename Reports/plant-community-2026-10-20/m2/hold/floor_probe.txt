@@ -1,0 +1,260 @@
+plantrain rungs: species=shrub,Reports/plant-community-2026-10-20/m2/refit/shrub/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/shrub/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/random_best.ron rungs=hold stations=bright layouts=12 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.30 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   144 p50   243 p75   375 cv 0.62 | rgr/1k p25 0.05 p50 0.07 p75 0.07
+             own score 2.96 | neighbour score 3.00 end shoot p50  1778 flowered 0/12 alive 12/12
+             hold score 2.92 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   463 p50   526 p75   705 cv 0.26 | rgr/1k p25 0.08 p50 0.08 p75 0.09
+             own score 3.70 | neighbour score 3.00 end shoot p50  1447 flowered 0/12 alive 12/12
+             hold score 3.41 | neighbour under the floor 4/12 (kept p25 0.98) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   316 p50   474 p75   595 cv 0.48 | rgr/1k p25 0.07 p50 0.08 p75 0.09
+             own score 3.68 | neighbour score 2.97 end shoot p50  1689 flowered 0/12 alive 12/12
+             hold score 3.24 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   651 p50   741 p75   787 cv 0.26 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+             own score 3.56 | neighbour score 3.00 end shoot p50  1518 flowered 0/12 alive 12/12
+             hold score 3.24 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   369 p50   451 p75   541 cv 0.33 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+             own score 3.57 | neighbour score 3.00 end shoot p50  1504 flowered 0/12 alive 12/12
+             hold score 3.41 | neighbour under the floor 4/12 (kept p25 1.00) under a tenth 0/12
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.42 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   140 p50   224 p75   449 cv 0.80 | rgr/1k p25 0.05 p50 0.06 p75 0.08
+             own score 3.01 | neighbour score 3.01 end shoot p50   440 flowered 12/12 alive 12/12
+             hold score 2.33 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 3/12
+    Reports/plant-community-2026-10-20/m2/refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   661 p50   734 p75   769 cv 0.18 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+             own score 3.87 | neighbour score 2.70 end shoot p50    48 flowered 12/12 alive 12/12
+             hold score 1.74 | neighbour under the floor 8/12 (kept p25 0.07) under a tenth 6/12
+    Reports/plant-community-2026-10-20/m2/hold/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   398 p50   593 p75   688 cv 0.36 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.03 | neighbour score 2.80 end shoot p50   302 flowered 12/12 alive 12/12
+             hold score 2.58 | neighbour under the floor 5/12 (kept p25 0.12) under a tenth 4/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   617 p50   925 p75   959 cv 0.28 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 3.86 | neighbour score 2.63 end shoot p50    29 flowered 12/12 alive 12/12
+             hold score 1.73 | neighbour under the floor 8/12 (kept p25 0.05) under a tenth 7/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   362 p50   683 p75   753 cv 0.39 | rgr/1k p25 0.07 p50 0.09 p75 0.09
+             own score 3.70 | neighbour score 3.00 end shoot p50   223 flowered 12/12 alive 12/12
+             hold score 2.16 | neighbour under the floor 6/12 (kept p25 0.20) under a tenth 4/12
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.63 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   179 p50   237 p75   359 cv 0.52 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+             own score 3.00 | neighbour score 3.90 end shoot p50   235 flowered 11/12 alive 12/12
+             hold score 2.81 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   632 p50   764 p75   837 cv 0.16 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 3.86 | neighbour score 3.60 end shoot p50   176 flowered 8/12 alive 12/12
+             hold score 3.06 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   437 p50   579 p75   590 cv 0.27 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.02 | neighbour score 3.85 end shoot p50   210 flowered 11/12 alive 11/12
+             hold score 3.68 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   721 p50   780 p75   881 cv 0.23 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 3.85 | neighbour score 3.84 end shoot p50   209 flowered 11/12 alive 12/12
+             hold score 3.58 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   416 p50   662 p75   690 cv 0.35 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 3.69 | neighbour score 3.66 end shoot p50   207 flowered 9/12 alive 12/12
+             hold score 2.99 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.33 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   215 p50   306 p75   572 cv 0.60 | rgr/1k p25 0.06 p50 0.07 p75 0.09
+             own score 3.00 | neighbour score 3.00 end shoot p50    91 flowered 0/12 alive 12/12
+             hold score 2.98 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   735 p50   745 p75   771 cv 0.08 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+             own score 3.86 | neighbour score 2.97 end shoot p50    71 flowered 0/12 alive 12/12
+             hold score 3.78 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   560 p50   625 p75   697 cv 0.23 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.02 | neighbour score 2.98 end shoot p50    73 flowered 0/12 alive 12/12
+             hold score 3.97 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   718 p50   790 p75   848 cv 0.21 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 3.86 | neighbour score 2.95 end shoot p50    70 flowered 0/12 alive 12/12
+             hold score 3.63 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/shrub/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   586 p50   681 p75   748 cv 0.16 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+             own score 3.69 | neighbour score 3.00 end shoot p50    75 flowered 0/12 alive 12/12
+             hold score 3.64 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+plantrain rungs: species=tree,Reports/plant-community-2026-10-20/m2/refit/tree/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/tree/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/random_best.ron rungs=hold stations=bright layouts=12 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 4.17 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   886 p50  1789 p75  1930 cv 0.55 | rgr/1k p25 0.10 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.00 end shoot p50  1206 flowered 0/12 alive 12/12
+             hold score 1.98 | neighbour under the floor 5/12 (kept p25 0.82) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1688 p50  2973 p75  3422 cv 0.46 | rgr/1k p25 0.11 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 3.00 end shoot p50   564 flowered 0/12 alive 12/12
+             hold score 1.96 | neighbour under the floor 6/12 (kept p25 0.72) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1172 p50  1391 p75  1970 cv 0.38 | rgr/1k p25 0.10 p50 0.11 p75 0.12
+             own score 3.00 | neighbour score 3.00 end shoot p50  1313 flowered 0/12 alive 12/12
+             hold score 2.11 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  2289 p50  3476 p75  4046 cv 0.37 | rgr/1k p25 0.12 p50 0.13 p75 0.14
+             own score 3.00 | neighbour score 3.00 end shoot p50   496 flowered 0/12 alive 12/12
+             hold score 1.64 | neighbour under the floor 7/12 (kept p25 0.36) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25  2583 p50  3260 p75  3386 cv 0.23 | rgr/1k p25 0.12 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 2.97 end shoot p50   169 flowered 0/12 alive 12/12
+             hold score 0.96 | neighbour under the floor 11/12 (kept p25 0.14) under a tenth 4/12
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 4.11 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25  1500 p50  1907 p75  2184 cv 0.28 | rgr/1k p25 0.11 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 2.96 end shoot p50   229 flowered 12/12 alive 12/12
+             hold score 2.01 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  2667 p50  3382 p75  3970 cv 0.30 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 2.88 end shoot p50   110 flowered 12/12 alive 12/12
+             hold score 1.74 | neighbour under the floor 7/12 (kept p25 0.64) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1657 p50  1786 p75  1991 cv 0.24 | rgr/1k p25 0.11 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.00 end shoot p50   245 flowered 12/12 alive 12/12
+             hold score 2.12 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  3065 p50  3758 p75  4001 cv 0.37 | rgr/1k p25 0.13 p50 0.13 p75 0.14
+             own score 3.00 | neighbour score 3.00 end shoot p50   131 flowered 12/12 alive 12/12
+             hold score 1.66 | neighbour under the floor 8/12 (kept p25 0.38) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25  3066 p50  3582 p75  4112 cv 0.20 | rgr/1k p25 0.13 p50 0.13 p75 0.14
+             own score 3.00 | neighbour score 2.83 end shoot p50    80 flowered 12/12 alive 12/12
+             hold score 1.24 | neighbour under the floor 9/12 (kept p25 0.40) under a tenth 3/12
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 4.05 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25  1709 p50  2087 p75  2178 cv 0.36 | rgr/1k p25 0.12 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.40 end shoot p50   135 flowered 12/12 alive 12/12
+             hold score 2.03 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  2935 p50  3236 p75  3956 cv 0.29 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 3.02 end shoot p50   108 flowered 9/12 alive 11/12
+             hold score 1.61 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1800 p50  1969 p75  2185 cv 0.19 | rgr/1k p25 0.12 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.04 end shoot p50   138 flowered 11/12 alive 12/12
+             hold score 1.85 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  3063 p50  3667 p75  3729 cv 0.21 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 3.13 end shoot p50    93 flowered 10/12 alive 11/12
+             hold score 1.79 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25  3263 p50  3654 p75  3754 cv 0.13 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 2.95 end shoot p50    94 flowered 6/12 alive 10/12
+             hold score 1.28 | neighbour under the floor 5/12 (kept p25 0.33) under a tenth 3/12
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.86 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25  1414 p50  1997 p75  2216 cv 0.31 | rgr/1k p25 0.11 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.00 end shoot p50    94 flowered 0/12 alive 12/12
+             hold score 2.28 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  3046 p50  3359 p75  3915 cv 0.23 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 2.99 end shoot p50    80 flowered 0/12 alive 12/12
+             hold score 2.45 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  1751 p50  2000 p75  2137 cv 0.24 | rgr/1k p25 0.11 p50 0.12 p75 0.12
+             own score 3.00 | neighbour score 3.00 end shoot p50    82 flowered 0/12 alive 12/12
+             hold score 2.30 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25  3280 p50  3718 p75  3943 cv 0.16 | rgr/1k p25 0.13 p50 0.13 p75 0.13
+             own score 3.00 | neighbour score 3.00 end shoot p50    85 flowered 0/12 alive 12/12
+             hold score 2.47 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/tree/random_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25  3148 p50  3571 p75  4005 cv 0.15 | rgr/1k p25 0.13 p50 0.13 p75 0.14
+             own score 3.00 | neighbour score 2.91 end shoot p50    75 flowered 0/12 alive 12/12
+             hold score 2.22 | neighbour under the floor 4/12 (kept p25 0.87) under a tenth 0/12
+plantrain rungs: species=herb,Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/herb/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/random_best.ron rungs=hold stations=bright layouts=12 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.89 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   136 p50   148 p75   168 cv 0.59 | rgr/1k p25 0.05 p50 0.06 p75 0.06
+             own score 3.59 | neighbour score 3.00 end shoot p50  1744 flowered 0/12 alive 12/12
+             hold score 3.48 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   558 p50   851 p75   925 cv 0.41 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 3.94 | neighbour score 3.00 end shoot p50  1301 flowered 0/12 alive 12/12
+             hold score 3.75 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   205 p50   270 p75   314 cv 0.56 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+             own score 3.95 | neighbour score 3.00 end shoot p50  1712 flowered 0/12 alive 12/12
+             hold score 3.88 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   503 p50   583 p75   641 cv 0.52 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 3.97 | neighbour score 3.00 end shoot p50  1613 flowered 0/12 alive 12/12
+             hold score 3.91 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   503 p50   619 p75   703 cv 0.42 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.00 end shoot p50  1713 flowered 0/12 alive 12/12
+             hold score 3.66 | neighbour under the floor 3/12 (kept p25 1.00) under a tenth 0/12
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.22 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   140 p50   145 p75   227 cv 0.57 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.81 | neighbour score 3.01 end shoot p50   397 flowered 12/12 alive 12/12
+             hold score 3.70 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   839 p50   961 p75  1016 cv 0.35 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.95 | neighbour score 3.00 end shoot p50   178 flowered 12/12 alive 12/12
+             hold score 2.54 | neighbour under the floor 7/12 (kept p25 0.33) under a tenth 3/12
+    Reports/plant-community-2026-10-20/m2/hold/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   223 p50   365 p75   467 cv 0.67 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+             own score 4.06 | neighbour score 3.00 end shoot p50   163 flowered 12/12 alive 12/12
+             hold score 2.83 | neighbour under the floor 7/12 (kept p25 0.48) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   639 p50   821 p75   849 cv 0.43 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 3.00 end shoot p50   191 flowered 12/12 alive 12/12
+             hold score 2.76 | neighbour under the floor 7/12 (kept p25 0.36) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   642 p50   845 p75   904 cv 0.38 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 3.00 end shoot p50   180 flowered 12/12 alive 12/12
+             hold score 2.55 | neighbour under the floor 7/12 (kept p25 0.27) under a tenth 1/12
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.52 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   146 p50   204 p75   234 cv 0.55 | rgr/1k p25 0.05 p50 0.06 p75 0.07
+             own score 3.89 | neighbour score 3.97 end shoot p50   217 flowered 11/12 alive 12/12
+             hold score 3.37 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   762 p50   908 p75   957 cv 0.49 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.96 | neighbour score 3.60 end shoot p50   184 flowered 10/12 alive 12/12
+             hold score 3.32 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   266 p50   529 p75   553 cv 0.59 | rgr/1k p25 0.07 p50 0.08 p75 0.09
+             own score 4.06 | neighbour score 3.88 end shoot p50   236 flowered 10/12 alive 11/12
+             hold score 3.59 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   683 p50   763 p75   775 cv 0.49 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.10 | neighbour score 3.62 end shoot p50   172 flowered 11/12 alive 11/12
+             hold score 3.45 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 1/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   670 p50   732 p75   823 cv 0.38 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.08 | neighbour score 3.61 end shoot p50   212 flowered 9/12 alive 10/12
+             hold score 3.03 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 2/12
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.34 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25   132 p50   204 p75   236 cv 0.56 | rgr/1k p25 0.05 p50 0.06 p75 0.07
+             own score 3.82 | neighbour score 3.00 end shoot p50    98 flowered 0/12 alive 12/12
+             hold score 3.74 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   958 p50  1046 p75  1103 cv 0.33 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.96 | neighbour score 2.99 end shoot p50    81 flowered 0/12 alive 12/12
+             hold score 3.84 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   450 p50   523 p75   585 cv 0.50 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.00 end shoot p50    83 flowered 0/12 alive 12/12
+             hold score 4.03 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   815 p50   889 p75   916 cv 0.48 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 2.99 end shoot p50    76 flowered 0/12 alive 12/12
+             hold score 3.98 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/herb/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   781 p50   824 p75   921 cv 0.35 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 3.00 end shoot p50    75 flowered 0/12 alive 12/12
+             hold score 4.02 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+plantrain rungs: species=creeper,Reports/plant-community-2026-10-20/m2/refit/creeper/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/creeper/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/random_best.ron rungs=hold stations=bright layouts=12 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.52 core-s a bed
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    89 p50   103 p75   114 cv 0.27 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.00 end shoot p50  1943 flowered 0/12 alive 12/12
+             hold score 2.24 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   118 p50   145 p75   161 cv 0.29 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1562 flowered 0/12 alive 12/12
+             hold score 2.30 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/creeper/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    91 p50   109 p75   122 cv 0.23 | rgr/1k p25 0.04 p50 0.04 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1974 flowered 0/12 alive 12/12
+             hold score 2.30 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   120 p50   142 p75   158 cv 0.20 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1774 flowered 0/12 alive 12/12
+             hold score 2.38 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   100 p50   126 p75   143 cv 0.31 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1619 flowered 0/12 alive 12/12
+             hold score 2.31 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.69 core-s a bed
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    86 p50    97 p75   104 cv 0.26 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.01 end shoot p50   402 flowered 12/12 alive 12/12
+             hold score 2.27 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   121 p50   131 p75   158 cv 0.29 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.89 end shoot p50   405 flowered 12/12 alive 12/12
+             hold score 1.65 | neighbour under the floor 5/12 (kept p25 0.17) under a tenth 4/12
+    Reports/plant-community-2026-10-20/m2/hold/creeper/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    92 p50   107 p75   112 cv 0.21 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.02 end shoot p50   482 flowered 12/12 alive 12/12
+             hold score 2.30 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   120 p50   132 p75   164 cv 0.21 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.69 end shoot p50   439 flowered 12/12 alive 12/12
+             hold score 1.63 | neighbour under the floor 4/12 (kept p25 0.13) under a tenth 4/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    99 p50   121 p75   151 cv 0.28 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50   393 flowered 12/12 alive 12/12
+             hold score 2.04 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 2/12
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.00 core-s a bed
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    88 p50    91 p75   112 cv 0.25 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.87 end shoot p50   178 flowered 11/12 alive 12/12
+             hold score 2.12 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   120 p50   143 p75   167 cv 0.27 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.90 end shoot p50   249 flowered 11/12 alive 12/12
+             hold score 2.22 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/creeper/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    97 p50   108 p75   133 cv 0.25 | rgr/1k p25 0.04 p50 0.04 p75 0.05
+             own score 3.00 | neighbour score 3.91 end shoot p50   225 flowered 11/12 alive 12/12
+             hold score 2.16 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   121 p50   139 p75   177 cv 0.22 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.00 | neighbour score 3.84 end shoot p50   269 flowered 11/12 alive 12/12
+             hold score 2.18 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   105 p50   122 p75   157 cv 0.29 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.89 end shoot p50   241 flowered 11/12 alive 11/12
+             hold score 2.10 | neighbour under the floor 1/12 (kept p25 1.00) under a tenth 1/12
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.64 core-s a bed
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    90 p50   110 p75   116 cv 0.23 | rgr/1k p25 0.04 p50 0.04 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    85 flowered 0/12 alive 12/12
+             hold score 2.29 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   122 p50   138 p75   145 cv 0.31 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    79 flowered 0/12 alive 12/12
+             hold score 2.37 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/creeper/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   101 p50   113 p75   124 cv 0.18 | rgr/1k p25 0.04 p50 0.04 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    90 flowered 0/12 alive 12/12
+             hold score 2.32 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/score_best.ron germ 12/12 est 12/12 est@ p50    750 | end shoot p25   121 p50   135 p75   181 cv 0.21 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.00 | neighbour score 2.98 end shoot p50    74 flowered 0/12 alive 12/12
+             hold score 2.36 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
+    Reports/plant-community-2026-10-20/m2/hold/from-refit/creeper/random_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   106 p50   125 p75   151 cv 0.25 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    77 flowered 0/12 alive 12/12
+             hold score 2.34 | neighbour under the floor 0/12 (kept p25 1.00) under a tenth 0/12
