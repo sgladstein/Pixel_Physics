@@ -1,0 +1,29 @@
+plantrain rungs: species=herb,/tmp/m2-hold-herb-RpL9/score_best.ron,/tmp/m2-hold-herb-RpL9/random_best.ron rungs=hold stations=bright layouts=8 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.79 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   121 p50   154 p75   166 cv 0.64 | rgr/1k p25 0.05 p50 0.06 p75 0.06
+             own score 3.40 | neighbour score 3.00 end shoot p50  1862 flowered 0/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   180 p50   280 p75   286 cv 0.71 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+             own score 3.91 | neighbour score 3.00 end shoot p50  1697 flowered 0/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/random_best.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   142 p50   195 p75   213 cv 0.67 | rgr/1k p25 0.05 p50 0.06 p75 0.06
+             own score 3.81 | neighbour score 3.00 end shoot p50  1747 flowered 0/8 alive 8/8
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.84 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   148 p50   181 p75   231 cv 0.67 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 3.94 | neighbour score 3.01 end shoot p50   312 flowered 8/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    81 p50   410 p75   508 cv 0.93 | rgr/1k p25 0.05 p50 0.08 p75 0.08
+             own score 4.07 | neighbour score 3.00 end shoot p50   149 flowered 8/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/random_best.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   115 p50   235 p75   289 cv 0.72 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+             own score 4.06 | neighbour score 3.00 end shoot p50   265 flowered 8/8 alive 8/8
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.44 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   101 p50   213 p75   246 cv 0.69 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 4.02 | neighbour score 3.88 end shoot p50   225 flowered 8/8 alive 7/8
+    /tmp/m2-hold-herb-RpL9/score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   349 p50   524 p75   584 cv 0.66 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.72 end shoot p50   204 flowered 7/8 alive 6/8
+    /tmp/m2-hold-herb-RpL9/random_best.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   145 p50   267 p75   289 cv 0.71 | rgr/1k p25 0.05 p50 0.07 p75 0.07
+             own score 3.95 | neighbour score 3.78 end shoot p50   232 flowered 6/8 alive 7/8
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.25 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   177 p50   190 p75   199 cv 0.66 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 3.95 | neighbour score 3.00 end shoot p50    92 flowered 0/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   240 p50   578 p75   643 cv 0.71 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.06 | neighbour score 3.00 end shoot p50    77 flowered 0/8 alive 8/8
+    /tmp/m2-hold-herb-RpL9/random_best.ron germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   180 p50   248 p75   255 cv 0.66 | rgr/1k p25 0.06 p50 0.07 p75 0.07
+             own score 4.07 | neighbour score 3.00 end shoot p50    93 flowered 0/8 alive 8/8

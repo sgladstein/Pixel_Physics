@@ -1,0 +1,35 @@
+    dim, off: light at the planting site (3 rows up) 0.24 of full
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    dim, off: founder alive at the end; deaths in the bed by cause []
+    SEED dim, off s=0 shoot 125 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=1 shoot 294 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=2 shoot 533 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=3 shoot 399 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=4 shoot 125 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=5 shoot 364 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=6 shoot dead sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=7 shoot 606 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=8 shoot 259 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=9 shoot 579 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=10 shoot 620 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=11 shoot 371 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=12 shoot 446 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=13 shoot 335 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=14 shoot 378 sprouts 0
+plant_m0 shade_plasticity=false open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, off s=15 shoot 203 sprouts 0
+  dim, off     alive 15/16 leaf light 0.21 | shoot 375.80+-160.78 height 19.40+-7.08 width 45.00+-10.06 leaf_share 0.27+-0.12 root 174.00+-73.53 root_depth 28.93+-8.77

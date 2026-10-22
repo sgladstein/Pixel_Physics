@@ -45,6 +45,22 @@ fn main() {
             // nothing and prints nothing, where `only=Log` is what a title
             // built from `{panel:?}` actually reads.
             Some(("split", v)) => split = v == "1",
+            // **The interface on its 2x layer** (`Lab::draw_layered`), each
+            // tile the composite the window shows at its default size,
+            // 1024x640. Tiles only (`split=1`): the sheet is laid out for
+            // 512x320 tiles. The overlap census is taken the same way on both
+            // paths, in logical pixels. `crisp=pair` puts today's 1x frame of
+            // the same moment, doubled, on the left of each tile, so the two
+            // differ only by the layer -- drawing does not move the world
+            // (`the_interface_layer_leaves_the_world_bit_identical`).
+            Some(("crisp", v)) => CRISP.store(
+                match v {
+                    "1" => 1,
+                    "pair" => 2,
+                    _ => 0,
+                },
+                std::sync::atomic::Ordering::Relaxed,
+            ),
             Some(("only", v)) => only = Some(v.to_string()),
             // **How many chambers the rack holds.** The tab strip is bar
             // chrome and is not drawn below two chambers, so a sheet taken at
@@ -81,6 +97,9 @@ fn main() {
     }
     let mut lab = Lab::new(spec);
     lab.show_help = false;
+    // Hover notes whole at once, every run: their rest timer reads the wall
+    // clock, and a sheet must not depend on how long the step before took.
+    lab.ui.notes_rested = true;
     // Reseeded, never copied. At the same seed every draw in the engine is a
     // pure function of `(world.seed, identity, position)`, so a rack of
     // unseeded duplicates is one world wearing many labels — and a sheet of
@@ -111,7 +130,7 @@ fn main() {
 
     // 1. Resting, no pointer.
     lab.set_cursor(None);
-    tiles.push(("BAR AT REST".into(), shot(&mut lab)));
+    tiles.push(("BAR AT REST".into(), shot(&mut lab))); note_census(&tiles);
 
     // 1a. **The `ADD` cell, pressed three times and hovered.** Soil, water,
     // then food: the tile shows the face naming what it will put in and the
@@ -123,7 +142,7 @@ fn main() {
     }
     fired.push(format!("three ADD presses armed {:?} (expected Food)", lab.ui.tool()));
     lab.set_cursor(Some(add));
-    tiles.push(("ADD: THIRD PRESS, HOVERED".into(), shot(&mut lab)));
+    tiles.push(("ADD: THIRD PRESS, HOVERED".into(), shot(&mut lab))); note_census(&tiles);
     lab.act(Action::Tool(lab.ui.tool()));
     lab.set_cursor(None);
 
@@ -132,7 +151,7 @@ fn main() {
     // every page that used to have its own chip.
     let menu_chip = centre(&lab, Action::Panel(Panel::Menu));
     lab.set_cursor(Some(menu_chip));
-    tiles.push(("HOVER: MENU".into(), shot(&mut lab)));
+    tiles.push(("HOVER: MENU".into(), shot(&mut lab))); note_census(&tiles);
 
     // 2a. Open it, and capture the page itself -- every destination in the
     // lab, one place, which is the whole point of this lane. Cursor off the
@@ -140,16 +159,20 @@ fn main() {
     // sit over the page and be mistaken for part of it.
     click(&mut lab, menu_chip);
     lab.set_cursor(None);
-    tiles.push(("PAGE: MENU".into(), shot(&mut lab)));
+    tiles.push(("PAGE: MENU".into(), shot(&mut lab))); note_census(&tiles);
     lab.ui.close_panel();
 
     // 3. Pressed but not released. The gesture is armed and nothing has
     //    happened yet, which is the whole point of firing on release.
+    // REBUILD lives in MENU now (plan step 3), so the menu opens first.
+    click(&mut lab, menu_chip);
+    lab.set_cursor(None);
+    let _ = shot(&mut lab);
     let rebuild = centre(&lab, Action::Reset);
     lab.set_cursor(Some(rebuild));
     lab.press(rebuild.0, rebuild.1);
     let frame_before = lab.world.frame;
-    tiles.push(("PRESSED: REBUILD".into(), shot(&mut lab)));
+    tiles.push(("PRESSED: REBUILD".into(), shot(&mut lab))); note_census(&tiles);
     fired.push(format!(
         "press alone rebuilt the box: {} (world frame {} -> {})",
         lab.world.frame < frame_before,
@@ -164,7 +187,7 @@ fn main() {
         lab.world.frame < frame_before,
         lab.world.frame
     ));
-    lab.ui.close_panel(); // undo the release that landed here (opened MENU)
+    lab.ui.close_panel(); // the release on MENU's chip shut it; make sure
 
     // 4-6. Each page, opened by a real click through MENU -- `PLANTS`/
     // `ANTS`/`BOX` no longer have a chip of their own (`reach`'s own doc).
@@ -187,7 +210,17 @@ fn main() {
         // Hover the second row, so the tile shows a page *and* the explanation
         // the owner asked every label to carry.
         lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
-        tiles.push((format!("PAGE: {panel:?}"), shot(&mut lab)));
+        tiles.push((format!("PAGE: {panel:?}"), shot(&mut lab))); note_census(&tiles);
+        // ANTS opens on SUMMARY; its GROUPS tab is a page of its own, so it
+        // is clicked through and photographed too, then put back.
+        if panel == Panel::Ants {
+            let groups = centre(&lab, Action::PageTab(Panel::Ants, 1));
+            click(&mut lab, groups);
+            lab.set_cursor(None);
+            tiles.push(("PAGE: Ants GROUPS".into(), shot(&mut lab))); note_census(&tiles);
+            let summary = centre(&lab, Action::PageTab(Panel::Ants, 0));
+            click(&mut lab, summary);
+        }
     }
     leave_open_panel(&mut lab);
 
@@ -212,7 +245,7 @@ fn main() {
             })
             .collect();
         fired.push(format!("FOOD: {}", if books.is_empty() { "no colony has books".to_string() } else { books.join("; ") }));
-        tiles.push(("PAGE: Food (RESTING)".into(), shot(&mut lab)));
+        tiles.push(("PAGE: Food (RESTING)".into(), shot(&mut lab))); note_census(&tiles);
     }
 
     // **The FOOD page's second layer, opened the way a player opens it** --
@@ -235,14 +268,14 @@ fn main() {
                 books.income(),
                 books.outgo()
             ));
-            tiles.push((format!("PAGE: Food, colony {colony}"), shot(&mut lab)));
+            tiles.push((format!("PAGE: Food, colony {colony}"), shot(&mut lab))); note_census(&tiles);
             // ...and the range selector, which every figure on both layers
             // is read over. Stepped once so the sheet shows a second stop
             // rather than only the default.
             let at = reach(&mut lab, Action::FoodRange(1));
             click(&mut lab, at);
             lab.set_cursor(None);
-            tiles.push((format!("PAGE: Food, colony {colony}, range stepped"), shot(&mut lab)));
+            tiles.push((format!("PAGE: Food, colony {colony}, range stepped"), shot(&mut lab))); note_census(&tiles);
         } else {
             fired.push("FOOD colony: no colony alive to open".into());
         }
@@ -284,7 +317,7 @@ fn main() {
         let (key, desc) = lab.ui.roster_sort_key(kingdom);
         let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
         fired.push(format!("LIST {verb} opened: {} with {} rows", lab.ui.panel == Some(list), rows.len()));
-        tiles.push((format!("ROSTER: {verb}"), shot(&mut lab)));
+        tiles.push((format!("ROSTER: {verb}"), shot(&mut lab))); note_census(&tiles);
 
         // Pin the third row, or the first on a short list. The identity is
         // printed rather than the index, because the index is the thing that
@@ -299,7 +332,7 @@ fn main() {
                 Some(rows[want].who),
                 lab.ui.notice_text()
             ));
-            tiles.push((format!("ROSTER: {verb} PINNED"), shot(&mut lab)));
+            tiles.push((format!("ROSTER: {verb} PINNED"), shot(&mut lab))); note_census(&tiles);
 
             // **Does the pin survive the thing moving?** The failure this
             // whole identity exists to prevent is a walking ant leaving its
@@ -328,7 +361,7 @@ fn main() {
                 moved_from,
                 now
             ));
-            tiles.push((format!("ROSTER: {verb} PIN HELD"), shot(&mut lab)));
+            tiles.push((format!("ROSTER: {verb} PIN HELD"), shot(&mut lab))); note_census(&tiles);
 
             // **The payoff shot: the list put away, and the mark still on
             // the box.** This is what the roster is for -- the list is how
@@ -341,7 +374,7 @@ fn main() {
                 lab.ui.pinned().map(|w| w.id),
                 held
             ));
-            tiles.push((format!("MARKED: {verb}"), shot(&mut lab)));
+            tiles.push((format!("MARKED: {verb}"), shot(&mut lab))); note_census(&tiles);
             lab.ui.toggle_panel(if verb == "PLANTS" { Panel::PlantList } else { Panel::AntList });
             let _ = shot(&mut lab);
 
@@ -353,7 +386,7 @@ fn main() {
                 lab.ui.roster_sort(),
                 lab.ui.pinned()
             ));
-            tiles.push((format!("ROSTER: {verb} SORTED"), shot(&mut lab)));
+            tiles.push((format!("ROSTER: {verb} SORTED"), shot(&mut lab))); note_census(&tiles);
         }
 
         // **The graveyard.** Cull a few first, because an empty graveyard and
@@ -412,7 +445,7 @@ fn main() {
             dead.len(),
             dead.iter().map(|r| format!("{} {}", r.who.id, r.state.label())).collect::<Vec<_>>().join(", ")
         ));
-        tiles.push((format!("ROSTER: {verb} GRAVEYARD"), shot(&mut lab)));
+        tiles.push((format!("ROSTER: {verb} GRAVEYARD"), shot(&mut lab))); note_census(&tiles);
         // Back to the living, so the tiles after this are not all corpses.
         //
         // **Re-aimed every step and bounded**, because neither is optional
@@ -507,7 +540,7 @@ fn main() {
             lab.ui.inspecting().is_some()
         ));
         lab.set_cursor(None);
-        tiles.push((format!("WATCH: {what} TRAIL"), shot(&mut lab)));
+        tiles.push((format!("WATCH: {what} TRAIL"), shot(&mut lab))); note_census(&tiles);
 
         // ...and the sparklines, which live in STATE. Clicking the
         // individual's own cell is what puts the page on it -- the pin is
@@ -524,7 +557,7 @@ fn main() {
             }
             fired.push(format!("WATCH {what}: cell page on group {:?}", lab.ui.specimen_section()));
             lab.set_cursor(None);
-            tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
+            tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab))); note_census(&tiles);
         }
     }
     // 6a-quinquies. **The lineage overlay, both modes.** The one channel in
@@ -560,7 +593,7 @@ fn main() {
         ));
 
         lab.renderer.organism_overlay = render::OrganismOverlay::Lineage;
-        tiles.push(("LINEAGE: FOUNDING LINES".into(), shot(&mut lab)));
+        tiles.push(("LINEAGE: FOUNDING LINES".into(), shot(&mut lab))); note_census(&tiles);
 
         // ...and the same bed with one line picked out. **The heaviest line,
         // found rather than assumed**: row 0 of the animal list was an ant
@@ -611,7 +644,7 @@ fn main() {
         ));
         lab.renderer.organism_overlay = render::OrganismOverlay::LineageOne;
         lab.set_cursor(None);
-        tiles.push(("LINEAGE: ONE LINE".into(), shot(&mut lab)));
+        tiles.push(("LINEAGE: ONE LINE".into(), shot(&mut lab))); note_census(&tiles);
 
         // **HISTORY: the default SUMMARY, one row per colony or founding
         // line that has lost anyone or ended.** A player reaches it through
@@ -656,7 +689,7 @@ fn main() {
         fired.push(format!(
             "HISTORY SUMMARY: {colonies} colonies and {plant_lines} plant lines have lost anyone or ended, {deaths} animal deaths booked across them"
         ));
-        tiles.push(("PAGE: HISTORY (SUMMARY)".into(), shot(&mut lab)));
+        tiles.push(("PAGE: HISTORY (SUMMARY)".into(), shot(&mut lab))); note_census(&tiles);
 
         // **Expand one colony row** -- the second half of the owner's ask
         // (2026-09-10): *"Then you expand into the individuals?"* Clicking
@@ -672,7 +705,7 @@ fn main() {
                 row.name,
                 row.ended.len()
             ));
-            tiles.push(("PAGE: HISTORY (COLONY)".into(), shot(&mut lab)));
+            tiles.push(("PAGE: HISTORY (COLONY)".into(), shot(&mut lab))); note_census(&tiles);
             // BACK returns to the SUMMARY, not to the LOG page -- proven
             // rather than assumed: `Ui::history_open` is private, so the
             // panel staying open (rather than falling back to the LOG page)
@@ -686,7 +719,7 @@ fn main() {
         } else {
             fired.push("HISTORY DETAIL: no colony row to expand on this bed".to_string());
         }
-        tiles.push(("PAGE: HISTORY (BACK)".into(), shot(&mut lab)));
+        tiles.push(("PAGE: HISTORY (BACK)".into(), shot(&mut lab))); note_census(&tiles);
         lab.ui.close_panel();
 
         // **What the channel costs, as a counter rather than a clock.** The
@@ -767,7 +800,7 @@ fn main() {
         let spared: Vec<roster::Individual> = lab.ui.spared_list().to_vec();
         fired.push(format!("CULL: spared {} of {before} animals", spared.len()));
         lab.set_cursor(None);
-        tiles.push(("CULL: THREE SPARED".into(), shot(&mut lab)));
+        tiles.push(("CULL: THREE SPARED".into(), shot(&mut lab))); note_census(&tiles);
 
         let aimed = lab.ui.cull_rest_targets(&lab.world, kingdom);
         let doomed = aimed.len();
@@ -785,7 +818,7 @@ fn main() {
             .count();
         fired.push(format!("CULL REST: aimed at {doomed}, {rotting} rows now rotting, {before} before"));
         lab.set_cursor(None);
-        tiles.push(("CULL: AFTER CULL REST".into(), shot(&mut lab)));
+        tiles.push(("CULL: AFTER CULL REST".into(), shot(&mut lab))); note_census(&tiles);
         for _ in 0..6000 {
             lab.tick_for_harness();
         }
@@ -853,7 +886,7 @@ fn main() {
                 lab.ui.held(),
                 lab.ui.pinned()
             ));
-            tiles.push(("COMPARE: TWO ANTS".into(), shot(&mut lab)));
+            tiles.push(("COMPARE: TWO ANTS".into(), shot(&mut lab))); note_census(&tiles);
         } else {
             fired.push(format!("COMPARE: only {} rows, need two", rows.len()));
         }
@@ -867,7 +900,7 @@ fn main() {
         let at = centre(&lab, Action::Panel(Panel::Chambers));
         click(&mut lab, at);
         fired.push(format!("click opened THE RACK: {}", lab.ui.panel == Some(Panel::Chambers)));
-        tiles.push(("PAGE: THE RACK".into(), shot(&mut lab)));
+        tiles.push(("PAGE: THE RACK".into(), shot(&mut lab))); note_census(&tiles);
 
         // **Page two, and the row that only exists because of it.** A rack
         // taller than the page could not be scrolled at all until 2026-09-01
@@ -881,7 +914,7 @@ fn main() {
             click(&mut lab, at);
             lab.set_cursor(None);
             fired.push(format!("scrolled the rack: window starts at row {}", lab.ui.rack_scroll() + 1));
-            tiles.push(("RACK: SCROLLED".into(), shot(&mut lab)));
+            tiles.push(("RACK: SCROLLED".into(), shot(&mut lab))); note_census(&tiles);
         }
 
         let pick = lab.chamber_count() - 1;
@@ -896,7 +929,7 @@ fn main() {
             lab.ui.selected_chamber() == Some(pick)
         ));
         lab.set_cursor(None);
-        tiles.push(("RACK: A ROW PICKED".into(), shot(&mut lab)));
+        tiles.push(("RACK: A ROW PICKED".into(), shot(&mut lab))); note_census(&tiles);
         // The rack's own verb, with copies actually in flight -- a progress
         // row with nothing behind it is the picture that reads as working
         // whether or not it is. The page is still open from the tile above;
@@ -912,7 +945,7 @@ fn main() {
         }
         lab.set_cursor(None);
         fired.push(format!("typing into TICKS: {:?}", lab.ui.typing()));
-        tiles.push(("RACK: TYPING A TICK COUNT".into(), shot(&mut lab)));
+        tiles.push(("RACK: TYPING A TICK COUNT".into(), shot(&mut lab))); note_census(&tiles);
         lab.commit_typed_batch();
         fired.push(format!("committed: ticks now {}", lab.batch_spec.frames));
 
@@ -927,7 +960,7 @@ fn main() {
         let p = lab.batch.as_ref().map(|b| b.progress());
         fired.push(format!("batch running: {:?}", p.map(|p| (p.finished, p.total))));
         lab.set_cursor(None);
-        tiles.push(("RACK: COPIES RUNNING".into(), shot(&mut lab)));
+        tiles.push(("RACK: COPIES RUNNING".into(), shot(&mut lab))); note_census(&tiles);
         if let Some(b) = &lab.batch {
             b.cancel();
         }
@@ -935,17 +968,16 @@ fn main() {
         click(&mut lab, at);
     }
 
-    // 7. The speed ladder latched, with the achieved readout beside it.
-    let fast = centre(&lab, Action::Preset(4));
-    click(&mut lab, fast);
+    // 7. The dial asked for 64x (key 5 -- the bar's speed chips are gone, plan
+    // step 3), with the achieved readout saying what it got.
+    lab.act(Action::Preset(4));
     for _ in 0..30 {
         lab.advance(std::time::Duration::from_millis(16));
     }
-    fired.push(format!("click set the dial to {}x", lab.time.requested));
-    lab.set_cursor(Some(fast));
-    tiles.push((format!("DIAL AT {}X", lab.time.requested), shot(&mut lab)));
-    let slow = centre(&lab, Action::Preset(0));
-    click(&mut lab, slow);
+    fired.push(format!("key 5 set the dial to {}x", lab.time.requested));
+    lab.set_cursor(None);
+    tiles.push((format!("DIAL AT {}X", lab.time.requested), shot(&mut lab))); note_census(&tiles);
+    lab.act(Action::Preset(0));
 
     // 8. The inspector, aimed at a cell an organism actually owns.
     let target = living_cell(&lab);
@@ -959,11 +991,11 @@ fn main() {
                 lab.ui.inspecting() == Some((wx, wy))
             ));
             lab.set_cursor(Some((60, pixel_physics::lab::ui::bar_top() - 40)));
-            tiles.push(("INSPECT A LIVING CELL".into(), shot(&mut lab)));
+            tiles.push(("INSPECT A LIVING CELL".into(), shot(&mut lab))); note_census(&tiles);
         }
         None => {
             fired.push("no organism cell found to inspect".into());
-            tiles.push(("INSPECT: NO ORGANISM".into(), shot(&mut lab)));
+            tiles.push(("INSPECT: NO ORGANISM".into(), shot(&mut lab))); note_census(&tiles);
         }
     }
 
@@ -998,7 +1030,7 @@ fn main() {
         lab.ui.tool()
     ));
     lab.set_cursor(Some((gx, gy - 6)));
-    tiles.push(("VERB: PLANT".into(), shot(&mut lab)));
+    tiles.push(("VERB: PLANT".into(), shot(&mut lab))); note_census(&tiles);
 
     // COLONY.
     let at = centre(&lab, Action::Tool(Tool::Colony));
@@ -1011,7 +1043,7 @@ fn main() {
         lab.world.live_creature_count()
     ));
     lab.set_cursor(Some((gx + 40, gy - 6)));
-    tiles.push(("VERB: COLONY".into(), shot(&mut lab)));
+    tiles.push(("VERB: COLONY".into(), shot(&mut lab))); note_census(&tiles);
 
     // CULL, both kingdoms, because they die by different paths and a sheet
     // that only showed one would say nothing about the other. A plant is
@@ -1035,7 +1067,7 @@ fn main() {
         ));
         lab.set_cursor(Some((sx, sy)));
     }
-    tiles.push(("VERB: CULL".into(), shot(&mut lab)));
+    tiles.push(("VERB: CULL".into(), shot(&mut lab))); note_census(&tiles);
 
     // FIRE, through the ADD cell (owner, 2026-10-03): a click on a plant,
     // then the box run for a few seconds so the tile shows the burn and what
@@ -1063,7 +1095,7 @@ fn main() {
         };
         fired.push(format!("FIRE at {wx},{wy}: {lit} cells lit, then {} burning and {ash} ash", burning(&lab)));
         lab.set_cursor(None);
-        tiles.push(("VERB: FIRE".into(), shot(&mut lab)));
+        tiles.push(("VERB: FIRE".into(), shot(&mut lab))); note_census(&tiles);
         lab.act(Action::Tool(Tool::Fire));
     }
     // ...and the ant's death needs a tick to land, which is the honest half:
@@ -1124,7 +1156,7 @@ fn main() {
     fired.push(format!(
         "SOIL BRUSH: {soil_cells} cells laid down, {damp} of them damp (aux 0 on a POWDER is DRY)"
     ));
-    tiles.push(("BRUSH: SOIL".into(), shot(&mut lab)));
+    tiles.push(("BRUSH: SOIL".into(), shot(&mut lab))); note_census(&tiles);
 
     add_until(&mut lab, Tool::Water);
     let (wx0, wy0) = (gx + 90, gy - 50);
@@ -1153,7 +1185,7 @@ fn main() {
     fired.push(format!(
         "WATER BRUSH: {cells} cells laid down, {full} of them full (aux 0 on a LIQUID is FULL)"
     ));
-    tiles.push(("BRUSH: WATER".into(), shot(&mut lab)));
+    tiles.push(("BRUSH: WATER".into(), shot(&mut lab))); note_census(&tiles);
 
     // The eraser, on the right button, over the water that was just laid.
     lab.press_erase(wx0 + 10, wy0);
@@ -1170,7 +1202,7 @@ fn main() {
         }
     }
     fired.push(format!("RIGHT-DRAG ERASE: water {cells} -> {left}"));
-    tiles.push(("ERASE (RIGHT BUTTON)".into(), shot(&mut lab)));
+    tiles.push(("ERASE (RIGHT BUTTON)".into(), shot(&mut lab))); note_census(&tiles);
 
     // **KEEP, the shelf, and PLACE** — the three halves of the specimen rack,
     // each fired by a real click and each with its counter beside it. A jar
@@ -1209,7 +1241,7 @@ fn main() {
         }
         None => fired.push("KEEP: nothing alive to aim at".into()),
     }
-    tiles.push(("VERB: KEEP".into(), shot(&mut lab)));
+    tiles.push(("VERB: KEEP".into(), shot(&mut lab))); note_census(&tiles);
 
     // The rack itself, opened by a real click on its own chip, with a jar
     // row hovered so the tile carries the page *and* its explanation.
@@ -1220,7 +1252,7 @@ fn main() {
     if let Some(r) = lab.ui.widget_rect(Action::ShelfSelect(0)) {
         lab.set_cursor(Some((r.x + 20, r.y + 4)));
     }
-    tiles.push(("PAGE: THE SHELF".into(), shot(&mut lab)));
+    tiles.push(("PAGE: THE SHELF".into(), shot(&mut lab))); note_census(&tiles);
 
     // Arm the first jar by clicking its row, turn the dial up, and read back
     // that both actually took.
@@ -1239,7 +1271,7 @@ fn main() {
             let _ = shot(&mut lab);
         }
         fired.push(format!("BROOD DIAL: {}", lab.ui.brood_label()));
-        tiles.push((format!("SHELF: {}", lab.ui.brood_label()), shot(&mut lab)));
+        tiles.push((format!("SHELF: {}", lab.ui.brood_label()), shot(&mut lab))); note_census(&tiles);
 
         // ...and DRIFT, which breeds the jar without releasing it.
         let before = lab.ui.shelf().len();
@@ -1251,7 +1283,7 @@ fn main() {
             lab.ui.shelf().len(),
             lab.ui.notice_text().unwrap_or_default()
         ));
-        tiles.push(("SHELF: AFTER DRIFT".into(), shot(&mut lab)));
+        tiles.push(("SHELF: AFTER DRIFT".into(), shot(&mut lab))); note_census(&tiles);
     }
 
     // PLACE, into the bed. **The count is the whole tile**: what lands is one
@@ -1281,7 +1313,7 @@ fn main() {
         lab.ui.notice_text().unwrap_or_default()
     ));
     lab.set_cursor(Some((gx + 20, gy - 6)));
-    tiles.push(("VERB: PLACE".into(), shot(&mut lab)));
+    tiles.push(("VERB: PLACE".into(), shot(&mut lab))); note_census(&tiles);
     if lab.ui.panel == Some(Panel::Shelf) {
         let at = centre(&lab, Action::Panel(Panel::Shelf));
         click(&mut lab, at);
@@ -1297,7 +1329,7 @@ fn main() {
     fired.push(format!("OVERLAY: {}", lab.renderer.field_overlay.label()));
     let at = centre(&lab, Action::CycleOverlay);
     lab.set_cursor(Some(at));
-    tiles.push((format!("OVERLAY {}", lab.renderer.field_overlay.label()), shot(&mut lab)));
+    tiles.push((format!("OVERLAY {}", lab.renderer.field_overlay.label()), shot(&mut lab))); note_census(&tiles);
     for _ in 0..2 {
         let at = centre(&lab, Action::CycleOverlay);
     click(&mut lab, at);
@@ -1341,7 +1373,7 @@ fn main() {
         if let Some(r) = lab.ui.widget_rect(Action::ParamAdjust(2, 1)).or_else(|| lab.ui.widget_rect(Action::ParamAdjust(0, 1))) {
             lab.set_cursor(Some((r.x - 60, r.y + 4)));
         }
-        tiles.push((format!("PARAMS: {}", group.label()), shot(&mut lab)));
+        tiles.push((format!("PARAMS: {}", group.label()), shot(&mut lab))); note_census(&tiles);
         // **The last window of a page that scrolls, as its own tile -- taken
         // here, at the shipped values, before the sweep below moves every
         // row.** The sheet showed only the first thirteen rows of a group, so
@@ -1360,7 +1392,7 @@ fn main() {
                 }
             }
             if lab.ui.param_scroll() > was {
-                tiles.push((format!("PARAMS: {} SCROLLED", group.label()), shot(&mut lab)));
+                tiles.push((format!("PARAMS: {} SCROLLED", group.label()), shot(&mut lab))); note_census(&tiles);
             }
             while lab.ui.param_scroll() > was {
                 let Some(up) = lab.ui.widget_rect(Action::ParamScroll(-1)) else { break };
@@ -1469,7 +1501,7 @@ fn main() {
             lab.world.run_log.recent().filter(|e| e.kind == pixel_physics::sim::world::LogKind::PlayerAction).count();
         fired.push(format!("LOG: {player_actions} player-action line(s) in the run log after the params sweep"));
         lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
-        tiles.push(("PAGE: Log".into(), shot(&mut lab)));
+        tiles.push(("PAGE: Log".into(), shot(&mut lab))); note_census(&tiles);
     }
     leave_open_panel(&mut lab);
 
@@ -1488,10 +1520,12 @@ fn main() {
         fired.push(format!("SPECIMEN {what} at ({wx},{wy}): {} rows -- {}", rows.len(),
             rows.iter().map(|(l, v, _)| format!("{l} {v}")).collect::<Vec<_>>().join(", ")));
         let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+        // The open cell page is put away from its own X: it docks on the
+        // right now (`ui::Window`) and can stand over the next subject, so
+        // re-clicking the previous cell is not always reachable.
         if lab.ui.inspecting().is_some() {
-            let prev = lab.ui.inspecting().unwrap();
-            let (px, py) = lab.renderer.world_to_screen(prev.0, prev.1).unwrap_or(prev);
-            click(&mut lab, (px, py));
+            lab.act(Action::CloseInspected);
+            let _ = shot(&mut lab);
         }
         click(&mut lab, (sx, sy));
         let _ = shot(&mut lab);
@@ -1500,7 +1534,7 @@ fn main() {
         if let Some(r) = lab.ui.inspect_rect() {
             lab.set_cursor(Some((r.x + 20, r.y + 60)));
         }
-        tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab)));
+        tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab))); note_census(&tiles);
 
         // **The WORDS group, opened the same way, and it had no tile at all
         // until 2026-09-05.** It is the group the plain-speech work exists
@@ -1518,7 +1552,7 @@ fn main() {
                     lab.ui.specimen_section()
                 ));
                 lab.set_cursor(None);
-                tiles.push((format!("SPECIMEN: {what} WORDS"), shot(&mut lab)));
+                tiles.push((format!("SPECIMEN: {what} WORDS"), shot(&mut lab))); note_census(&tiles);
             }
             None => fired.push(format!("SPECIMEN {what}: no WORDS heading to click")),
         }
@@ -1553,7 +1587,7 @@ fn main() {
                         lab.ui.specimen_section()
                     ));
                     lab.set_cursor(None);
-                    tiles.push(("SPECIMEN: PLANT STATE".into(), shot(&mut lab)));
+                    tiles.push(("SPECIMEN: PLANT STATE".into(), shot(&mut lab))); note_census(&tiles);
                 }
                 None => fired.push(format!("SPECIMEN PLANT: no STATE heading to click (TIPS {tips}; TIPS STOPPED {stopped})")),
             }
@@ -1587,7 +1621,7 @@ fn main() {
                     lab.ui.specimen_section()
                 ));
                 lab.set_cursor(None);
-                tiles.push((format!("SPECIMEN: {what} GENOME"), shot(&mut lab)));
+                tiles.push((format!("SPECIMEN: {what} GENOME"), shot(&mut lab))); note_census(&tiles);
             }
             None => fired.push(format!("SPECIMEN {what}: no GENOME heading to click")),
         }
@@ -1607,7 +1641,7 @@ fn main() {
     // to produce: the pages are mutually exclusive with the biosphere page, so
     // whether this click turns it on or off depends on what was open before.
     let stats_now = if lab.stats.showing() { "ON" } else { "OFF" };
-    tiles.push((format!("STATS TOGGLED {stats_now}"), shot(&mut lab)));
+    tiles.push((format!("STATS TOGGLED {stats_now}"), shot(&mut lab))); note_census(&tiles);
 
     for line in &fired {
         println!("{line}");
@@ -1619,16 +1653,12 @@ fn main() {
         Action::TogglePhase,
         Action::Slower,
         Action::Faster,
-        Action::Preset(0),
-        Action::Preset(5),
         Action::Panel(Panel::Menu),
         Action::Panel(Panel::Plants),
         Action::Panel(Panel::Ants),
-        Action::Panel(Panel::Box),
-        Action::Panel(Panel::Params),
+        Action::Panel(Panel::History),
         Action::Stats,
         Action::Help,
-        Action::Reset,
     ] {
         if let Some(r) = lab.ui.widget_rect(action) {
             println!("{action:?} at {},{} ({}x{})", r.x + r.w / 2, r.y + r.h / 2, r.w, r.h);
@@ -1640,6 +1670,13 @@ fn main() {
         lab.world.live_creature_count()
     );
 
+    // The window census, one line per tile: overlapping pixels between two
+    // windows (target 0) and how many columns of the box no window covers.
+    CENSUSES.with(|v| {
+        for (title, c) in v.borrow().iter() {
+            println!("census {title}: {c}");
+        }
+    });
     let tiles: Vec<(String, Vec<u8>)> = match &only {
         Some(want) => tiles.into_iter().filter(|(t, _)| t.contains(want.as_str())).collect(),
         None => tiles,
@@ -1657,11 +1694,21 @@ fn main() {
             std::process::exit(2);
         }
     }
+    let crisp = CRISP.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    if crisp && !split {
+        eprintln!("labui: crisp=1 writes tiles only -- add split=1");
+        std::process::exit(2);
+    }
     if split {
         let stem = out.strip_suffix(".png").unwrap_or(&out);
+        let (tw, th) = match CRISP.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => (WIDTH, HEIGHT),
+            1 => pixel_physics::lab::LAYER_SIZE,
+            _ => (pixel_physics::lab::LAYER_SIZE.0 * 2, pixel_physics::lab::LAYER_SIZE.1),
+        };
         for (title, frame) in &tiles {
             let name = format!("{stem}-{}.png", title.to_lowercase().replace([' ', ':', '/'], "-"));
-            image::save_buffer(&name, frame, WIDTH, HEIGHT, image::ColorType::Rgba8).expect("write a tile");
+            image::save_buffer(&name, frame, tw, th, image::ColorType::Rgba8).expect("write a tile");
             println!("wrote {name}");
         }
         return;
@@ -1682,10 +1729,78 @@ fn blank() -> Vec<u8> {
     vec![0u8; (WIDTH * HEIGHT * 4) as usize]
 }
 
+/// 0 today's single buffer, 1 the interface layer, 2 both side by side.
+static CRISP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 fn shot(lab: &mut Lab) -> Vec<u8> {
+    // **Drawn twice, and the first is thrown away**: the app draws every
+    // frame, and the window rule (`ui::Window`) folds the page from where
+    // it was drawn *last* frame, so the first frame after a page opens can
+    // show it unfolded for one frame. A single draw photographs that frame
+    // and nothing else.
+    let mode = CRISP.load(std::sync::atomic::Ordering::Relaxed);
+    let crisp = mode > 0;
+    let (lw, lh) = pixel_physics::lab::LAYER_SIZE;
+    let mut layer = vec![0u8; (lw * lh * 4) as usize];
+    if crisp {
+        // `touch_chrome` because a paused box with a still pointer is
+        // exactly the case the layer skips repainting.
+        lab.touch_chrome();
+        lab.invalidate_view();
+        lab.draw_layered(&mut blank(), &mut layer, 60.0);
+    } else {
+        lab.draw(&mut blank(), 60.0);
+    }
     let mut frame = blank();
-    lab.draw(&mut frame, 60.0);
+    render::paint_owner::begin(WIDTH, HEIGHT);
+    if crisp {
+        lab.touch_chrome();
+        lab.invalidate_view();
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+    } else {
+        lab.draw(&mut frame, 60.0);
+    }
+    // **Which windows painted over which, read off the pixels** -- see
+    // `render::paint_owner` for why this is not an intersection of the
+    // layout's own rectangles. Printed beside each tile's name at the end,
+    // because the picture says where and only the count says whether.
+    let bar_top = pixel_physics::lab::ui::bar_top();
+    let (overlaps, clear) = render::paint_owner::end(16, bar_top - pixel_physics::lab::ui::TAB_H);
+    let total: u32 = overlaps.values().sum();
+    let pairs: Vec<String> = overlaps.iter().map(|((a, b), n)| format!("{b} OVER {a} {n}")).collect();
+    LAST_CENSUS.with(|c| *c.borrow_mut() = format!("overlap {total} px [{}]  box clear {clear} of {WIDTH} columns", pairs.join(", ")));
+    if mode == 2 {
+        let mut today = blank();
+        lab.draw(&mut today, 60.0);
+        let left = render::composite_layer(&today, (WIDTH, HEIGHT), &vec![0u8; (lw * lh * 4) as usize], (lw, lh));
+        let right = render::composite_layer(&frame, (WIDTH, HEIGHT), &layer, (lw, lh));
+        let row = (lw * 4) as usize;
+        let mut pair = Vec::with_capacity(row * 2 * lh as usize);
+        for y in 0..lh as usize {
+            pair.extend_from_slice(&left[y * row..(y + 1) * row]);
+            pair.extend_from_slice(&right[y * row..(y + 1) * row]);
+        }
+        return pair;
+    }
+    if crisp {
+        return render::composite_layer(&frame, (WIDTH, HEIGHT), &layer, (lw, lh));
+    }
     frame
+}
+
+thread_local! {
+    /// The last [`shot`]'s window census, taken by `note_census` for the tile
+    /// it belongs to.
+    static LAST_CENSUS: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    static CENSUSES: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// File the last shot's census under the tile just pushed.
+fn note_census(tiles: &[(String, Vec<u8>)]) {
+    if let Some((title, _)) = tiles.last() {
+        let c = LAST_CENSUS.with(|c| c.borrow().clone());
+        CENSUSES.with(|v| v.borrow_mut().push((title.clone(), c)));
+    }
 }
 
 /// Open `list` from its cover page, from *whatever* is open now.
@@ -1766,6 +1881,14 @@ fn reach(lab: &mut Lab, action: Action) -> (i32, i32) {
     }
     if lab.ui.panel != Some(Panel::Menu) {
         let at = centre(lab, Action::Panel(Panel::Menu));
+        click(lab, at);
+        let _ = shot(lab);
+    }
+    // **FOOD is not in MENU since 2026-10-22** (a page is listed once, and
+    // FOOD is a view of the ANTS page), so it is reached the way a player
+    // reaches it: ANTS, then its `WHAT THEY ARE EATING` heading.
+    if action == Action::Panel(Panel::Food) && lab.ui.widget_rect(action).is_none() {
+        let at = centre(lab, Action::Panel(Panel::Ants));
         click(lab, at);
         let _ = shot(lab);
     }

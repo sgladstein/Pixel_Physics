@@ -1,0 +1,21 @@
+plantrain rungs: species=tree,shrub,herb,creeper rungs=grow,life stations=bright,dim layouts=12 base=7000000 threads=4
+  grow bright (width 48 frames 10000 n_est 20 lamp 1 rain Light soil 1): 1.06 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   2000 | end shoot p25   465 p50   522 p75   591 cv 0.39 | rgr/1k p25 0.36 p50 0.41 p75 0.42
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   173 p50   316 p75   366 cv 0.56 | rgr/1k p25 0.24 p50 0.31 p75 0.32
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    98 p50   103 p75   109 cv 0.11 | rgr/1k p25 0.19 p50 0.20 p75 0.20
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    74 p50    80 p75    88 cv 0.22 | rgr/1k p25 0.15 p50 0.16 p75 0.16
+  grow dim (width 48 frames 10000 n_est 20 lamp 0.4 rain Light soil 1): 0.85 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   2750 | end shoot p25    86 p50   195 p75   203 cv 0.71 | rgr/1k p25 0.23 p50 0.31 p75 0.32
+    shrub    germ 12/12 est 10/12 est@ p50   3250 | end shoot p25    44 p50    72 p75    81 cv 0.97 | rgr/1k p25 0.12 p50 0.21 p75 0.31
+    herb     germ 12/12 est 12/12 est@ p50   2750 | end shoot p25    60 p50    67 p75    71 cv 0.17 | rgr/1k p25 0.15 p50 0.16 p75 0.17
+    creeper  germ 12/12 est 10/12 est@ p50   1500 | end shoot p25    48 p50    68 p75    71 cv 0.54 | rgr/1k p25 0.13 p50 0.15 p75 0.17
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 7.21 core-s a bed
+    tree     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25  2227 p50  2452 p75  2701 cv 0.27 | rgr/1k p25 0.12 p50 0.13 p75 0.13
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   623 p50   744 p75   816 cv 0.30 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    92 p50   199 p75   233 cv 0.46 | rgr/1k p25 0.04 p50 0.06 p75 0.07
+    creeper  germ 12/12 est 12/12 est@ p50   1000 | end shoot p25    87 p50    95 p75   111 cv 0.21 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+  life dim (width 96 frames 40000 n_est 20 lamp 0.4 rain Light soil 1): 5.88 core-s a bed
+    tree     germ 12/12 est 10/12 est@ p50   2750 | end shoot p25   178 p50  1105 p75  1423 cv 0.78 | rgr/1k p25 0.10 p50 0.11 p75 0.12
+    shrub    germ 12/12 est 10/12 est@ p50   3750 | end shoot p25   118 p50   398 p75   456 cv 0.72 | rgr/1k p25 0.07 p50 0.09 p75 0.09
+    herb     germ 12/12 est 12/12 est@ p50   2500 | end shoot p25   179 p50   201 p75   236 cv 0.49 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+    creeper  germ 12/12 est 10/12 est@ p50   1750 | end shoot p25    38 p50    74 p75    79 cv 0.61 | rgr/1k p25 0.03 p50 0.04 p75 0.04

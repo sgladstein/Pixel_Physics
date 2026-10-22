@@ -1,0 +1,23 @@
+quiet_unread: 0 links of unread units zeroed; live links 1432 -> 1432
+revive_hidden: []
+revive_units: [] (inputs seeded, sigma 0.3)
+trainable slots: 1250 (live 1244, allow-list 247, frozen 16, of them live 2)
+group rim  : train  34108  held out   5892  target teacher
+group none : train  24785  held out   5215  target ref
+group keepL: train  19084  held out   4916  target ref
+group keep : train  25041  held out   4959  target ref
+step 0: held-out KL rim 0.0596 none 0.0554 keepL 0.0000 keep 0.0000
+step 100: held-out KL rim 0.0618 none 0.0570 keepL 0.0019 keep 0.0035  sum 0.1243  (23 s)
+step 200: held-out KL rim 0.0625 none 0.0538 keepL 0.0015 keep 0.0019  sum 0.1197  (43 s)
+step 300: held-out KL rim 0.0622 none 0.0527 keepL 0.0007 keep 0.0031  sum 0.1187  (66 s)
+step 400: held-out KL rim 0.0643 none 0.0551 keepL 0.0016 keep 0.0051  sum 0.1261  (88 s)
+step 500: held-out KL rim 0.0603 none 0.0530 keepL 0.0016 keep 0.0032  sum 0.1181  (117 s)
+step 600: held-out KL rim 0.0614 none 0.0553 keepL 0.0007 keep 0.0018  sum 0.1191  (139 s)
+step 700: held-out KL rim 0.0602 none 0.0550 keepL 0.0014 keep 0.0055  sum 0.1221  (161 s)
+step 800: held-out KL rim 0.0603 none 0.0553 keepL 0.0008 keep 0.0034  sum 0.1199  (183 s)
+early stop at 800; best step 0
+wrote /tmp/claude-0/-home-user-Pixel-Physics/759d2b83-5c44-53ec-a7d9-b404cb2c99a4/scratchpad/cr/cp/r1.txt: best step 0, live links 1432 (start 1432), moved 0, revived 0 []
+  rim   start: overlap with target 0.957 | copy: overlap with target 0.957
+  none  start: overlap with target 0.950 | copy: overlap with target 0.950
+  keepL start: overlap with target 1.000 | copy: overlap with target 1.000
+  keep  start: overlap with target 1.000 | copy: overlap with target 1.000

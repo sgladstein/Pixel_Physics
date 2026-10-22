@@ -1,4 +1,4 @@
-"""SCRATCH (teacher lane, never for main): colony-level selection with digging as a gate, for the VM.
+"""SCRATCH (teacher lane): colony-level selection with digging as a gate, for the VM.
 
 Grown from the scoring review lane's prototype (/mnt/project-files/scoring-review/colsel.py, 2026-10-22). Its test, 12
 colonies x 6 rounds, gave 3x the food and a third of the starvation, but zero digging: its rank-sum included the raw nest

@@ -261,6 +261,83 @@ const FUEL_WETNESS_FALLOFF: f32 = 2.0;
 /// the entire reason a front can leave the tussock it started on.
 const FLAME_DIRECTIONS: [(i32, i32); 6] = [(0, -1), (0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0)];
 
+/// **What [`update_from`] reads off a cell's material on a quiet visit, and
+/// nothing else** -- the guards of every step below, copied out of the
+/// registry into one small entry per material, the shape of `field.rs`'s
+/// `ScanTraits`. Before this a visit to a cell that does nothing (a warm
+/// blade of grass with nothing burning beside it) indexed the 616-byte
+/// `Material` five times: the inert check, `diffuse_heat`, `try_ignite`,
+/// `try_phase_change`, and `try_react`'s clone of its reaction list, then a
+/// sixth for `mid_phase_change`. Now one compact entry answers every guard,
+/// and the full `Material` is fetched only by a step that is actually going
+/// to act -- burn, ignite, change phase, react -- which is rare.
+///
+/// Same values compared in the same order, so bit-identical: every field is
+/// a straight copy (or the exact expression the old code computed in place),
+/// and nothing here draws from the generator.
+///
+/// Served by [`CellSurface::fire_traits_of`]: `ChunkView` answers from a
+/// table `parallel::step` builds once a frame, which cannot go stale because
+/// nothing edits the registry mid-step (`MaterialRegistry::get_mut` is the
+/// tunables panel and tests, between frames); every other surface builds the
+/// entry from the `Material` on the spot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FireTraits {
+    /// Inert on every axis this module acts on -- the old
+    /// `is_thermally_inert` without its `is_burning` term, which is the
+    /// cell's and is checked beside it.
+    inert: bool,
+    /// `heat_conductivity.min(0.25)`, the clamp `diffuse_heat` applied.
+    conductivity: f32,
+    flammability: f32,
+    ignition_temperature: f32,
+    intrinsic_temperature: f32,
+    melting_point: f32,
+    /// `melts_into.is_some()`.
+    melts: bool,
+    boiling_point: f32,
+    /// `boils_into.is_some()`.
+    boils: bool,
+    cooling_point: f32,
+    /// `cools_into.is_some()`.
+    cools: bool,
+    /// `!reactions.is_empty()`.
+    reacts: bool,
+}
+
+impl FireTraits {
+    pub(crate) fn of(material: &material::Material) -> Self {
+        let inert = material.heat_conductivity <= 0.0
+            && material.flammability <= 0.0
+            && !material.ignition_temperature.is_finite()
+            && !material.melting_point.is_finite()
+            && !material.boiling_point.is_finite()
+            && !material.cooling_point.is_finite()
+            && !material.intrinsic_temperature.is_finite()
+            && material.reactions.is_empty();
+        Self {
+            inert,
+            conductivity: material.heat_conductivity.min(0.25),
+            flammability: material.flammability,
+            ignition_temperature: material.ignition_temperature,
+            intrinsic_temperature: material.intrinsic_temperature,
+            melting_point: material.melting_point,
+            melts: material.melts_into.is_some(),
+            boiling_point: material.boiling_point,
+            boils: material.boils_into.is_some(),
+            cooling_point: material.cooling_point,
+            cools: material.cools_into.is_some(),
+            reacts: !material.reactions.is_empty(),
+        }
+    }
+
+    /// One entry per material, indexed by `MaterialId` -- `ChunkView`'s
+    /// table, built once a frame by `parallel::step`.
+    pub(crate) fn table(materials: &material::MaterialRegistry) -> Vec<Self> {
+        (0..materials.len()).map(|i| Self::of(materials.get(MaterialId(i as u16)))).collect()
+    }
+}
+
 /// Update heat, fire and phase state for the cell at `(x, y)`. Called once
 /// per visited cell, before movement is attempted — a phase change (stone
 /// melting into lava) needs to happen before this frame's movement dispatch
@@ -281,6 +358,21 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if original.material == material::EMPTY {
         return false;
     }
+    update_from(surface, x, y, original)
+}
+
+/// [`update`] for a caller that has already opened the visit and holds the
+/// cell as it stands: `update::update_cell`, which reads it a few lines
+/// earlier. Re-reading it here was 2.7% of the lab box's instructions
+/// (2026-10-22), one cell read per swept cell for a value already in hand.
+/// `original` must be exactly what `surface.get(x, y)` returns now.
+#[inline]
+pub(crate) fn update_from<S: CellSurface>(surface: &mut S, x: i32, y: i32, original: Cell) -> bool {
+    debug_assert!(original == surface.get(x, y), "update_from given a stale cell at ({x}, {y})");
+    // Never `EMPTY`: both callers return for it first -- `update` above, and
+    // `update::update_cell` before it reaches `update_occupied_cell` -- so
+    // asking again here was a compare and a branch on every occupied visit.
+    debug_assert!(original.material != material::EMPTY, "update_from given an empty cell at ({x}, {y})");
     let mut cell = original;
 
     // One combined check, one material lookup, in place of what would
@@ -305,21 +397,19 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     // compile. Every function below follows the same shape: pull out the
     // handful of `Copy` values a step needs, in one statement, then never
     // hold the reference itself past that point.
-    let material = surface.materials().get(cell.material);
-    let is_thermally_inert = !cell.is_burning()
-        && material.heat_conductivity <= 0.0
-        && material.flammability <= 0.0
-        && !material.ignition_temperature.is_finite()
-        && !material.melting_point.is_finite()
-        && !material.boiling_point.is_finite()
-        && !material.cooling_point.is_finite()
-        && !material.intrinsic_temperature.is_finite()
-        && material.reactions.is_empty();
-    if is_thermally_inert {
+    //
+    // The lookup itself is now a `FireTraits` entry rather than the
+    // `Material`, and it is carried through the steps below so none of them
+    // fetches the material just to find out it has nothing to do -- see
+    // `FireTraits`. `traits` always describes `traits_of`; a step that can
+    // change the cell's material (a burnout, a phase change) is followed by
+    // a re-fetch when it did.
+    let mut traits_of = cell.material;
+    let mut traits = surface.fire_traits_of(traits_of);
+    if !cell.is_burning() && traits.inert {
         return false;
     }
-    // Extracted while `material`'s borrow is live, same as everything below.
-    let intrinsic_temperature = material.intrinsic_temperature;
+    let intrinsic_temperature = traits.intrinsic_temperature;
 
     // Born hot, **once** — a cell of such a material (lava) still sitting
     // at the ambient default every cell is created with gets its birth
@@ -338,7 +428,7 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if intrinsic_temperature.is_finite() && cell.temperature() == AMBIENT_TEMPERATURE {
         cell.set_temperature(intrinsic_temperature.round() as i16);
     }
-    diffuse_heat(surface, x, y, &mut cell);
+    let neighbours = diffuse_heat(surface, x, y, &mut cell, traits.conductivity);
 
     // Very hot cells tell the coarse field they are hot and bright, the
     // way `tick_burn` does for flames — searing lava and fresh quench
@@ -354,11 +444,27 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if cell.is_burning() {
         tick_burn(surface, x, y, &mut cell);
     } else {
-        try_ignite(surface, x, y, &mut cell);
+        try_ignite(surface, x, y, &mut cell, &traits, neighbours);
     }
 
-    try_phase_change(surface, x, y, &mut cell);
-    try_react(surface, x, y, &mut cell);
+    // A burnout changes the material; ignition never does.
+    if cell.material != traits_of {
+        traits_of = cell.material;
+        traits = surface.fire_traits_of(traits_of);
+    }
+    if !phase_change_is_quiet(&traits, cell.temperature() as f32) {
+        try_phase_change(surface, x, y, &mut cell);
+        if cell.material != traits_of {
+            traits_of = cell.material;
+            traits = surface.fire_traits_of(traits_of);
+        }
+    }
+    if traits.reacts {
+        try_react(surface, x, y, &mut cell);
+        if cell.material != traits_of {
+            traits = surface.fire_traits_of(cell.material);
+        }
+    }
 
     let temp_off_ambient = (cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32).abs();
     // **A cell that is mid-phase-change has to keep its own chunk awake, and
@@ -372,12 +478,9 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     // rest of the run. Caught by two conservation tests that stopped
     // finishing their thaw, at the same 80.4% refill however many frames
     // they were given.
-    let mid_phase_change = {
-        // One `Vec` index, not two: this runs on every visited cell in the
-        // fire pass, which is the hottest thing in this file.
-        let m = surface.materials().get(cell.material);
-        m.melts_into.is_some() && cell.temperature() as f32 >= m.melting_point
-    };
+    // No lookup at all now: `traits` already describes the cell's material
+    // as it stands after every step above.
+    let mid_phase_change = traits.melts && cell.temperature() as f32 >= traits.melting_point;
     let must_stay_dirty = cell.is_burning() || temp_off_ambient > THERMAL_SETTLE_EPSILON || mid_phase_change;
 
     // Write whenever something actually changed, or — even with no visible
@@ -430,17 +533,24 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
 /// milestones that read ambient temperature/light) is pushed from burning
 /// cells instead, in `tick_burn` — a naturally small, bounded set at any
 /// given moment, not every swept cell.
-fn diffuse_heat<S: CellSurface>(surface: &S, x: i32, y: i32, cell: &mut Cell) {
-    let conductivity = surface.materials().get(cell.material).heat_conductivity.min(0.25);
+///
+/// `conductivity` is `FireTraits::conductivity`, already clamped. Returns
+/// the four neighbours it read -- left, right, up, down, `try_ignite`'s scan
+/// order -- so that scan does not read them a second time: nothing between
+/// the two writes a cell, and every flammable shipped material conducts, so
+/// a grass blade's quiet visit was eight neighbour reads for four cells.
+/// `None` when it returned before reading any.
+fn diffuse_heat<S: CellSurface>(surface: &S, x: i32, y: i32, cell: &mut Cell, conductivity: f32) -> Option<[Cell; 4]> {
     if conductivity <= 0.0 {
-        return;
+        return None;
     }
 
     let here = cell.temperature() as f32;
-    let left = surface.get(x - 1, y).temperature() as f32;
-    let right = surface.get(x + 1, y).temperature() as f32;
-    let up = surface.get(x, y - 1).temperature() as f32;
-    let down = surface.get(x, y + 1).temperature() as f32;
+    let neighbours = surface.get_four(x, y);
+    let left = neighbours[0].temperature() as f32;
+    let right = neighbours[1].temperature() as f32;
+    let up = neighbours[2].temperature() as f32;
+    let down = neighbours[3].temperature() as f32;
     let neighbour_avg = (left + right + up + down) / 4.0;
 
     let new_temp = here + (neighbour_avg - here) * conductivity;
@@ -510,6 +620,7 @@ fn diffuse_heat<S: CellSurface>(surface: &S, x: i32, y: i32, cell: &mut Cell) {
     };
 
     cell.set_temperature(final_temp.clamp(i16::MIN as f32, i16::MAX as f32) as i16);
+    Some(neighbours)
 }
 
 fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
@@ -748,12 +859,19 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
 /// its `ignition_temperature` (deterministic, not probabilistic at all, so
 /// it carries none of `roll_reach_at`'s staleness risk regardless of chunk
 /// sleep timing, and not moisture-gated either — see that same doc).
-fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
-    let material = surface.materials().get(cell.material);
-    let flammability = material.flammability;
-    let ignition_temperature = material.ignition_temperature;
-    // `material`'s borrow ends here — the neighbour scan and `rng()` below
-    // both need `surface` again.
+///
+/// `traits` is the cell's material's [`FireTraits`]; `neighbours` is what
+/// `diffuse_heat` already read, in this scan's order, when it read them.
+fn try_ignite<S: CellSurface>(
+    surface: &mut S,
+    x: i32,
+    y: i32,
+    cell: &mut Cell,
+    traits: &FireTraits,
+    neighbours: Option<[Cell; 4]>,
+) {
+    let flammability = traits.flammability;
+    let ignition_temperature = traits.ignition_temperature;
 
     if flammability <= 0.0 && !ignition_temperature.is_finite() {
         return; // this material can never catch fire; skip the neighbour scan entirely
@@ -767,8 +885,13 @@ fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) 
     if flammability <= 0.0 {
         return;
     }
-    let neighbours = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
-    let any_burning = neighbours.iter().any(|&(nx, ny)| surface.get(nx, ny).is_burning());
+    let any_burning = match neighbours {
+        Some(read) => read.iter().any(|n| n.is_burning()),
+        None => {
+            let neighbours = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
+            neighbours.iter().any(|&(nx, ny)| surface.get(nx, ny).is_burning())
+        }
+    };
     if !any_burning {
         return;
     }
@@ -796,6 +919,27 @@ fn ignite<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
     if burn_temperature.is_finite() {
         cell.set_temperature(burn_temperature.round() as i16);
     }
+}
+
+/// **Whether [`try_phase_change`] would do nothing at all** at `temp` --
+/// draw nothing, write nothing, count nothing -- answered from `traits`
+/// alone, so the common visit (water at room temperature, a leaf in the
+/// sun) does not fetch the material to find that out. It walks the same
+/// branches in the same order with the same comparisons; `false` only means
+/// "ask the real thing", so it may be conservative and never optimistic.
+#[inline]
+fn phase_change_is_quiet(traits: &FireTraits, temp: f32) -> bool {
+    if temp >= traits.melting_point {
+        return !traits.melts;
+    }
+    // The simmer roll, which a boiling cell also takes.
+    if traits.boils && temp >= traits.boiling_point - SIMMER_SPLASH_MARGIN {
+        return false;
+    }
+    if temp >= traits.boiling_point {
+        return !traits.boils;
+    }
+    !(traits.cools && temp <= traits.cooling_point)
 }
 
 /// Temperature-triggered melting/boiling/cooling. Checked after combustion,
@@ -1415,6 +1559,64 @@ mod tests {
     /// off and the game does not.
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
+    }
+
+    /// **`phase_change_is_quiet` may only skip a call that would have done
+    /// nothing** -- no draw, no write, no count -- or the fire pass stops
+    /// being bit-identical to the version that always called
+    /// `try_phase_change`. Swept over every shipped material and every
+    /// temperature from deep frost to past lava, which crosses every
+    /// melting, simmering, boiling and cooling threshold any of them has.
+    /// The draw is the sensitive part: a shortcut that skipped the simmer
+    /// roll would change no cell here and still shift every later roll in
+    /// the frame, so the generator's next value is compared too.
+    #[test]
+    fn a_quiet_phase_check_skips_only_visits_that_would_do_nothing() {
+        let mut w = test_world();
+        let (mut quiet, mut loud) = (0u32, 0u32);
+        for i in 2..w.materials.len() {
+            let id = MaterialId(i as u16);
+            let traits = FireTraits::of(w.materials.get(id));
+            for temp in -300i16..=1600 {
+                let placed = Cell::new(id, 0).with_temperature(temp);
+                w.set(30, 30, placed);
+                if !phase_change_is_quiet(&traits, temp as f32) {
+                    loud += 1;
+                    continue;
+                }
+                quiet += 1;
+                let next_draw = w.rng.clone().next_u64();
+                let counts = w.phase_changes;
+                let (bank, splashes) = (w.atmospheric_bank, w.splash_sites.len());
+                let mut cell = placed;
+                try_phase_change(&mut w, 30, 30, &mut cell);
+                let name = &w.materials.get(id).name;
+                assert!(cell == placed && w.get(30, 30) == placed, "{name} at {temp}C changed phase on a visit called quiet");
+                assert_eq!(w.rng.clone().next_u64(), next_draw, "{name} at {temp}C drew from the generator on a quiet visit");
+                let after = w.phase_changes;
+                assert_eq!(
+                    (after.boiled, after.condensed, after.froze, after.melted, after.reacted),
+                    (counts.boiled, counts.condensed, counts.froze, counts.melted, counts.reacted),
+                    "{name} at {temp}C counted a phase event on a quiet visit"
+                );
+                assert_eq!((w.atmospheric_bank, w.splash_sites.len()), (bank, splashes), "{name} at {temp}C");
+            }
+        }
+        // Both arms must be reached, or the sweep proves nothing.
+        assert!(quiet > 0 && loud > 0, "quiet {quiet}, loud {loud}");
+    }
+
+    /// `ChunkView` serves `FireTraits` from `FireTraits::table`, every other
+    /// surface from `FireTraits::of`; the two must agree entry for entry.
+    #[test]
+    fn the_fire_traits_table_matches_each_material() {
+        let w = test_world();
+        let table = FireTraits::table(&w.materials);
+        assert_eq!(table.len(), w.materials.len());
+        for (i, entry) in table.iter().enumerate() {
+            let id = MaterialId(i as u16);
+            assert_eq!(*entry, w.fire_traits_of(id), "{}", w.materials.get(id).name);
+        }
     }
 
     /// **A solid that has just appeared claims no support.**

@@ -375,6 +375,17 @@ pub struct Chunk {
     /// `take_chunk`/`put_chunk`, so a chunk out on a rayon worker keeps its
     /// marks.
     stale_blocks: u16,
+    /// **The part of [`Self::stale_blocks`] that a cell write made**, as
+    /// opposed to a soil-moisture write. A block marked only by
+    /// `mark_moist_dirty` still holds the materials it held at its last scan
+    /// -- a moisture write is a quiet write of the same material -- so of the
+    /// five arrays `field::rebuild_blocked` derives, only `moisture_source`
+    /// can have moved, and the field rescans that one alone (2026-10-22).
+    /// Set wherever `stale_blocks` is set except the moisture channel and a
+    /// `set_world` that keeps the cell's material (an aux or temperature
+    /// change: the same argument, and on the lab box -0.3% more); cleared
+    /// with it. `mark_dirty`, which cannot see the old cell, sets both.
+    cell_stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -675,6 +686,7 @@ impl Chunk {
             moist_cells: moisture_marks_cells(),
             sweep_rows: row_spans_enabled(),
             stale_blocks: u16::MAX,
+            cell_stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
             nutrient_recovered_at: 0,
@@ -766,6 +778,17 @@ impl Chunk {
         self.cells[local_index(x, y)]
     }
 
+    /// `(x, y)`'s four neighbours, left, right, up, down, for a cell whose
+    /// whole cross lies in this chunk -- the caller's promise, which
+    /// `ChunkView::get_four` checks: one index, then a step either way along
+    /// the row and a row either way.
+    #[inline]
+    pub fn get_four_world(&self, x: i32, y: i32) -> [Cell; 4] {
+        let i = local_index(x, y);
+        let row = CHUNK_SIZE as usize;
+        [self.cells[i - 1], self.cells[i + 1], self.cells[i - row], self.cells[i + row]]
+    }
+
     /// `reach` is the new cell's material's own `Material::sweep_reach`
     /// (the caller's job to look up, since `Chunk` has no `MaterialRegistry`
     /// access by design — only ever an opaque `MaterialId`). Only ever grows
@@ -781,8 +804,34 @@ impl Chunk {
     /// derives nothing from it. `World::write_cell` and `ChunkView::set` are
     /// the two callers that can pass `false`.
     pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool, field_relevant: bool) {
+        // A write that keeps the material moves nothing the field derives but
+        // `moisture_source` -- see `cell_stale_blocks`. Without a registry
+        // this is the most a chunk can tell; the engine's write seams know
+        // more and call `set_world_shaped`.
+        let shape_changed = self.cells[local_index(x, y)].material != cell.material;
+        self.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape_changed);
+    }
+
+    /// [`Self::set_world`], told by the caller whether the write can move
+    /// anything the field derives besides `moisture_source`
+    /// (`field::changes_block_shape`). `false` marks the block for the
+    /// moisture-only rescan; it must be `true` whenever the material's
+    /// opacity, glow or beam -- or, with `water_opacity` on, its liquidity --
+    /// differs between the old and new cell.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn set_world_shaped(
+        &mut self,
+        x: i32,
+        y: i32,
+        cell: Cell,
+        reach: i32,
+        is_liquid: bool,
+        field_relevant: bool,
+        shape_changed: bool,
+    ) {
         self.cells[local_index(x, y)] = cell;
-        self.mark_dirty_inner(x, y, field_relevant);
+        self.mark_dirty_inner(x, y, field_relevant, shape_changed);
         self.reach = self.reach.max(reach);
         self.has_liquid |= is_liquid;
     }
@@ -816,7 +865,7 @@ impl Chunk {
     /// neighbours. Cheap enough to call on every write.
     #[inline]
     pub fn mark_dirty(&mut self, x: i32, y: i32) {
-        self.mark_dirty_inner(x, y, true);
+        self.mark_dirty_inner(x, y, true, true);
     }
 
     /// The body of [`Self::mark_dirty`], with the one line the field cares
@@ -831,13 +880,17 @@ impl Chunk {
     /// writing into its own cells, can set a bit here, and only it is given
     /// the choice.
     #[inline]
-    fn mark_dirty_inner(&mut self, x: i32, y: i32, field_relevant: bool) {
+    fn mark_dirty_inner(&mut self, x: i32, y: i32, field_relevant: bool, material_changed: bool) {
         match &mut self.pending_dirty {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
         if field_relevant {
-            self.stale_blocks |= self.block_bit(x, y);
+            let bit = self.block_bit(x, y);
+            self.stale_blocks |= bit;
+            if material_changed {
+                self.cell_stale_blocks |= bit;
+            }
         }
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
@@ -867,7 +920,7 @@ impl Chunk {
     /// solve per frame for no reason.
     #[inline]
     pub fn keep_awake(&mut self, x: i32, y: i32) {
-        self.mark_dirty_inner(x, y, false);
+        self.mark_dirty_inner(x, y, false, false);
     }
 
     /// The furthest any material resident in this chunk can move sideways in
@@ -1232,6 +1285,7 @@ impl Chunk {
         self.pending_moist_rows = full_rows(self.coord);
         self.pending_moist_cells = full_moist_cells();
         self.stale_blocks = u16::MAX;
+        self.cell_stale_blocks = u16::MAX;
     }
 
     /// The bit in [`Self::stale_blocks`] for the block holding world cell
@@ -1250,10 +1304,21 @@ impl Chunk {
     }
 
     /// Take the stale-block mask, leaving it clear: the field has rescanned
-    /// those blocks and everything written from here on is new.
+    /// those blocks and everything written from here on is new. Returns
+    /// `(stale, cells)`: every stale block, and the ones a cell write marked
+    /// (see [`Self::cell_stale_blocks`]); `stale & !cells` is the blocks
+    /// only soil moisture moved in.
     #[inline]
-    pub fn take_stale_blocks(&mut self) -> u16 {
-        std::mem::take(&mut self.stale_blocks)
+    pub fn take_stale_blocks(&mut self) -> (u16, u16) {
+        (std::mem::take(&mut self.stale_blocks), std::mem::take(&mut self.cell_stale_blocks))
+    }
+
+    /// Both masks [`Self::take_stale_blocks`] would take, without taking
+    /// them: the field's moisture-only rescan test needs to know which path a
+    /// block will take.
+    #[cfg(test)]
+    pub(crate) fn stale_masks(&self) -> (u16, u16) {
+        (self.stale_blocks, self.cell_stale_blocks)
     }
 
     /// Whether any block holds a write the field has not derived from yet --

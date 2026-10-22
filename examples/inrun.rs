@@ -1,4 +1,4 @@
-//! SCRATCH (teacher lane, in-run selection pilot, 2026-10-21; never for main): one colony on the training bed with
+//! SCRATCH (teacher lane, in-run selection pilot, 2026-10-21): one colony on the training bed with
 //! Dig on and surface food, every founder given a mind from a mix of genomes, the body's egg-laying off. Writes the
 //! per-ant events the pilot's score is built from, and the nest's open cells every `window` frames.
 //!
@@ -24,7 +24,7 @@
 use pixel_physics::sim::creature;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::pheromone;
-use pixel_physics::train::challenges::{inrun, Scarce, Soil, Suite, Trail};
+use pixel_physics::train::challenges::inrun;
 use pixel_physics::train::{self};
 use std::collections::HashMap;
 use std::io::Write;
@@ -210,17 +210,8 @@ fn main() {
     let spread = num("spread", 0) as i32;
     let out = std::path::PathBuf::from(arg(&a, "out").expect("out=DIR"));
     std::fs::create_dir_all(&out).unwrap();
-    let suite = Suite::new(
-        vec![
-            (Box::new(Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 }), false),
-            (
-                Box::new(Scarce { ants: 1, frames: 6000, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE), dist: (10, 30), steps: true, fed: true, dig: false }),
-                true,
-            ),
-            (Box::new(Trail { ants: 6, frames: 6000, clones: false }), true),
-        ],
-        0.8,
-    );
+    // The suite a founder enters by is the game training page's own (`colony_bed::suite`): soil + scarce + trail.
+    let suite = pixel_physics::train::challenges::colony_bed::suite();
     // founders=path:count,...
     let mut mix: Vec<(String, Arc<creature::mind::MindGenome>, usize)> = Vec::new();
     // The raw genome behind each mix entry, for the selection loop's children.
@@ -929,7 +920,11 @@ fn main() {
             dig_price = 1.0 + kprice * (1.0 - per / 25.0).max(0.0);
         }
         if sel != "off" && fr % judge_every == 0 {
-            for (id, b) in &book {
+            // In id order: `book` is a HashMap, and its order is not the run's (a read, not a choice -- only the
+            // file's row order moved when this was sorted).
+            let mut aged: Vec<(&u32, &Who)> = book.iter().collect();
+            aged.sort_unstable_by_key(|(id, _)| **id);
+            for (id, b) in aged {
                 let age = frame - b.born;
                 if age >= 30_000 && age < 30_000 + judge_every {
                     writeln!(age30, "{id},{:.4}", b.credit / 30.0).unwrap();

@@ -1,0 +1,35 @@
+    dim, on: light at the planting site (3 rows up) 0.24 of full
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    dim, on: founder alive at the end; deaths in the bed by cause []
+    SEED dim, on s=0 shoot 170 sprouts 0 shed shade 0 scald 13
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=1 shoot 352 sprouts 0 shed shade 0 scald 22
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=2 shoot 550 sprouts 0 shed shade 2 scald 26
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=3 shoot 392 sprouts 0 shed shade 1 scald 30
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=4 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=5 shoot 481 sprouts 0 shed shade 1 scald 22
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=6 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=7 shoot 791 sprouts 0 shed shade 1 scald 17
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=8 shoot 178 sprouts 0 shed shade 2 scald 13
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=9 shoot 741 sprouts 0 shed shade 4 scald 57
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=10 shoot 894 sprouts 0 shed shade 4 scald 31
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=11 shoot 305 sprouts 0 shed shade 2 scald 31
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=12 shoot 277 sprouts 0 shed shade 1 scald 23
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=13 shoot 326 sprouts 0 shed shade 0 scald 19
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=14 shoot 110 sprouts 0 shed shade 0 scald 27
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=shrub:tolerate:0.7
+    SEED dim, on s=15 shoot 320 sprouts 0 shed shade 2 scald 13
+  dim, on      alive 14/16 leaf light 0.20 | shoot 420.50+-241.96 height 20.50+-6.87 width 47.29+-12.17 leaf_share 0.29+-0.12 root 177.71+-60.34 root_depth 30.14+-10.10

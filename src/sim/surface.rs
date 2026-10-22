@@ -21,8 +21,8 @@
 //! surface both paths present to the rules.
 
 use super::cell::Cell;
-use super::fire::PhaseEvent;
-use super::material::{MaterialKind, MaterialRegistry};
+use super::fire::{FireTraits, PhaseEvent};
+use super::material::{MaterialId, MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
 
@@ -127,6 +127,17 @@ impl Default for VisitRng {
 
 pub trait CellSurface {
     fn get(&self, x: i32, y: i32) -> Cell;
+
+    /// `(x, y)`'s four neighbours, left, right, up, down -- exactly
+    /// `[get(x - 1, y), get(x + 1, y), get(x, y - 1), get(x, y + 1)]`. The
+    /// heat pass asks it of every conducting cell it visits. The default is
+    /// those four reads; `ChunkView` answers a cell whose whole cross is in
+    /// its own chunk with one bounds test and one index instead of four of
+    /// each.
+    #[inline]
+    fn get_four(&self, x: i32, y: i32) -> [Cell; 4] {
+        [self.get(x - 1, y), self.get(x + 1, y), self.get(x, y - 1), self.get(x, y + 1)]
+    }
     fn set(&mut self, x: i32, y: i32, cell: Cell);
     fn in_bounds(&self, x: i32, y: i32) -> bool;
 
@@ -210,6 +221,47 @@ pub trait CellSurface {
     fn keep_awake(&mut self, x: i32, y: i32);
 
     fn materials(&self) -> &MaterialRegistry;
+
+    /// `Material::water_capacity` of `id`. **The soil-water pass's commonest
+    /// question**, asked of the cell, each partner and the cell below on
+    /// every visit; through `materials()` each one indexes a 616-byte
+    /// `Material`. The default is exactly that; `MoistureView`, the pass's
+    /// own surface, answers from a compact per-material table built once a
+    /// pass, which returns the same value.
+    #[inline]
+    fn water_capacity_of(&self, id: MaterialId) -> u16 {
+        self.materials().get(id).water_capacity
+    }
+
+    /// `fire::FireTraits` of `id`: the guards of the fire pass, asked once
+    /// per occupied cell the sweep visits. The default builds the entry from
+    /// the `Material`; `ChunkView`, the sweep's own surface, answers from a
+    /// table `parallel::step` builds once a frame, which holds the same
+    /// values.
+    #[inline]
+    fn fire_traits_of(&self, id: MaterialId) -> FireTraits {
+        FireTraits::of(self.materials().get(id))
+    }
+
+    /// `Material::kind` of `id`, for the same reason as
+    /// [`Self::water_capacity_of`].
+    #[inline]
+    fn kind_of(&self, id: MaterialId) -> MaterialKind {
+        self.materials().kind(id)
+    }
+
+    /// **Can none of `(x, y)`'s four neighbours be liquid?** `true` only when
+    /// that is certain; `false` means "look". The soil-water pass asks it
+    /// before reading four neighbours for one to drink from, and on a bed
+    /// with no standing water every one of those reads finds nothing. The
+    /// default never knows; `MoistureView` knows when the neighbours are all
+    /// in its own chunk and that chunk holds no liquid at all
+    /// (`Chunk::has_liquid`, which can be stale `true` but never stale
+    /// `false`).
+    #[inline]
+    fn no_liquid_beside(&self, _x: i32, _y: i32) -> bool {
+        false
+    }
 
     /// **Open a cell's visit**, before any rule reads or writes it.
     ///

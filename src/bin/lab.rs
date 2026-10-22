@@ -72,11 +72,28 @@
 //!   `Lab::pixel_budget` changes.
 //! - `PIXEL_PHYSICS_LAB_FOOD=N` presses `F7` N times before the shot, which is
 //!   the only headless route to a view with no bar cell.
+//! - `PIXEL_PHYSICS_LAB_TICKS=N` runs N ticks before the first frame, so a
+//!   shot can show a box (or a training round) that has lived.
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
 //!
+//! **The interface is drawn on a layer of its own**, at twice the box's
+//! resolution so its text is crisp, and composited over the box on the GPU
+//! (`layer.rs`, `Lab::draw_layered`). It is repainted only when something on
+//! it can have changed. `PIXEL_PHYSICS_LAB_CRISP=0` puts it back into the
+//! box's buffer at 1x, the path every harness in `examples/` draws; the
+//! screenshot hook writes the composite, at the layer's 1024x640.
+//!
 //! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
+//!
+//! Two words on the command line open it otherwise:
+//! `cargo run --release --bin lab -- newant` puts every ant on the trained
+//! mind (MENU's ANT BRAIN row), and `-- training` opens the COLONY TRAINING
+//! page with round 0 founded on the training bed (`lab::training`).
+
+#[path = "lab/layer.rs"]
+mod layer;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -84,8 +101,9 @@ use std::time::{Duration, Instant};
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::time::Phase;
 use pixel_physics::lab::ui::{Action, Panel, Tool};
-use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
-use pixels::{Pixels, SurfaceTexture};
+use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, LAYER_SIZE, WIDTH};
+use pixel_physics::render;
+use pixels::{wgpu, Pixels, PixelsBuilder, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -153,6 +171,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
+    /// The interface layer (`Lab::draw_layered`, `layer.rs`), `None` when
+    /// `PIXEL_PHYSICS_LAB_CRISP=0` puts the interface back into the box's own
+    /// buffer at 1x -- the path every harness in `examples/` still draws.
+    layer: Option<layer::Layer>,
+    crisp: bool,
     lab: Lab,
     last_frame: Instant,
     last_title: Instant,
@@ -270,9 +293,33 @@ impl Handler {
                 Err(e) => eprintln!("scenario {name}: {e}"),
             }
         }
+        // `-- newant`: every ant decides by the trained mind from the first
+        // frame (the ANT BRAIN row). `-- training`: open on the COLONY
+        // TRAINING page with round 0 founded, paused.
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.iter().any(|a| a == "newant") {
+            let msg = lab.set_new_ant(true);
+            lab.ui.say(msg);
+        }
+        if args.iter().any(|a| a == "training") {
+            lab.show_help = false;
+            lab.act(Action::Panel(Panel::Training));
+            let msg = lab.start_training();
+            lab.ui.say(msg);
+        }
+        // `PIXEL_PHYSICS_LAB_TICKS=N`: run N ticks before the first frame, the
+        // debug hooks' reason -- a headless shot cannot press SPACE, so without
+        // it every shot is of a box that has not lived.
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_LAB_TICKS").ok().and_then(|v| v.parse::<u64>().ok()) {
+            for _ in 0..n {
+                lab.tick_for_harness();
+            }
+        }
         Self {
             window: None,
             pixels: None,
+            layer: None,
+            crisp: std::env::var("PIXEL_PHYSICS_LAB_CRISP").map_or(true, |v| v != "0"),
             lab,
             last_frame: Instant::now(),
             last_title: Instant::now(),
@@ -419,16 +466,32 @@ impl Handler {
         } else {
             match &mut self.pixels {
             Some(pixels) => {
-                self.lab.draw(pixels.frame_mut(), self.fps);
+                let repainted = match &mut self.layer {
+                    Some(layer) => self.lab.draw_layered(pixels.frame_mut(), &mut layer.cpu, self.fps),
+                    None => {
+                        self.lab.draw(pixels.frame_mut(), self.fps);
+                        false
+                    }
+                };
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
                         let path = std::env::temp_dir().join("pixel_physics_lab.png");
+                        // With the layer up, the shot is what the window
+                        // shows: the box under the interface at the layer's
+                        // size, composited the way `layer.rs`'s shader does.
+                        let (shot, size) = match &self.layer {
+                            Some(layer) => (
+                                render::composite_layer(pixels.frame(), want, &layer.cpu, LAYER_SIZE),
+                                LAYER_SIZE,
+                            ),
+                            None => (pixels.frame().to_vec(), want),
+                        };
                         match image::save_buffer(
                             &path,
-                            pixels.frame(),
-                            want.0,
-                            want.1,
+                            &shot,
+                            size.0,
+                            size.1,
                             image::ColorType::Rgba8,
                         ) {
                             Ok(()) => eprintln!("lab screenshot saved: {}", path.display()),
@@ -439,7 +502,15 @@ impl Handler {
                     }
                 }
                 self.drawn = true;
-                pixels.render().err().map(|e| format!("render failed: {e}"))
+                match &mut self.layer {
+                    Some(layer) => {
+                        if repainted {
+                            layer.upload(pixels);
+                        }
+                        layer.render(pixels).err().map(|e| format!("render failed: {e}"))
+                    }
+                    None => pixels.render().err().map(|e| format!("render failed: {e}")),
+                }
             }
             None => None,
             }
@@ -539,15 +610,24 @@ impl Handler {
         }
 
         // Any key dismisses the opening key list, so it is never in the way —
-        // except `?`, which toggles it, and `Escape`, which quits.
+        // except `?`, which toggles it, and `Escape`, which closes it.
         if self.lab.show_help && code != KeyCode::Escape {
-            self.lab.show_help = false;
+            // `?` over the welcome card opens the key list; over the key
+            // list it closes it (`Action::Help`).
             if code == KeyCode::Slash {
+                self.lab.act(Action::Help);
                 return;
             }
+            self.lab.show_help = false;
         }
         match code {
-            KeyCode::Escape => event_loop.exit(),
+            // Closes the window opened last; quits only on a second press
+            // with nothing open (`Lab::escape`).
+            KeyCode::Escape => {
+                if self.lab.escape() {
+                    event_loop.exit();
+                }
+            }
             KeyCode::Slash => self.lab.act(Action::Help),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
@@ -823,8 +903,19 @@ impl ApplicationHandler for Handler {
         };
         let size = window.inner_size();
         let surface = SurfaceTexture::new(size.width, size.height, Arc::clone(&window));
-        match Pixels::new(WIDTH, HEIGHT, surface) {
-            Ok(p) => self.pixels = Some(p),
+        // **The box's texture holds raw bytes on the layered path**
+        // (`Rgba8Unorm`), because the composite is done on them in gamma
+        // space and decoded once at the end -- see `layer.rs`. The crate's
+        // own pass, used when the layer is off, wants its sRGB default.
+        let builder = PixelsBuilder::new(WIDTH, HEIGHT, surface);
+        let builder = if self.crisp { builder.texture_format(wgpu::TextureFormat::Rgba8Unorm) } else { builder };
+        match builder.build() {
+            Ok(p) => {
+                if self.crisp {
+                    self.layer = Some(layer::Layer::new(&p));
+                }
+                self.pixels = Some(p);
+            }
             Err(err) => return self.fail(event_loop, format!("pixels init failed: {err}")),
         }
         self.window = Some(window);
@@ -832,6 +923,21 @@ impl ApplicationHandler for Handler {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // **Any input may change what the interface shows**, including the
+        // keys that reach past `Lab::act` into the renderer or a field, so
+        // the layer is marked due here once rather than at each of them.
+        if matches!(
+            event,
+            WindowEvent::CursorMoved { .. }
+                | WindowEvent::CursorLeft { .. }
+                | WindowEvent::MouseInput { .. }
+                | WindowEvent::MouseWheel { .. }
+                | WindowEvent::KeyboardInput { .. }
+                | WindowEvent::ModifiersChanged(_)
+                | WindowEvent::Resized(_)
+        ) {
+            self.lab.touch_chrome();
+        }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -897,7 +1003,11 @@ impl ApplicationHandler for Handler {
                     MouseScrollDelta::LineDelta(_, y) => y > 0.0,
                     MouseScrollDelta::PixelDelta(p) => p.y > 0.0,
                 };
-                self.zoom(if up { 1 } else { -1 });
+                // Over a window the wheel scrolls it, or does nothing; only
+                // over the box does it zoom (`Lab::wheel`).
+                if !self.cursor.is_some_and(|(x, y)| self.lab.wheel(x, y, !up)) {
+                    self.zoom(if up { 1 } else { -1 });
+                }
             }
             WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {

@@ -1,0 +1,60 @@
+--------------------------------------------------------------------------------
+Profile data file '/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/cg.retry24.out.1' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 1153420893
+Trigger: Client Request: mind-rep0-f40600
+Profiled target:  /tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census seed=1 at=40000 handat=40000 window=600 reps=1 arms=mind mind=/mnt/project-files/perf/genomes/v2-C3.txt cg=1 (PID 4025, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                     
+--------------------------------------------------------------------------------
+6,249,816,650 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+6,057,196,619 (96.92%)  examples/needscost.rs:needscost::main
+6,057,194,201 (96.92%)  examples/needscost.rs:<needscost::Arm>::step [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+6,056,612,354 (96.91%)  src/lab/mod.rs:<needscost::Arm>::step
+6,056,611,154 (96.91%)  src/lab/mod.rs:<pixel_physics::lab::Lab>::tick [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,924,817,386 (94.80%)  src/lab/mod.rs:pixel_physics::lab::tick_world [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,923,438,046 (94.78%)  /home/user/Pixel_Physics/src/sim/frame.rs:pixel_physics::sim::frame::step
+5,593,139,503 (89.49%)  src/sim/frame.rs:pixel_physics::sim::frame::step [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,171,637,794 (82.75%)  /home/user/Pixel_Physics/src/sim/world.rs:<pixel_physics::sim::world::World>::step_active_sites
+5,171,634,794 (82.75%)  src/sim/world.rs:<pixel_physics::sim::world::World>::step_active_sites [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,147,816,219 (82.37%)  /home/user/Pixel_Physics/src/sim/scheduler.rs:pixel_physics::sim::scheduler::step
+5,116,460,303 (81.87%)  src/sim/scheduler.rs:pixel_physics::sim::scheduler::step [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,109,256,953 (81.75%)  /home/user/Pixel_Physics/src/sim/creature.rs:pixel_physics::sim::creature::tick
+5,073,487,787 (81.18%)  src/sim/creature.rs:pixel_physics::sim::creature::tick [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+5,013,874,688 (80.22%)  src/sim/creature.rs:pixel_physics::sim::creature::creature_tick [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+4,908,755,874 (78.54%)  /home/user/Pixel_Physics/src/sim/creature/mind.rs:pixel_physics::sim::creature::mind::tick
+4,299,817,137 (68.80%)  src/sim/creature/mind.rs:pixel_physics::sim::creature::mind::tick [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+2,543,953,701 (40.70%)  /home/user/Pixel_Physics/src/sim/creature/options.rs:pixel_physics::sim::creature::options::build_with
+2,340,296,013 (37.45%)  src/sim/creature/options.rs:pixel_physics::sim::creature::options::build_with [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+1,868,396,416 (29.90%)  src/sim/creature/options.rs:pixel_physics::sim::creature::options::build_remembering::{closure#1} [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+  514,700,760 ( 8.24%)  /home/user/Pixel_Physics/src/sim/world.rs:<pixel_physics::sim::world::World>::get
+  421,308,509 ( 6.74%)  /home/user/Pixel_Physics/src/sim/parallel.rs:pixel_physics::sim::parallel::step
+  391,579,223 ( 6.27%)  /home/user/Pixel_Physics/src/sim/world.rs:<pixel_physics::sim::world::World>::field_at_bilinear
+  373,641,102 ( 5.98%)  /home/user/Pixel_Physics/src/sim/creature.rs:pixel_physics::sim::creature::under_cover_by::<pixel_physics::sim::creature::CellMemo>
+  368,080,452 ( 5.89%)  /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/iter/range.rs:pixel_physics::sim::creature::under_cover_by::<pixel_physics::sim::creature::CellMemo>
+  347,871,102 ( 5.57%)  src/sim/chunk.rs:<pixel_physics::sim::world::World>::get
+  339,912,172 ( 5.44%)  /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/iter/traits/iterator.rs:core::iter::traits::iterator::Iterator::any::check::<i32, pixel_physics::sim::creature::under_cover_by<pixel_physics::sim::creature::CellMemo>::{closure#0}>::{closure#0} [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+  307,241,413 ( 4.92%)  src/sim/parallel.rs:pixel_physics::sim::parallel::step [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+  302,908,403 ( 4.85%)  src/sim/field.rs:<pixel_physics::sim::world::World>::field_at_bilinear
+  300,206,863 ( 4.80%)  /home/user/Pixel_Physics/src/sim/creature.rs:pixel_physics::sim::creature::settle
+  299,874,024 ( 4.80%)  /home/user/Pixel_Physics/src/sim/parallel.rs:pixel_physics::sim::parallel::run_pass::{closure#0}
+  293,777,856 ( 4.70%)  src/sim/update.rs:pixel_physics::sim::parallel::run_pass::{closure#0}
+  291,291,742 ( 4.66%)  src/sim/update.rs:pixel_physics::sim::update::update_cell::<pixel_physics::sim::parallel::ChunkView> [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+  279,531,083 ( 4.47%)  src/sim/creature.rs:pixel_physics::sim::creature::settle [/tmp/claude-0/-home-user-Pixel-Physics/e6adf63b-4f53-5381-b24c-8cedd1693cf6/scratchpad/needscost-census]
+  209,112,588 ( 3.35%)  /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/ptr/non_null.rs:pixel_physics::sim::creature::mind::tick
+  208,887,212 ( 3.34%)  src/sim/creature.rs:core::iter::traits::iterator::Iterator::any::check::<i32, pixel_physics::sim::creature::under_cover_by<pixel_physics::sim::creature::CellMemo>::{closure#0}>::{closure#0}

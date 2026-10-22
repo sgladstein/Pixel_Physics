@@ -166,6 +166,9 @@ const CG_DUMP_STATS_AT: u64 = 0x4354_0003;
 const CG_START_INSTRUMENTATION: u64 = 0x4354_0004;
 const CG_STOP_INSTRUMENTATION: u64 = 0x4354_0005;
 
+#[path = "common/hashes.rs"]
+mod hashes;
+
 /// One arm: its own box, ticked exactly as `deeptrace` ticks it.
 struct Arm {
     label: String,
@@ -182,10 +185,14 @@ struct Arm {
     scorer: Option<creature::targets::Targets>,
     /// The `shadow` arm: build the option list from frame `at` on.
     shadow: bool,
+    /// The `mind` arm's genome (`creature::mind`, stage 2: the new ant the
+    /// teacher lane trains), given to every ant and brood item on the frame
+    /// `handat=` names; births inherit it from there.
+    mind: Option<std::sync::Arc<creature::mind::MindGenome>>,
 }
 
 impl Arm {
-    fn new(label: &str, seed: u64, target: usize, scorer: Option<&(Vec<f32>, creature::targets::Free)>) -> Arm {
+    fn new(label: &str, seed: u64, target: usize, scorer: Option<&(Vec<f32>, creature::targets::Free)>, mind: Option<&Vec<f32>>) -> Arm {
         let mut sc = Scenario::load("nest_goal").unwrap_or_else(|e| {
             eprintln!("scenario nest_goal: {e}");
             std::process::exit(1);
@@ -199,7 +206,7 @@ impl Arm {
         }
         let (mode, parts) = label.split_once('/').map_or((label, None), |(m, p)| (m, Some(p)));
         let needs = match mode {
-            "off" | "scorer" | "shadow" => None,
+            "off" | "scorer" | "shadow" | "mind" => None,
             other => Some(creature::needs::NeedsMode::parse(other)),
         };
         let scorer = (mode == "scorer").then(|| {
@@ -228,6 +235,13 @@ impl Arm {
             target,
             scorer,
             shadow: mode == "shadow",
+            mind: (mode == "mind").then(|| {
+                let g = mind.unwrap_or_else(|| {
+                    eprintln!("arm mind needs mind=<mind genome file>");
+                    std::process::exit(1);
+                });
+                std::sync::Arc::new(creature::mind::MindGenome::new(g.clone()))
+            }),
         }
     }
 
@@ -257,6 +271,17 @@ impl Arm {
                     self.lab.world.targets = Some(t);
                 }
                 self.lab.world.option_shadow = self.shadow;
+                if let Some(g) = self.mind.take() {
+                    let w = &mut self.lab.world;
+                    let sp = w.species.id_of("ant").expect("ant ships");
+                    let mut ids = w.live_organism_ids();
+                    ids.extend(w.live_brood_ids());
+                    ids.retain(|&id| w.organism(id).is_some_and(|s| s.species == sp));
+                    for &id in &ids {
+                        creature::mind::give(w, id, g.clone());
+                    }
+                    println!("  {}: {} ants and brood given a mind at frame {at}", self.label, ids.len());
+                }
             }
         }
         // **Say so when the scorer never went in**: it is installed only
@@ -313,15 +338,30 @@ fn main() {
             creature::targets::Free::parse(&free),
         )
     });
+    // A stage 2 mind genome, read as `train::start_mind` reads one: padded
+    // to this build's layout, Pick up split from Eat if it predates that,
+    // and no verb banned -- the lab offers every verb.
+    let mind_path: Option<String> = arg("mind");
+    let mind = mind_path.as_ref().map(|p| {
+        let path = std::path::Path::new(p);
+        let len = pixel_physics::train::genome_file_len(path);
+        let mut g = creature::mind::pad(pixel_physics::train::load_genome(path, len))
+            .unwrap_or_else(|| panic!("mind={p}: a genome of {len} slots is not a mind"));
+        if pixel_physics::train::genome_file_layout(path).is_none() {
+            creature::mind::split_pick_up(&mut g);
+        }
+        g
+    });
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string());
     println!(
-        "needscost: scenario=nest_goal seed={seed} at={at} handat={hand_at} window={window} reps={reps} food={target} arms={arms_arg} scorer={} free={free:?} cg={} RAYON_NUM_THREADS={threads}",
+        "needscost: scenario=nest_goal seed={seed} at={at} handat={hand_at} window={window} reps={reps} food={target} arms={arms_arg} scorer={} free={free:?} mind={} cg={} RAYON_NUM_THREADS={threads}",
         scorer_path.as_deref().unwrap_or("-"),
+        mind_path.as_deref().unwrap_or("-"),
         u8::from(cg)
     );
     let mut arms: Vec<Arm> = arms_arg
         .split(',')
-        .map(|a| Arm::new(a.trim(), seed, target, scorer.as_ref()))
+        .map(|a| Arm::new(a.trim(), seed, target, scorer.as_ref(), mind.as_ref()))
         .collect();
     let started = Instant::now();
     for arm in arms.iter_mut() {
@@ -407,6 +447,16 @@ fn main() {
                 verbs.join(", ")
             );
         }
+    }
+    // **The bit-identity check for a speed change** (the performance
+    // threads' rule, 2026-10-21: a speed-up must reproduce existing runs bit
+    // for bit). Three digests at the end of each arm's last window: the grid
+    // (`antcost`'s arithmetic), the field (`field::field_hash`), and the
+    // organisms' own state, which moves the tick a decision differs and long
+    // before the grid does -- a relabelled colony or a nudged brain state is
+    // invisible to the other two for many frames.
+    for arm in &arms {
+        println!("  {} hashes at frame {}: {}", arm.label, arm.f, hashes::line(&arm.lab.world));
     }
     println!("arm           min ms/frame  median ms/frame  mean ants");
     for (k, arm) in arms.iter().enumerate() {

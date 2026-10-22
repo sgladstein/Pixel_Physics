@@ -1,4 +1,4 @@
-# SCRATCH (teacher lane, never for main). Portable copy of the lane's rounds2.sh, run from the repo root.
+# SCRATCH (teacher lane). Portable copy of the lane's rounds2.sh, run from the repo root.
 # usage: rounds.sh OUT SEED ROUNDS FRAMES SEL GENOME [extra inrun args...]
 # Round 0 founds on 30 mutants of GENOME; each later round founds a fresh world (seed*1000+r) on the last round's living
 # ants (top 30 by score; random arm: 30 at random), topped up to 30 requests by repeating them. Scores and ages restart.

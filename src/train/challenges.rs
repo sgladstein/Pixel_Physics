@@ -3,6 +3,7 @@
 
 use super::{Challenge, Layout, Score, Unit};
 use crate::lab::census::{self, Ids};
+use crate::lab::nestscore;
 use crate::lab::scenario::Scenario;
 use crate::sim::brain::BrainOutput as O;
 use crate::sim::chunk::Rect;
@@ -10,6 +11,11 @@ use crate::sim::cell::OrganismId;
 use crate::sim::organism::{self, SpeciesId};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::{creature, material, update, Cell, World};
+
+pub mod maze;
+pub mod openmaze;
+pub use maze::Maze;
+pub use openmaze::OpenMaze;
 
 /// Verbs that belong to other species or to a game this rig is not playing
 /// yet: hopping and flying (found by the probe as the cheap way to be
@@ -1427,6 +1433,15 @@ pub struct Soil {
     /// run's own hold-out numbers are not comparable across it; judge on
     /// `sealed=1` at the default.
     pub step_near: f64,
+    /// **Print the general nest score at the bell** (part `nest`,
+    /// [`nestscore`]; owner, 2026-10-21: a printed number, never paid).
+    /// `examples/train.rs` sets it for `score=` and `noise=1` only: a suite
+    /// runs this arena on ~2,800 worlds a generation and keeps only its fit,
+    /// so reading the nest on every one would slow every run for a number
+    /// nobody reads (brain lane, 2026-10-21). Off, the part is 0. A read of
+    /// the grid: it touches neither the world nor a random stream, so on or
+    /// off the run is the same bit for bit.
+    pub nest: bool,
 }
 
 /// The soil trip's verbs: the forager's ([`SCARCE_VERBS`]) and the cut.
@@ -1786,12 +1801,20 @@ fn is_ground(w: &World, x: i32, y: i32) -> bool {
 
 /// **Rescale a species to a finite budget**, every standing bill kept at
 /// what it is at the authored budget ([`never_starve`] is this at 1e9).
+/// **The energy sense keeps the authored tank** (`CreatureDef::sensed_tank`):
+/// the budget is the bills' unit, not what one tank feels like, so an ant
+/// here feels its bank against the same tank as in the colony and the game.
+/// Before 2026-10-22 it read a flat 0.5 in fetch and trail; copy v2 on
+/// reliab's soil worlds, priced before the change: 10.71 -> 10.12 full
+/// loads (-0.58 +- 0.32), fetch 19.83 -> 19.76, so brains trained before it
+/// want a re-check.
 fn budget_to(def: &mut organism::CreatureDef, joules: f32) {
     assert!(
         joules.is_finite() && joules > 0.0,
         "a budget of {joules} J: every bill priced as a fraction of it would be infinite, or free"
     );
     let authored = def.start_energy;
+    def.sensed_tank.get_or_insert(authored);
     def.start_energy = joules;
     let k = authored / def.start_energy;
     def.synapse_fraction *= k;
@@ -1906,7 +1929,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share", "full_loads", "full_cuts", "full_share"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share", "full_loads", "full_cuts", "full_share", "nest"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -2013,7 +2036,7 @@ impl Challenge for Soil {
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         creature::mind::scratch_log::SETTLE.with(|s| s.set(false));
-        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline -- into the
+        // SCRATCH (investigation): every cut and put-down, for tracing pellets offline -- into the
         // decision log, and the copy log (world-tagged) when that is on.
         if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
             let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
@@ -2031,6 +2054,18 @@ impl Challenge for Soil {
             }
         }
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
+        // The nest as it stands after the settle, its door the founding
+        // shaft's column. At steps 4-5 every ant's nest is a shaft and the
+        // cuts round it, which read near zero whatever the ant did (s171 on
+        // the 96 test worlds, 8-row shaft: -22.4 to 4.8, median -5.2, once
+        // the open pit at the rim is charged; -13.5 to 6.3, median -2.5
+        // before the per-column sky, which read the box's walls as ground at
+        // the lid and every pit as 0): a baseline for the room steps, not a
+        // signal yet ("Dig and nest scoring", 2026-10-22).
+        let nest = match (self.nest, w.nest_sites.first()) {
+            (true, Some(site)) => nestscore::of_world(&w, &sc.bed, site.x, &nestscore::HARVESTER).0.score,
+            _ => 0.0,
+        };
         vec![Score {
             fit: trip.score,
             parts: vec![
@@ -2065,6 +2100,10 @@ impl Challenge for Soil {
                 // / mean(full_cuts): s81's hold-best reads 0.50 here and 1.00
                 // pooled, and `load_share` is the same (review of PR 726, N9).
                 if trip.full_cuts > 0 { trip.full_loads as f64 / trip.full_cuts as f64 } else { 0.0 },
+                // Last, so every part before it keeps its column: the brain
+                // lane's `judge.py` and saved test-score files read
+                // `full_loads` by position.
+                nest,
             ],
         }]
     }
@@ -2645,27 +2684,82 @@ impl Challenge for Suite {
     }
 }
 
-/// SCRATCH (teacher lane, in-run selection pilot, 2026-10-21; never for main):
-/// one colony on the training bed with Dig on and surface food dripped at
-/// `dist` columns, every ant given its own mind, the body's egg-laying off.
-pub mod inrun {
+/// **The bed and the mind of in-run colony selection** (`lab::training`):
+/// the teacher lane's harness (`examples/inrun.rs` on its compute branch,
+/// 2026-10-21) selects ants inside one living colony on this same 256 x 128
+/// training bed, each founder given a mind cut to the dig rung's verbs. The
+/// game's training page runs that loop, so it needs the four things the
+/// harness reached through its scratch copy of this file: the bed, the
+/// mind, the slots a child mutates and the suite a founder enters by.
+pub mod colony_bed {
     use super::*;
 
+    /// The nest's column on the bed.
     pub const NEST: i32 = NEST_X;
+    /// The bed's width and height.
+    pub const SIZE: (i32, i32) = (BED_W, 128);
 
     /// The scarce-dig arena's emits: what its minds may signal.
     pub fn emits() -> [bool; creature::mind::EMITS] {
         Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits()
     }
 
+    /// A founder's or a child's mind: `genome` cut to the dig rung's verbs
+    /// ([`SOIL_VERBS`]) and the scarce-dig emits, as the harness runs it.
     pub fn mind(genome: &[f32]) -> std::sync::Arc<creature::mind::MindGenome> {
         arena_mind(genome, SOIL_VERBS, emits())
     }
 
-    /// The slots the scarce-dig trainer would mutate.
+    /// The slots a child's mutation may move: the scarce-dig trainer's.
     pub fn slots() -> Vec<usize> {
         creature::mind::trainable(SOIL_VERBS, emits())
     }
+
+    /// The suite a founder genome enters by ([`super::super::start_mind`]):
+    /// the harness's own, soil + scarce + trail, so a file read here enters
+    /// the rung exactly as `founders=`/`mutants=` read it there.
+    pub fn suite() -> Suite {
+        Suite::new(
+            vec![
+                (Box::new(Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0, nest: false }), false),
+                (
+                    Box::new(Scarce { ants: 1, frames: 6000, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE), dist: (10, 30), steps: true, fed: true, dig: false }),
+                    true,
+                ),
+                (Box::new(Trail { ants: 6, frames: 6000, clones: false }), true),
+            ],
+            0.8,
+        )
+    }
+
+    /// **The bed with no colony on it yet**: the training bed's scenario
+    /// (`bed_timed`, 40 rows of soil, lamps 33 apart, no rain) with its
+    /// `Colony` placement left out, because the colony is founded heaped at
+    /// the door (`scenario::place_colony` with `pile`), which the harness
+    /// asked for through the process-wide `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS`
+    /// and a game that also runs an ordinary box cannot.
+    pub fn scenario(seed: u64, ants: usize) -> Scenario {
+        let mut sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        sc.placements.retain(|p| !matches!(p, crate::lab::scenario::Placement::Colony { .. }));
+        sc
+    }
+}
+
+/// SCRATCH (teacher lane, in-run selection pilot, 2026-10-21): the rest of
+/// `examples/inrun.rs`'s bed -- one colony on the training bed with Dig on
+/// and surface food dripped at `dist` columns, every ant given its own mind,
+/// the body's egg-laying off. Only the harness calls it. Landed on `main`
+/// 2026-10-22 (owner: no work parked on branches) with the scratch switches
+/// it reads, every one off unless its variable or argument is set; off, an
+/// hA1 batch came back byte-identical to the compute branch.
+pub mod inrun {
+    use super::*;
+
+    pub const NEST: i32 = colony_bed::NEST;
+
+    // The mind, its emits and a child's slots are the game's training page's own ([`colony_bed`]), which main took
+    // from this module when the in-run loop moved into the lab (`lab::training`).
+    pub use super::colony_bed::{emits, mind, slots};
 
     /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
     /// (founders in id order).
@@ -3241,7 +3335,10 @@ mod tests {
                 "a still ant on {l:?}"
             );
         }
-        let forager = creature::mind::preset("forager", ch.verbs()).expect("forager");
+        // The forager below its egg bar: a fed ant feels rich, and a rich
+        // forager goes home to feed instead of out to forage.
+        let mut forager = creature::mind::preset("forager", ch.verbs()).expect("forager");
+        creature::mind::below_the_egg_bar(&mut forager);
         let runs: Vec<Score> = layouts
             .iter()
             .map(|&l| ch.run(l, &[&forager], &mut |_, _| {})[0].clone())
@@ -4195,7 +4292,7 @@ mod tests {
         let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
         for k in [0, 1] {
             let world = |step: u8| {
-                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0 };
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0, nest: false };
                 assert_eq!(soil.mirrored(), step >= 4);
                 soil.world(lay(seed, k), &g)
             };
@@ -4217,12 +4314,35 @@ mod tests {
         }
     }
 
+    /// **An arena's budget does not move what a full tank feels like**
+    /// ([`budget_to`], `CreatureDef::sensed_tank`): a soil ant on 2,400 J
+    /// and a fed one on 1e9 feel their bank against the species' authored
+    /// tank, as the colony and the game do. Put the fault back (the sense
+    /// over `start_energy`) and both read exactly 0.5.
+    #[test]
+    fn an_arena_budget_leaves_the_energy_sense_on_the_authored_tank() {
+        let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
+        for budget in [Some(2400.0), None] {
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget, foot: true, step_near: 0.0, nest: false };
+            let (w, _, sp, full) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
+            let def = w.species.get(sp).creature.clone().expect("creature");
+            let tank = def.sensed_tank.expect("budget_to keeps the authored tank");
+            assert!(tank > 0.0 && tank < full, "{budget:?}: authored {tank} under the budget {full}");
+            let id = ants_of(&w, sp)[0];
+            let (ctx, _) = creature::mind::context(&w, id, &def, &creature::mind::MindState::default(), &[]);
+            let e = full / tank;
+            let want = e / (1.0 + e);
+            assert!((ctx[creature::mind::c::ENERGY] - want).abs() < 1e-6, "{budget:?}: reads {} for a bank of {full} on a tank of {tank}", ctx[creature::mind::c::ENERGY]);
+            assert!(ctx[creature::mind::c::ENERGY] > 0.9, "{budget:?}: a full ant feels full, not 0.5");
+        }
+    }
+
     /// **The soil arena's world never rolls a pellet** ([`hold_training_world`]):
     /// its world reads `spoil_roll` 0 whatever the process says; the control,
     /// the same bed built plainly, leaves it to the process (`None`).
     #[test]
     fn training_worlds_hold_pellets_where_they_are_put() {
-        let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget: None, foot: true, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget: None, foot: true, step_near: 0.0, nest: false };
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let (w, _, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         assert_eq!(w.spoil_roll, Some(0));
@@ -4286,7 +4406,7 @@ mod tests {
             (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
         };
         let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
-            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0 };
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0, nest: false };
             let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
             assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
             let mut out = vec![];
@@ -4314,7 +4434,7 @@ mod tests {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let g = creature::mind::blank(SOIL_VERBS);
         let deepest = |w: &World, sc: &Scenario| founding_cut(w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(w, &sc.bed, x) + 1).max();
-        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0 };
+        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0, nest: false };
         let (w, sc, _, _) = soil(0).world(lay, &g);
         assert_eq!(deepest(&w, &sc), None, "no shaft asked for, and a hole at frame 0");
         let (w, sc, _, _) = soil(2).world(lay, &g);
@@ -4339,7 +4459,7 @@ mod tests {
     #[test]
     fn the_soil_picture_paints_near_and_away_as_the_score_does() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0, nest: false };
         let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
         let x = chamber.0 + 20;
@@ -4359,7 +4479,7 @@ mod tests {
     #[test]
     fn the_soil_ledger_matches_the_world_counts() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0, nest: false };
         let (mut w, _, sp, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let (digs, dumped, dig_j) = (w.creature_stats.digs, w.creature_stats.spoil_dumped, w.creature_stats.dig_energy);
         for _ in 0..soil.frames {
@@ -4412,7 +4532,7 @@ mod tests {
     #[test]
     fn soil_never_offers_food_verbs() {
         use creature::options::Verb as V;
-        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
         let g = super::super::start_mind(&soil, "training/starts/s134-4b-g34.txt");
         for k in 0..2 {
             let (mut w, _, _, _) = soil.world(Layout { seed: 70_000, k, blind: false, legal: false }, &g);
@@ -4437,7 +4557,7 @@ mod tests {
     #[test]
     fn a_digging_suite_leaves_the_food_verbs_untested() {
         use creature::options::Verb as V;
-        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
         let fetch = || Scarce {
             ants: 1,
             frames: 10,

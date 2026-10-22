@@ -50,6 +50,7 @@ pub mod scenario;
 pub mod scene;
 pub mod stats;
 pub mod time;
+pub mod training;
 pub mod trips;
 pub mod ui;
 
@@ -80,6 +81,11 @@ pub use crate::app::{HEIGHT, WIDTH};
 /// per *many* ticks at the top of the speed dial, so the render is amortised
 /// over the ticks rather than paid by each.
 pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
+
+/// How long a "press again" question stays asked: ESC to quit, REBUILD to
+/// rebuild. Long enough to read the notice, short enough that a press a
+/// minute later is a new question.
+const CONFIRM: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
@@ -180,6 +186,16 @@ pub struct Lab {
     /// along the bottom shows every control as a button and prints its key
     /// under it, so the page is now a reference rather than the interface.
     pub show_help: bool,
+    /// Whether the modal page is the full key list (`?`) or the short
+    /// welcome card a fresh lab opens on. The card is the default: a wall of
+    /// thirty key bindings is a reference, not a first screen.
+    pub help_full: bool,
+    /// When ESC last asked "again to quit", with nothing left open to close
+    /// -- see [`Lab::escape`]. Interface state only: never read by a tick.
+    quit_armed: Option<std::time::Instant>,
+    /// When REBUILD last asked "again to rebuild" -- the box is thrown away
+    /// on the second press within [`CONFIRM`], never on one.
+    reset_armed: Option<std::time::Instant>,
     /// `+` — how many buffer pixels a logical pixel may be given at zoom-out.
     ///
     /// **The lab is where the owner picked the finest setting.** Shown the
@@ -279,6 +295,22 @@ pub struct Lab {
     /// The still of the box on screen, if one has been taken. Inline with the
     /// rest of the active chamber's state, for `world`'s reason.
     thumb: Option<Thumb>,
+    /// **The colony training run on the box on screen, if one is** (the
+    /// TRAINING page, `training`). While it is set the box is the training
+    /// bed and every tick runs the selection loop after the step; a round
+    /// that has run its frames is replaced, in place, by the next round's bed.
+    pub training: Option<training::Training>,
+    /// What the TRAINING page's START uses: kept when a run stops, so the
+    /// page's settings hold between runs.
+    pub training_settings: training::Settings,
+    /// rounds.sh's `SEED` for the next START.
+    pub training_seed: u64,
+    /// **ANT BRAIN: NEW** -- every ant in the box on screen decides by the
+    /// new mind (`training::h1_mind`) rather than the hand-built brain. Off
+    /// is the shipped game. See [`Lab::set_new_ant`].
+    pub new_ant: bool,
+    /// The new mind, built once on first use.
+    new_ant_mind: Option<std::sync::Arc<crate::sim::creature::mind::MindGenome>>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -286,7 +318,36 @@ pub struct Lab {
     /// the box we just left; without this the old chamber is painted under the
     /// new one wherever the new one happens to be settled.
     view_dirty: bool,
+    /// The interface layer must be repainted on the next `draw_layered`.
+    /// See [`Lab::touch_chrome`].
+    chrome_due: bool,
+    /// When the interface was last painted, and at which world frame.
+    chrome_painted: Option<(std::time::Instant, u64)>,
+    /// Which path the last draw took (`Some(true)` layered), so a switch
+    /// between them can force the box's one full redraw it needs.
+    painted_layered: Option<bool>,
 }
+
+/// The lab's interface layer, in pixels: the logical screen at
+/// [`LAYER_SCALE`]. See [`Lab::draw_layered`].
+pub const LAYER_SIZE: (u32, u32) = (WIDTH * 2, HEIGHT * 2);
+/// Layer pixels per logical pixel. Two is what the crisp face is cut for
+/// (`hud::draw_text_crisp`).
+pub const LAYER_SCALE: i32 = 2;
+/// **The longest the interface layer goes unrepainted**, whatever else is
+/// happening. Every change an input or a tick causes is repainted on the
+/// next frame; this catches the rest -- a background batch's progress, a
+/// hover note's rest timer, a notice timing out -- at a quarter-second's
+/// lag, which none of them is read at.
+pub const CHROME_HEARTBEAT: std::time::Duration = std::time::Duration::from_millis(250);
+/// **How often a running box repaints the interface for the box's sake
+/// alone** -- its numbers, charts and clock -- when nothing was touched:
+/// at most every 30 ms, so a 60 Hz window repaints the layer on every other
+/// frame. A pointer, a key or a click repaints on the very next frame
+/// regardless (`Lab::touch_chrome`). Numbers changing at 60 Hz are not read
+/// any better than at 30, and the second repaint was most of what the layer
+/// cost over today while running (`examples/labdraw.rs`).
+pub const CHROME_LIVE: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// **A chamber that is not currently on screen.**
 ///
@@ -350,6 +411,9 @@ pub struct Chamber {
     /// what a chamber you made yourself gets; a batch names its own so a rack
     /// of fifty says where each row came from.
     pub label: Option<String>,
+    /// The colony training run on this box, parked with it: the run's ledger
+    /// names this world's ants, so it belongs to this box and no other.
+    pub training: Option<training::Training>,
 }
 
 /// **A still of one chamber, for the rack page.**
@@ -538,7 +602,7 @@ impl Lab {
             renderer,
             player_tuning: player::Tuning::default(),
             time,
-            stats: stats::Stats::new(),
+            stats: stats::Stats::closed(),
             chronicle_census: Vec::new(),
             chronicle_stamp: None,
             ui,
@@ -549,6 +613,9 @@ impl Lab {
             // key list, which is otherwise unreachable without a keypress and
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
+            help_full: false,
+            quit_armed: None,
+            reset_armed: None,
             pixel_budget: DEFAULT_PIXEL_BUDGET,
             pixel_scale_cap: 1,
             stroke: None,
@@ -581,7 +648,15 @@ impl Lab {
                 scenario: None,
             },
             thumb: None,
+            training: None,
+            training_settings: training::Settings::default(),
+            training_seed: 1,
+            new_ant: false,
+            new_ant_mind: None,
             view_dirty: false,
+            chrome_due: true,
+            chrome_painted: None,
+            painted_layered: None,
         }
     }
 
@@ -760,7 +835,10 @@ impl Lab {
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
+        // A fresh census, and the page as open or shut as it was.
+        let showing = self.stats.showing();
         self.stats = stats::Stats::new();
+        self.stats.set_showing(showing);
         // The outgoing run's CENSUS rows just went out with it above
         // (`write_chronicle`, before `spec.build()` replaced `self.world`);
         // the box that replaces it starts its own history at frame 0, same
@@ -788,6 +866,10 @@ impl Lab {
     /// -- callers pass it to `ui.say` themselves, so a caller that only
     /// wants the box (a test, say) is not forced to also want a notice.
     pub fn load_scenario(&mut self, s: scenario::Scenario) -> String {
+        // A scenario replaces the training bed, so the run on it ends.
+        if let Some(t) = self.training.take() {
+            self.training_settings = t.settings;
+        }
         self.spec = s.bed.clone();
         self.batch_spec.base = s.bed.clone();
         self.batch_spec.scenario = Some(s.clone());
@@ -797,11 +879,186 @@ impl Lab {
         let title = s.title.clone();
         self.scenario = Some(s);
         let placed = self.reset();
+        if self.new_ant {
+            self.give_new_ant_minds();
+        }
         self.time.phase = time::Phase::Paused;
         format!(
             "{title} LOADED -- {} CELLS, {} PLANTS, {} ANIMALS, {} SETTINGS",
             placed.cells, placed.plants, placed.animals, placed.settings
         )
+    }
+
+    // ------------------------------------------------- colony training
+
+    /// **START on the TRAINING page**: the box on screen becomes the training
+    /// bed with round 0's thirty founders (`training::Training::start`), and
+    /// the clock stops so the player sees the bed before it runs, as a
+    /// loaded scenario does. A run already going is replaced.
+    pub fn start_training(&mut self) -> String {
+        let (t, world, sc) = training::Training::start(self.training_settings.clone(), self.training_seed);
+        let bed = t.round.bed.clone();
+        self.install_training_world(world, sc, bed);
+        self.training = Some(t);
+        self.time.phase = time::Phase::Paused;
+        self.world.log_player_action(format!("COLONY TRAINING STARTED, SEED {}", self.training_seed));
+        format!("COLONY TRAINING: ROUND 0, 30 NEW ANTS AT THE DOOR (SEED {}) -- SPACE TO RUN", self.training_seed)
+    }
+
+    /// **STOP**: the run ends and the bed stays on screen as an ordinary box
+    /// (its ants keep their minds; nobody is judged any more).
+    pub fn stop_training(&mut self) -> String {
+        match self.training.take() {
+            Some(t) => {
+                self.training_settings = t.settings;
+                self.world.log_player_action("COLONY TRAINING STOPPED".to_string());
+                "TRAINING STOPPED -- THE BED STAYS, NOBODY IS JUDGED".to_string()
+            }
+            None => "NO TRAINING RUNNING".to_string(),
+        }
+    }
+
+    /// **The round on the bed is over**: found the next on its best living
+    /// ants, in place of this one. An extinct colony stops the clock.
+    pub fn next_training_round(&mut self) -> String {
+        let Some(t) = self.training.as_mut() else { return "NO TRAINING RUNNING".to_string() };
+        let ended = t.round.number;
+        let food = t.round.food_home;
+        match t.next_round(&self.world) {
+            Some((world, sc)) => {
+                let bed = t.round.bed.clone();
+                let number = t.round.number;
+                self.install_training_world(world, sc, bed);
+                self.world.log_player_action(format!("TRAINING ROUND {number} FOUNDED"));
+                format!("ROUND {ended} OVER ({food} FOOD CELLS HOME) -- ROUND {number} FOUNDED ON ITS BEST ANTS")
+            }
+            None => {
+                self.time.phase = time::Phase::Paused;
+                format!("ROUND {ended} OVER WITH NO ANT ALIVE -- TRAINING HAS NOTHING TO FOUND THE NEXT ROUND ON")
+            }
+        }
+    }
+
+    /// One click on the TRAINING page.
+    fn training_act(&mut self, act: ui::TrainingAct) -> String {
+        match act {
+            ui::TrainingAct::Start => self.start_training(),
+            ui::TrainingAct::Stop => self.stop_training(),
+            ui::TrainingAct::NextRound => self.next_training_round(),
+            ui::TrainingAct::Tab => {
+                self.ui.next_training_tab();
+                String::new()
+            }
+            ui::TrainingAct::Knob(i) => {
+                let Some(k) = training::KNOBS.get(i) else { return String::new() };
+                let s = match self.training.as_mut() {
+                    Some(t) => &mut t.settings,
+                    None => &mut self.training_settings,
+                };
+                k.step(s);
+                let line = format!("{} {} ({}={})", k.label, k.value(s), k.key, k.value(s));
+                let copy = s.clone();
+                self.training_settings = copy;
+                if let Some(t) = self.training.as_ref() {
+                    self.world.log_player_action(format!("TRAINING {} -> {} AT ROUND {} FRAME {}", k.label, k.value(&t.settings), t.round.number, t.round.fr));
+                }
+                line
+            }
+            ui::TrainingAct::Defaults => {
+                self.training_settings = training::Settings::default();
+                if let Some(t) = self.training.as_mut() {
+                    t.settings = training::Settings::default();
+                }
+                "EVERY SETTING BACK TO THE TEACHER LANE'S CONTROL".to_string()
+            }
+            ui::TrainingAct::Seed => {
+                self.training_seed = self.training_seed % 8 + 1;
+                format!("NEXT START ON SEED {}", self.training_seed)
+            }
+            ui::TrainingAct::Ant(id) => {
+                let Some(st) = self.world.organism(id) else { return "THAT ANT HAS GONE".to_string() };
+                let (at, born_frame) = (st.chain.first().copied().unwrap_or((0, 0)), st.born_frame);
+                let who = roster::Individual { id, born_frame };
+                if self.ui.pinned() != Some(who) {
+                    self.ui.pin(who);
+                }
+                self.ui.inspect_at(at, id);
+                if !self.ui.following() {
+                    self.ui.toggle_following();
+                }
+                format!("FOLLOWING ANT #{id}")
+            }
+        }
+    }
+
+    /// Put a training round's bed on screen in place of the box there, the
+    /// way `reset` replaces a box -- chronicle first, then fresh stats --
+    /// but without carrying the outgoing box's dials over: the bed is the
+    /// harness's, at the world's defaults.
+    fn install_training_world(&mut self, world: World, sc: scenario::Scenario, bed: scene::LabBox) {
+        self.write_chronicle();
+        self.world = world;
+        earth_toned_nest(&mut self.world);
+        self.spec = bed;
+        self.scenario = Some(sc);
+        self.particles = ParticleSystem::new();
+        self.blasts = Blasts::new();
+        // A fresh census, but the page stays shut if it was: a new round
+        // arriving must not pull the stats page over the TRAINING page.
+        let showing = self.stats.showing();
+        self.stats = stats::Stats::new();
+        if self.stats.showing() != showing {
+            self.stats.toggle();
+        }
+        self.chronicle_census.clear();
+        self.chronicle_stamp = None;
+        self.thumb = None;
+        self.stroke = None;
+        self.view_dirty = true;
+    }
+
+    /// **ANT BRAIN**: on, every ant in the box on screen decides by the new
+    /// mind; off, every mind is taken away and the ants walk by the
+    /// hand-built brain again. Only the species `ant`: the mind was trained
+    /// in its body. A newborn inherits its parent's mind
+    /// (`mind::inherit`), unchanged -- a mind does not mutate at a birth in
+    /// the box; minds evolve on the TRAINING page.
+    pub fn set_new_ant(&mut self, on: bool) -> String {
+        self.new_ant = on;
+        if self.training.is_some() {
+            return "THE TRAINING BED'S ANTS ARE ALWAYS NEW ANTS".to_string();
+        }
+        if on {
+            let n = self.give_new_ant_minds();
+            self.world.log_player_action("ANT BRAIN: NEW".to_string());
+            format!("ANT BRAIN: NEW -- {n} ANTS NOW THINK WITH THE TRAINED MIND (H1)")
+        } else {
+            self.world.minds = None;
+            self.world.log_player_action("ANT BRAIN: OLD".to_string());
+            "ANT BRAIN: OLD -- THE HAND-BUILT BRAIN".to_string()
+        }
+    }
+
+    /// Give every `ant` in the box that has no mind the new one; returns how
+    /// many it gave. Run every [`NEW_ANT_SWEEP`] frames while the switch is
+    /// on, which is how a colony stocked with the COLONY tool, a jar
+    /// released or a scenario loaded get it.
+    fn give_new_ant_minds(&mut self) -> usize {
+        let Some(sp) = self.world.species.id_of("ant") else { return 0 };
+        let mind = self.new_ant_mind.get_or_insert_with(training::h1_mind).clone();
+        let mut ids: Vec<_> = self
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .chain(self.world.live_brood_ids())
+            .filter(|&id| self.world.organism(id).is_some_and(|st| st.species == sp))
+            .filter(|&id| !crate::sim::creature::mind::has(&self.world, id))
+            .collect();
+        ids.sort_unstable();
+        for &id in &ids {
+            crate::sim::creature::mind::give(&mut self.world, id, mind.clone());
+        }
+        ids.len()
     }
 
     // ------------------------------------------------------------ the rack
@@ -937,7 +1194,14 @@ impl Lab {
             world: std::mem::replace(&mut self.world, incoming.world),
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
-            stats: std::mem::replace(&mut self.stats, incoming.stats),
+            stats: {
+                // The page stays as open or shut as it was across the switch:
+                // each chamber carries its own census, not its own window.
+                let showing = self.stats.showing();
+                let mut stats = incoming.stats;
+                stats.set_showing(showing);
+                std::mem::replace(&mut self.stats, stats)
+            },
             chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
             chronicle_stamp: std::mem::replace(&mut self.chronicle_stamp, incoming.chronicle_stamp),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
@@ -949,6 +1213,7 @@ impl Lab {
             // frame just drawn *is* that picture.
             thumb: std::mem::replace(&mut self.thumb, incoming.thumb),
             label: std::mem::replace(&mut self.label, incoming.label),
+            training: std::mem::replace(&mut self.training, incoming.training),
         };
         self.rack[self.active] = Some(outgoing);
         self.active = i;
@@ -1006,6 +1271,7 @@ impl Lab {
             watch: ui::Watch::default(),
             thumb: None,
             label: None,
+            training: None,
         }));
         self.rack.len() - 1
     }
@@ -1275,6 +1541,7 @@ impl Lab {
             watch: ui::Watch::default(),
             thumb: None,
             label: Some(label),
+            training: None,
         }));
         self.rack.len() - 1
     }
@@ -1585,6 +1852,9 @@ impl Lab {
     /// splitting that across two callers is how a speed dial stops being
     /// honest about what it achieved.
     fn tick(&mut self) {
+        if let Some(t) = &self.training {
+            t.before_step(&mut self.world);
+        }
         // **The simulation half of the tick is [`tick_world`]**, shared with
         // every harness that needs the box's own sequence (the plant trainer
         // first), so a copy of it outside this file cannot drift. What
@@ -1597,6 +1867,16 @@ impl Lab {
             &self.spec,
             self.scenario.as_ref(),
         );
+        // **The selection loop reads this tick's logs before anything else
+        // does** -- the dig map below drains the cut log.
+        if let Some(t) = self.training.as_mut() {
+            t.after_step(&mut self.world);
+            if t.round_done() {
+                self.next_training_round();
+            }
+        } else if self.new_ant && self.world.frame.is_multiple_of(NEW_ANT_SWEEP) {
+            self.give_new_ant_minds();
+        }
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -1888,6 +2168,61 @@ impl Lab {
     }
 
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
+        self.paint(frame_buf, None, fps);
+    }
+
+    /// **[`Lab::draw`] with the interface on a layer of its own**: the box
+    /// into `frame_buf` at its own resolution, the bar, pages, clock and notes
+    /// into `layer` at twice the logical size ([`LAYER_SIZE`], premultiplied
+    /// RGBA, transparent where the box shows through), for `bin/lab.rs` to
+    /// composite on the GPU. Returns whether `layer` was repainted -- when it
+    /// was not, it holds last frame's interface untouched and the binary need
+    /// not upload it.
+    ///
+    /// **Why a layer** (`Reports/lab-ui-redesign-2026-10-22.md` step 2): text
+    /// at 2x reads crisp, and painting the whole frame at 2x to get it cost
+    /// 2-3x the draw. On its own layer the box stays at 1x, and two more
+    /// things fall out. The interface is repainted only when something on it
+    /// can have changed ([`Lab::touch_chrome`], a tick, or
+    /// [`CHROME_HEARTBEAT`]), where before it was redrawn on every frame;
+    /// and the box no longer needs a full redraw every frame just because
+    /// text sat on it last frame, which every frame did -- the clock and the
+    /// bar are always up, so `Ui::is_dirty` and `time::hud_is_dirty` answer
+    /// `true` unconditionally and the dirty-rect skip never ran in the lab.
+    /// Only the marks that sit on world cells (`Ui::draw_world_marks`) are
+    /// still drawn into the box, and only they force the full redraw.
+    pub fn draw_layered(&mut self, frame_buf: &mut [u8], layer: &mut [u8], fps: f32) -> bool {
+        self.paint(frame_buf, Some(layer), fps)
+    }
+
+    /// Something the interface shows may have changed -- an input event, a
+    /// key, a click -- so the next [`Lab::draw_layered`] repaints the layer.
+    /// `bin/lab.rs` calls it for every input event it receives, which is
+    /// what keeps the layer honest about keys that reach past `Lab::act`
+    /// straight into the renderer; the cursor and the bar's own verbs call it
+    /// here as well.
+    pub fn touch_chrome(&mut self) {
+        self.chrome_due = true;
+    }
+
+    /// The buffer the next draw goes into does not hold the last frame's box
+    /// -- a harness drawing into a fresh one each time -- so the dirty-rect
+    /// skip must not trust it. The window's own buffer persists and never
+    /// needs this.
+    pub fn invalidate_view(&mut self) {
+        self.view_dirty = true;
+    }
+
+    /// Whether the interface layer is due a repaint. See [`Lab::draw_layered`].
+    fn chrome_due(&self, now: std::time::Instant) -> bool {
+        self.chrome_due
+            || self.chrome_painted.is_none_or(|(at, frame)| {
+                let since = now.duration_since(at);
+                (frame != self.world.frame && since >= CHROME_LIVE) || since >= CHROME_HEARTBEAT
+            })
+    }
+
+    fn paint(&mut self, frame_buf: &mut [u8], layer: Option<&mut [u8]>, fps: f32) -> bool {
         self.apply_pixel_budget();
         // The cutaway follows the bed's ground row, which a rebuild can move.
         if self.renderer.nest_cutaway.is_some() {
@@ -1906,11 +2241,23 @@ impl Lab {
         // permanent chrome and its hover highlight moves with the cursor, so
         // `ui::Ui::is_dirty` is in this expression for the same reason
         // `time::hud_is_dirty` is.
-        let force_full = self.ui.cursor().is_some()
-            || self.ui.is_dirty()
-            || self.stats.showing()
-            || self.time.hud_is_dirty()
-            || self.show_help
+        //
+        // **On the layered path only the marks in the box force it**
+        // (`Lab::draw_layered`): nothing else is drawn into this buffer, so
+        // last frame's only footprint the skip cannot see is theirs. A switch
+        // between the two paths forces it once, since the single-buffer path
+        // left the whole interface sitting on the terrain.
+        let layered = layer.is_some();
+        let path_changed = self.painted_layered.replace(layered) != Some(layered);
+        let force_full = if layered {
+            self.ui.world_marked()
+        } else {
+            self.ui.cursor().is_some()
+                || self.ui.is_dirty()
+                || self.stats.showing()
+                || self.time.hud_is_dirty()
+                || self.show_help
+        } || path_changed
             // A chamber switch. See `Lab::view_dirty`.
             || std::mem::take(&mut self.view_dirty);
         // **Hold the view inside the box, here rather than at every place the
@@ -1932,6 +2279,24 @@ impl Lab {
             viewport,
             force_full,
         );
+        self.ui.draw_world_marks(frame_buf, &self.world, &self.renderer);
+        // **Everything from here on is the interface**, painted on `hc` into
+        // `frame_buf` -- the box's own buffer on the single-buffer path, or
+        // the cleared 2x layer when one is due.
+        let now = std::time::Instant::now();
+        let (hc, frame_buf) = match layer {
+            Some(layer) => {
+                if !self.chrome_due(now) {
+                    return false;
+                }
+                layer.fill(0);
+                (crate::render::Hud::layer(LAYER_SIZE.0, LAYER_SIZE.1, LAYER_SCALE), layer)
+            }
+            None => (hc, frame_buf),
+        };
+        self.chrome_due = false;
+        self.chrome_painted = Some((now, self.world.frame));
+        crate::render::paint_owner::set("CLOCK");
         self.time.draw(hc, frame_buf, &self.world);
         // **A request the machine cannot meet has to say so**, which is the
         // same principle `time::PRESETS` already states for the speed dial:
@@ -1946,8 +2311,17 @@ impl Lab {
         // 508 of 508 pixels at its tightest spacing, so a widget there would
         // overflow it. Drawn only when the request is *not* met, so the usual
         // case costs one integer comparison and no pixels.
+        //
+        // **Not when the view could not spend a single extra pixel anyway.**
+        // At the shipped zoom no budget buys anything -- the buffer only grows
+        // at a zoom-out rung that divides it -- so the line used to show on
+        // every frame of a fresh lab, `PIXELS X4 -> X1 (WINDOW)`, warning about
+        // a refusal that cost nothing and sitting where the left page's title
+        // goes (the redesign review, 2026-10-22). It now shows only at a rung
+        // that could spend more than it got.
         let (want, got) = (self.effective_pixel_budget().max(self.pixel_budget), self.pixel_scale());
-        if want != got {
+        let spendable = self.renderer.pixel_scale_for(i32::MAX) > 1;
+        if want != got && spendable {
             let why = if self.pixel_budget > self.pixel_scale_cap { "WINDOW" } else { "THIS ZOOM" };
             hc.text(frame_buf, 4, 14, &format!("PIXELS X{} -> X{got} ({why})", self.pixel_budget), [190, 170, 110, 255]);
         }
@@ -1998,7 +2372,16 @@ impl Lab {
                 progress: self.batch.as_ref().map(|b| b.progress()),
             },
         };
-        self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
+        // The TRAINING page's data, read off the run only while a page that
+        // shows it is open.
+        let view = match (self.ui.panel, self.training.as_ref()) {
+            (Some(ui::Panel::Training), Some(t)) => Some(t.view(&self.world)),
+            _ => None,
+        };
+        self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
+        let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
+        self.ui.set_stats_size(stats_size);
+        self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
         // the bar, and a control you can see but not reach is worse than one
         // that is plainly behind a page.
@@ -2018,15 +2401,35 @@ impl Lab {
         // a second path. One owner, because two positions that disagree by a
         // frame is exactly the class of bug the retained bar exists to avoid.
         if self.show_help {
-            draw_help(hc, frame_buf);
+            crate::render::paint_owner::set(crate::render::paint_owner::MODAL);
+            if self.help_full {
+                draw_help(hc, frame_buf);
+            } else {
+                draw_welcome(hc, frame_buf);
+            }
         } else {
-            self.stats.draw_at(hc, frame_buf, &self.world, self.ui.cursor());
+            // Placed by the window rule (`ui::Window`): docked under BATTLE,
+            // folded to its title when it would touch the cell page you
+            // opened after it. `draw_at` placed it itself, at the corner
+            // BATTLE also used.
+            crate::render::paint_owner::set("STATS");
+            let note = match self.ui.stats_place() {
+                Some((r, false)) => self.stats.draw_placed(hc, frame_buf, &self.world, self.ui.cursor(), (r.x, r.y, r.w, r.h)),
+                _ => None,
+            };
+            self.ui.paint_stats_close(hc, frame_buf);
+            self.ui.paint_stats_note(hc, frame_buf, note);
         }
+        true
     }
 
     /// Where the mouse is, in framebuffer pixels — `None` when it has left the
     /// window. Drives the hover highlight and the hover explanations.
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
+        // The bar's hover highlight and the notes follow the pointer.
+        if self.ui.cursor() != at {
+            self.chrome_due = true;
+        }
         self.ui.set_cursor(at);
         if at.is_none() {
             self.finish_stroke();
@@ -2042,6 +2445,7 @@ impl Lab {
     /// semantics are untouched — this only fires when the press landed on the
     /// world and a painting tool is armed.
     pub fn press(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         self.ui.press(x, y);
         if self.show_help || self.ui.covers(x, y) {
             return;
@@ -2076,6 +2480,7 @@ impl Lab {
     /// button rather than as a seventh tool is what makes the pair a single
     /// gesture instead of two modes.
     pub fn press_erase(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
@@ -3024,6 +3429,7 @@ impl Lab {
     /// argument for the mouse: a key can toggle a page, and nothing on the
     /// keyboard can say *that ant*.
     pub fn release(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         if self.stroke.take().is_some() {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
@@ -3047,12 +3453,60 @@ impl Lab {
         }
     }
 
+    /// ESC: put away whatever was opened last; with nothing open, ask, and
+    /// quit on a second ESC within [`CONFIRM`]. Returns `true` to quit.
+    ///
+    /// It quit on the first press, from anywhere -- with a page open, ESC
+    /// is the key a player reaches for to close it, and got the window shut
+    /// instead.
+    pub fn escape(&mut self) -> bool {
+        if self.show_help {
+            self.show_help = false;
+            return false;
+        }
+        if let Some(closed) = self.ui.close_top(self.stats.showing()) {
+            if closed == ui::Window::Stats {
+                self.stats.toggle();
+            }
+            self.quit_armed = None;
+            return false;
+        }
+        if self.quit_armed.is_some_and(|t| t.elapsed() < CONFIRM) {
+            return true;
+        }
+        self.quit_armed = Some(std::time::Instant::now());
+        self.ui.say("PRESS ESC AGAIN TO QUIT");
+        false
+    }
+
+    /// The mouse wheel at `(x, y)`; `true` when a window took it, `false`
+    /// when it is the box's to zoom. See [`ui::Ui::wheel_at`].
+    pub fn wheel(&mut self, x: i32, y: i32, down: bool) -> bool {
+        self.chrome_due = true;
+        match self.ui.wheel_at(x, y, down) {
+            None => false,
+            Some(None) => true,
+            Some(Some(action)) => {
+                self.act(action);
+                true
+            }
+        }
+    }
+
     /// Do one of the bar's verbs.
     ///
     /// **The single place a control turns into a change**, so a button and its
     /// keyboard shortcut cannot drift: `bin/lab.rs`'s key handler routes
     /// through here too, and there is no second copy of "what SPACE does".
     pub fn act(&mut self, action: ui::Action) {
+        self.chrome_due = true;
+        // **Any other verb takes a pending confirm back**, so a second Esc
+        // or R reads as "yes" only when nothing happened in between (the
+        // code review's case: Esc, open and close MENU, Esc quit unasked).
+        self.quit_armed = None;
+        if action != ui::Action::Reset {
+            self.reset_armed = None;
+        }
         match action {
             // **The speed dial, chronicled** (round 31). `self.time.phase`/
             // `.requested` are read *after* the call, since every one of
@@ -3080,24 +3534,20 @@ impl Lab {
                 self.time.set_preset(i);
                 self.world.log_player_action(format!("SPEED {}X", self.time.requested));
             }
-            // **One page at a time**, the rule this file already applies to
-            // the key list against the biosphere page, extended to the bar's
-            // three. The screen is 512x320, the biosphere page is a full-
-            // height right-hand column and these open above the bar's own
-            // right-hand group, so two of them drawn together interleave into
-            // something neither of them is. Made exclusive in *state* rather
-            // than only in the paint, so the latch on the bar tells the truth
-            // about what is on screen.
-            ui::Action::Panel(panel) => {
-                self.ui.toggle_panel(panel);
-                if self.ui.panel.is_some() && self.stats.showing() {
+            // **A page and BIOSPHERE may both be up.** Each used to shut the
+            // other, because they were drawn over each other; the window
+            // rule (`ui::Window`) docks them apart -- page left, BIOSPHERE
+            // right -- so the overview can stay up beside the page it
+            // explains.
+            ui::Action::Panel(panel) => self.ui.toggle_panel(panel),
+            ui::Action::Stats => {
+                // TAB on a folded BIOSPHERE brings it back rather than
+                // shutting it, as a click on its strip does.
+                if !(self.stats.showing() && self.ui.folded(ui::Window::Stats)) {
                     self.stats.toggle();
                 }
-            }
-            ui::Action::Stats => {
-                self.stats.toggle();
                 if self.stats.showing() {
-                    self.ui.panel = None;
+                    self.ui.set_focus(ui::Window::Stats);
                 }
             }
             // **Arms `SCENT` and says which plane it is laying**, ahead of
@@ -3214,9 +3664,44 @@ impl Lab {
                 self.ui.set_creature_colour(self.renderer.creature_colour);
                 self.ui.say(format!("ANIMALS WEAR {}", self.renderer.creature_colour.label()));
             }
-            ui::Action::Help => self.show_help = !self.show_help,
+            ui::Action::Help => {
+                // `?` from the welcome card goes to the key list, not away.
+                self.show_help = !(self.show_help && self.help_full);
+                self.help_full = true;
+            }
             ui::Action::Reset => {
-                self.reset();
+                // **Two presses, never one.** R sits beside the digit row
+                // the dial lives on, and one stray press threw the whole box
+                // away with nothing to take it back.
+                if !self.reset_armed.is_some_and(|t| t.elapsed() < CONFIRM) {
+                    self.reset_armed = Some(std::time::Instant::now());
+                    self.ui.say("PRESS REBUILD (R) AGAIN TO THROW THIS BOX AWAY AND BUILD A FRESH ONE");
+                    return;
+                }
+                self.reset_armed = None;
+                // **A REBUILD of the training bed is a fresh run** -- the
+                // bed's scenario has no colony of its own (the round founds
+                // it), so a plain rebuild would leave an empty bed with a
+                // ledger naming nobody.
+                if self.training.is_some() {
+                    let said = self.start_training();
+                    self.ui.say(said);
+                } else {
+                    self.reset();
+                    if self.new_ant {
+                        self.give_new_ant_minds();
+                    }
+                }
+            }
+            ui::Action::Training(t) => {
+                let said = self.training_act(t);
+                if !said.is_empty() {
+                    self.ui.say(said);
+                }
+            }
+            ui::Action::ToggleNewAnt => {
+                let said = self.set_new_ant(!self.new_ant);
+                self.ui.say(said);
             }
             // An index into `Ui::scenarios()`, read fresh rather than
             // stored: the list can change under a `RELOAD` between the page
@@ -3260,6 +3745,14 @@ impl Lab {
             // they act on is chosen.
             ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
             ui::Action::CloseInspected => self.ui.close_inspected(),
+            ui::Action::ClosePage => self.ui.close_panel(),
+            ui::Action::CloseStats => {
+                if self.stats.showing() {
+                    self.stats.toggle();
+                }
+            }
+            ui::Action::PageTab(panel, i) => self.ui.set_page_tab(panel, i),
+            ui::Action::Focus(w) => self.ui.set_focus(w),
             ui::Action::KeepInspected => match self.ui.inspecting() {
                 // The cell page's own coordinate, so what is kept is what the
                 // page is showing. It is re-read every frame, which is the
@@ -3537,6 +4030,9 @@ impl Lab {
             }
             ui::Action::ToggleBattle => {
                 let on = self.ui.battle.toggle();
+                if on {
+                    self.ui.set_focus(ui::Window::Battle);
+                }
                 self.ui.say(if on { "BATTLE VIEW ON" } else { "BATTLE VIEW OFF" });
             }
             ui::Action::ToggleWindfallRot => {
@@ -4030,6 +4526,13 @@ fn earth_toned_nest(world: &mut World) {
 /// is how the two would silently drift apart the day one of them changes.
 pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 
+/// **How often ANT BRAIN: NEW looks for an ant without a mind**, in frames.
+/// Births inherit their parent's mind at once; this only catches ants put in
+/// by hand (the COLONY tool, a jar, a scenario), so a fraction of a second at
+/// 1x is soon enough, and the sweep's walk over every organism is not paid
+/// every tick of a box full of plants.
+const NEW_ANT_SWEEP: u64 = 16;
+
 /// The gut at which an animal is placed as a lone hunter -- see
 /// `Lab::is_lone_hunter`. Halfway to a pure carnivore's `+1.0`.
 const LONE_HUNTER_GUT: f32 = 0.5;
@@ -4186,24 +4689,59 @@ const HELP: [&str; 30] = [
     "",
 ];
 
+/// **The card a fresh lab opens on**: what the box is, the three keys that
+/// matter first, and where the rest live. It replaced the full key list as
+/// the first screen (`Reports/lab-ui-redesign-2026-10-22.md`): thirty lines
+/// of bindings is the reference a player comes back to, and was the wall
+/// they met before they had seen the box. Any key or click puts it away.
+const WELCOME: [&str; 9] = [
+    "THE EVOLUTION LAB",
+    "",
+    "A SEALED BOX OF SOIL UNDER GROW LIGHTS.",
+    "PLANTS AND ANTS LIVE, BREED AND EVOLVE IN IT.",
+    "",
+    "SPACE  RUN OR STOP THE BOX",
+    "MENU   EVERY PAGE AND VIEW    ESC  CLOSE A WINDOW",
+    "?      EVERY KEY",
+    "",
+];
+
+fn draw_welcome(hc: crate::render::Hud, frame: &mut [u8]) {
+    const EDGE: [u8; 4] = [90, 170, 240, 255];
+    let w = WELCOME.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
+    let (bw, bh) = (w + 32, WELCOME.len() as i32 * 10 + 30);
+    let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2 - 20);
+    hc.blend_rect(frame, x0, y0, bw, bh, [12, 14, 20, 255], 0.9);
+    for x in x0..x0 + bw {
+        hc.put(frame, x, y0, EDGE);
+        hc.put(frame, x, y0 + bh - 1, EDGE);
+    }
+    for y in y0..y0 + bh {
+        hc.put(frame, x0, y, EDGE);
+        hc.put(frame, x0 + bw - 1, y, EDGE);
+    }
+    for (i, line) in WELCOME.iter().enumerate() {
+        let colour = if i == 0 { [255, 220, 100, 255] } else { [210, 214, 222, 255] };
+        hc.text(frame, x0 + 16, y0 + 14 + i as i32 * 10, line, colour);
+    }
+    let foot = "PRESS ANY KEY OR CLICK TO BEGIN";
+    hc.text(frame, x0 + (bw - crate::hud::text_width(foot)) / 2, y0 + bh - 14, foot, [130, 136, 150, 255]);
+}
+
 fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
     let w = HELP.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
     let (bw, bh) = (w + 24, HELP.len() as i32 * 10 + 20);
     let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2);
-    for y in y0..(y0 + bh) {
-        for x in x0..(x0 + bw) {
-            // Dim what is behind rather than covering it, so the box stays
-            // visible under the page and the page reads as an overlay.
-            //
-            // **Through the canvas, not by indexing the frame.** This used to
-            // compute its own offset from `WIDTH`, which is the logical width
-            // and no longer the buffer's; at a grown buffer it dimmed a
-            // diagonal smear across the top-left instead of a panel. Blending
-            // to black at 0.75 is `dst / 4` to the byte, so the look is
-            // unchanged at scale 1.
-            hc.blend(frame, x, y, [0, 0, 0, 255], 0.75);
-        }
-    }
+    // Dim what is behind rather than covering it, so the box stays
+    // visible under the page and the page reads as an overlay.
+    //
+    // **Through the canvas, not by indexing the frame.** This used to
+    // compute its own offset from `WIDTH`, which is the logical width
+    // and no longer the buffer's; at a grown buffer it dimmed a
+    // diagonal smear across the top-left instead of a panel. Blending
+    // to black at 0.75 is `dst / 4` to the byte, so the look is
+    // unchanged at scale 1.
+    hc.blend_rect(frame, x0, y0, bw, bh, [0, 0, 0, 255], 0.75);
     for (i, line) in HELP.iter().enumerate() {
         let colour = if i == 0 { [235, 235, 200, 255] } else { [200, 200, 200, 255] };
         hc.text(frame, x0 + 12, y0 + 12 + i as i32 * 10, line, colour);
@@ -4326,6 +4864,49 @@ mod tests {
         }
     }
 
+    /// **A confirm is taken back by any other verb** (code review of the
+    /// window rule, 2026-10-22): Esc with nothing open, then MENU opened and
+    /// shut from its X, then Esc, quit the lab with no fresh prompt.
+    #[test]
+    fn a_pending_quit_or_rebuild_is_taken_back_by_any_other_verb() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        assert!(!lab.escape(), "the first Esc with nothing open only asks");
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.act(ui::Action::ClosePage);
+        assert!(!lab.escape(), "an Esc after another verb must ask again, not quit");
+        assert!(lab.escape(), "...and the Esc straight after it quits");
+
+        let frame = lab.world.frame;
+        lab.act(ui::Action::Reset);
+        lab.act(ui::Action::TogglePhase);
+        lab.act(ui::Action::Reset);
+        assert!(lab.reset_armed.is_some(), "a REBUILD after another verb must ask again");
+        assert_eq!(lab.world.frame, frame, "...and must not have rebuilt");
+    }
+
+    /// **TAB on a folded BIOSPHERE brings it back**, as a click on its strip
+    /// does; it used to shut it.
+    #[test]
+    fn tab_on_a_folded_biosphere_unfolds_it() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.show_help = false;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.act(ui::Action::Stats);
+        // MENU is wide enough to reach BIOSPHERE's column, and opened after
+        // it, so BIOSPHERE is the one that folds.
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.draw(&mut buf, 60.0);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.ui.folded(ui::Window::Stats), "test setup: BIOSPHERE should fold beside MENU");
+        lab.act(ui::Action::Stats);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.stats.showing(), "TAB shut a folded BIOSPHERE");
+        assert!(!lab.ui.folded(ui::Window::Stats), "TAB left BIOSPHERE folded");
+        lab.act(ui::Action::Stats);
+        assert!(!lab.stats.showing(), "TAB on an open BIOSPHERE shuts it");
+    }
+
     /// **The shipped bed cannot zoom out at all, so the budget is a no-op
     /// there** — `max_zoom_out_stride` derives the cap from the world's own
     /// bounds, and a box no bigger than the viewport has nothing to pull back
@@ -4439,6 +5020,136 @@ mod tests {
         // ...and at x1 it is the identity, which is every build before this.
         lab.pixel_budget = 1;
         assert_eq!(lab.to_logical(511, 319), (511, 319));
+    }
+
+    // ------------------------------------------------- the interface layer
+
+    fn layer_buf() -> Vec<u8> {
+        vec![0u8; (LAYER_SIZE.0 * LAYER_SIZE.1 * 4) as usize]
+    }
+
+    fn box_buf() -> Vec<u8> {
+        vec![0u8; (WIDTH * HEIGHT * 4) as usize]
+    }
+
+    fn lab_digest(w: &World) -> u64 {
+        let b = w.bounds().expect("the lab bed sets bounds");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x100_0000_01b3);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                mix(c.material.0 as u64);
+                mix(c.shade as u64);
+                mix(c.aux() as u64);
+                mix(c.organism_id() as u64);
+            }
+        }
+        let (born, died) = w.organism_turnover();
+        for v in [w.live_organism_count() as u64, w.live_creature_count() as u64, born, died] {
+            mix(v);
+        }
+        h
+    }
+
+    /// **Drawing through the layer leaves the world bit-identical** to
+    /// drawing into one buffer, and to not drawing at all. The layered path
+    /// skips the interface on most frames, and the interface is where the
+    /// lab reads the world for its pages (the roster, BIOSPHERE, the pinned
+    /// individual), so a draw with a side effect on the box would show here
+    /// as three digests that disagree.
+    #[test]
+    fn the_interface_layer_leaves_the_world_bit_identical() {
+        let run = |mode: u8| {
+            let mut lab = Lab::new(rack_bed(7));
+            lab.show_help = false;
+            lab.act(ui::Action::Panel(ui::Panel::Ants));
+            lab.act(ui::Action::Stats);
+            let (mut frame, mut layer) = (box_buf(), layer_buf());
+            for i in 0..240 {
+                lab.tick_for_harness();
+                lab.set_cursor(Some((100 + (i % 40), 120)));
+                match mode {
+                    0 => {}
+                    1 => lab.draw(&mut frame, 60.0),
+                    _ => {
+                        lab.draw_layered(&mut frame, &mut layer, 60.0);
+                    }
+                }
+            }
+            lab_digest(&lab.world)
+        };
+        let (none, one, layered) = (run(0), run(1), run(2));
+        assert_eq!(none, one, "drawing into one buffer changed the world");
+        assert_eq!(none, layered, "drawing through the interface layer changed the world");
+    }
+
+    /// **The layer is repainted when something on it can have changed, and
+    /// not otherwise**: a still pointer over a paused box repaints nothing
+    /// until the heartbeat, and a moved pointer, a verb or a tick each do.
+    #[test]
+    fn the_interface_layer_repaints_only_when_it_is_due() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "the first frame must paint the layer");
+        assert!(!lab.draw_layered(&mut frame, &mut layer, 60.0), "a paused, untouched box repainted its layer");
+        lab.set_cursor(Some((40, 40)));
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "a moved pointer did not repaint the layer");
+        lab.set_cursor(Some((40, 40)));
+        assert!(!lab.draw_layered(&mut frame, &mut layer, 60.0), "a pointer that did not move repainted the layer");
+        lab.act(ui::Action::Panel(ui::Panel::Box));
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "opening a page did not repaint the layer");
+        std::thread::sleep(CHROME_LIVE + std::time::Duration::from_millis(5));
+        lab.tick_for_harness();
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "a tick did not repaint the layer");
+        std::thread::sleep(CHROME_HEARTBEAT);
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "the heartbeat did not repaint the layer");
+    }
+
+    /// **The layer holds the interface and nothing else**: opaque under the
+    /// bar, transparent over an open stretch of box. And the box's own
+    /// buffer holds no interface: the bar's rows of it are the box, drawn the
+    /// same as with no interface at all.
+    #[test]
+    fn the_interface_layer_covers_the_bar_and_not_the_box() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let alpha = |x: u32, y: u32| layer[((y * LAYER_SIZE.0 + x) * 4 + 3) as usize];
+        let bar = (ui::bar_top() as u32 + 4) * 2;
+        assert_eq!(alpha(LAYER_SIZE.0 / 2, bar), 255, "the bar is not opaque on the layer");
+        assert_eq!(alpha(LAYER_SIZE.0 / 2, LAYER_SIZE.1 / 2), 0, "the middle of an untouched box is painted on the layer");
+        let mut single = box_buf();
+        lab.draw(&mut single, 60.0);
+        let row = (ui::bar_top() as u32 + 4) * WIDTH * 4;
+        let (a, b) = (&frame[row as usize..(row + WIDTH * 4) as usize], &single[row as usize..(row + WIDTH * 4) as usize]);
+        assert_ne!(a, b, "the box buffer has the bar in it on the layered path");
+    }
+
+    /// **A mark drawn in the box is erased the next frame**, which is the
+    /// one full redraw the layered path still owes the dirty-rect skip
+    /// (`Ui::world_marked`): the brush ring follows the pointer over a
+    /// paused box, and with the pointer gone the box must be exactly a fresh
+    /// full redraw of itself.
+    #[test]
+    fn a_mark_in_the_box_does_not_outlive_its_frame_on_the_layered_path() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        lab.act(ui::Action::Tool(ui::Tool::Food));
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let before = frame.clone();
+        lab.set_cursor(Some((200, 120)));
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        assert_ne!(frame, before, "the brush ring was not drawn in the box -- the case below would prove nothing");
+        lab.set_cursor(None);
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let mut fresh = box_buf();
+        lab.invalidate_view();
+        lab.draw_layered(&mut fresh, &mut layer, 60.0);
+        assert_eq!(frame, fresh, "the brush ring stayed in the box after the pointer left");
     }
 
     // ------------------------------------------------------- the rack
@@ -6586,8 +7297,12 @@ mod tests {
         // stops to 8 keeps the colony (span 70) comfortably clear of the
         // panel at this same click point, with "two lines" just as true of
         // 8 independently-founded ants as of 52.
+        //
+        // **Stocked on the left since 2026-10-22**: the cell page docks to
+        // the *right* column now (`ui::Window`), so the right of the bed is
+        // where it stands.
         lab.act(ui::Action::Stock(-3));
-        let x = lab.spec.width * 4 / 5;
+        let x = lab.spec.width / 5;
         let surface = lab.spec.ground_y;
         lab.act(ui::Action::Tool(ui::Tool::Colony));
         click_cell(&mut lab, x, surface);
@@ -7302,7 +8017,7 @@ mod tests {
     /// cheap standing check, not a discipline.
     #[test]
     fn every_help_line_is_drawable() {
-        for line in super::HELP {
+        for line in super::HELP.iter().chain(super::WELCOME.iter()).chain(["PRESS ANY KEY OR CLICK TO BEGIN"].iter()) {
             for c in line.chars() {
                 assert!(crate::hud::has_glyph(c), "the HUD font has no glyph for {c:?} in {line:?}");
             }

@@ -1,4 +1,4 @@
-//! SCRATCH (teacher-training step 1, not for main): run one genome on a set of training-style worlds with the copier's
+//! SCRATCH (teacher-training step 1): run one genome on a set of training-style worlds with the copier's
 //! log on, and write each world's score.
 //!
 //! cargo run --release --example copylog -- <soil|fetch|trail> <genome> <run_seed> <n> <out.csv> [threads]
@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 fn soil() -> Soil {
-    Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 }
+    Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0, nest: false }
 }
 fn fetch() -> Scarce {
     Scarce {

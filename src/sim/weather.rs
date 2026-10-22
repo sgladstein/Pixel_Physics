@@ -1077,8 +1077,19 @@ pub fn strike(
         if !r.chance(0.55) {
             continue;
         }
-        let start = w * STRIKE_WINDOW + r.next_u64() % (STRIKE_WINDOW - STRIKE_FRAMES);
-        if frame < start || frame >= start + STRIKE_FRAMES {
+        // `checked_add`/`saturating_add`: the renderer asks for last frame's
+        // still-lit flash as `world.frame.wrapping_sub(1)`, which on a fresh
+        // world's first draw is `u64::MAX`. Its window then sits within a few
+        // frames of the top of the range and `start` itself overflows -- a
+        // debug-build panic on the first draw of any box whose seed passes the
+        // 0.55 roll for that window (the two crisp-layer lab tests on seed 3
+        // were the first to draw a fresh world and see it). A release build
+        // wrapped to a bogus `start` far below `frame`, which the test below
+        // also rejected, so this changes no result: it only stops asking.
+        let Some(start) = (w * STRIKE_WINDOW).checked_add(r.next_u64() % (STRIKE_WINDOW - STRIKE_FRAMES)) else {
+            continue;
+        };
+        if frame < start || frame >= start.saturating_add(STRIKE_FRAMES) {
             continue;
         }
         // The weather at the moment it *began*, so a strike is not cut off

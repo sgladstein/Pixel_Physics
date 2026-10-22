@@ -8,7 +8,7 @@
 //! Only vacuum and the out-of-bounds wall are built in, because the engine
 //! itself refers to them.
 
-use std::collections::HashMap;
+use super::fxhash::FxHashMap;
 use std::fmt;
 use std::path::Path;
 
@@ -2806,7 +2806,41 @@ impl std::error::Error for MaterialError {}
 #[derive(Clone)]
 pub struct MaterialRegistry {
     materials: Vec<Material>,
-    by_name: HashMap<String, MaterialId>,
+    /// **`FxHashMap`, not std's `HashMap`.** `id_of` is called by name on
+    /// hot paths -- every dormant seed's tick asks for `buriedseed`, its own
+    /// seed material, `litter`, `deadleaf` and `pip` -- and std's SipHash
+    /// over those short keys was 3.1% of a 512-wide mixed plant bed's
+    /// instructions (`examples/plantcost scene=community`, callgrind,
+    /// 2026-10-22). The map is only ever looked up, inserted into and
+    /// cloned, never iterated, so the hasher cannot reach any result.
+    by_name: FxHashMap<String, MaterialId>,
+    /// [`Self::known`]'s memo, one slot per [`Known`]. Emptied by `insert`,
+    /// the only writer of `by_name`.
+    known: [std::sync::OnceLock<Option<MaterialId>>; Known::ALL.len()],
+}
+
+/// **A material the ant's decision asks for by name every time it
+/// decides** -- `spoil`, `packedsoil` and `corpse`, looked up three times a
+/// decision and once more by the mind's tick: 0.4% of the new ant's frame
+/// in hashing alone (callgrind, 2026-10-22). [`MaterialRegistry::known`] is
+/// [`MaterialRegistry::id_of`] with the answer kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Known {
+    Spoil,
+    PackedSoil,
+    Corpse,
+}
+
+impl Known {
+    const ALL: [Known; 3] = [Known::Spoil, Known::PackedSoil, Known::Corpse];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Known::Spoil => "spoil",
+            Known::PackedSoil => "packedsoil",
+            Known::Corpse => "corpse",
+        }
+    }
 }
 
 impl MaterialRegistry {
@@ -2815,7 +2849,8 @@ impl MaterialRegistry {
     fn base() -> Self {
         let mut reg = Self {
             materials: Vec::new(),
-            by_name: HashMap::new(),
+            by_name: FxHashMap::default(),
+            known: Default::default(),
         };
         reg.insert(Material::from(MaterialDef {
             name: "empty".into(),
@@ -3118,6 +3153,7 @@ impl MaterialRegistry {
         let id = MaterialId(self.materials.len() as u16);
         self.by_name.insert(material.name.clone(), id);
         self.materials.push(material);
+        self.known = Default::default();
     }
 
     #[inline]
@@ -3197,6 +3233,12 @@ impl MaterialRegistry {
     /// Look up by the `name` field in the material's file.
     pub fn id_of(&self, name: &str) -> Option<MaterialId> {
         self.by_name.get(name).copied()
+    }
+
+    /// `id_of(k.name())`, kept after the first ask. See [`Known`].
+    #[inline]
+    pub fn known(&self, k: Known) -> Option<MaterialId> {
+        *self.known[k as usize].get_or_init(|| self.id_of(k.name()))
     }
 
     pub fn len(&self) -> usize {

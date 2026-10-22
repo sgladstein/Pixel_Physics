@@ -203,6 +203,32 @@ pub fn egg_pile_reach() -> i32 {
     *V.get_or_init(|| parse_egg_pile(&std::env::var("PIXEL_PHYSICS_EGG_PILE").unwrap_or_default()))
 }
 
+/// **How long an ant whose egg walk found no site waits before walking
+/// again**, in frames ([`egg_retry_frames`]). Four ant ticks.
+///
+/// A rule change shipped for cost, by the owner's ruling (2026-10-22). The
+/// ant cost review (`/mnt/project-files/ant-cost-review/`, 2026-10-22) found
+/// 65-89% of ant ticks above the egg bar and 70-80% of those walks finding
+/// nothing: the walk was 11% of the new ant's frame after #801/#805, and
+/// this wait cuts about 9%. Gated on the 24-seed lab bench (`labforage`,
+/// game ant, 120k frames): births higher on 11 of 24 seeds, every gated
+/// metric p >= 0.15, no colony lost. What the ant gives up: a site that
+/// opens inside its wait goes to another ant. The training bed has egg
+/// laying off, so in-run results cannot see it.
+pub const EGG_RETRY_FRAMES: u64 = 24;
+
+/// [`EGG_RETRY_FRAMES`], or `PIXEL_PHYSICS_EGG_RETRY` (a number of frames;
+/// `off` or 0 for the rule before 2026-10-22, a walk every tick the ant
+/// could lay). Unknown values panic.
+pub fn egg_retry_frames() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_EGG_RETRY").as_deref() {
+        Ok("") | Ok("on") | Err(_) => EGG_RETRY_FRAMES,
+        Ok("off") => 0,
+        Ok(v) => v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_EGG_RETRY={v:?}: use on, off or a number of frames")),
+    })
+}
+
 fn parse_egg_pile(raw: &str) -> i32 {
     match raw.trim() {
         "" | "on" => EGG_PILE_REACH,
@@ -373,14 +399,25 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
     let (hx, hy) = head;
     let side = 2 * reach + 1;
     let index = |x: i32, y: i32| ((y - hy + reach) * side + (x - hx + reach)) as usize;
+    // Every cell the walk and its home test read, read once
+    // (`creature::HomeLens`): the same cells, the same answers.
+    let mut lens = creature::HomeLens::new(world, head, reach, def);
+    // The walk stays inside the lens's square and chooses only a home cell,
+    // so with none in the square there is nothing to find. Most calls stop
+    // here, before anything below is allocated: an ant that could lay, away
+    // from home.
+    if !lens.any_home() {
+        return None;
+    }
     let mut seen = vec![false; (side * side) as usize];
     seen[index(hx, hy)] = true;
     let mut frontier = vec![(hx, hy)];
+    let mut next = Vec::new();
     // (shunned, off the pile, steps): the least wins.
     type Key = (bool, bool, i32);
     let mut best: Option<(Key, (i32, i32))> = None;
     for depth in 1..=reach {
-        let mut next = Vec::new();
+        next.clear();
         for &(x, y) in &frontier {
             for (dx, dy) in creature::DIRS {
                 let (nx, ny) = (x + dx, y + dy);
@@ -388,13 +425,14 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
                     continue;
                 }
                 seen[index(nx, ny)] = true;
-                let empty = world.is_empty(nx, ny);
-                if !empty && world.materials.get(world.get(nx, ny).material).kind != super::material::MaterialKind::Creature {
+                let here = creature::CellRead::cell(&mut lens, nx, ny);
+                let empty = here.is_empty();
+                if !empty && world.materials.get(here.material).kind != super::material::MaterialKind::Creature {
                     continue;
                 }
                 next.push((nx, ny));
-                if empty && creature::home_at(world, nx, ny, def) && !bar.bars(world, (nx, ny)) {
-                    let on_pile = creature::DIRS.iter().any(|&(px, py)| world.get(nx + px, ny + py).material == material);
+                if empty && lens.home(nx, ny, def) && !bar.bars(world, (nx, ny)) {
+                    let on_pile = creature::DIRS.iter().any(|&(px, py)| creature::CellRead::cell(&mut lens, nx + px, ny + py).material == material);
                     let key = (bar.shuns(world, (nx, ny)), !on_pile, depth);
                     if best.is_none_or(|(k, _)| key < k) {
                         best = Some((key, (nx, ny)));
@@ -407,7 +445,7 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
         if best.is_some_and(|((shunned, off_pile, _), _)| !shunned && !off_pile) {
             break;
         }
-        frontier = next;
+        std::mem::swap(&mut frontier, &mut next);
     }
     best.map(|(_, cell)| cell)
 }
@@ -860,7 +898,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         return Vec::new();
     };
     let species = state.species;
-    let Some(def) = world.species.get(species).creature.clone() else {
+    let Some(def) = world.species.creature_shared(species) else {
         return Vec::new();
     };
     // A world that switched brood off mid-life still runs what is already
@@ -1873,6 +1911,96 @@ mod tests {
         w.set(nest_x, 101, Cell::new(nest, 0));
         let head = w.organism(ant).expect("live").chain[0];
         (w, ant, def, head)
+    }
+
+    /// **A window read up front holds what `World::get` returns** for every
+    /// cell (`creature::CellMemo::filled`, one chunk lookup per run of a
+    /// row): over windows straddling chunk seams and the world's edge. (A
+    /// bounded world makes every chunk inside it resident, so the read of an
+    /// unmade chunk as empty is not reached here; it is `World::get`'s own
+    /// test, written the same way.)
+    #[test]
+    fn a_window_read_up_front_holds_what_the_world_holds() {
+        let mut w = World::new(Rect::new(0, 0, 199, 199));
+        let mut r = crate::sim::rng::stream(5, 5, 5, 5);
+        for _ in 0..3000 {
+            let (x, y) = ((r.unit_f32() * 200.0) as i32, (r.unit_f32() * 200.0) as i32);
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        let (mut seams, mut outside) = (0, 0);
+        for k in 0..300 {
+            let (cx, cy) = ([0, 64, 128, 192, 199][k % 5] - 6 + (k / 5 % 13) as i32, [0, 64, 128, 199][k / 65 % 4] - 6 + (k / 7 % 13) as i32);
+            let (min, max) = ((cx - 5, cy - 5), (cx + 5, cy + 5));
+            let mut memo = creature::CellMemo::filled(&w, min, max);
+            seams += usize::from(min.0.div_euclid(64) != max.0.div_euclid(64) || min.1.div_euclid(64) != max.1.div_euclid(64));
+            for y in min.1 - 1..=max.1 + 1 {
+                for x in min.0 - 1..=max.0 + 1 {
+                    assert_eq!(creature::CellRead::cell(&mut memo, x, y), w.get(x, y), "({x}, {y}) in {min:?}..{max:?}");
+                    outside += usize::from(!w.in_bounds(x, y));
+                }
+            }
+        }
+        assert!(seams > 100 && outside > 1000, "seams {seams}, outside {outside}");
+    }
+
+    /// **The egg walk's window reads home exactly as the world does**
+    /// (`creature::HomeLens`, the read-once window `pile_site` walks
+    /// through): over a bed scattered with nest cells, dug home and stone,
+    /// every cell in and just past a window round many heads, asked in a
+    /// shuffled order so the memo is part-filled differently each time,
+    /// gets the answer `home_at` gives. The tallies are the positive
+    /// control that home, not-home and dug-only home all occurred.
+    #[test]
+    fn the_egg_walk_window_reads_home_exactly_as_the_world_does() {
+        let (mut w, _, def, head) = nest_bed(104);
+        let nest = w.materials.id_of(&def.nest).expect("nest");
+        let mut r = crate::sim::rng::stream(9, 9, 9, 9);
+        for y in head.1 - 12..=head.1 + 12 {
+            for x in head.0 - 12..=head.0 + 12 {
+                if !w.in_bounds(x, y) {
+                    continue;
+                }
+                let u = r.unit_f32();
+                if u < 0.04 {
+                    w.set(x, y, Cell::new(nest, 0));
+                } else if u < 0.08 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                } else if u < 0.12 {
+                    w.nest_dug.insert((x, y));
+                }
+            }
+        }
+        let (mut home, mut away, mut dug_only) = (0, 0, 0);
+        let rules = [creature::NestHome::Dug, creature::NestHome::Material, creature::NestHome::Shaft, creature::NestHome::Mouth];
+        for k in 0..200 {
+            w.nest_home = Some(rules[k / 40 % 4]);
+            if k == 160 {
+                // Past the lens's own square in size, so it looks cells up in
+                // the set rather than walking the set: far-off cells, which
+                // must change nothing near the nest.
+                let before = w.nest_dug.len();
+                for i in 0..400 {
+                    w.nest_dug.insert((head.0 + 60 + i % 20, head.1 - 40 + i / 20));
+                }
+                assert!(before < 121 && w.nest_dug.len() > 121, "dug {before} -> {}", w.nest_dug.len());
+            }
+            let centre = (head.0 - 6 + (k % 13) as i32, head.1 - 6 + ((k / 4) % 13) as i32);
+            let mut lens = creature::HomeLens::new(&w, centre, EGG_PILE_REACH, &def);
+            let mut cells: Vec<(i32, i32)> = (-6..=6).flat_map(|dy| (-6..=6).map(move |dx| (centre.0 + dx, centre.1 + dy))).collect();
+            for i in (1..cells.len()).rev() {
+                let j = (r.unit_f32() * (i + 1) as f32) as usize % (i + 1);
+                cells.swap(i, j);
+            }
+            for (x, y) in cells {
+                let want = creature::home_at(&w, x, y, &def);
+                assert_eq!(lens.home(x, y, &def), want, "({x}, {y}) round {centre:?}");
+                assert_eq!(creature::CellRead::cell(&mut lens, x, y), w.get(x, y));
+                home += usize::from(want);
+                away += usize::from(!want);
+                dug_only += usize::from(want && !creature::DIRS.iter().any(|&(dx, dy)| w.get(x + dx, y + dy).material == nest));
+            }
+        }
+        assert!(home > 500 && away > 500 && dug_only > 100, "home {home}, away {away}, dug only {dug_only}");
     }
 
     /// **An ant a few steps from home lays onto it** (`pile_site`): the egg

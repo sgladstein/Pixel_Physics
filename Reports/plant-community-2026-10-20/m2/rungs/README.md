@@ -53,3 +53,35 @@ more (shrub p50 318 against 362) and needs a paired check before it is used.
   rungs plant under a lamp only and leave light to the station. The plan's
   24-wide pocket could not hold a founder at all; 48 is the narrowest that
   did.
+
+## Does each rung predict the next? (`ladder_herb.txt`, `ladder_shrub.txt`)
+
+`plantrain mode=ladder control=SPECIES genomes=16 layouts=8`: 16 mutated
+children (sigma 0.9, up to 8 genes, the shape/leaf/flower/height groups,
+`mode=ranking`'s recipe) plus the shipped species, each grown on rung 1 and
+rung 2 on two disjoint layout sets, bright and dim, and once on a whole life
+(P1's 96-wide bed and score, 40,000 frames). End shoot cells, mean over 8
+layouts. Spearman over 17 arms:
+
+| | rung 1 repeat | rung 2 repeat | rung 1 -> 2 | rung 2 -> life | rung 1 -> life |
+|---|--:|--:|--:|--:|--:|
+| herb, bright | +1.00 | +0.90 | +0.58 | **+0.75** | +0.44 |
+| herb, dim | +1.00 | +0.74 | +0.66 | **+0.72** | +0.60 |
+| shrub, bright | +0.77 | +0.90 | +0.68 | **+0.78** | +0.73 |
+| shrub, dim | +0.51 | +0.62 | +0.63 | **+0.71** | +0.49 |
+
+- **Rung 2 is the filter.** It ranks children the same way on a fresh set
+  (0.62-0.90) and predicts a whole life at 0.71-0.78, for about a fifth of
+  the cost (2.4 core-s against ~12).
+- **Rung 1 is too early for the herb.** Its +1.00 is the tidiness tell, not
+  a good instrument: 12 of 17 herb arms read *identical* numbers at frame
+  3,000, because almost no shape, leaf, flower or height gene acts that
+  early. It ranks nothing it is not handed. For the shrub it does vary
+  (repeat 0.77 bright), but it still predicts life worse than rung 2. So
+  rung 1 survives only as a cheap death filter (did it establish at all),
+  not as a ranking.
+- **A shade-tolerant shrub is already in reach.** Child c09 grew 253 and
+  174 shoot cells in dim light against the shipped shrub's 116 and 114,
+  and 457/428 in bright against 288/312, with a better whole-life score
+  (3.45 against 3.18). Random 8-gene steps find it; selection on rung 2's
+  dim station should find better.

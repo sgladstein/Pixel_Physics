@@ -1,0 +1,17 @@
+plantrain rungs: species=herb,/tmp/m2-herb-MVMm/score_best.ron,/tmp/m2-herb-MVMm/random_best.ron rungs=grow,life stations=bright,dim layouts=12 base=7000000 threads=4
+  grow bright (width 48 frames 10000 n_est 20 lamp 1 rain Light soil 1): 3.02 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    97 p50   103 p75   109 cv 0.12 | rgr/1k p25 0.19 p50 0.20 p75 0.21
+    /tmp/m2-herb-MVMm/score_best.ron germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   539 p50   573 p75   665 cv 0.12 | rgr/1k p25 0.37 p50 0.38 p75 0.39
+    /tmp/m2-herb-MVMm/random_best.ron germ 12/12 est 12/12 est@ p50   1500 | end shoot p25   118 p50   124 p75   146 cv 0.17 | rgr/1k p25 0.21 p50 0.21 p75 0.23
+  grow dim (width 48 frames 10000 n_est 20 lamp 0.4 rain Light soil 1): 3.02 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   2750 | end shoot p25    60 p50    67 p75    71 cv 0.16 | rgr/1k p25 0.15 p50 0.16 p75 0.16
+    /tmp/m2-herb-MVMm/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   437 p50   504 p75   533 cv 0.16 | rgr/1k p25 0.35 p50 0.36 p75 0.37
+    /tmp/m2-herb-MVMm/random_best.ron germ 12/12 est 12/12 est@ p50   2000 | end shoot p25    93 p50    99 p75   102 cv 0.13 | rgr/1k p25 0.19 p50 0.20 p75 0.21
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 19.26 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   1750 | end shoot p25    85 p50   208 p75   265 cv 0.55 | rgr/1k p25 0.04 p50 0.06 p75 0.07
+    /tmp/m2-herb-MVMm/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25  1012 p50  1053 p75  1094 cv 0.11 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+    /tmp/m2-herb-MVMm/random_best.ron germ 12/12 est 12/12 est@ p50   1500 | end shoot p25   103 p50   140 p75   166 cv 0.55 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+  life dim (width 96 frames 40000 n_est 20 lamp 0.4 rain Light soil 1): 14.65 core-s a bed
+    herb     germ 12/12 est 12/12 est@ p50   2500 | end shoot p25   176 p50   206 p75   238 cv 0.63 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+    /tmp/m2-herb-MVMm/score_best.ron germ 12/12 est 12/12 est@ p50   1250 | end shoot p25   688 p50   842 p75   992 cv 0.53 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+    /tmp/m2-herb-MVMm/random_best.ron germ 12/12 est 12/12 est@ p50   2500 | end shoot p25   239 p50   247 p75   277 cv 0.35 | rgr/1k p25 0.07 p50 0.07 p75 0.07

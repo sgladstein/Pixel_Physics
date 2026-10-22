@@ -1,0 +1,291 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 3d07dbd3..4d5c2b5d 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -35,17 +35,23 @@ use std::sync::Arc;
+ /// each a fair coin between adding a link (an empty trainable slot gets a step) and removing one (a live link set to
+ /// 0). The expected change in size is zero at every size, so there is no size the operator drifts toward: `train::mutate`
+ /// at prune 0 / grow 1 added ~60 links a child (a one-way ratchet), and prune .3 / grow .1 pulled toward ~700.
+-fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, rng: &mut train::Rng) -> Vec<f32> {
++/// `prot`: per-slot "this slot is a lesson" flags and the factor its weight-step chance is scaled by (review lane,
++/// 2026-10-22, `lesson=`); protected slots never take a structural event.
++fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, prot: Option<(&[bool], f32)>, rng: &mut train::Rng) -> Vec<f32> {
+     let first = creature::mind::FIRST_LINK;
+     let mut c = g.to_vec();
+     for &i in slots {
+-        if (c[i] != 0.0 || i < first) && rng.unit() < pm {
++        let p = match prot {
++            Some((m, f)) if m[i] => pm * f,
++            _ => pm,
++        };
++        if (c[i] != 0.0 || i < first) && rng.unit() < p {
+             c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+         }
+     }
+     for _ in 0..events {
+         let add = rng.unit() < 0.5;
+-        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add).collect();
++        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m[i])).collect();
+         if pool.is_empty() {
+             continue;
+         }
+@@ -206,7 +212,14 @@ fn main() {
+     let fnum = |k: &str, d: f64| arg(&a, k).map_or(d, |v| v.parse::<f64>().unwrap());
+     let (min_age, judge_every, cooldown) = (num("min_age", 15_000), num("judge", 500), num("cooldown", 5_000));
+     let (zb0, zc0, kprice) = (fnum("zbirth", 2.0), fnum("zcut", 2.0), fnum("k", 2.0));
+-    let (lo, hi) = (num("lo", 24) as usize, num("hi", 36) as usize);
++    let (mut lo, mut hi) = (num("lo", 24) as usize, num("hi", 36) as usize);
++    // grow_band=F:HI (review lane, 2026-10-22): every F frames the headcount band moves up by 4 until `hi` reaches HI, so
++    // the colony grows through the round and the nest has to grow with it (the dig price otherwise hits its floor once
++    // 25 open cells per ant exist, and late generations are bred on bailing spoil). Off by default.
++    let grow_band: Option<(u64, usize)> = arg(&a, "grow_band").map(|v| {
++        let (f, t) = v.split_once(':').expect("grow_band=F:HI");
++        (f.parse().unwrap(), t.parse().unwrap())
++    });
+     let (kpm, ksigma) = (fnum("kpm", 0.03) as f32, fnum("ksigma", 1.0) as f32);
+     // Children's prune and grow. At prune 0 / grow 1 every mutated empty slot became a live link (~60 a child), and
+     // with nothing in the score charging for wire, brains went from ~700 links to ~2,200 in 20 generations; the body
+@@ -303,6 +316,31 @@ fn main() {
+     // Parents stay (owner's debate, 2026-10-21), but each child is earned fresh: fresh_kid=1 judges a parent's next
+     // child on its record since its last one (at least min_age frames of it), and kid_cap bounds a lifetime's children.
+     let fresh_kid = num("fresh_kid", 0) == 1;
++    // cross=P (review lane, 2026-10-22): with probability P a quota child is a crossover of its parent with another
++    // eligible parent (`train::cross`: each of `mind::crossover_group`'s groups whole from one side), then mutated as
++    // usual. The scaffold was fixed so genomes stay slot-aligned for exactly this (creature-direction D4); the harness
++    // never crossed. Off by default. Hall refills never cross.
++    let cross_p = fnum("cross", 0.0) as f32;
++    // pick=lexicase (review lane, 2026-10-22): quota parents are chosen by epsilon-lexicase over five per-ant rates
++    // (food home within 8 columns, new-ground cuts, spoil carried out, paid meals at home, hungry departures) instead
++    // of by the scalar score: each child shuffles the objectives, keeps the ants within one median absolute deviation
++    // of the best on the first, breaks ties on the next, and so on. Specialists on any one job stay in the parent pool
++    // with no weights. Culls stay on the scalar score. Off by default.
++    let lexicase = arg(&a, "pick") == Some("lexicase");
++    // lesson=PATH:F (review lane, 2026-10-22): the slots where the founder differs from the genome at PATH are the
++    // lesson the copier wrote (hA1 vs c1 = the hungry-at-home lesson). They mutate at F times the weight-step chance
++    // and never take a structural event. The mutation test showed standard mutation wrecks an unselected skill within
++    // six rounds (random parents: cuts 201 -> 26, food 270 -> 102) while no-mutation selection starved 0.3 of 24
++    // against 7.1 with it, so the starvation the selected lines show reads as damage to the lesson. Off by default.
++    let lesson: Option<(Vec<bool>, f32)> = arg(&a, "lesson").map(|v| {
++        let (p, f) = v.rsplit_once(':').expect("lesson=PATH:F");
++        let reference = train::load_genome(std::path::Path::new(p), creature::mind::GENOME_LEN);
++        let founder = raw.iter().find(|r| !r.is_empty()).expect("a founder genome").clone();
++        let flags: Vec<bool> = founder.iter().zip(reference.iter()).map(|(x, y)| x != y).collect();
++        eprintln!("lesson={p}: {} protected slots at {f} of the mutation rate", flags.iter().filter(|&&b| b).count());
++        (flags, f.parse().unwrap())
++    });
++    let prot = lesson.as_ref().map(|(m, f)| (m.as_slice(), *f));
+     let kid_cap = num("kid_cap", 1000) as u32;
+     // retire=1: a parent leaves once it has had `kid_cap` children (its last child takes its place). Without it the
+     // capped parents, immortal with old age off, sat in the colony unable to breed: 307 of 342 judgements owing a
+@@ -338,13 +376,16 @@ fn main() {
+         // The record at its last child (credit, sum of squares): with `fresh_kid`, the next child is earned on the
+         // record since then.
+         at_kid: (f64, f64),
++        // Lexicase objectives, counts: home deliveries (8 cols), new-ground cuts, spoil out, paid home meals, hungry
++        // departures.
++        m: [f64; 5],
+     }
+     let mut book: HashMap<u32, Who> = HashMap::new();
+     // The recently starved adults: (death frame, score at death, record).
+     let mut hall: Vec<(u64, f64, Who)> = Vec::new();
+     let (home_colony, home_anchor) = founders.first().and_then(|&i| w.organism(i)).map(|s| (s.colony, s.forage_anchor)).unwrap();
+     for (k, id) in founders.iter().enumerate() {
+-        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
+     }
+     let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
+     let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
+@@ -519,6 +560,7 @@ fn main() {
+                 }
+                 if let Some(b) = book.get_mut(&who) {
+                     b.tripped = true;
++                    b.m[1] += 1.0;
+                     let g = worth * 0.5 * w_dig * dig_price;
+                     b.credit += g;
+                     b.g2 += g * g;
+@@ -556,6 +598,7 @@ fn main() {
+                             b.tripped = false;
+                             bit.remove(&r.who);
+                             b.credit += w_home_eat;
++                            b.m[3] += 1.0;
+                             b.g2 += w_home_eat * w_home_eat;
+                         }
+                     }
+@@ -586,6 +629,9 @@ fn main() {
+                     food_home += 1;
+                     delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
+                     if let Some(b) = book.get_mut(&r.who) {
++                        if (x - inrun::NEST).abs() <= 8 {
++                            b.m[0] += 1.0;
++                        }
+                         let got: f64 = delivered.iter().map(|d| d.1).sum();
+                         let ate: f64 = eaten.iter().map(|d| d.1).sum();
+                         let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
+@@ -639,6 +685,9 @@ fn main() {
+                 if let Some(b) = book.get_mut(&id) {
+                     b.tripped = true;
+                     b.credit += pc;
++                    if far > 0.0 {
++                        b.m[2] += 1.0;
++                    }
+                     b.g2 += pc * pc;
+                 }
+                 if tag != 0 {
+@@ -693,6 +742,12 @@ fn main() {
+             }
+         }
+         if fr % 100 == 0 {
++            if let Some((f, top)) = grow_band {
++                if fr % f == 0 && hi < top {
++                    lo += 4;
++                    hi += 4;
++                }
++            }
+             if tank_price {
+                 let es: Vec<f64> = inrun::ants(&w, sp).iter().filter_map(|&i| w.organism(i)).map(|s| s.energy as f64).collect();
+                 let mean = es.iter().sum::<f64>() / es.len().max(1) as f64;
+@@ -721,6 +776,7 @@ fn main() {
+                             hungry_paid += 1;
+                             let b = book.get_mut(&id).unwrap();
+                             b.credit += w_hungry;
++                            b.m[4] += 1.0;
+                             b.g2 += w_hungry * w_hungry;
+                             writeln!(ev, "{frame},{id},hungryout,{x},0,{e:.0},0").unwrap();
+                         }
+@@ -800,6 +856,8 @@ fn main() {
+                 let cap_f = (hi / 4).max(2);
+                 // Who the score picks: parents with their kid counts, and removals.
+                 let mut parents: Vec<(u32, u32)> = Vec::new();
++                // Every eligible parent this judgement, for `cross=`'s second parent.
++                let mut mates: Vec<u32> = Vec::new();
+                 for i in &adults {
+                     let b = &book[i];
+                     let zi = z(b);
+@@ -907,7 +965,7 @@ fn main() {
+                     let mut okz: Vec<(u32, f64)> = zs
+                         .iter()
+                         .filter_map(|p| zb_of(p.0).map(|v| (p.0, v)))
+-                        .filter(|p| p.1 > 0.0 || (n < lo && p.1 >= 0.0))
++                        .filter(|p| lexicase || p.1 > 0.0 || (n < lo && p.1 >= 0.0))
+                         .collect();
+                     // The family cap steers births to other lines; it never stops them. When every eligible parent is
+                     // in a capped line (a colony down to one family: seed 4, all nine ants m20), they breed anyway.
+@@ -927,16 +985,47 @@ fn main() {
+                     okz.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+                     let ok: Vec<u32> = okz.into_iter().map(|p| p.0).collect();
+                     let mut kids = vec![0u32; ok.len()];
+-                    let mut given = 0;
+-                    'passes: for span in [ok.len(), ok.len().div_ceil(2), ok.len().div_ceil(4)] {
+-                        for k in kids.iter_mut().take(span) {
+-                            if given >= want {
+-                                break 'passes;
++                    if lexicase && !ok.is_empty() {
++                        let rate = |i: u32, k: usize| {
++                            let b = &book[&i];
++                            b.m[k] / ((frame - b.born) as f64 / 1000.0).max(0.1)
++                        };
++                        for _ in 0..want {
++                            let mut order: Vec<usize> = (0..5).collect();
++                            for k in (1..order.len()).rev() {
++                                let j = srng.below(k + 1);
++                                order.swap(k, j);
++                            }
++                            let mut pool: Vec<usize> = (0..ok.len()).collect();
++                            for &obj in &order {
++                                if pool.len() <= 1 {
++                                    break;
++                                }
++                                let rs: Vec<f64> = pool.iter().map(|&p| rate(ok[p], obj)).collect();
++                                let best = rs.iter().copied().fold(f64::MIN, f64::max);
++                                let mut sorted = rs.clone();
++                                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++                                let med = sorted[sorted.len() / 2];
++                                let mut dev: Vec<f64> = rs.iter().map(|r| (r - med).abs()).collect();
++                                dev.sort_by(|a, b| a.partial_cmp(b).unwrap());
++                                let mad = dev[dev.len() / 2];
++                                pool = pool.iter().zip(rs.iter()).filter(|(_, r)| **r >= best - mad).map(|(p, _)| *p).collect();
++                            }
++                            kids[pool[srng.below(pool.len())]] += 1;
++                        }
++                    } else {
++                        let mut given = 0;
++                        'passes: for span in [ok.len(), ok.len().div_ceil(2), ok.len().div_ceil(4)] {
++                            for k in kids.iter_mut().take(span) {
++                                if given >= want {
++                                    break 'passes;
++                                }
++                                *k += 1;
++                                given += 1;
+                             }
+-                            *k += 1;
+-                            given += 1;
+                         }
+                     }
++                    mates = ok.clone();
+                     if want > 0 {
+                         q_due += 1;
+                         if ok.is_empty() {
+@@ -962,6 +1051,7 @@ fn main() {
+                     // Same counts, chosen blind.
+                     let kids: u32 = parents.iter().map(|p| p.1).sum();
+                     let pool: Vec<u32> = adults.iter().copied().filter(|i| frame - book[i].last_kid >= cooldown || book[i].last_kid == 0).collect();
++                    mates = pool.clone();
+                     parents = (0..kids).filter(|_| !pool.is_empty()).map(|_| (pool[srng.below(pool.len())], 1)).collect();
+                     let mut ad = adults.clone();
+                     let mut c2 = Vec::new();
+@@ -993,10 +1083,23 @@ fn main() {
+                         if fam.get(&f).copied().unwrap_or(0) >= cap_f && !(turn > 0 && capped_only) {
+                             break;
+                         }
++                        let mut crossed = false;
++                        let base: Vec<f32> = if cross_p > 0.0 && mates.len() >= 2 && srng.unit() < cross_p {
++                            let others: Vec<u32> = mates.iter().copied().filter(|&m| m != pid && book.contains_key(&m)).collect();
++                            if others.is_empty() {
++                                p.genome.clone()
++                            } else {
++                                crossed = true;
++                                let q = others[srng.below(others.len())];
++                                train::cross(&p.genome, &book[&q].genome, &mut srng)
++                            }
++                        } else {
++                            p.genome.clone()
++                        };
+                         let child = if neutral {
+-                            neutral_mutate(&p.genome, &kslots, kpm, ksigma, kevents, &mut srng)
++                            neutral_mutate(&base, &kslots, kpm, ksigma, kevents, prot, &mut srng)
+                         } else {
+-                            train::mutate(&p.genome, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
++                            train::mutate(&base, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                         };
+                         let gen = p.gen + 1;
+                         let placed = inrun::birth(&mut w, sp, inrun::mind(&child), kid_grants);
+@@ -1014,9 +1117,9 @@ fn main() {
+                             if retire && pb.kids >= kid_cap {
+                                 retiring.push(pid);
+                             }
+-                            writeln!(births, "{frame},{cid},{pid},{f},{gen},birth,{}", child.iter().filter(|v| **v != 0.0).count()).unwrap();
++                            writeln!(births, "{frame},{cid},{pid},{f},{gen},{},{}", if crossed { "cross" } else { "birth" }, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{f}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
+                         }
+                     }
+                 }
+@@ -1086,7 +1189,7 @@ fn main() {
+                                 }
+                             };
+                             let child = if neutral {
+-                                neutral_mutate(&genome, &kslots, kpm, ksigma, kevents, &mut srng)
++                                neutral_mutate(&genome, &kslots, kpm, ksigma, kevents, prot, &mut srng)
+                             } else {
+                                 train::mutate(&genome, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                             };
+@@ -1108,7 +1211,7 @@ fn main() {
+                             let kind = if c.1.is_some() { "refill" } else { "hall" };
+                             writeln!(births, "{frame},{cid},{pid},{family},{},{kind},{}", gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{family}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
+                         }
+                     }
+                 }
