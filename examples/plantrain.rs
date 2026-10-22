@@ -216,6 +216,19 @@ fn rungs(m: &BTreeMap<String, String>) {
             let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
             let with = nb.map_or(String::new(), |nb| format!(" beside {} at {}", nb.species, nb.gap));
             println!("  {} {}{with} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
+            // Rung 4's yardstick, from the first species named (as the
+            // trainer takes it from the control), so each row below can be
+            // read as the score selection sees it.
+            let yard = nb.map(|_| {
+                let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len().max(1) as f32;
+                let nbs: Vec<&arena::Census> = rows[0].iter().filter_map(|c| c.neighbour.as_deref()).collect();
+                let nb_end = mean(nbs.iter().map(|c| c.end_shoot as f32).collect());
+                score::Yardstick {
+                    own_end: mean(rows[0].iter().map(|c| c.end_shoot as f32).collect()),
+                    nb_end,
+                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end)).collect()),
+                }
+            });
             for (sp, cs) in species.iter().zip(&rows) {
                 let germ = cs.iter().filter(|c| c.germinated).count();
                 let est: Vec<f32> = cs.iter().filter_map(|c| c.established_at.map(|f| f as f32)).collect();
@@ -258,6 +271,20 @@ fn rungs(m: &BTreeMap<String, String>) {
                         own.iter().sum::<f32>() / n.max(1) as f32,
                         nb_score.iter().sum::<f32>() / nbs.len().max(1) as f32,
                         q(&nb_end, 0.5)
+                    );
+                    // The trainer's score, and how many beds left the
+                    // neighbour under the floor (scaled) or under a tenth
+                    // of its usual size.
+                    let y = yard.expect("a hold bed has a yardstick");
+                    let held: Vec<f32> = cs.iter().map(|c| score::hold_score(c, &k, &y)).collect();
+                    let kept: Vec<f32> = cs.iter().map(|c| score::neighbour_kept(c, &y)).collect();
+                    let tenth = nbs.iter().filter(|c| (c.end_shoot as f32) < 0.1 * y.nb_end).count();
+                    println!(
+                        "    {:<8} hold score {:.2} | neighbour under the floor {}/{n} (kept p25 {:.2}) under a tenth {tenth}/{n}",
+                        "",
+                        held.iter().sum::<f32>() / n.max(1) as f32,
+                        kept.iter().filter(|&&f| f < 1.0).count(),
+                        q(&kept, 0.25)
                     );
                 }
             }

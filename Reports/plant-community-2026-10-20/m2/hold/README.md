@@ -139,3 +139,37 @@ bed, which judges the whole set at once.
 (`own score` in `check.txt` is the old bed score, which pays every
 established non-flowering plant 3.00 whatever its size -- the trainer's
 `sized_score` is what selection used.)
+
+## The neighbour floor, and rung 4 again from the re-fits (2026-10-22)
+
+`hold_score` is now multiplied by `min(1, kept / 0.5)`, where `kept` is the
+neighbour's end shoot against its size beside the control
+(`score::NEIGHBOUR_FLOOR`). It stays graded: a neighbour kept at a quarter
+of its size halves the score. Before training, the floored score on the
+plants already in hand (`floor_probe.txt`, 12 layouts beside every role;
+shipped -> rung-2 re-fit -> rung-4 champion from shipped): tree 2.07 ->
+1.94 -> 2.09, shrub 2.76 -> 3.00 -> 3.37, herb 3.57 -> 3.36 -> 3.58,
+creeper 2.23 -> 2.13 -> 2.27. The crowding re-fits now score at or below
+shipped, except the shrub. Shipped beds under the floor run 3-8 of 48 a
+role: the noise the floor adds to the control itself.
+
+Rung 4 again from each re-fit, with the floor (`floor/<role>/`;
+`/mnt/project-files/plant-community/runners/hold_floor.sh`). Final set, 18
+beds, against shipped:
+
+| role | start | score champion | random champion | control |
+|---|---|---|---|---|
+| shrub | 3.23 | **3.43** (+0.72 +/-0.23, ahead 14 of 15) | 3.13 | 2.71 |
+| herb | 3.42 | 3.39 (-0.34 +/-0.39) | 3.16 | 3.73 |
+| creeper | 2.10 | 2.09 (+0.07 +/-0.06) | 2.12 | 2.01 |
+| tree | 1.78 | 1.85 (-0.06 +/-0.17) | 2.00 | 1.91 |
+
+**The floor steers, where the difference alone did not.** The shrub and herb
+score champions both grew smaller than their starts and stopped smothering
+the plant beside them (`floor/*/check.txt`): a shrub beside the trained herb
+ends at 312 cells (beside its re-fit start, 118; beside the shipped herb,
+302), and the random-selection herb, which kept its size, leaves it 81. The
+trained shrub ends 381-622 cells against the start's 516-742. The tree did
+not move: no child of the re-fit tree both kept its size and spared its
+neighbour. The herb and tree champions are level with or behind shipped on
+this score, so the re-fit was a poor place for them to start.
