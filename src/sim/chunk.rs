@@ -381,8 +381,10 @@ pub struct Chunk {
     /// -- a moisture write is a quiet write of the same material -- so of the
     /// five arrays `field::rebuild_blocked` derives, only `moisture_source`
     /// can have moved, and the field rescans that one alone (2026-10-22).
-    /// Set wherever `stale_blocks` is set except the moisture channel;
-    /// cleared with it.
+    /// Set wherever `stale_blocks` is set except the moisture channel and a
+    /// `set_world` that keeps the cell's material (an aux or temperature
+    /// change: the same argument, and on the lab box -0.3% more); cleared
+    /// with it. `mark_dirty`, which cannot see the old cell, sets both.
     cell_stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
@@ -791,8 +793,12 @@ impl Chunk {
     /// derives nothing from it. `World::write_cell` and `ChunkView::set` are
     /// the two callers that can pass `false`.
     pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool, field_relevant: bool) {
-        self.cells[local_index(x, y)] = cell;
-        self.mark_dirty_inner(x, y, field_relevant);
+        let slot = &mut self.cells[local_index(x, y)];
+        // A write that keeps the material moves nothing the field derives but
+        // `moisture_source` -- see `cell_stale_blocks`.
+        let material_changed = slot.material != cell.material;
+        *slot = cell;
+        self.mark_dirty_inner(x, y, field_relevant, material_changed);
         self.reach = self.reach.max(reach);
         self.has_liquid |= is_liquid;
     }
@@ -826,7 +832,7 @@ impl Chunk {
     /// neighbours. Cheap enough to call on every write.
     #[inline]
     pub fn mark_dirty(&mut self, x: i32, y: i32) {
-        self.mark_dirty_inner(x, y, true);
+        self.mark_dirty_inner(x, y, true, true);
     }
 
     /// The body of [`Self::mark_dirty`], with the one line the field cares
@@ -841,7 +847,7 @@ impl Chunk {
     /// writing into its own cells, can set a bit here, and only it is given
     /// the choice.
     #[inline]
-    fn mark_dirty_inner(&mut self, x: i32, y: i32, field_relevant: bool) {
+    fn mark_dirty_inner(&mut self, x: i32, y: i32, field_relevant: bool, material_changed: bool) {
         match &mut self.pending_dirty {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
@@ -849,7 +855,9 @@ impl Chunk {
         if field_relevant {
             let bit = self.block_bit(x, y);
             self.stale_blocks |= bit;
-            self.cell_stale_blocks |= bit;
+            if material_changed {
+                self.cell_stale_blocks |= bit;
+            }
         }
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
@@ -879,7 +887,7 @@ impl Chunk {
     /// solve per frame for no reason.
     #[inline]
     pub fn keep_awake(&mut self, x: i32, y: i32) {
-        self.mark_dirty_inner(x, y, false);
+        self.mark_dirty_inner(x, y, false, false);
     }
 
     /// The furthest any material resident in this chunk can move sideways in

@@ -12,6 +12,9 @@ use crate::sim::organism::{self, SpeciesId};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::{creature, material, update, Cell, World};
 
+pub mod maze;
+pub use maze::Maze;
+
 /// Verbs that belong to other species or to a game this rig is not playing
 /// yet: hopping and flying (found by the probe as the cheap way to be
 /// "home"), fighting, and laying. **Banning `Lay` does not stop births**: the

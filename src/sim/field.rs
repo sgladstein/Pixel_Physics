@@ -3257,6 +3257,13 @@ struct ScanTraits {
     water_capacity: u16,
     glow: f32,
     beam: f32,
+    /// `glow` or `beam` is non-zero. Almost nothing emits, and the two
+    /// `f32::max`s per cell that fold them in were the largest single cost
+    /// left in the scan (2026-10-22: `max` is NaN-aware, several instructions
+    /// each, ~28% of the scan's instructions on the lab box). A max against
+    /// zero leaves a running max that started at zero where it was, so
+    /// skipping it for a non-emitter is exact.
+    emits: bool,
 }
 
 fn scan_traits(materials: &super::material::MaterialRegistry) -> Vec<ScanTraits> {
@@ -3269,6 +3276,7 @@ fn scan_traits(materials: &super::material::MaterialRegistry) -> Vec<ScanTraits>
                 water_capacity: mat.water_capacity,
                 glow: mat.glow,
                 beam: mat.beam,
+                emits: mat.glow != 0.0 || mat.beam != 0.0,
             }
         })
         .collect()
@@ -3348,7 +3356,7 @@ fn rebuild_blocked(
                 scanned += 1;
                 let bx0 = ox + lx * FIELD_SCALE;
                 let by0 = oy + ly * FIELD_SCALE;
-                // **Only soil moisture moved here** (`Chunk::cell_stale_blocks`):
+                // **No cell here changed material** (`Chunk::cell_stale_blocks`):
                 // every cell holds the material it held at the last scan, so
                 // `blocked`, `transmission`, `glow` and `beam` are what
                 // `inherit_derived` already copied, and only `moisture_source`
@@ -3372,7 +3380,12 @@ fn rebuild_blocked(
                                 moisture_level = 1.0;
                             } else if mat.water_capacity > 0 {
                                 let held = super::update::soil_moisture(cell) as f32 / mat.water_capacity as f32;
-                                moisture_level = moisture_level.max(held);
+                                // `held` is never NaN (capacity > 0) and never -0.0, so a
+                                // plain compare is `f32::max` exactly, without its
+                                // NaN handling.
+                                if held > moisture_level {
+                                    moisture_level = held;
+                                }
                             }
                         }
                     }
@@ -3538,11 +3551,18 @@ fn rebuild_blocked(
                             // 0 and costs a single compare.
                             if mat.water_capacity > 0 {
                                 let held = super::update::soil_moisture(cell) as f32 / mat.water_capacity as f32;
-                                moisture_level = moisture_level.max(held);
+                                // `held` is never NaN (capacity > 0) and never -0.0, so a
+                                // plain compare is `f32::max` exactly, without its
+                                // NaN handling.
+                                if held > moisture_level {
+                                    moisture_level = held;
+                                }
                             }
                         }
-                        glow_level = glow_level.max(mat.glow);
-                        column_beam[dx as usize] = column_beam[dx as usize].max(mat.beam);
+                        if mat.emits {
+                            glow_level = glow_level.max(mat.glow);
+                            column_beam[dx as usize] = column_beam[dx as usize].max(mat.beam);
+                        }
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
@@ -4367,6 +4387,9 @@ mod tests {
     /// happening not to change.
     /// The stone set in another block is what wakes the chunk -- a lone
     /// moisture write is quiet, and a settled chunk is carried, not rescanned.
+    /// A plain `set` that only re-wets a soil cell takes the same path, and
+    /// the stone -- a real material change -- must still be scanned in full,
+    /// which the tile-wide comparison checks.
     #[test]
     fn a_moisture_only_rescan_matches_a_full_scan() {
         if !crate::sim::update::moisture_phase_enabled() {
@@ -4403,14 +4426,21 @@ mod tests {
         let wet = world.get(18, 35).with_aux(capacity);
         world.set_soil_moisture(18, 35, wet);
         world.set(50, 20, Cell::new(material::STONE, 0));
+        // And an ordinary `set` that keeps the material, in the next block
+        // along: the same argument, through the cell-write channel.
+        let wet_set = world.get(34, 35).with_aux(capacity);
+        world.set(34, 35, wet_set);
         world.end_step();
         let (stale, cells) = world.chunk(coord).expect("resident").stale_masks();
-        let bit = 1u16 << (ly * FIELD_TILE_SIZE + lx);
-        assert!(stale & bit != 0 && cells & bit == 0, "vacuous: the block is not marked moisture-only");
+        for bit in [1u16 << (ly * FIELD_TILE_SIZE + lx), 1u16 << (ly * FIELD_TILE_SIZE + lx + 1)] {
+            assert!(stale & bit != 0 && cells & bit == 0, "vacuous: block {bit:#x} is not marked moisture-only");
+        }
+        let before_set = world.fields_ref()[&coord].moisture_source_local(lx + 1, ly);
         step(&mut world);
 
         let carried = world.fields_ref()[&coord].clone();
         assert_ne!(carried.moisture_source_local(lx, ly), before, "vacuous: the write did not move the source");
+        assert_ne!(carried.moisture_source_local(lx + 1, ly), before_set, "vacuous: the set did not move the source");
         let mut fresh: ChunkMap<FieldTile> = ChunkMap::default();
         fresh.insert(coord, FieldTile::new());
         rebuild_blocked(&world, &[coord], &[(u16::MAX, u16::MAX)], &mut fresh);
