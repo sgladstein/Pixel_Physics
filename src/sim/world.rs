@@ -8488,6 +8488,7 @@ impl World {
             // a whole cell in.
             gnawed: 0.0,
             last_share_frame: 0,
+            egg_walk_after: 0,
             made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
