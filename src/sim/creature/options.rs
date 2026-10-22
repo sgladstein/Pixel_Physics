@@ -37,7 +37,7 @@
 
 use super::{
     body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths,
-    spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS,
+    spoil_site_open, stacker_of, under_cover_by, BodyShape, CellMemo, CellRead, CreatureDef, DIRS,
 };
 use super::{crop_to_feed, diet_yield, gut_of, organism_crop_capacity, EAT_YIELD_THRESHOLD};
 use super::{flipped_body, landing_is_placeable_through_tissue};
@@ -321,6 +321,14 @@ const SCENT_GAIN: f32 = 32.0;
 /// body heights of a three-cell ant.
 const REACH: i32 = 6;
 
+/// The window [`build_with`] remembers cells in, round the head: the
+/// targets lie one cell out (the tail a few), and each reads two cells
+/// round itself, [`REACH`] rows below and `under_cover`'s 20 above. A read
+/// outside it is still exact, only not remembered.
+const MEMO_SIDE: i32 = 6;
+const MEMO_UP: i32 = 24;
+const MEMO_DOWN: i32 = REACH + 4;
+
 /// **Every option `organism` has right now**, appended to `out` (cleared
 /// first). A pure read of the world: no draw, no write.
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
@@ -334,6 +342,13 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 /// mind whose Dig is switched off never scores one (`mind::decide`). So
 /// the mind passes its Dig switch, and its picks are the same either way.
 pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>) {
+    build_remembering(world, organism, def, roof, out, true);
+}
+
+/// [`build_with`], with its cell window ([`MEMO_SIDE`]) or, `remember`
+/// false, with none -- every read straight from the world, as before the
+/// window: the reference the window is held to in tests.
+fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>, remember: bool) {
     out.clear();
     let Some(st) = world.organism(organism) else { return };
     let Some(&head) = st.chain.first() else { return };
@@ -350,8 +365,19 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
             corpse: world.materials.id_of("corpse"),
         },
     };
+    // **Every cell the options' features read, read once** (`CellMemo`):
+    // the targets are the head's ring and its tail, and each reads a 5x5
+    // round itself, `REACH` rows down and `under_cover`'s 20 up, so
+    // neighbouring targets read most of the same cells. Same cells, same
+    // values: a pure read of an unchanging world (performance lane,
+    // 2026-10-21).
+    let mut memo = if remember {
+        CellMemo::new(world, (head.0 - MEMO_SIDE, head.1 - MEMO_UP), (head.0 + MEMO_SIDE, head.1 + MEMO_DOWN))
+    } else {
+        CellMemo::new(world, head, (head.0 - 1, head.1 - 1))
+    };
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
-        let mut feats = describe(world, &here, target);
+        let mut feats = describe(world, &mut memo, &here, target);
         extra(&mut feats);
         out.push(Opt { verb, target, feats });
     };
@@ -524,9 +550,9 @@ fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::Organi
 
 /// The features every option reads at its target, verb-specific ones (the
 /// walk's footing) left for the caller to set.
-fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
+fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     let mut v = [0.0f32; FEATURES];
-    let cell = world.get(x, y);
+    let cell = memo.cell(x, y);
     let kind = world.materials.kind(cell.material);
     let m = world.materials.get(cell.material);
     let who = animal(world, cell.organism_id());
@@ -563,7 +589,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     }
 
     // Footing for a non-walk target: something filled under it.
-    let below = world.get(x, y + 1).material != material::EMPTY;
+    let below = memo.cell(x, y + 1).material != material::EMPTY;
     v[f::STAND] = f32::from(u8::from(below));
     if kind == MaterialKind::Powder || kind == MaterialKind::Solid {
         v[f::HARD] = squash(m.penetration_resistance);
@@ -574,21 +600,21 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
             .then(|| f32::from(c.aux()) / f32::from(material::SOIL_SATURATED))
     };
     v[f::WET] = wet_of(cell)
-        .or_else(|| wet_of(world.get(x, y + 1)))
+        .or_else(|| wet_of(memo.cell(x, y + 1)))
         .unwrap_or(0.0)
         .min(1.0);
 
     v[f::UP] = (here.head.1 - y).signum() as f32;
     v[f::DEPTH] = super::mind::depth_at(world, x, y);
     v[f::DROP_BELOW] = (1..=REACH)
-        .take_while(|&d| world.get(x, y + d).material == material::EMPTY)
+        .take_while(|&d| memo.cell(x, y + d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
     v[f::HEADROOM] = (1..=REACH)
-        .take_while(|&d| world.get(x, y - d).material == material::EMPTY)
+        .take_while(|&d| memo.cell(x, y - d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
-    v[f::ROOFED] = f32::from(u8::from(under_cover(world, x, y)));
+    v[f::ROOFED] = f32::from(u8::from(under_cover_by(world, memo, x, y)));
 
     if let Some(o) = who {
         let mine = o.colony == here.colony;
@@ -618,7 +644,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
             if nx == 0 && ny == 0 {
                 continue;
             }
-            let c = world.get(x + nx, y + ny);
+            let c = memo.cell(x + nx, y + ny);
             let animal = c.organism_id() != 0;
             if animal && nx.abs() <= 1 && ny.abs() <= 1 {
                 animals += 1;
@@ -696,6 +722,37 @@ mod tests {
         w.step_active_sites();
         w.step_fields();
         w.step_pheromones();
+    }
+
+    /// **The option list's cell window changes no feature** (`CellMemo` in
+    /// [`build_with`]): every live ant of a digging colony, at several
+    /// points of its run, gets the same options with the same features, bit
+    /// for bit, as the list built reading every cell straight from the
+    /// world. The count is the control that it compared real lists.
+    #[test]
+    fn the_option_window_changes_no_feature() {
+        let mut w = colony_box();
+        let mut compared = 0;
+        for round in 0..6 {
+            for _ in 0..500 {
+                step(&mut w);
+            }
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(def) = w.species.get(st.species).creature.clone() else { continue };
+                let (mut a, mut b) = (Vec::new(), Vec::new());
+                build_remembering(&w, id, &def, true, &mut a, true);
+                build_remembering(&w, id, &def, true, &mut b, false);
+                assert_eq!(a.len(), b.len(), "round {round}, ant {id}");
+                for (x, y) in a.iter().zip(&b) {
+                    assert_eq!((x.verb, x.target), (y.verb, y.target), "round {round}, ant {id}");
+                    let same = x.feats.iter().zip(&y.feats).all(|(p, q)| p.to_bits() == q.to_bits());
+                    assert!(same, "round {round}, ant {id}, {:?} at {:?}: {:?} vs {:?}", x.verb, x.target, x.feats, y.feats);
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared > 400, "only {compared} options compared");
     }
 
     /// **The shadow leaves the game unchanged**: one box run twice from the

@@ -12466,8 +12466,13 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
 /// deeper than the reach with nothing in between, and that is not a cell an
 /// ant is standing in.
 fn under_cover(world: &World, x: i32, y: i32) -> bool {
+    under_cover_by(world, &mut Direct(world), x, y)
+}
+
+/// [`under_cover`], reading cells through `read` ([`CellRead`]).
+pub(super) fn under_cover_by(world: &World, read: &mut impl CellRead, x: i32, y: i32) -> bool {
     (1..=COVER_REACH).any(|dy| {
-        let cell = world.get(x, y - dy);
+        let cell = read.cell(x, y - dy);
         cell.material != material::EMPTY
             && cell.organism_id() == 0
             && matches!(world.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid)
@@ -19009,6 +19014,275 @@ pub fn is_at_home(world: &World, organism: OrganismId) -> Option<bool> {
 }
 
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    adjacent_nest_by(world, x, y, def, &mut Direct(world))
+}
+
+/// **Where a read of the grid comes from**: the world itself ([`Direct`]),
+/// or a window that remembers what it has read ([`CellMemo`]), so one
+/// search that reads the same few cells over and over -- the egg pile's
+/// walk, a mind's option list -- fetches each once. The reader only
+/// changes how often a cell is fetched, never what it holds, so a function
+/// written over it has one definition whichever is passed.
+pub(super) trait CellRead {
+    fn cell(&mut self, x: i32, y: i32) -> Cell;
+}
+
+/// [`CellRead`] plus whether a cell is dug home (`World::nest_dug`): what
+/// [`adjacent_nest`] reads.
+pub(super) trait NestReader: CellRead {
+    fn dug(&mut self, x: i32, y: i32) -> bool;
+}
+
+/// The world, read as it stands.
+pub(super) struct Direct<'w>(pub &'w World);
+
+impl CellRead for Direct<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        self.0.get(x, y)
+    }
+}
+
+impl NestReader for Direct<'_> {
+    #[inline]
+    fn dug(&mut self, x: i32, y: i32) -> bool {
+        self.0.nest_dug.contains(&(x, y))
+    }
+}
+
+/// **A rectangle of the world that remembers each cell it reads**; a read
+/// outside it goes to the world. `World::get` is a bounds check and a chunk
+/// lookup by hash, ~56 instructions, and the searches that use this read
+/// each cell of their neighbourhood several times over (performance lane,
+/// 2026-10-21). It borrows the world immutably, so the world cannot change
+/// under it.
+pub(super) struct CellMemo<'w> {
+    world: &'w World,
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+    cells: Vec<Option<Cell>>,
+}
+
+impl<'w> CellMemo<'w> {
+    /// The rectangle from `min` to `max`, both inclusive.
+    pub(super) fn new(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
+        let (w, h) = ((max.0 - min.0 + 1).max(0), (max.1 - min.1 + 1).max(0));
+        CellMemo { world, x0: min.0, y0: min.1, w, h, cells: vec![None; (w * h) as usize] }
+    }
+
+    /// The same rectangle with every cell read up front, for a caller that
+    /// will read nearly all of it: one chunk lookup per run of a row that
+    /// stays in one chunk, rather than one per cell. Each cell is what
+    /// `World::get` returns -- out of bounds, `Cell::OUT_OF_BOUNDS`; in
+    /// bounds in no resident chunk, `Cell::EMPTY` -- by the same two tests.
+    pub(super) fn filled(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
+        let mut memo = Self::new(world, min, max);
+        for j in 0..memo.h {
+            let y = memo.y0 + j;
+            let mut i = 0;
+            while i < memo.w {
+                let x = memo.x0 + i;
+                let coord = super::chunk::ChunkCoord::containing(x, y);
+                let chunk = world.chunk(coord);
+                // The run of this row inside `coord`'s chunk.
+                let end = ((coord.x + 1) * super::chunk::CHUNK_SIZE - memo.x0).min(memo.w);
+                for i in i..end {
+                    let x = memo.x0 + i;
+                    let cell = if !world.in_bounds(x, y) {
+                        Cell::OUT_OF_BOUNDS
+                    } else {
+                        chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
+                    };
+                    memo.cells[(j * memo.w + i) as usize] = Some(cell);
+                }
+                i = end;
+            }
+        }
+        memo
+    }
+
+    #[inline]
+    fn slot(&self, x: i32, y: i32) -> Option<usize> {
+        // One unsigned compare per axis: a cell left of or above the
+        // rectangle wraps to a huge offset and fails it too.
+        let (dx, dy) = (x.wrapping_sub(self.x0) as u32, y.wrapping_sub(self.y0) as u32);
+        if dx < self.w as u32 && dy < self.h as u32 {
+            Some(dy as usize * self.w as usize + dx as usize)
+        } else {
+            None
+        }
+    }
+}
+
+impl CellRead for CellMemo<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        match self.slot(x, y) {
+            Some(i) => *self.cells[i].get_or_insert_with(|| self.world.get(x, y)),
+            None => self.world.get(x, y),
+        }
+    }
+}
+
+/// **Home for a whole square at once**, for a search that asks
+/// [`adjacent_nest`] of many cells close together -- the egg pile's walk
+/// ([`super::brood::pile_site`]) asks it of up to 80 cells, and each ask
+/// reads eight neighbours and nine dug-home entries, so a 9x9 walk read
+/// each of the ~121 cells round it about six times over: ~55,000
+/// instructions a walk, 18% of a grown colony's frame (callgrind, ~410
+/// ants, performance lane, 2026-10-21).
+///
+/// **Under the shipped rule** -- home is a cell within one of the dug nest
+/// (`NestHome::Dug`) or beside nest material (`Material`), with no
+/// storeroom-as-home, no site rows and a reach of one -- the square's home
+/// cells are worked out once from one read of each cell (a chunk lookup per
+/// row run, [`CellMemo::filled`]) and one dug-home lookup each: the same
+/// two tests [`adjacent_nest`] makes, over the same cells, just not
+/// repeated. With neither anywhere in reach, nothing is home and
+/// [`HomeLens::any_home`] lets the walk stop before it starts -- which is
+/// what paid: the walk's own cost was flat across three versions of the
+/// lookup above, because 84% of walks start away from home and walk every
+/// cell to find nothing (pile_site 1.86G -> 0.89G instructions, mind colony
+/// 9.87G -> 8.61G over 600 frames, bit-identical; 2026-10-22). **Under any
+/// other rule** each ask goes to [`adjacent_nest`] itself, its cell reads
+/// remembered. Either way the answer is [`adjacent_nest`]'s;
+/// `the_egg_walk_window_reads_home_exactly_as_the_world_does` holds it to
+/// that under all four `NestHome` rules.
+pub(super) struct HomeLens<'w> {
+    memo: CellMemo<'w>,
+    /// The square whose home is known: `centre` +- `reach`.
+    x0: i32,
+    y0: i32,
+    side: i32,
+    /// Home for each cell of that square, under the shipped rule; `None`
+    /// under any other, where each ask goes to [`adjacent_nest`].
+    home: Option<Vec<bool>>,
+}
+
+impl<'w> HomeLens<'w> {
+    /// The square of `reach` cells round `centre`, for `def`'s home; cells
+    /// are read from one further out, for the neighbours of its edge.
+    pub(super) fn new(world: &'w World, centre: (i32, i32), reach: i32, def: &CreatureDef) -> Self {
+        let r = reach.max(0);
+        let (min, max) = ((centre.0 - r - 1, centre.1 - r - 1), (centre.0 + r + 1, centre.1 + r + 1));
+        let side = 2 * r + 1;
+        let (x0, y0) = (centre.0 - r, centre.1 - r);
+        let mode = nest_home(world);
+        let plain = matches!(mode, NestHome::Dug | NestHome::Material)
+            && !storeroom_of(world).room_is_home()
+            && nest_site_rows().is_none()
+            && nest_reach_radius() == 1;
+        if !plain {
+            return HomeLens { memo: CellMemo::new(world, min, max), x0, y0, side, home: None };
+        }
+        // The walk reads nearly every cell of the outer square, and the
+        // home test below reads all of them.
+        let mut memo = CellMemo::filled(world, min, max);
+        let n = (side * side) as usize;
+        let Some(nest) = world.materials.id_of(&def.nest) else {
+            return HomeLens { memo, x0, y0, side, home: Some(vec![false; n]) };
+        };
+        // Over the outer square, `side + 2` wide: how many cells of each
+        // 3x3 are nest material, and how many dug home.
+        let outer = side + 2;
+        let on = (outer * outer) as usize;
+        let mut is_nest = vec![0u8; on];
+        for (k, n) in is_nest.iter_mut().enumerate() {
+            let (i, j) = (k as i32 % outer, k as i32 / outer);
+            *n = u8::from(memo.cell(min.0 + i, min.1 + j).material == nest);
+        }
+        let mut is_dug = vec![0u8; on];
+        if mode == NestHome::Dug && !world.nest_dug.is_empty() {
+            // Whichever is fewer: the square's cells looked up in the set, or
+            // the set's cells placed in the square. The same cells either way.
+            if world.nest_dug.len() < on {
+                for &(x, y) in &world.nest_dug {
+                    let (i, j) = (x - min.0, y - min.1);
+                    if (0..outer).contains(&i) && (0..outer).contains(&j) {
+                        is_dug[(j * outer + i) as usize] = 1;
+                    }
+                }
+            } else {
+                for (k, d) in is_dug.iter_mut().enumerate() {
+                    let (i, j) = (k as i32 % outer, k as i32 / outer);
+                    *d = u8::from(world.nest_dug.contains(&(min.0 + i, min.1 + j)));
+                }
+            }
+        }
+        // Nothing within one of the square: no cell of it is home, the
+        // walk's common case, with no sums to take.
+        if is_nest.iter().chain(&is_dug).all(|&v| v == 0) {
+            return HomeLens { memo, x0, y0, side, home: Some(vec![false; n]) };
+        }
+        // 3x3 sums, rows then columns: home is a dug cell anywhere in the
+        // 3x3 (the founding cut, [`adjacent_nest`]'s `in_cut`), or nest
+        // material on any of the eight round the centre.
+        let box3 = |v: &[u8]| -> Vec<u8> {
+            let mut rows = vec![0u8; (outer * side) as usize];
+            for j in 0..outer {
+                for i in 0..side {
+                    let k = (j * outer + i) as usize;
+                    rows[(j * side + i) as usize] = v[k] + v[k + 1] + v[k + 2];
+                }
+            }
+            let mut sum = vec![0u8; n];
+            for j in 0..side {
+                for i in 0..side {
+                    let k = (j * side + i) as usize;
+                    sum[k] = rows[k] + rows[k + side as usize] + rows[k + 2 * side as usize];
+                }
+            }
+            sum
+        };
+        let (dug, nests) = (box3(&is_dug), box3(&is_nest));
+        let home = (0..n)
+            .map(|k| {
+                let (i, j) = (k as i32 % side, k as i32 / side);
+                dug[k] > 0 || nests[k] > is_nest[((j + 1) * outer + i + 1) as usize]
+            })
+            .collect();
+        HomeLens { memo, x0, y0, side, home: Some(home) }
+    }
+
+    /// Whether any cell of the square can be home: `false` only under the
+    /// shipped rule with no nest material and no dug home anywhere within
+    /// one of it, which is where most walks start (84% of 550,000 in the
+    /// mind colony's run to frame 40,600; 1.3% found a site).
+    pub(super) fn any_home(&self) -> bool {
+        self.home.as_ref().is_none_or(|h| h.iter().any(|&b| b))
+    }
+
+    /// Whether `(x, y)` is home to `def` (the `def` this lens was built
+    /// for): [`adjacent_nest`], through this lens.
+    pub(super) fn home(&mut self, x: i32, y: i32, def: &CreatureDef) -> bool {
+        let (dx, dy) = (x - self.x0, y - self.y0);
+        if let Some(home) = &self.home {
+            if dx >= 0 && dy >= 0 && dx < self.side && dy < self.side {
+                return home[(dy * self.side + dx) as usize];
+            }
+        }
+        let world = self.memo.world;
+        adjacent_nest_by(world, x, y, def, self)
+    }
+}
+
+impl CellRead for HomeLens<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        self.memo.cell(x, y)
+    }
+}
+
+impl NestReader for HomeLens<'_> {
+    fn dug(&mut self, x: i32, y: i32) -> bool {
+        self.memo.world.nest_dug.contains(&(x, y))
+    }
+}
+
+/// [`adjacent_nest`], reading cells and the dug home through `read`.
+fn adjacent_nest_by(world: &World, x: i32, y: i32, def: &CreatureDef, read: &mut impl NestReader) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
     // rule, which is what keeps `ancestor` and `flitter` reading a constant
@@ -19029,7 +19303,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         NestHome::Material => false,
         NestHome::Shaft => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)),
         NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
-        NestHome::Dug => !world.nest_dug.is_empty() && (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(x + dx, y + dy)))),
+        NestHome::Dug => !world.nest_dug.is_empty() && (-1..=1).any(|dy| (-1..=1).any(|dx| read.dug(x + dx, y + dy))),
     };
     if in_cut {
         return true;
@@ -19053,9 +19327,9 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     }
     let r = nest_reach_radius();
     if r == 1 {
-        return NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest);
+        return NEIGHBOURS_8.iter().any(|&(dx, dy)| read.cell(x + dx, y + dy).material == nest);
     }
-    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && world.get(x + dx, y + dy).material == nest))
+    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && read.cell(x + dx, y + dy).material == nest))
 }
 
 /// **Where a trail mark lands — the head, or the cell just vacated.**
