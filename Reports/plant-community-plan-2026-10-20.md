@@ -1074,6 +1074,13 @@ the review (§12), **M1 runs in this order**:
    that floor would select where nothing grows; the next lever is the
    light (a crown that lets more through, or a canopy that opens).
 
+   **Thinner crowns tried, owner's choice, 2026-10-22** (same folder, §6).
+   Leaves passing four times the light (`PIXEL_PHYSICS_LEAF_DEPTH=0.25`, no
+   change on screen) brighten the floor at first, but over 450,000 frames
+   the trees grow 21% more leaf until it is as dark as before (light under
+   cover 0.155 -> 0.152), and roles alive a bed stay at 2.62. Not shipped:
+   the lever has to limit the tree, not the leaf.
+
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
    some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`
