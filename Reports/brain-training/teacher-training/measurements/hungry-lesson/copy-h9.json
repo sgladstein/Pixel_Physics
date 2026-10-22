@@ -1,0 +1,82 @@
+{
+ "start": "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/v2-loaded.txt",
+ "soil_logs": [
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/a31.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/a32.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/a33.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/a34.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/b35.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/b36.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/b37.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/b38.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t21.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t22.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t23.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t24.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t25.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t26.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t27.thin.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs4/t28.thin.log"
+ ],
+ "keep_logs": [
+  [
+   "soil",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/soil.log"
+  ],
+  [
+   "fetch",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/fetch.log"
+  ],
+  [
+   "fetch",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/fetch2.log"
+  ],
+  [
+   "trail",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/trail.log"
+  ]
+ ],
+ "caps": {
+  "hungry": 25000,
+  "return": 12000,
+  "none": 20000,
+  "keep": 30000,
+  "keepL": 24000
+ },
+ "steps": 6000,
+ "every": 100,
+ "batch": 512,
+ "lr": 0.02,
+ "seed": 1,
+ "patience": 1000,
+ "arm": "teacher",
+ "out": "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/cp/h9.txt",
+ "group_weights": {
+  "hungry": 2,
+  "return": 1,
+  "none": 3,
+  "keep": 10,
+  "keepL": 20
+ },
+ "freeze": [
+  "roof_drop"
+ ],
+ "keep_lookalike": "below",
+ "revive_units": 4,
+ "revive_hidden": 3,
+ "unfreeze": [
+  4
+ ],
+ "ctx_inputs": [
+  0,
+  2,
+  18,
+  12
+ ],
+ "soft": true,
+ "keep_rewrite": {
+  "soil": 12.0,
+  "fetch": 5000000.0,
+  "trail": 5000000.0
+ }
+}
