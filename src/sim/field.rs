@@ -1016,12 +1016,24 @@ pub(crate) fn sample_bilinear<T: TileLookup + ?Sized>(
     // ramp bilinear interpolation is supposed to produce across the actual
     // width of a field cell, and for small velocities (the common case) it
     // could hand nearly all the weight to the wrong side of the pair.
+    let (x0, y0, tx, ty) = bilinear_origin(fx, fy);
+    bilinear_mix(bilinear_corners(tiles, bounds, x0, y0, fallback), tx, ty)
+}
+
+/// [`sample_bilinear`]'s block origin and the weights within it.
+#[inline]
+fn bilinear_origin(fx: f32, fy: f32) -> (i32, i32, f32, f32) {
     let field_x0 = (fx / FIELD_SCALE as f32).floor() * FIELD_SCALE as f32;
     let field_y0 = (fy / FIELD_SCALE as f32).floor() * FIELD_SCALE as f32;
     let tx = (fx - field_x0) / FIELD_SCALE as f32;
     let ty = (fy - field_y0) / FIELD_SCALE as f32;
-    let (x0, y0) = (field_x0 as i32, field_y0 as i32);
+    (field_x0 as i32, field_y0 as i32, tx, ty)
+}
 
+/// [`sample_bilinear`]'s four corners: each block's cell, or `fallback`
+/// where the block is blocked.
+#[inline]
+fn bilinear_corners<T: TileLookup + ?Sized>(tiles: &T, bounds: Option<Rect>, x0: i32, y0: i32, fallback: FieldCell) -> [FieldCell; 4] {
     let at = |wx: i32, wy: i32| {
         if is_blocked(tiles, bounds, wx, wy) {
             fallback
@@ -1029,11 +1041,12 @@ pub(crate) fn sample_bilinear<T: TileLookup + ?Sized>(
             sample(tiles, bounds, wx, wy)
         }
     };
-    let c00 = at(x0, y0);
-    let c10 = at(x0 + FIELD_SCALE, y0);
-    let c01 = at(x0, y0 + FIELD_SCALE);
-    let c11 = at(x0 + FIELD_SCALE, y0 + FIELD_SCALE);
+    [at(x0, y0), at(x0 + FIELD_SCALE, y0), at(x0, y0 + FIELD_SCALE), at(x0 + FIELD_SCALE, y0 + FIELD_SCALE)]
+}
 
+/// [`sample_bilinear`]'s blend of its corners.
+#[inline]
+fn bilinear_mix([c00, c10, c01, c11]: [FieldCell; 4], tx: f32, ty: f32) -> FieldCell {
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
     let mix = |a: FieldCell, b: FieldCell, t: f32| FieldCell {
         pressure: lerp(a.pressure, b.pressure, t),
@@ -1054,6 +1067,51 @@ pub(crate) fn sample_bilinear<T: TileLookup + ?Sized>(
         moisture: lerp(a.moisture, b.moisture, t),
     };
     mix(mix(c00, c10, tx), mix(c01, c11, tx), ty)
+}
+
+/// **[`sample_bilinear`] for many points close together**, the four
+/// corners fetched once per field block instead of once per point. Every
+/// point in one `FIELD_SCALE` block shares its origin, its four corners and
+/// its fallback (`World::field_at` at the point reads the block's own cell),
+/// and differs only in `tx`/`ty`, so each point's answer is
+/// [`sample_bilinear`]'s, from the same corners through the same arithmetic.
+/// The mind ant's option list reads ten or so points round one head, which
+/// at ~830 instructions a read was 4.7% of a grown colony's frame
+/// (performance lane, 2026-10-22).
+/// [`BilinearSampler`]'s block: origin, whether the point is in bounds, and
+/// the field cell its fallback reads.
+type BlockKey = (i32, i32, bool, (i32, i32));
+
+pub(crate) struct BilinearSampler<'a, T: TileLookup + ?Sized> {
+    tiles: &'a T,
+    bounds: Option<Rect>,
+    /// The last block read: its origin, and what its fallback was read from
+    /// -- whether the point was in bounds (out of bounds it is ambient) and
+    /// the field cell it read -- with its corners.
+    last: Option<(BlockKey, [FieldCell; 4])>,
+}
+
+impl<'a, T: TileLookup + ?Sized> BilinearSampler<'a, T> {
+    pub(crate) fn new(tiles: &'a T, bounds: Option<Rect>) -> Self {
+        BilinearSampler { tiles, bounds, last: None }
+    }
+
+    /// `World::field_at_bilinear(fx, fy)`.
+    pub(crate) fn at(&mut self, fx: f32, fy: f32) -> FieldCell {
+        let (x0, y0, tx, ty) = bilinear_origin(fx, fy);
+        let (px, py) = (fx.floor() as i32, fy.floor() as i32);
+        let key = (x0, y0, self.bounds.is_none_or(|b| b.contains(px, py)), field_coord_of(px, py));
+        let corners = match self.last {
+            Some((k, corners)) if k == key => corners,
+            _ => {
+                let fallback = sample(self.tiles, self.bounds, px, py);
+                let corners = bilinear_corners(self.tiles, self.bounds, x0, y0, fallback);
+                self.last = Some((key, corners));
+                corners
+            }
+        };
+        bilinear_mix(corners, tx, ty)
+    }
 }
 
 /// Advance the field grid by one step. A whole-grid pass, run once per frame
@@ -5384,6 +5442,50 @@ mod tests {
              (dist to near {dist_to_near}, dist to far {dist_to_far})",
             quarter.pressure
         );
+    }
+
+    /// **The block sampler reads exactly what `field_at_bilinear` reads**
+    /// (`BilinearSampler`, the option list's per-block corner cache): over a
+    /// heated field with blocked (wet) blocks, in a world whose bounds do and
+    /// do not line up with the blocks, at points walked in an order that
+    /// keeps leaving and re-entering blocks, inside and outside the world.
+    /// Compared field by field through `Debug`, so a sign of zero counts.
+    #[test]
+    fn the_block_sampler_reads_what_field_at_bilinear_reads() {
+        let (mut points, mut blocked, mut outside) = (0, 0, 0);
+        for bounds in [Rect::new(0, 0, 255, 255), Rect::new(3, 5, 250, 241)] {
+            let mut w = World::new(bounds);
+            for (i, (x, y)) in [(40, 40), (90, 60), (130, 200), (200, 120)].into_iter().enumerate() {
+                w.add_heat(x, y, 2, 200.0 + 60.0 * i as f32);
+            }
+            for y in 100..140 {
+                for x in 60..110 {
+                    w.set(x, y, crate::sim::Cell::new(crate::sim::material::WATER, 0));
+                }
+            }
+            for _ in 0..6 {
+                step(&mut w);
+            }
+            let mut sampler = BilinearSampler::new(w.fields_ref(), w.bounds());
+            let mut r = crate::sim::rng::stream(7, 7, 7, 7);
+            let (mut x, mut y) = (40.0f32, 40.0f32);
+            for _ in 0..6000 {
+                // Mostly short steps, as round one head; now and then a jump.
+                if r.unit_f32() < 0.05 {
+                    (x, y) = ((r.unit_f32() * 300.0 - 20.0).floor(), (r.unit_f32() * 300.0 - 20.0).floor());
+                } else {
+                    x += (r.unit_f32() * 5.0).floor() - 2.0;
+                    y += (r.unit_f32() * 5.0).floor() - 2.0;
+                }
+                let want = w.field_at_bilinear(x, y);
+                assert_eq!(format!("{:?}", sampler.at(x, y)), format!("{want:?}"), "({x}, {y}) in {bounds:?}");
+                points += 1;
+                let (x0, y0, _, _) = bilinear_origin(x, y);
+                blocked += usize::from([(0, 0), (FIELD_SCALE, 0), (0, FIELD_SCALE), (FIELD_SCALE, FIELD_SCALE)].iter().any(|&(dx, dy)| is_blocked(w.fields_ref(), w.bounds(), x0 + dx, y0 + dy)));
+                outside += usize::from(!bounds.contains(x.floor() as i32, y.floor() as i32));
+            }
+        }
+        assert!(blocked > 300 && outside > 100, "points {points}, with a blocked corner {blocked}, outside {outside}");
     }
 
     #[test]
