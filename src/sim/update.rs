@@ -181,9 +181,15 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     // a managed cell -- quiet write or not. Guarded on the read because the
     // flag is rare and the write is still a write in the hottest loop in
     // the engine.
-    if cell.undercut() {
+    let cell = if cell.undercut() {
         surface.clear_undercut(x, y);
-    }
+        // Re-read, because `fire::update_from` below is handed this cell
+        // and must see it exactly as it now stands. Rare, so the read is
+        // paid only here.
+        surface.get(x, y)
+    } else {
+        cell
+    };
 
     // Arrived here during this sweep. Skip it once so it cannot travel twice in
     // one frame, and clear the flag so it moves normally from here on.
@@ -207,7 +213,7 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     // having become lava. `fire::update` may have changed the cell's
     // material, flags or temperature, so it is re-read from the world rather
     // than reusing the `cell` bound above.
-    fire::update(surface, x, y);
+    fire::update_from(surface, x, y, cell);
     let cell = surface.get(x, y);
 
     // Organism resource/canopy-density transport used to run from here, on
