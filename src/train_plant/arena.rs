@@ -301,6 +301,12 @@ pub struct Census {
     pub shoot_at_first_flower: u32,
     /// The founder held a fruit at some census.
     pub fruited: bool,
+    /// Seeds the founder has set (`OrganismState::seeds_set`), at its last
+    /// census alive. The plan's step 5 is graded by this (§5), and rung 4
+    /// paid nothing for it: a herb trained there set a quarter of the shipped
+    /// herb's seed and died out of the mixed bed (2026-10-22,
+    /// `Reports/plant-community-2026-10-20/m2/community/`).
+    pub seeds_set: u32,
     /// Plants of the founder's species, other than the founder, holding at
     /// least `n_est` shoot cells at the end. In a one-species bed with
     /// heredity off these are all the founder's line.
@@ -444,6 +450,7 @@ impl Tracker {
             c.shoot_at_first_flower = shoot;
         }
         c.fruited |= fruit > 0;
+        c.seeds_set = c.seeds_set.max(st.seeds_set);
     }
 
     fn finish(mut self, w: &World, spec: &BedSpec, others: &[OrganismId]) -> Census {

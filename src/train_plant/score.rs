@@ -89,8 +89,8 @@ pub const GROW_CAP: f32 = 8.0;
 /// neighbour kept at a quarter of its size halves the score, one smothered
 /// to a twentieth all but zeroes it.
 pub fn hold_score(c: &Census, k: &Constants, y: &Yardstick) -> f32 {
-    let own = sized_score(c, k, y.own_end);
-    let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end));
+    let own = sized_score(c, k, y.own_end, y.own_seeds);
+    let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end, y.nb_seeds));
     (own - (y.nb_score - nb).max(0.0)).max(0.0) * neighbour_kept(c, y)
 }
 
@@ -131,20 +131,42 @@ pub fn size_frac(end_shoot: u32, reference: f32) -> f32 {
 /// every one of them at 2.999 -- 55 cells and 1,900 read alike, and a
 /// perennial could be ranked only by what it did to its neighbour. The end,
 /// not the peak, so a plant that dies scores its death.
-pub fn sized_score(c: &Census, k: &Constants, end_ref: f32) -> f32 {
-    if !c.germinated || c.peak_shoot < k.n_est || c.first_flower.is_some() {
+///
+/// **And a plant that has set seed is paid its seed** (plan §5, step 5:
+/// "flowered and set seed, graded by seed count up to a cap"): 4 plus
+/// `seeds_set` against `seed_ref` on the same log scale, so the reference
+/// scores 4.32 and the step is full at `GROW_CAP` times it. `bed_score`
+/// paid that step only for seedlings established inside the bed, which in
+/// 40,000 frames almost never happens, so every seeding plant read alike:
+/// a herb trained on rung 4 set half the shipped herb's seed (10 against
+/// 13 beside a tree, 17 against 34 beside a herb) at the same score, and
+/// died out of the mixed bed on four seeds of six (2026-10-22,
+/// `Reports/plant-community-2026-10-20/m2/community/`). The size floor
+/// halves it as it halves `bed_score`'s steps.
+pub fn sized_score(c: &Census, k: &Constants, end_ref: f32, seed_ref: f32) -> f32 {
+    if !c.germinated || c.peak_shoot < k.n_est {
+        return bed_score(c, k);
+    }
+    if c.seeds_set > 0 {
+        let above = 4.0 + size_frac(c.seeds_set, seed_ref);
+        return if k.size_floor > 0 && c.first_flower.is_some() && c.shoot_at_first_flower < k.size_floor { 2.0 + (above - 2.0) * 0.5 } else { above };
+    }
+    if c.first_flower.is_some() {
         return bed_score(c, k);
     }
     2.0 + size_frac(c.end_shoot, end_ref)
 }
 
 /// What rung 4 scores against, per bed kind (station and neighbour),
-/// measured on the control: its own end shoot, its neighbour's end shoot
-/// beside it, and that neighbour's [`sized_score`] there.
+/// measured on the control: its own end shoot and seed set, its neighbour's
+/// end shoot and seed set beside it, and that neighbour's [`sized_score`]
+/// there.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Yardstick {
     pub own_end: f32,
+    pub own_seeds: f32,
     pub nb_end: f32,
+    pub nb_seeds: f32,
     pub nb_score: f32,
 }
 
@@ -249,7 +271,7 @@ mod tests {
             ..Census::default()
         };
         let beside = |nb: Census| Census { neighbour: Some(Box::new(nb)), ..life(true) };
-        let y = Yardstick { own_end: 200.0, nb_end: 200.0, nb_score: bed_score(&life(true), &k) };
+        let y = Yardstick { own_end: 200.0, nb_end: 200.0, nb_score: bed_score(&life(true), &k), ..Yardstick::default() };
         let alone = bed_score(&life(true), &k);
         assert_eq!(hold_score(&beside(life(true)), &k, &y), alone, "a neighbour as well off as beside the shipped species costs nothing");
         let stunted = hold_score(&beside(life(false)), &k, &y);
@@ -267,7 +289,13 @@ mod tests {
         // the top of the step as `bed_score` pins it.
         let tree = |end: u32| Census { end_shoot: end, peak_shoot: end, ..life(false) };
         assert_eq!(bed_score(&tree(500), &k), bed_score(&tree(2_000), &k), "the defect: bed_score reads them alike");
-        assert!(sized_score(&tree(2_000), &k, 1_000.0) > sized_score(&tree(500), &k, 1_000.0));
+        assert!(sized_score(&tree(2_000), &k, 1_000.0, 20.0) > sized_score(&tree(500), &k, 1_000.0, 20.0));
+        // A plant that sets seed is paid its seed, graded: twice the
+        // reference beats the reference beats half of it, and any seed beats
+        // a flower that set none.
+        let seeded = |n: u32| sized_score(&Census { seeds_set: n, shoot_at_first_flower: 100, ..life(true) }, &k, 200.0, 20.0);
+        assert!(seeded(40) > seeded(20) && seeded(20) > seeded(10) && seeded(10) > seeded(0), "{} {} {} {}", seeded(40), seeded(20), seeded(10), seeded(0));
+        assert!(seeded(1) > bed_score(&life(true), &k).min(4.0), "setting seed is above flowering");
     }
 
     #[test]
