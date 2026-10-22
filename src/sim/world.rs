@@ -10112,14 +10112,19 @@ impl World {
     /// every group while `scent_spread` and `scent_drift` are zero -- is
     /// one pass over its members and no pairwise work at all, so the
     /// shipped bed pays a comparison per animal per sample. A drifted group
-    /// of `k` pays `k(k-1)/2` three-term distances, which at the lab's few
-    /// hundred animals is well under a millisecond; it is run at the ANTS
-    /// page's sample cadence, never per tick. Clusters under
+    /// of `k` paid `k(k-1)/2` three-term distances, and the cadence this
+    /// doc promised (the ANTS page's samples, never per tick) is not the
+    /// one it runs at: `Lab::tick` calls it every tick, and the nest blend
+    /// keeps every colony's scents a cloud rather than a point, so a grown
+    /// goal-box colony spent 28-35% of its frame here (callgrind at ~410
+    /// ants, performance lane, 2026-10-21). The cadence is left alone --
+    /// moving it would move when a split is named, and so the run -- and
+    /// the pairing is `creature::kin_components`, about `k` comparisons
+    /// for a cohesive group with the same components. Clusters under
     /// `MIN_SPLIT_GROUP` animals are not minted: a single wanderer is not a
     /// new kind, it is an ant on its own, and it keeps its old label until
     /// it has descendants enough to be a line on the graph.
     pub fn regroup_by_scent(&mut self) -> usize {
-        use crate::sim::creature::scent_accepts;
         /// One animal as the pass sees it: its handle, its founding line
         /// and the traits its scent and tolerance are read from.
         struct Member {
@@ -10154,27 +10159,10 @@ impl World {
             if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
                 continue;
             }
-            // Union-find over mutual kin.
-            let n = members.len();
-            let mut parent: Vec<usize> = (0..n).collect();
-            fn find(p: &mut [usize], i: usize) -> usize {
-                let mut i = i;
-                while p[i] != i {
-                    p[i] = p[p[i]];
-                    i = p[i];
-                }
-                i
-            }
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    if scent_accepts(&members[i].traits, &members[j].traits) && scent_accepts(&members[j].traits, &members[i].traits) {
-                        let (a, b) = (find(&mut parent, i), find(&mut parent, j));
-                        if a != b {
-                            parent[a.max(b)] = a.min(b);
-                        }
-                    }
-                }
-            }
+            // The mutual-kin components (`creature::kin_components`, which
+            // pairs far fewer than all `n(n-1)/2` and finds the same ones).
+            let traits: Vec<[f32; organism::CREATURE_TRAITS]> = members.iter().map(|m| m.traits).collect();
+            let part = crate::sim::creature::kin_components(&traits);
             // Clusters, each carrying its lowest lineage and the id of the
             // member that holds it -- `LogKind::GroupSplit`'s own identity,
             // added beside the lineage tracking rather than as a second pass
@@ -10182,7 +10170,7 @@ impl World {
             let mut clusters: Vec<(u32, OrganismId, Vec<OrganismId>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
-                let r = find(&mut parent, i);
+                let r = part[i];
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
                     None => {
@@ -12080,16 +12068,27 @@ impl World {
     /// was out of the map. Idempotent -- `mark_moist_dirty` is a span union
     /// and a bit set -- which is what makes that replay exact rather than
     /// approximately right.
+    ///
+    /// **The edge test inlines and the walk does not** (2026-10-21): the test
+    /// is false for 60 of a chunk's 64 rows and columns, and as one call it
+    /// cost ~29 instructions a moisture write to learn that.
+    #[inline(always)]
     fn mark_moist_neighbours(&mut self, x: i32, y: i32, owner: ChunkCoord) {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
-            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                let n = ChunkCoord::containing(x + dx, y + dy);
-                if n != owner {
-                    if let Some(c) = self.chunks.get_mut(&n) {
-                        c.mark_moist_dirty(x, y);
-                    }
+            self.mark_moist_neighbours_at_edge(x, y, owner);
+        }
+    }
+
+    /// [`Self::mark_moist_neighbours`]'s walk, for a write on a chunk's edge.
+    #[inline(never)]
+    fn mark_moist_neighbours_at_edge(&mut self, x: i32, y: i32, owner: ChunkCoord) {
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let n = ChunkCoord::containing(x + dx, y + dy);
+            if n != owner {
+                if let Some(c) = self.chunks.get_mut(&n) {
+                    c.mark_moist_dirty(x, y);
                 }
             }
         }
@@ -12890,6 +12889,13 @@ impl World {
         // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
         // §0 for the four candidates this was chosen over.
         let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
+        // **The settle scan's per-material answers, built once a step and
+        // only on a step where some chunk settles** -- `Chunk::rescan_on_
+        // settle`'s doc has the measurement. Built here rather than cached on
+        // the registry because materials can change live (`tunables.rs`, a
+        // hot-reload), and a table rebuilt per step cannot go stale; it is a
+        // few hundred entries against a 4,096-cell scan per settling chunk.
+        let mut settle_traits: Option<Vec<(i32, bool, bool)>> = None;
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -12917,19 +12923,19 @@ impl World {
                 touched.insert(chunk.coord);
             }
             if !was_settled && settled_now {
-                chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
-                chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
-                // Rides the scan `recompute_reach` is already doing, on the
-                // same transition and for the same reason it was chosen:
-                // this is the one point that is both cheap and safe.
-                let bounds = chunk.coord.bounds();
-                for y in bounds.min_y..=bounds.max_y {
-                    for x in bounds.min_x..=bounds.max_x {
-                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
-                            settled_decayables.push((x, y));
-                        }
-                    }
-                }
+                // Reach, the liquid flag, and -- riding the same scan, on the
+                // same transition and for the same reason it was chosen: this
+                // is the one point that is both cheap and safe -- the
+                // decayable cells. One walk, not three.
+                let table = settle_traits.get_or_insert_with(|| {
+                    (0..materials.len())
+                        .map(|i| {
+                            let m = materials.get(MaterialId(i as u16));
+                            (m.sweep_reach(), m.kind == MaterialKind::Liquid, m.decays_into.is_some())
+                        })
+                        .collect()
+                });
+                chunk.rescan_on_settle(|cell| table[cell.material.0 as usize], &mut settled_decayables);
             }
         }
         // Deduped inside `schedule_active_site`, which is what stops a drift
@@ -13109,11 +13115,12 @@ impl CellSurface for World {
 fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
     stats.visited += 1;
     let cell = view.get(x, y);
-    if view.world.materials.get(cell.material).water_capacity == 0 {
+    let capacity = view.world.materials.get(cell.material).water_capacity;
+    if capacity == 0 {
         return;
     }
     stats.soil += 1;
-    if crate::sim::update::update_soil_water(view, x, y) {
+    if crate::sim::update::update_soil_water_cell(view, x, y, cell, capacity) {
         stats.changed += 1;
     }
 }
@@ -13246,6 +13253,19 @@ impl<'w> MoistureView<'w> {
         }
     }
 
+    /// **`inner.contains`, as one unsigned compare per axis.** `x - min_x`
+    /// wraps below the rectangle to a value larger than its width, so
+    /// `(x - min_x) as u32 <= max_x - min_x` is exactly `min_x <= x <= max_x`
+    /// for every `i32` -- the empty-intersection point at `i32::MIN` included.
+    /// This is the test every read and write of the pass makes (about fifteen
+    /// a visited cell), so it is worth the four compares it saves.
+    #[inline(always)]
+    fn is_inner(&self, x: i32, y: i32) -> bool {
+        let r = self.inner;
+        (x.wrapping_sub(r.min_x) as u32) <= (r.max_x.wrapping_sub(r.min_x) as u32)
+            && (y.wrapping_sub(r.min_y) as u32) <= (r.max_y.wrapping_sub(r.min_y) as u32)
+    }
+
     /// Queue `World::set`'s tail for `(x, y)`, if it has anything to do.
     ///
     /// The two guards mirror `set`'s own: `reindex_organism_cell` returns
@@ -13262,16 +13282,16 @@ impl<'w> MoistureView<'w> {
 }
 
 impl CellSurface for MoistureView<'_> {
-    #[inline]
+    #[inline(always)]
     fn get(&self, x: i32, y: i32) -> Cell {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             return self.chunk.get_world(x, y);
         }
         self.world.get(x, y)
     }
 
     fn set(&mut self, x: i32, y: i32, cell: Cell) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let old = self.chunk.get_world(x, y);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
@@ -13296,7 +13316,7 @@ impl CellSurface for MoistureView<'_> {
             self.set(x, y, cell);
             return;
         }
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.set_world_quiet(x, y, cell);
             self.chunk.mark_moist_dirty(x, y);
             self.world.mark_moist_neighbours(x, y, self.coord);
@@ -13318,7 +13338,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_moved(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_moved(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13327,7 +13347,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_undercut(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_undercut(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13336,7 +13356,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn keep_awake(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.keep_awake(x, y);
         } else {
             self.world.keep_awake(x, y);

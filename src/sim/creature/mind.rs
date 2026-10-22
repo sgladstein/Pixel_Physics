@@ -274,6 +274,11 @@ const RNG_SLOT_SELF: u64 = 41;
 const RNG_SLOT_ACT: u64 = 42;
 
 /// A genome, with what it costs to run: the connections it holds.
+///
+/// **`w` is read-only once built**: [`MindGenome::plan`] is derived from it
+/// here, so a caller that wants other weights builds a new genome rather
+/// than editing this one (nothing in the tree writes `w` after `new`; the
+/// field is public for reading).
 #[derive(Clone, Debug)]
 pub struct MindGenome {
     pub w: Vec<f32>,
@@ -281,6 +286,9 @@ pub struct MindGenome {
     /// excluded: what the body pays for every decision, priced like today's
     /// brain's active synapses (`CreatureDef::synapse_fraction`).
     pub live: u32,
+    /// The scorer's per-option part with its zero weights left out
+    /// ([`ScorerPlan`]), built once per genome and shared by its clones.
+    plan: ScorerPlan,
 }
 
 impl MindGenome {
@@ -291,7 +299,61 @@ impl MindGenome {
             "a mind genome is exactly GENOME_LEN; a short one means the layout changed"
         );
         let live = w[S_CTX..].iter().filter(|v| v.abs() >= W_EPS).count() as u32;
-        MindGenome { w, live }
+        let plan = ScorerPlan::new(&w);
+        MindGenome { w, live, plan }
+    }
+}
+
+/// **The per-option scorer with its zero weights left out** -- the same
+/// sums [`decide`] takes over every one of a unit's [`FEATURES`] weights, in
+/// the same order, skipping only the terms whose weight is exactly zero, and
+/// skipping a unit whose output weight is exactly zero altogether.
+///
+/// **Why**: the per-option part is [`UNITS`] x [`FEATURES`] multiplies per
+/// option, every option, every decision, and is most of what a decision
+/// costs; a trained genome holds a few hundred live links over the whole
+/// head, so most of those multiplies are by zero (performance lane,
+/// 2026-10-21).
+///
+/// **Why it picks exactly as the dense sum does**: a skipped term is
+/// `0 * x`, which is a zero for any finite `x` (every feature is a squash or
+/// a flag, so finite: asserted in debug builds), and adding a zero to a sum
+/// leaves its value unchanged. The only bit it can move is the sign of a sum
+/// that is itself zero (`-0 + 0` is `+0`), and nothing downstream reads that
+/// sign: the squash keeps it, products and sums with anything nonzero erase
+/// it, and every comparison and the `(s + 1) / 2` shift treat `-0` as `0`.
+/// The kept terms are added in their original order, so no rounding moves.
+/// `ScorerPlan::dense` (tests only) is the dense sum as it was, and
+/// `the_sparse_scorer_decides_exactly_as_the_dense_one` holds the two equal,
+/// bit for bit, over sparse random genomes.
+#[derive(Clone, Debug, Default)]
+struct ScorerPlan {
+    /// Units whose output weight is not zero, each with its nonzero feature
+    /// weights as `(feature, weight)` in feature order.
+    units: Vec<(usize, Vec<(usize, f32)>)>,
+}
+
+impl ScorerPlan {
+    fn new(g: &[f32]) -> ScorerPlan {
+        let out = &g[S_OUT..S_OUT + UNITS];
+        let units = (0..UNITS)
+            .filter(|&u| out[u] != 0.0)
+            .map(|u| {
+                let feat = &g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES];
+                (u, feat.iter().copied().enumerate().filter(|&(_, w)| w != 0.0).collect())
+            })
+            .collect();
+        ScorerPlan { units }
+    }
+
+    /// Every unit and every weight, zeros included: the sum as [`decide`]
+    /// took it before the plan, kept as the reference the plan is held to.
+    #[cfg(test)]
+    fn dense(g: &[f32]) -> ScorerPlan {
+        let units = (0..UNITS)
+            .map(|u| (u, g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES].iter().copied().enumerate().collect()))
+            .collect();
+        ScorerPlan { units }
     }
 }
 
@@ -1572,6 +1634,19 @@ pub fn decide(
     state: &mut MindState,
     draw: &mut rng::Rng,
 ) -> Option<Decision> {
+    decide_planned(g, &ScorerPlan::new(g), ctx, opts, state, draw)
+}
+
+/// [`decide`] with the scorer's plan built once per genome
+/// ([`MindGenome::plan`]) rather than once a call: what [`tick`] runs.
+fn decide_planned(
+    g: &[f32],
+    plan: &ScorerPlan,
+    ctx: &[f32; CONTEXT],
+    opts: &[Opt],
+    state: &mut MindState,
+    draw: &mut rng::Rng,
+) -> Option<Decision> {
     debug_assert_eq!(g.len(), GENOME_LEN);
     let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
     let sharp = sharpness(g);
@@ -1599,12 +1674,14 @@ pub fn decide(
             continue;
         }
         let v = opt.verb as usize;
+        debug_assert!(opt.feats.iter().all(|x| x.is_finite()), "a feature that is not finite: {:?}", opt.verb);
+        // Only the nonzero terms, in their order ([`ScorerPlan`]).
         let mut raw = out[UNITS];
-        for u in 0..UNITS {
-            let feat = &g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES];
+        for (u, feat) in &plan.units {
+            let u = *u;
             let mut z = pre[u] + g[S_VERB + u * VERBS + v];
-            for (w, x) in feat.iter().zip(&opt.feats) {
-                z += w * x;
+            for &(i, w) in feat {
+                z += w * opt.feats[i];
             }
             raw += out[u] * squash(z);
         }
@@ -1785,7 +1862,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             );
             let (ctx, now) = context(world, organism, def, &mind.state, &opts);
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
-            let d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
+            let d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
             mind.state.last = Some(now);
             let mut offered = [false; VERBS];
             for o in opts.iter() {
@@ -2357,6 +2434,88 @@ mod tests {
             count[d.pick] += 1;
         }
         count
+    }
+
+    /// **The sparse scorer is a speed-up and nothing else** ([`ScorerPlan`]):
+    /// over sparse random genomes (about the density a trained one has, with
+    /// whole units switched off at the output), random contexts, memories
+    /// and option lists, every decision's pick, scores, jobs, emits and new
+    /// memory match the dense sum bit for bit, a zero's sign aside.
+    #[test]
+    fn the_sparse_scorer_decides_exactly_as_the_dense_one() {
+        let same = |a: f32, b: f32| a.to_bits() == b.to_bits() || (a == 0.0 && b == 0.0);
+        let mut r = rng::stream(11, 2, 3, 99);
+        let mut compared = 0;
+        for trial in 0..400 {
+            let mut g = blank(&Verb::ALL);
+            let density = [0.05, 0.25, 0.6][trial % 3];
+            for w in g.iter_mut().skip(S_CTX) {
+                if r.unit_f32() < density {
+                    *w = r.unit_f32() * 4.0 - 2.0;
+                }
+            }
+            for v in Verb::ALL {
+                g[SWITCH + v as usize] = if r.unit_f32() < 0.8 { 1.0 } else { -1.0 };
+            }
+            let ctx: [f32; CONTEXT] = std::array::from_fn(|_| r.unit_f32() * 2.0 - 1.0);
+            let mut state = MindState::default();
+            for m in state.mem.iter_mut() {
+                *m = r.unit_f32() * 2.0 - 1.0;
+            }
+            let opts: Vec<Opt> = (0..1 + (r.unit_f32() * 20.0) as usize)
+                .map(|k| Opt {
+                    verb: Verb::ALL[(r.unit_f32() * VERBS as f32) as usize % VERBS],
+                    target: (k as i32, 0),
+                    feats: std::array::from_fn(|_| if r.unit_f32() < 0.5 { 0.0 } else { r.unit_f32() * 2.0 - 1.0 }),
+                })
+                .collect();
+            let (sparse, dense) = (ScorerPlan::new(&g), ScorerPlan::dense(&g));
+            let (mut s1, mut s2) = (state, state);
+            let (mut d1, mut d2) = (rng::stream(5, trial as u64, 0, RNG_SLOT_MIND), rng::stream(5, trial as u64, 0, RNG_SLOT_MIND));
+            let a = decide_planned(&g, &sparse, &ctx, &opts, &mut s1, &mut d1);
+            let b = decide_planned(&g, &dense, &ctx, &opts, &mut s2, &mut d2);
+            let (a, b) = match (a, b) {
+                (Some(a), Some(b)) => (a, b),
+                (None, None) => continue,
+                _ => panic!("trial {trial}: one decided and the other did not"),
+            };
+            compared += 1;
+            assert_eq!(a.pick, b.pick, "trial {trial}");
+            assert!(a.scores.iter().zip(&b.scores).all(|(x, y)| same(*x, *y)), "trial {trial}: scores {:?} vs {:?}", a.scores, b.scores);
+            assert!(a.jobs.iter().zip(&b.jobs).all(|(x, y)| match (x, y) {
+                (Some(x), Some(y)) => same(*x, *y),
+                (None, None) => true,
+                _ => false,
+            }), "trial {trial}: jobs");
+            assert!(a.emits.iter().zip(&b.emits).all(|(x, y)| same(*x, *y)), "trial {trial}: emits");
+            assert!(s1.mem.iter().zip(&s2.mem).all(|(x, y)| same(*x, *y)), "trial {trial}: memory");
+            assert_eq!(s1.last_verb, s2.last_verb);
+        }
+        assert!(compared > 300, "too few trials decided anything: {compared}");
+        // The positive control: a plan that drops one live weight is caught.
+        let mut g = blank(&Verb::ALL);
+        for (i, w) in g.iter_mut().enumerate().skip(S_CTX) {
+            *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
+        }
+        let mut broken = ScorerPlan::new(&g);
+        broken.units[0].1.remove(0);
+        // Every feature nonzero, so whichever weight was dropped is read.
+        let opts: Vec<Opt> = walks()
+            .into_iter()
+            .map(|mut o| {
+                o.feats = std::array::from_fn(|i| 0.1 + i as f32 / FEATURES as f32);
+                o
+            })
+            .collect();
+        let ctx = [0.3; CONTEXT];
+        let mut caught = false;
+        for k in 0..50 {
+            let (mut s1, mut s2) = (MindState::default(), MindState::default());
+            let a = decide_planned(&g, &broken, &ctx, &opts, &mut s1, &mut rng::stream(1, k, 0, 0)).expect("pick");
+            let b = decide_planned(&g, &ScorerPlan::dense(&g), &ctx, &opts, &mut s2, &mut rng::stream(1, k, 0, 0)).expect("pick");
+            caught |= a.scores.iter().zip(&b.scores).any(|(x, y)| !same(*x, *y));
+        }
+        assert!(caught, "a plan missing a live weight scored the same: the comparison is blind");
     }
 
     #[test]
