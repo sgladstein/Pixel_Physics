@@ -504,28 +504,37 @@ fn decayed(v: Scent, factor: u32) -> Scent {
 /// 14% of all samples (`perf`, 2026-10-21, training speed thread), and the
 /// pass around it another 45%.
 ///
-/// **Why it is the same function, not a close one.** Round half away from
-/// zero for `x >= 0` is `trunc(x)`, plus one if the dropped fraction is at
-/// least a half. `x as u32` is that truncation (saturating, so a negative
-/// input reads 0 and a huge one `u32::MAX`, which the saturating add keeps
-/// from wrapping, and the clamp takes from there). For any
+/// **Why it is the same function, not a close one.** The clamp first:
+/// `max(0.0)` sends a negative input, and NaN (`f32::max` ignores a NaN),
+/// to 0, which is what the original's clamp and `NaN as u16` gave; capping
+/// at `Scent::MAX + 0.5` (exact in `f32`) cannot change an answer, since
+/// everything from there up rounds to at least `Scent::MAX + 1` and clamps
+/// to `Scent::MAX` either way. Then round half away from zero for `x >= 0`
+/// is `trunc(x)`, plus one if the dropped fraction is at least a half;
+/// `x as i32` is that truncation, and in this range never saturates. For
 /// `0 <= x < 2^24` the fraction `x - trunc(x)` is exact in `f32`: both are
 /// multiples of `x`'s ulp, which is at most 1 there, and their difference
 /// is below 1. So the comparison against 0.5 sees the true fraction, which
-/// is the case `x + 0.5` then `floor` gets wrong (0.49999997 + 0.5 rounds up
-/// to 1.0). A negative input truncates to 0 with a negative fraction, so
-/// reads 0 as the clamp did; NaN casts to 0 and fails the comparison, so
-/// reads 0 as `NaN as u16` did. Every input the blend can produce is in
-/// `[0, Scent::MAX]` (a blend between two Scents). Checked against the
-/// original on **all 2^32 `f32` bit patterns**, 0 mismatches (a 20 s
-/// release-mode loop, 2026-10-21; the first draft's plain `+` wrapped at
-/// `u32::MAX` and that loop is what found it); the guard
+/// is the case `x + 0.5` then `floor` gets wrong (0.49999997 + 0.5 rounds
+/// up to 1.0). Every input the blend can produce is in `[0, Scent::MAX]`
+/// (a blend between two Scents). Checked against the original on **all
+/// 2^32 `f32` bit patterns**, 0 mismatches (a 20 s release-mode loop,
+/// 2026-10-21; a first draft without the clamp wrapped at `u32::MAX`, and
+/// that loop is what found it); the guard
 /// `round_to_scent_matches_round_everywhere` keeps the boundaries.
+///
+/// **Signed, and clamped before the cast, so the blend loop vectorises.**
+/// A float-to-`u32` cast has no SSE2 instruction and kept the loop scalar;
+/// to `i32` is one packed instruction. With the column sums below also
+/// over slices, the pass's inner loop is packed arithmetic (checked in
+/// `perf annotate`): soil arena 2,662 -> 2,464 ms, fetch 1,438 -> 1,368 ms
+/// on top of the row skip.
 #[inline]
 fn round_to_scent(x: f32) -> Scent {
-    let whole = x as u32;
-    let up = u32::from(x - whole as f32 >= 0.5);
-    whole.saturating_add(up).min(Scent::MAX as u32) as Scent
+    let x = x.max(0.0).min(Scent::MAX as f32 + 0.5);
+    let whole = x as i32;
+    let up = i32::from(x - whole as f32 >= 0.5);
+    (whole + up).min(Scent::MAX as i32) as Scent
 }
 
 /// One channel's world-sized u8 plane, double-buffered for the pass.
@@ -831,26 +840,19 @@ impl PheromonePlane {
                         }
                         continue;
                     }
-                    for (i, slot) in cols.iter_mut().take(span + 2).enumerate() {
-                        // `i` runs over `lx - x0 + 1`, so `i == 0` is the
-                        // column left of the tile and `i == span + 1` the one
-                        // right of it.
-                        let Some(lx) = (x0 + i).checked_sub(1) else {
-                            *slot = 0;
-                            continue;
-                        };
-                        if lx >= self.w {
-                            *slot = 0;
-                            continue;
+                    // `cols[i]` is the column `lx = x0 + i - 1`, so `i == 0`
+                    // is the column left of the tile and `i == span + 1` the
+                    // one right of it. Zeroed, then each in-plane row added
+                    // over slices: the same integer sums as a per-column
+                    // loop with a bounds test on each read, but with no
+                    // branch per cell, so it vectorises.
+                    let (lo, hi) = (x0.saturating_sub(1), (x1 + 1).min(self.w));
+                    cols[..span + 2].fill(0);
+                    let sums = &mut cols[lo + 1 - x0..hi + 1 - x0];
+                    for row in [up, Some(base), down].into_iter().flatten() {
+                        for (slot, &v) in sums.iter_mut().zip(&self.front[row + lo..row + hi]) {
+                            *slot += u32::from(v);
                         }
-                        let mut s = u32::from(self.front[base + lx]);
-                        if let Some(u) = up {
-                            s += u32::from(self.front[u + lx]);
-                        }
-                        if let Some(d) = down {
-                            s += u32::from(self.front[d + lx]);
-                        }
-                        *slot = s;
                     }
                     let row_cols = &cols[..span + 2];
                     let back = &mut self.back[base + x0..base + x1];
@@ -1340,8 +1342,8 @@ mod tests {
     /// negatives, NaN, infinities and values far above the range. Fault
     /// check (2026-10-21, the same probes in a standalone copy): `(x + 0.5)
     /// as u32` in its place fails at 0.49999997, dropping the `.min` fails
-    /// on 18 probes above `Scent::MAX`, and a plain `+` for the saturating
-    /// add fails at infinity and 5e9.
+    /// on 18 probes above `Scent::MAX`, and the draft without the clamp
+    /// (an unsigned cast and a plain `+`) failed at infinity and 5e9.
     #[test]
     fn round_to_scent_matches_round_everywhere() {
         let reference = |x: f32| x.round().clamp(0.0, Scent::MAX as f32) as Scent;

@@ -47,7 +47,7 @@ git fetch -q --depth 1 origin "$REF" > $W/git.log 2>&1 || log "git fetch of $REF
 git checkout -q FETCH_HEAD >> $W/git.log 2>&1 || log "checkout failed"
 log "building at $(git rev-parse --short HEAD)"
 T0=$(date +%s)
-cargo build --release --locked --example inrun > $W/build.log 2>&1
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --example inrun > $W/build.log 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
   log "BUILD FAILED rc=$rc"; tail -n 60 $W/build.log > $W/build-tail.log; put $W/build-tail.log build-tail.log
@@ -56,7 +56,7 @@ fi
 log "built in $(( $(date +%s) - T0 )) s"
 cp "${ARGS#jobs=}" $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
 put $W/jobs.txt jobs.txt
-export BIN=$W/repo/target/release/examples/inrun
+export BIN=$W/repo/target/release/examples/inrun RAYON_NUM_THREADS=1
 run_one() {
   cd $W/repo; o=$1; shift
   bash scratch/inrun/rounds.sh $W/out/$o "$@"
