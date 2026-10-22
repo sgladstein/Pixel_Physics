@@ -6658,6 +6658,26 @@ pub struct World {
     pub seedling_waits: bool,
     /// Tip visits held by `seedling_waits`: its did-it-fire count.
     pub seedling_waits_held: u64,
+    /// **A plant with no foliage funds its growing points from its own
+    /// stock** (`plant::SEEDLING_MOBILISE`), the way a seedling lives on its
+    /// seed until its first leaf. Off, the frontier is funded only from
+    /// income, so a seedling that cannot earn before it has a leaf never
+    /// builds one: its seed carbon levels out across the body below the
+    /// price of a step. Off by default until measured.
+    pub seedling_reserves: bool,
+    /// Allocations funded that way: its did-it-fire count.
+    pub seedling_reserves_drawn: u64,
+    /// **A waiting seed sinks through dead matter, and a sprout lifts it**
+    /// (`plant::dead_matter`, `plant::heave_loose_column`): a seed on litter,
+    /// a dead leaf or deadwood trades places with it now and then, and a
+    /// shoot tip heaves the loose column lying on it. The parked
+    /// `PIXEL_PHYSICS_SEED_SETTLE` (2026-10-17), narrowed and re-tested under
+    /// a closed stand. Off by default until measured.
+    pub seed_settles: bool,
+    /// Swaps made by `seed_settles`' settle half: its did-it-fire count.
+    pub seeds_settled: u64,
+    /// Columns lifted by its heave half.
+    pub seeds_heaved: u64,
     /// **The light an unshaded leaf gets in this world** -- what the shade
     /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
     /// under the sky (noon sun, with the day divided out); the grow lamp's
@@ -7642,6 +7662,11 @@ impl World {
             shade_scald: false,
             seedling_waits: false,
             seedling_waits_held: 0,
+            seedling_reserves: false,
+            seedling_reserves_drawn: 0,
+            seed_settles: false,
+            seeds_settled: 0,
+            seeds_heaved: 0,
             open_light: crate::sim::field::MAX_LIGHT,
             seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,

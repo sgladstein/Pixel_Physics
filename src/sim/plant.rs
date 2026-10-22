@@ -504,6 +504,69 @@ fn excluded_column(x: i32) -> bool {
 /// stock itself is small -- tens of seeds at any time -- so what it buys is a
 /// garden that is never eaten to the last seed, not a larger colony (median
 /// peak 327 against 338).
+/// **Is `c` dead plant matter a waiting seed sinks through, or a sprout
+/// lifts?** Loose litter, a dead leaf, a snapped branch (`deadwood`) -- the
+/// powders a stand's floor is carpeted with -- owned by nobody. For the
+/// sprout's half ([`heave_loose_column`]) a seed still waiting counts too.
+///
+/// `World::seed_settles`, a port of the parked `PIXEL_PHYSICS_SEED_SETTLE`
+/// (commit `4d455bf9`, `Reports/dead-ends.md`), narrowed: settle trades
+/// places only with dead matter, never with other seed -- a seed heap is A6's
+/// (`World::seed_pile_depth`) -- and the deeper water read is not ported.
+/// Re-tested because its re-test condition was met (2026-10-22, plant
+/// community lane): on a flat floor under a grown stand (`plant_m0
+/// mode=stand`, shrub, 12 seeds, 4 sown each, traced every 500 frames to
+/// 10,000), of 30 sown seeds 6 sprouted, 6 waited in soil too dark to
+/// germinate, 11 lay on living tissue (a trunk's base, a root collar) and 7
+/// on dead matter -- deadwood, litter, a dead leaf, a log -- whose cell
+/// holds no water, so `Germinate`'s water test can never pass there.
+fn dead_matter(world: &World, c: Cell, or_waiting_seed: bool) -> bool {
+    let id = c.organism_id();
+    if id != 0 {
+        return or_waiting_seed
+            && organism::cell_type(c.aux()) == Some(CellType::Seed)
+            && world.organism(id).is_some_and(|s| s.cells.len() == 1 && s.dormant_seed);
+    }
+    c.material != material::EMPTY
+        && ["litter", "deadleaf", "deadwood"].iter().any(|name| world.materials.id_of(name) == Some(c.material))
+}
+
+/// Chance a seed tick that a waiting seed on dead matter trades places with
+/// it (`World::seed_settles`). Low on purpose, as the parked switch had it:
+/// a seed tick is every `SEED_TICK_INTERVAL` frames and every swap is two
+/// cell writes that keep a settled chunk awake.
+pub const SEED_SETTLE_CHANCE: f32 = 1.0 / 32.0;
+
+/// How far up a shoot tip looks for the air a heaved column rises into.
+const HEAVE_REACH: i32 = 8;
+
+/// **A shoot tip lifts the dead matter or seed lying on it**
+/// (`World::seed_settles`). A seed that has settled under litter sprouts
+/// into the litter, and a shoot takes empty cells only, so without this it
+/// sprouts under a lid: the parked switch's seedling trace (2026-10-17, mixed
+/// bed) found 90%+ of seedling deaths were a lone shoot tip stopped by a lying
+/// seed or litter. In 3D a sprout pushes past a leaf; in the slice it heaves
+/// the loose column above it up one cell. Only `dead_matter` moves, and only
+/// into air within `HEAVE_REACH`.
+fn heave_loose_column(world: &mut World, x: i32, y: i32) -> bool {
+    let mut top = y;
+    loop {
+        let c = world.get(x, top);
+        if c.material == material::EMPTY {
+            break;
+        }
+        if !dead_matter(world, c, true) || y - top >= HEAVE_REACH {
+            return false;
+        }
+        top -= 1;
+    }
+    for yy in (top + 1)..=y {
+        world.move_cell(x, yy, x, yy - 1, true);
+    }
+    world.seeds_heaved += 1;
+    true
+}
+
 fn buried_seed_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -6171,7 +6234,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     break;
                 }
 
-                if resource < cost {
+                // **And a leafless seedling's node waits until it can pay
+                // for its first leaf too** (`World::seedling_reserves`). A
+                // tip extends the moment it holds the price of one cell, so
+                // a seedling living on a trickle of reserve reached every
+                // node holding ~0.06 after a 0.27 step, against ~0.13 for
+                // a shade leaf cell: four leafless nodes, then the apex
+                // tried to flower. Traced 2026-10-22, 5% of open light.
+                let first_leaf = world.seedling_reserves
+                    && leaf_due
+                    && cell_type == CellType::GrowingTip
+                    && world.organism(organism_id).is_some_and(|st| st.income <= 0.0 && st.shoot_cells < SEEDLING_SHOOT_CELLS);
+                let price = if first_leaf { cost + tissue_cost * LEAF_CONSTRUCTION_MULTIPLE } else { cost };
+                if resource < price {
                     grow_why = Some(GrowWhy::TooPoor);
                     // **A seedling in deep shade waits for its first leaf**
                     // (`World::seedling_waits`). Staleness is how a plant
@@ -6435,6 +6510,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     r.up = gravity_or_water;
                     r.weights = [continuation_weight, light_weight, wind_weight, upward_weight];
                     r.crowding_weight = crowding_weight;
+                }
+                // **Heave** (`World::seed_settles`, `heave_loose_column`): a
+                // shoot tip with dead matter or a seed straight above lifts it
+                // before scoring, so the cell above is open like any other.
+                if world.seed_settles && penetration_force <= 0.0 && dead_matter(world, world.get(x, y - 1), true) {
+                    heave_loose_column(world, x, y - 1);
                 }
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 // How far the empty set got, for `GrowWhy`: cells it could
@@ -7595,6 +7676,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 });
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
+                }
+                // **Settle** (`World::seed_settles`, `dead_matter`): a waiting
+                // seed on litter, a dead leaf or deadwood trades places with
+                // it now and then, working down to the ground it can root in.
+                if world.seed_settles && dead_matter(world, below, false) && rng.chance(SEED_SETTLE_CHANCE) {
+                    world.move_cell(x, y, x, y + 1, false);
+                    world.seeds_settled += 1;
+                    return vec![reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + SEED_TICK_INTERVAL)];
                 }
                 // **A seed on a heap leaves the slice** (A6;
                 // `World::seed_pile_depth`, `DeathCause::Spread`). Only one
@@ -11908,6 +11997,25 @@ fn process_rebloom(world: &mut World, organism_id: OrganismId) {
     }
 }
 
+/// Whether `allocate_to_frontier` funds this plant's growing points from its
+/// own stock (`World::seedling_reserves`): the switch on, no foliage, no
+/// surplus, and still a seedling.
+fn seedling_mobilises(world: &World, organism_id: OrganismId, foliage: usize, earned: f32) -> bool {
+    world.seedling_reserves
+        && foliage == 0
+        && earned <= 0.0
+        && world.organism(organism_id).is_some_and(|s| s.shoot_cells < SEEDLING_SHOOT_CELLS)
+}
+
+/// The share of its own stock a plant with no foliage moves to its growing
+/// points each allocation, under `World::seedling_reserves`.
+pub const SEEDLING_MOBILISE: f32 = 0.5;
+
+/// Below this many shoot cells a plant is a seedling for every one of
+/// `World::seedling_reserves`' three rules -- the establishment line
+/// the trainer and the community census both draw (`BedSpec::n_est`, 20).
+pub const SEEDLING_SHOOT_CELLS: u32 = 20;
+
 fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
     if state.cells.is_empty() {
@@ -11936,6 +12044,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     let mut frontier_is_root: Vec<bool> = Vec::new();
     let mut donors: Vec<(i32, i32)> = Vec::new();
     let shade_tolerate = plant_shade_tolerate(world, organism_id);
+    let mut foliage = 0usize;
     let mut intercepted = 0.0f32;
     for &(x, y) in &cells {
         let cell = world.get(x, y);
@@ -11996,6 +12105,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
                 // water is scarcer, so a rootless plant in full sun earns
                 // nothing at all however much light it intercepts.
                 intercepted += leaf_light_used(world, x, y, shade_tolerate) * water_status(world, x, y);
+                foliage += 1;
                 donors.push((x, y));
             }
             Some(_) => donors.push((x, y)),
@@ -12086,7 +12196,32 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     // that moves with `q_peak`, which is monotone and slow; and reading it
     // fresh would mean running the whole upkeep walk twice.
     let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
-    let surplus = (income - maintenance).max(0.0).min(stock);
+    let earned = (income - maintenance).max(0.0).min(stock);
+    // **A seedling lives on its seed until its first leaf**
+    // (`World::seedling_reserves`). Every carbon move above is funded from
+    // surplus income, so a plant with no foliage -- a seedling before its
+    // first leaf -- funds nothing: its seed stake lands on the shoot cell
+    // (`germinate`), diffusion levels it across the body at ~0.17 a cell,
+    // and the tip, needing 0.2 to grow and 0.24 for each leaf cell, never
+    // holds enough. Traced at 5% of open light (2026-10-22, plant community
+    // lane, `plant_m0 mode=plastic ... endow=4`): a stake of 4 smeared to
+    // 0.15-0.18 a cell, the tip `TooPoor` every tick, no leaf ever built,
+    // the roots dead unpaid -- the same with a stake of 0.25 or 1. A real
+    // seedling mobilises its reserves to its growing points (the
+    // heterotrophic phase), and that is what this does: with no foliage
+    // the frontier is funded from a share of the plant's own stock, and
+    // nothing goes to seed. Spending a stock down cannot grow a plant for
+    // ever, which is what made "let a starved tip try anyway" a dead end.
+    // Seedlings only (`SEEDLING_SHOOT_CELLS`): without that bound a grown
+    // plant that had shed every leaf would draw half its stock each tick
+    // too. (The bound is not what moves the residents: a 192-wide stand,
+    // seed 1, grows its trees to 9,385 shoot cells against 6,944 with the
+    // switch on either way -- their own seedlings establish on it too.)
+    let mobilise = seedling_mobilises(world, organism_id, foliage, earned);
+    let surplus = if mobilise { stock * SEEDLING_MOBILISE } else { earned };
+    if mobilise {
+        world.seedling_reserves_drawn += 1;
+    }
     // **Reproduction is taken off the top, before the frontier is funded**
     // -- that subtraction *is* the trade-off. See
     // `OrganismState::reproductive_budget` for what it replaces and why
@@ -12108,7 +12243,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
         _ => None,
     })
     .unwrap_or(0.0);
-    let reproductive_share = surplus * reproductive_allocation;
+    let reproductive_share = if mobilise { 0.0 } else { surplus * reproductive_allocation };
     if let Some(state) = world.organism_mut(organism_id) {
         state.reproductive_budget = (state.reproductive_budget + reproductive_share).min(REPRODUCTIVE_BUDGET_CAP);
     }
@@ -12176,7 +12311,16 @@ fn allocate_to_frontier(world: &mut World, organism_id: OrganismId) {
     // is more root-biased than one short of either — and either alone still
     // moves it, which a product would not.
     let anchor_stress = 1.0 - world.organism(organism_id).map_or(1.0, |s| s.anchor_status);
-    let root_weight = (ROOT_BIAS_AT_FULL_WATER + (1.0 - status) + anchor_stress) * genotype(world, organism_id, 6, alloc_variance);
+    // A seedling living on its seed sends it to the shoot first while its
+    // water holds: its first leaf is the one thing that can pay back, and a
+    // stake of 1 shared out at the root bias went to six root cells while
+    // the tip never held the price of a node and its leaf (2026-10-22).
+    let shoot_first = mobilise && status >= 1.0 && anchor_stress <= 0.0;
+    let root_weight = if shoot_first {
+        0.0
+    } else {
+        (ROOT_BIAS_AT_FULL_WATER + (1.0 - status) + anchor_stress) * genotype(world, organism_id, 6, alloc_variance)
+    };
     let total_weight: f32 = frontier_is_root.iter().map(|&r| if r { root_weight } else { 1.0 }).sum();
     if total_weight <= 0.0 {
         return;
@@ -13100,6 +13244,15 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         }
         _ => 0.0,
     };
+    // **A seedling starves when its seed runs out, not on a clock**
+    // (`World::seedling_reserves`): the carbon an unestablished plant holds,
+    // read below by the starvation rule. Sorted before summing, as
+    // `allocate_to_frontier` sorts, because `cells` is a `HashMap`.
+    let seedling_stock = (world.seedling_reserves && shoot_cells < SEEDLING_SHOOT_CELLS).then(|| {
+        let mut at: Vec<(i32, i32)> = world.organism(organism_id).map_or(Vec::new(), |s| s.cells.keys().copied().collect());
+        at.sort_unstable_by_key(|&(x, y)| (y, x));
+        at.iter().map(|&(x, y)| world.carbon_at(x, y)).sum::<f32>()
+    });
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
@@ -13253,7 +13406,15 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         if has_economy && has_leaf_stage && !resting_seed {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
-            if alive > 0.0 && collected < MAINTENANCE_PER_CELL * alive {
+            // A seedling holding enough to pay the whole bill for as long
+            // as the clock runs is living on its seed, not starving: a
+            // seedling at 3% of open light built its first leaf, earned
+            // nearly nothing, held 2.0 carbon steady for 9,000 frames and
+            // was killed by the count with all of it unspent (2026-10-22).
+            // Real shade seedlings persist like this for years -- the
+            // seedling bank -- and die when the reserve does.
+            let living_on_seed = seedling_stock.is_some_and(|stock| stock >= MAINTENANCE_PER_CELL * alive * STARVATION_DEATH_TICKS as f32);
+            if alive > 0.0 && collected < MAINTENANCE_PER_CELL * alive && !living_on_seed {
                 state.starving_ticks = state.starving_ticks.saturating_add(1);
                 if state.starving_ticks >= STARVATION_DEATH_TICKS && !state.senescent {
                     state.senescent = true;
@@ -25735,6 +25896,92 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert_eq!(scalded(0.0, true), 0, "no tolerance: no leaf may scald");
         let on = scalded(1.0, true);
         assert!(on > 0, "a fully tolerant tree in open sky should scald with the switch on, shed {on}");
+    }
+
+    /// `World::seedling_reserves` draws on a seedling's own stock only
+    /// before its first leaf and only below `SEEDLING_SHOOT_CELLS`: on, the
+    /// count moves while the seedling is leafless and then stops for good
+    /// once the plant is past seedling size; off, it never moves.
+    #[test]
+    fn seedling_reserves_draw_only_for_a_leafless_seedling_and_only_when_on() {
+        let run = |on: bool| {
+            let mut w = test_world();
+            w.seed = 1;
+            w.seedling_reserves = on;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            let mut grown_at = None;
+            for _ in 0..80 {
+                run_with_fields(&mut w, 50);
+                if w.organism(id).is_some_and(|st| st.shoot_cells >= SEEDLING_SHOOT_CELLS) {
+                    grown_at = Some(w.seedling_reserves_drawn);
+                    break;
+                }
+            }
+            // Past seedling size, a plant with no foliage and no surplus is
+            // exactly what the bound refuses -- asserted on the predicate,
+            // because a run could not show it: with the bound deleted,
+            // stripping every leaf off this tree still left the count
+            // unmoved (checked 2026-10-22), so a run-based check was blind.
+            if grown_at.is_some() {
+                assert!(!seedling_mobilises(&w, id, 0, 0.0), "a leafless plant past seedling size must not draw");
+            }
+            run_with_fields(&mut w, 200);
+            (grown_at, w.seedling_reserves_drawn, w.organism(id).map_or(0, |st| st.shoot_cells))
+        };
+        let (_, off, _) = run(false);
+        assert_eq!(off, 0, "switch off: nothing may be drawn");
+        let (grown_at, on, shoot) = run(true);
+        let grown_at = grown_at.unwrap_or_else(|| panic!("test setup: the tree should pass seedling size in 4,000 frames, has {shoot} shoot cells"));
+        assert!(grown_at > 0, "switch on: a leafless seedling should draw on its stock");
+        assert_eq!(on, grown_at, "a plant past seedling size must never draw again");
+    }
+
+    /// `World::seed_settles`: a seed lying on litter can never pass
+    /// `Germinate`'s water test (litter holds none), and with the switch on
+    /// it trades places with the litter, reaches the soil and sprouts. Off,
+    /// it lies there and the counter stays at 0 -- the switch's off arm is
+    /// the shipped engine.
+    #[test]
+    fn a_seed_on_litter_settles_to_the_soil_only_when_on() {
+        let run = |on: bool| {
+            let mut w = test_world();
+            w.seed = 1;
+            w.seed_settles = on;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let litter = w.materials.id_of("litter").expect("litter is compiled in");
+            let (x, y) = (100, 60);
+            const HALF: i32 = 8;
+            for fx in (x - HALF - 1)..=(x + HALF + 1) {
+                w.set(fx, y + 10, Cell::new(material::STONE, 0));
+            }
+            for dy in 2..=9 {
+                w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+                for fx in (x - HALF)..=(x + HALF) {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            // One litter cell in a notch, so neither it nor the seed on it
+            // can slide off sideways.
+            w.set(x - 1, y + 1, Cell::new(material::STONE, 0));
+            w.set(x + 1, y + 1, Cell::new(material::STONE, 0));
+            w.set(x, y + 1, Cell::new(litter, 0));
+            w.plant_tree(x, y);
+            let id = w.get(x, y).organism_id();
+            // 400 frames, not more: by ~500 the litter cell is gone from
+            // under the off arm's seed too (measured, this scene), and it
+            // sprouts on the soil -- a test of nothing. The on arm settled at
+            // ~150 and had sprouted by 200.
+            run_with_fields(&mut w, 400);
+            (w.seeds_settled, w.organism(id).map_or(0, |st| st.cells.len()))
+        };
+        let (settled_off, cells_off) = run(false);
+        assert_eq!(settled_off, 0, "switch off: nothing may settle");
+        assert_eq!(cells_off, 1, "switch off: a seed on litter reads no water and must not sprout");
+        let (settled_on, cells_on) = run(true);
+        assert!(settled_on > 0, "switch on: the seed on litter should settle");
+        assert!(cells_on > 1, "switch on: the settled seed should reach the soil and sprout, has {cells_on} cells");
     }
 
     struct SeedBed {

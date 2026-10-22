@@ -1,0 +1,18 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=true open_light=2.40 genes=creeper:germ:0.02
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=60000 shrub=45000 herb=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=creeper mix=stand-creeper ["tree", "shrub", "herb"] seed=5 width=192 grow=60000 window=80000 sample=10000 sow=4 gap=0 arms=shipped plants_placed=9
+grown f=60000 | tree 5/29/2052/4891 | shrub 13/7/695/2179 | herb 7/8/169/391 | creeper 0/0/0/0  (plants/bank/leaf/shoot)
+arm=shipped sown 4 of 4 endow 0.25
+arm=shipped f=10000 | tree 9/29/2186/5334 | shrub 9/4/564/1800 | herb 10/10/133/337 | creeper 0/1/0/0
+arm=shipped f=20000 | tree 13/25/2177/5498 | shrub 7/7/406/1288 | herb 15/10/141/423 | creeper 1/0/0/1
+arm=shipped f=30000 | tree 21/22/2175/5624 | shrub 6/7/378/1244 | herb 12/12/71/324 | creeper 1/0/0/1
+arm=shipped f=40000 | tree 21/29/2162/5706 | shrub 4/7/348/1149 | herb 11/9/62/224 | creeper 1/0/0/1
+arm=shipped f=50000 | tree 22/28/2120/5725 | shrub 4/7/191/537 | herb 12/16/63/228 | creeper 1/0/0/1
+arm=shipped f=60000 | tree 22/33/2070/5780 | shrub 3/7/184/502 | herb 11/12/13/84 | creeper 1/0/0/1
+arm=shipped f=70000 | tree 21/27/2050/5866 | shrub 4/5/293/704 | herb 9/7/13/83 | creeper 1/0/0/1
+arm=shipped f=80000 | tree 20/19/2014/5833 | shrub 6/10/291/738 | herb 8/5/12/80 | creeper 1/0/0/1
+arm=shipped SWITCHES reserves_drawn 21548 settled 404 heaved 69 germinations 170
+plant_m0 done: 46.3 s
