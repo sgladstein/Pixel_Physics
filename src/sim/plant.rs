@@ -4158,6 +4158,19 @@ fn provisioning(shoot_cells: u32, authored_maturity: u32) -> f32 {
     (shoot_cells as f32 / authored_maturity as f32).clamp(MIN_PROVISIONING, 1.0)
 }
 
+/// **Give a planted seed the carbon a bred one carries** (`OrganismState::
+/// endowment`, written into the seedling at germination). A placed or
+/// planted seed starts with 0, as every scene has assumed; a measurement of
+/// recruitment under a canopy, where the first growth step is paid from the
+/// seed or not at all, wants the stake its parent would have paid
+/// (`Reproduce.seed_cost`). An instrument for harnesses; nothing in the sim
+/// calls it.
+pub fn endow_seed(world: &mut World, organism_id: OrganismId, carbon: f32) {
+    if let Some(s) = world.organism_mut(organism_id) {
+        s.endowment = carbon;
+    }
+}
+
 /// The least a seedling may be given, as a share of `seed_cost`.
 ///
 /// Not zero, and not by taste: `germinate` writes the endowment as the
@@ -5702,6 +5715,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
 
     let mut next = Vec::new();
     let mut found_candidate = false;
+    // **A seedling's shoot tip too poor to take its first step waits rather
+    // than ages out** (`World::seedling_waits`): set by the `Grow` arm's
+    // carbon gate, read by the staleness counter at the bottom.
+    let mut seedling_waiting = false;
     // Why this tick's `Grow` visit ended where it did; `None` if the cell ran
     // no `Grow`. Written at each exit of the arm, read only by the census
     // below -- see `GrowWhy`.
@@ -6156,6 +6173,24 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
 
                 if resource < cost {
                     grow_why = Some(GrowWhy::TooPoor);
+                    // **A seedling in deep shade waits for its first leaf**
+                    // (`World::seedling_waits`). Staleness is how a plant
+                    // stops growing (`dead-ends.md`: marking this gate "had
+                    // somewhere to try" made a starved tree grow forever),
+                    // but on a seedling whose leaves earn nothing yet it
+                    // converts "not yet" into death: four poor ticks
+                    // (~180 frames) and the only tip retires, the plant has
+                    // no vital cell left, and it is booked
+                    // `LostVitalTissue` with its seed carbon unspent.
+                    // Traced at 5% of open light, 2026-10-22. Only a shoot
+                    // tip, only while the plant's leaves earn nothing, so a
+                    // plant with income still retires its tips as before;
+                    // starvation (`STARVATION_DEATH_TICKS`) still ends one
+                    // that never gets there.
+                    if world.seedling_waits && cell_type == CellType::GrowingTip && world.organism(organism_id).is_some_and(|st| st.income <= 0.0) {
+                        seedling_waiting = true;
+                        world.seedling_waits_held += 1;
+                    }
                     continue;
                 }
                 // **The height bound** -- `organism::Behavior::Grow`'s
@@ -7807,6 +7842,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
         next.push(reschedule_organism(x, y, organism_id, 0, plastochron, due));
+    } else if seedling_waiting {
+        // Neither reset nor aged: the seedling's tip keeps its count.
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks, plastochron, due));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
     } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
@@ -11320,6 +11358,15 @@ fn shade_at(world: &World, x: i32, y: i32) -> f32 {
 /// needs to stand still.
 const SHADE_UPKEEP_CUT: f32 = 0.5;
 
+/// `SHADE_UPKEEP_CUT`, or `PIXEL_PHYSICS_SHADE_UPKEEP_CUT` when set: the
+/// sweep the cut is measured on. A measurement instrument, read once per
+/// process.
+fn shade_upkeep_cut() -> f32 {
+    use std::sync::OnceLock;
+    static CUT: OnceLock<f32> = OnceLock::new();
+    *CUT.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_UPKEEP_CUT").ok().and_then(|v| v.parse().ok()).unwrap_or(SHADE_UPKEEP_CUT))
+}
+
 /// What a shade-tolerant leaf gives up in bright light: at full light a
 /// fully tolerant plant's leaves earn `1 - SHADE_LEAF_PRICE` of it. The
 /// price that keeps tolerance from being free (A5.2, the leaf economics
@@ -11339,6 +11386,39 @@ const SHADE_UPKEEP_CUT: f32 = 0.5;
 /// has to show where light is contested -- a neighbour overtopping it --
 /// which is rung 4's arena, not a lone plant's. 0.6 measured between.
 const SHADE_LEAF_PRICE: f32 = 0.9;
+
+/// **How fast a shade leaf scalds in full open light**, as a multiple of the
+/// species' own `shade_death` (`World::shade_scald`; A5's price in bright
+/// light). A fully tolerant leaf in the world's open light falls at
+/// `SCALD_RATE * shade_death` per tick, cubed in the glare as the shade
+/// roll is cubed in the dark, so a leaf half-lit is nearly safe and one in
+/// a canopy's shade entirely so.
+///
+/// **Why a leaf lost and not carbon withheld:** `SHADE_LEAF_PRICE` alone
+/// cannot make tolerance a loss in bright light, because a lone plant
+/// there is sized by development, not carbon (see its doc). Only a cost to
+/// what the plant *builds* reaches it. This one is real: thin shade leaves
+/// moved into the sun photo-inhibit and bleach. Read through
+/// `scald_rate()` for the sweep.
+const SCALD_RATE: f32 = 16.0;
+
+/// `SCALD_RATE`, or `PIXEL_PHYSICS_SCALD_RATE` when set: the sweep it is
+/// derived on. A measurement instrument, read once per process.
+fn scald_rate() -> f32 {
+    use std::sync::OnceLock;
+    static RATE: OnceLock<f32> = OnceLock::new();
+    *RATE.get_or_init(|| std::env::var("PIXEL_PHYSICS_SCALD_RATE").ok().and_then(|v| v.parse().ok()).unwrap_or(SCALD_RATE))
+}
+
+/// `World::shade_scald`, or on everywhere when `PIXEL_PHYSICS_SHADE_SCALD=1`:
+/// how a trainer whose beds are built inside `train_plant` turns the price
+/// on without a flag threaded through every bed. A measurement instrument,
+/// read once per process.
+fn scald_on(world: &World) -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    world.shade_scald || *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_SCALD").is_ok_and(|v| v == "1"))
+}
 
 /// `SHADE_LEAF_PRICE`, or `PIXEL_PHYSICS_SHADE_LEAF_PRICE` when set: the
 /// sweep the price is re-derived on (plan step 3, "re-price shade
@@ -13299,6 +13379,27 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
                         }
+                        // **Sun scald, the mirror of the roll above**
+                        // (`World::shade_scald`, A5): a shade leaf is thin,
+                        // and in bright light it bleaches and falls. The
+                        // same per-tick rate, at full *open* light rather
+                        // than total darkness, scaled by how tolerant the
+                        // plant is -- so tolerance moves where a leaf lives
+                        // best, from the sun to the shade, instead of
+                        // adding a shade bonus for nothing. See
+                        // `SCALD_RATE` for why the price has to be a leaf
+                        // lost and not carbon withheld. Drawn only when it
+                        // can fire, so a plant with no tolerance keeps its
+                        // dice.
+                        if shade_tolerate > 0.0 && scald_on(world) {
+                            let glare = (light / world.open_light).clamp(0.0, 1.0);
+                            if rng.chance(scald_rate() * shade_death * shade_tolerate * glare * glare * glare) {
+                                world.shed_scald += 1;
+                                shed_to_litter(world, cx, cy, organism::DeathCause::Scorched);
+                                shed_stranded_leaves(world, cx, cy, organism_id);
+                                continue;
+                            }
+                        }
                     }
                     // Water first, carbon second and gated on it -- see the
                     // frontier arm for the ordering, and
@@ -13497,7 +13598,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // compensation point. Measured before this: at a quarter of full
         // light every founder of every species lost its tissue and died
         // within 60,000 frames, genes or no genes.
-        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - SHADE_UPKEEP_CUT * shade_tolerate);
+        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - shade_upkeep_cut() * shade_tolerate);
         if !root_tissue {
             basis += maintenance_basis(q_peak, l_node(upkeep_leaf_cluster));
         }
@@ -25600,6 +25701,40 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let used = leaf_light_used(&w, x, y, 1.0);
         assert!((used - light * (1.0 - SHADE_LEAF_PRICE * full)).abs() < 1e-5, "a fully tolerant leaf at light {light} used {used}");
         assert_eq!(leaf_light_used(&w, x, y, 0.0), light, "no tolerance, no price");
+    }
+
+    /// **Sun scald sheds a tolerant plant's leaves in open light, only with
+    /// `World::shade_scald` on, and never a plant with no tolerance** (A5's
+    /// bright-light price, `SCALD_RATE`). One grown tree in open sky, its
+    /// upkeep run the same number of times in three arms from the same
+    /// clone: tolerance 1.0 with the switch off sheds nothing to scald,
+    /// tolerance 0 with it on sheds nothing, and tolerance 1.0 with it on
+    /// sheds -- the positive control the other two need.
+    #[test]
+    fn sun_scald_sheds_only_a_tolerant_plants_leaves_and_only_when_on() {
+        let mut w = test_world();
+        w.seed = 1;
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        run_with_fields(&mut w, 4_000);
+        let tree = w.organism(id).expect("the tree should be alive").species;
+        let leaves = |w: &World| w.organism(id).map_or(0, |s| s.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count());
+        assert!(leaves(&w) > 20, "test setup: the tree should be in leaf, has {}", leaves(&w));
+        let scalded = |tolerate: f32, on: bool| {
+            let mut w = w.clone();
+            assert!(w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::ShadeTolerate, 0, tolerate), "test setup: the tree has a Grow");
+            w.shade_plasticity = true;
+            w.shade_scald = on;
+            for _ in 0..200 {
+                w.frame += 1;
+                organism_upkeep(&mut w, id);
+            }
+            w.shed_scald
+        };
+        assert_eq!(scalded(1.0, false), 0, "switch off: no leaf may scald");
+        assert_eq!(scalded(0.0, true), 0, "no tolerance: no leaf may scald");
+        let on = scalded(1.0, true);
+        assert!(on > 0, "a fully tolerant tree in open sky should scald with the switch on, shed {on}");
     }
 
     struct SeedBed {

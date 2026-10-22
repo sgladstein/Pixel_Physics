@@ -1049,6 +1049,18 @@ the review (§12), **M1 runs in this order**:
      species whose seedlings recruit under cover, and training (rungs 4-6),
      which can move both genes. Off until then.
 
+   **Priced, 2026-10-22; the understory is still closed**
+   (`Reports/plant-community-2026-10-20/m2/shade-scald/`). Sun scald
+   (`World::shade_scald`, off): a tolerant plant's leaves shed in bright
+   light, so the tolerant shrub is smaller on 13 of 16 seeds under the lamp
+   (0.74x) and untouched in shade, where it lives on 5 of 16 at lamp 0.2
+   against 0. Training beside the tree did not pick tolerance up (the free
+   photosynthesis rate came first). Under a grown stand the floor reads
+   2-3% of open light, and every sown seedling dies before its first leaf
+   whatever its tolerance: germination's light threshold, a first step the
+   tip gives up on (`World::seedling_waits`, off, fixes part), then a first
+   leaf and a root it cannot pay for.
+
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
    some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`

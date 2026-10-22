@@ -5867,6 +5867,10 @@ pub struct World {
     pub shed_shade: u32,
     /// Counterpart to `shed_shade`: the drought pressure (`drought_death`).
     pub shed_drought: u32,
+    /// Leaves of a shade-tolerant plant shed by glare (`World::shade_scald`,
+    /// `plant::SCALD_RATE`): the did-it-fire count for A5's bright-light
+    /// price.
+    pub shed_scald: u32,
     /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
     /// fired -- consequential fall, not a lever of its own.
     pub shed_stranded: u32,
@@ -6634,6 +6638,26 @@ pub struct World {
     /// seeds at `SHADE_LEAF_PRICE` 0.9) and kept 16 of 16 alive in dim light
     /// against 13 (`Reports/plant-community-2026-10-20/m1/shade-price/`).
     pub shade_plasticity: bool,
+    /// **A shade-tolerant plant's leaves scald in bright light**
+    /// (`plant::SCALD_RATE`; A5's price where light is not short). Off, the
+    /// only price of `shade_tolerate` is leaf light lost
+    /// (`SHADE_LEAF_PRICE`), which a lone plant in bright light never feels
+    /// because it is not short of carbon. A no-op for any plant with no
+    /// tolerance, which is every shipped species.
+    ///
+    /// **Off by default** until the owner has seen it; see
+    /// `Reports/plant-community-2026-10-20/m2/shade-scald/`.
+    pub shade_scald: bool,
+    /// **A seedling's shoot tip too poor to grow waits instead of retiring**
+    /// (`plant::organism_tick`'s `Grow` carbon gate), while the plant's
+    /// leaves earn nothing -- i.e. before its first leaf. Off, a seedling in
+    /// deep shade retires its only tip after four poor ticks and dies with
+    /// its seed carbon unspent; the understory under a closed canopy is
+    /// empty partly for that reason. Off by default until measured
+    /// (`Reports/plant-community-2026-10-20/m2/shade-scald/`).
+    pub seedling_waits: bool,
+    /// Tip visits held by `seedling_waits`: its did-it-fire count.
+    pub seedling_waits_held: u64,
     /// **The light an unshaded leaf gets in this world** -- what the shade
     /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
     /// under the sky (noon sun, with the day divided out); the grow lamp's
@@ -7553,6 +7577,7 @@ impl World {
             rotted_to_nothing: 0,
             rotted_onward: 0,
             shed_shade: 0,
+            shed_scald: 0,
             shed_drought: 0,
             roots_shed: 0,
             shed_stranded: 0,
@@ -7614,6 +7639,9 @@ impl World {
             seed_pile_depth: 0,
             bud_break_reserve: false,
             shade_plasticity: true,
+            shade_scald: false,
+            seedling_waits: false,
+            seedling_waits_held: 0,
             open_light: crate::sim::field::MAX_LIGHT,
             seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
