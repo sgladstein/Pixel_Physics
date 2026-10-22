@@ -1,0 +1,54 @@
+quiet_unread: 0 links of unread units zeroed; live links 1432 -> 1432
+revive_hidden: []
+revive_units: [] (inputs seeded, sigma 0.3)
+trainable slots: 1250 (live 1244, allow-list 247, frozen 16, of them live 2)
+rim_min_mass 0.02: kept 9612 rim rows, 229600 moved to none
+group rim  : train   7921  held out   1691  target teacher
+group none : train  33838  held out   6162  target ref
+group keepL: train  19082  held out   4918  target ref
+group keep : train  25062  held out   4938  target ref
+step 0: held-out KL rim 0.3148 none -0.0000 keepL -0.0000 keep -0.0000
+step 100: held-out KL rim 0.2773 none 0.0091 keepL 0.0009 keep 0.0015  sum 0.2887  (11 s)
+step 200: held-out KL rim 0.2757 none 0.0067 keepL 0.0008 keep 0.0015  sum 0.2847  (21 s)
+step 300: held-out KL rim 0.2749 none 0.0068 keepL 0.0010 keep 0.0013  sum 0.2840  (32 s)
+step 400: held-out KL rim 0.2750 none 0.0052 keepL 0.0014 keep 0.0012  sum 0.2829  (43 s)
+step 500: held-out KL rim 0.2743 none 0.0045 keepL 0.0024 keep 0.0022  sum 0.2834  (53 s)
+step 600: held-out KL rim 0.1964 none 0.0110 keepL 0.0024 keep 0.0018  sum 0.2116  (63 s)
+step 700: held-out KL rim 0.1702 none 0.0101 keepL 0.0022 keep 0.0016  sum 0.1841  (72 s)
+step 800: held-out KL rim 0.1668 none 0.0098 keepL 0.0029 keep 0.0021  sum 0.1815  (83 s)
+step 900: held-out KL rim 0.1634 none 0.0078 keepL 0.0021 keep 0.0012  sum 0.1745  (93 s)
+step 1000: held-out KL rim 0.1592 none 0.0075 keepL 0.0021 keep 0.0010  sum 0.1698  (102 s)
+step 1100: held-out KL rim 0.1570 none 0.0072 keepL 0.0023 keep 0.0014  sum 0.1680  (112 s)
+step 1200: held-out KL rim 0.1553 none 0.0073 keepL 0.0021 keep 0.0013  sum 0.1660  (122 s)
+step 1300: held-out KL rim 0.1548 none 0.0074 keepL 0.0023 keep 0.0012  sum 0.1658  (131 s)
+step 1400: held-out KL rim 0.1535 none 0.0074 keepL 0.0022 keep 0.0015  sum 0.1646  (141 s)
+step 1500: held-out KL rim 0.1513 none 0.0065 keepL 0.0019 keep 0.0012  sum 0.1609  (151 s)
+step 1600: held-out KL rim 0.1501 none 0.0062 keepL 0.0023 keep 0.0010  sum 0.1596  (160 s)
+step 1700: held-out KL rim 0.1506 none 0.0069 keepL 0.0035 keep 0.0012  sum 0.1621  (170 s)
+step 1800: held-out KL rim 0.1508 none 0.0068 keepL 0.0025 keep 0.0019  sum 0.1619  (180 s)
+step 1900: held-out KL rim 0.1515 none 0.0069 keepL 0.0020 keep 0.0010  sum 0.1615  (190 s)
+step 2000: held-out KL rim 0.1516 none 0.0072 keepL 0.0020 keep 0.0009  sum 0.1618  (200 s)
+step 2100: held-out KL rim 0.1504 none 0.0070 keepL 0.0019 keep 0.0014  sum 0.1607  (210 s)
+step 2200: held-out KL rim 0.1505 none 0.0060 keepL 0.0023 keep 0.0012  sum 0.1601  (221 s)
+step 2300: held-out KL rim 0.1507 none 0.0065 keepL 0.0022 keep 0.0012  sum 0.1606  (230 s)
+step 2400: held-out KL rim 0.1497 none 0.0062 keepL 0.0018 keep 0.0009  sum 0.1586  (241 s)
+step 2500: held-out KL rim 0.1503 none 0.0093 keepL 0.0059 keep 0.0028  sum 0.1684  (252 s)
+step 2600: held-out KL rim 0.1500 none 0.0060 keepL 0.0019 keep 0.0012  sum 0.1591  (262 s)
+step 2700: held-out KL rim 0.1502 none 0.0060 keepL 0.0019 keep 0.0009  sum 0.1591  (272 s)
+step 2800: held-out KL rim 0.1490 none 0.0061 keepL 0.0019 keep 0.0009  sum 0.1579  (282 s)
+step 2900: held-out KL rim 0.1496 none 0.0062 keepL 0.0022 keep 0.0009  sum 0.1589  (293 s)
+step 3000: held-out KL rim 0.1488 none 0.0061 keepL 0.0018 keep 0.0009  sum 0.1576  (303 s)
+step 3100: held-out KL rim 0.1508 none 0.0063 keepL 0.0020 keep 0.0014  sum 0.1605  (313 s)
+step 3200: held-out KL rim 0.1500 none 0.0069 keepL 0.0021 keep 0.0011  sum 0.1601  (323 s)
+step 3300: held-out KL rim 0.1505 none 0.0070 keepL 0.0028 keep 0.0015  sum 0.1618  (333 s)
+step 3400: held-out KL rim 0.1498 none 0.0064 keepL 0.0020 keep 0.0009  sum 0.1591  (343 s)
+step 3500: held-out KL rim 0.1492 none 0.0062 keepL 0.0020 keep 0.0009  sum 0.1582  (354 s)
+step 3600: held-out KL rim 0.1506 none 0.0067 keepL 0.0041 keep 0.0014  sum 0.1628  (364 s)
+step 3700: held-out KL rim 0.1496 none 0.0061 keepL 0.0019 keep 0.0008  sum 0.1585  (374 s)
+step 3800: held-out KL rim 0.1494 none 0.0067 keepL 0.0020 keep 0.0012  sum 0.1593  (391 s)
+early stop at 3800; best step 3000
+wrote /tmp/claude-0/-home-user-Pixel-Physics/759d2b83-5c44-53ec-a7d9-b404cb2c99a4/scratchpad/cr/cp/r4.txt: best step 3000, live links 1432 (start 1432), moved 1057, revived 0 []
+  rim   start: overlap with target 0.872 | copy: overlap with target 0.900
+  none  start: overlap with target 1.000 | copy: overlap with target 0.988
+  keepL start: overlap with target 1.000 | copy: overlap with target 0.996
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.996
