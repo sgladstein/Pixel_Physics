@@ -1,0 +1,36 @@
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.78 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   121 p50   154 p75   166 cv 0.64 | rgr/1k p25 0.05 p50 0.06 p75 0.06
+             own score 3.40 | neighbour score 3.00 end shoot p50  1862 flowered 0/8 alive 8/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   504 p50   711 p75   765 cv 0.51 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 3.92 | neighbour score 3.00 end shoot p50  1429 flowered 0/8 alive 8/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   506 p50   554 p75   620 cv 0.63 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 3.93 | neighbour score 3.00 end shoot p50  1374 flowered 0/8 alive 8/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   475 p50   569 p75   829 cv 0.35 | rgr/1k p25 0.08 p50 0.09 p75 0.10
+             own score 4.05 | neighbour score 3.00 end shoot p50  1708 flowered 0/8 alive 8/8
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.37 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   148 p50   181 p75   231 cv 0.67 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 3.94 | neighbour score 3.01 end shoot p50   312 flowered 8/8 alive 8/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   758 p50   871 p75   968 cv 0.43 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.91 | neighbour score 3.00 end shoot p50   166 flowered 8/8 alive 8/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   676 p50   772 p75   842 cv 0.55 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.05 | neighbour score 3.00 end shoot p50   127 flowered 8/8 alive 8/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   657 p50   743 p75   920 cv 0.45 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.07 | neighbour score 3.00 end shoot p50   158 flowered 8/8 alive 8/8
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.53 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   101 p50   213 p75   246 cv 0.69 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 4.02 | neighbour score 3.88 end shoot p50   225 flowered 8/8 alive 7/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   484 p50   807 p75   878 cv 0.66 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 3.93 | neighbour score 3.79 end shoot p50   226 flowered 7/8 alive 8/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   674 p50   706 p75   780 cv 0.63 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.08 | neighbour score 3.58 end shoot p50   169 flowered 7/8 alive 6/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   379 p50   558 p75   673 cv 0.69 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.79 end shoot p50   214 flowered 8/8 alive 7/8
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.33 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   177 p50   190 p75   199 cv 0.66 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 3.95 | neighbour score 3.00 end shoot p50    92 flowered 0/8 alive 8/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   880 p50   955 p75  1042 cv 0.43 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.78 | neighbour score 3.00 end shoot p50    80 flowered 0/8 alive 8/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   556 p50   802 p75   822 cv 0.64 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 4.07 | neighbour score 2.99 end shoot p50    76 flowered 0/8 alive 8/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   682 p50   806 p75   977 cv 0.46 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.07 | neighbour score 3.00 end shoot p50    75 flowered 0/8 alive 8/8

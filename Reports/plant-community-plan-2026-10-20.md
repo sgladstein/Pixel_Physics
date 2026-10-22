@@ -639,9 +639,15 @@ This session cannot launch anything.
 >    points, not species to ship. The mister was drenching small beds (a
 >    rate per box, not per column); it now rains per column
 >    (`lab::rain::RATE_WIDTH`, the 512 lab unchanged), halving a training
->    bed's cost without moving the shipped species' sizes. Next: put a price
->    on size in the trainer (rung 4: each role beside the others), with the
->    owner. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    bed's cost without moving the shipped species' sizes. **Rung 4 (each
+>    role beside each other role, a whole life; `.../m2/hold/`)** is in the
+>    trainer. From the shipped species only the shrub moved (+0.73 against
+>    a +0.27 random null: it now sets fruit, at twice the size). From the
+>    re-fits nothing improved on its start, and the starts win by crowding:
+>    the re-fit shrub takes a shrub beside it from 367 cells to 21. The
+>    neighbour term is too weak to stop that. Next, with the owner: a floor
+>    on what a founder may cost its neighbour, or the mixed community bed
+>    as the judge. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow
