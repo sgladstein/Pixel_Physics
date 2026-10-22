@@ -621,6 +621,19 @@ impl Default for Stats {
 }
 
 impl Stats {
+    /// [`Stats::new`] with the page shut: the lab opens on the box, not on
+    /// a page over it (`Reports/lab-ui-redesign-2026-10-22.md`). The druid
+    /// game keeps `new`, which opens it.
+    pub fn closed() -> Self {
+        Self { show: false, ..Self::new() }
+    }
+
+    /// Open or shut it to match `show`, for a caller that replaces the page
+    /// and must not change whether it is up.
+    pub fn set_showing(&mut self, show: bool) {
+        self.show = show;
+    }
+
     pub fn new() -> Self {
         Self {
             show: true,
@@ -794,13 +807,44 @@ impl Stats {
         if !self.show {
             return;
         }
+        self.paint(hc, frame, world, cursor, self.rect(world, floor), Some("TAB CLOSE"));
+    }
+
+    /// The page's natural size, `(width, height)`, for a caller that places
+    /// it itself -- the lab's window rule (`ui::Window`), which docks it
+    /// under BATTLE and folds it when it would touch the cell page.
+    pub fn size(&self, world: &World) -> (i32, i32) {
+        let (left, top, right, bottom) = self.rect(world, i32::MAX);
+        (right - left, bottom - top)
+    }
+
+    /// The page drawn into `rect` (`x, y, w, h`), placed by the caller.
+    /// Rows that do not fit are not drawn; the close box is the caller's
+    /// (the lab paints an `X` button, where the druid game keeps its
+    /// `TAB CLOSE` legend through [`Self::draw_at_floor`]).
+    pub fn draw_placed(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>, rect: (i32, i32, i32, i32)) {
+        if !self.show {
+            return;
+        }
+        let (x, y, w, h) = rect;
+        self.paint(hc, frame, world, cursor, (x, y, x + w, y + h), None);
+    }
+
+    fn paint(
+        &self,
+        hc: crate::render::Hud,
+        frame: &mut [u8],
+        world: &World,
+        cursor: Option<(i32, i32)>,
+        (left, top, right, bottom): (i32, i32, i32, i32),
+        legend: Option<&str>,
+    ) {
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.82;
         const TITLE: [u8; 4] = [255, 220, 100, 255];
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
 
         let rows = self.rows(world);
-        let (left, top, right, bottom) = self.rect(world, floor);
 
         for y in top..bottom {
             for x in left..right {
@@ -818,8 +862,9 @@ impl Stats {
 
         let pad = left + 8;
         text(hc, frame, pad, top + 6, "BIOSPHERE", TITLE);
-        let close = "TAB CLOSE";
-        text(hc, frame, right - 8 - crate::hud::text_width(close), top + 6, close, FAINT);
+        if let Some(close) = legend {
+            text(hc, frame, right - 8 - crate::hud::text_width(close), top + 6, close, FAINT);
+        }
         for x in left + 1..right - 1 {
             hc.put(frame, x, top + 17, RULE);
         }
@@ -827,6 +872,11 @@ impl Stats {
         let mut y = top + HEADER;
         let mut hovered: Option<&str> = None;
         for row in &rows {
+            // A placed page can be shorter than its rows (`draw_placed`):
+            // what does not fit stops, rather than running out of the frame.
+            if y + row.height() > bottom - 3 {
+                break;
+            }
             // The row under the cursor, found while painting rather than by a
             // second pass over the same arithmetic — two copies of a layout is
             // how a marker and the thing it marks come to disagree.
@@ -865,7 +915,7 @@ impl Stats {
             y += row.height();
         }
         if let (Some(note), Some(at)) = (hovered, cursor) {
-            draw_note(hc, frame, note, at);
+            draw_note(hc, frame, note, at, left, if legend.is_some() { i32::MAX } else { 180 });
         }
     }
 
@@ -1781,15 +1831,18 @@ fn draw_gauge(hc: crate::render::Hud, frame: &mut [u8], x: i32, y: i32, width: i
 /// having lost the thing it is about. The page is on the right, so the note
 /// opens to its **left**, which is the mirror of the colony panel's choice
 /// and the same reasoning.
-fn draw_note(hc: crate::render::Hud, frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
+///
+/// `panel_left` is the page's left edge and `cap` the widest the note may be:
+/// the druid game lets it run to the screen's left edge; the lab caps it, so
+/// a note does not cover a page docked on the left for longer than it must.
+fn draw_note(hc: crate::render::Hud, frame: &mut [u8], note: &str, (_, cy): (i32, i32), panel_left: i32, cap: i32) {
     const BG: [u8; 4] = [16, 20, 30, 255];
     const ALPHA: f32 = 0.92;
-    let (panel_left, _, _) = RECT;
-    let width = panel_left - 12;
+    let width = (panel_left - 12).min(cap);
     let inner = width - 12;
     let columns = (inner / (crate::hud::GLYPH_WIDTH + 1)).max(8) as usize;
     let lines = wrap_words(note, columns);
-    let x = 6;
+    let x = panel_left - 6 - width;
     let height = lines.len() as i32 * LINE + 9;
     // Top-aligned with the row, then pulled back on screen. `max(10)` rather
     // than clamping to 0 so it never sits under the top edge.

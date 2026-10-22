@@ -3121,6 +3121,12 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [lab-ui-redesign-2026-10-22.md](lab-ui-redesign-2026-10-22.md) — **live plan,
+  step 1 shipped.** A design review of every window, page and menu in the lab
+  (owner: "clunky", long lists, dense tables, confusing menus, windows that
+  overlap or refuse to close), the five-step redesign, and a status section
+  edited in place. Step 1, the window rule, took windows painted over each
+  other on `labui`'s sheet from 627,757 pixels over 71 tiles to 0.
 - [how-we-test.md](how-we-test.md) — **living playbook, 2026-10-05.** How the lab
   colony is measured: mutation off, the evolved founder in the dry goal box,
   four seeds paired, 100k–300k means; a fix judged on its own metric, then a

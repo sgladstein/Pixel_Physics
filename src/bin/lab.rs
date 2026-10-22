@@ -568,15 +568,24 @@ impl Handler {
         }
 
         // Any key dismisses the opening key list, so it is never in the way —
-        // except `?`, which toggles it, and `Escape`, which quits.
+        // except `?`, which toggles it, and `Escape`, which closes it.
         if self.lab.show_help && code != KeyCode::Escape {
-            self.lab.show_help = false;
+            // `?` over the welcome card opens the key list; over the key
+            // list it closes it (`Action::Help`).
             if code == KeyCode::Slash {
+                self.lab.act(Action::Help);
                 return;
             }
+            self.lab.show_help = false;
         }
         match code {
-            KeyCode::Escape => event_loop.exit(),
+            // Closes the window opened last; quits only on a second press
+            // with nothing open (`Lab::escape`).
+            KeyCode::Escape => {
+                if self.lab.escape() {
+                    event_loop.exit();
+                }
+            }
             KeyCode::Slash => self.lab.act(Action::Help),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
@@ -926,7 +935,11 @@ impl ApplicationHandler for Handler {
                     MouseScrollDelta::LineDelta(_, y) => y > 0.0,
                     MouseScrollDelta::PixelDelta(p) => p.y > 0.0,
                 };
-                self.zoom(if up { 1 } else { -1 });
+                // Over a window the wheel scrolls it, or does nothing; only
+                // over the box does it zoom (`Lab::wheel`).
+                if !self.cursor.is_some_and(|(x, y)| self.lab.wheel(x, y, !up)) {
+                    self.zoom(if up { 1 } else { -1 });
+                }
             }
             WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {

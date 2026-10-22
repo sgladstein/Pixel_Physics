@@ -9576,6 +9576,144 @@ impl<'a> ChunkRun<'a> {
     }
 }
 
+/// **Who painted each interface pixel, for a harness that asks.** Off unless
+/// a harness turns it on, and then one relaxed atomic load per HUD write.
+///
+/// Built for the lab redesign (2026-10-22), whose first rule is *no window
+/// lands on another*. The obvious instrument for that -- intersect the
+/// rectangles the layout code says it drew -- reads the very list the fix
+/// writes, so a window that never registered (BIOSPHERE and BATTLE were
+/// missing from `Ui::covers` for exactly that reason) would report zero
+/// overlap however badly it covered something. This reads the *pixels*
+/// instead: the painter in charge names itself with [`paint_owner::set`],
+/// every [`Hud`] write stamps that name on the logical pixel, and a pixel
+/// stamped by a second name is an overlap. The frame's default name is
+/// `UNTAGGED` rather than nothing, so a window nobody tagged still collides;
+/// [`paint_owner::WORLD`] is the one name that never counts, for marks drawn
+/// *into* the box (rings, trails, halos) that windows are meant to cover.
+///
+/// Text stamps its whole `text_width` x glyph-height box rather than the lit
+/// glyph pixels, which over-counts by the gaps between strokes and never
+/// under-counts -- the conservative side for a "this is zero" claim.
+pub mod paint_owner {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// How many threads are measuring. A cheap global gate for `Hud`'s
+    /// per-pixel check; whether *this* thread is measuring is its own
+    /// `State::active`, so parallel tests cannot switch each other off.
+    static ON: AtomicUsize = AtomicUsize::new(0);
+
+    /// Whether any thread is measuring -- `Hud`'s fast path.
+    #[inline]
+    pub(crate) fn on() -> bool {
+        ON.load(Ordering::Relaxed) != 0
+    }
+    /// Marks drawn into the box itself. Never an overlap.
+    pub const WORLD: &str = "WORLD";
+    /// Modal overlays that are meant to cover everything (the key list).
+    pub const MODAL: &str = "MODAL";
+
+    #[derive(Default)]
+    struct State {
+        active: bool,
+        width: usize,
+        height: usize,
+        names: Vec<&'static str>,
+        current: u8,
+        owners: Vec<u8>,
+        overlaps: BTreeMap<(&'static str, &'static str), u32>,
+    }
+
+    thread_local! {
+        static STATE: RefCell<State> = RefCell::new(State::default());
+    }
+
+    /// Start a frame: every logical pixel unowned, the painter `UNTAGGED`.
+    pub fn begin(width: u32, height: u32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if !s.active {
+                ON.fetch_add(1, Ordering::Relaxed);
+            }
+            *s = State {
+                active: true,
+                width: width as usize,
+                height: height as usize,
+                names: vec!["", "UNTAGGED", WORLD, MODAL],
+                current: 1,
+                owners: vec![0; width as usize * height as usize],
+                overlaps: BTreeMap::new(),
+            };
+        });
+    }
+
+    /// Name the painter for every HUD write from here on.
+    pub fn set(name: &'static str) {
+        if !on() {
+            return;
+        }
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if !s.active {
+                return;
+            }
+            let i = match s.names.iter().position(|n| *n == name) {
+                Some(i) => i,
+                None => {
+                    s.names.push(name);
+                    s.names.len() - 1
+                }
+            };
+            s.current = i as u8;
+        });
+    }
+
+    pub(crate) fn mark(x0: i32, y0: i32, w: i32, h: i32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            let cur = s.current;
+            if !s.active || cur == 2 {
+                return;
+            }
+            for y in y0.max(0)..(y0 + h).min(s.height as i32) {
+                for x in x0.max(0)..(x0 + w).min(s.width as i32) {
+                    let i = y as usize * s.width + x as usize;
+                    let prev = s.owners[i];
+                    if prev != 0 && prev != cur && prev != 2 && prev != 3 && cur != 3 {
+                        let pair = (s.names[prev as usize], s.names[cur as usize]);
+                        *s.overlaps.entry(pair).or_insert(0) += 1;
+                    }
+                    s.owners[i] = cur;
+                }
+            }
+        });
+    }
+
+    /// Stop, and hand back (overlapping pixels per under/over pair, the
+    /// number of logical columns no window touched between rows `top` and
+    /// `bottom`).
+    pub fn end(top: i32, bottom: i32) -> (BTreeMap<(&'static str, &'static str), u32>, u32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.active {
+                s.active = false;
+                ON.fetch_sub(1, Ordering::Relaxed);
+            }
+            let mut clear = 0;
+            for x in 0..s.width {
+                let covered = (top.max(0) as usize..(bottom.max(0) as usize).min(s.height))
+                    .any(|y| !matches!(s.owners[y * s.width + x], 0 | 2));
+                if !covered {
+                    clear += 1;
+                }
+            }
+            (s.overlaps.clone(), clear)
+        })
+    }
+}
+
 /// The HUD's own coordinate space, which stays `WIDTH`x`HEIGHT` however large
 /// the buffer underneath it is.
 ///
@@ -9616,6 +9754,9 @@ impl Hud {
     }
 
     pub fn put(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4]) {
+        if paint_owner::on() {
+            paint_owner::mark(x, y, 1, 1);
+        }
         if self.scale == 1 {
             return put(frame, self.width, self.height, x, y, colour);
         }
@@ -9630,6 +9771,9 @@ impl Hud {
     }
 
     pub fn blend(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4], alpha: f32) {
+        if paint_owner::on() {
+            paint_owner::mark(x, y, 1, 1);
+        }
         if self.scale == 1 {
             return blend(frame, self.width, self.height, x, y, colour, alpha);
         }
@@ -9642,6 +9786,9 @@ impl Hud {
     }
 
     pub fn text(self, frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
+        if paint_owner::on() {
+            paint_owner::mark(x, y, crate::hud::text_width(text), crate::hud::GLYPH_HEIGHT);
+        }
         if self.scale == 1 {
             return crate::hud::draw_text(frame, self.width, self.height, x, y, text, colour);
         }
@@ -9718,6 +9865,27 @@ pub(crate) fn draw_circle_outline(frame: &mut [u8], width: u32, height: u32, cx:
 
 #[cfg(test)]
 mod tests {
+
+    /// **The overlap census sees an overlap** -- its positive control. Two
+    /// painters writing the same pixels must be counted, the box's own
+    /// marks never, and a modal page never; with none of those it reads 0.
+    #[test]
+    fn paint_owner_counts_one_window_painted_over_another() {
+        let mut buf = vec![0u8; 64 * 64 * 4];
+        let hc = Hud::new(64, 64, 1);
+        paint_owner::begin(64, 64);
+        paint_owner::set("A");
+        hc.put(&mut buf, 3, 3, [1, 2, 3, 255]);
+        hc.put(&mut buf, 4, 3, [1, 2, 3, 255]);
+        paint_owner::set("B");
+        hc.put(&mut buf, 3, 3, [9, 9, 9, 255]);
+        paint_owner::set(paint_owner::WORLD);
+        hc.put(&mut buf, 4, 3, [9, 9, 9, 255]);
+        paint_owner::set(paint_owner::MODAL);
+        hc.put(&mut buf, 4, 3, [9, 9, 9, 255]);
+        let (overlaps, _) = paint_owner::end(0, 64);
+        assert_eq!(overlaps.into_iter().collect::<Vec<_>>(), vec![(("A", "B"), 1)]);
+    }
     use super::*;
 
     /// **The nest cutaway paints each class on its fixed ramp, and nothing
