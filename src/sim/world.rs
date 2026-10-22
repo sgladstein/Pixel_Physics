@@ -12162,6 +12162,21 @@ impl World {
         // `field hash` and the three `sw` counters, on both beds -- and the
         // reasoning for each write channel is on the view itself.
         let mut stats = SoilWaterStats { chunks: plans.len() as u64, ..Default::default() };
+        // **The pass's material questions, answered from a table** -- see
+        // `MoistureView::traits`. Built per pass rather than cached because
+        // materials can change live between ticks (`tunables.rs`, a
+        // hot-reload); a few hundred entries against thousands of visits.
+        // Measured on the shipped lab box: see the commit that added it.
+        let traits: Vec<(u16, MaterialKind)> = if plans.is_empty() {
+            Vec::new()
+        } else {
+            (0..self.materials.len())
+                .map(|i| {
+                    let m = self.materials.get(MaterialId(i as u16));
+                    (m.water_capacity, m.kind)
+                })
+                .collect()
+        };
         for (coord, plan) in &plans {
             let Some(chunk) = self.take_chunk(*coord) else {
                 // A plan came from this chunk a few lines ago and nothing
@@ -12171,7 +12186,7 @@ impl World {
                 debug_assert!(false, "a chunk with a moisture plan went missing before its walk");
                 continue;
             };
-            let mut view = MoistureView::new(*coord, chunk, self);
+            let mut view = MoistureView::new(*coord, chunk, self, &traits);
             // Rows bottom first -- larger `y` is lower -- matching the sweep,
             // because drainage moves water downward and a column drains as a
             // unit that way. The two arms are written out rather than sharing
@@ -13115,7 +13130,7 @@ impl CellSurface for World {
 fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
     stats.visited += 1;
     let cell = view.get(x, y);
-    let capacity = view.world.materials.get(cell.material).water_capacity;
+    let capacity = view.water_capacity_of(cell.material);
     if capacity == 0 {
         return;
     }
@@ -13190,6 +13205,13 @@ pub(crate) struct MoistureView<'w> {
     inner: Rect,
     chunk: Chunk,
     world: &'w mut World,
+    /// `(water_capacity, kind)` per material, index = `MaterialId` -- built
+    /// once a pass by `soil_traits` and served by `water_capacity_of` /
+    /// `kind_of`, so the pass's per-visit material questions are an index
+    /// into a few hundred bytes rather than into 616-byte `Material`s. The
+    /// registry cannot change while a pass runs (nothing in it writes
+    /// materials), so the table and the registry agree for the whole walk.
+    traits: &'w [(u16, MaterialKind)],
     /// `(x, y, old, new)` for every write that needs `World::set`'s tail
     /// replayed — see the type doc. Filtered at the write, so an ordinary
     /// soil write queues nothing at all.
@@ -13206,7 +13228,7 @@ pub(crate) struct MoistureView<'w> {
 }
 
 impl<'w> MoistureView<'w> {
-    fn new(coord: ChunkCoord, chunk: Chunk, world: &'w mut World) -> Self {
+    fn new(coord: ChunkCoord, chunk: Chunk, world: &'w mut World, traits: &'w [(u16, MaterialKind)]) -> Self {
         let inner = match world.bounds {
             Some(b) => coord.bounds().intersection(b).unwrap_or(Rect::point(i32::MIN, i32::MIN)),
             None => coord.bounds(),
@@ -13216,6 +13238,7 @@ impl<'w> MoistureView<'w> {
             inner,
             chunk,
             world,
+            traits,
             deferred: Vec::new(),
             remarks: Vec::new(),
             moist_remarks: Vec::new(),
@@ -13366,6 +13389,16 @@ impl CellSurface for MoistureView<'_> {
     #[inline]
     fn materials(&self) -> &MaterialRegistry {
         &self.world.materials
+    }
+
+    #[inline]
+    fn water_capacity_of(&self, id: MaterialId) -> u16 {
+        self.traits[id.0 as usize].0
+    }
+
+    #[inline]
+    fn kind_of(&self, id: MaterialId) -> MaterialKind {
+        self.traits[id.0 as usize].1
     }
 
     #[inline]
