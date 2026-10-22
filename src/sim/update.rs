@@ -251,10 +251,24 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 /// Falls straight down, then diagonally, then creeps along the slope.
 /// How much of a saturated cell's surplus moves down per visit. Not a
 /// rate with a physical name — real infiltration follows Richards'
-/// equation and this is a relaxation constant — but it is what turns
-/// drainage into a visible *wetting front* descending over time rather
-/// than an instant teleport, which is the behaviour worth having.
-const SOIL_DRAINAGE_RATE: f32 = 0.25;
+/// equation and this is a relaxation constant.
+///
+/// **1.0 since 2026-10-21; it was 0.25, and the owner traded the front for
+/// speed.** At 0.25 it turned drainage into a visible *wetting front*
+/// descending over time, which was why it existed. It also never finished:
+/// `(surplus * 0.25) as u16` truncates to zero at a surplus of three and is
+/// one at four to seven, so every slug of rain decayed into a one-unit-a-tick
+/// trickle that walked every cell of every wetted column to the floor drain
+/// for ever, and the whole bed rested at field capacity + 3. In the played
+/// lab box that conveyor was 6,000 writes a tick, 63% of them one unit, and
+/// the soil pass was 41% of the tick (the soil-water cost review,
+/// 2026-10-21). At 1.0 a cell hands its whole surplus on and the bed rests
+/// at field capacity exactly. The owner, shown the front under both rules,
+/// said they did not much care about the visual and to take the best
+/// performance provided plant growth was unaffected. Plants and the colony
+/// were checked before it landed; the commit carries the numbers. Textures still scale it (`SoilTexture::drainage`), clamped to
+/// 1.0, so clay seeps at 0.4 and sand and loam now drain alike.
+const SOIL_DRAINAGE_RATE: f32 = 1.0;
 
 /// Share of a moisture *difference* that capillary action moves per visit,
 /// before the wetness scaling in `update_soil_water` is applied.
@@ -454,12 +468,12 @@ const _: () = assert!(ROOT_PASS_REACH <= MAX_REACH, "a soil write beyond MAX_REA
 #[inline(always)]
 fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, through_roots: bool, direct: bool) -> Option<(i32, i32, Cell)> {
     let n = surface.get(x + dx, y + dy);
-    if surface.materials().get(n.material).water_capacity > 0 {
+    if surface.water_capacity_of(n.material) > 0 {
         return direct.then_some((x + dx, y + dy, n));
     }
     // Cheapest test first: nearly every non-soil neighbour is air or stone,
     // and the switch is a bool the caller already read.
-    let plant = |c: Cell| surface.materials().kind(c.material) == MaterialKind::Plant;
+    let plant = |c: Cell| surface.kind_of(c.material) == MaterialKind::Plant;
     if !through_roots || !plant(n) {
         return None;
     }
@@ -469,7 +483,7 @@ fn soil_partner<S: CellSurface>(surface: &S, x: i32, y: i32, dx: i32, dy: i32, t
         if plant(c) {
             continue;
         }
-        return (surface.materials().get(c.material).water_capacity > 0).then_some((tx, ty, c));
+        return (surface.water_capacity_of(c.material) > 0).then_some((tx, ty, c));
     }
     None
 }
@@ -483,7 +497,7 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // holds no water neither absorbs nor drains, so sand and gravel behave
     // exactly as they did and the engine's liquid conservation tallies stay
     // true.
-    let capacity = surface.materials().get(cell.material).water_capacity;
+    let capacity = surface.water_capacity_of(cell.material);
     if capacity == 0 {
         return false;
     }
@@ -533,12 +547,13 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
     // was a silent mass leak, and one the old gate hid rather than fixed —
     // `infiltration_conserves_water_it_cannot_fit` passed against the gated
     // version only because infiltration never ran at all in that setup.
+    let mut drank = false;
     for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
         if moisture >= capacity {
             break;
         }
         let n = surface.get(x + dx, y + dy);
-        if surface.materials().kind(n.material) != MaterialKind::Liquid {
+        if surface.kind_of(n.material) != MaterialKind::Liquid {
             continue;
         }
         let fill = liquid_fill(n);
@@ -547,6 +562,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
             continue;
         }
         moisture += taken;
+        drank = true;
         if taken >= fill {
             surface.set(x + dx, y + dy, Cell::EMPTY);
         } else {
@@ -610,7 +626,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
         let Some((tx, ty, n)) = soil_partner(surface, x, y, dx, dy, through_roots, direct) else {
             continue;
         };
-        let n_capacity = surface.materials().get(n.material).water_capacity;
+        let n_capacity = surface.water_capacity_of(n.material);
         let n_field_capacity =
             if textured { surface.materials().get(n.material).texture_of(n.shade).field_capacity } else { material::SOIL_FIELD_CAPACITY };
         let there = soil_moisture(n);
@@ -784,7 +800,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
 
     if moisture > field_capacity {
         let below = surface.get(x, y + 1);
-        let below_capacity = surface.materials().get(below.material).water_capacity;
+        let below_capacity = surface.water_capacity_of(below.material);
         if below_capacity > 0 {
             let room = below_capacity.saturating_sub(soil_moisture(below));
             let surplus = moisture - field_capacity;
@@ -834,7 +850,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
             // (the block's value is whether anything moved).
             let mut moved_through = false;
             if let Some((tx, ty, target)) = if through_roots { soil_partner(surface, x, y, 0, 1, true, true) } else { None } {
-                let room = surface.materials().get(target.material).water_capacity.saturating_sub(soil_moisture(target));
+                let room = surface.water_capacity_of(target.material).saturating_sub(soil_moisture(target));
                 let surplus = moisture - field_capacity;
                 let moved = ((surplus as f32 * drainage_rate) as u16).min(room);
                 if moved > 0 {
@@ -856,7 +872,7 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
                 let first: i32 = if (x + y) & 1 == 0 { -1 } else { 1 };
                 for dx in [first, -first] {
                     let side = surface.get(x + dx, y + 1);
-                    let side_capacity = surface.materials().get(side.material).water_capacity;
+                    let side_capacity = surface.water_capacity_of(side.material);
                     if side_capacity == 0 {
                         continue;
                     }
@@ -873,6 +889,18 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
         }
     }
 
+    // **A cell that drank and passed it all on still has to dry.** It ends
+    // the visit where it began, so the `moisture != here` arm below never
+    // runs and nothing put the surface on the drying schedule: found when
+    // drainage went to 1.0 (Fable review lane, 2026-10-21), where a surface
+    // cell drinks a drop and hands every unit down in the same visit. Without
+    // this, not one cell of the bed was below field capacity after 10,000
+    // frames and all the rain went to the drain. Unreachable at the old rate
+    // on an empty box; reachable on a played one, where roots and capillary
+    // flow can net a drink to zero.
+    if drank && moisture == here {
+        super::evaporation::schedule_damp_soil(surface, x, y);
+    }
     if moisture != here {
         surface.set_moisture(x, y, cell.with_aux(moisture));
         // **The other place soil gets wet**, and the second of the only two
@@ -4265,6 +4293,20 @@ mod tests {
         }
         // Two lining cells side by side on the floor, one saturated and one
         // dry, with nowhere to fall so the material read is unambiguous.
+        //
+        // **The saturated one stands on stone**, so its water has nowhere
+        // to drain. Until 2026-10-21 it stood on dry soil and drainage took
+        // a quarter of the surplus a step (1000 -> 860), leaving the wall wet
+        // enough to make the claim; at `SOIL_DRAINAGE_RATE` 1.0 the whole
+        // surplus leaves in one step and the wall read 620, under the line,
+        // so the test could no longer tell a wall that held from one that
+        // survived by drying out. Saturating the soil under it instead is
+        // not enough: capillary pull runs along the row in sweep order and
+        // opens room under it within the step (measured: 774).
+        let stone = w.materials.id_of("stone").expect("stone is compiled in");
+        for x in 9..=11 {
+            w.set(x, 30, Cell::new(stone, 0));
+        }
         w.set(10, 29, Cell::new(packed, 0).with_aux(material::SOIL_SATURATED));
         w.set(20, 29, Cell::new(packed, 0));
         // ...and a third, one unit over field capacity: damp working ground,
@@ -4280,11 +4322,10 @@ mod tests {
              and the hazard water is supposed to be is a tunnel that fills, not one that caves"
         );
         // **Still over the line that used to take it apart**, which is the
-        // claim -- not still at exactly `SOIL_SATURATED`. Drainage moves some
-        // of it into the dry cell below on the same step (measured 1000 ->
-        // 860), so an equality here would be asserting that the water model
-        // did nothing. A wall that survived by drying out would be the old
-        // rule wearing a different coat, and this is what rules that out.
+        // claim -- not still at exactly `SOIL_SATURATED`, which would be
+        // asserting that the water model did nothing. A wall that survived by
+        // drying out would be the old rule wearing a different coat, and this
+        // is what rules that out.
         assert!(
             w.get(10, 29).aux() > material::SOIL_WATERLOGGED,
             "the surviving wall must still be over the waterlogging line, reads {}",

@@ -22,7 +22,7 @@
 
 use super::cell::Cell;
 use super::fire::PhaseEvent;
-use super::material::{MaterialKind, MaterialRegistry};
+use super::material::{MaterialId, MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
 
@@ -210,6 +210,24 @@ pub trait CellSurface {
     fn keep_awake(&mut self, x: i32, y: i32);
 
     fn materials(&self) -> &MaterialRegistry;
+
+    /// `Material::water_capacity` of `id`. **The soil-water pass's commonest
+    /// question**, asked of the cell, each partner and the cell below on
+    /// every visit; through `materials()` each one indexes a 616-byte
+    /// `Material`. The default is exactly that; `MoistureView`, the pass's
+    /// own surface, answers from a compact per-material table built once a
+    /// pass, which returns the same value.
+    #[inline]
+    fn water_capacity_of(&self, id: MaterialId) -> u16 {
+        self.materials().get(id).water_capacity
+    }
+
+    /// `Material::kind` of `id`, for the same reason as
+    /// [`Self::water_capacity_of`].
+    #[inline]
+    fn kind_of(&self, id: MaterialId) -> MaterialKind {
+        self.materials().kind(id)
+    }
 
     /// **Open a cell's visit**, before any rule reads or writes it.
     ///
