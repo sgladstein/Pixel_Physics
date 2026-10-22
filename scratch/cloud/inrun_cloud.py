@@ -11,6 +11,8 @@ per vCPU, through scratch/inrun/rounds.sh, and put each finished job's folder to
   delete NAME          delete the VM (only after pull shows DONE)
 
 A jobs line is: OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]  (the rounds.sh arguments, OUT a bare name).
+Trailing blanks are stripped on the VM: xargs -L joins a line that ends in a blank onto the next one, which once ran
+the control arm with the next arm's arguments and dropped that arm (rimshape-1022).
 """
 import io, os, sys, tarfile, urllib.parse, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../Reports/brain-training/cloud-compute/gcp"))
@@ -54,7 +56,7 @@ if [ $rc -ne 0 ]; then
   echo build-failed > $W/done.txt; put $W/done.txt DONE; echo "@@DONE build-failed" | tty; sleep 600; shutdown -h now; exit 1
 fi
 log "built in $(( $(date +%s) - T0 )) s"
-cp "${ARGS#jobs=}" $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
+sed "s/[[:space:]]*$//" "${ARGS#jobs=}" > $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
 put $W/jobs.txt jobs.txt
 export BIN=$W/repo/target/release/examples/inrun RAYON_NUM_THREADS=1
 run_one() {
