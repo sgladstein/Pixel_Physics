@@ -106,3 +106,36 @@ bed (its §M1 step 6 table: creeper gone by 120,000-180,000, shrub by
 and it is unchanged here. A trainer cannot fix a role the bed cannot carry
 at all, so the creeper's lifespan or ramets (open with the owner) and an
 understory under the canopy come before training those two.
+
+## The seed-trained roles at 450,000 frames (2026-10-22)
+
+`seeds`: all four rung-4 champions trained with seed set paid
+(`../hold/seeds/`); `seeds3`: the same shrub, herb and creeper with the
+shipped tree. Six seeds, frame 450,000, plants per role
+(`450k/seeds*_s*.txt`):
+
+| seed | shipped T/S/H/C | floor | seeds | seeds3 |
+|---|---|---|---|---|
+| 1 | 28/2/22/0 | 15/7/1/0 | 20/0/9/0 | 18/1/14/0 |
+| 2 | 21/2/41/0 | 17/0/0/0 | 17/3/0/0 | 21/23/9/0 |
+| 3 | 6/0/77/0 | 15/0/0/0 | 7/21/36/0 | 25/9/0/0 |
+| 4 | 19/0/67/0 | 10/25/19/0 | 17/11/20/0 | 9/5/72/0 |
+| 5 | 25/0/0/0 | 37/0/0/0 | 32/0/6/0 | 24/2/40/3 |
+| 6 | 10/0/16/0 | 10/0/0/0 | 9/1/0/1 | 9/31/39/2 |
+| **roles alive, mean** | **2.2** | 1.7 | 2.5 | **3.2** |
+
+**With the shipped tree, the seed-trained understory holds the bed.** The
+shrub is alive on all six seeds (shipped: two, at 2 plants), the herb on
+five of six (shipped: five), and all four roles last the run on two seeds
+-- no shipped arm has managed that at this length. The creeper is still
+nearly gone. `450k/shipped-vs-seeds-450k.png`, seed 6: the shipped bed is
+trees with one herb gap; the seeds3 bed is two trees and a shrub-herb
+thicket in flower.
+
+**The seed-trained tree costs the others.** With it the shrub drops to
+four seeds of six and the herb to four: it sets three to four times the
+shipped tree's seed, and the bed has no term that charges a tree for
+filling every gap with its own seedlings. That is the plan's rung 5/6
+(recruit and invade against a resident stand), not something rung 4 can
+see. **Candidates to ship, pending the owner: the seed-trained shrub and
+herb.** Not the tree, not the creeper.

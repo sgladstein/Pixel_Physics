@@ -54,7 +54,6 @@ use crate::sim::scheduler::ActiveSite;
 use crate::sim::world::Account;
 use crate::sim::World;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Units in the shared scorer.
@@ -326,35 +325,68 @@ impl MindGenome {
 /// `ScorerPlan::dense` (tests only) is the dense sum as it was, and
 /// `the_sparse_scorer_decides_exactly_as_the_dense_one` holds the two equal,
 /// bit for bit, over sparse random genomes.
+///
+/// **All units at once, each in its own order** (2026-10-22): the plan
+/// keeps a feature if any live unit weighs it, with every unit's weight on
+/// it side by side, so one pass over the option's features adds each one
+/// to all [`UNITS`] sums together -- work the compiler does several lanes
+/// at a time. A unit's own sum still takes its terms in feature order, and
+/// the terms it gains are `0 * x`, the zeros above, so nothing rounds
+/// differently. The sparse walk it replaces took 184 `(feature, weight)`
+/// steps one at a time for v2-C3, 8% of the mind colony's frame (ant cost
+/// review, 2026-10-22), which priced a dense sum as a rule change on the
+/// reading that it must add in a new order; across units it need not.
+///
+/// The live units sit in the first lanes, in unit order; a genome with
+/// eight or fewer takes eight lanes rather than sixteen ([`score_lanes`]),
+/// which is what keeps a sparse one (the trail arena's dig-4b4: 8 units,
+/// 89 weights) from paying for lanes it does not use.
 #[derive(Clone, Debug, Default)]
 struct ScorerPlan {
-    /// Units whose output weight is not zero, each with its nonzero feature
-    /// weights as `(feature, weight)` in feature order.
-    units: Vec<(usize, Vec<(usize, f32)>)>,
+    /// Units whose output weight is not zero, in unit order: lane `k` is
+    /// unit `units[k]`.
+    units: Vec<usize>,
+    /// Features some unit of `units` weighs, in feature order, each with
+    /// every lane's weight on it (zero where its unit does not weigh it,
+    /// and in every lane past `units`).
+    feats: Vec<(usize, [f32; UNITS])>,
 }
 
 impl ScorerPlan {
     fn new(g: &[f32]) -> ScorerPlan {
         let out = &g[S_OUT..S_OUT + UNITS];
-        let units = (0..UNITS)
-            .filter(|&u| out[u] != 0.0)
-            .map(|u| {
-                let feat = &g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES];
-                (u, feat.iter().copied().enumerate().filter(|&(_, w)| w != 0.0).collect())
-            })
+        ScorerPlan::of((0..UNITS).filter(|&u| out[u] != 0.0).collect(), g)
+    }
+
+    fn of(units: Vec<usize>, g: &[f32]) -> ScorerPlan {
+        let feats = (0..FEATURES)
+            .filter(|&i| units.iter().any(|&u| g[S_FEAT + u * FEATURES + i] != 0.0))
+            .map(|i| (i, std::array::from_fn(|k| units.get(k).map_or(0.0, |&u| g[S_FEAT + u * FEATURES + i]))))
             .collect();
-        ScorerPlan { units }
+        ScorerPlan { units, feats }
     }
 
     /// Every unit and every weight, zeros included: the sum as [`decide`]
     /// took it before the plan, kept as the reference the plan is held to.
     #[cfg(test)]
     fn dense(g: &[f32]) -> ScorerPlan {
-        let units = (0..UNITS)
-            .map(|u| (u, g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES].iter().copied().enumerate().collect()))
-            .collect();
-        ScorerPlan { units }
+        let feats = (0..FEATURES).map(|i| (i, std::array::from_fn(|u| g[S_FEAT + u * FEATURES + i]))).collect();
+        ScorerPlan { units: (0..UNITS).collect(), feats }
     }
+}
+
+/// The first `N` lanes' sums for one option: each lane from its `start`,
+/// over `feats` in their order.
+#[inline]
+fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNITS])], x: &[f32; FEATURES]) -> [f32; UNITS] {
+    let mut z = *start;
+    for (i, w) in feats {
+        let x = x[*i];
+        for u in 0..N {
+            z[u] += w[u] * x;
+        }
+    }
+    z
 }
 
 /// **A saved genome in today's layout**, its length naming its layout. One
@@ -1414,7 +1446,10 @@ pub struct MindCounts {
 /// `OrganismState` is untouched.
 #[derive(Clone, Debug, Default)]
 pub struct Minds {
-    ants: HashMap<OrganismId, Mind>,
+    /// Fx-hashed: asked three times an ant a tick (`has`, the bill's `get`,
+    /// the decision's `get`/`get_mut`), and nothing reads it in its
+    /// iteration order (`prune`'s `retain` keeps by id).
+    ants: crate::sim::fxhash::FxHashMap<OrganismId, Mind>,
     pruned_at: u64,
     pub counts: MindCounts,
     /// **Every pellet a mind puts down**, as `(x, y, frame, ant)`: the soil
@@ -1532,12 +1567,19 @@ fn prune(world: &mut World) {
 /// senses taken against `state.last` and [`c::ROOF_CUT`] off this
 /// decision's options. Returns the context and this decision's values for
 /// the next one's change senses.
-pub fn context(
+pub fn context(world: &World, organism: OrganismId, def: &CreatureDef, state: &MindState, opts: &[Opt]) -> ([f32; CONTEXT], [f32; 5]) {
+    context_at(world, organism, def, state, opts, None)
+}
+
+/// [`context`], given the caller's own [`adjacent_nest`] at a cell, this
+/// tick, with no cell written since.
+fn context_at(
     world: &World,
     organism: OrganismId,
     def: &CreatureDef,
     state: &MindState,
     opts: &[Opt],
+    at_nest: Option<((i32, i32), bool)>,
 ) -> ([f32; CONTEXT], [f32; 5]) {
     let mut v = [0.0f32; CONTEXT];
     v[c::ROOF_CUT] = roof_cut(opts);
@@ -1560,7 +1602,13 @@ pub fn context(
         }
     });
     v[c::SPOIL] = f32::from(u8::from(st.spoil.is_some()));
-    v[c::AT_NEST] = f32::from(u8::from(adjacent_nest(world, hx, hy, def)));
+    // `at_nest`: the caller's own `adjacent_nest` at a cell, this tick,
+    // with no cell written since -- the same answer when it is the head.
+    let home = match at_nest {
+        Some((at, home)) if at == (hx, hy) => home,
+        _ => adjacent_nest(world, hx, hy, def),
+    };
+    v[c::AT_NEST] = f32::from(u8::from(home));
     let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
     let home = (!world.home_blind).then_some(st.forage_anchor);
@@ -1652,6 +1700,9 @@ pub fn decide(
     decide_planned(g, &ScorerPlan::new(g), ctx, opts, state, draw)
 }
 
+/// How many options [`decide_planned`] lists on the stack.
+const STACK_OPTS: usize = 48;
+
 /// [`decide`] with the scorer's plan built once per genome
 /// ([`MindGenome::plan`]) rather than once a call: what [`tick`] runs.
 fn decide_planned(
@@ -1684,21 +1735,26 @@ fn decide_planned(
     let mut scores = vec![0.0f32; opts.len()];
     let mut best = [f32::NEG_INFINITY; VERBS];
     let (mut all_sum, mut all_n) = (0.0f32, 0u32);
+    // Each lane's sum as it starts for each verb, before the option's terms.
+    let start: [[f32; UNITS]; VERBS] =
+        std::array::from_fn(|v| std::array::from_fn(|k| plan.units.get(k).map_or(0.0, |&u| pre[u] + g[S_VERB + u * VERBS + v])));
+    let narrow = plan.units.len() <= UNITS / 2;
     for (o, opt) in opts.iter().enumerate() {
         if !on(opt.verb) {
             continue;
         }
         let v = opt.verb as usize;
         debug_assert!(opt.feats.iter().all(|x| x.is_finite()), "a feature that is not finite: {:?}", opt.verb);
-        // Only the nonzero terms, in their order ([`ScorerPlan`]).
+        // Every unit's sum at once, each over its terms in their order
+        // ([`ScorerPlan`]).
+        let z = if narrow {
+            score_lanes::<{ UNITS / 2 }>(&start[v], &plan.feats, &opt.feats)
+        } else {
+            score_lanes::<UNITS>(&start[v], &plan.feats, &opt.feats)
+        };
         let mut raw = out[UNITS];
-        for (u, feat) in &plan.units {
-            let u = *u;
-            let mut z = pre[u] + g[S_VERB + u * VERBS + v];
-            for &(i, w) in feat {
-                z += w * opt.feats[i];
-            }
-            raw += out[u] * squash(z);
+        for (k, &u) in plan.units.iter().enumerate() {
+            raw += out[u] * squash(z[k]);
         }
         let s = squash(sharp * raw);
         scores[o] = s;
@@ -1743,14 +1799,31 @@ fn decide_planned(
         jobs[v] = Some(j);
         weights[v] = (j + 1.0) / 2.0;
     }
-    let present: Vec<usize> = (0..VERBS).filter(|&v| jobs[v].is_some()).collect();
-    let shifted: Vec<f32> = present.iter().map(|&v| weights[v]).collect();
-    let verb = Verb::ALL[present[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())]];
+    let (mut present, mut shifted, mut n) = ([0usize; VERBS], [0.0f32; VERBS], 0);
+    for v in (0..VERBS).filter(|&v| jobs[v].is_some()) {
+        (present[n], shifted[n]) = (v, weights[v]);
+        n += 1;
+    }
+    let verb = Verb::ALL[present[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())]];
 
-    // Its target.
-    let targets: Vec<usize> = (0..opts.len()).filter(|&o| opts[o].verb == verb).collect();
-    let shifted: Vec<f32> = targets.iter().map(|&o| (scores[o] + 1.0) / 2.0).collect();
-    let pick = targets[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())];
+    // Its target. The verb's and the target's lists sit on the stack for
+    // any list a body makes (~11 options, at most a few dozen; a longer one,
+    // which nothing builds, takes the heap): four of the small allocations
+    // the ant cost review priced as churn (2026-10-22).
+    let (mut t_stack, mut s_stack, mut t_heap, mut s_heap) = ([0usize; STACK_OPTS], [0.0f32; STACK_OPTS], Vec::new(), Vec::new());
+    let (targets, shifted): (&mut [usize], &mut [f32]) = if opts.len() <= STACK_OPTS {
+        (&mut t_stack[..], &mut s_stack[..])
+    } else {
+        t_heap.resize(opts.len(), 0);
+        s_heap.resize(opts.len(), 0.0);
+        (&mut t_heap[..], &mut s_heap[..])
+    };
+    let mut n = 0;
+    for o in (0..opts.len()).filter(|&o| opts[o].verb == verb) {
+        (targets[n], shifted[n]) = (o, (scores[o] + 1.0) / 2.0);
+        n += 1;
+    }
+    let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
 
     // Memory, from what the ant felt, saw and chose.
     let mut fresh = [0.0f32; MEMORY];
@@ -1875,7 +1948,10 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
-            let (ctx, now) = context(world, organism, def, &mind.state, &opts);
+            // `at_nest` was read above at `(x, y)`; since then only the
+            // colony odour was blended and no fall happened, so no cell
+            // moved (ant cost review A4, 2026-10-22).
+            let (ctx, now) = context_at(world, organism, def, &mind.state, &opts, Some(((x, y), at_nest)));
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
             mind.state.last = Some(now);
@@ -2532,7 +2608,7 @@ mod tests {
             *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
         }
         let mut broken = ScorerPlan::new(&g);
-        broken.units[0].1.remove(0);
+        broken.feats[0].1[0] = 0.0;
         // Every feature nonzero, so whichever weight was dropped is read.
         let opts: Vec<Opt> = walks()
             .into_iter()

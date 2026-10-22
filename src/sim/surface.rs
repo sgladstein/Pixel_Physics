@@ -229,6 +229,19 @@ pub trait CellSurface {
         self.materials().kind(id)
     }
 
+    /// **Can none of `(x, y)`'s four neighbours be liquid?** `true` only when
+    /// that is certain; `false` means "look". The soil-water pass asks it
+    /// before reading four neighbours for one to drink from, and on a bed
+    /// with no standing water every one of those reads finds nothing. The
+    /// default never knows; `MoistureView` knows when the neighbours are all
+    /// in its own chunk and that chunk holds no liquid at all
+    /// (`Chunk::has_liquid`, which can be stale `true` but never stale
+    /// `false`).
+    #[inline]
+    fn no_liquid_beside(&self, _x: i32, _y: i32) -> bool {
+        false
+    }
+
     /// **Open a cell's visit**, before any rule reads or writes it.
     ///
     /// Two callers, and [`VisitRng::begin`] is idempotent for a position

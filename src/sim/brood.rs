@@ -373,23 +373,25 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
     let (hx, hy) = head;
     let side = 2 * reach + 1;
     let index = |x: i32, y: i32| ((y - hy + reach) * side + (x - hx + reach)) as usize;
-    let mut seen = vec![false; (side * side) as usize];
-    seen[index(hx, hy)] = true;
-    let mut frontier = vec![(hx, hy)];
-    // (shunned, off the pile, steps): the least wins.
-    type Key = (bool, bool, i32);
-    let mut best: Option<(Key, (i32, i32))> = None;
     // Every cell the walk and its home test read, read once
     // (`creature::HomeLens`): the same cells, the same answers.
     let mut lens = creature::HomeLens::new(world, head, reach, def);
     // The walk stays inside the lens's square and chooses only a home cell,
     // so with none in the square there is nothing to find. Most calls stop
-    // here: an ant that could lay, away from home.
+    // here, before anything below is allocated: an ant that could lay, away
+    // from home.
     if !lens.any_home() {
         return None;
     }
+    let mut seen = vec![false; (side * side) as usize];
+    seen[index(hx, hy)] = true;
+    let mut frontier = vec![(hx, hy)];
+    let mut next = Vec::new();
+    // (shunned, off the pile, steps): the least wins.
+    type Key = (bool, bool, i32);
+    let mut best: Option<(Key, (i32, i32))> = None;
     for depth in 1..=reach {
-        let mut next = Vec::new();
+        next.clear();
         for &(x, y) in &frontier {
             for (dx, dy) in creature::DIRS {
                 let (nx, ny) = (x + dx, y + dy);
@@ -417,7 +419,7 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
         if best.is_some_and(|((shunned, off_pile, _), _)| !shunned && !off_pile) {
             break;
         }
-        frontier = next;
+        std::mem::swap(&mut frontier, &mut next);
     }
     best.map(|(_, cell)| cell)
 }

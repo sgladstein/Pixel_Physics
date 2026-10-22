@@ -223,10 +223,13 @@ fn rungs(m: &BTreeMap<String, String>) {
                 let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len().max(1) as f32;
                 let nbs: Vec<&arena::Census> = rows[0].iter().filter_map(|c| c.neighbour.as_deref()).collect();
                 let nb_end = mean(nbs.iter().map(|c| c.end_shoot as f32).collect());
+                let nb_seeds = mean(nbs.iter().map(|c| c.seeds_set as f32).collect());
                 score::Yardstick {
                     own_end: mean(rows[0].iter().map(|c| c.end_shoot as f32).collect()),
+                    own_seeds: mean(rows[0].iter().map(|c| c.seeds_set as f32).collect()),
                     nb_end,
-                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end)).collect()),
+                    nb_seeds,
+                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end, nb_seeds)).collect()),
                 }
             });
             for (sp, cs) in species.iter().zip(&rows) {
@@ -265,10 +268,14 @@ fn rungs(m: &BTreeMap<String, String>) {
                     let nb_end: Vec<f32> = nbs.iter().map(|c| c.end_shoot as f32).collect();
                     let nb_flower = nbs.iter().filter(|c| c.first_flower.is_some()).count();
                     let nb_alive = nbs.iter().filter(|c| c.founder_alive).count();
+                    let seeds: Vec<f32> = cs.iter().map(|c| c.seeds_set as f32).collect();
                     println!(
-                        "    {:<8} own score {:.2} | neighbour score {:.2} end shoot p50 {:>5.0} flowered {nb_flower}/{n} alive {nb_alive}/{n}",
+                        "    {:<8} own score {:.2} seeds set p25 {:.0} p50 {:.0} mean {:.1} | neighbour score {:.2} end shoot p50 {:>5.0} flowered {nb_flower}/{n} alive {nb_alive}/{n}",
                         "",
                         own.iter().sum::<f32>() / n.max(1) as f32,
+                        q(&seeds, 0.25),
+                        q(&seeds, 0.5),
+                        seeds.iter().sum::<f32>() / n.max(1) as f32,
                         nb_score.iter().sum::<f32>() / nbs.len().max(1) as f32,
                         q(&nb_end, 0.5)
                     );

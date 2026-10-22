@@ -3266,6 +3266,34 @@ struct ScanTraits {
     emits: bool,
 }
 
+/// **Whether replacing `old` with `new` can move anything `rebuild_blocked`
+/// derives besides `moisture_source`** -- the caller's half of
+/// `Chunk::cell_stale_blocks`. The four other arrays read a cell's material
+/// through exactly four of [`ScanTraits`]' fields: `opaque` (blocked, and a
+/// whole cell of column depth), `liquid` (a `water_opacity()` of depth, which
+/// is `0.0` -- adding nothing -- unless the switch is on), `glow` and `beam`.
+/// Two materials that agree on those leave the four arrays where they were,
+/// so a drop of water falling through air, or a powder replaced by another
+/// powder, rescans only the block's moisture (2026-10-22). Compared by bits,
+/// so the answer is exact rather than approximately equal.
+#[inline]
+pub(crate) fn changes_block_shape(
+    materials: &super::material::MaterialRegistry,
+    old: super::material::MaterialId,
+    new: super::material::MaterialId,
+) -> bool {
+    if old == new {
+        return false;
+    }
+    let shape = |id| {
+        let m = materials.get(id);
+        let opaque = matches!(m.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant);
+        let deepens = m.kind == super::material::MaterialKind::Liquid && water_opacity() != 0.0;
+        (opaque, deepens, m.glow.to_bits(), m.beam.to_bits())
+    };
+    shape(old) != shape(new)
+}
+
 fn scan_traits(materials: &super::material::MaterialRegistry) -> Vec<ScanTraits> {
     (0..materials.len())
         .map(|i| {
@@ -4395,29 +4423,10 @@ mod tests {
         if !crate::sim::update::moisture_phase_enabled() {
             return; // the sweep control arm writes moisture as ordinary cells
         }
-        let mut world = World::new(Rect::new(0, 0, 127, 127));
-        let spar = world.materials.id_of("spar").expect("spar is compiled in");
+        let mut world = moist_scene();
         let soil = world.materials.id_of("soil").expect("soil is compiled in");
         let capacity = world.materials.get(soil).water_capacity;
         assert!(capacity > 0, "vacuous: soil holds no water");
-        for x in 0..64 {
-            for y in 32..40 {
-                world.set(x, y, Cell::new(soil, 0));
-            }
-            for y in 40..48 {
-                world.set(x, y, Cell::new(material::STONE, 0));
-            }
-        }
-        for y in 44..48 {
-            for x in 20..24 {
-                world.set(x, y, Cell::new(spar, 0));
-            }
-        }
-        world.end_step();
-        for _ in 0..200 {
-            crate::sim::update::step(&mut world);
-            step(&mut world);
-        }
 
         let coord = ChunkCoord::containing(18, 35);
         let (lx, ly) = (1, 2); // the block holding (18, 35), the spar and the stone under the soil
@@ -4441,9 +4450,86 @@ mod tests {
         let carried = world.fields_ref()[&coord].clone();
         assert_ne!(carried.moisture_source_local(lx, ly), before, "vacuous: the write did not move the source");
         assert_ne!(carried.moisture_source_local(lx + 1, ly), before_set, "vacuous: the set did not move the source");
+        assert_matches_a_full_scan(&world, coord, &carried, (lx, ly));
+    }
+
+    /// **A write that swaps one material for another of the same block shape
+    /// -- a drop of water into air, a puddle where soil was -- rescans only
+    /// `moisture_source`, and must still come out exactly as a full scan
+    /// would** (2026-10-22, `changes_block_shape`). Both writes are asserted
+    /// to be marked moisture-only and to move the block's moisture source, so
+    /// the test cannot pass by the rescan being full or the value not
+    /// changing. Positive control, run when written: `changes_block_shape`
+    /// answering `false` for every pair turns this red -- the waking stone
+    /// is then marked moisture-only and its block keeps a stale `blocked`.
+    #[test]
+    fn a_same_shape_material_swap_rescans_only_moisture_and_matches_a_full_scan() {
+        if !crate::sim::update::moisture_phase_enabled() {
+            return; // the sweep control arm writes moisture as ordinary cells
+        }
+        let mut world = moist_scene();
+        let coord = ChunkCoord::containing(18, 35);
+        let (soil_block, air_block, stone_block) = ((1, 2), (3, 1), (2, 0));
+        let source = |world: &World, (lx, ly): (i32, i32)| world.fields_ref()[&coord].moisture_source_local(lx, ly);
+        let before_soil = source(&world, soil_block);
+        let before_air = source(&world, air_block);
+        assert_eq!(world.get(50, 20).material, material::EMPTY, "vacuous: the drop does not fall into air");
+        world.set(18, 35, Cell::new(material::WATER, 0));
+        world.set(50, 20, Cell::new(material::WATER, 0));
+        world.set(40, 5, Cell::new(material::STONE, 0));
+        world.end_step();
+        let (stale, cells) = world.chunk(coord).expect("resident").stale_masks();
+        let bit = |(lx, ly): (i32, i32)| 1u16 << (ly * FIELD_TILE_SIZE + lx);
+        for block in [soil_block, air_block] {
+            assert!(
+                stale & bit(block) != 0 && cells & bit(block) == 0,
+                "vacuous: block {block:?} is not marked moisture-only"
+            );
+        }
+        assert!(cells & bit(stone_block) != 0, "the stone's block must be rescanned in full");
+        step(&mut world);
+
+        let carried = world.fields_ref()[&coord].clone();
+        assert_ne!(source(&world, soil_block), before_soil, "vacuous: the puddle did not move the source");
+        assert_ne!(source(&world, air_block), before_air, "vacuous: the drop did not move the source");
+        assert_matches_a_full_scan(&world, coord, &carried, soil_block);
+    }
+
+    /// Damp soil over stone with a glowing spar in it, settled for 200
+    /// frames, so the chunk is carried rather than rescanned until a write
+    /// wakes it.
+    fn moist_scene() -> World {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        let spar = world.materials.id_of("spar").expect("spar is compiled in");
+        let soil = world.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            for y in 32..40 {
+                world.set(x, y, Cell::new(soil, 0));
+            }
+            for y in 40..48 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 44..48 {
+            for x in 20..24 {
+                world.set(x, y, Cell::new(spar, 0));
+            }
+        }
+        world.end_step();
+        for _ in 0..200 {
+            crate::sim::update::step(&mut world);
+            step(&mut world);
+        }
+        world
+    }
+
+    /// Every block of `carried` equals a from-scratch `rebuild_blocked` of the
+    /// same world; `(lx, ly)` must glow and be blocked, so a scan that lost
+    /// either cannot match by both being empty.
+    fn assert_matches_a_full_scan(world: &World, coord: ChunkCoord, carried: &FieldTile, (lx, ly): (i32, i32)) {
         let mut fresh: ChunkMap<FieldTile> = ChunkMap::default();
         fresh.insert(coord, FieldTile::new());
-        rebuild_blocked(&world, &[coord], &[(u16::MAX, u16::MAX)], &mut fresh);
+        rebuild_blocked(world, &[coord], &[(u16::MAX, u16::MAX)], &mut fresh);
         let scanned = &fresh[&coord];
         assert!(scanned.has_glow && scanned.glow_local(lx, ly) > 0.0, "vacuous: the block does not glow");
         assert!(scanned.is_blocked_local(lx, ly), "vacuous: the block holds nothing solid");

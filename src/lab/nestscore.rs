@@ -46,7 +46,8 @@
 //! - **Layout** (species): the harvester is top-heavy -- the share of chamber
 //!   area in the upper half scales chamber credit 0.75-1.
 //! - **Charged**: cracks (open cells under 3 wide), a pit open to the sky away
-//!   from the mouth, and open cells not joined to the door.
+//!   from the mouth but within `pit_reach` of the door, and open cells not
+//!   joined to the door.
 //!
 //! Only below-ground cells joined to the door count; the door's mouth may be
 //! open to the sky over `mouth` columns either side. A wide crater mouth is
@@ -96,6 +97,16 @@ pub struct Profile {
     pub top_heavy: Option<f64>,
     /// Columns either side of the door that may be open to the sky.
     pub mouth: i32,
+    /// **Pit is charged only this many columns either side of the door**, or
+    /// over the whole grid with `None` (the prototype). Owner, 2026-10-22:
+    /// "should the nest score charge pit only near the nest -- yes". Ants
+    /// held off the rim by a refusal (`PP_RIMVETO=3`, the teacher lane's
+    /// colony bed, 8 seeds) left no crater within 20 columns of the door on
+    /// any seed, yet read pit 46-111: one- and two-cell scrapes in the surface
+    /// 20-100 columns out, which the owner wants allowed. A sky-open cell
+    /// beyond the reach is outside the nest's business: not pit, not nest,
+    /// not stray.
+    pub pit_reach: Option<i32>,
     /// Open nest cells an ant: about 8% of floor under bodies, the real
     /// crowding figure.
     pub cells_per_ant: usize,
@@ -150,6 +161,7 @@ pub const HARVESTER: Profile = Profile {
     tunnel_free: 60.0,
     top_heavy: Some(0.5),
     mouth: 4,
+    pit_reach: Some(20),
     cells_per_ant: 25,
     niche: Some(NICHE),
 };
@@ -159,6 +171,7 @@ pub const HARVESTER: Profile = Profile {
 /// Python cell for cell, and so the climb's valley stays on record.
 pub const PROTOTYPE: Profile = Profile {
     niche: None,
+    pit_reach: None,
     ..HARVESTER
 };
 
@@ -420,8 +433,13 @@ pub fn score(open: &[bool], w: usize, h: usize, ground: &[i32], door_x: usize, p
         (door_x as i32 + p.mouth + 1).min(w as i32) as usize,
     );
     let in_mouth = |x: usize| x >= m0 && x < m1;
+    let near = |x: usize| p.pit_reach.is_none_or(|r| (x as i32 - door_x as i32).abs() <= r);
     let pit: Vec<bool> = (0..w * h)
-        .map(|i| sky[i] && below(i % w, i / w) && !in_mouth(i % w))
+        .map(|i| sky[i] && below(i % w, i / w) && !in_mouth(i % w) && near(i % w))
+        .collect();
+    // Open to the sky beyond `pit_reach`: the field's business, not the nest's.
+    let field: Vec<bool> = (0..w * h)
+        .map(|i| sky[i] && below(i % w, i / w) && !in_mouth(i % w) && !near(i % w))
         .collect();
     // Joined to the door through any open cell below ground, a crater
     // included: a wide mouth is charged as pit but does not cut the nest
@@ -439,8 +457,10 @@ pub fn score(open: &[bool], w: usize, h: usize, ground: &[i32], door_x: usize, p
         }
     }
     let joined: Vec<bool> = lab.iter().map(|id| *id != 0 && door_ids.contains(id)).collect();
-    let nest: Vec<bool> = (0..w * h).map(|i| joined[i] && !pit[i]).collect();
-    let stray: Vec<bool> = (0..w * h).map(|i| reach[i] && !joined[i] && !pit[i]).collect();
+    let nest: Vec<bool> = (0..w * h).map(|i| joined[i] && !pit[i] && !field[i]).collect();
+    let stray: Vec<bool> = (0..w * h)
+        .map(|i| reach[i] && !joined[i] && !pit[i] && !field[i])
+        .collect();
 
     // Chambers: the opening of the nest by the core box.
     let opened: Vec<bool> = dilate(&erode(&nest, w, h, p.core), w, h, p.core)
@@ -1025,7 +1045,16 @@ mod tests {
                 "{}: cracks, pit, stray",
                 c.name
             );
-            let n = run(c, &HARVESTER);
+            // The niche prototype charged pit over the whole grid, as the
+            // export did: `pit_reach` is the port's own change (owner,
+            // 2026-10-22), checked in `a_scrape_in_the_field_is_not_the_nests_pit`.
+            let n = run(
+                c,
+                &Profile {
+                    pit_reach: None,
+                    ..HARVESTER
+                },
+            );
             // 0.1, not 0.05: the niche prototype adds to the as-built
             // chamber credit after `nestscore.py` has rounded it.
             assert!(
@@ -1213,8 +1242,10 @@ mod tests {
             "with niches it is a niche: {new:?}"
         );
         // A crater open to the sky away from the door is pit, under the box's
-        // lid as on the grid: read from the lid down it was nest (pit 0).
-        carve(&mut world, door - 30, door - 15, 0, 3);
+        // lid as on the grid: read from the lid down it was nest (pit 0). It
+        // sits within `pit_reach`; a scrape 40 columns out is not the nest's.
+        carve(&mut world, door - 20, door - 5, 0, 3);
+        carve(&mut world, door - 41, door - 40, 0, 0);
         let (crater, class) = of_world(&world, &spec, door, &HARVESTER);
         assert_eq!(crater.pit, 16 * 4, "{crater:?}");
         let (xs, ys) = extents(&world, &spec);
@@ -1303,7 +1334,7 @@ mod tests {
         );
         let g = surface_of(&world, &spec, 60);
         for y in g..g + 4 {
-            for x in 30..46 {
+            for x in 40..56 {
                 world.set(x, y, Cell::EMPTY);
             }
         }
@@ -1319,7 +1350,7 @@ mod tests {
         assert!((v.iter().sum::<f64>() - crater.score).abs() < 1e-6);
         let w = (xs.end() - xs.start() + 1) as usize;
         let at = |x: i32, y: i32| ((y - ys.start()) as usize) * w + (x - xs.start()) as usize;
-        assert_eq!((class[at(35, g + 2)], v[at(35, g + 2)]), (Class::Pit, -1.0));
+        assert_eq!((class[at(45, g + 2)], v[at(45, g + 2)]), (Class::Pit, -1.0));
     }
 
     /// The door rung: no nest reads None, a dug nest reaches the air, a plug
@@ -1383,6 +1414,41 @@ mod tests {
         );
         // The room alone, beyond `reach` of a moved door, is no nest of that door's.
         assert_eq!(door_open(&world, &spec, door + 60, 3, 20), None);
+    }
+
+    /// Pit near the door is charged; a scrape out in the field is not, and is
+    /// not stray either. The prototype still charges both.
+    #[test]
+    fn a_scrape_in_the_field_is_not_the_nests_pit() {
+        let mut open = vec![false; W * H];
+        for y in 0..GROUND as usize {
+            for x in 0..W {
+                open[y * W + x] = true;
+            }
+        }
+        let mut dig = |x0: usize, x1: usize, y0: usize, y1: usize| {
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    open[y * W + x] = true;
+                }
+            }
+        };
+        let g = GROUND as usize;
+        dig(DOOR - 1, DOOR, g, g + 12); // a shaft in the mouth
+        dig(DOOR + 10, DOOR + 13, g, g + 1); // a crater 10 columns out: 8 cells
+        dig(DOOR + 50, DOOR + 51, g, g); // a scrape 50 columns out: 2 cells
+        dig(DOOR - 60, DOOR - 60, g, g + 1); // and 60 the other way: 2 cells
+        let (s, class) = score(&open, W, H, &[GROUND; W], DOOR, &HARVESTER);
+        assert_eq!((s.pit, s.stray), (8, 0), "{s:?}");
+        assert_eq!(class[g * W + DOOR + 50], Class::Not);
+        let (p, _) = score(&open, W, H, &[GROUND; W], DOOR, &PROTOTYPE);
+        assert_eq!(p.pit, 12, "the prototype charges the whole grid");
+        assert!(
+            s.score - p.score > 3.9,
+            "the scrapes no longer cost: {} vs {}",
+            s.score,
+            p.score
+        );
     }
 
     /// The general profile drops only the layout term.
