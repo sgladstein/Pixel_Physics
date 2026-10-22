@@ -1,0 +1,19 @@
+arm      n  extinct | home8 median (mean) | starved mean | cuts20 median (mean) | colonies <20 cuts | field median
+base     12  0 |     270 (   250) |   3.9 |   201 (  205) |  0 of 12 |   3013
+old      12  0 |     652 (   717) |   0.0 |   298 (  303) |  0 of 12 |   3091
+scoreM   12  2 |    3934 (  3854) |   7.1 |   128 (  140) |  1 of 10 |   7024
+randM    12  4 |     102 (   167) |  11.8 |    26 (   44) |  4 of 8 |   3848
+score0   12  6 |     394 (   386) |   0.3 |   203 (  206) |  0 of 6 |   5744
+rand0    12  6 |      50 (   108) |  11.7 |   133 (  120) |  2 of 6 |   3673
+
+paired by seed (both alive): arm vs scoreM, cuts20 higher/lower; home8 higher/lower
+  randM   n=7: cuts higher 0 lower 7; home higher 0 lower 7
+  score0  n=5: cuts higher 4 lower 1; home higher 1 lower 4
+  rand0   n=5: cuts higher 2 lower 3; home higher 0 lower 5
+  base    n=10: cuts higher 8 lower 2; home higher 1 lower 9
+
+training rounds: births per job (mean), max generation reached at round 5, distinct families at end (mean), rounds survived
+  scoreM  births 1008.3  gen@r5 9.8 (max 12)  families 2.7  rounds 5.3
+  randM   births 1338.3  gen@r5 11.0 (max 14)  families 3.6  rounds 5.3
+  score0  births 687.9  gen@r5 9.0 (max 14)  families 2.7  rounds 3.8
+  rand0   births 947.1  gen@r5 9.7 (max 15)  families 3.3  rounds 4.1

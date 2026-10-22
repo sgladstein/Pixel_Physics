@@ -3121,6 +3121,16 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [colony-training-review-2026-10-22.md](colony-training-review-2026-10-22.md) — **review
+  delivered 2026-10-22; its switches live as a patch.** The Fable review of the
+  Teacher lane's in-run colony selection one day in: keep it (hA1 carries home
+  five times the old ant's food), but three things are structural — the
+  training world never contains the late game, heavy per-child mutation erodes
+  unpaid skills, and the score-weight arms moved nothing. Two 12-seed tests:
+  mutation without selection wrecks the ant in six rounds yet the gain needs
+  mutation; protecting the lesson slots halved starvation and kept digging at
+  some cost in food, crossover wrecked digging, a growing headcount and
+  lexicase bought nothing. Patch, hand-off and raw rows in its folder.
 - [lab-ui-redesign-2026-10-22.md](lab-ui-redesign-2026-10-22.md) — **live plan,
   step 1 shipped.** A design review of every window, page and menu in the lab
   (owner: "clunky", long lists, dense tables, confusing menus, windows that
