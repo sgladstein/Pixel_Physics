@@ -47,7 +47,7 @@ use std::path::PathBuf;
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
-    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung", "station",
+    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung", "station", "neighbours", "neighbour",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -85,6 +85,8 @@ fn bed(m: &BTreeMap<String, String>) -> BedSpec {
         // `station=dim` for `mode=pic` and the other whole-bed modes; the
         // trainer takes `stations=` instead, since it scores several.
         station: m.get("station").map_or(d.station, |v| arena::Station::named(v).unwrap_or_else(|| panic!("station `{v}` is not bright|dim|dry"))),
+        // `neighbour=tree` for `mode=pic`: draw a rung-4 bed.
+        neighbour: m.get("neighbour").map(|v| arena::Neighbour::named(v).unwrap_or_else(|| panic!("neighbour `{v}` is not one of {:?}", arena::ROLES))),
     };
     if b.every == 0 || b.frames == 0 {
         eprintln!("plantrain: every= and frames= must be at least 1");
@@ -177,8 +179,11 @@ fn rungs(m: &BTreeMap<String, String>) {
     let species: Vec<String> = get(m, "species", "tree,shrub,herb,creeper".to_string()).split(',').map(str::to_string).collect();
     let rungs: Vec<arena::Rung> = get(m, "rungs", "establish,grow".to_string())
         .split(',')
-        .map(|r| arena::Rung::named(r).unwrap_or_else(|| panic!("rung `{r}` is not establish|grow|life")))
+        .map(|r| arena::Rung::named(r).unwrap_or_else(|| panic!("rung `{r}` is not establish|grow|life|hold")))
         .collect();
+    // `rung=hold` grows each species beside each of these in turn.
+    let neighbours = neighbours_arg(m, "tree,shrub,herb,creeper");
+    let k = constants(m, &BedSpec::default());
     // `dry` is left out by default: see `Station::DRY` for why it scores
     // nothing yet.
     let stations: Vec<arena::Station> = get(m, "stations", "bright,dim".to_string())
@@ -190,8 +195,9 @@ fn rungs(m: &BTreeMap<String, String>) {
     let threads = rayon::current_num_threads();
     println!("plantrain rungs: species={} rungs={} stations={} layouts={n} base={base} threads={threads}", species.join(","), rungs.iter().map(|r| r.name()).collect::<Vec<_>>().join(","), stations.iter().map(|s| s.name).collect::<Vec<_>>().join(","));
     for &rung in &rungs {
-        for &station in &stations {
-            let mut spec = rung.spec(station);
+        let beside: Vec<Option<arena::Neighbour>> = if rung == arena::Rung::Hold { neighbours.iter().copied().map(Some).collect() } else { vec![None] };
+        for (&station, nb) in stations.iter().flat_map(|st| beside.iter().map(move |nb| (st, *nb))) {
+            let mut spec = arena::BedSpec { neighbour: nb, ..rung.spec(station) };
             spec.n_est = get(m, "n_est", spec.n_est);
             // `drysoil=F`: the dry station's starting soil water, for the
             // sweep that finds a value that is dry to a plant.
@@ -208,7 +214,8 @@ fn rungs(m: &BTreeMap<String, String>) {
             let t = std::time::Instant::now();
             let rows = train_plant::census_all(&arms, &layouts, &spec);
             let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
-            println!("  {} {} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
+            let with = nb.map_or(String::new(), |nb| format!(" beside {} at {}", nb.species, nb.gap));
+            println!("  {} {}{with} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
             for (sp, cs) in species.iter().zip(&rows) {
                 let germ = cs.iter().filter(|c| c.germinated).count();
                 let est: Vec<f32> = cs.iter().filter_map(|c| c.established_at.map(|f| f as f32)).collect();
@@ -236,9 +243,35 @@ fn rungs(m: &BTreeMap<String, String>) {
                     q(&rgr, 0.5),
                     q(&rgr, 0.75)
                 );
+                if nb.is_some() {
+                    // Rung 4's two numbers: the founder's own stepped life,
+                    // and what its neighbour managed beside it.
+                    let own: Vec<f32> = cs.iter().map(|c| score::bed_score(c, &k)).collect();
+                    let nbs: Vec<&arena::Census> = cs.iter().filter_map(|c| c.neighbour.as_deref()).collect();
+                    let nb_score: Vec<f32> = nbs.iter().map(|c| score::bed_score(c, &k)).collect();
+                    let nb_end: Vec<f32> = nbs.iter().map(|c| c.end_shoot as f32).collect();
+                    let nb_flower = nbs.iter().filter(|c| c.first_flower.is_some()).count();
+                    let nb_alive = nbs.iter().filter(|c| c.founder_alive).count();
+                    println!(
+                        "    {:<8} own score {:.2} | neighbour score {:.2} end shoot p50 {:>5.0} flowered {nb_flower}/{n} alive {nb_alive}/{n}",
+                        "",
+                        own.iter().sum::<f32>() / n.max(1) as f32,
+                        nb_score.iter().sum::<f32>() / nbs.len().max(1) as f32,
+                        q(&nb_end, 0.5)
+                    );
+                }
             }
         }
     }
+}
+
+/// `neighbours=tree,herb`: the shipped plants rung 4 grows a genome beside.
+fn neighbours_arg(m: &BTreeMap<String, String>, default: &str) -> Vec<arena::Neighbour> {
+    get(m, "neighbours", default.to_string())
+        .split(',')
+        .filter(|x| !x.is_empty())
+        .map(|x| arena::Neighbour::named(x).unwrap_or_else(|| panic!("neighbour `{x}` is not one of {:?}", arena::ROLES)))
+        .collect()
 }
 
 /// Spearman rank correlation of two equal-length lists, ties at their mean
@@ -963,7 +996,10 @@ fn main() {
                 // `rung=grow stations=bright,dim`: train on rung 2, which
                 // predicts a whole life at a fifth of its cost
                 // (`mode=ladder`); `life`, the default, is P1's bed.
-                rung: arena::Rung::named(&get(&m, "rung", "life".to_string())).unwrap_or_else(|| panic!("rung= is establish|grow|life")),
+                rung: arena::Rung::named(&get(&m, "rung", "life".to_string())).unwrap_or_else(|| panic!("rung= is establish|grow|life|hold")),
+                // `rung=hold`: beside each of these in turn, by default every
+                // role but the control's own.
+                neighbours: neighbours_arg(&m, &arena::ROLES.iter().filter(|&&r| r != get(&m, "control", "herb".to_string())).copied().collect::<Vec<_>>().join(",")),
                 stations: get(&m, "stations", "bright".to_string())
                     .split(',')
                     .map(|x| arena::Station::named(x).unwrap_or_else(|| panic!("station `{x}` is not bright|dim|dry")))

@@ -123,16 +123,22 @@ pub enum Rung {
     Grow,
     /// A whole life, alone: P1's bed, 96 wide, 40,000 frames.
     Life,
+    /// **Hold ground** (plan §6.2 rung 4): a whole life 56 wide, beside one
+    /// shipped plant of another role ([`BedSpec::neighbour`]), so a plant
+    /// that takes everything is seen to. The trainer runs it once per
+    /// neighbour in turn.
+    Hold,
 }
 
 impl Rung {
-    pub const ALL: [Rung; 3] = [Rung::Establish, Rung::Grow, Rung::Life];
+    pub const ALL: [Rung; 4] = [Rung::Establish, Rung::Grow, Rung::Life, Rung::Hold];
 
     pub fn name(self) -> &'static str {
         match self {
             Rung::Establish => "establish",
             Rung::Grow => "grow",
             Rung::Life => "life",
+            Rung::Hold => "hold",
         }
     }
 
@@ -149,7 +155,8 @@ impl Rung {
     pub fn layouts(self, base: u64, n: usize) -> Vec<Layout> {
         match self {
             Rung::Life => layouts(base, n),
-            Rung::Establish | Rung::Grow => (0..n).map(|i| Layout { seed: base + i as u64, offset: Offset::Under }).collect(),
+            // `Hold` places its own pair about a lamp ([`Neighbour`]).
+            Rung::Establish | Rung::Grow | Rung::Hold => (0..n).map(|i| Layout { seed: base + i as u64, offset: Offset::Under }).collect(),
         }
     }
 
@@ -160,6 +167,7 @@ impl Rung {
             Rung::Establish => BedSpec { width: 48, frames: 3_000, every: 100, ..d },
             Rung::Grow => BedSpec { width: 48, frames: 10_000, every: 250, ..d },
             Rung::Life => d,
+            Rung::Hold => BedSpec { width: 56, ..d },
         }
     }
 }
@@ -182,11 +190,63 @@ pub struct BedSpec {
     pub mutation_off: bool,
     /// The light and water the bed is grown under.
     pub station: Station,
+    /// A shipped plant of another role, planted beside the founder (rung 4).
+    pub neighbour: Option<Neighbour>,
+}
+
+/// The four roles' shipped species (plan §4.2), the neighbours rung 4 plants.
+pub const ROLES: [&str; 4] = ["tree", "shrub", "herb", "creeper"];
+
+/// **A neighbour for rung 4**: a shipped species, `gap` columns from the
+/// founder, the two either side of one lamp so they start in the same light.
+/// The layout's seed picks which side the founder takes. Heredity is off for
+/// it as for the founder. **Not one plant under a lamp and the other off
+/// it**: placed `gap` from a founder at a layout offset, the neighbour landed
+/// between lamps on some layouts and never established (a shipped tree
+/// beside the shrub scored 1.77 against ~2.5), so the bed measured where it
+/// stood rather than whom it stood beside. **56 wide, not the plan's 64**:
+/// 64 holds two lamps (columns 18 and 46), and the pair about the first put
+/// one plant six columns from the wall, which failed on every layout that
+/// put the founder there (tree: peak 1 cell on 2 of 4; herb 4-107 shoot
+/// cells against 180-247 on the other side). 56 holds one lamp, at 28, and
+/// both plants stand 18 columns from a wall.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Neighbour {
+    pub species: &'static str,
+    pub gap: i32,
+}
+
+impl Neighbour {
+    /// 12 columns: inside each other's crown and root spread from the first
+    /// third of a life, measured by eye on the shipped shrub and herb (64
+    /// wide, 40,000 frames), and far enough that neither seed lands on the
+    /// other's first cells.
+    pub const GAP: i32 = 12;
+
+    pub fn named(species: &str) -> Option<Neighbour> {
+        ROLES.into_iter().find(|&r| r == species).map(|species| Neighbour { species, gap: Self::GAP })
+    }
+
+    /// The founder's column: `gap / 2` to one side of the lamp the bed is
+    /// built around.
+    pub fn founder_column(self, bed: &LabBox) -> i32 {
+        let lamp = founder_column(bed, Offset::Under);
+        if bed.seed.is_multiple_of(2) {
+            lamp - self.gap / 2
+        } else {
+            lamp + (self.gap - self.gap / 2)
+        }
+    }
+
+    /// The neighbour's column: the founder's, mirrored about that lamp.
+    pub fn column(self, bed: &LabBox, founder: i32) -> i32 {
+        2 * founder_column(bed, Offset::Under) - founder
+    }
 }
 
 impl Default for BedSpec {
     fn default() -> Self {
-        Self { width: 96, frames: 40_000, every: 250, n_est: 20, mutation_off: true, station: Station::BRIGHT }
+        Self { width: 96, frames: 40_000, every: 250, n_est: 20, mutation_off: true, station: Station::BRIGHT, neighbour: None }
     }
 }
 
@@ -218,7 +278,11 @@ pub fn bed_for(species_ron: Option<&str>, name: &str, layout: Layout, spec: &Bed
         rain: spec.station.rain,
         ..LabBox::default()
     };
-    b.founder_at = Some(vec![founder_column(&b, layout.offset)]);
+    let at = match spec.neighbour {
+        Some(nb) => nb.founder_column(&b),
+        None => founder_column(&b, layout.offset),
+    };
+    b.founder_at = Some(vec![at]);
     b
 }
 
@@ -249,6 +313,9 @@ pub struct Census {
     pub founder_alive: bool,
     /// Frames the bed ran.
     pub frames: u64,
+    /// The rung-4 neighbour's own census, by the same rules, when the bed had
+    /// one. Its `seedlings_established` counts its own species.
+    pub neighbour: Option<Box<Census>>,
 }
 
 /// The founder's flower and fruit cells right now.
@@ -329,27 +396,35 @@ pub fn build(bed: &LabBox, spec: &BedSpec) -> (World, OrganismId) {
     }
     let ids = w.live_organism_ids();
     assert_eq!(ids.len(), 1, "a one-founder bed built {} organisms", ids.len());
+    if let Some(nb) = spec.neighbour {
+        let at = bed.founder_at.as_ref().and_then(|v| v.first().copied()).unwrap_or(bed.width / 2);
+        let x = nb.column(bed, at);
+        assert!(w.plant_tree_species(x, bed.ground_y - 2, nb.species), "the neighbour {} did not plant at column {x}", nb.species);
+    }
     (w, ids[0])
 }
 
-/// Grow `bed` for `spec.frames` frames and census its founder.
-pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
-    let (mut w, founder) = build(bed, spec);
-    let species = w.organism(founder).map(|s| s.species).expect("the founder exists");
-    let mut particles = ParticleSystem::new();
-    let mut blasts = Blasts::new();
-    let tuning = player::Tuning::default();
-    let mut c = Census::default();
-    for f in 1..=spec.frames {
-        crate::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, bed, None);
-        if f % spec.every != 0 && f != spec.frames {
-            continue;
-        }
-        let Some(st) = w.organism(founder) else { continue };
-        if st.species != species {
-            // The slot was freed and reused by another plant: the founder is gone.
-            continue;
-        }
+/// The founder, or the neighbour, census as it runs.
+struct Tracker {
+    id: OrganismId,
+    species: organism::SpeciesId,
+    c: Census,
+}
+
+impl Tracker {
+    fn new(w: &World, id: OrganismId) -> Self {
+        let species = w.organism(id).map(|s| s.species).expect("the plant exists");
+        Self { id, species, c: Census::default() }
+    }
+
+    fn alive<'a>(&self, w: &'a World) -> Option<&'a organism::OrganismState> {
+        w.organism(self.id).filter(|st| st.species == self.species)
+    }
+
+    fn census(&mut self, w: &World, f: u64, spec: &BedSpec, ground_y: i32) {
+        // A slot freed and reused by another plant means the plant is gone.
+        let Some(st) = self.alive(w) else { return };
+        let c = &mut self.c;
         let shoot = st.shoot_cells;
         // **More than the seed**: an unsprouted seed is one shoot cell, so
         // `shoot > 0` counted every seed that sat on the ground for the whole
@@ -362,26 +437,55 @@ pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
         if shoot >= spec.n_est && c.established_at.is_none() {
             c.established_at = Some(f);
         }
-        c.peak_height = c.peak_height.max(height_of(&w, founder, bed.ground_y));
-        let (flowers, fruit) = organs_of(&w, founder);
+        c.peak_height = c.peak_height.max(height_of(w, self.id, ground_y));
+        let (flowers, fruit) = organs_of(w, self.id);
         if flowers > 0 && c.first_flower.is_none() {
             c.first_flower = Some(f);
             c.shoot_at_first_flower = shoot;
         }
         c.fruited |= fruit > 0;
     }
-    c.founder_alive = w.organism(founder).is_some_and(|s| s.species == species);
-    if !c.founder_alive {
-        c.end_shoot = 0;
+
+    fn finish(mut self, w: &World, spec: &BedSpec, others: &[OrganismId]) -> Census {
+        self.c.founder_alive = self.alive(w).is_some();
+        if !self.c.founder_alive {
+            self.c.end_shoot = 0;
+        }
+        self.c.seedlings_established = w
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| *id != self.id && !others.contains(id))
+            .filter_map(|id| w.organism(id))
+            .filter(|s| s.species == self.species && s.shoot_cells >= spec.n_est)
+            .count() as u32;
+        self.c.frames = spec.frames;
+        self.c
     }
-    c.seedlings_established = w
-        .live_organism_ids()
-        .into_iter()
-        .filter(|&id| id != founder)
-        .filter_map(|id| w.organism(id))
-        .filter(|s| s.species == species && s.shoot_cells >= spec.n_est)
-        .count() as u32;
-    c.frames = spec.frames;
+}
+
+/// Grow `bed` for `spec.frames` frames and census its founder, and its
+/// neighbour when it has one.
+pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
+    let (mut w, founder) = build(bed, spec);
+    let mut me = Tracker::new(&w, founder);
+    let mut nb = w.live_organism_ids().into_iter().find(|&id| id != founder).map(|id| Tracker::new(&w, id));
+    let mut particles = ParticleSystem::new();
+    let mut blasts = Blasts::new();
+    let tuning = player::Tuning::default();
+    for f in 1..=spec.frames {
+        crate::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, bed, None);
+        if f % spec.every != 0 && f != spec.frames {
+            continue;
+        }
+        me.census(&w, f, spec, bed.ground_y);
+        if let Some(t) = nb.as_mut() {
+            t.census(&w, f, spec, bed.ground_y);
+        }
+    }
+    let nb_id = nb.as_ref().map(|t| t.id);
+    let neighbour = nb.map(|t| Box::new(t.finish(&w, spec, &[founder])));
+    let mut c = me.finish(&w, spec, &nb_id.into_iter().collect::<Vec<_>>());
+    c.neighbour = neighbour;
     c
 }
 
@@ -456,6 +560,32 @@ mod tests {
         assert!((mean(&dry) - want).abs() < 2.0, "dry: soil water {} against {want}", mean(&dry));
         assert!(Rung::Establish.layouts(0, 6).iter().all(|l| l.offset == Offset::Under));
         assert_eq!(Rung::Life.layouts(0, 3).iter().map(|l| l.offset).collect::<Vec<_>>(), Offset::ALL.to_vec());
+    }
+
+    /// **A rung-4 bed plants its pair about one lamp, and censuses both.**
+    /// The founder and the neighbour stand `gap` apart, mirrored about the
+    /// lamp, on either side by the layout's seed; each grows past its seed,
+    /// and the neighbour's census is its own species, not the founder's.
+    #[test]
+    fn a_hold_bed_plants_the_pair_about_a_lamp_and_censuses_both() {
+        let nb = Neighbour::named("herb").expect("a role");
+        let spec = BedSpec { frames: 2_500, neighbour: Some(nb), ..Rung::Hold.spec(Station::BRIGHT) };
+        let mut sides = Vec::new();
+        for seed in [4, 5] {
+            let bed = bed_for(None, "shrub", Layout { seed, offset: Offset::Under }, &spec);
+            let at = bed.founder_at.as_ref().expect("set")[0];
+            let lamp = founder_column(&bed, Offset::Under);
+            assert_eq!((nb.column(&bed, at) - at).abs(), nb.gap, "a gap apart");
+            assert_eq!(at + nb.column(&bed, at), 2 * lamp, "mirrored about the lamp");
+            sides.push(at < lamp);
+            let (w, _) = build(&bed, &spec);
+            assert_eq!(w.live_organism_ids().len(), 2, "founder and neighbour");
+            let c = grow(&bed, &spec);
+            let n = c.neighbour.as_deref().expect("the neighbour's census");
+            assert!(c.germinated && n.germinated, "both grew past the seed: {c:?}");
+        }
+        assert_ne!(sides[0], sides[1], "the seed picks the founder's side");
+        assert!(Rung::Hold.layouts(0, 4).iter().all(|l| l.offset == Offset::Under));
     }
 
     #[test]

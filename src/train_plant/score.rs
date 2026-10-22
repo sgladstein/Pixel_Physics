@@ -67,6 +67,22 @@ pub fn bed_score(c: &Census, k: &Constants) -> f32 {
 /// score -- but it belongs where the bed, not the scale, runs out.
 pub const GROW_CAP: f32 = 8.0;
 
+/// **Rung 4's score: hold ground, and let the neighbour live** (plan §5,
+/// "others do not pay for it"; §6.2 rung 4). The founder's own life
+/// ([`sized_score`] against the control's size), less whatever it cost the
+/// shipped neighbour beside it below `y.nb_score` -- that neighbour's mean
+/// next to the shipped species of the founder's role, so a candidate is
+/// charged only for harm past what its role already does. One step of the
+/// neighbour's life lost is one step of the founder's own. A neighbour that
+/// does better earns nothing: helping is not this rung's job. Graded rather
+/// than a floor that rejects, so a candidate that crowds its neighbour a
+/// little loses a little. Never below 0.
+pub fn hold_score(c: &Census, k: &Constants, y: &Yardstick) -> f32 {
+    let own = sized_score(c, k, y.own_end);
+    let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end));
+    (own - (y.nb_score - nb).max(0.0)).max(0.0)
+}
+
 pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
     if !c.germinated {
         return 0.0;
@@ -74,8 +90,38 @@ pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
     if c.established_at.is_none() {
         return 1.0 + if n_est == 0 { 0.0 } else { (c.peak_shoot as f32 / n_est as f32).min(0.999) };
     }
-    let rel = c.end_shoot as f32 / reference.max(1.0);
-    2.0 + ((1.0 + rel).ln() / (1.0 + GROW_CAP).ln()).min(0.999)
+    2.0 + size_frac(c.end_shoot, reference)
+}
+
+/// Shoot cells against a reference, on [`grow_score`]'s log scale, in [0, 1).
+pub fn size_frac(end_shoot: u32, reference: f32) -> f32 {
+    let rel = end_shoot as f32 / reference.max(1.0);
+    ((1.0 + rel).ln() / (1.0 + GROW_CAP).ln()).min(0.999)
+}
+
+/// **A whole life that pays size while it has not flowered**: [`bed_score`],
+/// except that an established plant with no flower yet is paid its end shoot
+/// against `end_ref` on [`grow_score`]'s scale instead of its peak against
+/// `size_floor`. Measured on rung 4 (64 wide, 40,000 frames, 8 layouts): the
+/// tree and the creeper never flower in that window, so `bed_score` put
+/// every one of them at 2.999 -- 55 cells and 1,900 read alike, and a
+/// perennial could be ranked only by what it did to its neighbour. The end,
+/// not the peak, so a plant that dies scores its death.
+pub fn sized_score(c: &Census, k: &Constants, end_ref: f32) -> f32 {
+    if !c.germinated || c.peak_shoot < k.n_est || c.first_flower.is_some() {
+        return bed_score(c, k);
+    }
+    2.0 + size_frac(c.end_shoot, end_ref)
+}
+
+/// What rung 4 scores against, per bed kind (station and neighbour),
+/// measured on the control: its own end shoot, its neighbour's end shoot
+/// beside it, and that neighbour's [`sized_score`] there.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Yardstick {
+    pub own_end: f32,
+    pub nb_end: f32,
+    pub nb_score: f32,
 }
 
 /// Mean and minimum of a genome's bed scores.
@@ -164,6 +210,33 @@ mod tests {
         assert!((grow_score(&est(200), 20, 100.0) - 2.5).abs() < 1e-6, "twice the reference scores half way up its step");
         assert!(grow_score(&est(700), 20, 100.0) > grow_score(&est(400), 20, 100.0), "still telling growers apart well past twice the reference");
         assert!(grow_score(&est(10_000), 20, 100.0) < 3.0, "capped below the next step");
+    }
+
+    #[test]
+    fn holding_ground_is_charged_for_the_neighbour_it_costs() {
+        let k = Constants { n_est: 20, k_seed: 24, size_floor: 55 };
+        let life = |flowered: bool| Census {
+            germinated: true,
+            peak_shoot: 200,
+            established_at: Some(1_000),
+            first_flower: flowered.then_some(5_000),
+            shoot_at_first_flower: 100,
+            ..Census::default()
+        };
+        let beside = |nb: Census| Census { neighbour: Some(Box::new(nb)), ..life(true) };
+        let y = Yardstick { own_end: 200.0, nb_end: 200.0, nb_score: bed_score(&life(true), &k) };
+        let alone = bed_score(&life(true), &k);
+        assert_eq!(hold_score(&beside(life(true)), &k, &y), alone, "a neighbour as well off as beside the shipped species costs nothing");
+        let stunted = hold_score(&beside(life(false)), &k, &y);
+        let killed = hold_score(&beside(Census::default()), &k, &y);
+        assert!(alone > stunted && stunted > killed, "graded by how much of its life the neighbour lost: {alone} {stunted} {killed}");
+        assert!(killed >= 0.0);
+        assert_eq!(hold_score(&beside(life(true)), &k, &Yardstick { nb_score: y.nb_score - 1.0, ..y }), alone, "a neighbour doing better earns nothing");
+        // A perennial that has not flowered is paid its size, not pinned at
+        // the top of the step as `bed_score` pins it.
+        let tree = |end: u32| Census { end_shoot: end, peak_shoot: end, ..life(false) };
+        assert_eq!(bed_score(&tree(500), &k), bed_score(&tree(2_000), &k), "the defect: bed_score reads them alike");
+        assert!(sized_score(&tree(2_000), &k, 1_000.0) > sized_score(&tree(500), &k, 1_000.0));
     }
 
     #[test]
