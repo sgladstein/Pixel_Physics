@@ -323,6 +323,18 @@ const REACH: i32 = 6;
 
 /// **Every option `organism` has right now**, appended to `out` (cleared
 /// first). A pure read of the world: no draw, no write.
+/// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
+/// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
+/// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
+pub fn warmth_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_WARMTH").as_deref() {
+        Ok("on") | Ok("") | Err(_) => true,
+        Ok("off") => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_WARMTH={other:?}: use on or off"),
+    })
+}
+
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
     build_with(world, organism, def, true, out);
 }
@@ -342,7 +354,7 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         neck: st.chain.get(1).copied(),
         colony: st.colony,
         scent: CHANNELS.map(|ch| scent(world, ch, head.0, head.1)),
-        warmth: world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature,
+        warmth: if warmth_on() { world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature } else { 0.0 },
         home: (!world.home_blind).then_some(st.forage_anchor),
         mats: Mats {
             spoil: world.materials.id_of("spoil"),
@@ -655,7 +667,9 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
             v[f::HOME] = cos * squash(h2.sqrt() / 32.0);
         }
     }
-    v[f::WARMTH] = squash(world.field_at_bilinear(x as f32, y as f32).temperature - here.warmth);
+    if warmth_on() {
+        v[f::WARMTH] = squash(world.field_at_bilinear(x as f32, y as f32).temperature - here.warmth);
+    }
     v[f::BACK] = f32::from(u8::from(here.neck == Some((x, y))));
     v
 }

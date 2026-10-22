@@ -69,6 +69,14 @@ fn main() {
     if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("digest_bar=").map(str::to_string)) {
         unsafe { std::env::set_var("PP_DIGEST_BAR", v) };
     }
+    // SCRATCH: `setenv=NAME=VAL[,NAME=VAL...]` sets environment switches before any world exists, so a gate check
+    // of another thread's off-by-default switch is one jobs-file argument (teacher lane, 2026-10-22).
+    if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("setenv=").map(str::to_string)) {
+        for kv in v.split(',') {
+            let (k, val) = kv.split_once('=').expect("setenv=NAME=VAL");
+            unsafe { std::env::set_var(k, val) };
+        }
+    }
     // SCRATCH: `nomind=1` sets PP_NOMIND, founding the colony on the old ant (the game's chooser, no mind). Use sel=off.
     if std::env::args().any(|a| a == "nomind=1") {
         unsafe { std::env::set_var("PP_NOMIND", "1") };
