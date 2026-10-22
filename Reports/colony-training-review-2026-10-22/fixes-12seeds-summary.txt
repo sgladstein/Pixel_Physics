@@ -1,0 +1,25 @@
+arm    n extinct | home8 median (mean) | starved mean | cuts20 median (mean) | colonies <20 cuts | field median
+base   12  0 |     270 (   250) |   3.9 |   201 (  205) |  0 of 12 |   3013
+old    12  0 |     652 (   717) |   0.0 |   298 (  303) |  0 of 12 |   3091
+ctl    12  2 |    3934 (  3854) |   7.1 |   128 (  140) |  1 of 10 |   7024
+band   12  4 |    3258 (  3773) |   4.2 |   130 (  116) |  3 of 8 |   7334
+cross  12  1 |    3769 (  3917) |   4.0 |    45 (   66) |  5 of 11 |   8892
+lex    12  2 |    1827 (  2606) |   7.0 |   146 (  141) |  1 of 10 |   6672
+prot   12  2 |    1114 (  2737) |   3.0 |   230 (  221) |  1 of 10 |   4291
+
+paired by seed vs ctl (both alive): cuts higher/lower; home higher/lower; starved fewer/more
+  band   n=6: cuts 4/2; home 2/4; starved fewer 3 more 3
+  cross  n=9: cuts 2/6; home 6/3; starved fewer 5 more 4
+  lex    n=8: cuts 3/5; home 4/4; starved fewer 3 more 2
+  prot   n=8: cuts 6/2; home 3/5; starved fewer 6 more 1
+  base   n=10: cuts 8/2; home 1/9; starved fewer 8 more 2
+
+training: births (mean/job), crossed births, max gen at the last round, distinct families at end, rounds survived, final alive
+  ctl    births 0.0 crossed 0.0 gen - families - rounds 0.0 alive -
+  band   births 1840.6 crossed 0.0 gen 12.1 families 3.4 rounds 4.4 alive 60.0
+  cross  births 1079.5 crossed 136.1 gen 10.0 families 3.0 rounds 5.9 alive 24.0
+  lex    births 1089.3 crossed 0.0 gen 10.3 families 2.8 rounds 5.4 alive 23.9
+  prot   births 922.5 crossed 0.0 gen 9.3 families 3.0 rounds 5.2 alive 23.9
+
+byte-identity check: ctl vs the mutload test's scoreM (same seeds, switches off) and base/old vs theirs
+  identical 36, different 0
