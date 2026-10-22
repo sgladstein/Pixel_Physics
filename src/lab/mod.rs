@@ -311,6 +311,11 @@ pub struct Lab {
     pub new_ant: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<std::sync::Arc<crate::sim::creature::mind::MindGenome>>,
+    /// **PLANTS: TRAINED** -- the shrub and herb in the box on screen are
+    /// the seed-trained ones (`assets/species/trained/`) rather than the
+    /// shipped files. Off is the shipped game. See
+    /// [`Lab::set_trained_plants`].
+    pub trained_plants: bool,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -653,6 +658,7 @@ impl Lab {
             training_seed: 1,
             new_ant: false,
             new_ant_mind: None,
+            trained_plants: false,
             view_dirty: false,
             chrome_due: true,
             chrome_painted: None,
@@ -833,6 +839,11 @@ impl Lab {
             None => scenario::Placed::default(),
         };
         earth_toned_nest(&mut self.world);
+        // A rebuilt world has the shipped species again; the switch is a
+        // setting, so it survives a rebuild and a scenario load.
+        if self.trained_plants {
+            self.apply_trained_plants();
+        }
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         // A fresh census, and the page as open or shut as it was.
@@ -1036,6 +1047,37 @@ impl Lab {
             self.world.minds = None;
             self.world.log_player_action("ANT BRAIN: OLD".to_string());
             "ANT BRAIN: OLD -- THE HAND-BUILT BRAIN".to_string()
+        }
+    }
+
+    /// **PLANTS: SHIPPED / TRAINED** (owner, 2026-10-22: a switch to
+    /// playtest the trained plants before any species file changes). On,
+    /// the shrub and herb are registered from `assets/species/trained/`
+    /// under their shipped names, so every shrub and herb in the box --
+    /// growing, seeded or still to be sown -- reads the trained genome from
+    /// the next tick; off puts the shipped files back. The box on screen
+    /// only: other chambers keep what they had. Measured in the mixed
+    /// four-role bed (`plant_m0 swap=`, 6 seeds, 450,000 frames): with the
+    /// shipped tree, roles alive per seed 2.2 -> 3.2, the shrub alive on 6
+    /// of 6 against 2 (`Reports/plant-community-2026-10-20/m2/community/`).
+    pub fn set_trained_plants(&mut self, on: bool) -> String {
+        self.trained_plants = on;
+        if on {
+            self.apply_trained_plants();
+            self.world.log_player_action("PLANTS: TRAINED".to_string());
+            "PLANTS: TRAINED -- THE SHRUB AND HERB BRED TO SET MORE SEED".to_string()
+        } else {
+            for source in [include_str!("../../assets/species/shrub.ron"), include_str!("../../assets/species/herb.ron")] {
+                self.world.species.register_ron(source).expect("a shipped species parses");
+            }
+            self.world.log_player_action("PLANTS: SHIPPED".to_string());
+            "PLANTS: SHIPPED -- THE SHRUB AND HERB AS THEY SHIP".to_string()
+        }
+    }
+
+    fn apply_trained_plants(&mut self) {
+        for source in [include_str!("../../assets/species/trained/shrub.ron"), include_str!("../../assets/species/trained/herb.ron")] {
+            self.world.species.register_ron(source).expect("a trained species parses");
         }
     }
 
@@ -2379,6 +2421,7 @@ impl Lab {
             _ => None,
         };
         self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
+        self.ui.set_trained_plants(self.trained_plants);
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
         self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
@@ -3703,6 +3746,10 @@ impl Lab {
                 let said = self.set_new_ant(!self.new_ant);
                 self.ui.say(said);
             }
+            ui::Action::ToggleTrainedPlants => {
+                let said = self.set_trained_plants(!self.trained_plants);
+                self.ui.say(said);
+            }
             // An index into `Ui::scenarios()`, read fresh rather than
             // stored: the list can change under a `RELOAD` between the page
             // opening and a row being clicked, and a row that has gone is
@@ -4862,6 +4909,37 @@ mod tests {
             // ...and the buffer really did grow, or the arms are the same arm.
             assert_eq!(viewport, (WIDTH * budget as u32, HEIGHT * budget as u32), "budget x{budget} did not size its buffer");
         }
+    }
+
+    /// **PLANTS: TRAINED swaps the shrub and herb and survives a rebuild.**
+    /// The trained files must be the shipped names with a different genome,
+    /// or the switch would register a new species nothing plants (a silent
+    /// no-op) or change nothing at all.
+    #[test]
+    fn the_trained_plants_switch_swaps_shrub_and_herb_and_survives_a_rebuild() {
+        use crate::sim::organism::SpeciesDef;
+        let def = |src: &str| ron::from_str::<SpeciesDef>(src).expect("parses");
+        let ron_of = |d: &SpeciesDef| crate::sim::species_export::to_ron(d).expect("exports");
+        for (shipped, trained) in [
+            (include_str!("../../assets/species/shrub.ron"), include_str!("../../assets/species/trained/shrub.ron")),
+            (include_str!("../../assets/species/herb.ron"), include_str!("../../assets/species/trained/herb.ron")),
+        ] {
+            let (a, b) = (def(shipped), def(trained));
+            assert_eq!(a.name, b.name, "a trained file is registered under the shipped name");
+            assert_ne!(ron_of(&a), ron_of(&b), "{}: the trained file is the shipped one", a.name);
+        }
+        let mut lab = Lab::new(scene::LabBox::default());
+        let shrub = lab.world.species.id_of("shrub").expect("the lab has a shrub");
+        let rate = |lab: &Lab| ron::to_string(lab.world.species.get(shrub).cell_types()).expect("serialises");
+        let shipped = rate(&lab);
+        lab.set_trained_plants(true);
+        let trained = rate(&lab);
+        assert_ne!(trained, shipped, "the switch changed nothing in the registered shrub");
+        lab.reset();
+        assert!(lab.trained_plants);
+        assert_eq!(rate(&lab), trained, "a rebuild keeps the trained plants");
+        lab.set_trained_plants(false);
+        assert_eq!(rate(&lab), shipped, "switching back restores the shipped shrub");
     }
 
     /// **A confirm is taken back by any other verb** (code review of the

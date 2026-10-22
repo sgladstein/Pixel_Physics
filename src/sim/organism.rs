@@ -6230,6 +6230,10 @@ pub struct OrganismState {
     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
     /// readout rule asks for.
     pub last_share_frame: u64,
+    /// The frame before which this animal does not walk for an egg site
+    /// again, after a walk that found none (`brood::EGG_RETRY_FRAMES`);
+    /// `0` for never held.
+    pub egg_walk_after: u64,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
