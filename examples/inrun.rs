@@ -69,6 +69,10 @@ fn main() {
     if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("digest_bar=").map(str::to_string)) {
         unsafe { std::env::set_var("PP_DIGEST_BAR", v) };
     }
+    // SCRATCH: `nomind=1` sets PP_NOMIND, founding the colony on the old ant (the game's chooser, no mind). Use sel=off.
+    if std::env::args().any(|a| a == "nomind=1") {
+        unsafe { std::env::set_var("PP_NOMIND", "1") };
+    }
     std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
     let a: Vec<String> = std::env::args().skip(1).collect();
     // pile=1 (default): every founder starts at the nest door, heaped (the game's own

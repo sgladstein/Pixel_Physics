@@ -2685,8 +2685,13 @@ pub mod inrun {
         // No old age (owner, 2026-10-21): selection's removals are the only deaths but starvation.
         def.life_half_life = 0;
         w.species.set_creature(sp, def);
+        // SCRATCH (foraging-loop thread's switch, 2026-10-22): PP_NOMIND=1 leaves every founder on the game's own ant
+        // (chooser + act), the old ant, in this same bed. Unset: no change.
+        let nomind = std::env::var("PP_NOMIND").is_ok_and(|v| v == "1");
         for (k, id) in ants_of(&w, sp).into_iter().enumerate() {
-            creature::mind::give(&mut w, id, genome_of(k));
+            if !nomind {
+                creature::mind::give(&mut w, id, genome_of(k));
+            }
         }
         (w, sc, sp)
     }
