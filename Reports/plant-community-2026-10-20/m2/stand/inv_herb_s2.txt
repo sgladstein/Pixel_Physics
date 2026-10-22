@@ -1,0 +1,55 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=60000 shrub=45000 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=herb mix=stand-herb ["tree", "shrub", "creeper"] seed=2 width=192 grow=60000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron plants_placed=9
+grown f=60000 | tree 4/50/5030/9337 | shrub 3/2/301/723 | creeper 5/1/69/125 | herb 0/0/0/0  (plants/bank/leaf/shoot)
+arm=none f=10000 | tree 18/9/2270/4392 | shrub 3/2/138/281 | creeper 3/2/10/15 | herb 0/0/0/0
+arm=none f=20000 | tree 18/13/2413/4741 | shrub 2/2/10/11 | creeper 1/4/8/10 | herb 0/0/0/0
+arm=none f=30000 | tree 21/16/2432/4828 | shrub 1/3/5/5 | creeper 1/4/5/7 | herb 0/0/0/0
+arm=none f=40000 | tree 14/20/2330/4708 | shrub 1/3/5/5 | creeper 1/4/0/1 | herb 0/0/0/0
+arm=none f=50000 | tree 11/30/2380/4887 | shrub 0/4/0/0 | creeper 1/2/0/1 | herb 0/0/0/0
+arm=none f=60000 | tree 9/34/2545/5125 | shrub 0/4/0/0 | creeper 0/2/0/0 | herb 0/0/0/0
+arm=none f=70000 | tree 5/24/2575/5207 | shrub 0/3/0/0 | creeper 0/2/0/0 | herb 0/0/0/0
+arm=none f=80000 | tree 9/28/2567/5309 | shrub 0/3/0/0 | creeper 0/2/0/0 | herb 0/0/0/0
+arm=none f=90000 | tree 12/35/2559/5421 | shrub 0/3/0/0 | creeper 0/2/0/0 | herb 0/0/0/0
+arm=none f=100000 | tree 11/40/2636/5714 | shrub 0/3/0/0 | creeper 0/1/0/0 | herb 0/0/0/0
+arm=none f=110000 | tree 8/30/2666/5876 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 0/0/0/0
+arm=none f=120000 | tree 5/35/2673/5985 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 0/0/0/0
+arm=none f=130000 | tree 11/32/2976/6962 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 0/0/0/0
+arm=none f=140000 | tree 12/41/3561/8789 | shrub 0/1/0/0 | creeper 0/0/0/0 | herb 0/0/0/0
+arm=none f=150000 | tree 11/39/3743/9294 | shrub 0/0/0/0 | creeper 0/0/0/0 | herb 0/0/0/0
+arm=shipped sown 4 of 4
+arm=shipped f=10000 | tree 15/8/2271/4392 | shrub 3/2/138/281 | creeper 3/2/10/15 | herb 2/2/44/100
+arm=shipped f=20000 | tree 15/12/2157/4212 | shrub 2/2/10/11 | creeper 1/4/8/10 | herb 2/3/67/208
+arm=shipped f=30000 | tree 12/17/2560/5138 | shrub 1/3/5/5 | creeper 1/4/5/7 | herb 2/2/84/264
+arm=shipped f=40000 | tree 10/22/3806/7068 | shrub 1/3/5/5 | creeper 1/4/0/1 | herb 5/7/96/365
+arm=shipped f=50000 | tree 6/26/4975/8521 | shrub 0/4/0/0 | creeper 1/2/0/1 | herb 3/19/92/423
+arm=shipped f=60000 | tree 3/38/5062/8703 | shrub 0/4/0/0 | creeper 0/2/0/0 | herb 2/22/89/407
+arm=shipped f=70000 | tree 3/34/5073/8789 | shrub 0/3/0/0 | creeper 0/2/0/0 | herb 5/16/92/468
+arm=shipped f=80000 | tree 3/37/5017/8791 | shrub 0/2/0/0 | creeper 0/2/0/0 | herb 6/14/133/567
+arm=shipped f=90000 | tree 5/33/5146/9322 | shrub 0/2/0/0 | creeper 0/2/0/0 | herb 7/25/164/693
+arm=shipped f=100000 | tree 5/44/5688/10441 | shrub 0/2/0/0 | creeper 0/1/0/0 | herb 3/21/157/563
+arm=shipped f=110000 | tree 4/58/6237/11588 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 2/15/147/548
+arm=shipped f=120000 | tree 4/64/6342/11781 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 2/8/144/545
+arm=shipped f=130000 | tree 6/36/5053/9407 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 1/9/115/449
+arm=shipped f=140000 | tree 5/27/5265/10035 | shrub 0/1/0/0 | creeper 0/0/0/0 | herb 0/4/0/0
+arm=shipped f=150000 | tree 8/28/5209/10107 | shrub 0/0/0/0 | creeper 0/0/0/0 | herb 0/2/0/0
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron sown 4 of 4
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=10000 | tree 19/7/2271/4403 | shrub 3/2/138/281 | creeper 3/2/10/15 | herb 4/2/268/399
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=20000 | tree 19/10/1975/3999 | shrub 2/2/10/11 | creeper 1/4/8/10 | herb 5/3/369/573
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=30000 | tree 15/12/1945/3854 | shrub 1/3/5/5 | creeper 1/4/5/7 | herb 4/3/445/782
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=40000 | tree 9/12/1945/3793 | shrub 1/3/5/5 | creeper 1/4/0/1 | herb 5/8/507/990
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=50000 | tree 6/16/1668/3262 | shrub 0/4/0/0 | creeper 1/2/0/1 | herb 6/7/282/523
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=60000 | tree 4/14/1547/2946 | shrub 0/4/0/0 | creeper 0/2/0/0 | herb 5/12/302/591
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=70000 | tree 4/13/1610/3056 | shrub 0/2/0/0 | creeper 0/2/0/0 | herb 15/16/804/1313
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=80000 | tree 5/16/2884/5191 | shrub 0/2/0/0 | creeper 0/2/0/0 | herb 25/24/1503/2645
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=90000 | tree 5/33/3354/6099 | shrub 0/2/0/0 | creeper 0/2/0/0 | herb 22/34/1677/3106
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=100000 | tree 3/37/3425/6231 | shrub 0/2/0/0 | creeper 0/1/0/0 | herb 19/33/1688/3237
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=110000 | tree 3/36/3380/6144 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 15/40/1647/3148
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=120000 | tree 3/28/3386/6209 | shrub 0/2/0/0 | creeper 0/0/0/0 | herb 12/43/1555/2936
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=130000 | tree 3/24/3347/6252 | shrub 0/1/0/0 | creeper 0/0/0/0 | herb 15/30/1347/2552
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=140000 | tree 3/21/3331/6292 | shrub 0/1/0/0 | creeper 0/0/0/0 | herb 13/29/850/1736
+arm=Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron f=150000 | tree 4/25/3310/6325 | shrub 0/0/0/0 | creeper 0/0/0/0 | herb 11/26/696/1420
+plant_m0 done: 60.5 s
