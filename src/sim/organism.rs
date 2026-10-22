@@ -6230,6 +6230,10 @@ pub struct OrganismState {
     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
     /// readout rule asks for.
     pub last_share_frame: u64,
+    /// The frame before which this animal does not walk for an egg site
+    /// again, after a walk that found none (`brood::EGG_RETRY_FRAMES`);
+    /// `0` for never held.
+    pub egg_walk_after: u64,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -7306,6 +7310,10 @@ pub enum DeathCause {
     /// whose it is. Registered as a finding rather than changed: it is how the
     /// box behaves today, and this cause is what makes it visible.
     Overgrown,
+    /// **A shade leaf bleached by bright light** (`World::shade_scald`,
+    /// `plant::SCALD_RATE`): the price a shade-tolerant plant pays in the
+    /// sun. Only a plant with `shade_tolerate` can die of it.
+    Scorched,
 }
 
 impl DeathCause {
@@ -7332,6 +7340,7 @@ impl DeathCause {
             DeathCause::SeedRotted => "ROTTED",
             DeathCause::ShadedOut => "SHADED",
             DeathCause::DriedOut => "DRIED UP",
+            DeathCause::Scorched => "SCORCHED",
             DeathCause::Withered => "WITHERED",
             DeathCause::Eaten => "EATEN",
             DeathCause::Overgrown => "OVERRUN",
@@ -7341,7 +7350,7 @@ impl DeathCause {
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 15;
+pub const DEATH_CAUSES: usize = 16;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -7360,6 +7369,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Eaten,
     DeathCause::Overgrown,
     DeathCause::Spread,
+    DeathCause::Scorched,
 ];
 
 impl DeathCause {
@@ -7406,7 +7416,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 27;
+pub const CREATURE_TRAITS: usize = 28;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7825,6 +7835,29 @@ pub const TRAIL_PLANE_SLOTS: [usize; 4] = [TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_E
 /// ant keeps its own memory (`OrganismState::return_met`) in place of the
 /// nest-wide clock. Width 0, as the walk genes.
 pub const TRAIT_RETURN_MEMORY: usize = 26;
+/// Slot 27: **the appetite gate, as a gene** -- how much this ant's crop
+/// holds back digesting while the ant is already fed, read through
+/// `creature::appetite_weight_of` as `digest_hunger_weight + allele`,
+/// clamped to `0..=1`.
+///
+/// **Additive on the species' authored weight, with no species gate**, for
+/// `TRAIT_SIGHT_RANGE`'s ruling ("anything should be able to evolve"): the
+/// ant authors 0.0, so a multiplier would make the gate unreachable at any
+/// allele. At 0 the weight is the authored one exactly (`x + 0.0 == x`), so
+/// an unevolved ant digests bit-for-bit as it did before the slot existed.
+/// A negative allele on a species authored at 0 reads as no gate at all.
+///
+/// **Why it is a gene and not a brain output** (owner, 2026-10-22: "the body
+/// should be able to mutate too"): digestion is something a body does, not
+/// something an animal decides -- the same line `creature_tick`'s digestion
+/// comment draws -- so no link in a mind reaches it. The nearest a brain gets
+/// is shorter trips, which digest less on the way. Measured as a species
+/// switch in the in-run training bed (teacher lane, 2026-10-22, hA1, 64
+/// seeds): food home 8,269 against 1,700 per colony-round, higher in 62 of
+/// 64, with die-outs 16 against 8 -- a strong trade nobody could tune per
+/// lineage. Width 0 on every species, so nothing drifts until a measurement
+/// says letting it is safe.
+pub const TRAIT_APPETITE: usize = 27;
 /// **Every walk slot**, gains, planes and the forage memory -- what ships
 /// at width 0 and has its own page in the lab.
 pub const WALK_SLOTS: [usize; 11] = [
@@ -8130,6 +8163,14 @@ pub struct SpeciesRegistry {
     /// fixed for a world's whole life (`World::cell_scale`). Scaling once,
     /// at the funnel, is the version that cannot be forgotten at a site.
     cell_scale: f32,
+    /// **Each species' creature def, shared rather than copied**, filled on
+    /// first ask by [`Self::creature_shared`]. Every creature tick needs the
+    /// def by value while it holds `&mut World`, and cloning it (a dozen
+    /// `Vec`s) and dropping it again was ~1% of the new ant's frame
+    /// (callgrind, 2026-10-22: 50 k clones and drops a 600 frames). Emptied
+    /// by every `&mut self` method, which are the only writers of `species`,
+    /// so a shared def can never be older than the species it came from.
+    shared: Vec<std::sync::OnceLock<Option<std::sync::Arc<CreatureDef>>>>,
 }
 
 const EMBEDDED: &[&str] = &[
@@ -8308,7 +8349,24 @@ fn life_half_life_override() -> &'static [(String, f32)] {
 }
 impl SpeciesRegistry {
     fn empty() -> Self {
-        Self { species: Vec::new(), by_name: super::fxhash::FxHashMap::default(), cell_scale: 1.0 }
+        Self { species: Vec::new(), by_name: super::fxhash::FxHashMap::default(), cell_scale: 1.0, shared: Vec::new() }
+    }
+
+    /// **This species' creature def, shared** -- the same value as
+    /// `get(id).creature.clone()`, without the copy. See `shared`.
+    pub fn creature_shared(&self, id: SpeciesId) -> Option<std::sync::Arc<CreatureDef>> {
+        match self.shared.get(id.0 as usize) {
+            Some(slot) => slot.get_or_init(|| self.species[id.0 as usize].creature.clone().map(std::sync::Arc::new)).clone(),
+            None => self.species[id.0 as usize].creature.clone().map(std::sync::Arc::new),
+        }
+    }
+
+    /// Empty [`Self::creature_shared`]'s memo. Called first by every
+    /// `&mut self` method: a write anywhere in `species` must not be read
+    /// back stale.
+    fn forget_shared(&mut self) {
+        self.shared.clear();
+        self.shared.resize_with(self.species.len(), std::sync::OnceLock::new);
     }
 
     /// What resolution the creature defs in here are built for. `1.0` is
@@ -8326,6 +8384,7 @@ impl SpeciesRegistry {
     /// to say so. `World::cell_scale`'s own doc has the same rule for the
     /// same reason -- a world is built at one resolution and stays there.
     pub fn set_cell_scale(&mut self, k: f32) {
+        self.forget_shared();
         debug_assert!(
             (self.cell_scale - 1.0).abs() < f32::EPSILON || (self.cell_scale - k).abs() < f32::EPSILON,
             "species registry is already at cell_scale {}, refusing to re-scale to {k}",
@@ -8453,6 +8512,8 @@ impl SpeciesRegistry {
                 self.species.push(species);
             }
         }
+        // Last, so the memo is sized to the species just pushed.
+        self.forget_shared();
     }
 
     #[inline]
@@ -8475,6 +8536,7 @@ impl SpeciesRegistry {
     /// of a species inside the tick goes through [`Self::get`], which is what
     /// lets an edit here be felt on the very next tick with no reload path.
     pub fn get_mut(&mut self, id: SpeciesId) -> &mut Species {
+        self.forget_shared();
         &mut self.species[id.0 as usize]
     }
 
@@ -8486,6 +8548,7 @@ impl SpeciesRegistry {
     /// points cannot vary a knob within one process, so it cannot hold
     /// everything else fixed.
     pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
+        self.forget_shared();
         self.species[id.0 as usize].genome = genome;
     }
 
@@ -8532,6 +8595,7 @@ impl SpeciesRegistry {
     /// `apply_one`/`read_param`, so they cannot disagree about which field a
     /// `ParamId` names.
     pub fn set_param(&mut self, id: SpeciesId, cell_type: CellType, param: ParamId, tier: u8, value: f32) -> bool {
+        self.forget_shared();
         let o = ParamOverride { cell_type, param, tier, value };
         let mut wrote = false;
         for b in self.species[id.0 as usize].behaviors_mut(cell_type) {
@@ -8544,6 +8608,7 @@ impl SpeciesRegistry {
     }
 
     pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
+        self.forget_shared();
         let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
             return;
         };
@@ -8575,6 +8640,7 @@ impl SpeciesRegistry {
     /// world and writes it into a 2x one, so the arms differ by the scaling
     /// pass and by nothing else.
     pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
+        self.forget_shared();
         self.species[id.0 as usize].creature = Some(def);
     }
 
@@ -8590,6 +8656,7 @@ impl SpeciesRegistry {
     /// the real shipped shape back instead of the one it asked for. Clearing
     /// the table here is how a test gets `def.body` honoured again.
     pub fn set_fates(&mut self, id: SpeciesId, fates: Vec<(CellType, Vec<Fate>)>) {
+        self.forget_shared();
         self.species[id.0 as usize].fates = fates;
     }
 
@@ -10239,6 +10306,12 @@ mod tests {
                 if DOOR_SLOTS.contains(&slot) {
                     assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's door gene {slot} drifts; turning a door gene's width on is a measured step, not a tuple edit");
                     assert_eq!(def.traits[slot], 0.0, "{name}.ron's door gene {slot} is off its ancestral 0 -- the door rule is no longer the shipped one");
+                    continue;
+                }
+                // The appetite gene ships on the same terms (`TRAIT_APPETITE`).
+                if slot == TRAIT_APPETITE {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's appetite gene drifts; turning its width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's appetite gene is off its ancestral 0 -- the gate is no longer the species' authored one");
                     continue;
                 }
                 if SCENT_SIDE_SLOTS.contains(&slot) {

@@ -212,7 +212,7 @@ pub fn rung_scores(arms: &[Arm], base: u64, n: usize, s: &Settings, refs: &[scor
         Rung::Grow | Rung::Hold => {
             let mut out = vec![Vec::new(); arms.len()];
             for (ci, spec) in rung_specs(s).into_iter().enumerate() {
-                let y = refs.get(ci).copied().unwrap_or(score::Yardstick { own_end: 1.0, nb_end: 1.0, nb_score: 0.0 });
+                let y = refs.get(ci).copied().unwrap_or(score::Yardstick { own_end: 1.0, own_seeds: 1.0, nb_end: 1.0, nb_seeds: 1.0, nb_score: 0.0 });
                 for (a, row) in census_all(arms, &layouts, &spec).iter().enumerate() {
                     out[a].extend(row.iter().map(|c| match s.rung {
                         Rung::Hold => score::hold_score(c, &s.constants, &y),
@@ -272,8 +272,10 @@ pub fn grow_refs(control: &Arm, base: u64, n: usize, s: &Settings) -> Vec<score:
             let own_end = mean(&row.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
             let nbs: Vec<&Census> = row.iter().filter_map(|c| c.neighbour.as_deref()).collect();
             let nb_end = mean(&nbs.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
-            let nb_score = mean(&nbs.iter().map(|c| score::sized_score(c, &s.constants, nb_end)).collect::<Vec<_>>());
-            score::Yardstick { own_end, nb_end, nb_score }
+            let own_seeds = mean(&row.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
+            let nb_seeds = mean(&nbs.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
+            let nb_score = mean(&nbs.iter().map(|c| score::sized_score(c, &s.constants, nb_end, nb_seeds)).collect::<Vec<_>>());
+            score::Yardstick { own_end, own_seeds, nb_end, nb_seeds, nb_score }
         })
         .collect()
 }
@@ -361,11 +363,11 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     let refs = grow_refs(&control, holdout_base, s.holdout, s);
     if !refs.is_empty() {
         println!(
-            "plantrain: {} yardsticks (the control's end shoot; under hold its neighbour's end shoot and score): {}",
+            "plantrain: {} yardsticks (the control's end shoot; under hold own end/seeds, the neighbour's end/seeds and score): {}",
             s.rung.name(),
             refs.iter()
                 .enumerate()
-                .map(|(ci, y)| if s.rung == Rung::Hold { format!("{} {:.0}/{:.0}/{:.2}", cell_name(s, ci), y.own_end, y.nb_end, y.nb_score) } else { format!("{} {:.1}", cell_name(s, ci), y.own_end) })
+                .map(|(ci, y)| if s.rung == Rung::Hold { format!("{} {:.0}/{:.1} {:.0}/{:.1}/{:.2}", cell_name(s, ci), y.own_end, y.own_seeds, y.nb_end, y.nb_seeds, y.nb_score) } else { format!("{} {:.1}", cell_name(s, ci), y.own_end) })
                 .collect::<Vec<_>>()
                 .join(", ")
         );

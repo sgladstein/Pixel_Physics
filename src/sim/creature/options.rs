@@ -36,13 +36,13 @@
 //! [`World::option_shadow`]: crate::sim::World::option_shadow
 
 use super::{
-    body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths,
+    body_has_foothold, jaw_can_cut, kin_footing, landing_after_step_into, parting_enabled, segment_authored_widths,
     spoil_site_open, stacker_of, under_cover_by, BodyShape, CellMemo, CellRead, CreatureDef, DIRS,
 };
 use super::{crop_to_feed, diet_yield, gut_of, organism_crop_capacity, EAT_YIELD_THRESHOLD};
 use super::{flipped_body, landing_is_placeable_through_tissue};
 use crate::sim::cell::OrganismId;
-use crate::sim::material::{self, MaterialId, MaterialKind};
+use crate::sim::material::{self, Known, MaterialId, MaterialKind};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::World;
 use std::cell::RefCell;
@@ -378,9 +378,9 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         warmth: world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature,
         home: (!world.home_blind).then_some(st.forage_anchor),
         mats: Mats {
-            spoil: world.materials.id_of("spoil"),
-            packed: world.materials.id_of("packedsoil"),
-            corpse: world.materials.id_of("corpse"),
+            spoil: world.materials.known(Known::Spoil),
+            packed: world.materials.known(Known::PackedSoil),
+            corpse: world.materials.known(Known::Corpse),
         },
     };
     // **Every cell the options' features read, read once** (`CellMemo`):
@@ -400,7 +400,9 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     // at a target copies the first's features before its own extras. Off
     // with `remember`, which is how `the_option_window_changes_no_feature`
     // holds both to the plain reads.
-    let mut described: Vec<((i32, i32), [f32; FEATURES])> = Vec::with_capacity(24);
+    // The list is this thread's, kept between builds (`DESCRIBED`).
+    let mut described = DESCRIBED.take();
+    described.clear();
     // The targets' temperatures, the field's corners read once for the few
     // blocks they fall in (`field::BilinearSampler`). Off with `remember`.
     let mut warm = remember.then(|| world.field_bilinear_sampler());
@@ -425,12 +427,14 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     let parting = parting_enabled();
     let stacker = stacker_of(world, organism);
     let kin = kin_footing(world, organism, def);
+    // One buffer for all eight landings (`landing_after_step_into`).
+    let mut landing = Vec::with_capacity(st.chain.len());
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
         let t = (head.0 + dx, head.1 + dy);
         // `from` and `to` both `d`, as `usable_headings` asks it: the same
         // predicate the walk and the tumble use.
-        let (landing, _) = body_after_step(
+        landing_after_step_into(
             world,
             def,
             BodyShape {
@@ -439,9 +443,9 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
                 authored: &authored,
             },
             t,
-            d,
-            d,
+            (d, d),
             parting,
+            &mut landing,
         );
         if !landing_is_placeable_through_tissue(world, &st.chain, &landing, parting, stacker) {
             continue;
@@ -552,7 +556,17 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+    DESCRIBED.set(described);
 }
+
+thread_local! {
+    /// [`build_remembering`]'s list of targets described, kept between
+    /// builds so a decision does not allocate it (ant cost review A2).
+    static DESCRIBED: std::cell::Cell<Vec<Described>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+/// A target and the features [`describe`] gave it.
+type Described = ((i32, i32), [f32; FEATURES]);
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
 /// and dead ants. A corpse is food too (`food_energy` 120), so the one test
@@ -713,10 +727,10 @@ fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'
         }
     }
     let warmth = match warm {
-        Some(warm) => warm.at(x as f32, y as f32),
-        None => world.field_at_bilinear(x as f32, y as f32),
+        Some(warm) => warm.temperature_at(x as f32, y as f32),
+        None => world.field_at_bilinear(x as f32, y as f32).temperature,
     };
-    v[f::WARMTH] = squash(warmth.temperature - here.warmth);
+    v[f::WARMTH] = squash(warmth - here.warmth);
     v[f::BACK] = f32::from(u8::from(here.neck == Some((x, y))));
     v
 }

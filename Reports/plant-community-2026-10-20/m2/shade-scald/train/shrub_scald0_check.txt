@@ -1,0 +1,21 @@
+plantrain rungs: species=shrub,champion rungs=life,hold stations=bright,shade layouts=12 base=7000000 threads=4
+  life bright (width 96 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.39 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   607 p50   698 p75   747 cv 0.31 | rgr/1k p25 0.09 p50 0.09 p75 0.09
+    champion germ 12/12 est 12/12 est@ p50    750 | end shoot p25   771 p50   853 p75   979 cv 0.16 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+  life shade (width 96 frames 40000 n_est 20 lamp 0.2 rain Light soil 1): 1.69 core-s a bed
+    shrub    germ 12/12 est  4/12 est@ p50  26250 | end shoot p25     0 p50     0 p75     1 cv 1.88 | rgr/1k p25 0.07 p50 0.07 p75 0.13
+    champion germ 12/12 est  8/12 est@ p50   1250 | end shoot p25     0 p50   423 p75   537 cv 0.83 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.98 core-s a bed
+    shrub    germ 12/12 est 12/12 est@ p50   1000 | end shoot p25   144 p50   243 p75   375 cv 0.62 | rgr/1k p25 0.05 p50 0.07 p75 0.07
+             own score 2.96 seeds set p25 0 p50 0 mean 2.5 | neighbour score 3.00 end shoot p50  1778 flowered 0/12 alive 12/12
+             hold score 3.08 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+    champion germ 12/12 est 12/12 est@ p50    750 | end shoot p25   381 p50   504 p75   536 cv 0.28 | rgr/1k p25 0.08 p50 0.08 p75 0.08
+             own score 3.49 seeds set p25 7 p50 8 mean 9.0 | neighbour score 3.00 end shoot p50  1748 flowered 0/12 alive 12/12
+             hold score 4.26 | neighbour under the floor 2/12 (kept p25 1.00) under a tenth 0/12
+  hold shade beside tree at 12 (width 56 frames 40000 n_est 20 lamp 0.2 rain Light soil 1): 1.52 core-s a bed
+    shrub    germ 12/12 est  1/12 est@ p50   8500 | end shoot p25     0 p50     0 p75     0 cv 3.46 | rgr/1k p25 0.06 p50 0.06 p75 0.06
+             own score 1.37 seeds set p25 0 p50 0 mean 0.0 | neighbour score 2.39 end shoot p50     0 flowered 0/12 alive 5/12
+             hold score 0.52 | neighbour under the floor 8/12 (kept p25 0.00) under a tenth 8/12
+    champion germ 12/12 est 11/12 est@ p50   7000 | end shoot p25   143 p50   306 p75   396 cv 0.71 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+             own score 2.58 seeds set p25 0 p50 0 mean 0.0 | neighbour score 2.16 end shoot p50     0 flowered 0/12 alive 5/12
+             hold score 0.42 | neighbour under the floor 10/12 (kept p25 0.00) under a tenth 10/12

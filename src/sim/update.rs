@@ -216,7 +216,8 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     // saves and stack frame, and this front is `#[inline(always)]` into
     // `sweep_row` (2026-10-22: lab box -4.5% instructions, -3.4% wall).
     // Bit-identical: no rule below draws from the generator or writes for
-    // an empty cell.
+    // an empty cell. `fire::update_from` no longer asks again, so this
+    // return is now load-bearing for it.
     if cell.material == material::EMPTY {
         return;
     }
@@ -574,8 +575,12 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
     // `infiltration_conserves_water_it_cannot_fit` passed against the gated
     // version only because infiltration never ran at all in that setup.
     let mut drank = false;
+    // No liquid can be beside the cell (2026-10-22, `CellSurface::
+    // no_liquid_beside`): the four reads below would each find nothing, so
+    // they are not made. Most of the bed is like this most of the time.
+    let infiltrate = !surface.no_liquid_beside(x, y);
     for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
-        if moisture >= capacity {
+        if !infiltrate || moisture >= capacity {
             break;
         }
         let n = surface.get(x + dx, y + dy);

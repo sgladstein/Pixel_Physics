@@ -32,6 +32,7 @@
 //! are `x / (1 + |x|)`, and the one draw per pick comes from a stream keyed
 //! on the seed, the ant and the frame.
 
+use crate::sim::material::Known;
 use super::options::{self, Opt, Verb, FEATURES, VERBS};
 use super::{
     adjacent_nest, armour_of, bite_force_of, blend_with_nest, carried_cells, choose_weighted, commit_step,
@@ -54,7 +55,6 @@ use crate::sim::scheduler::ActiveSite;
 use crate::sim::world::Account;
 use crate::sim::World;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Units in the shared scorer.
@@ -1447,7 +1447,10 @@ pub struct MindCounts {
 /// `OrganismState` is untouched.
 #[derive(Clone, Debug, Default)]
 pub struct Minds {
-    ants: HashMap<OrganismId, Mind>,
+    /// Fx-hashed: asked three times an ant a tick (`has`, the bill's `get`,
+    /// the decision's `get`/`get_mut`), and nothing reads it in its
+    /// iteration order (`prune`'s `retain` keeps by id).
+    ants: crate::sim::fxhash::FxHashMap<OrganismId, Mind>,
     pruned_at: u64,
     pub counts: MindCounts,
     /// **Every pellet a mind puts down**, as `(x, y, frame, ant)`: the soil
@@ -1565,12 +1568,19 @@ fn prune(world: &mut World) {
 /// senses taken against `state.last` and [`c::ROOF_CUT`] off this
 /// decision's options. Returns the context and this decision's values for
 /// the next one's change senses.
-pub fn context(
+pub fn context(world: &World, organism: OrganismId, def: &CreatureDef, state: &MindState, opts: &[Opt]) -> ([f32; CONTEXT], [f32; 5]) {
+    context_at(world, organism, def, state, opts, None)
+}
+
+/// [`context`], given the caller's own [`adjacent_nest`] at a cell, this
+/// tick, with no cell written since.
+fn context_at(
     world: &World,
     organism: OrganismId,
     def: &CreatureDef,
     state: &MindState,
     opts: &[Opt],
+    at_nest: Option<((i32, i32), bool)>,
 ) -> ([f32; CONTEXT], [f32; 5]) {
     let mut v = [0.0f32; CONTEXT];
     v[c::ROOF_CUT] = roof_cut(opts);
@@ -1593,7 +1603,13 @@ pub fn context(
         }
     });
     v[c::SPOIL] = f32::from(u8::from(st.spoil.is_some()));
-    v[c::AT_NEST] = f32::from(u8::from(adjacent_nest(world, hx, hy, def)));
+    // `at_nest`: the caller's own `adjacent_nest` at a cell, this tick,
+    // with no cell written since -- the same answer when it is the head.
+    let home = match at_nest {
+        Some((at, home)) if at == (hx, hy) => home,
+        _ => adjacent_nest(world, hx, hy, def),
+    };
+    v[c::AT_NEST] = f32::from(u8::from(home));
     let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
     let home = (!world.home_blind).then_some(st.forage_anchor);
@@ -1933,7 +1949,10 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
-            let (ctx, now) = context(world, organism, def, &mind.state, &opts);
+            // `at_nest` was read above at `(x, y)`; since then only the
+            // colony odour was blended and no fall happened, so no cell
+            // moved (ant cost review A4, 2026-10-22).
+            let (ctx, now) = context_at(world, organism, def, &mind.state, &opts, Some(((x, y), at_nest)));
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
             mind.state.last = Some(now);
@@ -2007,7 +2026,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     // the settle, since a dead ant's body is corpse, and corpse is food.
     let soil = world.organism(organism).is_some_and(|s| s.spoil.is_some());
     let food_near = soil && {
-        let corpse = world.materials.id_of("corpse");
+        let corpse = world.materials.known(Known::Corpse);
         DIRS.iter().any(|&(dx, dy)| {
             let cell = world.get(hx + dx, hy + dy);
             world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0 && Some(cell.material) != corpse
@@ -2099,7 +2118,7 @@ fn pick_up(
     let food = bite.material;
     if jaws
         || world.materials.get(food).food_energy <= 0.0
-        || world.materials.id_of("corpse") == Some(food)
+        || world.materials.known(Known::Corpse) == Some(food)
         || bite.organism_id() != 0
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {

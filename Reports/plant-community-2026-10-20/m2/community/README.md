@@ -106,3 +106,80 @@ bed (its §M1 step 6 table: creeper gone by 120,000-180,000, shrub by
 and it is unchanged here. A trainer cannot fix a role the bed cannot carry
 at all, so the creeper's lifespan or ramets (open with the owner) and an
 understory under the canopy come before training those two.
+
+## The seed-trained roles at 450,000 frames (2026-10-22)
+
+`seeds`: all four rung-4 champions trained with seed set paid
+(`../hold/seeds/`); `seeds3`: the same shrub, herb and creeper with the
+shipped tree. Six seeds, frame 450,000, plants per role
+(`450k/seeds*_s*.txt`):
+
+| seed | shipped T/S/H/C | floor | seeds | seeds3 |
+|---|---|---|---|---|
+| 1 | 28/2/22/0 | 15/7/1/0 | 20/0/9/0 | 18/1/14/0 |
+| 2 | 21/2/41/0 | 17/0/0/0 | 17/3/0/0 | 21/23/9/0 |
+| 3 | 6/0/77/0 | 15/0/0/0 | 7/21/36/0 | 25/9/0/0 |
+| 4 | 19/0/67/0 | 10/25/19/0 | 17/11/20/0 | 9/5/72/0 |
+| 5 | 25/0/0/0 | 37/0/0/0 | 32/0/6/0 | 24/2/40/3 |
+| 6 | 10/0/16/0 | 10/0/0/0 | 9/1/0/1 | 9/31/39/2 |
+| **roles alive, mean** | **2.2** | 1.7 | 2.5 | **3.2** |
+
+**With the shipped tree, the seed-trained understory holds the bed.** The
+shrub is alive on all six seeds (shipped: two, at 2 plants), the herb on
+five of six (shipped: five), and all four roles last the run on two seeds
+-- no shipped arm has managed that at this length. The creeper is still
+nearly gone. `450k/shipped-vs-seeds-450k.png`, seed 6: the shipped bed is
+trees with one herb gap; the seeds3 bed is two trees and a shrub-herb
+thicket in flower.
+
+**The seed-trained tree costs the others.** With it the shrub drops to
+four seeds of six and the herb to four: it sets three to four times the
+shipped tree's seed, and the bed has no term that charges a tree for
+filling every gap with its own seedlings. That is the plan's rung 5/6
+(recruit and invade against a resident stand), not something rung 4 can
+see. **Candidates to ship, pending the owner: the seed-trained shrub and
+herb.** Not the tree, not the creeper.
+
+## Eighteen seeds: the shrub holds, the herb pays for it (2026-10-22)
+
+Seeds 7-18 added to `shipped` and `seeds3` (three runner threads,
+`/mnt/project-files/plant-community/runners/mixed450.sh`; logs in `450k/`).
+Beds out of 18 in which each role is alive at frame 450,000:
+
+| arm | tree | shrub | herb | creeper | roles alive, mean | herb plants, median |
+|---|---|---|---|---|---|---|
+| shipped | 18 | 3 | 17 | 4 | 2.33 | 39 |
+| seeds3 (shipped tree) | 18 | **16** | **13** | 7 | **3.00** | **14** |
+
+The six-seed result holds for the shrub and the bed as a whole, and not
+for the herb: the trained herb is lost on five beds of eighteen against
+the shipped herb's one, and where it lives it is a third as many plants.
+On the beds where it dies the trained shrub is large (s11: 43 shrubs, s13:
+28), so this may be the shrub's thicket rather than the herb itself. Each
+trained species alone in an otherwise shipped bed (`split450.sh`, arms
+`shrub1` and `herb1`) is the run that separates the two.
+
+### Each trained species alone (seeds 1-12)
+
+`shrub1`: the seed-trained shrub alone in an otherwise shipped bed;
+`herb1`: the seed-trained herb alone (`/mnt/project-files/plant-community/runners/split450.sh`,
+logs in `450k/`). Beds out of 12 with each role alive at 450,000:
+
+| arm | tree | shrub | herb | creeper | roles alive, mean | herb plants, median |
+|---|---|---|---|---|---|---|
+| shipped | 12 | 2 | 11 | 1 | 2.17 | 35 |
+| seeds3 | 12 | 11 | 9 | 4 | 3.00 | 21 |
+| **shrub1** | 12 | **11** | **12** | 0 | **2.92** | 26 |
+| herb1 | 12 | 2 | 11 | 3 | 2.33 | 24 |
+
+**The trained shrub is the gain, and it does not cost the shipped herb**:
+alone it lives on 11 beds of 12 and the shipped herb beside it on all 12.
+The trained herb alone does no better than shipped (alive on 11 of 12,
+fewer plants), and with the trained shrub it is lost on three. The
+recommendation is to ship the trained shrub and keep the shipped herb.
+
+**Shipped, 2026-10-22 (owner's card, 14:29Z): the trained shrub only.**
+`assets/species/shrub.ron` now exports byte-identical to
+`../hold/seeds/shrub/score_best.ron`, with the hand-written notes kept and
+each selected value marked. The lab's PLANTS switch (PR #811) is retired:
+its shrub is now the game's, and its herb was not wanted.

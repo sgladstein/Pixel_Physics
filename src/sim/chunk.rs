@@ -778,6 +778,17 @@ impl Chunk {
         self.cells[local_index(x, y)]
     }
 
+    /// `(x, y)`'s four neighbours, left, right, up, down, for a cell whose
+    /// whole cross lies in this chunk -- the caller's promise, which
+    /// `ChunkView::get_four` checks: one index, then a step either way along
+    /// the row and a row either way.
+    #[inline]
+    pub fn get_four_world(&self, x: i32, y: i32) -> [Cell; 4] {
+        let i = local_index(x, y);
+        let row = CHUNK_SIZE as usize;
+        [self.cells[i - 1], self.cells[i + 1], self.cells[i - row], self.cells[i + row]]
+    }
+
     /// `reach` is the new cell's material's own `Material::sweep_reach`
     /// (the caller's job to look up, since `Chunk` has no `MaterialRegistry`
     /// access by design — only ever an opaque `MaterialId`). Only ever grows
@@ -793,12 +804,34 @@ impl Chunk {
     /// derives nothing from it. `World::write_cell` and `ChunkView::set` are
     /// the two callers that can pass `false`.
     pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool, field_relevant: bool) {
-        let slot = &mut self.cells[local_index(x, y)];
         // A write that keeps the material moves nothing the field derives but
-        // `moisture_source` -- see `cell_stale_blocks`.
-        let material_changed = slot.material != cell.material;
-        *slot = cell;
-        self.mark_dirty_inner(x, y, field_relevant, material_changed);
+        // `moisture_source` -- see `cell_stale_blocks`. Without a registry
+        // this is the most a chunk can tell; the engine's write seams know
+        // more and call `set_world_shaped`.
+        let shape_changed = self.cells[local_index(x, y)].material != cell.material;
+        self.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape_changed);
+    }
+
+    /// [`Self::set_world`], told by the caller whether the write can move
+    /// anything the field derives besides `moisture_source`
+    /// (`field::changes_block_shape`). `false` marks the block for the
+    /// moisture-only rescan; it must be `true` whenever the material's
+    /// opacity, glow or beam -- or, with `water_opacity` on, its liquidity --
+    /// differs between the old and new cell.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn set_world_shaped(
+        &mut self,
+        x: i32,
+        y: i32,
+        cell: Cell,
+        reach: i32,
+        is_liquid: bool,
+        field_relevant: bool,
+        shape_changed: bool,
+    ) {
+        self.cells[local_index(x, y)] = cell;
+        self.mark_dirty_inner(x, y, field_relevant, shape_changed);
         self.reach = self.reach.max(reach);
         self.has_liquid |= is_liquid;
     }

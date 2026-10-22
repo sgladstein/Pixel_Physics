@@ -1,0 +1,21 @@
+hA: 82 starved
+     1 (1%)  starved at the round's start (founders begin at 3 tanks)
+    35 (43%)  roamed past the food and never came back (at a side wall)
+     6 (7%)  roamed past the food and never came back (open field)
+    25 (30%)  colony famine at home, holding a soil pellet (5+ deaths within 3k frames)
+     2 (2%)  alone at home with a pellet it could not put down
+     6 (7%)  holding a pellet out in the food band
+     7 (9%)  other: empty, near home or in the food band
+sel: 65 starved
+    15 (23%)  starved at the round's start (founders begin at 3 tanks)
+    35 (54%)  roamed past the food and never came back (at a side wall)
+     5 (8%)  roamed past the food and never came back (open field)
+     9 (14%)  alone at home with a pellet it could not put down
+     1 (2%)  holding a pellet out in the food band
+hA: ant-time past 40 cols 18.4%, at walls (>=100) 11.0%; trips past 60 cols 457, came back to 30 336; died out there 42
+   starved past 60 cols: 41; tank when last inside 40 cols p10/50/90 22.7/48.1/112.3; frames from leaving to death p10/50/90 32745/51235/103630
+   home sense (forage_anchor) within 15 cols of the nest at death: 41 of 41; examples [('hA1', 4, 'x', 247, 'anchor', 129), ('hA1', 6, 'x', 251, 'anchor', 132), ('hA1', 9, 'x', 226, 'anchor', 130), ('hA1', 15, 'x', 248, 'anchor', 133), ('hA1', 22, 'x', 66, 'anchor', 134), ('hA1', 24, 'x', 66, 'anchor', 118)]
+sel: ant-time past 40 cols 16.2%, at walls (>=100) 11.5%; trips past 60 cols 342, came back to 30 246; died out there 41
+   starved past 60 cols: 41; tank when last inside 40 cols p10/50/90 8.0/35.5/94.9; frames from leaving to death p10/50/90 10790/42015/122940
+   home sense (forage_anchor) within 15 cols of the nest at death: 40 of 41; examples [('sel11', 1, 'x', 50, 'anchor', 126), ('sel11', 13, 'x', 34, 'anchor', 128), ('sel11', 20, 'x', 5, 'anchor', 125), ('sel12', 4, 'x', 250, 'anchor', 133), ('sel12', 5, 'x', 246, 'anchor', 130), ('sel12', 14, 'x', 251, 'anchor', 127)]
+old: ant-time past 40 cols 5.0%, at walls (>=100) 1.9%; trips past 60 cols 2644, came back to 30 2626; died out there 0

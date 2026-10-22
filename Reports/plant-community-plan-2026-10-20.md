@@ -656,9 +656,15 @@ This session cannot launch anything.
 >    frames. **At the full 450,000 they do not hold** (six seeds): the
 >    trained herb sets a quarter of the shipped herb's seed and dies out on
 >    four seeds of six (shipped: one), because rung 4 pays one flowering
->    however many seeds it sets. Rung 5 (recruitment) is next and nothing
->    from rung 4 ships. The shipped bed itself ends as tree and herb: the
->    creeper is gone on every seed, the shrub on four. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    however many seeds it sets. The shipped bed itself ends as tree and
+>    herb: the creeper is gone on every seed, the shrub on four. **Rung 4
+>    now pays seed set** (`sized_score`, plan §5 step 5), and retrained:
+>    the shrub and tree set 2-4x their starts' seed, the herb is back to
+>    shipped. In the 450,000-frame bed the seed-trained shrub, herb and
+>    creeper with the **shipped** tree keep 3.2 roles alive a seed against
+>    shipped's 2.2, the shrub on 6 of 6; the seed-trained tree floods the
+>    bed with seedlings and costs the others (rungs 5-6's job). Candidates
+>    to ship: the seed-trained shrub and herb, the owner's call. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow
@@ -1042,6 +1048,18 @@ the review (§12), **M1 runs in this order**:
      that open the canopy, which the tree has at 60,000), a shade-tolerant
      species whose seedlings recruit under cover, and training (rungs 4-6),
      which can move both genes. Off until then.
+
+   **Priced, 2026-10-22; the understory is still closed**
+   (`Reports/plant-community-2026-10-20/m2/shade-scald/`). Sun scald
+   (`World::shade_scald`, off): a tolerant plant's leaves shed in bright
+   light, so the tolerant shrub is smaller on 13 of 16 seeds under the lamp
+   (0.74x) and untouched in shade, where it lives on 5 of 16 at lamp 0.2
+   against 0. Training beside the tree did not pick tolerance up (the free
+   photosynthesis rate came first). Under a grown stand the floor reads
+   2-3% of open light, and every sown seedling dies before its first leaf
+   whatever its tolerance: germination's light threshold, a first step the
+   tip gives up on (`World::seedling_waits`, off, fixes part), then a first
+   leaf and a root it cannot pay for.
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with

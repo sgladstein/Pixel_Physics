@@ -64,7 +64,7 @@ use super::chunk::Rect;
 use super::contest;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_APPETITE, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
 use super::plant;
 use super::rng;
@@ -463,7 +463,9 @@ pub fn tick(world: &mut World, site: &ActiveSite, ahead: &SpecWindow) -> Vec<Act
     // the worm, which keeps its own researched burrowing economics. See
     // the section header above `plant_creature_seed` for why these are
     // deliberately two locomotion models rather than one parameterised one.
-    match world.species.get(state.species).creature.clone() {
+    // Shared, not cloned: the copy and its drop were ~1% of the new ant's
+    // frame (`SpeciesRegistry::creature_shared`).
+    match world.species.creature_shared(state.species) {
         Some(def) => creature_tick(world, site.x, site.y, organism, &def, ahead),
         None => worm_tick(world, site.x, site.y, organism),
     }
@@ -5347,6 +5349,14 @@ pub fn digest_rate_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32
     def.digest_rate / ratio_factor(traits[TRAIT_DIGEST_RATE]).max(f32::EPSILON)
 }
 
+/// **How hard this particular animal's crop holds back while it is fed**
+/// (`TRAIT_APPETITE`): the species' `digest_hunger_weight` plus the allele,
+/// on the `0..=1` the gate reads. Additive, so a species authored at 0 can
+/// evolve a gate, and exactly the authored weight at allele 0.
+pub fn appetite_weight_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    (def.digest_hunger_weight + traits[TRAIT_APPETITE]).clamp(0.0, 1.0)
+}
+
 /// **How much this particular animal's crop holds.**
 ///
 /// The reciprocal axis again; a capacity is a scale rather than an offset.
@@ -5733,10 +5743,24 @@ pub(super) fn try_bud(
     // samples), so nothing laid. Budding and a reach of 0 keep the head read.
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    // **After a walk that found no site, the layer waits** before walking
+    // again ([`super::brood::EGG_RETRY_FRAMES`], 2026-10-22): 70-80% of
+    // walks found nothing, and the walk was 11% of the new ant's frame.
+    let retry = super::brood::egg_retry_frames();
+    if retry > 0 && laying.is_some() && nest_gate && pile_reach > 0 && world.organism(organism).is_some_and(|s| world.frame < s.egg_walk_after) {
+        world.creature_stats.buds_held_for_nest += 1;
+        return None;
+    }
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
         Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
             Some(cell) => Some(cell),
             None => {
+                if retry > 0 {
+                    let frame = world.frame;
+                    if let Some(s) = world.organism_mut(organism) {
+                        s.egg_walk_after = frame + retry;
+                    }
+                }
                 world.creature_stats.buds_held_for_nest += 1;
                 return None;
             }
@@ -6153,22 +6177,8 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
             silence_emit_b(&mut genome);
         }
         state.genome = genome;
-        for (slot, t) in state.traits.iter_mut().enumerate() {
-            let width = trait_width(def, slot);
-            if mutates && width > 0.0 {
-                // `gut_bias` is a position on a `-1..=1` axis and every
-                // other slot in `CREATURE_TRAITS` is defined the same way,
-                // so the clamp is the axis rather than a tuning choice.
-                //
-                // **The two arms-race slots are the exception, and this line
-                // is what makes the reach dial mean anything at all.**
-                // Widening only the resolvers would have been *vacuous*:
-                // a birth clamps here, so no lineage could ever hold the
-                // allele the widened resolver was waiting to read. It is
-                // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
-                let bound = allele_bound(slot, reach);
-                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
-            }
+        if mutates {
+            mutate_traits(&mut state.traits, def, reach, &mut draw);
         }
         child_traits = state.traits;
         child_generation = state.generation;
@@ -6195,6 +6205,50 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         state.born_with = born_with;
     }
     (child_traits, child_generation, child_born_frame)
+}
+
+/// **The body's half of a birth**: every trait slot takes one uniform step
+/// of up to its [`trait_width`] from `draw`, in slot order, held inside its
+/// own bound. Split out of [`mutate_newborn`] (2026-10-22) so the in-run
+/// training bed, whose births are placed by the harness rather than by
+/// `try_bud`, mutates a body by the game's own rule and not a copy of it. A
+/// slot of width 0 takes no draw, so the game's streams are unchanged.
+pub fn mutate_traits(traits: &mut [f32; CREATURE_TRAITS], def: &CreatureDef, reach: f32, draw: &mut rng::Rng) {
+    for (slot, t) in traits.iter_mut().enumerate() {
+        let width = trait_width(def, slot);
+        if width > 0.0 {
+            // `gut_bias` is a position on a `-1..=1` axis and every
+            // other slot in `CREATURE_TRAITS` is defined the same way,
+            // so the clamp is the axis rather than a tuning choice.
+            //
+            // **The two arms-race slots are the exception, and this line
+            // is what makes the reach dial mean anything at all.**
+            // Widening only the resolvers would have been *vacuous*:
+            // a birth clamps here, so no lineage could ever hold the
+            // allele the widened resolver was waiting to read. It is
+            // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
+            let bound = allele_bound(slot, reach);
+            *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
+        }
+    }
+}
+
+/// **Give a placed animal its parent's body, mutated by [`mutate_traits`]**,
+/// on the same per-child stream a bud or an egg uses (`RNG_SLOT_BIRTH`), and
+/// return it. For a harness that places its own children (the in-run
+/// training bed's `inrun::birth`): `try_bud` and `brood::lay_egg` already do
+/// this through [`mutate_newborn`]. `mutate` false copies the body exactly.
+/// Leaves the brain genome, the generation and `born_with` alone.
+pub fn inherit_body(world: &mut World, child: OrganismId, def: &CreatureDef, parent_traits: [f32; CREATURE_TRAITS], mutate: bool) -> [f32; CREATURE_TRAITS] {
+    let mut traits = parent_traits;
+    if mutate {
+        let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
+        mutate_traits(&mut traits, def, world.trait_reach, &mut draw);
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.traits = traits;
+    }
+    traits
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -8757,7 +8811,12 @@ fn settle(
     // has to land in the same breath as the animal receives it. Crediting at
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
-    let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    let gut_traits = traits_of(world, organism, def);
+    let digest_rate = digest_rate_of(def, &gut_traits);
+    // **The gate's weight is this animal's own** (`TRAIT_APPETITE`, 2026-10-22):
+    // the species' authored `digest_hunger_weight` plus the allele, which is
+    // the authored weight exactly at allele 0.
+    let appetite = appetite_weight_of(def, &gut_traits);
     // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
     // is 0.0 for every species that has not authored it and then takes the
     // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
@@ -8778,8 +8837,8 @@ fn settle(
     // ungated overstates by about ten to one.
     let digest_rate = {
         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
-        if carrying && def.digest_hunger_weight > 0.0 && def.reproduce_threshold > 0.0 {
-            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
+        if carrying && appetite > 0.0 && def.reproduce_threshold > 0.0 {
+            let w = appetite;
             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
             // **Flat at full rate up to `start_energy`, then falling to the
             // breeding bar** -- not a straight line from zero, which is what
@@ -19227,7 +19286,13 @@ impl<'w> CellMemo<'w> {
     /// The rectangle from `min` to `max`, both inclusive.
     pub(super) fn new(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
         let (w, h) = ((max.0 - min.0 + 1).max(0), (max.1 - min.1 + 1).max(0));
-        CellMemo { world, x0: min.0, y0: min.1, w, h, cells: vec![None; (w * h) as usize] }
+        // The buffer the last memo on this thread dropped, if any: a decision
+        // builds one or two, and the allocation was part of the churn the ant
+        // cost review priced (A2, 2026-10-22). Every slot starts unread.
+        let mut cells = MEMO_CELLS.take();
+        cells.clear();
+        cells.resize((w * h) as usize, None);
+        CellMemo { world, x0: min.0, y0: min.1, w, h, cells }
     }
 
     /// The same rectangle with every cell read up front, for a caller that
@@ -19252,6 +19317,21 @@ impl<'w> CellMemo<'w> {
         } else {
             None
         }
+    }
+}
+
+thread_local! {
+    /// [`CellMemo`]'s spare buffer: the largest one dropped on this thread.
+    static MEMO_CELLS: std::cell::Cell<Vec<Option<Cell>>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+impl Drop for CellMemo<'_> {
+    fn drop(&mut self) {
+        let cells = std::mem::take(&mut self.cells);
+        MEMO_CELLS.with(|spare| {
+            let kept = spare.take();
+            spare.set(if cells.capacity() >= kept.capacity() { cells } else { kept });
+        });
     }
 }
 
@@ -27354,9 +27434,18 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
 /// The support check and fall of `fall_if_unsupported`, for a caller that
 /// has not already read the body.
 fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef) -> bool {
-    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
+    let Some(state) = world.organism(organism) else {
         return false;
     };
+    // **Standing on ground is settled with the body borrowed**, and the
+    // body is copied only for an animal that may fall: the two clones
+    // every tick were 0.3% of the new ant's frame (callgrind, 2026-10-22),
+    // and `touches_ground` is a pure read that `fall_if_unsupported` asks
+    // first anyway, so the answer is the same.
+    if touches_ground(world, &state.chain) {
+        return false;
+    }
+    let (chain, groups) = (state.chain.clone(), state.segment_groups.clone());
     let stacker = stacker_of(world, organism);
     fall_if_unsupported(world, organism, def, &chain, &groups, stacker)
 }
@@ -31422,6 +31511,32 @@ fn body_after_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32
     }
 }
 
+/// [`body_after_step`]'s landing alone, written into `out` -- for a
+/// caller that tries several headings and keeps none of the landings, so
+/// one buffer serves them all. A chain's follow is built in place; the
+/// other two plans copy `body_after_step`'s answer, so every plan lands
+/// exactly where it would. The options' eight walk landings were 384 k
+/// `Vec`s a 600 frames, ~1% of the new ant's frame with their frees
+/// (callgrind, 2026-10-22).
+fn landing_after_step_into(
+    world: &World,
+    def: &CreatureDef,
+    body: BodyShape,
+    head: (i32, i32),
+    headings: (u8, u8),
+    push: bool,
+    out: &mut Vec<(i32, i32)>,
+) {
+    out.clear();
+    if def.body.is_rigid() || matches!(def.body, BodyPlan::Segmented(_)) {
+        out.extend_from_slice(&body_after_step(world, def, body, head, headings.0, headings.1, push).0);
+    } else {
+        // `chain_follow`, into the buffer.
+        out.push(head);
+        out.extend(body.chain.iter().take(body.chain.len().saturating_sub(1)).copied());
+    }
+}
+
 /// **This individual's own grown body shape — the stable reference
 /// `segmented_body_after_step` uses to decide whether a segment should
 /// *attempt* a lateral this step (§7f(1)), and `relocate_chain` uses for a
@@ -32992,6 +33107,62 @@ mod tests {
         assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
         t[organism::TRAIT_LADEN_A] = -1.0;
         assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+    }
+
+    /// **The appetite gene at 0 is the species' gate to the bit**, it can
+    /// open a gate on a species authored without one, and it stays on the
+    /// gate's `0..=1` axis whichever way it is pushed.
+    #[test]
+    fn the_appetite_gene_adds_to_the_authored_gate() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        let mut t = [0.0f32; CREATURE_TRAITS];
+        for authored in [0.0f32, 0.3, 1.0] {
+            def.digest_hunger_weight = authored;
+            assert_eq!(appetite_weight_of(&def, &t).to_bits(), authored.to_bits(), "allele 0 moved the authored weight {authored}");
+        }
+        def.digest_hunger_weight = 0.0;
+        t[TRAIT_APPETITE] = 0.4;
+        assert_eq!(appetite_weight_of(&def, &t), 0.4, "a lineage of a gateless species can evolve a gate");
+        t[TRAIT_APPETITE] = -0.3;
+        assert_eq!(appetite_weight_of(&def, &t), 0.0, "below zero is no gate, not a negative one");
+        def.digest_hunger_weight = 1.0;
+        t[TRAIT_APPETITE] = 0.5;
+        assert_eq!(appetite_weight_of(&def, &t), 1.0, "the full gate is the top of the axis");
+    }
+
+    /// **`mutate_traits` is the game's birth rule for a body**: a width-0
+    /// slot takes no draw and does not move, an open slot moves by at most
+    /// its width, and `inherit_body` lays a parent's body on a placed child.
+    #[test]
+    fn a_body_mutates_only_where_it_has_a_width() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.trait_variance = [0.0; CREATURE_TRAITS];
+        def.scent_drift = 0.0;
+        let parent = [0.1f32; CREATURE_TRAITS];
+        let (mut a, mut b) = (rng::Rng::new(7), rng::Rng::new(7));
+        let mut t = parent;
+        mutate_traits(&mut t, &def, 1.0, &mut a);
+        assert_eq!(t, parent, "nothing open, nothing moved");
+        assert_eq!(a.unit_f32().to_bits(), b.unit_f32().to_bits(), "a closed body took a draw");
+        def.trait_variance[TRAIT_APPETITE] = 0.15;
+        let mut moved = 0;
+        for k in 0..200 {
+            let mut t = parent;
+            mutate_traits(&mut t, &def, 1.0, &mut rng::Rng::new(k));
+            for slot in 0..CREATURE_TRAITS {
+                if slot == TRAIT_APPETITE {
+                    assert!((t[slot] - parent[slot]).abs() <= 0.15 + 1e-6, "a step wider than the width");
+                    moved += usize::from(t[slot] != parent[slot]);
+                } else {
+                    assert_eq!(t[slot], parent[slot], "closed slot {slot} moved");
+                }
+            }
+        }
+        assert!(moved > 190, "the open slot hardly ever moved: {moved} of 200");
     }
 
     #[test]

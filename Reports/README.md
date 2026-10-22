@@ -646,6 +646,22 @@ by somebody about to try it on creatures.
   (`PIXEL_PHYSICS_EMERGENCE_DEPTH`); the last two move the lab stand less
   than seed-to-seed spread. The touch roof sense shipped on `main` as the
   default (`be3bf9a2`).
+- [soil-water-performance-ideas-2026-10-21.md](soil-water-performance-ideas-2026-10-21.md) —
+  **measured 2026-10-21, both gates passed 2026-10-22; the rule change lands
+  through the lab world performance lane.** Why the soil-moisture pass is
+  41% of the played lab box's tick and 73% of a 48-wide training bed: the
+  drainage rule moves a quarter of a cell's surplus and truncates, so every
+  raindrop decays into a one-unit-per-tick conveyor that walks every cell of
+  its column to the floor drain (5,980 drainage writes a tick, 63% of one
+  unit; the bed rests at field capacity + 3). Bit-identical work tops out
+  near 1.3x on the pass (an infiltration-read skip measured −9.6%
+  instructions, hashes equal); the lever is the rule. Three rules sized with
+  pictures: a surplus-under-16-leaves-whole variant keeps the plume (2.42 →
+  1.59 ms a tick), rate 1.0 all but removes the pass (1.31 ms). Owner chose
+  the fastest; plants unchanged beyond noise, ant bench inside noise, lab run
+  220 → 180 s. Carries the drying-schedule coupling any rule change needs
+  (a cell that drinks a drop and passes it all on in one visit was never
+  armed for drying) and the switch gap found at the root-mat pull site.
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
@@ -1311,6 +1327,27 @@ drift that two of these documents still reflect.**
   evolved colony lives on 4/4 seeds.
 
 ## Creatures and ecology  ·  `engine`
+
+- [ant-cost-review-2026-10-22/README.md](ant-cost-review-2026-10-22/README.md)
+  — **review, 2026-10-22, delivered; its bit-identical items are with the
+  Creature performance lane and its rule changes with the owner. `engine`,
+  measured on the lab's goal-box colony.** Where the new (stage 2 mind)
+  ant's frame goes at 408 ants, counted rule by rule as the soil-water
+  review counted the drainage conveyor: the cost is mostly the rule at its
+  design rate (a decision every 6 frames, ~11 options x 45 features, and
+  the trained genome reads every feature and verb), the option list repeats
+  on 0.04% of decisions, ants rest 0.4% of the time, so no cache and no
+  rest-hold can pay. The one mispriced rule is the egg-site walk: 65-89% of
+  ticks are above the egg bar, 70-80% of walks find no home cell in reach
+  yet read 121 cells first, 12.7% of the frame for 1.1% hits; code, not
+  rule, fixable bit-identically with a per-chunk home-cell count (~-9%).
+  Allocation churn ~6%. Rule changes with gates and numbers: a retry wait
+  after a failed egg walk (-10.3% instructions, but births move; take the
+  exact fix first), warmth at the head only (-5%; warmth is 0 on 84-89% of
+  options), a dense scorer sum order (-4 to -6%, not bit-identical). Ruled
+  out by count: the egg walk only beside home (27-61% of eggs are laid two
+  to four steps from home); the tick cadence as a speed lever. Counters on
+  the scratch branch `claude/project-thread-oo9r0d`, never for main.
 
 - [ant-breeding-plan-2026-09-29.md](ant-breeding-plan-2026-09-29.md)
   — **plan, 2026-09-29, for the owner's reading; read it before any work on
@@ -3121,6 +3158,24 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [colony-training-review-2026-10-22.md](colony-training-review-2026-10-22.md) — **review
+  delivered 2026-10-22; its switches live as a patch.** The Fable review of the
+  Teacher lane's in-run colony selection one day in: keep it (hA1 carries home
+  five times the old ant's food), but three things are structural — the
+  training world never contains the late game, heavy per-child mutation erodes
+  unpaid skills, and the score-weight arms moved nothing. Two 12-seed tests:
+  mutation without selection wrecks the ant in six rounds yet the gain needs
+  mutation; protecting the lesson slots halved starvation and kept digging at
+  some cost in food, crossover wrecked digging, a growing headcount and
+  lexicase bought nothing. Patch, hand-off and raw rows in its folder.
+- [lab-ui-redesign-2026-10-22.md](lab-ui-redesign-2026-10-22.md) — **live plan,
+  step 1 shipped.** A design review of every window, page and menu in the lab
+  (owner: "clunky", long lists, dense tables, confusing menus, windows that
+  overlap or refuse to close), the five-step redesign, and a status section
+  edited in place. Step 1, the window rule, took windows painted over each
+  other on `labui`'s sheet from 627,757 pixels over 71 tiles to 0. Step 2,
+  crisp text on a 2x layer of its own, made the lab's draw cheaper rather than
+  dearer (paused with two pages open 3.83 -> 0.25 ms, running 5.58 -> 4.67).
 - [how-we-test.md](how-we-test.md) — **living playbook, 2026-10-05.** How the lab
   colony is measured: mutation off, the evolved founder in the dry goal box,
   four seeds paired, 100k–300k means; a fix judged on its own metric, then a
@@ -5609,6 +5664,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/inrun-selection/README.md](brain-training/inrun-selection/README.md) — **snapshot (2026-10-22) of
+  the Teacher lane's in-run selection, the current ant-brain training.** Where the harness lives (branch
+  `claude/project-thread-8y5ak0`, plus a frozen patch that no longer applies to main), how to run a cloud batch and the
+  common-garden judge, the founder genomes (h1, c1, hA1, r4, r5, hA1noB), the results that changed the plan (selection
+  breeds better foragers and erodes digging), and a frozen export of the living design doc.
 - [brain-training/design/test-probe-design-2026-10-21.md](brain-training/design/test-probe-design-2026-10-21.md) —
   **built (`probe=`, `test=`, `calib=`):** reserved test worlds (seeds 30,000+) and a progress probe that scores the
   champion and the hold-best there every 10 generations into `test.csv`, read by nothing the run decides. Why: the
@@ -5712,6 +5772,42 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   section: chambers are flat lenses 1-2 body lengths high, so the ladder's
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
+- [brain-training/teacher-training/crater-refusal-copy-2026-10-22.md](brain-training/teacher-training/crater-refusal-copy-2026-10-22.md)
+  — **finished: the dig lane's crater refusal (`PP_RIMVETO=3`) DAgger-copied into
+  founder hA1** (scratch, compute branch). The foraging lane's recipe as is did
+  not move (hA1 already avoids the refused cuts in 99.5% of labelled states);
+  training on only the states where hA1 would cut the rim, at 4x weight, gave
+  r4: with the refusal off, crater by the nest 39 -> 23 cells, food home
+  269 -> 333, deaths 4.3 -> 5.9 of 24 (32 seeds; acting ceiling crater 0, food
+  491). The spoil refusal copied as "never let go" (8 of 32 collapsed); adding
+  the dig lane's positive far-drop label (r5) made the only copy that digs more
+  (+21% cuts) but doubled field re-cuts. r4 and r5 handed to the Teacher lane.
+  Genomes, patch, copier and scripts in `crater-refusal-copy-2026-10-22/`.
+
+- [brain-training/foraging-loop/foraging-loop-2026-10-22.md](brain-training/foraging-loop/foraging-loop-2026-10-22.md) —
+  **done: the foraging loop lane, and where founder hA1 came from.** The old ant brings food home and loses no
+  ants; the new ant eats its load in the field. Copies taught to carry food home collapsed more colonies (32 seeds:
+  c1 26 of 32 against h1's 14). A control copy with no lesson collapsed like h1, which showed the carry lesson itself
+  was the cause. A hungry-only lesson, copied DAgger-style onto c1, gave **hA1**: 2 of 32 collapsed and 4.3 of 24
+  died, at the same food. The Teacher lane confirmed it at 64x6 and made hA1 the founder. Founders, the env-gated
+  scratch patches and the scripts are in [foraging-loop/](brain-training/foraging-loop/README.md).
+
+- [brain-training/teacher-training/hungry-lesson-2026-10-22.md](brain-training/teacher-training/hungry-lesson-2026-10-22.md) —
+  **"go out when hungry": why in-run colonies die, the lesson, two founders.** Hungry ants hold a soil pellet at
+  the chamber bottom (94% of hungry decisions before a die-off). A scratch teacher, obeyed every time, lifts
+  clone-colony survival from 1.5 to 15.1 of 24; copies obey it 30-50% of the time. Founders h1 and h6 delivered;
+  in-colony selection ranks h1 first. The arenas' energy sense read the budget, not the tank: fixed by PR #781
+  (copy v2 soil 10.71 -> 10.12, no retrain). Genomes, copier, configs and the whole scratch tree as a patch in
+  `measurements/hungry-lesson/`.
+
+- [brain-training/teacher-training/starve-trace-2026-10-22.md](brain-training/teacher-training/starve-trace-2026-10-22.md) —
+  **why hA1 ants still starve, after selection too (traced 2026-10-22), and a come-home lesson that did not take.**
+  The trace covers 16 colonies each of hA1, round-6 selected ants and the old ant: 82 / 65 / 1 of 384 ants starved.
+  Half to 62% are roamers. They leave the food fat, walk to the box walls and starve there, with a correct home
+  sense but no homeward pull at all once their crop is empty. About a third die at home with a soil pellet they
+  cannot put down. The rule `PP_HOMEFAR` cuts roamer deaths 70% when the teacher acts, but the DAgger copies hm1,
+  hm2 and hm3 (hm3 with a sharp `PP_FAR_CTX` sense) all starve more than hA1. No genome recommended; owner: "neither
+  yet". Patches (scratch, env-gated), tools and genomes are in `starve-trace-2026-10-22/`.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
@@ -5763,6 +5859,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   arrival. Also covered: the turnover rule is rtNEAT's law of eligibility; the z < −3 cull needs a clone-colony
   calibration; mutation at `grow` 1 with no pruning adds up to ~65 links a child, braked only by starvation; colony competition should audit before
   it selects (Waibel 2009, Skolicki 2005); and the walk home should be taught first. Ten tests, ranked by cost.
+
+- [brain-training/research/in-colony-scoring-review-2026-10-22.md](brain-training/research/in-colony-scoring-review-2026-10-22.md) —
+  **scoring review lane: what the in-run ant score pays, and a test of selecting whole colonies.** Measured over 1,302
+  births, parents are picked 87% on food and 3% on digging, and the three need-driven prices are inert, so neither
+  weights nor adaptive weights can keep digging. Selecting colonies (12 colonies x 6 rounds, fixed-world judge) tripled
+  food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
+  win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
+
+- [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
+  **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
+  tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
+  a paired 6-seed rerun at 3 tanks cut starvations 828 to 671 and lifted the nest score in 6 of 6. Also: the same genome
+  ends up as a heap resident or a stay-at-home, collapses are sudden, a mistyped harness key is silently ignored, and the
+  film is too small to see ants (an overlay tool is included).
 
 ## Licensing and distribution
 

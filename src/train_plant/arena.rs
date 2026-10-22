@@ -102,7 +102,15 @@ impl Station {
     /// is built at field capacity, and over 3,000 frames it read the same as
     /// the bright station on every species, to the cell.
     pub const DRY: Station = Station { name: "dry", lamp: 1.0, rain: Rain::Off, soil: 0.25 };
-    pub const ALL: [Station; 3] = [Station::BRIGHT, Station::DIM, Station::DRY];
+    /// Lamps at 0.2 of their beam: **canopy shade**, the light an
+    /// understory plant gets under a closed crown (leaves under the tree in
+    /// the roles bed read ~0.08 of full; here ~0.11). Where shade tolerance
+    /// earns its keep: a lone shipped shrub dies here on 16 of 16 layouts,
+    /// and one with `shade_tolerate` 0.7 lives on 5 (`plant_m0 axis=shade
+    /// dimlamp=0.2`, 60,000 frames; `Reports/plant-community-2026-10-20/
+    /// m2/shade-scald/`). At `DIM`'s 0.4 tolerance is neutral.
+    pub const SHADE: Station = Station { name: "shade", lamp: 0.2, rain: Rain::Light, soil: 1.0 };
+    pub const ALL: [Station; 4] = [Station::BRIGHT, Station::DIM, Station::DRY, Station::SHADE];
 
     pub fn named(name: &str) -> Option<Station> {
         Station::ALL.into_iter().find(|s| s.name == name)
@@ -301,6 +309,12 @@ pub struct Census {
     pub shoot_at_first_flower: u32,
     /// The founder held a fruit at some census.
     pub fruited: bool,
+    /// Seeds the founder has set (`OrganismState::seeds_set`), at its last
+    /// census alive. The plan's step 5 is graded by this (§5), and rung 4
+    /// paid nothing for it: a herb trained there set a quarter of the shipped
+    /// herb's seed and died out of the mixed bed (2026-10-22,
+    /// `Reports/plant-community-2026-10-20/m2/community/`).
+    pub seeds_set: u32,
     /// Plants of the founder's species, other than the founder, holding at
     /// least `n_est` shoot cells at the end. In a one-species bed with
     /// heredity off these are all the founder's line.
@@ -444,6 +458,7 @@ impl Tracker {
             c.shoot_at_first_flower = shoot;
         }
         c.fruited |= fruit > 0;
+        c.seeds_set = c.seeds_set.max(st.seeds_set);
     }
 
     fn finish(mut self, w: &World, spec: &BedSpec, others: &[OrganismId]) -> Census {
