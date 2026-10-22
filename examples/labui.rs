@@ -81,6 +81,9 @@ fn main() {
     }
     let mut lab = Lab::new(spec);
     lab.show_help = false;
+    // Hover notes whole at once, every run: their rest timer reads the wall
+    // clock, and a sheet must not depend on how long the step before took.
+    lab.ui.notes_rested = true;
     // Reseeded, never copied. At the same seed every draw in the engine is a
     // pure function of `(world.seed, identity, position)`, so a rack of
     // unseeded duplicates is one world wearing many labels — and a sheet of
@@ -188,6 +191,16 @@ fn main() {
         // the owner asked every label to carry.
         lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
         tiles.push((format!("PAGE: {panel:?}"), shot(&mut lab))); note_census(&tiles);
+        // ANTS opens on SUMMARY; its GROUPS tab is a page of its own, so it
+        // is clicked through and photographed too, then put back.
+        if panel == Panel::Ants {
+            let groups = centre(&lab, Action::PageTab(Panel::Ants, 1));
+            click(&mut lab, groups);
+            lab.set_cursor(None);
+            tiles.push(("PAGE: Ants GROUPS".into(), shot(&mut lab))); note_census(&tiles);
+            let summary = centre(&lab, Action::PageTab(Panel::Ants, 0));
+            click(&mut lab, summary);
+        }
     }
     leave_open_panel(&mut lab);
 

@@ -414,6 +414,9 @@ pub enum Window {
     Page,
     Cell,
     Stats,
+    /// BATTLE, at the top of the right-hand column. It docks over nothing,
+    /// but a wide page (MENU, NUMBERS, a roster) reaches it from the left.
+    Battle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -530,6 +533,9 @@ pub enum Action {
     /// windows overlap or refuse to close"*. Before it, PLANTS, ANTS and THE
     /// BOX closed only by finding their key, or by opening some other page.
     ClosePage,
+    /// Shut BIOSPHERE from its own X. Not [`Action::Stats`], which on a
+    /// folded BIOSPHERE brings it back instead.
+    CloseStats,
     /// Show tab `usize` of the page named -- the tabs along the top of a
     /// page with more than one view ([`Body::Tabs`]).
     PageTab(Panel, usize),
@@ -2076,7 +2082,7 @@ impl Row {
             Body::Lines { caption, .. } => hud::text_width(caption).max(96),
             Body::Tabs { names, .. } => names.iter().map(|n| hud::text_width(n) + 10).sum::<i32>(),
             Body::Section { label } => hud::text_width(label),
-            Body::Stack { parts } => stack_legend(parts).iter().map(|(t, _)| hud::text_width(t) + 6).sum::<i32>().max(120),
+            Body::Stack { parts } => stack_legend(parts).iter().map(|(t, _)| hud::text_width(t) + 6).sum::<i32>().clamp(120, STACK_LEGEND_W),
             Body::Hist { caption, .. } | Body::Scatter { caption, .. } => hud::text_width(caption).max(120),
             Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
             Body::Gap => 0,
@@ -3382,9 +3388,13 @@ pub struct Ui {
     /// cell behind it, and with PLANT or a brush armed the same click planted
     /// or poured into the box behind the panel. Owner, the same day: *"windows
     /// overlap or refuse to close"* -- a panel that does not stop a click is
-    /// half of that. `stats_box` is set from outside (`Lab::draw` paints the
-    /// page after the bar) through [`Ui::set_stats_box`].
+    /// half of that. Both are set in `draw`, by the window rule.
     battle_box: Option<Rect>,
+    /// Where BATTLE was last drawn open, and whether it is folded this
+    /// frame: it is painted before the page, so it folds against the page's
+    /// last rect (`page_last`), as the page does against the cell page.
+    battle_last: Option<Rect>,
+    battle_folded: bool,
     stats_box: Option<Rect>,
     /// **The window rule's state** -- see [`Window`]. Which window was
     /// opened or touched last, where the page was last drawn open (the cell
@@ -3396,6 +3406,14 @@ pub struct Ui {
     ants_tab: usize,
     /// The hover explanation showing, and since when -- see `NOTE_REST`.
     note_seen: Option<(String, std::time::Instant)>,
+    /// **Every hover note shown whole at once**, for a harness: `NOTE_REST`
+    /// reads the wall clock, so a contact sheet drawn in microseconds would
+    /// otherwise show first sentences, or not, by how long the step before
+    /// took. `labui` sets it, so its tiles and its census see the larger,
+    /// harder-to-place note, the same one every run.
+    pub notes_rested: bool,
+    /// `note_seen` for BIOSPHERE's notes, which are painted after `draw`.
+    stats_note_seen: Option<(String, std::time::Instant)>,
     page_last: Option<Rect>,
     page_folded: bool,
     cell_folded: bool,
@@ -3862,10 +3880,33 @@ impl Ui {
             return;
         };
         let hc = hud_canvas(renderer);
-        let close = close_box(r, Action::Stats, "CLOSE THE BIOSPHERE PAGE. TAB, OR THE STATS BUTTON, OPENS IT AGAIN.");
+        let close = close_box(r, Action::CloseStats, "CLOSE THE BIOSPHERE PAGE. TAB, OR THE STATS BUTTON, OPENS IT AGAIN.");
         let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
         paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
         self.chrome.widgets.push(close);
+    }
+
+    /// BIOSPHERE's hover note, placed the way every other note is: clear of
+    /// every window (`draw_note`), first sentence until the pointer rests.
+    pub fn paint_stats_note(&mut self, renderer: &crate::render::Renderer, frame: &mut [u8], note: Option<String>) {
+        let (Some(note), Some((r, false)), Some((_, cy))) = (note, self.stats_place, self.cursor) else {
+            self.stats_note_seen = None;
+            return;
+        };
+        let hc = hud_canvas(renderer);
+        let since = match &self.stats_note_seen {
+            Some((seen, at)) if *seen == note => *at,
+            _ => {
+                let now = std::time::Instant::now();
+                self.stats_note_seen = Some((note.clone(), now));
+                now
+            }
+        };
+        let shown = if self.notes_rested || since.elapsed() >= NOTE_REST { note } else { first_sentence(&note) };
+        let mut others = self.drawn.clone();
+        others.extend(self.tabs.widgets.iter().map(|wid| wid.rect));
+        render::paint_owner::set("NOTE");
+        draw_note(hc, frame, &shown, r, cy - 4, Note::BesidePage, &others);
     }
 
     /// Arm a press. Fires nothing: a button that acted on press could not be
@@ -3897,6 +3938,8 @@ impl Ui {
                 self.focus = Window::Cell;
             } else if on(self.stats_box) {
                 self.focus = Window::Stats;
+            } else if on(self.battle_box) {
+                self.focus = Window::Battle;
             } else if [self.panel_box, self.params_box, self.shelf_box, self.rack_box, self.roster_box, self.history_box]
                 .into_iter()
                 .any(on)
@@ -3931,7 +3974,10 @@ impl Ui {
             _ => None,
         };
         let same = self.inspect == Some(cell) || (organism.is_some() && organism == self.inspect_organism);
-        if same {
+        if same && self.cell_folded {
+            // Its page is folded: the click asks to see it, not to shut it.
+            self.focus = Window::Cell;
+        } else if same {
             self.inspect = None;
             self.inspect_organism = None;
         } else {
@@ -4046,9 +4092,6 @@ impl Ui {
         }
     }
 
-    /// **Close whatever is on top**, for `Esc`: the window that was opened or
-    /// touched last, then the others. `false` when nothing was open, which is
-    /// the caller's cue that the second `Esc` means quit.
     /// What the mouse wheel does at `(x, y)`: `None` when it is over the
     /// box (the caller zooms), `Some(None)` when it is over a window or the
     /// bar with nothing to scroll (swallowed -- the box must not zoom behind
@@ -4074,24 +4117,47 @@ impl Ui {
         self.covers(x, y).then_some(None)
     }
 
+    /// **Close whatever is on top**, for `Esc`: the window that was opened or
+    /// touched last, then the others. `None` when nothing was open, which is
+    /// the caller's cue that the second `Esc` means quit. BIOSPHERE is the
+    /// caller's to shut (`Lab` owns it); BATTLE closes only when it is the
+    /// one in front, because it is a view switch (F9) more than a window.
     pub fn close_top(&mut self, stats_open: bool) -> Option<Window> {
         let open = |w: Window| match w {
             Window::Page => self.panel.is_some(),
-            Window::Cell => self.inspect.is_some(),
+            // Not while SIDE BY SIDE hides it: an Esc that shuts a window
+            // nobody can see looks like an Esc that did nothing.
+            Window::Cell => self.inspect.is_some() && self.panel != Some(Panel::Compare),
             Window::Stats => stats_open,
+            Window::Battle => self.battle.shown(),
         };
         let order = match self.focus {
             Window::Page => [Window::Page, Window::Cell, Window::Stats],
             Window::Cell => [Window::Cell, Window::Page, Window::Stats],
             Window::Stats => [Window::Stats, Window::Page, Window::Cell],
+            Window::Battle => [Window::Battle, Window::Page, Window::Cell],
         };
-        let top = order.into_iter().find(|w| open(*w))?;
+        let top = order.into_iter().chain([Window::Stats]).find(|w| open(*w))?;
         match top {
             Window::Page => self.close_panel(),
             Window::Cell => self.close_inspected(),
+            Window::Battle => {
+                self.battle.toggle();
+                self.focus = Window::Page;
+            }
             Window::Stats => {}
         }
         Some(top)
+    }
+
+    /// Is `w` folded to its title strip this frame?
+    pub fn folded(&self, w: Window) -> bool {
+        match w {
+            Window::Page => self.page_folded,
+            Window::Cell => self.cell_folded,
+            Window::Stats => self.stats_place.is_some_and(|(_, f)| f),
+            Window::Battle => self.battle_folded,
+        }
     }
 
     /// Put whatever page is open away. For a button *on* a page whose verb
@@ -6868,21 +6934,23 @@ fn fold_strip(title: &str, w: Window, close: Action, side: Side) -> [Widget; 2] 
     ]
 }
 
-/// Draw one page and return the note under the cursor, if any.
-///
-/// **Every lab window's frame, in one place** (plan step 5, one look): the
+/// **Every page's frame, in one place** (plan step 5, one look): the
 /// body, a title band a shade lighter than it so the eye finds the title and
 /// the X before the rows, and the outline. The accent rule under the band is
 /// drawn by each page, where it always was. No drop shadow: a shadow paints
 /// outside the window's rect, which `Ui::covers` and the overlap census
 /// (`render::paint_owner`) would both have to learn about, and at 512x320 the
-/// two pixels it costs are the gap that keeps docked windows apart.
+/// two pixels it costs are the gap that keeps docked windows apart. BATTLE
+/// and BIOSPHERE keep their own painters (BIOSPHERE's is the held world's
+/// too).
 fn window_frame(hc: render::Hud, frame: &mut [u8], rect: Rect) {
     fill(hc, frame, rect, PANEL_BG);
     fill(hc, frame, Rect { x: rect.x, y: rect.y, w: rect.w, h: PAGE_HEADER - 4 }, TITLE_BAND);
     outline(hc, frame, rect, PANEL_EDGE);
 }
 
+/// Draw one page and return the note under the cursor, if any.
+///
 /// A thin wrapper over `paint_rows`: the header and the one column are all a
 /// single-column page needs, and `paint_menu`'s two columns share the same
 /// row painter rather than duplicating it.
@@ -6986,10 +7054,19 @@ fn paint_rows(
             }
             Body::Stack { parts } => {
                 draw_stack(hc, frame, Rect { x: left, y: y + 1, w: right - left, h: STACK_H }, parts);
+                // One line, cut short with "+N" for the parts that do not fit
+                // (`STACK_LEGEND_W`); the bar above still shows every part.
+                let legend = stack_legend(parts);
                 let mut x = left;
-                for (t, tint) in stack_legend(parts) {
-                    text(hc, frame, x, y + STACK_H + 3, &t, tint);
-                    x += hud::text_width(&t) + 6;
+                for (i, (t, tint)) in legend.iter().enumerate() {
+                    let rest = legend.len() - i - 1;
+                    let tail = if rest > 0 { hud::text_width(&format!("+{rest}")) + 6 } else { 0 };
+                    if x + hud::text_width(t) + tail > right {
+                        text(hc, frame, x, y + STACK_H + 3, &format!("+{}", rest + 1), FAINT);
+                        break;
+                    }
+                    text(hc, frame, x, y + STACK_H + 3, t, *tint);
+                    x += hud::text_width(t) + 6;
                 }
             }
             Body::Hist { caption, bins } => {
@@ -7306,6 +7383,12 @@ fn history_charts(lines: &[EndedLine]) -> Vec<Row> {
 /// The words under a stacked bar: `OK 31` and so on, in each part's colour,
 /// zero parts left out -- an empty category is not news, and every word it
 /// costs pushes the page wider.
+/// The widest a stacked bar's one-line legend may make its page. HISTORY's
+/// page is as wide as its widest chart, and a box with every cause of death
+/// in it ran the legend past 420 px, into the fold strips docked on the
+/// right (code review of the window rule, 2026-10-22).
+const STACK_LEGEND_W: i32 = 260;
+
 fn stack_legend(parts: &[(String, u32, [u8; 4])]) -> Vec<(String, [u8; 4])> {
     parts.iter().filter(|(_, n, _)| *n > 0).map(|(l, n, t)| (format!("{l} {n}"), *t)).collect()
 }
@@ -10755,6 +10838,15 @@ fn draw_note(hc: render::Hud, frame: &mut [u8], note: &str, avoid: Rect, row_y: 
         }
         trial = (trial - 24).max(NOTE_MIN_WIDTH);
     }
+    // **A rested note that has no clear spot falls back to its first
+    // sentence** rather than covering a window: the whole of a long note
+    // beside NUMBERS with the cell page up has nowhere to go (`labui`'s
+    // census, once its notes were shown whole: 5-19k pixels over the cell
+    // page on four NUMBERS tabs).
+    let short = first_sentence(note);
+    if best.is_none_or(|(c, _)| c > 0) && short.len() < note.len() {
+        return draw_note(hc, frame, &short, avoid, row_y, place, others);
+    }
     if let Some((_, w)) = best {
         width = w;
     }
@@ -10897,13 +10989,36 @@ impl Ui {
         // at the same corner BIOSPHERE did, and BIOSPHERE painted over all of
         // it -- 22,008 pixels in `labui`'s census, the largest single overlap
         // on the sheet.
-        self.battle_box = self
-            .battle
-            .draw_panel(hc, frame, world, W as i32 - MARGIN, DOCK_TOP)
-            .map(|(x, y, w, h)| Rect { x, y, w, h });
         self.chrome = Bar::default();
         self.drawn.clear();
-        if let Some(r) = self.battle_box {
+        // **Folds when a page reaches it**, unless it is the one in front
+        // (`Window::Battle`); found by the code review of this rule, since
+        // `labui` never shows a battle: MENU beside a two-colony BATTLE
+        // painted ~5k pixels over it.
+        self.battle_folded = self.battle.shown()
+            && self.focus != Window::Battle
+            && self.panel.is_some()
+            && self.page_last.zip(self.battle_last).is_some_and(|(p, b)| p.touches(&b));
+        if self.battle_folded {
+            let strip = fold_strip("BATTLE", Window::Battle, Action::ToggleBattle, Side::RightTop(DOCK_TOP));
+            let r = strip[0].rect.union(&strip[1].rect);
+            for wid in &strip {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
+            }
+            self.chrome.widgets.extend(strip);
+            self.battle_box = Some(r);
+            self.drawn.push(r);
+        } else {
+            // Half the column at most, so the cell page and BIOSPHERE under
+            // it always have room to open.
+            self.battle_box = self
+                .battle
+                .draw_panel(hc, frame, world, W as i32 - MARGIN, DOCK_TOP, (dock_bottom() - DOCK_TOP) / 2)
+                .map(|(x, y, w, h)| Rect { x, y, w, h });
+            self.battle_last = self.battle_box.or(self.battle_last.filter(|_| self.battle.shown()));
+        }
+        if let Some(r) = self.battle_box.filter(|_| !self.battle_folded) {
             self.drawn.push(r);
             let close = close_box(r, Action::ToggleBattle, "HIDE THE BATTLE PANEL. F9, OR VIEW IN THE MENU, BRINGS IT BACK.");
             let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
@@ -11087,6 +11202,7 @@ impl Ui {
         let front = match self.focus {
             Window::Cell => cell_full,
             Window::Stats => stats_full,
+            Window::Battle => self.battle_box,
             Window::Page => None,
         };
         self.page_folded =
@@ -11270,7 +11386,7 @@ impl Ui {
         let stats_folded = fold(stats_full, self.focus == Window::Stats);
         self.stats_place = stats_full.map(|st| {
             if stats_folded {
-                let strip = fold_strip("BIOSPHERE", Window::Stats, Action::Stats, Side::RightTop(self.right_ceiling));
+                let strip = fold_strip("BIOSPHERE", Window::Stats, Action::CloseStats, Side::RightTop(self.right_ceiling));
                 let r = strip[0].rect.union(&strip[1].rect);
                 render::paint_owner::set("STATS");
                 for wid in &strip {
@@ -11506,7 +11622,7 @@ impl Ui {
                     now
                 }
             };
-            let shown = if since.elapsed() >= NOTE_REST { body } else { first_sentence(&body) };
+            let shown = if self.notes_rested || since.elapsed() >= NOTE_REST { body } else { first_sentence(&body) };
             draw_note(hc, frame, &shown, avoid, y, place, &others);
         } else {
             self.note_seen = None;
@@ -12227,10 +12343,13 @@ mod tests {
             Panel::PlantList, Panel::AntList, Panel::Log, Panel::Scenarios, Panel::History,
             Panel::Menu, Panel::Food, Panel::Training,
         ];
+        // Two colonies, so BATTLE is up too: the code review found MENU
+        // drawn over it, in a case the one-colony box never reached.
+        let bed = crate::lab::scene::LabBox { colonies: 2, ..crate::lab::scene::LabBox::default() };
         let mut cases = 0;
         for panel in panels {
-            for front in [Window::Page, Window::Cell, Window::Stats] {
-                let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
+            for front in [Window::Page, Window::Cell, Window::Stats, Window::Battle] {
+                let mut lab = crate::lab::Lab::new(bed.clone());
                 lab.show_help = false;
                 lab.act(Action::Stats);
                 assert!(lab.stats.showing(), "test setup: BIOSPHERE did not open");
@@ -12239,11 +12358,12 @@ mod tests {
                 lab.ui.inspect(world, (200, 200));
                 lab.act(Action::Focus(front));
                 let overlaps = census(&mut lab);
+                assert!(lab.ui.battle.shown(), "test setup: no BATTLE panel with two colonies");
                 assert!(overlaps.is_empty(), "{panel:?} with {front:?} in front: {overlaps:?}");
                 cases += 1;
             }
         }
-        assert_eq!(cases, 42);
+        assert_eq!(cases, 56);
     }
 
     /// **Every cause of death fits the HISTORY page's CAUSE column**, which

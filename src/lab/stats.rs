@@ -807,7 +807,7 @@ impl Stats {
         if !self.show {
             return;
         }
-        self.paint(hc, frame, world, cursor, self.rect(world, floor), Some("TAB CLOSE"));
+        let _ = self.paint(hc, frame, world, cursor, self.rect(world, floor), Some("TAB CLOSE"));
     }
 
     /// The page's natural size, `(width, height)`, for a caller that places
@@ -822,12 +822,16 @@ impl Stats {
     /// Rows that do not fit are not drawn; the close box is the caller's
     /// (the lab paints an `X` button, where the druid game keeps its
     /// `TAB CLOSE` legend through [`Self::draw_at_floor`]).
-    pub fn draw_placed(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>, rect: (i32, i32, i32, i32)) {
+    ///
+    /// Returns the hover note under the cursor rather than drawing it: the
+    /// lab places notes clear of every window (`ui::place_clear`), which
+    /// this page cannot see from here.
+    pub fn draw_placed(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>, rect: (i32, i32, i32, i32)) -> Option<String> {
         if !self.show {
-            return;
+            return None;
         }
         let (x, y, w, h) = rect;
-        self.paint(hc, frame, world, cursor, (x, y, x + w, y + h), None);
+        self.paint(hc, frame, world, cursor, (x, y, x + w, y + h), None)
     }
 
     fn paint(
@@ -838,7 +842,7 @@ impl Stats {
         cursor: Option<(i32, i32)>,
         (left, top, right, bottom): (i32, i32, i32, i32),
         legend: Option<&str>,
-    ) {
+    ) -> Option<String> {
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.82;
         const TITLE: [u8; 4] = [255, 220, 100, 255];
@@ -914,9 +918,12 @@ impl Stats {
             }
             y += row.height();
         }
-        if let (Some(note), Some(at)) = (hovered, cursor) {
-            draw_note(hc, frame, note, at, left, if legend.is_some() { i32::MAX } else { 180 });
+        match (hovered, cursor) {
+            (Some(note), Some(at)) if legend.is_some() => draw_note(hc, frame, note, at, left, i32::MAX),
+            (Some(note), Some(_)) => return Some(note.to_string()),
+            _ => {}
         }
+        None
     }
 
     /// The box the page will occupy, sized to what it currently has to say.

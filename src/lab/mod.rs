@@ -2297,10 +2297,12 @@ impl Lab {
             // opened after it. `draw_at` placed it itself, at the corner
             // BATTLE also used.
             crate::render::paint_owner::set("STATS");
-            if let Some((r, false)) = self.ui.stats_place() {
-                self.stats.draw_placed(hc, frame_buf, &self.world, self.ui.cursor(), (r.x, r.y, r.w, r.h));
-            }
+            let note = match self.ui.stats_place() {
+                Some((r, false)) => self.stats.draw_placed(hc, frame_buf, &self.world, self.ui.cursor(), (r.x, r.y, r.w, r.h)),
+                _ => None,
+            };
             self.ui.paint_stats_close(&self.renderer, frame_buf);
+            self.ui.paint_stats_note(&self.renderer, frame_buf, note);
         }
     }
 
@@ -3372,6 +3374,13 @@ impl Lab {
     /// keyboard shortcut cannot drift: `bin/lab.rs`'s key handler routes
     /// through here too, and there is no second copy of "what SPACE does".
     pub fn act(&mut self, action: ui::Action) {
+        // **Any other verb takes a pending confirm back**, so a second Esc
+        // or R reads as "yes" only when nothing happened in between (the
+        // code review's case: Esc, open and close MENU, Esc quit unasked).
+        self.quit_armed = None;
+        if action != ui::Action::Reset {
+            self.reset_armed = None;
+        }
         match action {
             // **The speed dial, chronicled** (round 31). `self.time.phase`/
             // `.requested` are read *after* the call, since every one of
@@ -3399,14 +3408,6 @@ impl Lab {
                 self.time.set_preset(i);
                 self.world.log_player_action(format!("SPEED {}X", self.time.requested));
             }
-            // **One page at a time**, the rule this file already applies to
-            // the key list against the biosphere page, extended to the bar's
-            // three. The screen is 512x320, the biosphere page is a full-
-            // height right-hand column and these open above the bar's own
-            // right-hand group, so two of them drawn together interleave into
-            // something neither of them is. Made exclusive in *state* rather
-            // than only in the paint, so the latch on the bar tells the truth
-            // about what is on screen.
             // **A page and BIOSPHERE may both be up.** Each used to shut the
             // other, because they were drawn over each other; the window
             // rule (`ui::Window`) docks them apart -- page left, BIOSPHERE
@@ -3414,7 +3415,11 @@ impl Lab {
             // explains.
             ui::Action::Panel(panel) => self.ui.toggle_panel(panel),
             ui::Action::Stats => {
-                self.stats.toggle();
+                // TAB on a folded BIOSPHERE brings it back rather than
+                // shutting it, as a click on its strip does.
+                if !(self.stats.showing() && self.ui.folded(ui::Window::Stats)) {
+                    self.stats.toggle();
+                }
                 if self.stats.showing() {
                     self.ui.set_focus(ui::Window::Stats);
                 }
@@ -3615,6 +3620,11 @@ impl Lab {
             ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
             ui::Action::CloseInspected => self.ui.close_inspected(),
             ui::Action::ClosePage => self.ui.close_panel(),
+            ui::Action::CloseStats => {
+                if self.stats.showing() {
+                    self.stats.toggle();
+                }
+            }
             ui::Action::PageTab(panel, i) => self.ui.set_page_tab(panel, i),
             ui::Action::Focus(w) => self.ui.set_focus(w),
             ui::Action::KeepInspected => match self.ui.inspecting() {
@@ -3894,6 +3904,9 @@ impl Lab {
             }
             ui::Action::ToggleBattle => {
                 let on = self.ui.battle.toggle();
+                if on {
+                    self.ui.set_focus(ui::Window::Battle);
+                }
                 self.ui.say(if on { "BATTLE VIEW ON" } else { "BATTLE VIEW OFF" });
             }
             ui::Action::ToggleWindfallRot => {
@@ -4731,6 +4744,49 @@ mod tests {
             // ...and the buffer really did grow, or the arms are the same arm.
             assert_eq!(viewport, (WIDTH * budget as u32, HEIGHT * budget as u32), "budget x{budget} did not size its buffer");
         }
+    }
+
+    /// **A confirm is taken back by any other verb** (code review of the
+    /// window rule, 2026-10-22): Esc with nothing open, then MENU opened and
+    /// shut from its X, then Esc, quit the lab with no fresh prompt.
+    #[test]
+    fn a_pending_quit_or_rebuild_is_taken_back_by_any_other_verb() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        assert!(!lab.escape(), "the first Esc with nothing open only asks");
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.act(ui::Action::ClosePage);
+        assert!(!lab.escape(), "an Esc after another verb must ask again, not quit");
+        assert!(lab.escape(), "...and the Esc straight after it quits");
+
+        let frame = lab.world.frame;
+        lab.act(ui::Action::Reset);
+        lab.act(ui::Action::TogglePhase);
+        lab.act(ui::Action::Reset);
+        assert!(lab.reset_armed.is_some(), "a REBUILD after another verb must ask again");
+        assert_eq!(lab.world.frame, frame, "...and must not have rebuilt");
+    }
+
+    /// **TAB on a folded BIOSPHERE brings it back**, as a click on its strip
+    /// does; it used to shut it.
+    #[test]
+    fn tab_on_a_folded_biosphere_unfolds_it() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.show_help = false;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.act(ui::Action::Stats);
+        // MENU is wide enough to reach BIOSPHERE's column, and opened after
+        // it, so BIOSPHERE is the one that folds.
+        lab.act(ui::Action::Panel(ui::Panel::Menu));
+        lab.draw(&mut buf, 60.0);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.ui.folded(ui::Window::Stats), "test setup: BIOSPHERE should fold beside MENU");
+        lab.act(ui::Action::Stats);
+        lab.draw(&mut buf, 60.0);
+        assert!(lab.stats.showing(), "TAB shut a folded BIOSPHERE");
+        assert!(!lab.ui.folded(ui::Window::Stats), "TAB left BIOSPHERE folded");
+        lab.act(ui::Action::Stats);
+        assert!(!lab.stats.showing(), "TAB on an open BIOSPHERE shuts it");
     }
 
     /// **The shipped bed cannot zoom out at all, so the budget is a no-op

@@ -6971,7 +6971,7 @@ Hover explanations and the LOOK readout search for a clear spot
 
 **Measured off the pixels**, by `labui split=1`'s per-tile census
 (`render::paint_owner`): windows painted over windows went from 627,757 pixels
-over 71 of 73 tiles to **0 over 73**, and `no_two_windows_share_a_pixel` holds
+over 71 of 73 tiles to **0 over 74**, and `no_two_windows_share_a_pixel` holds
 every page × which window is in front at 0. Also in the step: BIOSPHERE and
 BATTLE stop clicks reaching the box, the wheel scrolls the window under it,
 REBUILD asks twice, BIOSPHERE opens shut, a welcome card replaced the key list
