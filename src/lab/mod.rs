@@ -6993,8 +6993,12 @@ mod tests {
         // stops to 8 keeps the colony (span 70) comfortably clear of the
         // panel at this same click point, with "two lines" just as true of
         // 8 independently-founded ants as of 52.
+        //
+        // **Stocked on the left since 2026-10-22**: the cell page docks to
+        // the *right* column now (`ui::Window`), so the right of the bed is
+        // where it stands.
         lab.act(ui::Action::Stock(-3));
-        let x = lab.spec.width * 4 / 5;
+        let x = lab.spec.width / 5;
         let surface = lab.spec.ground_y;
         lab.act(ui::Action::Tool(ui::Tool::Colony));
         click_cell(&mut lab, x, surface);

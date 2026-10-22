@@ -1202,9 +1202,11 @@ impl Panel {
             Panel::Plants => "PLANTS",
             Panel::Ants => "ANTS",
             Panel::Box => "THE BOX",
-            Panel::Params => "PARAMETERS",
-            Panel::Shelf => "THE SHELF",
-            Panel::Chambers => "THE RACK",
+            // Plain names (`Reports/lab-ui-redesign-2026-10-22.md` step 3):
+            // what a player would call them, not what the code does.
+            Panel::Params => "NUMBERS",
+            Panel::Shelf => "KEPT JARS",
+            Panel::Chambers => "CHAMBERS",
             Panel::PlantList => "EVERY PLANT",
             Panel::AntList => "EVERY ANIMAL",
             Panel::Log => "WHAT HAPPENED",
@@ -1937,6 +1939,9 @@ enum Body {
     /// anything, where a page that quietly stopped at the bottom of the
     /// screen had.
     Head { label: String, open: bool, hidden: usize, action: Action },
+    /// **A heading inside a list**, not clickable: MENU's WATCH,
+    /// INDIVIDUALS, EXPERIMENT. A rule above it so a group reads as a group.
+    Section { label: String },
     /// **A page's tabs**, as a row of chips: the active one lit, each a
     /// click to [`Action::PageTab`]. A page with more than fits is split
     /// into views rather than trimmed by `fit_rows`.
@@ -2008,6 +2013,9 @@ impl Row {
     fn gap() -> Self {
         Self { body: Body::Gap, note: String::new() }
     }
+    fn section(label: impl Into<String>) -> Self {
+        Self { body: Body::Section { label: label.into() }, note: String::new() }
+    }
     fn tabs(names: &[&'static str], active: usize, panel: Panel, note: impl Into<String>) -> Self {
         Self { body: Body::Tabs { names: names.to_vec(), active, panel }, note: note.into() }
     }
@@ -2047,6 +2055,7 @@ impl Row {
             // the chart lets the caption overprint the legend row below it.
             Body::Lines { .. } => CHART_H + 10,
             Body::Tabs { .. } => LINE + 5,
+            Body::Section { .. } => LINE + 3,
             // The bar and, under it, one line of counts.
             Body::Stack { .. } => STACK_H + 2 + LINE,
             Body::Hist { .. } => HIST_H + 12,
@@ -2063,6 +2072,7 @@ impl Row {
             Body::Spark { label, .. } => hud::text_width(label).max(96),
             Body::Lines { caption, .. } => hud::text_width(caption).max(96),
             Body::Tabs { names, .. } => names.iter().map(|n| hud::text_width(n) + 10).sum::<i32>(),
+            Body::Section { label } => hud::text_width(label),
             Body::Stack { parts } => stack_legend(parts).iter().map(|(t, _)| hud::text_width(t) + 6).sum::<i32>().max(120),
             Body::Hist { caption, .. } | Body::Scatter { caption, .. } => hud::text_width(caption).max(120),
             Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
@@ -5009,39 +5019,52 @@ impl Ui {
     /// instead. Every row fires the identical `Action` its key or its old
     /// bar chip already fired; nothing here is a second definition of what a
     /// control does.
+    /// **MENU, grouped by what a player is doing** (`Reports/lab-ui-redesign-
+    /// 2026-10-22.md` step 3), where it was two flat lists of 31 rows in the
+    /// order they were added. Left: WATCH, INDIVIDUALS, EXPERIMENT and the
+    /// box's own verbs; right, after the `Row::gap()` that splits the
+    /// columns: every display toggle, grouped by what it changes. FOOD is
+    /// not listed: it is a view of the ANTS page and is reached from there,
+    /// so no page is in the menu twice under two names.
     fn menu_rows(&self, world: &World) -> Vec<Row> {
         let ended = ended_lines(world).len();
         vec![
+            Row::section("WATCH"),
             Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
                 "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
             Row::choice("ANTS", "F2", Action::Panel(Panel::Ants),
                 "THE COLONY: HOW MANY ANIMALS ARE ALIVE AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING."),
-            Row::choice("BOX", "F3", Action::Panel(Panel::Box),
-                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
-            Row::choice("PARAMS", "P", Action::Panel(Panel::Params),
-                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
-            Row::choice("SHELF", "G", Action::Panel(Panel::Shelf),
-                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
-            Row::choice("THE RACK", "F4", Action::Panel(Panel::Chambers),
-                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
             Row::choice("HISTORY", "F5", Action::Panel(Panel::History),
                 format!("EVERY FOUNDING LINE THAT HAS ENDED -- {ended} SO FAR.")),
+            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
+                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::section("INDIVIDUALS"),
             Row::choice("EVERY PLANT", "MOUSE", Action::Panel(Panel::PlantList),
                 "EVERY PLANT IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE PLANTS PAGE UNTIL NOW."),
             Row::choice("EVERY ANIMAL", "MOUSE", Action::Panel(Panel::AntList),
                 "EVERY ANIMAL IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE ANTS PAGE UNTIL NOW."),
-            Row::choice("FOOD", "MOUSE", Action::Panel(Panel::Food),
-                "WHAT EACH COLONY IS LIVING ON, IN JOULES: WHERE THE FOOD COMES FROM, WHAT IT IS SPENT ON, AND HOW MANY ANIMALS ARE RUNNING ON EMPTY. NO KEY -- REACHED FROM THE ANTS PAGE."),
+            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
+                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::choice("KEPT JARS", "G", Action::Panel(Panel::Shelf),
+                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
+            Row::section("EXPERIMENT"),
+            Row::choice("THE BOX", "F3", Action::Panel(Panel::Box),
+                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
+            Row::choice("NUMBERS", "P", Action::Panel(Panel::Params),
+                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
+            Row::choice("CHAMBERS", "F4", Action::Panel(Panel::Chambers),
+                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
+            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
+                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
             Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
                 "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
             Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
-            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
-                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
-            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
-                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
-            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
-                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::choice("REBUILD", "R", Action::Reset,
+                "THROW THIS BOX AWAY AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. ASKS FOR A SECOND PRESS FIRST. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT."),
+            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
+                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
             Row::gap(),
+            Row::section("PAINT OVER THE BOX"),
             Row::choice("ANIMAL COLOUR", "H", Action::CycleCreatureColour,
                 format!("WHAT HUE EVERY ANIMAL WEARS. CURRENTLY {}. ALSO A ROW ON THE ANTS PAGE.", self.creature_colour().label())),
             Row::choice("LIFE MARKS", "Y", Action::CycleLifeMarks,
@@ -5054,16 +5077,16 @@ impl Ui {
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
             Row::choice("DIG MAP", "F10", Action::CycleDigOverlay,
                 "WHERE THE COLONY HAS BEEN DIGGING: EVERY CELL CUT IN THE LAST 20,000 FRAMES, WHITE WHEN JUST CUT, FADING THROUGH CYAN TO DARK TEAL. A HOLE FILLED IN AGAIN STOPS SHOWING."),
-            Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
-                "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
             Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
                 "SEE THE COLONY UNDERGROUND: TUNNELS PALE, NEST WHITE, EGGS AND YOUNG PINK, FOOD GREEN, THE GROUND DARK. ANTS AND WATER DRAW AS THEMSELVES."),
-            Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
+            Row::section("PANELS AND CLOCK"),
+            Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
+                "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
+            Row::choice("ON AN EVENT", "T", Action::CycleReaction,
                 "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
-            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
-                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
-            Row::choice("DISPLAY FLOOR", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
+            Row::choice("LOWEST FRAME RATE", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
                 "THE FLOOR UNDER THE DISPLAY RATE -- KEY F. THIS ROW IS ITS ONLY OTHER READOUT ANYWHERE IN THE LAB."),
+            Row::section("MAGNIFIER"),
             Row::choice("MAGNIFY STYLE", self.magnify_style.label().split(" (").next().unwrap_or(""), Action::CycleMagnifyStyle,
                 format!("THE ZOOMED-IN CELL LOOK -- KEY 0. {}", self.magnify_style.label())),
             Row::choice(
@@ -6777,7 +6800,7 @@ fn page_rect_under(rows: &[Row], right: i32, bottom: i32, ceiling: i32) -> Rect 
 }
 
 /// The width of a window's close box: an `X` with the bar's own padding.
-const CLOSE_W: i32 = hud::GLYPH_WIDTH as i32 + 2 * 4;
+const CLOSE_W: i32 = hud::GLYPH_WIDTH + 2 * 4;
 
 /// **Every window's close box: an `X` in the same corner.** Before this one
 /// window said `CLOSE`, BIOSPHERE said `TAB CLOSE` in plain text that was not
@@ -6917,6 +6940,12 @@ fn paint_rows(
                 draw_lines(hc, frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
                 text(hc, frame, left, y + CHART_H + 2, caption, FAINT);
             }
+            Body::Section { label } => {
+                for x in col.x + 1..col.right() - 1 {
+                    hc.put(frame, x, y + 1, DIVIDER);
+                }
+                text(hc, frame, left, y + 3, label, TITLE);
+            }
             Body::Tabs { names, active, panel } => {
                 let mut x = left;
                 for (i, name) in names.iter().enumerate() {
@@ -7030,7 +7059,7 @@ fn paint_rows(
 /// drawn as `VIEW` a blank `TOGGLES` -- caught by looking at the rendered
 /// page, not by any test, since nothing here asserts the font covers a
 /// literal.
-const TOGGLES_HEADER: &str = "VIEW / TOGGLES";
+const TOGGLES_HEADER: &str = "VIEW";
 
 /// Two columns of rows under one MENU header, and the note under the cursor
 /// if either column has one.
@@ -7149,7 +7178,7 @@ fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
     let measure = |r: &roster::RosterRow| if animals { r.energy.max(0.0) } else { r.cells as f32 };
     let top = all.iter().map(measure).fold(0.0f32, f32::max);
     const BINS: usize = 12;
-    let mut bins = vec![0u32; BINS];
+    let mut bins = [0u32; BINS];
     for r in &all {
         let i = if top > 0.0 { ((measure(r) / top) * BINS as f32) as usize } else { 0 };
         bins[i.min(BINS - 1)] += 1;
@@ -7167,11 +7196,16 @@ fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
     let what = if animals { "ENERGY" } else { "CELLS" };
     let caption = format!("{what} 0 TO {}  MEDIAN {}", compact(top as f64), compact(median as f64));
     let now = world.frame;
-    let oldest = all.iter().map(|r| now.saturating_sub(r.born_frame)).max().unwrap_or(0).max(1);
+    // Across runs youngest to oldest, not zero to oldest: a box of founders
+    // all born on frame 0 otherwise stacks every dot on the right edge.
+    let ages = all.iter().map(|r| now.saturating_sub(r.born_frame));
+    let (youngest, oldest) = ages.fold((u64::MAX, 0), |(lo, hi), a| (lo.min(a), hi.max(a)));
+    let span = oldest.saturating_sub(youngest);
     let points: Vec<(f32, f32, [u8; 4])> = all
         .iter()
         .map(|r| {
-            let age = now.saturating_sub(r.born_frame) as f32 / oldest as f32;
+            let a = now.saturating_sub(r.born_frame);
+            let age = if span == 0 { 0.5 } else { (a - youngest) as f32 / span as f32 };
             let y = if top > 0.0 { measure(r) / top } else { 0.0 };
             (age, y, state_tint(r.state))
         })
@@ -7188,7 +7222,7 @@ fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
             format!("HOW MANY {who}S HOLD HOW MUCH {what}, IN TWELVE EQUAL STEPS FROM NONE TO THE MOST ANY ONE HOLDS. A PILE AT THE LEFT IS A POPULATION RUNNING DOWN; A PILE AT THE RIGHT IS ONE DOING WELL. THE NUMBER TOP RIGHT IS THE TALLEST BAR."),
         ),
         Row::scatter(
-            format!("AGE, OLDEST RIGHT, AGAINST {what}"),
+            format!("AGE {} TO {} FRAMES, AGAINST {what}", compact(youngest.min(oldest) as f64), compact(oldest as f64)),
             points,
             format!("ONE DOT PER {who}: HOW OLD IT IS ACROSS, HOW MUCH {what} IT HOLDS UP, COLOURED BY WHAT IT IS DOING. A DOT LOW AND TO THE RIGHT IS OLD AND POOR. OPEN THE LIST TO PICK ONE OUT."),
         ),
@@ -8952,7 +8986,7 @@ impl Ui {
         outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "THE RACK", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Chambers.title(), TITLE);
 
         // NEW, in the header. The rack's own verb, and it reseeds: at the same
         // seed every draw in the engine is a pure function of `(world.seed,
@@ -10206,7 +10240,7 @@ impl Ui {
         outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "THE SHELF", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Shelf.title(), TITLE);
 
         // RELOAD, in the header. The rack is read off a directory, so it can
         // change without the game touching it.
@@ -10411,7 +10445,7 @@ impl Ui {
         outline(hc, frame, rect, PANEL_EDGE);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
-        text(hc, frame, left, rect.y + 6, "PARAMETERS", TITLE);
+        text(hc, frame, left, rect.y + 6, Panel::Params.title(), TITLE);
 
         // SAVE, in the header, acting on whatever row was last touched. Verb
         // on the button and the object named beside it, so a press cannot mean
@@ -11035,9 +11069,20 @@ impl Ui {
             w,
             h: h.min(stats_floor - self.right_ceiling),
         });
-        self.page_folded = self.panel.is_some()
-            && self.focus != Window::Page
-            && cell_full.zip(self.page_last).is_some_and(|(c, p)| c.touches(&p));
+        // **Who folds: the window in front never does; the others, in a
+        // fixed order (page, cell page, BIOSPHERE), fold if they would touch
+        // one already standing.** The page is decided first and only
+        // against the window in front, because it is painted before the
+        // other two and its size is only known from last frame
+        // (`page_last`); the other two are decided after it, against what
+        // was actually painted.
+        let front = match self.focus {
+            Window::Cell => cell_full,
+            Window::Stats => stats_full,
+            Window::Page => None,
+        };
+        self.page_folded =
+            self.panel.is_some() && self.focus != Window::Page && front.zip(self.page_last).is_some_and(|(f, p)| f.touches(&p));
 
         if self.page_folded {
             let title = self.panel.map_or("", |p| p.title());
@@ -11147,13 +11192,9 @@ impl Ui {
             self.history_box = None;
             self.history_bar = Bar::default();
             let (pages, toggles) = self.menu_columns(world);
-            let anchor = self
-                .bar
-                .widgets
-                .iter()
-                .find(|wid| wid.action == Some(Action::Panel(Panel::Menu)))
-                .map_or(MARGIN, |wid| wid.rect.x);
-            let rect = menu_rect(&pages, &toggles, anchor, dock_bottom());
+            // Docked left like every page (`Window`). Anchored at its button
+            // on the right, it landed on the cell page's folded strip.
+            let rect = menu_rect(&pages, &toggles, MARGIN, dock_bottom());
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
             if let Some((text, y)) = paint_menu(hc, frame, rect, &pages, &toggles, self.cursor, (&mut taps, self.pressed)) {
@@ -11171,12 +11212,11 @@ impl Ui {
             self.roster_bar = Bar::default();
             self.history_box = None;
             self.history_bar = Bar::default();
-            let rows = self.panel_rows(panel, world, spec, fps);
-            // Anchored under the button that opened it, which is only
-            // available because `Lab::act` closes the biosphere page when one
-            // of these opens — see the note there. Both pages drawn at once
-            // interleave into something neither of them is, and a contact
-            // sheet with both open was the only thing that showed it.
+            // **Fitted here as well as by each page**: a page that forgot
+            // (SCENARIOS, 2026-10-22) ran under the tab strip and the bar --
+            // `no_two_windows_share_a_pixel` found 22,712 pixels of it. A
+            // page that already fits is returned untouched.
+            let rows = fit_rows(self.panel_rows(panel, world, spec, fps), page_content_budget());
             // **Docked left, at the screen edge**, rather than under the
             // button that opened it: the buttons moved (MENU now lists most
             // pages) and a page that lands wherever its button happens to be
@@ -11205,13 +11245,21 @@ impl Ui {
         } else {
             self.page_last = None;
         }
-        self.cell_folded = cell_full.is_some_and(|c| {
-            let by_page = self.focus != Window::Cell && page_now.filter(|_| !self.page_folded).is_some_and(|p| p.touches(&c));
-            let by_stats = self.focus == Window::Stats && stats_full.is_some_and(|st| st.touches(&c));
-            by_page || by_stats
-        });
-        let cell_live = cell_full.filter(|_| !self.cell_folded);
-        let stats_folded = stats_full.is_some_and(|st| self.focus != Window::Stats && cell_live.is_some_and(|c| c.touches(&st)));
+        let mut standing: Vec<Rect> = front.into_iter().collect();
+        standing.extend(page_now.filter(|_| !self.page_folded));
+        let mut fold = |own: Option<Rect>, is_front: bool| -> bool {
+            let Some(r) = own else { return false };
+            if is_front {
+                return false;
+            }
+            let folds = standing.iter().any(|o| o.touches(&r));
+            if !folds {
+                standing.push(r);
+            }
+            folds
+        };
+        self.cell_folded = fold(cell_full, self.focus == Window::Cell);
+        let stats_folded = fold(stats_full, self.focus == Window::Stats);
         self.stats_place = stats_full.map(|st| {
             if stats_folded {
                 let strip = fold_strip("BIOSPHERE", Window::Stats, Action::Stats, Side::RightTop(self.right_ceiling));
@@ -12508,6 +12556,7 @@ mod tests {
                             check(name, "page tab");
                         }
                     }
+                    Body::Section { label } => check(label, "section heading"),
                     Body::Stack { parts } => {
                         for (label, _) in stack_legend(parts) {
                             check(&label, "stack legend");
@@ -14187,10 +14236,18 @@ mod tests {
             // **The fold is what fits it, not the backstop.** `fit_rows` will
             // trim anything to size, so a page that fits only because rows
             // were dropped is a page that has quietly stopped saying things.
-            assert!(
-                !rows.iter().any(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))),
-                "the {kingdom} cell page fits only because rows were dropped"
-            );
+            // Since the window rule docked the cell page (2026-10-22) it
+            // has ~20 px less height, and an ant's WORDS group no longer
+            // fits whole: it is trimmed *inside itself*, with its count, so
+            // every heading under it stays. What must never happen is the
+            // page's own end being cut -- so a `+N MORE` may only sit
+            // directly above another heading, never last.
+            if let Some(i) = rows.iter().position(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))) {
+                assert!(
+                    matches!(rows.get(i + 1).map(|r| &r.body), Some(Body::Head { .. })),
+                    "the {kingdom} cell page dropped rows from its end, not from inside the open group"
+                );
+            }
             // **Both kingdoms fold now**, where only the plant did before:
             // the `WORDS` group adds eight to fourteen rows and neither page
             // holds all four groups at once. What matters is not how many are
@@ -14869,6 +14926,8 @@ mod tests {
         ui.observe(&world);
 
         let spec = LabBox::default();
+        // The legend lives on the page's GROUPS view since 2026-10-22.
+        ui.set_page_tab(Panel::Ants, 1);
         let rows = ui.panel_rows(Panel::Ants, &world, &spec, 60.0);
         let labels: Vec<&str> = rows
             .iter()

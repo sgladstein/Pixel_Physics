@@ -1488,10 +1488,12 @@ fn main() {
         fired.push(format!("SPECIMEN {what} at ({wx},{wy}): {} rows -- {}", rows.len(),
             rows.iter().map(|(l, v, _)| format!("{l} {v}")).collect::<Vec<_>>().join(", ")));
         let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+        // The open cell page is put away from its own X: it docks on the
+        // right now (`ui::Window`) and can stand over the next subject, so
+        // re-clicking the previous cell is not always reachable.
         if lab.ui.inspecting().is_some() {
-            let prev = lab.ui.inspecting().unwrap();
-            let (px, py) = lab.renderer.world_to_screen(prev.0, prev.1).unwrap_or(prev);
-            click(&mut lab, (px, py));
+            lab.act(Action::CloseInspected);
+            let _ = shot(&mut lab);
         }
         click(&mut lab, (sx, sy));
         let _ = shot(&mut lab);
@@ -1804,6 +1806,14 @@ fn reach(lab: &mut Lab, action: Action) -> (i32, i32) {
     }
     if lab.ui.panel != Some(Panel::Menu) {
         let at = centre(lab, Action::Panel(Panel::Menu));
+        click(lab, at);
+        let _ = shot(lab);
+    }
+    // **FOOD is not in MENU since 2026-10-22** (a page is listed once, and
+    // FOOD is a view of the ANTS page), so it is reached the way a player
+    // reaches it: ANTS, then its `WHAT THEY ARE EATING` heading.
+    if action == Action::Panel(Panel::Food) && lab.ui.widget_rect(action).is_none() {
+        let at = centre(lab, Action::Panel(Panel::Ants));
         click(lab, at);
         let _ = shot(lab);
     }
