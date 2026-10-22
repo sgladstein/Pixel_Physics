@@ -61,7 +61,9 @@ put $W/jobs.txt jobs.txt
 export BIN=$W/repo/target/release/examples/inrun RAYON_NUM_THREADS=1
 run_one() {
   cd $W/repo; o=$1; shift
-  bash scratch/inrun/rounds.sh $W/out/$o "$@"
+  # `OUT colsel P MODE NCOL ROUNDS FRAMES GENOME args`: one colony-selection driver using P cores (colsel.py)
+  if [ "$1" = colsel ]; then P=$2 python3 -I scratch/inrun/colsel.py $W/out/$o "${@:3}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
+  else bash scratch/inrun/rounds.sh $W/out/$o "$@"; fi
   tar -C $W/out -czf $W/tgz/$o.tgz $o && put $W/tgz/$o.tgz jobs/$o.tgz && rm -f $W/tgz/$o.tgz
   # the small copy pull fetches: everything but the event log and the 4k-frame maps and ant lists (last one of each kept)
   tar -C $W/out -czf $W/tgz/$o-s.tgz --exclude=events.csv --exclude=events.csv.gz --exclude='map_f0[01]*' --exclude='ants_f0[01]*' $o && put $W/tgz/$o-s.tgz small/$o.tgz && rm -f $W/tgz/$o-s.tgz
