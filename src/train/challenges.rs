@@ -1796,12 +1796,20 @@ fn is_ground(w: &World, x: i32, y: i32) -> bool {
 
 /// **Rescale a species to a finite budget**, every standing bill kept at
 /// what it is at the authored budget ([`never_starve`] is this at 1e9).
+/// **The energy sense keeps the authored tank** (`CreatureDef::sensed_tank`):
+/// the budget is the bills' unit, not what one tank feels like, so an ant
+/// here feels its bank against the same tank as in the colony and the game.
+/// Before 2026-10-22 it read a flat 0.5 in fetch and trail; copy v2 on
+/// reliab's soil worlds, priced before the change: 10.71 -> 10.12 full
+/// loads (-0.58 +- 0.32), fetch 19.83 -> 19.76, so brains trained before it
+/// want a re-check.
 fn budget_to(def: &mut organism::CreatureDef, joules: f32) {
     assert!(
         joules.is_finite() && joules > 0.0,
         "a budget of {joules} J: every bill priced as a fraction of it would be infinite, or free"
     );
     let authored = def.start_energy;
+    def.sensed_tank.get_or_insert(authored);
     def.start_energy = joules;
     let k = authored / def.start_energy;
     def.synapse_fraction *= k;
@@ -3034,7 +3042,10 @@ mod tests {
                 "a still ant on {l:?}"
             );
         }
-        let forager = creature::mind::preset("forager", ch.verbs()).expect("forager");
+        // The forager below its egg bar: a fed ant feels rich, and a rich
+        // forager goes home to feed instead of out to forage.
+        let mut forager = creature::mind::preset("forager", ch.verbs()).expect("forager");
+        creature::mind::below_the_egg_bar(&mut forager);
         let runs: Vec<Score> = layouts
             .iter()
             .map(|&l| ch.run(l, &[&forager], &mut |_, _| {})[0].clone())
@@ -4007,6 +4018,29 @@ mod tests {
             assert_eq!(deep(inside, GROUND_Y - up + 2), 2, "k={k}: under the step's top");
             let (w3, sc3, _, _) = world(3);
             assert_eq!(census::surface_of(&w3, &sc3.bed, inside), GROUND_Y, "k={k}: step 3's bed is flat");
+        }
+    }
+
+    /// **An arena's budget does not move what a full tank feels like**
+    /// ([`budget_to`], `CreatureDef::sensed_tank`): a soil ant on 2,400 J
+    /// and a fed one on 1e9 feel their bank against the species' authored
+    /// tank, as the colony and the game do. Put the fault back (the sense
+    /// over `start_energy`) and both read exactly 0.5.
+    #[test]
+    fn an_arena_budget_leaves_the_energy_sense_on_the_authored_tank() {
+        let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
+        for budget in [Some(2400.0), None] {
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget, foot: true, step_near: 0.0, nest: false };
+            let (w, _, sp, full) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
+            let def = w.species.get(sp).creature.clone().expect("creature");
+            let tank = def.sensed_tank.expect("budget_to keeps the authored tank");
+            assert!(tank > 0.0 && tank < full, "{budget:?}: authored {tank} under the budget {full}");
+            let id = ants_of(&w, sp)[0];
+            let (ctx, _) = creature::mind::context(&w, id, &def, &creature::mind::MindState::default(), &[]);
+            let e = full / tank;
+            let want = e / (1.0 + e);
+            assert!((ctx[creature::mind::c::ENERGY] - want).abs() < 1e-6, "{budget:?}: reads {} for a bank of {full} on a tank of {tank}", ctx[creature::mind::c::ENERGY]);
+            assert!(ctx[creature::mind::c::ENERGY] > 0.9, "{budget:?}: a full ant feels full, not 0.5");
         }
     }
 
