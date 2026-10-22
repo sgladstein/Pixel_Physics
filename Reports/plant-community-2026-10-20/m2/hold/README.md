@@ -66,3 +66,29 @@ neighbour, beside the shipped founder -> beside its re-fit:
 So rung 2 bred plants that win by crowding: the re-fit shrub takes a
 shipped shrub beside it from 367 cells to 21, and costs a herb three of its
 eight flowerings. This is what rung 4 charges for.
+
+## Training on rung 4 from the shipped species (2026-10-22)
+
+`plantrain control=X rung=hold stations=bright pop=16 gens=12 layouts=2
+holdout=4 final=6 genes=8 sigma=0.9 seed=1`, beside the other three roles,
+with `select=random` beside each (tree, herb and creeper on runner threads
+with `/mnt/project-files/plant-community/runners/hold.sh`; shrub here).
+Final set, 18 beds, champion minus shipped:
+
+| role | score selection | random selection |
+|---|---|---|
+| shrub | +0.73 +/-0.38, ahead 14, behind 4 | +0.27 +/-0.21 |
+| tree | +0.02 +/-0.05 | +0.06 +/-0.13 |
+| herb | -0.02 +/-0.17 | -0.08 +/-0.21 |
+| creeper | -0.04 +/-0.14 | -0.15 +/-0.15 |
+
+**Only the shrub moved.** Its champion sets fruit within the 40,000 frames
+(own score 3.0 -> 4.0 beside every role; the shipped shrub flowers and
+stops) at about twice the shipped size, and costs its neighbours less than
+the rung-2 re-fit did: a shrub beside it 367 -> 183 cells (the re-fit: 21),
+a herb beside it flowered 7 of 8 (the re-fit: 5). `shrub-beside-herb.png`:
+shipped, rung-2 re-fit and rung-4 champion, each beside a herb, frame 40,000.
+
+Tree, herb and creeper are flat against shipped. The ladder's rule is that
+a rung starts from the last rung's champion, and these started from the
+shipped species, so the next runs start rung 4 from the rung-2 re-fits.
