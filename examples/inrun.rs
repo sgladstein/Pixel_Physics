@@ -390,6 +390,13 @@ fn main() {
     let rim_rows = fnum("rim_rows", 0.0) as i32;
     let rim_debit = fnum("rim_debit", 0.0);
     let rim_share = fnum("rim_share", 0.0);
+    // cut_join=N (owner, 2026-10-22: a stuck ant that swims through the ground under the nest must not be paid as a
+    // nest digger -- "I don't want it to be counted as improved nest digging and be selected for"): a cut of original
+    // ground pays only when one of its four neighbours is open space joined to the door below the datum. The joined set
+    // is flooded from the door every N frames, and a paying cut joins its own cell at once, so a tunnel dug outward
+    // from the nest keeps paying cell by cell while a swimmer, whose way back is packed shut behind it, stops paying at
+    // the next flood. An unjoined cut is logged as `unjoined`. 0 = off (every cut pays, the old rule).
+    let cut_join = num("cut_join", 0) as u64;
     let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
@@ -614,7 +621,29 @@ fn main() {
     let mut film_r = pixel_physics::render::Renderer::new();
     let film_p = pixel_physics::sim::ParticleSystem::new();
     let mut film_buf: Vec<u8> = Vec::new();
+    let mut joined = vec![false; (bw * bh) as usize];
+    let join_ground: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
     for fr in 1..=frames {
+        if cut_join > 0 && (fr - 1) % cut_join == 0 {
+            joined.iter_mut().for_each(|j| *j = false);
+            // Passable = anything but ground (soil, packed soil, spoil, stone): food stored on a chamber floor, bodies and
+            // the door markers do not cut a chamber off. First built on inrun::open (empty or a body), which left every
+            // floor cut under stored food unpaid -- the old ant lost 62 of 232 near-door cuts, nearly all in its larder.
+            let open_below = |x: i32, y: i32| (0..bw).contains(&x) && (0..bh).contains(&y) && y >= surf[x as usize] && !join_ground.contains(&w.get(x, y).material);
+            let mut stack: Vec<(i32, i32)> = (0..bh).filter(|&y| open_below(inrun::NEST, y)).map(|y| (inrun::NEST, y)).collect();
+            while let Some((x, y)) = stack.pop() {
+                let i = (y * bw + x) as usize;
+                if joined[i] {
+                    continue;
+                }
+                joined[i] = true;
+                for (ex, ey) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                    if open_below(ex, ey) && !joined[(ey * bw + ex) as usize] {
+                        stack.push((ex, ey));
+                    }
+                }
+            }
+        }
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
             for x in [inrun::NEST + dist, inrun::NEST - dist] {
@@ -648,6 +677,15 @@ fn main() {
                 } else {
                     0.0
                 };
+                if cut_join > 0 {
+                    let nb = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
+                    if nb.iter().any(|&(ex, ey)| (0..bw).contains(&ex) && (0..bh).contains(&ey) && joined[(ey * bw + ex) as usize]) {
+                        joined[i] = true;
+                    } else {
+                        writeln!(ev, "{frame},{who},unjoined,{x},{y},{depth},{who}").unwrap();
+                        worth = 0.0;
+                    }
+                }
                 if worth > 0.0 && rim_rows > 0 {
                     if depth < rim_rows {
                         worth = rim_share;
