@@ -77,10 +77,34 @@ pub const GROW_CAP: f32 = 8.0;
 /// does better earns nothing: helping is not this rung's job. Graded rather
 /// than a floor that rejects, so a candidate that crowds its neighbour a
 /// little loses a little. Never below 0.
+///
+/// **And the whole score shrinks once the neighbour is below
+/// [`NEIGHBOUR_FLOOR`] of its usual size.** The difference alone was too
+/// weak (2026-10-22, `Reports/plant-community-2026-10-20/m2/hold/`): on the
+/// log scale a founder that doubles itself gains about what it loses for
+/// halving its neighbour, so the rung-2 re-fits -- which take a shrub beside
+/// them from 367 cells to 21 -- already beat shipped here, and twelve
+/// generations of rung-4 selection from them moved nothing. Below the floor
+/// the score is multiplied by `kept / floor`, so it is still graded: a
+/// neighbour kept at a quarter of its size halves the score, one smothered
+/// to a twentieth all but zeroes it.
 pub fn hold_score(c: &Census, k: &Constants, y: &Yardstick) -> f32 {
     let own = sized_score(c, k, y.own_end);
     let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end));
-    (own - (y.nb_score - nb).max(0.0)).max(0.0)
+    (own - (y.nb_score - nb).max(0.0)).max(0.0) * neighbour_kept(c, y)
+}
+
+/// The share of its usual size below which a rung-4 neighbour's loss
+/// scales the founder's whole score ([`hold_score`]).
+pub const NEIGHBOUR_FLOOR: f32 = 0.5;
+
+/// `min(1, kept / NEIGHBOUR_FLOOR)`, where `kept` is the neighbour's end
+/// shoot against `y.nb_end`; 1 with no neighbour.
+pub fn neighbour_kept(c: &Census, y: &Yardstick) -> f32 {
+    c.neighbour.as_deref().map_or(1.0, |n| {
+        let kept = n.end_shoot as f32 / y.nb_end.max(1.0);
+        (kept / NEIGHBOUR_FLOOR).min(1.0)
+    })
 }
 
 pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
@@ -221,6 +245,7 @@ mod tests {
             established_at: Some(1_000),
             first_flower: flowered.then_some(5_000),
             shoot_at_first_flower: 100,
+            end_shoot: 200,
             ..Census::default()
         };
         let beside = |nb: Census| Census { neighbour: Some(Box::new(nb)), ..life(true) };
@@ -232,6 +257,12 @@ mod tests {
         assert!(alone > stunted && stunted > killed, "graded by how much of its life the neighbour lost: {alone} {stunted} {killed}");
         assert!(killed >= 0.0);
         assert_eq!(hold_score(&beside(life(true)), &k, &Yardstick { nb_score: y.nb_score - 1.0, ..y }), alone, "a neighbour doing better earns nothing");
+        // The floor: a neighbour as well off in score but smothered in size
+        // scales the whole score, graded below the floor.
+        let shrunk = |end: u32| hold_score(&beside(Census { end_shoot: end, ..life(true) }), &k, &y);
+        assert_eq!(shrunk(100), alone, "at the floor nothing is taken");
+        assert!(shrunk(100) > shrunk(50) && shrunk(50) > shrunk(10) && shrunk(10) > 0.0, "graded below it");
+        assert!((shrunk(50) - alone / 2.0).abs() < 1e-5, "a quarter of its size halves the score");
         // A perennial that has not flowered is paid its size, not pinned at
         // the top of the step as `bed_score` pins it.
         let tree = |end: u32| Census { end_shoot: end, peak_shoot: end, ..life(false) };
