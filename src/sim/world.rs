@@ -12080,16 +12080,27 @@ impl World {
     /// was out of the map. Idempotent -- `mark_moist_dirty` is a span union
     /// and a bit set -- which is what makes that replay exact rather than
     /// approximately right.
+    ///
+    /// **The edge test inlines and the walk does not** (2026-10-21): the test
+    /// is false for 60 of a chunk's 64 rows and columns, and as one call it
+    /// cost ~29 instructions a moisture write to learn that.
+    #[inline(always)]
     fn mark_moist_neighbours(&mut self, x: i32, y: i32, owner: ChunkCoord) {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
-            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                let n = ChunkCoord::containing(x + dx, y + dy);
-                if n != owner {
-                    if let Some(c) = self.chunks.get_mut(&n) {
-                        c.mark_moist_dirty(x, y);
-                    }
+            self.mark_moist_neighbours_at_edge(x, y, owner);
+        }
+    }
+
+    /// [`Self::mark_moist_neighbours`]'s walk, for a write on a chunk's edge.
+    #[inline(never)]
+    fn mark_moist_neighbours_at_edge(&mut self, x: i32, y: i32, owner: ChunkCoord) {
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let n = ChunkCoord::containing(x + dx, y + dy);
+            if n != owner {
+                if let Some(c) = self.chunks.get_mut(&n) {
+                    c.mark_moist_dirty(x, y);
                 }
             }
         }
@@ -13116,11 +13127,12 @@ impl CellSurface for World {
 fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
     stats.visited += 1;
     let cell = view.get(x, y);
-    if view.world.materials.get(cell.material).water_capacity == 0 {
+    let capacity = view.world.materials.get(cell.material).water_capacity;
+    if capacity == 0 {
         return;
     }
     stats.soil += 1;
-    if crate::sim::update::update_soil_water(view, x, y) {
+    if crate::sim::update::update_soil_water_cell(view, x, y, cell, capacity) {
         stats.changed += 1;
     }
 }
