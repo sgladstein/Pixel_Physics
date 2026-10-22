@@ -148,6 +148,10 @@ fn main() {
 
     // 3. Pressed but not released. The gesture is armed and nothing has
     //    happened yet, which is the whole point of firing on release.
+    // REBUILD lives in MENU now (plan step 3), so the menu opens first.
+    click(&mut lab, menu_chip);
+    lab.set_cursor(None);
+    let _ = shot(&mut lab);
     let rebuild = centre(&lab, Action::Reset);
     lab.set_cursor(Some(rebuild));
     lab.press(rebuild.0, rebuild.1);
@@ -167,7 +171,7 @@ fn main() {
         lab.world.frame < frame_before,
         lab.world.frame
     ));
-    lab.ui.close_panel(); // undo the release that landed here (opened MENU)
+    lab.ui.close_panel(); // the release on MENU's chip shut it; make sure
 
     // 4-6. Each page, opened by a real click through MENU -- `PLANTS`/
     // `ANTS`/`BOX` no longer have a chip of their own (`reach`'s own doc).
@@ -948,17 +952,16 @@ fn main() {
         click(&mut lab, at);
     }
 
-    // 7. The speed ladder latched, with the achieved readout beside it.
-    let fast = centre(&lab, Action::Preset(4));
-    click(&mut lab, fast);
+    // 7. The dial asked for 64x (key 5 -- the bar's speed chips are gone, plan
+    // step 3), with the achieved readout saying what it got.
+    lab.act(Action::Preset(4));
     for _ in 0..30 {
         lab.advance(std::time::Duration::from_millis(16));
     }
-    fired.push(format!("click set the dial to {}x", lab.time.requested));
-    lab.set_cursor(Some(fast));
+    fired.push(format!("key 5 set the dial to {}x", lab.time.requested));
+    lab.set_cursor(None);
     tiles.push((format!("DIAL AT {}X", lab.time.requested), shot(&mut lab))); note_census(&tiles);
-    let slow = centre(&lab, Action::Preset(0));
-    click(&mut lab, slow);
+    lab.act(Action::Preset(0));
 
     // 8. The inspector, aimed at a cell an organism actually owns.
     let target = living_cell(&lab);
@@ -1634,16 +1637,12 @@ fn main() {
         Action::TogglePhase,
         Action::Slower,
         Action::Faster,
-        Action::Preset(0),
-        Action::Preset(5),
         Action::Panel(Panel::Menu),
         Action::Panel(Panel::Plants),
         Action::Panel(Panel::Ants),
-        Action::Panel(Panel::Box),
-        Action::Panel(Panel::Params),
+        Action::Panel(Panel::History),
         Action::Stats,
         Action::Help,
-        Action::Reset,
     ] {
         if let Some(r) = lab.ui.widget_rect(action) {
             println!("{action:?} at {},{} ({}x{})", r.x + r.w / 2, r.y + r.h / 2, r.w, r.h);
