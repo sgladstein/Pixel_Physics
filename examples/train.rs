@@ -118,7 +118,7 @@
 
 use pixel_physics::sim::creature;
 use pixel_physics::train::challenges::maze::Walls;
-use pixel_physics::train::challenges::{self, Dig, Forage, Maze, Scarce, Soil, Suite, Trail};
+use pixel_physics::train::challenges::{self, Dig, Forage, Maze, OpenMaze, Scarce, Soil, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -141,7 +141,7 @@ struct Arena {
     foot: bool,
     step_near: f64,
     nest: bool,
-    maze: (usize, bool, u32, Option<f32>, Walls),
+    maze: (usize, bool, u32, Option<f32>, Walls, bool),
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -185,7 +185,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             })
         }
         "maze" => {
-            let (forks, ramp, spread, blend, walls) = maze;
+            let (forks, ramp, spread, blend, walls, laden) = maze;
             Box::new(Maze {
                 ants: ants.unwrap_or(6),
                 frames: frames.unwrap_or(12_000),
@@ -195,8 +195,16 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
                 spread,
                 blend,
                 walls,
+                laden,
             })
         }
+        "openmaze" => Box::new(OpenMaze {
+            ants: ants.unwrap_or(6),
+            frames: frames.unwrap_or(12_000),
+            clones,
+            ramp: maze.1,
+            laden: maze.5,
+        }),
         "dig" => Box::new(Dig {
             ants: ants.unwrap_or(12),
             frames: frames.unwrap_or(20_000),
@@ -255,7 +263,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             step_near,
             nest,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|maze|dig|scarce|scarce-dig|fetch|soil|suite"),
+        _ => panic!("challenge={name}: forage|forage-far|trail|maze|openmaze|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
 }
 
@@ -336,7 +344,7 @@ fn main() {
     let mut foot = false;
     let mut step_near = 0.0;
     let mut budget = Some(challenges::SOIL_BUDGET);
-    let mut maze = (3usize, true, 0u32, None, Walls::Through);
+    let mut maze = (3usize, true, 0u32, None, Walls::Through, false);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -417,6 +425,7 @@ fn main() {
             // start, the blend for those passes, and how they meet the rock.
             "forks" => maze.0 = v.parse().ok().filter(|&n: &usize| (1..=4).contains(&n)).unwrap_or_else(|| panic!("forks={v}: 1-4")),
             "ramp" => maze.1 = on(k, v),
+            "laden" => maze.5 = on(k, v),
             "spread" => maze.2 = v.parse().unwrap_or_else(|_| panic!("spread={v}: plane passes")),
             "blend" => maze.3 = Some(v.parse().unwrap_or_else(|_| panic!("blend={v}: 0-1"))),
             "walls" => {
@@ -539,7 +548,7 @@ fn main() {
     if step_near > 0.0 {
         set.arena += &format!(" stepnear={step_near}");
     }
-    if maze != (3, true, 0, None, Walls::Through) {
+    if maze != (3, true, 0, None, Walls::Through, false) {
         set.arena += &format!(" maze={maze:?}");
     }
     // The floors are set on the calibration worlds, so a run's must stay

@@ -1,0 +1,83 @@
+# labbench played_bed, 12 seeds, 120k frames, HEAD 3501f682. First table: PIXEL_PHYSICS_TRAIL_WALLS=1 vs off. Second: walls + PIXEL_PHYSICS_A_RHO=0.003 vs off.
+keyed on (arm, seed): base 12 logs -> 12 seeds, new 12 logs -> 12 seeds; paired 12: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  run: scenario=played_bed frames=120000 sample=900 | table rows per log 134..134
+  header settings that differ between the arms: none (the arms differ in the binary, not a knob)
+
+GATE -- pre-ship regression check. median base -> new; seeds where new is higher/lower; sign p
+  births                                         602.5 ->       575.5    5/7   p 0.774   worse on 7/12 (lower is harm)
+  food eaten, J (intake)                     2,214,373 ->   2,020,154    5/7   p 0.774   worse on 7/12 (lower is harm)
+  ant-frames lived, millions                      20.3 ->        18.8    4/8   p 0.388   worse on 8/12 (lower is harm)
+  died of old age                                384.0 ->       354.5    2/10  p 0.039   worse on 10/12 (lower is harm)
+  starved per million ant-frames                   0.7 ->         0.7    5/7   p 0.774   worse on 5/12 (higher is harm)
+    starved, raw (scales with ant-frames)         19.0 ->        16.5    5/7   p 0.774   context, not gated
+
+CRASH TIMING -- not a gate: the box grazes out, so these say when the crash landed, not harm
+  died out (alive=0 at the end)                      0 ->           0   boxes of 12
+  under 10 at the end (incl. died out)               0 ->           1   boxes of 12
+  alive at the end                               236.0 ->       211.0    6/6   p 1.000
+  peak ants                                      304.0 ->       247.5    4/8   p 0.388
+  frame of the peak                             81,450 ->      87,300    8/4   p 0.388
+  fell below a quarter of peak (boxes)               1 ->           1   median frame 103,500 -> 97,200; at/after 100,000: 1 -> 0
+
+NEST AND LAYING -- context, not gated (BENCH line, src/lab/bench.rs)
+  eggs seen / laid, both arms pooled: 15,463 / 15,463
+  eggs seen (coverage check vs laid)             607.5 ->       592.5    5/7   p 0.774
+  eggs laid at home, % of seen                    99.8 ->       100.0    7/4   p 0.549
+  eggs within 8 cols of a nest                   378.0 ->       371.0    3/9   p 0.146
+  eggs over 32 cols from a nest                    0.0 ->         0.0    4/2   p 0.688
+  animals underground, % (time avg)               29.4 ->        36.6   11/1   p 0.006
+  animals underground at the end                  73.0 ->        62.5    7/5   p 0.774
+  deepest fall from running peak, %               35.8 ->        17.4    5/7   p 0.774
+  times halved from running peak                   0.0 ->         0.0    3/1   p 0.625
+  colonies lost (held >=3, now none)                 0 ->           0   of 12 -> 12 colonies
+
+NOT GATED -- kept for the record. Net food into home overcounts 3.4-4.6x (Reports/ant-scenes-2026-09-23.md s22j); raw deliveries are mostly home->home
+  net food into home (OVERCOUNT, s22j)         6,615.0 ->     4,547.5    2/10  p 0.039
+  deliveries, raw                             29,165.0 ->    21,205.0    5/7   p 0.774
+  pickups at home                             21,205.5 ->    16,566.5    6/6   p 1.000
+  deepest breeding generation                      5.0 ->         6.0    8/2   p 0.109
+  starved aloft (not in starved)                   0.0 ->         0.0    0/0   p 1.000
+  killed                                           0.0 ->         0.0    0/0   p 1.000
+
+keyed on (arm, seed): base 12 logs -> 12 seeds, new 12 logs -> 12 seeds; paired 12: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  run: scenario=played_bed frames=120000 sample=900 | table rows per log 134..134
+  header settings that differ between the arms: none (the arms differ in the binary, not a knob)
+
+GATE -- pre-ship regression check. median base -> new; seeds where new is higher/lower; sign p
+  births                                         602.5 ->       413.0    4/8   p 0.388   worse on 8/12 (lower is harm)
+  food eaten, J (intake)                     2,214,373 ->   1,456,460    2/10  p 0.039   worse on 10/12 (lower is harm)
+  ant-frames lived, millions                      20.3 ->        13.9    1/11  p 0.006   worse on 11/12 (lower is harm)
+  died of old age                                384.0 ->       287.0    1/11  p 0.006   worse on 11/12 (lower is harm)
+  starved per million ant-frames                   0.7 ->         0.9    8/4   p 0.388   worse on 8/12 (higher is harm)
+    starved, raw (scales with ant-frames)         19.0 ->        16.5    7/5   p 0.774   context, not gated
+
+CRASH TIMING -- not a gate: the box grazes out, so these say when the crash landed, not harm
+  died out (alive=0 at the end)                      0 ->           0   boxes of 12
+  under 10 at the end (incl. died out)               0 ->           0   boxes of 12
+  alive at the end                               236.0 ->       150.5    4/8   p 0.388
+  peak ants                                      304.0 ->       203.0    3/9   p 0.146
+  frame of the peak                             81,450 ->      70,200    6/6   p 1.000
+  fell below a quarter of peak (boxes)               1 ->           0   median frame 103,500 -> n/a; at/after 100,000: 1 -> 0
+
+NEST AND LAYING -- context, not gated (BENCH line, src/lab/bench.rs)
+  eggs seen / laid, both arms pooled: 14,651 / 14,651
+  eggs seen (coverage check vs laid)             607.5 ->       432.0    4/8   p 0.388
+  eggs laid at home, % of seen                    99.8 ->        99.8    3/6   p 0.508
+  eggs within 8 cols of a nest                   378.0 ->       268.0    2/10  p 0.039
+  eggs over 32 cols from a nest                    0.0 ->         9.5    6/2   p 0.289
+  animals underground, % (time avg)               29.4 ->        33.9    9/3   p 0.146
+  animals underground at the end                  73.0 ->        49.0    4/8   p 0.388
+  deepest fall from running peak, %               35.8 ->        32.2    6/6   p 1.000
+  times halved from running peak                   0.0 ->         0.0    3/1   p 0.625
+  colonies lost (held >=3, now none)                 0 ->           0   of 12 -> 12 colonies
+
+NOT GATED -- kept for the record. Net food into home overcounts 3.4-4.6x (Reports/ant-scenes-2026-09-23.md s22j); raw deliveries are mostly home->home
+  net food into home (OVERCOUNT, s22j)         6,615.0 ->     4,061.0    2/10  p 0.039
+  deliveries, raw                             29,165.0 ->    23,206.5    6/6   p 1.000
+  pickups at home                             21,205.5 ->    19,037.0    6/6   p 1.000
+  deepest breeding generation                      5.0 ->         5.0    5/5   p 1.000
+  starved aloft (not in starved)                   0.0 ->         0.0    0/0   p 1.000
+  killed                                           0.0 ->         0.0    0/0   p 1.000
+
+
+[exited with code 0]
