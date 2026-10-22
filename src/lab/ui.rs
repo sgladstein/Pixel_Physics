@@ -236,6 +236,9 @@ const SUB_ON: [u8; 4] = [156, 202, 176, 255];
 const READOUT_BG: [u8; 4] = [14, 16, 20, 255];
 const PANEL_BG: [u8; 4] = [17, 19, 24, 255];
 const PANEL_EDGE: [u8; 4] = [88, 98, 114, 255];
+/// The title band of every window (`window_frame`), and the rule under it.
+const TITLE_BAND: [u8; 4] = [28, 33, 44, 255];
+const ACCENT: [u8; 4] = [86, 150, 214, 255];
 const TITLE: [u8; 4] = [238, 238, 210, 255];
 const VALUE: [u8; 4] = [228, 234, 240, 255];
 const FAINT: [u8; 4] = [132, 139, 153, 255];
@@ -6867,6 +6870,19 @@ fn fold_strip(title: &str, w: Window, close: Action, side: Side) -> [Widget; 2] 
 
 /// Draw one page and return the note under the cursor, if any.
 ///
+/// **Every lab window's frame, in one place** (plan step 5, one look): the
+/// body, a title band a shade lighter than it so the eye finds the title and
+/// the X before the rows, and the outline. The accent rule under the band is
+/// drawn by each page, where it always was. No drop shadow: a shadow paints
+/// outside the window's rect, which `Ui::covers` and the overlap census
+/// (`render::paint_owner`) would both have to learn about, and at 512x320 the
+/// two pixels it costs are the gap that keeps docked windows apart.
+fn window_frame(hc: render::Hud, frame: &mut [u8], rect: Rect) {
+    fill(hc, frame, rect, PANEL_BG);
+    fill(hc, frame, Rect { x: rect.x, y: rect.y, w: rect.w, h: PAGE_HEADER - 4 }, TITLE_BAND);
+    outline(hc, frame, rect, PANEL_EDGE);
+}
+
 /// A thin wrapper over `paint_rows`: the header and the one column are all a
 /// single-column page needs, and `paint_menu`'s two columns share the same
 /// row painter rather than duplicating it.
@@ -6879,11 +6895,10 @@ fn paint_page(
     cursor: Option<(i32, i32)>,
     (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(hc, frame, rect, PANEL_BG);
-    outline(hc, frame, rect, PANEL_EDGE);
+    window_frame(hc, frame, rect);
     text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, title, TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
     }
     let col = Rect { x: rect.x, y: rect.y + PAGE_HEADER, w: rect.w, h: rect.h - PAGE_HEADER };
     paint_rows(hc, frame, col, rows, cursor, taps, pressed)
@@ -7083,11 +7098,10 @@ fn paint_menu(
     cursor: Option<(i32, i32)>,
     (taps, pressed): (&mut Vec<Widget>, Option<Action>),
 ) -> Option<(String, i32)> {
-    fill(hc, frame, rect, PANEL_BG);
-    outline(hc, frame, rect, PANEL_EDGE);
+    window_frame(hc, frame, rect);
     text(hc, frame, rect.x + PAGE_PAD, rect.y + 6, "MENU", TITLE);
     for x in rect.x + 1..rect.right() - 1 {
-        hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
     }
 
     let pages_w = menu_col_inner(pages, "PAGES") + PAGE_PAD * 2;
@@ -8982,8 +8996,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.rack_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, Panel::Chambers.title(), TITLE);
@@ -9032,7 +9045,7 @@ impl Ui {
             note: "COLLAPSE THE RACK TO ONE ROW PER SWEPT SETTING: THE MEDIAN ON TOP AND THE LOW-TO-HIGH RANGE UNDER IT. READ THE RANGE FIRST -- TWELVE COPIES OF ONE BOX DIFFERING IN NOTHING AT ALL ALREADY SPREAD 2.4X ON PLANTS AND 3.1X ON ANIMALS, SO TWO SETTINGS CLOSER TOGETHER THAN THAT HAVE NOT BEEN TOLD APART.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header.
@@ -9540,8 +9553,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.history_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, Panel::History.title(), TITLE);
@@ -9564,7 +9576,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         let mut y = rect.y + PAGE_HEADER;
@@ -9711,8 +9723,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.history_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, &format!("HISTORY -- {name}"), TITLE);
@@ -9732,7 +9743,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -9881,8 +9892,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.roster_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         let title = if kingdom == roster::Kingdom::Plants { "EVERY PLANT" } else { "EVERY ANIMAL" };
@@ -9985,7 +9995,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the column header. Measured through `hud::text_width` against
@@ -10236,8 +10246,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.shelf_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, Panel::Shelf.title(), TITLE);
@@ -10256,7 +10265,7 @@ impl Ui {
             note: "RE-READ THE SHELF DIRECTORY. JARS ARE FILES IN ASSETS/SHELF, SO YOU CAN COPY ONE IN FROM ANOTHER RUN OR ANOTHER MACHINE AND IT WILL BE HERE.".into(),
         });
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // ---- the dial strip, and the three verbs that act on the armed jar.
@@ -10441,8 +10450,7 @@ impl Ui {
         let rect = Rect { x: MARGIN, y: (bottom - h).max(DOCK_TOP), w, h };
         self.params_box = Some(rect);
 
-        fill(hc, frame, rect, PANEL_BG);
-        outline(hc, frame, rect, PANEL_EDGE);
+        window_frame(hc, frame, rect);
         let left = rect.x + PAGE_PAD;
         let right = rect.right() - PAGE_PAD;
         text(hc, frame, left, rect.y + 6, Panel::Params.title(), TITLE);
@@ -10472,7 +10480,7 @@ impl Ui {
         });
 
         for x in rect.x + 1..rect.right() - 1 {
-            hc.put(frame, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+            hc.put(frame, x, rect.y + PAGE_HEADER - 4, ACCENT);
         }
 
         // The tab strip.

@@ -6,12 +6,27 @@
 
 | | before | after |
 |---|---|---|
-| tiles with any two windows on one pixel | 71 of 73 | **0 of 70** |
+| tiles with any two windows on one pixel | 71 of 73 | **0 of 73** |
 | pixels painted by one window over another, summed | 627,757 | **0** |
 
 What it is: pages dock on the left, BATTLE then the cell page and BIOSPHERE on the right, all between the clock line (`ui::DOCK_TOP`) and the tab strip (`ui::dock_bottom`). When two would still touch, the one opened or clicked last stays and the other folds to a title strip you click to bring back. Every window has the same `X`. Hover explanations and the LOOK readout search for a clear spot (`ui::place_clear`) and show their first sentence until the pointer rests. The notice line moved into the tab strip. Also: BIOSPHERE and BATTLE stop clicks; ESC closes the window opened last and quits only on a second press with nothing open; REBUILD asks twice; the wheel scrolls the window under it and zooms only over the box; BIOSPHERE opens shut, and a short welcome card replaced the 30-line key list as the first screen; a page and BIOSPHERE may now be up together. Not done in step 1: "+N MORE" is still not scrollable on the generic pages (step 4 replaces most of those lists with charts).
 
-Steps 2 to 5 below are the plan as reviewed; each gets its line here when it lands.
+**Step 2 measured, not shipped (2026-10-22).** Crisp text means painting the interface at 2x. The lab can already paint a 1024x640 frame (the pixel budget at a zoomed-out rung), so the cost was read there on a 1024x640 bed, paused, `Lab::draw` timed over 200 frames, two alternating passes each:
+
+| frame drawn | box alone | ANTS page + BIOSPHERE open | the two windows' share |
+|---|---|---|---|
+| 512x320 (today) | 3.3-3.6 ms | 5.0-6.0 ms | 1.4-2.7 ms |
+| 1024x640 | 8.5 ms | 12.8-13.8 ms | 4.3-5.3 ms |
+
+So drawing the whole frame at 2x roughly doubles to triples the draw, and the windows alone cost about 3 ms more. That fails the plan's rule (ships only if a settled box with both docks open costs no more than today). What would pass is the plan's other version: the interface on its own 2x layer, repainted only when something on it changes, with the box staying at 1x. That needs a second texture and shader in `bin/lab.rs` beside the `pixels` crate's one, so it is left for a decision rather than built overnight. Steps 3 to 5 went ahead at 1x as the plan says.
+
+**Step 3, in part (2026-10-22).** MENU is grouped into WATCH, INDIVIDUALS and EXPERIMENT on the left and the display switches (PAINT OVER THE BOX, PANELS AND CLOCK, MAGNIFIER) on the right; THE RACK is now CHAMBERS, THE SHELF is KEPT JARS, PARAMS is NUMBERS, REACTION ON EVENT is ON AN EVENT. Not done: the bar's direct page buttons and the collapsed speed cell, and RESET moving off the bar.
+
+**Step 4, in part (2026-10-22).** ANTS opens on SUMMARY (what every ant is doing as one bar, an energy histogram with its median, age against energy as dots) with GROUPS one tab over; PLANTS carries the same three charts; HISTORY opens on how lines ended as one stacked bar and how long they lasted as a histogram stacked by cause, above the table. Not done: CELL genes against the colony, SIDE BY SIDE bars, COLONY TRAINING and OVERVIEW charts, NUMBERS sliders, a scrollable "+N MORE".
+
+**Step 5, in part (2026-10-22).** Every page shares one frame (`ui::window_frame`): a title band a shade lighter than the body with an accent rule under it. No drop shadow, on purpose: it would paint outside the window's rectangle, which the click test and the overlap census would both have to learn, and the two pixels it needs are the gap that keeps docked windows apart. BIOSPHERE and BATTLE keep their own painters (BIOSPHERE's is shared with the held world).
+
+Steps 2 to 5 below are the plan as reviewed.
 
 2026-10-22. Scope: the evolution lab (`cargo run --release --bin lab`): every window, page, menu and the bar. Nothing here changes the simulation; every step is checked for bit-identical results.
 
