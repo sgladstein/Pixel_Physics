@@ -1063,6 +1063,17 @@ pub fn blinded(g: &[f32]) -> Vec<f32> {
 ///   which a score must not reward like a follower.
 ///
 /// `None` for any other name.
+/// **The `forager` preset's egg bar switched off**, for an arena whose ant
+/// cannot starve: a fed ant banks 1e9 J, which the energy sense reads as a
+/// full tank many times over (`CreatureDef::sensed_tank`), so the preset's
+/// "past the egg bar, go home and feed" flag is on from the first frame and
+/// it never forages. Before 2026-10-22 the sense read a fed ant's bank
+/// against the 1e9 budget, a flat 0.5, and the flag stayed off by accident.
+#[cfg(test)]
+pub(crate) fn below_the_egg_bar(g: &mut [f32]) {
+    g[MEM + 2 * M_IN + c::ENERGY] = 0.0;
+}
+
 pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
     use options::f;
     let mut g = blank(verbs);
@@ -1534,7 +1545,8 @@ pub fn context(
     let Some(&(hx, hy)) = st.chain.first() else {
         return (v, [0.0; 5]);
     };
-    let e = (st.energy / def.start_energy.max(f32::EPSILON)).max(0.0);
+    let tank = def.sensed_tank.unwrap_or(def.start_energy);
+    let e = (st.energy / tank.max(f32::EPSILON)).max(0.0);
     v[c::ENERGY] = e / (1.0 + e);
     let cap = organism_crop_capacity(world, organism, def);
     v[c::CROP] = st.crop.map_or(0.0, |cr| {
