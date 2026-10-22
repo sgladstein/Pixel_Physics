@@ -2633,6 +2633,67 @@ impl Challenge for Suite {
     }
 }
 
+/// **The bed and the mind of in-run colony selection** (`lab::training`):
+/// the teacher lane's harness (`examples/inrun.rs` on its compute branch,
+/// 2026-10-21) selects ants inside one living colony on this same 256 x 128
+/// training bed, each founder given a mind cut to the dig rung's verbs. The
+/// game's training page runs that loop, so it needs the four things the
+/// harness reached through its scratch copy of this file: the bed, the
+/// mind, the slots a child mutates and the suite a founder enters by.
+pub mod colony_bed {
+    use super::*;
+
+    /// The nest's column on the bed.
+    pub const NEST: i32 = NEST_X;
+    /// The bed's width and height.
+    pub const SIZE: (i32, i32) = (BED_W, 128);
+
+    /// The scarce-dig arena's emits: what its minds may signal.
+    pub fn emits() -> [bool; creature::mind::EMITS] {
+        Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits()
+    }
+
+    /// A founder's or a child's mind: `genome` cut to the dig rung's verbs
+    /// ([`SOIL_VERBS`]) and the scarce-dig emits, as the harness runs it.
+    pub fn mind(genome: &[f32]) -> std::sync::Arc<creature::mind::MindGenome> {
+        arena_mind(genome, SOIL_VERBS, emits())
+    }
+
+    /// The slots a child's mutation may move: the scarce-dig trainer's.
+    pub fn slots() -> Vec<usize> {
+        creature::mind::trainable(SOIL_VERBS, emits())
+    }
+
+    /// The suite a founder genome enters by ([`super::super::start_mind`]):
+    /// the harness's own, soil + scarce + trail, so a file read here enters
+    /// the rung exactly as `founders=`/`mutants=` read it there.
+    pub fn suite() -> Suite {
+        Suite::new(
+            vec![
+                (Box::new(Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0, nest: false }), false),
+                (
+                    Box::new(Scarce { ants: 1, frames: 6000, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE), dist: (10, 30), steps: true, fed: true, dig: false }),
+                    true,
+                ),
+                (Box::new(Trail { ants: 6, frames: 6000, clones: false }), true),
+            ],
+            0.8,
+        )
+    }
+
+    /// **The bed with no colony on it yet**: the training bed's scenario
+    /// (`bed_timed`, 40 rows of soil, lamps 33 apart, no rain) with its
+    /// `Colony` placement left out, because the colony is founded heaped at
+    /// the door (`scenario::place_colony` with `pile`), which the harness
+    /// asked for through the process-wide `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS`
+    /// and a game that also runs an ordinary box cannot.
+    pub fn scenario(seed: u64, ants: usize) -> Scenario {
+        let mut sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        sc.placements.retain(|p| !matches!(p, crate::lab::scenario::Placement::Colony { .. }));
+        sc
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

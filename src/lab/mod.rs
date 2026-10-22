@@ -50,6 +50,7 @@ pub mod scenario;
 pub mod scene;
 pub mod stats;
 pub mod time;
+pub mod training;
 pub mod trips;
 pub mod ui;
 
@@ -279,6 +280,22 @@ pub struct Lab {
     /// The still of the box on screen, if one has been taken. Inline with the
     /// rest of the active chamber's state, for `world`'s reason.
     thumb: Option<Thumb>,
+    /// **The colony training run on the box on screen, if one is** (the
+    /// TRAINING page, `training`). While it is set the box is the training
+    /// bed and every tick runs the selection loop after the step; a round
+    /// that has run its frames is replaced, in place, by the next round's bed.
+    pub training: Option<training::Training>,
+    /// What the TRAINING page's START uses: kept when a run stops, so the
+    /// page's settings hold between runs.
+    pub training_settings: training::Settings,
+    /// rounds.sh's `SEED` for the next START.
+    pub training_seed: u64,
+    /// **ANT BRAIN: NEW** -- every ant in the box on screen decides by the
+    /// new mind (`training::h1_mind`) rather than the hand-built brain. Off
+    /// is the shipped game. See [`Lab::set_new_ant`].
+    pub new_ant: bool,
+    /// The new mind, built once on first use.
+    new_ant_mind: Option<std::sync::Arc<crate::sim::creature::mind::MindGenome>>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -350,6 +367,9 @@ pub struct Chamber {
     /// what a chamber you made yourself gets; a batch names its own so a rack
     /// of fifty says where each row came from.
     pub label: Option<String>,
+    /// The colony training run on this box, parked with it: the run's ledger
+    /// names this world's ants, so it belongs to this box and no other.
+    pub training: Option<training::Training>,
 }
 
 /// **A still of one chamber, for the rack page.**
@@ -581,6 +601,11 @@ impl Lab {
                 scenario: None,
             },
             thumb: None,
+            training: None,
+            training_settings: training::Settings::default(),
+            training_seed: 1,
+            new_ant: false,
+            new_ant_mind: None,
             view_dirty: false,
         }
     }
@@ -788,6 +813,10 @@ impl Lab {
     /// -- callers pass it to `ui.say` themselves, so a caller that only
     /// wants the box (a test, say) is not forced to also want a notice.
     pub fn load_scenario(&mut self, s: scenario::Scenario) -> String {
+        // A scenario replaces the training bed, so the run on it ends.
+        if let Some(t) = self.training.take() {
+            self.training_settings = t.settings;
+        }
         self.spec = s.bed.clone();
         self.batch_spec.base = s.bed.clone();
         self.batch_spec.scenario = Some(s.clone());
@@ -797,11 +826,186 @@ impl Lab {
         let title = s.title.clone();
         self.scenario = Some(s);
         let placed = self.reset();
+        if self.new_ant {
+            self.give_new_ant_minds();
+        }
         self.time.phase = time::Phase::Paused;
         format!(
             "{title} LOADED -- {} CELLS, {} PLANTS, {} ANIMALS, {} SETTINGS",
             placed.cells, placed.plants, placed.animals, placed.settings
         )
+    }
+
+    // ------------------------------------------------- colony training
+
+    /// **START on the TRAINING page**: the box on screen becomes the training
+    /// bed with round 0's thirty founders (`training::Training::start`), and
+    /// the clock stops so the player sees the bed before it runs, as a
+    /// loaded scenario does. A run already going is replaced.
+    pub fn start_training(&mut self) -> String {
+        let (t, world, sc) = training::Training::start(self.training_settings.clone(), self.training_seed);
+        let bed = t.round.bed.clone();
+        self.install_training_world(world, sc, bed);
+        self.training = Some(t);
+        self.time.phase = time::Phase::Paused;
+        self.world.log_player_action(format!("COLONY TRAINING STARTED, SEED {}", self.training_seed));
+        format!("COLONY TRAINING: ROUND 0, 30 NEW ANTS AT THE DOOR (SEED {}) -- SPACE TO RUN", self.training_seed)
+    }
+
+    /// **STOP**: the run ends and the bed stays on screen as an ordinary box
+    /// (its ants keep their minds; nobody is judged any more).
+    pub fn stop_training(&mut self) -> String {
+        match self.training.take() {
+            Some(t) => {
+                self.training_settings = t.settings;
+                self.world.log_player_action("COLONY TRAINING STOPPED".to_string());
+                "TRAINING STOPPED -- THE BED STAYS, NOBODY IS JUDGED".to_string()
+            }
+            None => "NO TRAINING RUNNING".to_string(),
+        }
+    }
+
+    /// **The round on the bed is over**: found the next on its best living
+    /// ants, in place of this one. An extinct colony stops the clock.
+    pub fn next_training_round(&mut self) -> String {
+        let Some(t) = self.training.as_mut() else { return "NO TRAINING RUNNING".to_string() };
+        let ended = t.round.number;
+        let food = t.round.food_home;
+        match t.next_round(&self.world) {
+            Some((world, sc)) => {
+                let bed = t.round.bed.clone();
+                let number = t.round.number;
+                self.install_training_world(world, sc, bed);
+                self.world.log_player_action(format!("TRAINING ROUND {number} FOUNDED"));
+                format!("ROUND {ended} OVER ({food} FOOD CELLS HOME) -- ROUND {number} FOUNDED ON ITS BEST ANTS")
+            }
+            None => {
+                self.time.phase = time::Phase::Paused;
+                format!("ROUND {ended} OVER WITH NO ANT ALIVE -- TRAINING HAS NOTHING TO FOUND THE NEXT ROUND ON")
+            }
+        }
+    }
+
+    /// One click on the TRAINING page.
+    fn training_act(&mut self, act: ui::TrainingAct) -> String {
+        match act {
+            ui::TrainingAct::Start => self.start_training(),
+            ui::TrainingAct::Stop => self.stop_training(),
+            ui::TrainingAct::NextRound => self.next_training_round(),
+            ui::TrainingAct::Tab => {
+                self.ui.next_training_tab();
+                String::new()
+            }
+            ui::TrainingAct::Knob(i) => {
+                let Some(k) = training::KNOBS.get(i) else { return String::new() };
+                let s = match self.training.as_mut() {
+                    Some(t) => &mut t.settings,
+                    None => &mut self.training_settings,
+                };
+                k.step(s);
+                let line = format!("{} {} ({}={})", k.label, k.value(s), k.key, k.value(s));
+                let copy = s.clone();
+                self.training_settings = copy;
+                if let Some(t) = self.training.as_ref() {
+                    self.world.log_player_action(format!("TRAINING {} -> {} AT ROUND {} FRAME {}", k.label, k.value(&t.settings), t.round.number, t.round.fr));
+                }
+                line
+            }
+            ui::TrainingAct::Defaults => {
+                self.training_settings = training::Settings::default();
+                if let Some(t) = self.training.as_mut() {
+                    t.settings = training::Settings::default();
+                }
+                "EVERY SETTING BACK TO THE TEACHER LANE'S CONTROL".to_string()
+            }
+            ui::TrainingAct::Seed => {
+                self.training_seed = self.training_seed % 8 + 1;
+                format!("NEXT START ON SEED {}", self.training_seed)
+            }
+            ui::TrainingAct::Ant(id) => {
+                let Some(st) = self.world.organism(id) else { return "THAT ANT HAS GONE".to_string() };
+                let (at, born_frame) = (st.chain.first().copied().unwrap_or((0, 0)), st.born_frame);
+                let who = roster::Individual { id, born_frame };
+                if self.ui.pinned() != Some(who) {
+                    self.ui.pin(who);
+                }
+                self.ui.inspect_at(at, id);
+                if !self.ui.following() {
+                    self.ui.toggle_following();
+                }
+                format!("FOLLOWING ANT #{id}")
+            }
+        }
+    }
+
+    /// Put a training round's bed on screen in place of the box there, the
+    /// way `reset` replaces a box -- chronicle first, then fresh stats --
+    /// but without carrying the outgoing box's dials over: the bed is the
+    /// harness's, at the world's defaults.
+    fn install_training_world(&mut self, world: World, sc: scenario::Scenario, bed: scene::LabBox) {
+        self.write_chronicle();
+        self.world = world;
+        earth_toned_nest(&mut self.world);
+        self.spec = bed;
+        self.scenario = Some(sc);
+        self.particles = ParticleSystem::new();
+        self.blasts = Blasts::new();
+        // A fresh census, but the page stays shut if it was: a new round
+        // arriving must not pull the stats page over the TRAINING page.
+        let showing = self.stats.showing();
+        self.stats = stats::Stats::new();
+        if self.stats.showing() != showing {
+            self.stats.toggle();
+        }
+        self.chronicle_census.clear();
+        self.chronicle_stamp = None;
+        self.thumb = None;
+        self.stroke = None;
+        self.view_dirty = true;
+    }
+
+    /// **ANT BRAIN**: on, every ant in the box on screen decides by the new
+    /// mind; off, every mind is taken away and the ants walk by the
+    /// hand-built brain again. Only the species `ant`: the mind was trained
+    /// in its body. A newborn inherits its parent's mind
+    /// (`mind::inherit`), unchanged -- a mind does not mutate at a birth in
+    /// the box; minds evolve on the TRAINING page.
+    pub fn set_new_ant(&mut self, on: bool) -> String {
+        self.new_ant = on;
+        if self.training.is_some() {
+            return "THE TRAINING BED'S ANTS ARE ALWAYS NEW ANTS".to_string();
+        }
+        if on {
+            let n = self.give_new_ant_minds();
+            self.world.log_player_action("ANT BRAIN: NEW".to_string());
+            format!("ANT BRAIN: NEW -- {n} ANTS NOW THINK WITH THE TRAINED MIND (H1)")
+        } else {
+            self.world.minds = None;
+            self.world.log_player_action("ANT BRAIN: OLD".to_string());
+            "ANT BRAIN: OLD -- THE HAND-BUILT BRAIN".to_string()
+        }
+    }
+
+    /// Give every `ant` in the box that has no mind the new one; returns how
+    /// many it gave. Run every [`NEW_ANT_SWEEP`] frames while the switch is
+    /// on, which is how a colony stocked with the COLONY tool, a jar
+    /// released or a scenario loaded get it.
+    fn give_new_ant_minds(&mut self) -> usize {
+        let Some(sp) = self.world.species.id_of("ant") else { return 0 };
+        let mind = self.new_ant_mind.get_or_insert_with(training::h1_mind).clone();
+        let mut ids: Vec<_> = self
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .chain(self.world.live_brood_ids())
+            .filter(|&id| self.world.organism(id).is_some_and(|st| st.species == sp))
+            .filter(|&id| !crate::sim::creature::mind::has(&self.world, id))
+            .collect();
+        ids.sort_unstable();
+        for &id in &ids {
+            crate::sim::creature::mind::give(&mut self.world, id, mind.clone());
+        }
+        ids.len()
     }
 
     // ------------------------------------------------------------ the rack
@@ -949,6 +1153,7 @@ impl Lab {
             // frame just drawn *is* that picture.
             thumb: std::mem::replace(&mut self.thumb, incoming.thumb),
             label: std::mem::replace(&mut self.label, incoming.label),
+            training: std::mem::replace(&mut self.training, incoming.training),
         };
         self.rack[self.active] = Some(outgoing);
         self.active = i;
@@ -1006,6 +1211,7 @@ impl Lab {
             watch: ui::Watch::default(),
             thumb: None,
             label: None,
+            training: None,
         }));
         self.rack.len() - 1
     }
@@ -1275,6 +1481,7 @@ impl Lab {
             watch: ui::Watch::default(),
             thumb: None,
             label: Some(label),
+            training: None,
         }));
         self.rack.len() - 1
     }
@@ -1585,6 +1792,9 @@ impl Lab {
     /// splitting that across two callers is how a speed dial stops being
     /// honest about what it achieved.
     fn tick(&mut self) {
+        if let Some(t) = &self.training {
+            t.before_step(&mut self.world);
+        }
         // **The simulation half of the tick is [`tick_world`]**, shared with
         // every harness that needs the box's own sequence (the plant trainer
         // first), so a copy of it outside this file cannot drift. What
@@ -1597,6 +1807,16 @@ impl Lab {
             &self.spec,
             self.scenario.as_ref(),
         );
+        // **The selection loop reads this tick's logs before anything else
+        // does** -- the dig map below drains the cut log.
+        if let Some(t) = self.training.as_mut() {
+            t.after_step(&mut self.world);
+            if t.round_done() {
+                self.next_training_round();
+            }
+        } else if self.new_ant && self.world.frame.is_multiple_of(NEW_ANT_SWEEP) {
+            self.give_new_ant_minds();
+        }
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -1998,6 +2218,13 @@ impl Lab {
                 progress: self.batch.as_ref().map(|b| b.progress()),
             },
         };
+        // The TRAINING page's data, read off the run only while a page that
+        // shows it is open.
+        let view = match (self.ui.panel, self.training.as_ref()) {
+            (Some(ui::Panel::Training), Some(t)) => Some(t.view(&self.world)),
+            _ => None,
+        };
+        self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
         // the bar, and a control you can see but not reach is worse than one
@@ -3216,7 +3443,29 @@ impl Lab {
             }
             ui::Action::Help => self.show_help = !self.show_help,
             ui::Action::Reset => {
-                self.reset();
+                // **A REBUILD of the training bed is a fresh run** -- the
+                // bed's scenario has no colony of its own (the round founds
+                // it), so a plain rebuild would leave an empty bed with a
+                // ledger naming nobody.
+                if self.training.is_some() {
+                    let said = self.start_training();
+                    self.ui.say(said);
+                } else {
+                    self.reset();
+                    if self.new_ant {
+                        self.give_new_ant_minds();
+                    }
+                }
+            }
+            ui::Action::Training(t) => {
+                let said = self.training_act(t);
+                if !said.is_empty() {
+                    self.ui.say(said);
+                }
+            }
+            ui::Action::ToggleNewAnt => {
+                let said = self.set_new_ant(!self.new_ant);
+                self.ui.say(said);
             }
             // An index into `Ui::scenarios()`, read fresh rather than
             // stored: the list can change under a `RELOAD` between the page
@@ -4029,6 +4278,13 @@ fn earth_toned_nest(world: &mut World) {
 /// loops and use this exact constant rather than a second copy of it, which
 /// is how the two would silently drift apart the day one of them changes.
 pub(crate) const MAX_PLANT_LIFT: i32 = 12;
+
+/// **How often ANT BRAIN: NEW looks for an ant without a mind**, in frames.
+/// Births inherit their parent's mind at once; this only catches ants put in
+/// by hand (the COLONY tool, a jar, a scenario), so a fraction of a second at
+/// 1x is soon enough, and the sweep's walk over every organism is not paid
+/// every tick of a box full of plants.
+const NEW_ANT_SWEEP: u64 = 16;
 
 /// The gut at which an animal is placed as a lone hunter -- see
 /// `Lab::is_lone_hunter`. Halfway to a pure carnivore's `+1.0`.

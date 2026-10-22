@@ -233,6 +233,17 @@ pub fn start_mind_saved(ch: &dyn Challenge, start: &str) -> Vec<f32> {
     load_mind(ch, start, false)
 }
 
+/// [`start_mind`] from a mind file's text rather than its path: a genome
+/// compiled into the binary (`lab::training`'s founder, `include_str!`),
+/// entering `ch`'s rung exactly as the same file on disk would. `label`
+/// names it in what the rung's entry prints.
+pub fn start_mind_text(ch: &dyn Challenge, label: &str, text: &str) -> Vec<f32> {
+    assert!(ch.minds(), "{} cannot run minds yet", ch.name());
+    let mut g = mind_from_text(ch, label, text, true);
+    mind::apply_bans(&mut g, ch.verbs(), ch.mind_emits());
+    g
+}
+
 /// What one live link bills a tick at the ant's authored budget
 /// (`synapse_fraction` x `start_energy`); a budget rescales the fraction so
 /// that the bill stays this (`challenges::budget_to`).
@@ -248,43 +259,50 @@ fn load_mind(ch: &dyn Challenge, start: &str, enter: bool) -> Vec<f32> {
         Some(g) => g,
         None => {
             let p = Path::new(start);
-            let len = genome_file_len(p);
-            let mut g = mind::pad(load_genome(p, len)).unwrap_or_else(|| {
-                panic!(
-                    "{start}: a genome of {len} slots is not a mind ({}; {} saved before the job's hidden units, {} before PR 2's features); start= blank|rest|follower|persist|forager|<mind file>",
-                    mind::GENOME_LEN,
-                    mind::GENOME_LEN_V1,
-                    mind::GENOME_LEN_V2
-                )
-            });
-            // Saved before Pick up had its own act: once, whether it is
-            // trained from or scored, so a champion runs as it was trained
-            // to pick up (fix plan step 1).
-            match genome_file_layout(p) {
-                None => {
-                    mind::split_pick_up(&mut g);
-                    println!("{start}: saved before Pick up had its own act; Eat's links copied to Pick up, Eat quieted");
-                }
-                Some(l) => assert!(l <= mind::LAYOUT, "{start}: layout {l} is newer than this build's {}", mind::LAYOUT),
-            }
-            if enter {
-                let live = |g: &[f32]| mind::MindGenome::new(g.to_vec()).live;
-                let before = live(&g);
-                let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
-                if !did.is_empty() {
-                    let after = live(&g);
-                    println!(
-                        "{start} enters {}: {}; live links {before} -> {after}, {:+.4} J a tick",
-                        ch.name(),
-                        did.join(", "),
-                        (after as f32 - before as f32) * link_price()
-                    );
-                }
-            }
-            g
+            let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {}: {e}", p.display()));
+            mind_from_text(ch, start, &text, enter)
         }
     };
     mind::apply_bans(&mut g, ch.verbs(), ch.mind_emits());
+    g
+}
+
+/// The file half of [`load_mind`]: a mind file's text read into today's
+/// layout and, with `enter`, into `ch`'s rung. The bans are the caller's.
+fn mind_from_text(ch: &dyn Challenge, start: &str, text: &str, enter: bool) -> Vec<f32> {
+    let len = genome_text_len(text, start);
+    let mut g = mind::pad(parse_genome(text, len, start)).unwrap_or_else(|| {
+        panic!(
+            "{start}: a genome of {len} slots is not a mind ({}; {} saved before the job's hidden units, {} before PR 2's features); start= blank|rest|follower|persist|forager|<mind file>",
+            mind::GENOME_LEN,
+            mind::GENOME_LEN_V1,
+            mind::GENOME_LEN_V2
+        )
+    });
+    // Saved before Pick up had its own act: once, whether it is
+    // trained from or scored, so a champion runs as it was trained
+    // to pick up (fix plan step 1).
+    match genome_text_layout(text, start) {
+        None => {
+            mind::split_pick_up(&mut g);
+            println!("{start}: saved before Pick up had its own act; Eat's links copied to Pick up, Eat quieted");
+        }
+        Some(l) => assert!(l <= mind::LAYOUT, "{start}: layout {l} is newer than this build's {}", mind::LAYOUT),
+    }
+    if enter {
+        let live = |g: &[f32]| mind::MindGenome::new(g.to_vec()).live;
+        let before = live(&g);
+        let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
+        if !did.is_empty() {
+            let after = live(&g);
+            println!(
+                "{start} enters {}: {}; live links {before} -> {after}, {:+.4} J a tick",
+                ch.name(),
+                did.join(", "),
+                (after as f32 - before as f32) * link_price()
+            );
+        }
+    }
     g
 }
 
@@ -597,12 +615,17 @@ pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
 /// count.
 pub fn genome_file_len(path: &Path) -> usize {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
+    genome_text_len(&text, &path.display().to_string())
+}
+
+/// [`genome_file_len`] of a file's text; `name` is what a panic calls it.
+pub fn genome_text_len(text: &str, name: &str) -> usize {
     match text.lines().next().and_then(|l| l.strip_prefix("genome ")) {
         Some(n) => n
             .split_whitespace()
             .next()
             .and_then(|n| n.parse().ok())
-            .unwrap_or_else(|| panic!("genome file {}: bad header", path.display())),
+            .unwrap_or_else(|| panic!("genome file {name}: bad header")),
         None => text.lines().count(),
     }
 }
@@ -611,28 +634,39 @@ pub fn genome_file_len(path: &Path) -> usize {
 /// [`save_genome`]), or `None` for one saved before the mark.
 pub fn genome_file_layout(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
+    genome_text_layout(&text, &path.display().to_string())
+}
+
+/// [`genome_file_layout`] of a file's text; `name` is what a panic calls it.
+pub fn genome_text_layout(text: &str, name: &str) -> Option<u32> {
     let head = text.lines().next()?.strip_prefix("genome ")?;
-    head.split_whitespace().find_map(|t| t.strip_prefix("layout=")).map(|n| {
-        n.parse().unwrap_or_else(|_| panic!("genome file {}: bad layout {n}", path.display()))
-    })
+    head.split_whitespace()
+        .find_map(|t| t.strip_prefix("layout="))
+        .map(|n| n.parse().unwrap_or_else(|_| panic!("genome file {name}: bad layout {n}")))
 }
 
 /// Read either form: the sparse one [`save_genome`] writes, or one value per
 /// line (`examples/brainfit.rs`).
 pub fn load_genome(path: &Path, len: usize) -> Vec<f32> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
+    parse_genome(&text, len, &path.display().to_string())
+}
+
+/// [`load_genome`] of a file's text, either form; `name` is what a panic
+/// calls it.
+pub fn parse_genome(text: &str, len: usize, name: &str) -> Vec<f32> {
     let mut lines = text.lines();
     if text.starts_with("genome ") {
         lines.next();
         let mut g = vec![0.0; len];
         for l in lines {
-            let (i, w) = l.split_once(' ').expect("slot value");
+            let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("genome file {name}: {l:?} is not `slot value`"));
             g[i.parse::<usize>().unwrap()] = w.parse().unwrap();
         }
         g
     } else {
         let g: Vec<f32> = lines.map(|l| l.parse().unwrap()).collect();
-        assert_eq!(g.len(), len, "genome length");
+        assert_eq!(g.len(), len, "genome file {name}: genome length");
         g
     }
 }

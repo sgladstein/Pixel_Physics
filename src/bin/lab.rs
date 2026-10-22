@@ -72,11 +72,18 @@
 //!   `Lab::pixel_budget` changes.
 //! - `PIXEL_PHYSICS_LAB_FOOD=N` presses `F7` N times before the shot, which is
 //!   the only headless route to a view with no bar cell.
+//! - `PIXEL_PHYSICS_LAB_TICKS=N` runs N ticks before the first frame, so a
+//!   shot can show a box (or a training round) that has lived.
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
 //!
 //! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
+//!
+//! Two words on the command line open it otherwise:
+//! `cargo run --release --bin lab -- newant` puts every ant on the trained
+//! mind (MENU's ANT BRAIN row), and `-- training` opens the COLONY TRAINING
+//! page with round 0 founded on the training bed (`lab::training`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -268,6 +275,28 @@ impl Handler {
                 // edit to the file opens the ordinary bed instead, with the
                 // reason on stderr rather than a crashed window.
                 Err(e) => eprintln!("scenario {name}: {e}"),
+            }
+        }
+        // `-- newant`: every ant decides by the trained mind from the first
+        // frame (the ANT BRAIN row). `-- training`: open on the COLONY
+        // TRAINING page with round 0 founded, paused.
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.iter().any(|a| a == "newant") {
+            let msg = lab.set_new_ant(true);
+            lab.ui.say(msg);
+        }
+        if args.iter().any(|a| a == "training") {
+            lab.show_help = false;
+            lab.act(Action::Panel(Panel::Training));
+            let msg = lab.start_training();
+            lab.ui.say(msg);
+        }
+        // `PIXEL_PHYSICS_LAB_TICKS=N`: run N ticks before the first frame, the
+        // debug hooks' reason -- a headless shot cannot press SPACE, so without
+        // it every shot is of a box that has not lived.
+        if let Some(n) = std::env::var("PIXEL_PHYSICS_LAB_TICKS").ok().and_then(|v| v.parse::<u64>().ok()) {
+            for _ in 0..n {
+                lab.tick_for_harness();
             }
         }
         Self {
