@@ -1499,6 +1499,9 @@ pub fn context(
     });
     v[c::HOME_SEEN] = f32::from(u8::from(home.is_some()));
     v[c::HOME_DIST] = squash(dist / 32.0);
+    // SCRATCH (`options::home_vec`): "how far past the food band", unsquashed, on d_alarm's slot (written over below
+    // only when there is a last decision; this one wins).
+    let far = options::home_vec().filter(|_| home.is_some()).map(|(r, w)| options::far_ramp(dist, r, w));
     let now = [scents[0], scents[1], scents[2], e, dist];
     if let Some(last) = state.last {
         for k in 0..3 {
@@ -1506,6 +1509,9 @@ pub fn context(
         }
         v[c::D_ENERGY] = squash(10.0 * (now[3] - last[3]));
         v[c::D_HOME] = squash((now[4] - last[4]) / 2.0);
+    }
+    if let Some(far) = far {
+        v[c::D_SCENT + 2] = far;
     }
     v[c::SINCE_NEST] = squash(st.since_nest as f32 / 200.0);
     v[c::AGE] = squash(world.frame.saturating_sub(st.born_frame) as f32 / 20_000.0);
@@ -1798,12 +1804,40 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             if std::env::var("PP_BOTTOM_CTX").is_ok() {
                 ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
             }
+            // SCRATCH (starvation-trace thread, 2026-10-22): `PP_FAR_CTX=R` puts "more than R columns from home" on the
+            // borrowed context slot c::D_ALARM (9), which reads 0 on every bed decision (alarm is never laid). The
+            // come-home copies hm1/hm2 leaked into foraging, guessed because c::HOME_DIST = squash(dist/32) reads 0.56 at
+            // 40 columns and 0.65 at 60: too flat to separate "far" from "in the food band".
+            if let Some(r) = scratch_log::far_ctx() {
+                if let Some(st) = world.organism(organism) {
+                    let ax = st.forage_anchor.0;
+                    let nx = world.nest_sites.iter().min_by_key(|s| (s.x - ax).abs()).map_or(ax, |s| s.x);
+                    ctx[c::D_SCENT + 2] = f32::from(u8::from((x - nx).abs() > r));
+                }
+            }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
             let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
             if let Some(d) = d.as_ref() {
                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+                // SCRATCH (foraging-loop thread): the carry-home teacher's label rides the copy log as a 16th field.
+                if scratch_log::copy_on() && scratch_log::carry_act().is_some() {
+                    let lab = scratch_log::carry_label(world, organism, def, (x, y), &ctx, &opts);
+                    scratch_log::CARRY_LAB.with(|c| *c.borrow_mut() = if lab.is_empty() { "-".into() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) });
+                }
                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+            }
+            // SCRATCH (maze thread, 2026-10-22; ported by the far-from-home sense thread): `PP_TRAIL_ACT=1` (with
+            // `PP_TRAIL_LABEL`) lets the recruitment-trail teacher act: when the brain chose to walk and the label
+            // applies, the step is the teacher's instead. The verb is the brain's, so memory stays consistent.
+            if let Some(d) = d.as_mut() {
+                if scratch_log::trail_act() && opts[d.pick].verb == Verb::Walk {
+                    if let Some(up) = scratch_log::trail_up(world, organism, &ctx, &opts) {
+                        if !up.contains(&d.pick) {
+                            d.pick = up[0];
+                        }
+                    }
+                }
             }
             // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
             let mut redrawn: Option<Vec<Opt>> = None;
@@ -1907,6 +1941,19 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                         let done = list[d.pick].verb;
                         mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, done);
                         mind.state.last_verb = Some(done);
+                    }
+                }
+            }
+            // SCRATCH (foraging-loop thread): `PP_CARRY=q`, the carry-home teacher (`scratch_log::carry_label`) acting
+            // on a share q of the decisions it labels.
+            if redrawn.is_none() && scratch_log::carry_act().is_some() {
+                if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
+                    if let Some(i) = scratch_log::carry_out(world, organism, def, (x, y), &ctx, &opts, pick) {
+                        if let Some(d) = d.as_mut() {
+                            d.pick = i;
+                        }
+                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
+                        mind.state.last_verb = Some(opts[i].verb);
                     }
                 }
             }
@@ -3719,6 +3766,465 @@ pub mod scratch_log {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, OnceLock};
 
+    // ---- SCRATCH (foraging-loop thread, 2026-10-22): "carry it home", the old ant's laden rules as a teacher. The
+    // game's own ant (chooser_step + act) delivers 25% of what it bites in the in-run bed against h1's 3%, with the
+    // same body: h1 swallows 38% of its bites by choice and puts 41% back down in the field, no nearer home. The
+    // label, for an ant holding food it took away from home (`trip_cells` > 0) with at least `PP_CARRY_FLOOR` tanks
+    // (default 1; under it the ant may eat its load):
+    //   at the nest (the delivery's own `nest_within_reach`): put it down (every Drop offered)
+    //   else, food in reach the crop can take: pick it up (fill before walking, `fills_before_walking`)
+    //   else: the steps that end nearest home (forage_anchor, Euclidean), if nearer than the head is now
+    // So it never eats the load and never puts it down away from home. Reads only what the ant has: its crop, bank,
+    // the options and where home is.
+    pub fn carry_act() -> Option<f32> {
+        static Q: OnceLock<Option<f32>> = OnceLock::new();
+        *Q.get_or_init(|| std::env::var("PP_CARRY").ok().map(|v| v.parse().expect("PP_CARRY=q")))
+    }
+    pub static CARRY_COUNTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+    /// `PP_CARRY_WAY=1`: steps through the colony's tunnels to the founding hole's mouth, as a distance field over open
+    /// (or ant-held) cells, rebuilt every 50 frames. Traced (pa8 seed 1, ant 23): hungry and empty in one of h1's side
+    /// galleries 11 columns out, the "highest step" label climbed into the gallery roof and fell back for 3,000
+    /// frames until it starved. A teacher may know the way; the copy then has to find a sense that carries it.
+    pub fn way_dist(world: &World, mouth: (i32, i32), p: (i32, i32)) -> Option<u32> {
+        thread_local! { static FIELD: std::cell::RefCell<(u64, (i32, i32), HashMap<(i32, i32), u32>)> = std::cell::RefCell::new((u64::MAX, (0, 0), HashMap::new())); }
+        FIELD.with(|f| {
+            let mut f = f.borrow_mut();
+            let epoch = world.frame / 50;
+            if f.0 != epoch || f.1 != mouth {
+                let open = |x: i32, y: i32| (x - mouth.0).abs() <= 70 && y >= mouth.1 - 20 && y <= mouth.1 + 50 && (world.is_empty(x, y) || world.get(x, y).organism_id() != 0);
+                let mut d: HashMap<(i32, i32), u32> = HashMap::new();
+                let mut q = std::collections::VecDeque::new();
+                for dx in -2..=2 {
+                    for dy in -2..=1 {
+                        let c = (mouth.0 + dx, mouth.1 + dy);
+                        if open(c.0, c.1) {
+                            d.insert(c, 0);
+                            q.push_back(c);
+                        }
+                    }
+                }
+                while let Some((x, y)) = q.pop_front() {
+                    let k = d[&(x, y)];
+                    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                        let n = (x + dx, y + dy);
+                        if !d.contains_key(&n) && open(n.0, n.1) {
+                            d.insert(n, k + 1);
+                            q.push_back(n);
+                        }
+                    }
+                }
+                *f = (epoch, mouth, d);
+            }
+            f.2.get(&p).copied()
+        })
+    }
+    fn way_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_CARRY_WAY").is_ok())
+    }
+    /// The offered walks that end nearest the mouth through the tunnels, if nearer than the head.
+    fn way_walks(world: &World, mouth: (i32, i32), at: (i32, i32), opts: &[Opt]) -> Option<Vec<usize>> {
+        let here = way_dist(world, mouth, at)?;
+        let ws: Vec<(usize, u32)> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).filter_map(|i| way_dist(world, mouth, opts[i].target).map(|k| (i, k))).collect();
+        let best = ws.iter().map(|w| w.1).min().filter(|&b| b < here)?;
+        Some(ws.into_iter().filter(|w| w.1 == best).map(|w| w.0).collect())
+    }
+    /// Hungry branches: spoil-drop, spoil-up, spoil-stuck, eat, pick, empty-nothing (no label).
+    pub static HUNGRY_BRANCH: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    // `PP_CARRY_HUNGRY=H` (tanks) adds the old ant's hungry rules (`needs_first_act`; the hungry lane's trace: 94% of
+    // starving decisions were ants holding a soil pellet at the chamber bottom beside a full store). Under H tanks:
+    //   holding spoil: put it down off the hole (a Drop with no CUT and no DEPTH), else take the highest step
+    //   food in the crop: eat it (a trip load at the nest included: a hungry ant does not hand its load over)
+    //   empty: pick up any food in reach
+    fn carry_hungry() -> Option<f32> {
+        static H: OnceLock<Option<f32>> = OnceLock::new();
+        *H.get_or_init(|| std::env::var("PP_CARRY_HUNGRY").ok().map(|v| v.parse().expect("PP_CARRY_HUNGRY")))
+    }
+    pub static HOMEFAR: AtomicU64 = AtomicU64::new(0);
+    pub fn far_ctx() -> Option<i32> {
+        static R: OnceLock<Option<i32>> = OnceLock::new();
+        *R.get_or_init(|| std::env::var("PP_FAR_CTX").ok().map(|v| v.parse().expect("PP_FAR_CTX")))
+    }
+    fn homefar() -> Option<i32> {
+        static R: OnceLock<Option<i32>> = OnceLock::new();
+        *R.get_or_init(|| std::env::var("PP_HOMEFAR").ok().map(|v| v.parse().expect("PP_HOMEFAR")))
+    }
+    pub fn carry_label(world: &World, organism: OrganismId, def: &CreatureDef, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt]) -> Vec<usize> {
+        let Some(st) = world.organism(organism) else { return Vec::new() };
+        let of = |v: Verb| -> Vec<usize> { (0..opts.len()).filter(|&i| opts[i].verb == v).collect() };
+        let e = ctx[c::ENERGY] / (1.0 - ctx[c::ENERGY]).max(1e-6);
+        // `PP_CARRY_DUMP=id:f0:f1`: print one ant's options while it decides, for tracing a stuck carrier.
+        if let Ok(v) = std::env::var("PP_CARRY_DUMP") {
+            let p: Vec<u64> = v.split(':').map(|x| x.parse().unwrap()).collect();
+            if organism as u64 == p[0] && (p[1]..=p[2]).contains(&world.frame) && world.frame % 30 == 0 {
+                let ms = |x: i32, y: i32| { let c = world.get(x, y); format!("{}{}", world.materials.get(c.material).name.chars().take(4).collect::<String>(), if c.organism_id() != 0 { format!("#{}", c.organism_id()) } else { String::new() }) };
+                let chain: Vec<(i32, i32)> = st.chain.clone();
+                eprintln!("DUMP f{} e{:.2} at{:?} chain{:?} spoil{} below[{} {} {}] opts: {}", world.frame, e, at, chain, st.spoil.is_some(), ms(at.0 - 1, at.1 + 1), ms(at.0, at.1 + 1), ms(at.0 + 1, at.1 + 1),
+                    opts.iter().map(|o| format!("{:?}{:?}", o.verb, o.target)).collect::<Vec<_>>().join(" "));
+            }
+        }
+        // `PP_CARRY_HOME_R=R`: home is the body's own `nest_within_reach` AND within R columns of the founding hole.
+        // The bed's home rule (`NestHome::Dug`) counts every cell the colony ever cut, and h1 cuts surface soil out at
+        // the food, so the unbounded teacher "delivered" 1,994 of its 5,239 loads 12+ columns out (old ant: 0).
+        static HOME_R: OnceLock<Option<i32>> = OnceLock::new();
+        let home_r = *HOME_R.get_or_init(|| std::env::var("PP_CARRY_HOME_R").ok().map(|v| v.parse().expect("PP_CARRY_HOME_R")));
+        // With R set, "home" is also the founding site (the nearest `nest_sites` entry, its ground row), not
+        // `forage_anchor`: the anchor follows every nest contact, so it drifts out to those same field cuts.
+        let site = home_r.and_then(|_| world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map(|s| (s.x, s.surface)));
+        let anchor = site.unwrap_or(st.forage_anchor);
+        let mouth = (anchor.0, anchor.1 - 1);
+        let below_ground = ctx[c::DEPTH] > 0.05;
+        // Underground with a way to the mouth known: take it (`PP_CARRY_WAY`), for every walking rule below.
+        let way = |opts: &[Opt]| if way_on() && below_ground { way_walks(world, mouth, at, opts) } else { None };
+        let home = |p: (i32, i32)| nest_within_reach(world, organism, p.0, p.1, def) && home_r.map_or(true, |r| (p.0 - anchor.0).abs() <= r);
+        // Walled in: holding spoil, and nothing offered but stepping into its own body, turning round or resting.
+        if st.spoil.is_some() && opts.iter().all(|o| matches!(o.verb, Verb::TurnAround | Verb::Rest) || (o.verb == Verb::Walk && st.chain.contains(&o.target))) {
+            WALLED.lock().unwrap().get_or_insert_with(HashMap::new).insert(organism, world.frame);
+        }
+        // SCRATCH (starvation-trace thread, 2026-10-22): `PP_HOMEFAR=R`, "come home when empty and far". An ant with
+        // nothing in the crop and no pellet, more than R columns from the founding hole, takes the step that brings it
+        // nearest home's column; with none (a wall face), the step down. The trace (/mnt/project-files/starve-trace/):
+        // 50-62% of hA1 starvation deaths walked out fat past 60 columns, showed no homeward pull at any tank (net
+        // -2% to +2% of walks) with a correct home sense, and starved at the box walls ~45k frames later.
+        if let Some(r) = homefar() {
+            if st.crop.is_none() && st.spoil.is_none() {
+                let ax = st.forage_anchor.0;
+                let nx = world.nest_sites.iter().min_by_key(|s| (s.x - ax).abs()).map_or(ax, |s| s.x);
+                if (at.0 - nx).abs() > r {
+                    let walks = of(Verb::Walk);
+                    let far = |x: i32| (x - nx).abs();
+                    if let Some(best) = walks.iter().map(|&i| far(opts[i].target.0)).min().filter(|&b| b < far(at.0)) {
+                        HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                    }
+                    if let Some(low) = walks.iter().map(|&i| opts[i].target.1).max().filter(|&l| l > at.1) {
+                        HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| opts[i].target.1 == low).collect();
+                    }
+                }
+            }
+        }
+        if carry_hungry().is_some_and(|h| e < h) {
+            if st.spoil.is_some() {
+                // A cut offered with a pellet in the jaws is the pack move (`PP_PACK`): only a walled-in ant has one.
+                let packs = of(Verb::Dig);
+                if !packs.is_empty() {
+                    return packs;
+                }
+                // `PP_CARRY_ANYDROP=1`: the old ant's hungry put-down (`need_drop_site`) takes any footing beside the head, so
+                // under it any offered Drop is the label; and an ant hanging in a gallery (nothing under the head) steps
+                // down to the floor, where the mind's on-ground pellet rule can offer one. Traced (ph8 seed 4, ant 9):
+                // hungry with a pellet in an open gallery, only Walks offered, the "highest step" label climbed and fell
+                // back for 2,000 frames until it starved beside a full store.
+                let any_drop = std::env::var("PP_CARRY_ANYDROP").is_ok();
+                if any_drop && ctx[c::DEPTH] > 0.05 && of(Verb::Drop).is_empty() && world.is_empty(at.0, at.1 + 1) {
+                    let walks = of(Verb::Walk);
+                    if let Some(low) = walks.iter().map(|&i| opts[i].target.1).max().filter(|&l| l > at.1) {
+                        return walks.into_iter().filter(|&i| opts[i].target.1 == low).collect();
+                    }
+                }
+                let off: Vec<usize> = (0..opts.len())
+                    .filter(|&i| opts[i].verb == Verb::Drop && (any_drop || (opts[i].feats[options::f::CUT] == 0.0 || std::env::var("PP_CARRY_ANYCUT").is_ok()) && opts[i].feats[options::f::DEPTH] <= 0.0))
+                    .collect();
+                if !off.is_empty() {
+                    HUNGRY_BRANCH[0].fetch_add(1, Ordering::Relaxed);
+                    return off;
+                }
+                if let Some(w) = way(opts) {
+                    return w;
+                }
+                let walks = of(Verb::Walk);
+                // On the surface: carry it away from home's column (the hungry lane's "up, then away"); climbing alone
+                // ran hungry carriers up and down the mound (10,512 up-labels against 34 off-hole drops, seed 3).
+                if ctx[c::DEPTH] <= 0.05 {
+                    let nx = anchor.0;
+                    let far = |x: i32| (x - nx).abs();
+                    if let Some(best) = walks.iter().map(|&i| far(opts[i].target.0)).max().filter(|&b| b > far(at.0)) {
+                        HUNGRY_BRANCH[1].fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                    }
+                }
+                let top = walks.iter().map(|&i| opts[i].target.1).min().unwrap_or(at.1);
+                HUNGRY_BRANCH[if top < at.1 { 1 } else { 2 }].fetch_add(1, Ordering::Relaxed);
+                // Stuck (no way up, nowhere off the hole): put it down anywhere, so the jaws can eat or dig out.
+                // `PP_CARRY_STUCK=0` leaves the brain's pick instead.
+                if top >= at.1 && std::env::var("PP_CARRY_STUCK").map_or(true, |v| v != "0") {
+                    let digs = of(Verb::Dig);
+                    return if digs.is_empty() { of(Verb::Drop) } else { digs };
+                }
+                return if top < at.1 { walks.into_iter().filter(|&i| opts[i].target.1 == top).collect() } else { Vec::new() };
+            }
+            // `PP_CARRY_NOEAT=1`: as the old ant, never Eat. It chooses to eat 0 of its bites and digests ~70% from the
+            // crop it carries (bed, seeds 1-4); every old ant ends 25+ tanks. A hungry ant with food keeps holding it
+            // (anything but Eat or Drop) and the body feeds it; a trip load goes on home by the carry rules below.
+            let no_eat = std::env::var("PP_CARRY_NOEAT").is_ok();
+            if no_eat && st.crop.is_some() && st.trip_cells == 0 {
+                return (0..opts.len()).filter(|&i| !matches!(opts[i].verb, Verb::Eat | Verb::Drop)).collect();
+            }
+            if !no_eat && st.crop.is_some() && (st.trip_cells == 0 || home(at)) {
+                HUNGRY_BRANCH[3].fetch_add(1, Ordering::Relaxed);
+                return of(Verb::Eat);
+            }
+            if st.crop.is_none() {
+                let p = of(Verb::PickUp);
+                HUNGRY_BRANCH[if p.is_empty() { 5 } else { 4 }].fetch_add(1, Ordering::Relaxed);
+                if !p.is_empty() {
+                    return p;
+                }
+                // `PP_CARRY_STORE=1`: the old ant's hungry rule first -- walk to the nest's store over the way
+                // (`NestWay::store_at`, the field the game ant's store pull walks) and eat there. Every starved ant
+                // in pw8 died beside a store that still held food, most within 8 columns of the hole.
+                if std::env::var("PP_CARRY_STORE").is_ok() {
+                    if let Some(w) = world.nest_ways.iter().find(|w| w.store_at(at.0, at.1).is_some()) {
+                        let here = w.store_at(at.0, at.1).unwrap();
+                        let ws: Vec<(usize, u16)> = of(Verb::Walk).into_iter().filter_map(|i| w.store_at(opts[i].target.0, opts[i].target.1).map(|k| (i, k))).collect();
+                        if let Some(best) = ws.iter().map(|x| x.1).min().filter(|&b| b < here) {
+                            return ws.into_iter().filter(|x| x.1 == best).map(|x| x.0).collect();
+                        }
+                    }
+                }
+                // Nothing in reach: go out for it (the hungry lane's lesson, its 40-column radius), never dig. Below the
+                // ground as built, the highest step; on the surface, the step furthest from home's column.
+                if st.spoil.is_none() && std::env::var("PP_CARRY_OUT").map_or(true, |v| v != "0") {
+                    if let Some(w) = way(opts) {
+                        return w;
+                    }
+                    let walks = of(Verb::Walk);
+                    let nx = anchor.0;
+                    let below = ctx[c::DEPTH] > 0.05;
+                    let key = |(tx, ty): (i32, i32)| if below { (at.1 - ty, (tx - nx).abs()) } else { ((tx - nx).abs(), at.1 - ty) };
+                    if !below && (at.0 - nx).abs() >= 40 {
+                        return Vec::new();
+                    }
+                    let here = key(at);
+                    let Some(best) = walks.iter().map(|&i| key(opts[i].target)).max() else { return Vec::new() };
+                    if best.0 > here.0 {
+                        return walks.into_iter().filter(|&i| key(opts[i].target).0 == best.0).collect();
+                    }
+                }
+            }
+        }
+        // `PP_CARRY_HUNGRYONLY=1`: the hungry rules alone, no carry-home labels (a ceiling for a hungry-only lesson).
+        if st.crop.is_none() || st.trip_cells == 0 || std::env::var("PP_CARRY_HUNGRYONLY").is_ok() {
+            return Vec::new();
+        }
+        static FLOOR: OnceLock<f32> = OnceLock::new();
+        let floor = *FLOOR.get_or_init(|| std::env::var("PP_CARRY_FLOOR").ok().map_or(1.0, |v| v.parse().expect("PP_CARRY_FLOOR")));
+        if e < floor {
+            return Vec::new();
+        }
+        if home(at) {
+            return of(Verb::Drop);
+        }
+        let picks = of(Verb::PickUp);
+        if !picks.is_empty() {
+            return picks;
+        }
+        if let Some(w) = way(opts) {
+            return w;
+        }
+        let (ax, ay) = anchor;
+        let d = |(x, y): (i32, i32)| (((x - ax) * (x - ax) + (y - ay) * (y - ay)) as f32).sqrt();
+        let walks = of(Verb::Walk);
+        let Some(best) = walks.iter().map(|&i| d(opts[i].target)).min_by(|a, b| a.partial_cmp(b).unwrap()) else { return Vec::new() };
+        if best >= d(at) {
+            return Vec::new();
+        }
+        walks.into_iter().filter(|&i| d(opts[i].target) == best).collect()
+    }
+    pub fn carry_out(world: &World, organism: OrganismId, def: &CreatureDef, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], pick: usize) -> Option<usize> {
+        let q = carry_act()?;
+        let lab = carry_label(world, organism, def, at, ctx, opts);
+        if lab.is_empty() {
+            return None;
+        }
+        CARRY_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        if lab.contains(&pick) {
+            CARRY_COUNTS[1].fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        if roll(world, organism, 91) >= q {
+            return None;
+        }
+        CARRY_COUNTS[2].fetch_add(1, Ordering::Relaxed);
+        Some(lab[(roll(world, organism, 92) * lab.len() as f32) as usize % lab.len()])
+    }
+    pub static PACKS: AtomicU64 = AtomicU64::new(0);
+    pub static WALLED: Mutex<Option<HashMap<OrganismId, u64>>> = Mutex::new(None);
+    // ---- SCRATCH (foraging-loop thread, 2026-10-22): `PP_SHADOW=1`, the old ant as the teacher. Every founder keeps
+    // its mind but walks by the game's own rules (chooser + act), as `PP_NOMIND`; before each of its ticks the mind
+    // is shown the options and context it would have had and decides (memory only, never acted on), and after the
+    // tick the old ant's move is read back off the body -- the cut, put-down, pick-up or step it made -- as the option
+    // indices that match it. That row (the 16th copy-log field) is the label. Hand-written rules failed five times
+    // (report-2026-10-22.md, "Correction"); this asks the bar itself.
+    pub fn shadow_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_SHADOW").is_ok_and(|v| v == "1"))
+    }
+    struct Pending {
+        row: String,
+        opts: Vec<Opt>,
+        cells: Vec<(u16, OrganismId)>,
+        ctx: [f32; CONTEXT],
+        mem0: [f32; MEMORY],
+        scores: Vec<f32>,
+        head: (i32, i32),
+        tail: Option<(i32, i32)>,
+        spoil: bool,
+        crop: u16,
+    }
+    thread_local! {
+        static SHADOW: std::cell::RefCell<HashMap<OrganismId, Pending>> = std::cell::RefCell::new(HashMap::new());
+        static SHADOW_PREV: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
+        static CAPTURE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    }
+    pub static SHADOW_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+    fn cell_key(world: &World, p: (i32, i32)) -> (u16, OrganismId) {
+        let c = world.get(p.0, p.1);
+        (c.material.0 as u16, c.organism_id())
+    }
+    /// The options the old ant's last tick matches: what changed on the body, and which offered target it touched.
+    fn shadow_label(world: &World, organism: OrganismId, p: &Pending) -> Vec<usize> {
+        let Some(st) = world.organism(organism) else { return Vec::new() };
+        let head = st.chain.first().copied().unwrap_or(p.head);
+        let spoil = st.spoil.is_some();
+        let crop = st.crop.map_or(0, |c| c.cells);
+        let changed = |i: usize| cell_key(world, p.opts[i].target) != p.cells[i];
+        let with = |v: Verb, need_change: bool| -> Vec<usize> { (0..p.opts.len()).filter(|&i| p.opts[i].verb == v && (!need_change || changed(i))).collect() };
+        if !p.spoil && spoil {
+            SHADOW_COUNTS[1].fetch_add(1, Ordering::Relaxed);
+            return with(Verb::Dig, true);
+        }
+        if p.spoil && !spoil {
+            SHADOW_COUNTS[2].fetch_add(1, Ordering::Relaxed);
+            let mut v = with(Verb::Drop, true);
+            v.extend(with(Verb::Dig, true));
+            return v;
+        }
+        if crop > p.crop {
+            SHADOW_COUNTS[3].fetch_add(1, Ordering::Relaxed);
+            return with(Verb::PickUp, true);
+        }
+        if crop < p.crop {
+            let v = with(Verb::Drop, true);
+            if !v.is_empty() {
+                SHADOW_COUNTS[4].fetch_add(1, Ordering::Relaxed);
+                return v;
+            }
+            // Digested, or fed to a nestmate: not a choice the options name.
+            SHADOW_COUNTS[7].fetch_add(1, Ordering::Relaxed);
+            return Vec::new();
+        }
+        if head != p.head {
+            SHADOW_COUNTS[5].fetch_add(1, Ordering::Relaxed);
+            if Some(head) == p.tail {
+                return with(Verb::TurnAround, false);
+            }
+            return (0..p.opts.len()).filter(|&i| p.opts[i].verb == Verb::Walk && p.opts[i].target == head).collect();
+        }
+        SHADOW_COUNTS[6].fetch_add(1, Ordering::Relaxed);
+        with(Verb::Rest, false)
+    }
+    /// Close the ant's pending row with the label its tick earned, write it (sampled), and walk the memory on with
+    /// the verb the old ant used.
+    fn shadow_resolve(world: &mut World, organism: OrganismId) {
+        let Some(p) = SHADOW.with(|s| s.borrow_mut().remove(&organism)) else { return };
+        let lab = shadow_label(world, organism, &p);
+        SHADOW_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        let field = if lab.is_empty() { "-".to_string() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) };
+        if !p.row.contains(",@L@") {
+            return;
+        }
+        let row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        // `PP_SHADOW_SAMPLE=n`: keep one in n rows labelled a plain step or rest, every other labelled row; a kept row
+        // is preceded by the ant's previous row marked settle=2 (memory context), as `PP_COPY_SAMPLE` does.
+        static N: OnceLock<u64> = OnceLock::new();
+        let n = *N.get_or_init(|| std::env::var("PP_SHADOW_SAMPLE").ok().map_or(1, |v| v.parse().expect("PP_SHADOW_SAMPLE")));
+        let plain = lab.is_empty() || lab.iter().all(|&i| matches!(p.opts[i].verb, Verb::Walk | Verb::Rest | Verb::TurnAround));
+        let keep = !lab.is_empty() && (!plain || n <= 1 || rng::stream(world.seed, organism as u64, world.frame, 4445).next_u64() % n == 0);
+        let settle2 = |r: &str| {
+            let mut f: Vec<&str> = r.splitn(7, ',').collect();
+            if f.len() == 7 {
+                f[5] = "2";
+            }
+            f.join(",")
+        };
+        SHADOW_PREV.with(|pm| {
+            let mut pm = pm.borrow_mut();
+            if keep {
+                if let Some((written, prev)) = pm.get(&organism) {
+                    if !*written {
+                        cline(&settle2(prev));
+                    }
+                }
+                cline(&row);
+            }
+            pm.insert(organism, (keep, row));
+        });
+        // Memory follows the verb carried out; with no label, the mind's own pick stands (decide already wrote it).
+        if let Some(&i) = lab.first() {
+            let verb = p.opts[i].verb;
+            if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
+                m.state.mem = remember(&m.genome.w, &p.ctx, &p.mem0, &p.opts, &p.scores, verb);
+                m.state.last_verb = Some(verb);
+            }
+        }
+    }
+    /// Before the old ant's tick: close the last row, then show the mind this tick's options and let it decide.
+    pub fn shadow_pre(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef) {
+        shadow_resolve(world, organism);
+        let Some(mut mind) = world.minds.as_mut().and_then(|m| m.ants.get(&organism).cloned()) else { return };
+        let mut opts = Vec::new();
+        options::build_with(world, organism, def, mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0, &mut opts);
+        if opts.is_empty() {
+            return;
+        }
+        let (ctx, now) = context(world, organism, def, &mind.state, &opts);
+        let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+        let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+        let Some(d) = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw) else { return };
+        mind.state.last = Some(now);
+        CAPTURE.with(|c| *c.borrow_mut() = Some(String::new()));
+        CARRY_LAB.with(|c| *c.borrow_mut() = "@L@".into());
+        copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, &d);
+        let row = CAPTURE.with(|c| c.borrow_mut().take()).unwrap_or_default();
+        let st = world.organism(organism);
+        let p = Pending {
+            row: row.trim_end().to_string(),
+            cells: opts.iter().map(|o| cell_key(world, o.target)).collect(),
+            ctx,
+            mem0,
+            scores: d.scores.clone(),
+            head: (x, y),
+            tail: st.and_then(|s| s.chain.last().copied()),
+            spoil: st.is_some_and(|s| s.spoil.is_some()),
+            crop: st.and_then(|s| s.crop).map_or(0, |c| c.cells),
+            opts,
+        };
+        if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
+            m.state = mind.state;
+        }
+        if !p.row.is_empty() {
+            SHADOW.with(|s| s.borrow_mut().insert(organism, p));
+        }
+    }
+    pub static DROPWHY: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    pub fn carry_report() -> String {
+        if let Some(m) = WALLED.lock().unwrap().as_ref() {
+            let mut v: Vec<_> = m.iter().collect();
+            v.sort();
+            eprintln!("WALLED {}", v.iter().map(|(i, f)| format!("{i}:{f}")).collect::<Vec<_>>().join(" "));
+        }
+        let dw: Vec<u64> = DROPWHY.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        if dw[0] > 0 {
+            eprintln!("DROPWHY pellet holders under 1 tank: {} decisions; an empty cell beside the head {}; an on-ground spoil site {}; the game ant's need site {}; 3+ nestmates beside {}; no empty cell and a nestmate beside {}", dw[0], dw[1], dw[2], dw[3], dw[4], dw[5]);
+        }
+        let c: Vec<u64> = CARRY_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        eprintln!("PACKS {} HOMEFAR labels {}", PACKS.load(Ordering::Relaxed), HOMEFAR.load(Ordering::Relaxed));
+        let h: Vec<u64> = HUNGRY_BRANCH.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        format!("carry {:?}: labelled {} | brain already agreed {} | forced {} || hungry decisions: spoil drop {} up {} stuck {} | eat {} | pick {} | empty, nothing to pick {}", carry_act(), c[0], c[1], c[2], h[0], h[1], h[2], h[3], h[4], h[5])
+    }
+
     // ---- SCRATCH (teacher-training ceiling test): a hand-written teacher that makes three of the brain's calls.
     // `PP_TEACH=dig,drop,home[,margin=N]` turns each correction on. The teacher reads only what the copyability probe
     // showed the ant can sense (frame-0 ground, depth, the hole as it stands), held per thread by the soil arena for
@@ -4100,6 +4606,10 @@ pub mod scratch_log {
     }
     /// One row into the copy log, prefixed with this thread's world tag.
     pub fn cline(s: &str) {
+        if shadow_on() && CAPTURE.with(|c| c.borrow().is_some()) {
+            CAPTURE.with(|c| c.borrow_mut().as_mut().unwrap().push_str(s));
+            return;
+        }
         if let Some(f) = copy_out() {
             let tag = WORLD.with(|w| w.get());
             let _ = writeln!(f.lock().unwrap(), "{tag},{s}");
@@ -4192,30 +4702,125 @@ pub mod scratch_log {
         // SCRATCH (teacher lane, 2026-10-22): the crater refusal's label as a 17th field (the 16th, `-` here, is the
         // foraging-loop thread's teacher label): the option indices `PP_RIMVETO` would take off, a pure function of
         // the state, written whatever the brain picked; `-` when none or the refusal is off.
-        let refused = rimveto().map_or_else(|| "-".to_string(), |(n, nx, nr)| {
-            let r: Vec<String> = (0..opts.len()).filter(|&i| rim_cut(world, &opts[i], n, nx, nr)).map(|i| i.to_string()).collect();
-            if r.is_empty() { "-".to_string() } else { r.join(";") }
-        });
         let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
         let bottom: Vec<String> = opts
             .iter()
             .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
             .collect();
-        cline(&format!(
-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},-,{}",
-            world.frame,
-            at.0,
-            at.1,
-            u8::from(SETTLE.with(|s| s.get())),
-            d.pick,
-            last.map_or(-1, |v| v as i32),
-            u8::from(carrying),
-            f(ctx),
-            f(mem0),
-            all.join(";"),
-            bottom.join(";"),
-            refused
-        ));
+        let carry = CARRY_LAB.with(|c| std::mem::replace(&mut *c.borrow_mut(), "-".into()));
+        // SCRATCH (maze thread, 2026-10-22; ported): the recruitment-trail teacher's label shares the 16th field,
+        // `hp|i;j` as the copier reads it, when the carry teacher has none. `PP_TRAIL_LABEL=hp[:spread]`.
+        let carry = if carry != "-" {
+            carry
+        } else {
+            trail_label().map_or_else(
+                || "-".to_string(),
+                |(hp, _)| trail_up(world, organism, ctx, opts).map_or_else(|| "-".to_string(), |up| format!("{hp}|{}", up.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";"))),
+            )
+        };
+        // The crater refusal's label as a 17th field (teacher lane's format): the option indices `PP_RIMVETO` would
+        // take off, whatever the brain picked; `-` when none or the refusal is off.
+        let refused = rimveto().map_or_else(|| "-".to_string(), |(n, nx, nr)| {
+            let r: Vec<String> = (0..opts.len()).filter(|&i| rim_cut(world, &opts[i], n, nx, nr)).map(|i| i.to_string()).collect();
+            if r.is_empty() { "-".to_string() } else { r.join(";") }
+        });
+        let row = |settle: u8| {
+            format!(
+                "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{carry},{refused}",
+                world.frame,
+                at.0,
+                at.1,
+                settle,
+                d.pick,
+                last.map_or(-1, |v| v as i32),
+                u8::from(carrying),
+                f(ctx),
+                f(mem0),
+                all.join(";"),
+                bottom.join(";")
+            )
+        };
+        // `PP_COPY_SAMPLE=k[:m]` (the hungry lane's sampler): keep one in m labelled rows (default every one) and one
+        // in k of the rest, each kept row preceded by the same ant's previous decision marked settle=2 (memory context
+        // only, never a training row), so the copier's one-step memory path still links a kept row to the one before.
+        let (k, m) = sample_km();
+        let settle = u8::from(SETTLE.with(|s| s.get()));
+        if k <= 1 && m <= 1 {
+            cline(&row(settle));
+            return;
+        }
+        let r = rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64();
+        let keep = if carry != "-" || refused != "-" { r % m == 0 } else { r % k == 0 };
+        PREV_ROW.with(|pm| {
+            let mut pm = pm.borrow_mut();
+            if keep {
+                if let Some((written, prev)) = pm.get(&organism) {
+                    if !*written {
+                        cline(prev);
+                    }
+                }
+                cline(&row(settle));
+            }
+            pm.insert(organism, (keep, row(2)));
+        });
+    }
+    thread_local! {
+        pub static CARRY_LAB: std::cell::RefCell<String> = std::cell::RefCell::new("-".into());
+        static PREV_ROW: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
+    }
+    /// The recruitment-trail teacher's steps (maze thread, 2026-10-22; ported from trail-teacher-vs-ee38ae5b.patch):
+    /// for an ant with an empty crop and empty jaws, away from the nest, with 2+ Walk options whose B there-minus-here
+    /// differs by at least the label's `spread`, the steps up B.
+    pub fn trail_up(world: &World, organism: OrganismId, ctx: &[f32; CONTEXT], opts: &[Opt]) -> Option<Vec<usize>> {
+        let (_, spread) = trail_label()?;
+        let empty = world.organism(organism).is_some_and(|s| s.crop.map_or(0, |c| c.cells) == 0 && s.spoil.is_none());
+        let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
+        if !empty || ctx[c::AT_NEST] > 0.0 || walks.len() < 2 {
+            return None;
+        }
+        // `PP_TRAIL_OUT=1`: the second rule (after the first one trapped climbers on a runaway B peak short of the
+        // food): stay on the trail -- Walk options whose B there is at least half the best -- and of those take the
+        // step farthest from the nest's column (outward). No trail in reach (best B there < 0.05): abstain.
+        if trail_out() {
+            let bt = |i: usize| opts[i].feats[options::f::SCENT + 3];
+            let best = walks.iter().map(|&i| bt(i)).fold(f32::NEG_INFINITY, f32::max);
+            if best < 0.05 {
+                return None;
+            }
+            let on: Vec<usize> = walks.iter().copied().filter(|&i| bt(i) >= 0.5 * best).collect();
+            let out = |i: usize| (opts[i].target.0 - 128).abs();
+            let far = on.iter().map(|&i| out(i)).max()?;
+            return Some(on.into_iter().filter(|&i| out(i) == far).collect());
+        }
+        let bd = |i: usize| opts[i].feats[options::f::SCENT + 4];
+        let hi = walks.iter().map(|&i| bd(i)).fold(f32::NEG_INFINITY, f32::max);
+        let lo = walks.iter().map(|&i| bd(i)).fold(f32::INFINITY, f32::min);
+        (hi - lo >= spread).then(|| walks.iter().copied().filter(|&i| bd(i) == hi).collect())
+    }
+    fn trail_out() -> bool {
+        static O: OnceLock<bool> = OnceLock::new();
+        *O.get_or_init(|| std::env::var("PP_TRAIL_OUT").is_ok())
+    }
+    pub fn trail_act() -> bool {
+        static A: OnceLock<bool> = OnceLock::new();
+        *A.get_or_init(|| std::env::var("PP_TRAIL_ACT").is_ok())
+    }
+    fn trail_label() -> Option<(f32, f32)> {
+        static T: OnceLock<Option<(f32, f32)>> = OnceLock::new();
+        *T.get_or_init(|| {
+            let v = std::env::var("PP_TRAIL_LABEL").ok()?;
+            let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_TRAIL_LABEL hp[:spread]")).collect();
+            Some((p[0], p.get(1).copied().unwrap_or(0.2)))
+        })
+    }
+    fn sample_km() -> (u64, u64) {
+        static K: OnceLock<(u64, u64)> = OnceLock::new();
+        *K.get_or_init(|| {
+            std::env::var("PP_COPY_SAMPLE").ok().map_or((1, 1), |v| {
+                let p: Vec<u64> = v.split(':').map(|x| x.parse().expect("PP_COPY_SAMPLE k[:m]")).collect();
+                (p[0], p.get(1).copied().unwrap_or(1))
+            })
+        })
     }
     pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
     /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
