@@ -384,6 +384,7 @@ TOPICS = {
     "putting things in the box, and what the view shows": [
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
         "Lab windows status — every window docks, folds or closes, and none is drawn over another",
+        "Lab crisp text status — the interface on a layer of its own",
     ],
     # 2026-09-09: the instrument turned toward the player. Names and a
     # chronicle bounded per lineage, the clock reacting to line events, and
