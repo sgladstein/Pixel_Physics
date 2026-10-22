@@ -51,6 +51,33 @@ pub fn bed_score(c: &Census, k: &Constants) -> f32 {
     }
 }
 
+/// **Rung 2's score: juvenile growth, in steps** (plant-community plan
+/// §6.2). Not germinated 0; germinated 1 plus the way to establishment;
+/// established 2 plus its shoot cells at the end of the rung against
+/// `reference` -- the shipped species' mean in the same station, measured
+/// once at the start of the run, so a child cannot move its own yardstick.
+/// Size is paid on a log scale, `ln(1 + end/ref) / ln(1 + GROW_CAP)`, so
+/// the reference scores 0.32 of the step, twice it 0.5, and the step is
+/// full only at `GROW_CAP` times it. It was a straight line capped at twice
+/// the reference, and the first shrub re-fit (2026-10-21, bright + dim)
+/// had its every child on the cap from generation 6: its champion grew
+/// 488 cells against a bright yardstick of 244 and 377 against a dim one
+/// of 111, so the trainer could no longer tell children apart. A ceiling
+/// is still wanted -- it keeps a runaway grower from buying the whole
+/// score -- but it belongs where the bed, not the scale, runs out.
+pub const GROW_CAP: f32 = 8.0;
+
+pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
+    if !c.germinated {
+        return 0.0;
+    }
+    if c.established_at.is_none() {
+        return 1.0 + if n_est == 0 { 0.0 } else { (c.peak_shoot as f32 / n_est as f32).min(0.999) };
+    }
+    let rel = c.end_shoot as f32 / reference.max(1.0);
+    2.0 + ((1.0 + rel).ln() / (1.0 + GROW_CAP).ln()).min(0.999)
+}
+
 /// Mean and minimum of a genome's bed scores.
 pub fn fold(scores: &[f32]) -> (f32, f32) {
     if scores.is_empty() {
@@ -123,6 +150,20 @@ mod tests {
         assert_eq!(dwarf, 3.5);
         // ...and still above any plant that never flowered at all.
         assert!(dwarf > bed_score(&census(10_000, None, false, 0), &k));
+    }
+
+    #[test]
+    fn the_grow_score_steps_and_pays_size_against_the_reference() {
+        let est = |end: u32| Census { germinated: true, peak_shoot: end.max(20), established_at: Some(1_000), end_shoot: end, ..Census::default() };
+        let unsprouted = Census::default();
+        let small = Census { germinated: true, peak_shoot: 10, ..Census::default() };
+        let order = [grow_score(&unsprouted, 20, 100.0), grow_score(&small, 20, 100.0), grow_score(&est(50), 20, 100.0), grow_score(&est(100), 20, 100.0), grow_score(&est(150), 20, 100.0)];
+        for w in order.windows(2) {
+            assert!(w[1] > w[0], "{order:?}");
+        }
+        assert!((grow_score(&est(200), 20, 100.0) - 2.5).abs() < 1e-6, "twice the reference scores half way up its step");
+        assert!(grow_score(&est(700), 20, 100.0) > grow_score(&est(400), 20, 100.0), "still telling growers apart well past twice the reference");
+        assert!(grow_score(&est(10_000), 20, 100.0) < 3.0, "capped below the next step");
     }
 
     #[test]

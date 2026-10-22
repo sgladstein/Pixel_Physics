@@ -12878,6 +12878,13 @@ impl World {
         // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
         // §0 for the four candidates this was chosen over.
         let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
+        // **The settle scan's per-material answers, built once a step and
+        // only on a step where some chunk settles** -- `Chunk::rescan_on_
+        // settle`'s doc has the measurement. Built here rather than cached on
+        // the registry because materials can change live (`tunables.rs`, a
+        // hot-reload), and a table rebuilt per step cannot go stale; it is a
+        // few hundred entries against a 4,096-cell scan per settling chunk.
+        let mut settle_traits: Option<Vec<(i32, bool, bool)>> = None;
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -12905,19 +12912,19 @@ impl World {
                 touched.insert(chunk.coord);
             }
             if !was_settled && settled_now {
-                chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
-                chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
-                // Rides the scan `recompute_reach` is already doing, on the
-                // same transition and for the same reason it was chosen:
-                // this is the one point that is both cheap and safe.
-                let bounds = chunk.coord.bounds();
-                for y in bounds.min_y..=bounds.max_y {
-                    for x in bounds.min_x..=bounds.max_x {
-                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
-                            settled_decayables.push((x, y));
-                        }
-                    }
-                }
+                // Reach, the liquid flag, and -- riding the same scan, on the
+                // same transition and for the same reason it was chosen: this
+                // is the one point that is both cheap and safe -- the
+                // decayable cells. One walk, not three.
+                let table = settle_traits.get_or_insert_with(|| {
+                    (0..materials.len())
+                        .map(|i| {
+                            let m = materials.get(MaterialId(i as u16));
+                            (m.sweep_reach(), m.kind == MaterialKind::Liquid, m.decays_into.is_some())
+                        })
+                        .collect()
+                });
+                chunk.rescan_on_settle(|cell| table[cell.material.0 as usize], &mut settled_decayables);
             }
         }
         // Deduped inside `schedule_active_site`, which is what stops a drift
@@ -13234,6 +13241,19 @@ impl<'w> MoistureView<'w> {
         }
     }
 
+    /// **`inner.contains`, as one unsigned compare per axis.** `x - min_x`
+    /// wraps below the rectangle to a value larger than its width, so
+    /// `(x - min_x) as u32 <= max_x - min_x` is exactly `min_x <= x <= max_x`
+    /// for every `i32` -- the empty-intersection point at `i32::MIN` included.
+    /// This is the test every read and write of the pass makes (about fifteen
+    /// a visited cell), so it is worth the four compares it saves.
+    #[inline(always)]
+    fn is_inner(&self, x: i32, y: i32) -> bool {
+        let r = self.inner;
+        (x.wrapping_sub(r.min_x) as u32) <= (r.max_x.wrapping_sub(r.min_x) as u32)
+            && (y.wrapping_sub(r.min_y) as u32) <= (r.max_y.wrapping_sub(r.min_y) as u32)
+    }
+
     /// Queue `World::set`'s tail for `(x, y)`, if it has anything to do.
     ///
     /// The two guards mirror `set`'s own: `reindex_organism_cell` returns
@@ -13250,16 +13270,16 @@ impl<'w> MoistureView<'w> {
 }
 
 impl CellSurface for MoistureView<'_> {
-    #[inline]
+    #[inline(always)]
     fn get(&self, x: i32, y: i32) -> Cell {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             return self.chunk.get_world(x, y);
         }
         self.world.get(x, y)
     }
 
     fn set(&mut self, x: i32, y: i32, cell: Cell) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let old = self.chunk.get_world(x, y);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
@@ -13284,7 +13304,7 @@ impl CellSurface for MoistureView<'_> {
             self.set(x, y, cell);
             return;
         }
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.set_world_quiet(x, y, cell);
             self.chunk.mark_moist_dirty(x, y);
             self.world.mark_moist_neighbours(x, y, self.coord);
@@ -13306,7 +13326,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_moved(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_moved(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13315,7 +13335,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn clear_undercut(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             let cell = self.chunk.get_world(x, y).with_undercut(false);
             self.chunk.set_world_quiet(x, y, cell);
         } else {
@@ -13324,7 +13344,7 @@ impl CellSurface for MoistureView<'_> {
     }
 
     fn keep_awake(&mut self, x: i32, y: i32) {
-        if self.inner.contains(x, y) {
+        if self.is_inner(x, y) {
             self.chunk.keep_awake(x, y);
         } else {
             self.world.keep_awake(x, y);
