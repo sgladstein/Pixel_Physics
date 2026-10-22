@@ -376,8 +376,22 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     } else {
         CellMemo::new(world, head, (head.0 - 1, head.1 - 1))
     };
+    // **Each target described once**: several verbs can aim at one cell
+    // (rest and eat at the head, dig and pick-up at one soil cell), and
+    // `describe` is a pure read of an unchanging world, so a second option
+    // at a target copies the first's features before its own extras. Off
+    // with `remember`, which is how `the_option_window_changes_no_feature`
+    // holds both to the plain reads.
+    let mut described: Vec<((i32, i32), [f32; FEATURES])> = Vec::with_capacity(24);
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
-        let mut feats = describe(world, &mut memo, &here, target);
+        let mut feats = match described.iter().find(|(t, _)| remember && *t == target) {
+            Some(&(_, feats)) => feats,
+            None => {
+                let feats = describe(world, &mut memo, &here, target);
+                described.push((target, feats));
+                feats
+            }
+        };
         extra(&mut feats);
         out.push(Opt { verb, target, feats });
     };
@@ -732,7 +746,7 @@ mod tests {
     #[test]
     fn the_option_window_changes_no_feature() {
         let mut w = colony_box();
-        let mut compared = 0;
+        let (mut compared, mut shared) = (0, 0);
         for round in 0..6 {
             for _ in 0..500 {
                 step(&mut w);
@@ -744,15 +758,18 @@ mod tests {
                 build_remembering(&w, id, &def, true, &mut a, true);
                 build_remembering(&w, id, &def, true, &mut b, false);
                 assert_eq!(a.len(), b.len(), "round {round}, ant {id}");
-                for (x, y) in a.iter().zip(&b) {
+                for (i, (x, y)) in a.iter().zip(&b).enumerate() {
                     assert_eq!((x.verb, x.target), (y.verb, y.target), "round {round}, ant {id}");
+                    // A target an earlier option shares: its features came
+                    // from the remembered description, not a fresh one.
+                    shared += usize::from(a[..i].iter().any(|o| o.target == x.target));
                     let same = x.feats.iter().zip(&y.feats).all(|(p, q)| p.to_bits() == q.to_bits());
                     assert!(same, "round {round}, ant {id}, {:?} at {:?}: {:?} vs {:?}", x.verb, x.target, x.feats, y.feats);
                     compared += 1;
                 }
             }
         }
-        assert!(compared > 400, "only {compared} options compared");
+        assert!(compared > 400 && shared > 50, "only {compared} options compared, {shared} at a shared target");
     }
 
     /// **The shadow leaves the game unchanged**: one box run twice from the
