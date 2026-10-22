@@ -5719,6 +5719,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
 
+- [brain-training/foraging-loop/foraging-loop-2026-10-22.md](brain-training/foraging-loop/foraging-loop-2026-10-22.md) —
+  **done: the foraging loop lane, and where founder hA1 came from.** The old ant brings food home and loses no
+  ants; the new ant eats its load in the field. Copies taught to carry food home collapsed more colonies (32 seeds:
+  c1 26 of 32 against h1's 14). A control copy with no lesson collapsed like h1, which showed the carry lesson itself
+  was the cause. A hungry-only lesson, copied DAgger-style onto c1, gave **hA1**: 2 of 32 collapsed and 4.3 of 24
+  died, at the same food. The Teacher lane confirmed it at 64x6 and made hA1 the founder. Founders, the env-gated
+  scratch patches and the scripts are in [foraging-loop/](brain-training/foraging-loop/README.md).
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
