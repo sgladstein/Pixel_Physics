@@ -713,6 +713,40 @@ pub fn of_world(world: &World, spec: &LabBox, door_x: i32, p: &Profile) -> (Nest
 /// was cut off from the air on up to 41% of checks. Open is [`of_world`]'s
 /// open, so an ant standing in the shaft is not a plug.
 pub fn door_open(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i32) -> Option<bool> {
+    nest_piece(world, spec, door_x, rows, reach).map(|n| n.open)
+}
+
+/// The nest's largest piece, as [`door_open`] finds it, and whether it joins
+/// the air -- so a harness can ask **whom a closed door shuts in**.
+///
+/// The owner's ruling on the door rung (2026-10-22): a door closed part of
+/// the time is welcome -- against a storm, against a predator -- as long as
+/// it does not shut out foraging and eating. So a closure is charged only
+/// when it costs something: a laden forager standing outside with nowhere to
+/// put its load, or a hungry ant [`NestPiece::holds`] while the colony's
+/// store is low. Who is laden, hungry or short is the harness's to say; this
+/// says only where the nest is and whether it is shut.
+pub struct NestPiece {
+    /// The piece joins the air (the grid's top row) through open cells.
+    pub open: bool,
+    /// Open cells in the piece.
+    pub cells: usize,
+    x0: i32,
+    y0: i32,
+    w: usize,
+    inside: Vec<bool>,
+}
+
+impl NestPiece {
+    /// Whether world cell (x, y) is in the nest's largest piece.
+    pub fn holds(&self, x: i32, y: i32) -> bool {
+        let (i, j) = (x - self.x0, y - self.y0);
+        i >= 0 && j >= 0 && (i as usize) < self.w && self.inside.get(j as usize * self.w + i as usize) == Some(&true)
+    }
+}
+
+/// [`door_open`]'s nest, kept: `None` when there is no nest yet.
+pub fn nest_piece(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i32) -> Option<NestPiece> {
     let g = Grid::of(world, spec);
     let (w, h) = (g.w, g.h);
     let nest: Vec<usize> = (0..w)
@@ -780,7 +814,53 @@ pub fn door_open(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i3
             (best, best_len) = (start, len);
         }
     }
-    Some(nest.iter().any(|&i| piece[i] == best && seen[i]))
+    let inside: Vec<bool> = piece.iter().map(|&p| p == best).collect();
+    Some(NestPiece {
+        open: nest.iter().any(|&i| inside[i] && seen[i]),
+        cells: best_len,
+        x0: g.x0,
+        y0: g.y0,
+        w,
+        inside,
+    })
+}
+
+/// **What each cell is worth to the score**, for paying the ants that cut it
+/// (the colony score's room rung, `A ladder of dig metrics for the colony
+/// score`, 2026-10-21): each part's credit spread evenly over its cells --
+/// a chamber cell is worth `chamber_credit` over the chamber cells, a niche
+/// cell `niche_credit` over the niche cells, a tunnel cell half the tunnel
+/// credit over the tunnel cells -- and each bad cell its charge: a crack and
+/// a stray cell -0.5, a pit cell -1. `class` is [`score`]'s or
+/// [`of_world`]'s, in the same order, so the values sum to `s.score`
+/// exactly and a harness pays them out through its own record of who cut
+/// each cell.
+///
+/// Spread, not per-cell grades, because the caps are on the parts: a comb of
+/// shelves fills its niche allowance and every further shelf cell dilutes
+/// the same capped credit, so a shelf cell is worth 0.05-0.07 against 0.42
+/// for the worst blueprint's chamber cell and 1.0 for a 7-row room's (the
+/// comb control in this function's test). Tunnel cells pay about 0.5 each in
+/// every nest, comb or room, up to the tunnel allowance. A cutter whose cell
+/// ends as pit is charged for it -- the crater, priced per ant.
+pub fn cell_values(s: &NestScore, class: &[Class]) -> Vec<f64> {
+    let n = |k: Class| class.iter().filter(|c| **c == k).count().max(1) as f64;
+    let (chamber, niche, tunnel) = (
+        s.chamber_credit / n(Class::Chamber),
+        s.niche_credit / n(Class::Niche),
+        0.5 * s.tunnel_credit / n(Class::Tunnel),
+    );
+    class
+        .iter()
+        .map(|c| match c {
+            Class::Not => 0.0,
+            Class::Chamber => chamber,
+            Class::Niche => niche,
+            Class::Tunnel => tunnel,
+            Class::Crack | Class::Stray => -0.5,
+            Class::Pit => -1.0,
+        })
+        .collect()
 }
 
 /// A lab world read as the score's grid over its extents: [`of_world`]'s
@@ -791,6 +871,7 @@ struct Grid {
     h: usize,
     ground: Vec<i32>,
     x0: i32,
+    y0: i32,
 }
 
 impl Grid {
@@ -817,7 +898,14 @@ impl Grid {
             }
         }
         let ground: Vec<i32> = datum.iter().map(|g| g - y0).collect();
-        Grid { open, w, h, ground, x0 }
+        Grid {
+            open,
+            w,
+            h,
+            ground,
+            x0,
+            y0,
+        }
     }
 }
 
@@ -1143,6 +1231,52 @@ mod tests {
         );
     }
 
+    /// Cell values sum to the score on every control shape, both profiles;
+    /// and a comb's cells are each worth less than one real chamber's.
+    #[test]
+    fn cell_values_add_up_to_the_score_and_a_comb_pays_less_a_cell() {
+        let cases = cases();
+        for c in &cases {
+            for p in [&PROTOTYPE, &HARVESTER] {
+                let (s, class) = score(&c.open, W, H, &[GROUND; W], DOOR, p);
+                let sum: f64 = cell_values(&s, &class).iter().sum();
+                assert!(
+                    (sum - s.score).abs() < 1e-6,
+                    "{}: cells sum to {sum}, score {}",
+                    c.name,
+                    s.score
+                );
+            }
+        }
+        // A comb's shelf cells against a real room's: the niche cap spreads
+        // over every shelf, so the cell an ant cuts to add one more shelf is
+        // worth a fraction of a chamber cell (shelves 0.05-0.07 a cell, the
+        // worst blueprint's chamber 0.42, a 7-row room 1.0). Tunnel cells are
+        // left out: every nest's shaft pays about 0.5 a cell, comb or room.
+        let worth = |c: &Case, k: Class| {
+            let (s, class) = score(&c.open, W, H, &[GROUND; W], DOOR, &HARVESTER);
+            let v = cell_values(&s, &class);
+            (0..class.len())
+                .filter(|&i| class[i] == k)
+                .map(|i| v[i])
+                .fold(f64::NAN, f64::max)
+        };
+        let room = cases
+            .iter()
+            .filter(|c| c.name.starts_with("blueprint"))
+            .map(|c| worth(c, Class::Chamber))
+            .fold(f64::INFINITY, f64::min);
+        assert!(room > 0.4, "the worst blueprint's chamber cell: {room}");
+        for c in cases.iter().filter(|c| c.name.starts_with("comb:")) {
+            let shelf = worth(c, Class::Niche);
+            assert!(
+                shelf < room / 4.0,
+                "{}: a shelf cell worth {shelf} against a room's {room}",
+                c.name
+            );
+        }
+    }
+
     /// A wall column whose datum froze just under the lid must not drag the
     /// whole grid's sky up to the lid: the crater still reads as pit.
     #[test]
@@ -1179,6 +1313,13 @@ mod tests {
             class.len(),
             ((xs.end() - xs.start() + 1) * (ys.end() - ys.start() + 1)) as usize
         );
+        // In a lab bed too, the cells add up to the score, and each crater
+        // cell charges its cutter -1.
+        let v = cell_values(&crater, &class);
+        assert!((v.iter().sum::<f64>() - crater.score).abs() < 1e-6);
+        let w = (xs.end() - xs.start() + 1) as usize;
+        let at = |x: i32, y: i32| ((y - ys.start()) as usize) * w + (x - xs.start()) as usize;
+        assert_eq!((class[at(35, g + 2)], v[at(35, g + 2)]), (Class::Pit, -1.0));
     }
 
     /// The door rung: no nest reads None, a dug nest reaches the air, a plug
@@ -1217,6 +1358,17 @@ mod tests {
             Some(false),
             "plugged two rows down"
         );
+        // Who it shuts in: the room and the shaft below the plug, not the stub
+        // above it, the surface, or a cell beyond the room.
+        let piece = nest_piece(&world, &spec, door, 3, 20).expect("a nest");
+        let g = spec.ground_y;
+        assert!(piece.holds(door + 10, g + 10), "in the room");
+        assert!(piece.holds(door, g + 7), "in the shaft below the plug");
+        assert!(!piece.holds(door, g + 3), "the stub above the plug is outside");
+        assert!(!piece.holds(door - 30, g - 2), "the open air is outside");
+        assert!(!piece.holds(door + 21, g + 10), "solid soil past the room");
+        assert!(!piece.holds(-5, -5), "off the grid");
+        assert_eq!(piece.cells, 2 * 7 + 20 * 4, "shaft rows 6-12 and the room");
         fill(&mut world, door - 1, door, 5, 5, Cell::EMPTY);
         assert_eq!(
             door_open(&world, &spec, door, 3, 20),
