@@ -7310,6 +7310,10 @@ pub enum DeathCause {
     /// whose it is. Registered as a finding rather than changed: it is how the
     /// box behaves today, and this cause is what makes it visible.
     Overgrown,
+    /// **A shade leaf bleached by bright light** (`World::shade_scald`,
+    /// `plant::SCALD_RATE`): the price a shade-tolerant plant pays in the
+    /// sun. Only a plant with `shade_tolerate` can die of it.
+    Scorched,
 }
 
 impl DeathCause {
@@ -7336,6 +7340,7 @@ impl DeathCause {
             DeathCause::SeedRotted => "ROTTED",
             DeathCause::ShadedOut => "SHADED",
             DeathCause::DriedOut => "DRIED UP",
+            DeathCause::Scorched => "SCORCHED",
             DeathCause::Withered => "WITHERED",
             DeathCause::Eaten => "EATEN",
             DeathCause::Overgrown => "OVERRUN",
@@ -7345,7 +7350,7 @@ impl DeathCause {
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 15;
+pub const DEATH_CAUSES: usize = 16;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -7364,6 +7369,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Eaten,
     DeathCause::Overgrown,
     DeathCause::Spread,
+    DeathCause::Scorched,
 ];
 
 impl DeathCause {

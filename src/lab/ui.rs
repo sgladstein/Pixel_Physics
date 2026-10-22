@@ -256,7 +256,6 @@ const ANTS_TABS: [&str; 2] = ["SUMMARY", "GROUPS"];
 const TRAINING_TABS: [&str; 4] = ["STATUS", "SETTINGS", "BEST ANTS", "WHAT HAPPENED"];
 
 /// What the ANT BRAIN row says on hover, on both pages it appears on.
-const PLANTS_NOTE: &str = "SHIPPED: THE SHRUB AND HERB AS THEY SHIP. TRAINED: THE SHRUB AND HERB BRED IN THE PLANT TRAINER TO SET MORE SEED AND SPARE THE PLANT BESIDE THEM -- IN A LONG FOUR-ROLE BED THEY KEEP THE SHRUB ALIVE UNDER THE TREES WHERE THE SHIPPED ONE DIES OUT. EVERY SHRUB AND HERB IN THE BOX SWITCHES AT ONCE, GROWN OR NOT. SURVIVES A REBUILD. CLICK TO SWITCH.";
 const ANT_BRAIN_NOTE: &str = "OLD: EVERY ANT DECIDES BY THE HAND-BUILT BRAIN, THE SHIPPED GAME. NEW: EVERY ANT IN THE BOX DECIDES BY H1, THE MIND TRAINED IN THE TEACHER LANE (GO OUT WHEN HUNGRY, DIG, CARRY FOOD HOME). A NEWBORN TAKES ITS PARENT'S MIND UNCHANGED -- MINDS ONLY EVOLVE ON THE COLONY TRAINING PAGE. CLICK TO SWITCH; SWITCHING BACK TAKES EVERY MIND AWAY.";
 /// The ring under the cursor that says what the active tool will cover.
 /// Bright and cool, so it reads against soil, water and the lit sky alike.
@@ -720,9 +719,6 @@ pub enum Action {
     /// **ANT BRAIN: OLD / NEW** -- the hand-built brain or the trained mind
     /// for every ant in the box (`Lab::set_new_ant`).
     ToggleNewAnt,
-    /// **PLANTS: SHIPPED / TRAINED** -- the shipped or the seed-trained shrub
-    /// and herb in the box (`Lab::set_trained_plants`).
-    ToggleTrainedPlants,
 }
 
 /// **What a click on the TRAINING page does** (`Lab::training_act`).
@@ -3683,8 +3679,6 @@ pub struct Ui {
     training_next: Option<(super::training::Settings, u64)>,
     /// Mirrors `Lab::new_ant`, for the rows that show it.
     new_ant: bool,
-    /// Mirrors `Lab::trained_plants`, for the row that shows it.
-    trained_plants: bool,
 }
 
 /// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
@@ -3831,11 +3825,6 @@ impl Ui {
         self.training_view = view;
         self.training_next = Some(next);
         self.new_ant = new_ant;
-    }
-
-    /// What the PLANTS row shows, set by `Lab` before each draw.
-    pub fn set_trained_plants(&mut self, on: bool) {
-        self.trained_plants = on;
     }
 
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
@@ -5145,7 +5134,6 @@ impl Ui {
             Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
                 "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
             Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
-            Row::choice("PLANTS", if self.trained_plants { "TRAINED" } else { "SHIPPED" }, Action::ToggleTrainedPlants, PLANTS_NOTE),
             Row::choice("REBUILD", "R", Action::Reset,
                 "THROW THIS BOX AWAY AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. ASKS FOR A SECOND PRESS FIRST. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
@@ -7415,7 +7403,7 @@ fn population_charts(world: &World, kingdom: roster::Kingdom) -> Vec<Row> {
 fn cause_tint(cause: Option<crate::sim::organism::DeathCause>) -> [u8; 4] {
     use crate::sim::organism::DeathCause::*;
     match cause {
-        Some(Starved | StarvedInFlight | ShadedOut | DriedOut | Withered) => POOR,
+        Some(Starved | StarvedInFlight | ShadedOut | DriedOut | Withered | Scorched) => POOR,
         Some(Killed | Eaten | Overgrown) => [214, 96, 170, 255],
         Some(OldAge) => [120, 150, 200, 255],
         Some(Culled | FelledOrLost) => [150, 118, 84, 255],
