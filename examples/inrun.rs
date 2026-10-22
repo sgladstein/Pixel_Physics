@@ -1044,6 +1044,26 @@ fn main() {
                 }
             }
             img.save(out.join(format!("film/f{fr:07}.png"))).unwrap();
+            // The same crop's materials (u16 LE ids, row-major) and which organism owns each cell, for hover readouts.
+            if fr == film {
+                let mut names = std::fs::File::create(out.join("film/materials.txt")).unwrap();
+                for k in 0..w.materials.len() {
+                    writeln!(names, "{k} {}", w.materials.get(pixel_physics::sim::material::MaterialId(k as u16)).name).unwrap();
+                }
+            }
+            let mut mats = Vec::with_capacity((cw * ch * 2) as usize);
+            let mut owners = String::new();
+            for y in 0..ch {
+                for x in 0..cw {
+                    let c = w.get((x0 + x) as i32, (y0 + y) as i32);
+                    mats.extend_from_slice(&c.material.0.to_le_bytes());
+                    if c.organism_id() != 0 {
+                        owners.push_str(&format!("{} {} ", y * cw + x, c.organism_id()));
+                    }
+                }
+            }
+            std::fs::write(out.join(format!("film/m{fr:07}.bin")), mats).unwrap();
+            std::fs::write(out.join(format!("film/o{fr:07}.txt")), owners).unwrap();
         }
         if fr % window == 0 {
             let alive = inrun::ants(&w, sp).len();
