@@ -26,6 +26,12 @@ each snapshot to runs/NAME/latest.tgz and a runs/NAME/DONE marker at the end. fe
 preempted VM loses at most 5 minutes and `watch` restarts from the bucket copy; a finished job can be fetched with no VM.
 Without the bucket it falls back to the serial console and says so at start. A name that already has results in the bucket
 is refused unless it is a continuation.
+Build flag (2026-10-22, training speed thread): the trainer is built with RUSTFLAGS="-C target-cpu=x86-64-v3" (AVX2,
+which every c4/c4d machine has; a binary built this way will not start on a CPU without it). It makes the fetch arena ~19%
+and soil ~14% faster and leaves results bit-identical: the brain lane's 24 test96 NOISE rows for s171, lab_cost's world
+and field hash, and the in-run colony's births/stock/sel files all match the plain build (Rust never fuses a multiply-add
+on its own, and packed and scalar IEEE operations round alike). **Resume with the same flags you started with**: a run
+started by an older copy of this launcher (no flag) resumes with that copy, so the same-build rule stays simple.
 Safety: the VM deletes itself after --hours + 1 h (max_run_duration), is labelled purpose=pixel-train, and `delete`
 removes it.  Spot VMs can be preempted: `status` says 'gone'.
 The post-DONE `shutdown` is not reliable (2026-10-20: a VM was still RUNNING ~20 min after @@DONE), so after a final
@@ -111,7 +117,7 @@ git checkout -q FETCH_HEAD >> $W/git.log 2>&1 || log "checkout failed"
 cd $W/repo
 T0=$(date +%s)
 log "building at $(git rev-parse --short HEAD)"
-cargo build --release --locked --example train > $W/build.log 2>&1
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --example train > $W/build.log 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
   log "BUILD FAILED rc=$rc"; echo "build failed rc=$rc" > $W/out/STATUS.txt; snap; echo build-failed > $W/done.txt; put $W/done.txt DONE; echo "@@DONE build-failed" | tty; sleep 900; shutdown -h now; exit 1

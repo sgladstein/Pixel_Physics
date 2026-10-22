@@ -157,10 +157,19 @@ fn main() {
         callgrind(CG_ZERO_STATS, 0);
         callgrind(CG_START_INSTRUMENTATION, 0);
     }
+    // The soil-water pass's own counters, summed over the window: what the
+    // moisture channel asked for (`visited`), how much of it was soil, and
+    // how much changed. Read off the world, so a timing that drops because
+    // the pass stopped doing its work is visible beside the timing.
+    let mut sw = [0u64; 3];
     let t = Instant::now();
     parallel::on_pool(|| {
         for _ in 0..window {
             lab.tick_for_harness();
+            let s = lab.world.soil_water_stats;
+            sw[0] += s.visited;
+            sw[1] += s.soil;
+            sw[2] += s.changed;
         }
     });
     let ms = t.elapsed().as_secs_f64() * 1000.0 / window as f64;
@@ -177,5 +186,11 @@ fn main() {
         rng.next_u64(),
         w.live_organism_count(),
         w.frame,
+    );
+    println!(
+        "soil water a tick: visited {:.0}  soil {:.0}  changed {:.0}",
+        sw[0] as f64 / window as f64,
+        sw[1] as f64 / window as f64,
+        sw[2] as f64 / window as f64,
     );
 }

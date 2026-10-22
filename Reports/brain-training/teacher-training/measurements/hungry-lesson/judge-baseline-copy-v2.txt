@@ -1,0 +1,1 @@
+v2b: hunger probe departures 332 hungry vs 371 fed, starved 99 of 192 | clone colonies survivors [4, 0, 1, 0] (mean 1.2 of 24), deliveries [67, 68, 135, 68] | in-run 3x200k: 4 of 8 colonies healthy at end (12+ ants), 2 extinct

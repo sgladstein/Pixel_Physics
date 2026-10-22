@@ -36,13 +36,13 @@
 //! [`World::option_shadow`]: crate::sim::World::option_shadow
 
 use super::{
-    body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths,
-    spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS,
+    body_has_foothold, jaw_can_cut, kin_footing, landing_after_step_into, parting_enabled, segment_authored_widths,
+    spoil_site_open, stacker_of, under_cover_by, BodyShape, CellMemo, CellRead, CreatureDef, DIRS,
 };
 use super::{crop_to_feed, diet_yield, gut_of, organism_crop_capacity, EAT_YIELD_THRESHOLD};
 use super::{flipped_body, landing_is_placeable_through_tissue};
 use crate::sim::cell::OrganismId;
-use crate::sim::material::{self, MaterialId, MaterialKind};
+use crate::sim::material::{self, Known, MaterialId, MaterialKind};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::World;
 use std::cell::RefCell;
@@ -322,19 +322,13 @@ const SCENT_GAIN: f32 = 32.0;
 /// body heights of a three-cell ant.
 const REACH: i32 = 6;
 
-/// **Every option `organism` has right now**, appended to `out` (cleared
-/// first). A pure read of the world: no draw, no write.
-/// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
-/// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
-/// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
-pub fn warmth_on() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_WARMTH").as_deref() {
-        Ok("on") | Ok("") | Err(_) => true,
-        Ok("off") => false,
-        Ok(other) => panic!("PIXEL_PHYSICS_MIND_WARMTH={other:?}: use on or off"),
-    })
-}
+/// The window [`build_with`] remembers cells in, round the head: the
+/// targets lie one cell out (the tail a few), and each reads two cells
+/// round itself, [`REACH`] rows below and `under_cover`'s 20 above. A read
+/// outside it is still exact, only not remembered.
+const MEMO_SIDE: i32 = 6;
+const MEMO_UP: i32 = 24;
+const MEMO_DOWN: i32 = REACH + 4;
 
 /// **A mind walled in with a pellet can pack its way out**, as the game's
 /// ant does (`NEEDS_FIRST`'s `pack`) and the player's ant does (G): it cuts a
@@ -353,6 +347,18 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
+/// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
+/// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
+pub fn warmth_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_WARMTH").as_deref() {
+        Ok("on") | Ok("") | Err(_) => true,
+        Ok("off") => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_WARMTH={other:?}: use on or off"),
+    })
+}
+
 /// SCRATCH (foraging-loop thread's switch, ported by the teacher lane 2026-10-22): `PP_NEEDDROP=1`, the old ant's
 /// hungry put-down for a mind. Unset: no change.
 pub fn need_drop_on() -> bool {
@@ -360,6 +366,8 @@ pub fn need_drop_on() -> bool {
     *V.get_or_init(|| std::env::var("PP_NEEDDROP").is_ok_and(|v| v == "1"))
 }
 
+/// **Every option `organism` has right now**, appended to `out` (cleared
+/// first). A pure read of the world: no draw, no write.
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
     build_with(world, organism, def, true, out);
 }
@@ -371,6 +379,13 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 /// mind whose Dig is switched off never scores one (`mind::decide`). So
 /// the mind passes its Dig switch, and its picks are the same either way.
 pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>) {
+    build_remembering(world, organism, def, roof, out, true);
+}
+
+/// [`build_with`], with its cell window ([`MEMO_SIDE`]) or, `remember`
+/// false, with none -- every read straight from the world, as before the
+/// window: the reference the window is held to in tests.
+fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>, remember: bool) {
     out.clear();
     let Some(st) = world.organism(organism) else { return };
     let Some(&head) = st.chain.first() else { return };
@@ -382,13 +397,43 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         warmth: if warmth_on() { world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature } else { 0.0 },
         home: (!world.home_blind).then_some(st.forage_anchor),
         mats: Mats {
-            spoil: world.materials.id_of("spoil"),
-            packed: world.materials.id_of("packedsoil"),
-            corpse: world.materials.id_of("corpse"),
+            spoil: world.materials.known(Known::Spoil),
+            packed: world.materials.known(Known::PackedSoil),
+            corpse: world.materials.known(Known::Corpse),
         },
     };
+    // **Every cell the options' features read, read once** (`CellMemo`):
+    // the targets are the head's ring and its tail, and each reads a 5x5
+    // round itself, `REACH` rows down and `under_cover`'s 20 up, so
+    // neighbouring targets read most of the same cells. Same cells, same
+    // values: a pure read of an unchanging world (performance lane,
+    // 2026-10-21).
+    let mut memo = if remember {
+        CellMemo::new(world, (head.0 - MEMO_SIDE, head.1 - MEMO_UP), (head.0 + MEMO_SIDE, head.1 + MEMO_DOWN))
+    } else {
+        CellMemo::new(world, head, (head.0 - 1, head.1 - 1))
+    };
+    // **Each target described once**: several verbs can aim at one cell
+    // (rest and eat at the head, dig and pick-up at one soil cell), and
+    // `describe` is a pure read of an unchanging world, so a second option
+    // at a target copies the first's features before its own extras. Off
+    // with `remember`, which is how `the_option_window_changes_no_feature`
+    // holds both to the plain reads.
+    // The list is this thread's, kept between builds (`DESCRIBED`).
+    let mut described = DESCRIBED.take();
+    described.clear();
+    // The targets' temperatures, the field's corners read once for the few
+    // blocks they fall in (`field::BilinearSampler`). Off with `remember`.
+    let mut warm = remember.then(|| world.field_bilinear_sampler());
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
-        let mut feats = describe(world, &here, target);
+        let mut feats = match described.iter().find(|(t, _)| remember && *t == target) {
+            Some(&(_, feats)) => feats,
+            None => {
+                let feats = describe(world, &mut memo, warm.as_mut(), &here, target);
+                described.push((target, feats));
+                feats
+            }
+        };
         extra(&mut feats);
         out.push(Opt { verb, target, feats });
     };
@@ -409,12 +454,14 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     } else {
         None
     };
+    // One buffer for all eight landings (`landing_after_step_into`).
+    let mut landing = Vec::with_capacity(st.chain.len());
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
         let t = (head.0 + dx, head.1 + dy);
         // `from` and `to` both `d`, as `usable_headings` asks it: the same
         // predicate the walk and the tumble use.
-        let (landing, _) = body_after_step(
+        landing_after_step_into(
             world,
             def,
             BodyShape {
@@ -423,9 +470,9 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
                 authored: &authored,
             },
             t,
-            d,
-            d,
+            (d, d),
             parting,
+            &mut landing,
         );
         if !landing_is_placeable_through_tissue(world, &st.chain, &landing, parting, stacker) {
             continue;
@@ -536,7 +583,7 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
-    // SCRATCH (teacher lane, 2026-10-21, never for main): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
+    // SCRATCH (teacher lane, 2026-10-21): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
     // sense onto every Dig option, borrowing the unwritten `f::BUILDING` slot: 1 when no open cell of the cavity the
     // head stands in (flooded through open cells within Chebyshev `reach` of the head) lies lower than the target.
     if let Some(r) = bottom_reach() {
@@ -545,12 +592,22 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
             o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
         }
     }
+    DESCRIBED.set(described);
 }
 
 fn bottom_reach() -> Option<i32> {
     static R: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     *R.get_or_init(|| std::env::var("PP_BOTTOM").ok().and_then(|v| v.parse().ok()))
 }
+
+thread_local! {
+    /// [`build_remembering`]'s list of targets described, kept between
+    /// builds so a decision does not allocate it (ant cost review A2).
+    static DESCRIBED: std::cell::Cell<Vec<Described>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+/// A target and the features [`describe`] gave it.
+type Described = ((i32, i32), [f32; FEATURES]);
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
 /// and dead ants. A corpse is food too (`food_energy` 120), so the one test
@@ -587,9 +644,11 @@ fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::Organi
 
 /// The features every option reads at its target, verb-specific ones (the
 /// walk's footing) left for the caller to set.
-fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
+type Sampler<'w> = crate::sim::field::BilinearSampler<'w, crate::sim::fxhash::ChunkMap<crate::sim::field::FieldTile>>;
+
+fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'_>>, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     let mut v = [0.0f32; FEATURES];
-    let cell = world.get(x, y);
+    let cell = memo.cell(x, y);
     let kind = world.materials.kind(cell.material);
     let m = world.materials.get(cell.material);
     let who = animal(world, cell.organism_id());
@@ -626,7 +685,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     }
 
     // Footing for a non-walk target: something filled under it.
-    let below = world.get(x, y + 1).material != material::EMPTY;
+    let below = memo.cell(x, y + 1).material != material::EMPTY;
     v[f::STAND] = f32::from(u8::from(below));
     if kind == MaterialKind::Powder || kind == MaterialKind::Solid {
         v[f::HARD] = squash(m.penetration_resistance);
@@ -637,21 +696,25 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
             .then(|| f32::from(c.aux()) / f32::from(material::SOIL_SATURATED))
     };
     v[f::WET] = wet_of(cell)
-        .or_else(|| wet_of(world.get(x, y + 1)))
+        .or_else(|| wet_of(memo.cell(x, y + 1)))
         .unwrap_or(0.0)
         .min(1.0);
 
     v[f::UP] = (here.head.1 - y).signum() as f32;
     v[f::DEPTH] = super::mind::depth_at(world, x, y);
     v[f::DROP_BELOW] = (1..=REACH)
-        .take_while(|&d| world.get(x, y + d).material == material::EMPTY)
+        .take_while(|&d| memo.cell(x, y + d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
     v[f::HEADROOM] = (1..=REACH)
-        .take_while(|&d| world.get(x, y - d).material == material::EMPTY)
+        .take_while(|&d| memo.cell(x, y - d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
-    v[f::ROOFED] = f32::from(u8::from(under_cover(world, x, y)));
+    // Remembering each cell's cover answer in the memo, so targets sharing
+    // a column skip the repeat, measured no better (mind colony 6.963G ->
+    // 6.979G, callgrind, 2026-10-22): the scan stops at the first ground
+    // overhead, and an empty sky row is one compare.
+    v[f::ROOFED] = f32::from(u8::from(under_cover_by(world, memo, x, y)));
 
     if let Some(o) = who {
         let mine = o.colony == here.colony;
@@ -681,7 +744,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
             if nx == 0 && ny == 0 {
                 continue;
             }
-            let c = world.get(x + nx, y + ny);
+            let c = memo.cell(x + nx, y + ny);
             let animal = c.organism_id() != 0;
             if animal && nx.abs() <= 1 && ny.abs() <= 1 {
                 animals += 1;
@@ -705,7 +768,11 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         }
     }
     if warmth_on() {
-        v[f::WARMTH] = squash(world.field_at_bilinear(x as f32, y as f32).temperature - here.warmth);
+        let warmth = match warm {
+            Some(warm) => warm.temperature_at(x as f32, y as f32),
+            None => world.field_at_bilinear(x as f32, y as f32).temperature,
+        };
+        v[f::WARMTH] = squash(warmth - here.warmth);
     }
     v[f::BACK] = f32::from(u8::from(here.neck == Some((x, y))));
     v
@@ -761,6 +828,40 @@ mod tests {
         w.step_active_sites();
         w.step_fields();
         w.step_pheromones();
+    }
+
+    /// **The option list's cell window changes no feature** (`CellMemo` in
+    /// [`build_with`]): every live ant of a digging colony, at several
+    /// points of its run, gets the same options with the same features, bit
+    /// for bit, as the list built reading every cell straight from the
+    /// world. The count is the control that it compared real lists.
+    #[test]
+    fn the_option_window_changes_no_feature() {
+        let mut w = colony_box();
+        let (mut compared, mut shared) = (0, 0);
+        for round in 0..6 {
+            for _ in 0..500 {
+                step(&mut w);
+            }
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(def) = w.species.get(st.species).creature.clone() else { continue };
+                let (mut a, mut b) = (Vec::new(), Vec::new());
+                build_remembering(&w, id, &def, true, &mut a, true);
+                build_remembering(&w, id, &def, true, &mut b, false);
+                assert_eq!(a.len(), b.len(), "round {round}, ant {id}");
+                for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+                    assert_eq!((x.verb, x.target), (y.verb, y.target), "round {round}, ant {id}");
+                    // A target an earlier option shares: its features came
+                    // from the remembered description, not a fresh one.
+                    shared += usize::from(a[..i].iter().any(|o| o.target == x.target));
+                    let same = x.feats.iter().zip(&y.feats).all(|(p, q)| p.to_bits() == q.to_bits());
+                    assert!(same, "round {round}, ant {id}, {:?} at {:?}: {:?} vs {:?}", x.verb, x.target, x.feats, y.feats);
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared > 400 && shared > 50, "only {compared} options compared, {shared} at a shared target");
     }
 
     /// **The shadow leaves the game unchanged**: one box run twice from the

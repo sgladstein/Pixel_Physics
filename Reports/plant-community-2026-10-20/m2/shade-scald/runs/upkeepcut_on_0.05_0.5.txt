@@ -1,0 +1,27 @@
+    dim, on: light at the planting site (3 rows up) 0.03 of full
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    dim, on: founder dead at the end; deaths in the bed by cause ["LOST ITS TISSUE:1"]
+    SEED dim, on s=0 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=1 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=2 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=3 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=4 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=5 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=6 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=7 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=8 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=9 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=10 shoot dead sprouts 0 shed shade 0 scald 0
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=shrub:tolerate:1.0
+    SEED dim, on s=11 shoot dead sprouts 0 shed shade 0 scald 0
+  dim, on      alive 0/12 leaf light -0.00 | shoot -0.00+--0.00 height -0.00+--0.00 width -0.00+--0.00 leaf_share -0.00+--0.00 root -0.00+--0.00 root_depth -0.00+--0.00

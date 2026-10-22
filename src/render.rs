@@ -9576,6 +9576,144 @@ impl<'a> ChunkRun<'a> {
     }
 }
 
+/// **Who painted each interface pixel, for a harness that asks.** Off unless
+/// a harness turns it on, and then one relaxed atomic load per HUD write.
+///
+/// Built for the lab redesign (2026-10-22), whose first rule is *no window
+/// lands on another*. The obvious instrument for that -- intersect the
+/// rectangles the layout code says it drew -- reads the very list the fix
+/// writes, so a window that never registered (BIOSPHERE and BATTLE were
+/// missing from `Ui::covers` for exactly that reason) would report zero
+/// overlap however badly it covered something. This reads the *pixels*
+/// instead: the painter in charge names itself with [`paint_owner::set`],
+/// every [`Hud`] write stamps that name on the logical pixel, and a pixel
+/// stamped by a second name is an overlap. The frame's default name is
+/// `UNTAGGED` rather than nothing, so a window nobody tagged still collides;
+/// [`paint_owner::WORLD`] is the one name that never counts, for marks drawn
+/// *into* the box (rings, trails, halos) that windows are meant to cover.
+///
+/// Text stamps its whole `text_width` x glyph-height box rather than the lit
+/// glyph pixels, which over-counts by the gaps between strokes and never
+/// under-counts -- the conservative side for a "this is zero" claim.
+pub mod paint_owner {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// How many threads are measuring. A cheap global gate for `Hud`'s
+    /// per-pixel check; whether *this* thread is measuring is its own
+    /// `State::active`, so parallel tests cannot switch each other off.
+    static ON: AtomicUsize = AtomicUsize::new(0);
+
+    /// Whether any thread is measuring -- `Hud`'s fast path.
+    #[inline]
+    pub(crate) fn on() -> bool {
+        ON.load(Ordering::Relaxed) != 0
+    }
+    /// Marks drawn into the box itself. Never an overlap.
+    pub const WORLD: &str = "WORLD";
+    /// Modal overlays that are meant to cover everything (the key list).
+    pub const MODAL: &str = "MODAL";
+
+    #[derive(Default)]
+    struct State {
+        active: bool,
+        width: usize,
+        height: usize,
+        names: Vec<&'static str>,
+        current: u8,
+        owners: Vec<u8>,
+        overlaps: BTreeMap<(&'static str, &'static str), u32>,
+    }
+
+    thread_local! {
+        static STATE: RefCell<State> = RefCell::new(State::default());
+    }
+
+    /// Start a frame: every logical pixel unowned, the painter `UNTAGGED`.
+    pub fn begin(width: u32, height: u32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if !s.active {
+                ON.fetch_add(1, Ordering::Relaxed);
+            }
+            *s = State {
+                active: true,
+                width: width as usize,
+                height: height as usize,
+                names: vec!["", "UNTAGGED", WORLD, MODAL],
+                current: 1,
+                owners: vec![0; width as usize * height as usize],
+                overlaps: BTreeMap::new(),
+            };
+        });
+    }
+
+    /// Name the painter for every HUD write from here on.
+    pub fn set(name: &'static str) {
+        if !on() {
+            return;
+        }
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if !s.active {
+                return;
+            }
+            let i = match s.names.iter().position(|n| *n == name) {
+                Some(i) => i,
+                None => {
+                    s.names.push(name);
+                    s.names.len() - 1
+                }
+            };
+            s.current = i as u8;
+        });
+    }
+
+    pub(crate) fn mark(x0: i32, y0: i32, w: i32, h: i32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            let cur = s.current;
+            if !s.active || cur == 2 {
+                return;
+            }
+            for y in y0.max(0)..(y0 + h).min(s.height as i32) {
+                for x in x0.max(0)..(x0 + w).min(s.width as i32) {
+                    let i = y as usize * s.width + x as usize;
+                    let prev = s.owners[i];
+                    if prev != 0 && prev != cur && prev != 2 && prev != 3 && cur != 3 {
+                        let pair = (s.names[prev as usize], s.names[cur as usize]);
+                        *s.overlaps.entry(pair).or_insert(0) += 1;
+                    }
+                    s.owners[i] = cur;
+                }
+            }
+        });
+    }
+
+    /// Stop, and hand back (overlapping pixels per under/over pair, the
+    /// number of logical columns no window touched between rows `top` and
+    /// `bottom`).
+    pub fn end(top: i32, bottom: i32) -> (BTreeMap<(&'static str, &'static str), u32>, u32) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.active {
+                s.active = false;
+                ON.fetch_sub(1, Ordering::Relaxed);
+            }
+            let mut clear = 0;
+            for x in 0..s.width {
+                let covered = (top.max(0) as usize..(bottom.max(0) as usize).min(s.height))
+                    .any(|y| !matches!(s.owners[y * s.width + x], 0 | 2));
+                if !covered {
+                    clear += 1;
+                }
+            }
+            (s.overlaps.clone(), clear)
+        })
+    }
+}
+
 /// The HUD's own coordinate space, which stays `WIDTH`x`HEIGHT` however large
 /// the buffer underneath it is.
 ///
@@ -9593,7 +9731,9 @@ impl<'a> ChunkRun<'a> {
 ///
 /// The glyphs go blocky rather than getting a finer font, deliberately: the
 /// text is meant to read as part of the same picture as the world, and this
-/// game's picture is made of square cells.
+/// game's picture is made of square cells. **The lab's interface layer is the
+/// one exception** ([`Hud::layer`]): the owner's redesign asked for crisp
+/// text there, and the box under it stays square-celled.
 #[derive(Clone, Copy, Debug)]
 pub struct Hud {
     /// The real buffer, in pixels.
@@ -9601,11 +9741,32 @@ pub struct Hud {
     height: u32,
     /// Buffer pixels per logical pixel. Always >= 1.
     scale: i32,
+    /// Drawing into a premultiplied interface layer rather than over the
+    /// world -- see [`Hud::layer`].
+    layer: bool,
 }
 
 impl Hud {
     pub fn new(width: u32, height: u32, scale: i32) -> Self {
-        Hud { width, height, scale: scale.max(1) }
+        Hud { width, height, scale: scale.max(1), layer: false }
+    }
+
+    /// **A canvas over a transparent interface layer**, which the lab's
+    /// binary composites over the box on the GPU (`bin/lab.rs`), so the
+    /// interface can be drawn at twice the box's resolution and repainted
+    /// only when it changes. Two things differ from [`Hud::new`]: a blend
+    /// accumulates coverage into the alpha channel instead of setting it
+    /// opaque, so a translucent panel stays translucent over the box; and at
+    /// scale 2 text is drawn in the crisp face (`hud::draw_text_crisp`)
+    /// rather than as doubled dots. Everything else -- logical coordinates,
+    /// clipping, the overlap census's marks -- is the same call.
+    pub fn layer(width: u32, height: u32, scale: i32) -> Self {
+        Hud { width, height, scale: scale.max(1), layer: true }
+    }
+
+    /// Whether this canvas paints the interface layer.
+    pub fn is_layer(self) -> bool {
+        self.layer
     }
 
     /// The scale in force, for a caller that has to size something itself —
@@ -9616,34 +9777,111 @@ impl Hud {
     }
 
     pub fn put(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4]) {
+        if paint_owner::on() {
+            paint_owner::mark(x, y, 1, 1);
+        }
         if self.scale == 1 {
             return put(frame, self.width, self.height, x, y, colour);
         }
-        // Clipping is left to `put`: a logical x past the logical width maps
-        // to a buffer x past the buffer width, so the bound is the same one.
-        let (bx, by) = (x * self.scale, y * self.scale);
-        for dy in 0..self.scale {
-            for dx in 0..self.scale {
-                put(frame, self.width, self.height, bx + dx, by + dy, colour);
+        self.fill_buffer(frame, (x, y, 1, 1), colour);
+    }
+
+    /// **A whole logical rectangle in one colour** -- what a loop of
+    /// [`Hud::put`] over it paints, byte for byte, without a bounds check
+    /// and a census probe per pixel. Every window background is one of these,
+    /// and on the 2x interface layer each logical pixel is four, so the
+    /// per-pixel route was most of the layer's cost (`examples/labdraw.rs`).
+    pub fn fill_rect(self, frame: &mut [u8], x: i32, y: i32, w: i32, h: i32, colour: [u8; 4]) {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        if paint_owner::on() {
+            paint_owner::mark(x, y, w, h);
+        }
+        self.fill_buffer(frame, (x, y, w, h), colour);
+    }
+
+    /// The buffer rectangle under a logical one, clipped. `None` when none
+    /// of it is on the buffer.
+    fn buffer_rect(self, (x, y, w, h): (i32, i32, i32, i32)) -> Option<(usize, usize, usize, usize)> {
+        let s = self.scale;
+        let x0 = (x * s).max(0);
+        let y0 = (y * s).max(0);
+        let x1 = ((x + w) * s).min(self.width as i32);
+        let y1 = ((y + h) * s).min(self.height as i32);
+        (x0 < x1 && y0 < y1).then_some((x0 as usize, y0 as usize, x1 as usize, y1 as usize))
+    }
+
+    fn fill_buffer(self, frame: &mut [u8], rect: (i32, i32, i32, i32), colour: [u8; 4]) {
+        let Some((x0, y0, x1, y1)) = self.buffer_rect(rect) else { return };
+        let row = self.width as usize * 4;
+        for by in y0..y1 {
+            for px in frame[by * row + x0 * 4..by * row + x1 * 4].chunks_exact_mut(4) {
+                px.copy_from_slice(&colour);
+            }
+        }
+    }
+
+    /// [`Hud::blend`] over a whole logical rectangle, as [`Hud::fill_rect`]
+    /// is to [`Hud::put`]: the same bytes as the loop, in one pass.
+    #[allow(clippy::too_many_arguments)]
+    pub fn blend_rect(self, frame: &mut [u8], x: i32, y: i32, w: i32, h: i32, colour: [u8; 4], alpha: f32) {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        if paint_owner::on() {
+            paint_owner::mark(x, y, w, h);
+        }
+        let Some((x0, y0, x1, y1)) = self.buffer_rect((x, y, w, h)) else { return };
+        if self.layer {
+            let (a, row) = (alpha_byte(alpha), self.width as usize * 4);
+            // Over a transparent pixel -- the usual case, since a panel is
+            // drawn before anything on it -- the answer is one constant.
+            let mut over_clear = [0u8; 4];
+            blend_over_px(&mut over_clear, colour, a);
+            for by in y0..y1 {
+                for px in frame[by * row + x0 * 4..by * row + x1 * 4].chunks_exact_mut(4) {
+                    if px[3] == 0 {
+                        px.copy_from_slice(&over_clear);
+                    } else {
+                        blend_over_px(px, colour, a);
+                    }
+                }
+            }
+            return;
+        }
+        for by in y0..y1 {
+            for bx in x0..x1 {
+                blend(frame, self.width, self.height, bx as i32, by as i32, colour, alpha);
             }
         }
     }
 
     pub fn blend(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4], alpha: f32) {
-        if self.scale == 1 {
-            return blend(frame, self.width, self.height, x, y, colour, alpha);
+        if paint_owner::on() {
+            paint_owner::mark(x, y, 1, 1);
         }
-        let (bx, by) = (x * self.scale, y * self.scale);
-        for dy in 0..self.scale {
-            for dx in 0..self.scale {
-                blend(frame, self.width, self.height, bx + dx, by + dy, colour, alpha);
+        let paint = if self.layer { blend_over } else { blend };
+        if self.scale == 1 {
+            return paint(frame, self.width, self.height, x, y, colour, alpha);
+        }
+        let Some((x0, y0, x1, y1)) = self.buffer_rect((x, y, 1, 1)) else { return };
+        for by in y0..y1 {
+            for bx in x0..x1 {
+                paint(frame, self.width, self.height, bx as i32, by as i32, colour, alpha);
             }
         }
     }
 
     pub fn text(self, frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
+        if paint_owner::on() {
+            paint_owner::mark(x, y, crate::hud::text_width(text), crate::hud::GLYPH_HEIGHT);
+        }
         if self.scale == 1 {
             return crate::hud::draw_text(frame, self.width, self.height, x, y, text, colour);
+        }
+        if self.layer && self.scale == 2 {
+            return crate::hud::draw_text_crisp(frame, (self.width, self.height), (x, y), text, colour);
         }
         crate::hud::draw_text_scaled(frame, (self.width, self.height), self.scale, (x, y), text, colour);
     }
@@ -9689,6 +9927,60 @@ pub(crate) fn blend(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, c
     frame[i + 3] = 255;
 }
 
+/// [`blend`] into a premultiplied layer: the alpha channel accumulates
+/// `alpha` instead of being set opaque. Over a transparent pixel this leaves
+/// `colour * alpha` with alpha `alpha`, which the GPU composite turns back into
+/// `blend`'s `dst + (colour - dst) * alpha` over the box (gamma space on both
+/// sides -- see `bin/lab.rs`); over an opaque panel it is `blend`.
+///
+/// **Integer, unlike `blend`**, which nothing on the layer has to match byte
+/// for byte: the float version with its `round` was 19% of a whole
+/// `labdraw` run on its own, because BIOSPHERE's translucent panel is four
+/// times the pixels at 2x (callgrind, 2026-10-22).
+pub(crate) fn blend_over(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4], alpha: f32) {
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        return;
+    }
+    let i = (y as usize * width as usize + x as usize) * 4;
+    blend_over_px(&mut frame[i..i + 4], colour, alpha_byte(alpha));
+}
+
+fn alpha_byte(alpha: f32) -> u32 {
+    (alpha.clamp(0.0, 1.0) * 255.0).round() as u32
+}
+
+#[inline]
+fn blend_over_px(px: &mut [u8], colour: [u8; 4], a: u32) {
+    for c in 0..3 {
+        px[c] = ((colour[c] as u32 * a + px[c] as u32 * (255 - a) + 127) / 255) as u8;
+    }
+    px[3] = ((255 * a + px[3] as u32 * (255 - a) + 127) / 255) as u8;
+}
+
+/// **The interface layer over the box, on the CPU** -- what the GPU composite
+/// in `bin/lab.rs` draws, for the screenshot hook and the harnesses that have
+/// no GPU. `world` is any whole multiple or fraction of the layer's size; each
+/// layer pixel takes the world pixel under its centre (nearest, as the
+/// window's own scaling does), then `layer + world * (1 - layer alpha)`, which
+/// is the premultiplied "over" the layer was painted for.
+pub fn composite_layer(world: &[u8], (ww, wh): (u32, u32), layer: &[u8], (lw, lh): (u32, u32)) -> Vec<u8> {
+    let mut out = vec![0u8; (lw * lh * 4) as usize];
+    for y in 0..lh {
+        let sy = ((y as u64 * 2 + 1) * wh as u64 / (lh as u64 * 2)) as usize;
+        for x in 0..lw {
+            let sx = ((x as u64 * 2 + 1) * ww as u64 / (lw as u64 * 2)) as usize;
+            let w = (sy * ww as usize + sx) * 4;
+            let l = (y as usize * lw as usize + x as usize) * 4;
+            let a = layer[l + 3] as u32;
+            for k in 0..3 {
+                out[l + k] = (layer[l + k] as u32 + (world[w + k] as u32 * (255 - a) + 127) / 255).min(255) as u8;
+            }
+            out[l + 3] = 255;
+        }
+    }
+    out
+}
+
 /// Midpoint circle algorithm, eight-way symmetry — the brush outline
 /// preview (§9 of `PLAN.md`'s UI-improvement pass), and reusable for
 /// anything else that ever wants a cheap outline (a future explosion
@@ -9718,6 +10010,27 @@ pub(crate) fn draw_circle_outline(frame: &mut [u8], width: u32, height: u32, cx:
 
 #[cfg(test)]
 mod tests {
+
+    /// **The overlap census sees an overlap** -- its positive control. Two
+    /// painters writing the same pixels must be counted, the box's own
+    /// marks never, and a modal page never; with none of those it reads 0.
+    #[test]
+    fn paint_owner_counts_one_window_painted_over_another() {
+        let mut buf = vec![0u8; 64 * 64 * 4];
+        let hc = Hud::new(64, 64, 1);
+        paint_owner::begin(64, 64);
+        paint_owner::set("A");
+        hc.put(&mut buf, 3, 3, [1, 2, 3, 255]);
+        hc.put(&mut buf, 4, 3, [1, 2, 3, 255]);
+        paint_owner::set("B");
+        hc.put(&mut buf, 3, 3, [9, 9, 9, 255]);
+        paint_owner::set(paint_owner::WORLD);
+        hc.put(&mut buf, 4, 3, [9, 9, 9, 255]);
+        paint_owner::set(paint_owner::MODAL);
+        hc.put(&mut buf, 4, 3, [9, 9, 9, 255]);
+        let (overlaps, _) = paint_owner::end(0, 64);
+        assert_eq!(overlaps.into_iter().collect::<Vec<_>>(), vec![(("A", "B"), 1)]);
+    }
     use super::*;
 
     /// **The nest cutaway paints each class on its fixed ramp, and nothing

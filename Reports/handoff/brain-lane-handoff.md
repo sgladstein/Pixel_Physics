@@ -1,5 +1,12 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
+> **LANE CLOSED 2026-10-22 01:55 UTC (the owner's choice).** Training of the ant's brain moved to the teacher lane's
+> in-colony selection (`Reports/handoff/teacher-lane-handoff-2026-10-21.md` and its successors); the arena trainer
+> (`src/train/`, `examples/train.rs`) stays as a tool and a yardstick, not the main line. No VMs are running. The last
+> run (copy-then-select against selection) is collected and judged: log entry 2026-10-22 01:55 and
+> `Reports/brain-training/stage2/dig/8/cvs/`. Open findings for whoever picks this up are in that entry. Sections 0-9
+> below are the state at 2026-10-21 17:40 and are kept as the record.
+
 **Last updated: 2026-10-21 17:40 UTC**, at a hand-off to a new session (the owner's request). **Read section 0
 first: it is the state of the work now, and it supersedes sections 2 and 3, which are kept as the history of steps
 1-4.** The Log at the bottom has every measurement in order, newest first.
@@ -464,6 +471,31 @@ The owner is **Scott** (GitHub `sgladstein`). They use a Mac terminal, so give z
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-22 01:55 UTC. Copy-then-select beats selection alone on both seeds; every arm lost far fetching; lane closed.**
+  - **The run** (`cvs-*`, ref b0dc264, 4 x c4d-highcpu-16, owner's $10 cap; section 0's settings): selection arms
+    (from s171) stopped on the flat rule at gens 67 and 68; copy arms (from copy v2, `noprune=`) at gen 79 (seed 202)
+    and ran all 150 (seed 201, last 2% gain at gen 103). All four collected with `exit code: 0` and `hold-best.txt`,
+    then deleted. Files: `Reports/brain-training/stage2/dig/8/cvs/` (hold-bests, logs, progress, `test96/` scores,
+    `cvs-result.png`). A snapshot keeps only the tail of `train.log`, so a long run's early PROBE lines are lost unless
+    fetched mid-run.
+  - **96 test worlds, full loads a world (s.e. per pair):** s171 9.60, sel-201 10.66, sel-202 10.44; copy v2 10.83,
+    copy-201 **12.51**, copy-202 11.94; r2 cur192 12.58 for reference. Copy minus selection, same seed, paired by world:
+    **+1.85 +- 0.50 (201), +1.50 +- 0.46 (202).** Worlds at 10+: copy 83% / 83%, selection 70% / 56%.
+  - **Not equal CPU on seed 201** (150 against 68 generations); seed 202 is close (79 against 67). Gain over each arm's
+    own start: copy +1.68 / +1.11, selection +1.05 / +0.83 -- so the copy's lead is its head start (+1.23) plus a
+    little more gain. The selection arms' test-world curves were flat after generation ~20.
+  - **Fetch fell in every arm**, mixed distances 0.71-0.78 of s91 (under the 0.8 floor on test worlds), and with food
+    30 columns out (`dist=30,30`): sel-201 0.37, sel-202 0.57, copy-201 0.50, copy-202 0.58 (starts 0.64 / 0.70). The
+    trips out shrink under dig selection (log 2026-10-21 18:30); the floor at mixed distances did not stop it. PR #766's
+    `dist=30,30 calib=96` is the proposed gate, never run. Several probe hold-bests were vetoed on the test worlds.
+  - **Open, for whoever picks the arena trainer up:** (1) run the far-food gate; (2) the arena energy sense reads a flat
+    0.5 because `budget_to` rescales `start_energy` -- a tested fix is in the teacher lane's hands (patch
+    `energy-sense-real-tank.patch` in the project folder; field `CreatureDef::sensed_tank`), and it moves arena scores
+    (copy v2 about -0.6 full loads), so re-judge brains after it; (3) the parents'-average child (deferred, design
+    `far-fetch-and-centroid-design-2026-10-21.md` part 2); (4) chambers are 7 cells tall (owner, 2026-10-21 22:39), not
+    the 8-16 in `dig-rung-design.md` steps 10-11; (5) the speed PRs #772 and #775 and the AVX2 build line cut a suite
+    world from about 1.27 to 0.65 CPU-s, bit-identical, so any later run should launch at a ref with them.
 
 - **2026-10-21 18:30 UTC (new session). Fetch erodes only at far food; the floor is reading a real loss.**
   - Lane taken over by a project thread; project rules now override section 6/7 where they differ: the merge desk

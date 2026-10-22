@@ -1,4 +1,4 @@
-//! SCRATCH (teacher-training step 1, not for main): the copier's reference. Re-runs the brain's own `mind::decide` on
+//! SCRATCH (teacher-training step 1): the copier's reference. Re-runs the brain's own `mind::decide` on
 //! the states in a copy log, with ANY genome, and writes every option's score and every verb's job score -- so the
 //! Python forward pass can be checked against the real thing on a genome it was not fitted to.
 //!

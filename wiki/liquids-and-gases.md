@@ -1,6 +1,6 @@
 # Liquids & Gases
 
-*Current as of: 2026-10-21, latest (on patchy ground a plant judges each soil by its own measure, so damp sand reads as damp rather than two-thirds dry). Before that, 2026-10-21, later (in every lab bed, water in the ground
+*Current as of: 2026-10-21, final (water soaking into the ground passes its excess down in one go instead of seeping as a slow front, so a wet column drains and stops rather than trickling for ever). Before that, 2026-10-21, last (the lab's mister rains the same on every column whatever the box's width, so a narrow box is no longer drenched). Before that, 2026-10-21, latest (on patchy ground a plant judges each soil by its own measure, so damp sand reads as damp rather than two-thirds dry). Before that, 2026-10-21, later (in every lab bed, water in the ground
 passes through a mat of roots instead of being sealed in by it, so pools
 stop standing over plants; and rain works its way through even a very thick
 crown). Before that, 2026-10-21 (in a lab bed you ask for patchy ground, sandy,
@@ -80,6 +80,17 @@ nowhere to send its water at all: it saturated, stayed saturated for ever, and
 because saturated ground turns away anything landing on it, the water backed
 up and stood on the plants above.
 
+**Water in the ground goes straight down and stops.** Ground wetter than
+it can hold hands all of the excess to the ground below in one go, so a
+drop soaking in falls through the soil as a small wet patch and the column
+it passed through is left at exactly what it can hold. Before this the
+ground passed on only a quarter of its excess at a time, which drew a soft
+wetting front spreading down over many ticks; but a quarter of a little is
+nothing, so every wet column ended as a trickle of the very last drops
+walking down to the floor for ever. That trickle was most of what the soil
+cost to run, and the front was traded for the speed. Dense clay, in a bed
+with patchy ground, still gives its excess up slowly.
+
 **Wet ground does not even itself out sideways, and that is a setting.**
 Ground drier than it can hold levels with its neighbours the way you would
 expect — a damp patch spreads into the dry soil beside it. Ground *wetter*
@@ -94,8 +105,8 @@ bookkeeping every tick.
 
 **Not all ground holds water alike -- in a lab bed with patchy ground.**
 Choose patchy ground and the soil comes in three kinds you can tell by
-colour. Pale sandy soil holds the least, lets the rest run through
-quickly, and dries first in a drought. Mid-brown loam is the ordinary
+colour. Pale sandy soil holds the least, lets the rest run
+through as fast as loam does, and dries first in a drought. Mid-brown loam is the ordinary
 ground. Dark rich clay-loam holds the most, gives it up slowly, and is hard
 for a root to push through. After rain each settles at its own wetness and
 stays there; water does not creep out of the clay into the sand beside it.
@@ -107,6 +118,14 @@ surface dips into shallow hollows, where rain gathers and the soil is
 darkest. Water reaching a root or a stone runs down beside it rather than
 pooling on top. Everywhere else, and in the bed as it ships, the ground is
 the one ordinary kind.
+
+**The mister rains per column.** Its setting is how much falls on each
+column, not on the whole box: a box half the usual width gets half the
+water, a box twice as wide twice as much, and every column the same. It used
+to drop the same amount whatever the width, so a narrow box was drenched --
+the small training beds plants are bred in took five to ten times the rain
+of the lab they were being bred for. The lab at its usual width is
+unchanged.
 
 **A lab bed drains through its floor.** Watered from above with nowhere to
 go, a sealed bed used to fill from the bottom until it stood under a lake.

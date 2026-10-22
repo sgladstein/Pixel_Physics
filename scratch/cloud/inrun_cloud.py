@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SCRATCH (teacher lane, never for main): run an in-run selection batch on one Google Cloud spot VM.
+"""SCRATCH (teacher lane): run an in-run selection batch on one Google Cloud spot VM.
 
 Reuses Reports/brain-training/cloud-compute/gcp/gcp_train_job.py (credentials, VM creation, status, delete) and only swaps
 the VM's startup script: build examples/inrun at REF, run every line of a jobs file (in the repo at REF) in parallel, one

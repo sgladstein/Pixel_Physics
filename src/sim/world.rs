@@ -5867,6 +5867,10 @@ pub struct World {
     pub shed_shade: u32,
     /// Counterpart to `shed_shade`: the drought pressure (`drought_death`).
     pub shed_drought: u32,
+    /// Leaves of a shade-tolerant plant shed by glare (`World::shade_scald`,
+    /// `plant::SCALD_RATE`): the did-it-fire count for A5's bright-light
+    /// price.
+    pub shed_scald: u32,
     /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
     /// fired -- consequential fall, not a lever of its own.
     pub shed_stranded: u32,
@@ -6634,6 +6638,46 @@ pub struct World {
     /// seeds at `SHADE_LEAF_PRICE` 0.9) and kept 16 of 16 alive in dim light
     /// against 13 (`Reports/plant-community-2026-10-20/m1/shade-price/`).
     pub shade_plasticity: bool,
+    /// **A shade-tolerant plant's leaves scald in bright light**
+    /// (`plant::SCALD_RATE`; A5's price where light is not short). Off, the
+    /// only price of `shade_tolerate` is leaf light lost
+    /// (`SHADE_LEAF_PRICE`), which a lone plant in bright light never feels
+    /// because it is not short of carbon. A no-op for any plant with no
+    /// tolerance, which is every shipped species.
+    ///
+    /// **Off by default** until the owner has seen it; see
+    /// `Reports/plant-community-2026-10-20/m2/shade-scald/`.
+    pub shade_scald: bool,
+    /// **A seedling's shoot tip too poor to grow waits instead of retiring**
+    /// (`plant::organism_tick`'s `Grow` carbon gate), while the plant's
+    /// leaves earn nothing -- i.e. before its first leaf. Off, a seedling in
+    /// deep shade retires its only tip after four poor ticks and dies with
+    /// its seed carbon unspent; the understory under a closed canopy is
+    /// empty partly for that reason. Off by default until measured
+    /// (`Reports/plant-community-2026-10-20/m2/shade-scald/`).
+    pub seedling_waits: bool,
+    /// Tip visits held by `seedling_waits`: its did-it-fire count.
+    pub seedling_waits_held: u64,
+    /// **A plant with no foliage funds its growing points from its own
+    /// stock** (`plant::SEEDLING_MOBILISE`), the way a seedling lives on its
+    /// seed until its first leaf. Off, the frontier is funded only from
+    /// income, so a seedling that cannot earn before it has a leaf never
+    /// builds one: its seed carbon levels out across the body below the
+    /// price of a step. Off by default until measured.
+    pub seedling_reserves: bool,
+    /// Allocations funded that way: its did-it-fire count.
+    pub seedling_reserves_drawn: u64,
+    /// **A waiting seed sinks through dead matter, and a sprout lifts it**
+    /// (`plant::dead_matter`, `plant::heave_loose_column`): a seed on litter,
+    /// a dead leaf or deadwood trades places with it now and then, and a
+    /// shoot tip heaves the loose column lying on it. The parked
+    /// `PIXEL_PHYSICS_SEED_SETTLE` (2026-10-17), narrowed and re-tested under
+    /// a closed stand. Off by default until measured.
+    pub seed_settles: bool,
+    /// Swaps made by `seed_settles`' settle half: its did-it-fire count.
+    pub seeds_settled: u64,
+    /// Columns lifted by its heave half.
+    pub seeds_heaved: u64,
     /// **The light an unshaded leaf gets in this world** -- what the shade
     /// genes measure shade against (`plant::shade_at`). `field::MAX_LIGHT`
     /// under the sky (noon sun, with the day divided out); the grow lamp's
@@ -7553,6 +7597,7 @@ impl World {
             rotted_to_nothing: 0,
             rotted_onward: 0,
             shed_shade: 0,
+            shed_scald: 0,
             shed_drought: 0,
             roots_shed: 0,
             shed_stranded: 0,
@@ -7614,6 +7659,14 @@ impl World {
             seed_pile_depth: 0,
             bud_break_reserve: false,
             shade_plasticity: true,
+            shade_scald: false,
+            seedling_waits: false,
+            seedling_waits_held: 0,
+            seedling_reserves: false,
+            seedling_reserves_drawn: 0,
+            seed_settles: false,
+            seeds_settled: 0,
+            seeds_heaved: 0,
             open_light: crate::sim::field::MAX_LIGHT,
             seeds_spread: 0,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
@@ -8460,6 +8513,7 @@ impl World {
             // a whole cell in.
             gnawed: 0.0,
             last_share_frame: 0,
+            egg_walk_after: 0,
             made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
@@ -10112,14 +10166,19 @@ impl World {
     /// every group while `scent_spread` and `scent_drift` are zero -- is
     /// one pass over its members and no pairwise work at all, so the
     /// shipped bed pays a comparison per animal per sample. A drifted group
-    /// of `k` pays `k(k-1)/2` three-term distances, which at the lab's few
-    /// hundred animals is well under a millisecond; it is run at the ANTS
-    /// page's sample cadence, never per tick. Clusters under
+    /// of `k` paid `k(k-1)/2` three-term distances, and the cadence this
+    /// doc promised (the ANTS page's samples, never per tick) is not the
+    /// one it runs at: `Lab::tick` calls it every tick, and the nest blend
+    /// keeps every colony's scents a cloud rather than a point, so a grown
+    /// goal-box colony spent 28-35% of its frame here (callgrind at ~410
+    /// ants, performance lane, 2026-10-21). The cadence is left alone --
+    /// moving it would move when a split is named, and so the run -- and
+    /// the pairing is `creature::kin_components`, about `k` comparisons
+    /// for a cohesive group with the same components. Clusters under
     /// `MIN_SPLIT_GROUP` animals are not minted: a single wanderer is not a
     /// new kind, it is an ant on its own, and it keeps its old label until
     /// it has descendants enough to be a line on the graph.
     pub fn regroup_by_scent(&mut self) -> usize {
-        use crate::sim::creature::scent_accepts;
         /// One animal as the pass sees it: its handle, its founding line
         /// and the traits its scent and tolerance are read from.
         struct Member {
@@ -10154,27 +10213,10 @@ impl World {
             if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
                 continue;
             }
-            // Union-find over mutual kin.
-            let n = members.len();
-            let mut parent: Vec<usize> = (0..n).collect();
-            fn find(p: &mut [usize], i: usize) -> usize {
-                let mut i = i;
-                while p[i] != i {
-                    p[i] = p[p[i]];
-                    i = p[i];
-                }
-                i
-            }
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    if scent_accepts(&members[i].traits, &members[j].traits) && scent_accepts(&members[j].traits, &members[i].traits) {
-                        let (a, b) = (find(&mut parent, i), find(&mut parent, j));
-                        if a != b {
-                            parent[a.max(b)] = a.min(b);
-                        }
-                    }
-                }
-            }
+            // The mutual-kin components (`creature::kin_components`, which
+            // pairs far fewer than all `n(n-1)/2` and finds the same ones).
+            let traits: Vec<[f32; organism::CREATURE_TRAITS]> = members.iter().map(|m| m.traits).collect();
+            let part = crate::sim::creature::kin_components(&traits);
             // Clusters, each carrying its lowest lineage and the id of the
             // member that holds it -- `LogKind::GroupSplit`'s own identity,
             // added beside the lineage tracking rather than as a second pass
@@ -10182,7 +10224,7 @@ impl World {
             let mut clusters: Vec<(u32, OrganismId, Vec<OrganismId>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
-                let r = find(&mut parent, i);
+                let r = part[i];
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
                     None => {
@@ -10612,6 +10654,12 @@ impl World {
         field::sample_bilinear(&self.fields, self.bounds, fx, fy, fallback)
     }
 
+    /// [`Self::field_at_bilinear`] for many points close together: see
+    /// `field::BilinearSampler`.
+    pub(crate) fn field_bilinear_sampler(&self) -> field::BilinearSampler<'_, crate::sim::fxhash::ChunkMap<field::FieldTile>> {
+        field::BilinearSampler::new(&self.fields, self.bounds)
+    }
+
     /// How strongly the field block covering this position sources moisture,
     /// `0.0..=1.0`. See `field::moisture_source_at` — the point of reading
     /// this rather than `field_at(..).moisture` is that it is rebuilt from
@@ -10915,8 +10963,8 @@ impl World {
     /// [`Chunk::take_stale_blocks`] for the chunk at `coord`; a chunk that is
     /// not resident answers "everything", which makes the field rescan the
     /// whole tile, the safe direction.
-    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> u16 {
-        self.chunks.get_mut(&coord).map_or(u16::MAX, |c| c.take_stale_blocks())
+    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> (u16, u16) {
+        self.chunks.get_mut(&coord).map_or((u16::MAX, u16::MAX), |c| c.take_stale_blocks())
     }
 
     pub(crate) fn take_chunk(&mut self, coord: ChunkCoord) -> Option<Chunk> {
@@ -11558,7 +11606,8 @@ impl World {
         // project keeps rediscovering" this function's other three hooks are
         // placed for.
         let field_relevant = self.materials.field_relevant_write(old.material, cell.material);
-        chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
+        let shape = crate::sim::field::changes_block_shape(&self.materials, old.material, cell.material);
+        chunk.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape);
         self.touch_neighbours(x, y, coord);
         old
     }
@@ -12053,6 +12102,10 @@ impl World {
         let Some(chunk) = self.chunks.get_mut(&coord) else {
             return;
         };
+        // The moisture channel changes wetness and nothing else: the field
+        // rescans a block only it marked for `moisture_source` alone
+        // (`Chunk::cell_stale_blocks`), which a material change would fool.
+        debug_assert_eq!(chunk.get_world(x, y).material, cell.material, "a moisture write must keep the material");
         chunk.set_world_quiet(x, y, cell);
         chunk.mark_moist_dirty(x, y);
         // A neighbour one cell the other side of the boundary is in the next
@@ -12080,16 +12133,27 @@ impl World {
     /// was out of the map. Idempotent -- `mark_moist_dirty` is a span union
     /// and a bit set -- which is what makes that replay exact rather than
     /// approximately right.
+    ///
+    /// **The edge test inlines and the walk does not** (2026-10-21): the test
+    /// is false for 60 of a chunk's 64 rows and columns, and as one call it
+    /// cost ~29 instructions a moisture write to learn that.
+    #[inline(always)]
     fn mark_moist_neighbours(&mut self, x: i32, y: i32, owner: ChunkCoord) {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
-            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                let n = ChunkCoord::containing(x + dx, y + dy);
-                if n != owner {
-                    if let Some(c) = self.chunks.get_mut(&n) {
-                        c.mark_moist_dirty(x, y);
-                    }
+            self.mark_moist_neighbours_at_edge(x, y, owner);
+        }
+    }
+
+    /// [`Self::mark_moist_neighbours`]'s walk, for a write on a chunk's edge.
+    #[inline(never)]
+    fn mark_moist_neighbours_at_edge(&mut self, x: i32, y: i32, owner: ChunkCoord) {
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let n = ChunkCoord::containing(x + dx, y + dy);
+            if n != owner {
+                if let Some(c) = self.chunks.get_mut(&n) {
+                    c.mark_moist_dirty(x, y);
                 }
             }
         }
@@ -12163,6 +12227,21 @@ impl World {
         // `field hash` and the three `sw` counters, on both beds -- and the
         // reasoning for each write channel is on the view itself.
         let mut stats = SoilWaterStats { chunks: plans.len() as u64, ..Default::default() };
+        // **The pass's material questions, answered from a table** -- see
+        // `MoistureView::traits`. Built per pass rather than cached because
+        // materials can change live between ticks (`tunables.rs`, a
+        // hot-reload); a few hundred entries against thousands of visits.
+        // Measured on the shipped lab box: see the commit that added it.
+        let traits: Vec<(u16, MaterialKind)> = if plans.is_empty() {
+            Vec::new()
+        } else {
+            (0..self.materials.len())
+                .map(|i| {
+                    let m = self.materials.get(MaterialId(i as u16));
+                    (m.water_capacity, m.kind)
+                })
+                .collect()
+        };
         for (coord, plan) in &plans {
             let Some(chunk) = self.take_chunk(*coord) else {
                 // A plan came from this chunk a few lines ago and nothing
@@ -12172,7 +12251,7 @@ impl World {
                 debug_assert!(false, "a chunk with a moisture plan went missing before its walk");
                 continue;
             };
-            let mut view = MoistureView::new(*coord, chunk, self);
+            let mut view = MoistureView::new(*coord, chunk, self, &traits);
             // Rows bottom first -- larger `y` is lower -- matching the sweep,
             // because drainage moves water downward and a column drains as a
             // unit that way. The two arms are written out rather than sharing
@@ -13116,11 +13195,12 @@ impl CellSurface for World {
 fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
     stats.visited += 1;
     let cell = view.get(x, y);
-    if view.world.materials.get(cell.material).water_capacity == 0 {
+    let capacity = view.water_capacity_of(cell.material);
+    if capacity == 0 {
         return;
     }
     stats.soil += 1;
-    if crate::sim::update::update_soil_water(view, x, y) {
+    if crate::sim::update::update_soil_water_cell(view, x, y, cell, capacity) {
         stats.changed += 1;
     }
 }
@@ -13190,6 +13270,13 @@ pub(crate) struct MoistureView<'w> {
     inner: Rect,
     chunk: Chunk,
     world: &'w mut World,
+    /// `(water_capacity, kind)` per material, index = `MaterialId` -- built
+    /// once a pass by `soil_traits` and served by `water_capacity_of` /
+    /// `kind_of`, so the pass's per-visit material questions are an index
+    /// into a few hundred bytes rather than into 616-byte `Material`s. The
+    /// registry cannot change while a pass runs (nothing in it writes
+    /// materials), so the table and the registry agree for the whole walk.
+    traits: &'w [(u16, MaterialKind)],
     /// `(x, y, old, new)` for every write that needs `World::set`'s tail
     /// replayed — see the type doc. Filtered at the write, so an ordinary
     /// soil write queues nothing at all.
@@ -13206,7 +13293,7 @@ pub(crate) struct MoistureView<'w> {
 }
 
 impl<'w> MoistureView<'w> {
-    fn new(coord: ChunkCoord, chunk: Chunk, world: &'w mut World) -> Self {
+    fn new(coord: ChunkCoord, chunk: Chunk, world: &'w mut World, traits: &'w [(u16, MaterialKind)]) -> Self {
         let inner = match world.bounds {
             Some(b) => coord.bounds().intersection(b).unwrap_or(Rect::point(i32::MIN, i32::MIN)),
             None => coord.bounds(),
@@ -13216,6 +13303,7 @@ impl<'w> MoistureView<'w> {
             inner,
             chunk,
             world,
+            traits,
             deferred: Vec::new(),
             remarks: Vec::new(),
             moist_remarks: Vec::new(),
@@ -13296,7 +13384,8 @@ impl CellSurface for MoistureView<'_> {
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
             let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
-            self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
+            let shape = crate::sim::field::changes_block_shape(&self.world.materials, old.material, cell.material);
+            self.chunk.set_world_shaped(x, y, cell, reach, is_liquid, field_relevant, shape);
             // `touch_neighbours` skips the owning chunk, so every mark it
             // makes lands somewhere still resident and it can run now.
             self.world.touch_neighbours(x, y, self.coord);
@@ -13317,6 +13406,8 @@ impl CellSurface for MoistureView<'_> {
             return;
         }
         if self.is_inner(x, y) {
+            // See `World::set_soil_moisture`'s matching assert.
+            debug_assert_eq!(self.chunk.get_world(x, y).material, cell.material, "a moisture write must keep the material");
             self.chunk.set_world_quiet(x, y, cell);
             self.chunk.mark_moist_dirty(x, y);
             self.world.mark_moist_neighbours(x, y, self.coord);
@@ -13366,6 +13457,16 @@ impl CellSurface for MoistureView<'_> {
     #[inline]
     fn materials(&self) -> &MaterialRegistry {
         &self.world.materials
+    }
+
+    #[inline]
+    fn water_capacity_of(&self, id: MaterialId) -> u16 {
+        self.traits[id.0 as usize].0
+    }
+
+    #[inline]
+    fn kind_of(&self, id: MaterialId) -> MaterialKind {
+        self.traits[id.0 as usize].1
     }
 
     #[inline]
@@ -13419,6 +13520,13 @@ impl CellSurface for MoistureView<'_> {
 
     fn soil_through_roots(&self) -> bool {
         self.world.soil_through_roots
+    }
+
+    #[inline(always)]
+    fn no_liquid_beside(&self, x: i32, y: i32) -> bool {
+        // All four neighbours inside this chunk: the rect test on the corners
+        // of the 3x3 around `(x, y)`, which covers the plus sign.
+        !self.chunk.has_liquid() && self.is_inner(x - 1, y - 1) && self.is_inner(x + 1, y + 1)
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

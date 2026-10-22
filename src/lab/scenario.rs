@@ -553,13 +553,26 @@ fn apply_plant(world: &mut World, species: &str, x: i32) -> usize {
 }
 
 fn apply_colony(world: &mut World, species: &str, x: i32, count: i32) -> usize {
+    place_colony(world, species, x, count, None)
+}
+
+/// **A `Colony` placement, with the founders' heap chosen by the caller**:
+/// `pile` `Some(true)` heaps every founder at the nest door, `Some(false)`
+/// spreads them along the ground, `None` takes the process default
+/// (`PIXEL_PHYSICS_NEST_DOOR_FOUNDERS`), which is what a scenario file's own
+/// `Colony` gets. `lab::training` founds its bed heaped whatever the process
+/// says, so a game that also runs an ordinary box keeps that box's default.
+pub fn place_colony(world: &mut World, species: &str, x: i32, count: i32, pile: Option<bool>) -> usize {
     let top = room_top(world);
     let Some(surface) = colony_surface(world, x, top) else { return 0 };
     // The same two rows of clearance `LabBox::build_counted` founds a
     // colony with, off whatever surface this column actually has rather
     // than off the bed's own `ground_y` -- see this module's own doc for
     // why that distinction matters the moment terrain is not flat.
-    world.found_colony_of(x, surface - 2, species, count)
+    match pile {
+        Some(pile) => world.found_colony_heaped(x, surface - 2, species, count, pile),
+        None => world.found_colony_of(x, surface - 2, species, count),
+    }
 }
 
 fn apply_animal(world: &mut World, species: &str, x: i32) -> usize {

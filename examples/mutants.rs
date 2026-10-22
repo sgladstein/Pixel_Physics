@@ -1,4 +1,4 @@
-//! SCRATCH (teacher-training measurement 1, not for main): children of one genome, made by the trainer's own mutation
+//! SCRATCH (teacher-training measurement 1): children of one genome, made by the trainer's own mutation
 //! rule at the dig-8 runs' settings (pm 0.03, sigma 0.3, prune 0.3, grow 0.1; no crossover), for the paired-world test.
 //! cargo run --release --example mutants -- <start genome> <n> <seed> <out dir> [pm sigma prune grow]
 use pixel_physics::train::challenges::Soil;
@@ -8,7 +8,7 @@ use std::path::Path;
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (start, n, seed, out): (&str, usize, u64, &str) = (&a[0], a[1].parse().unwrap(), a[2].parse().unwrap(), &a[3]);
-    let soil = Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 };
+    let soil = Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0, nest: false };
     let g = train::start_mind(&soil, start);
     let slots = train::trainable_for(&soil, g.len());
     let mut rng = Rng(seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);

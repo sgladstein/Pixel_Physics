@@ -1,0 +1,63 @@
+{
+ "start": "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/v2-loaded.txt",
+ "soil_logs": [
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col21.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col22.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col23.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col24.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col25.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col26.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col27.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs2/col28.log"
+ ],
+ "keep_logs": [
+  [
+   "soil",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/soil.log"
+  ],
+  [
+   "fetch",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/fetch.log"
+  ],
+  [
+   "fetch",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/fetch2.log"
+  ],
+  [
+   "trail",
+   "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/logs/trail.log"
+  ]
+ ],
+ "caps": {
+  "hungry": 20000,
+  "none": 16000,
+  "keep": 30000,
+  "keepL": 24000
+ },
+ "steps": 1500,
+ "every": 100,
+ "batch": 512,
+ "lr": 0.01,
+ "seed": 1,
+ "patience": 400,
+ "arm": "teacher",
+ "out": "/tmp/claude-0/-home-user-Pixel-Physics/c9ced244-18ea-5f03-bb65-45cf1b722ce9/scratchpad/cp/h1.txt",
+ "group_weights": {
+  "hungry": 1,
+  "none": 5,
+  "keep": 10,
+  "keepL": 20
+ },
+ "freeze": [
+  "roof_drop"
+ ],
+ "keep_lookalike": "below",
+ "revive_units": 2,
+ "revive_hidden": 2,
+ "unfreeze": [
+  4
+ ],
+ "ctx_inputs": [
+  0
+ ]
+}

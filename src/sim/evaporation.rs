@@ -553,8 +553,14 @@ const SOIL_DRY_REACH: i32 = super::weather::SOAK_DEPTH;
 /// floor, which is what stops a surface cell that has reached the floor
 /// from retiring a column that is still full underneath.
 fn is_damp_soil_surface<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
-    let m = surface.materials().get(surface.get(x, y).material);
-    if m.water_capacity == 0 || m.kind != MaterialKind::Powder || !surface.get(x, y - 1).is_empty() {
+    // The air-above test first: it is one read and rejects every cell but
+    // a bed's top row, where the material questions after it each cost a
+    // lookup. All three are pure reads, so the order changes nothing else.
+    if !surface.get(x, y - 1).is_empty() {
+        return false;
+    }
+    let id = surface.get(x, y).material;
+    if surface.water_capacity_of(id) == 0 || surface.kind_of(id) != MaterialKind::Powder {
         return false;
     }
     drying_front(surface, x, y).is_some()

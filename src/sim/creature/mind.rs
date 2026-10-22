@@ -32,6 +32,7 @@
 //! are `x / (1 + |x|)`, and the one draw per pick comes from a stream keyed
 //! on the seed, the ant and the frame.
 
+use crate::sim::material::Known;
 use super::options::{self, Opt, Verb, FEATURES, VERBS};
 use super::{
     adjacent_nest, armour_of, bite_force_of, blend_with_nest, carried_cells, choose_weighted, commit_step,
@@ -54,7 +55,6 @@ use crate::sim::scheduler::ActiveSite;
 use crate::sim::world::Account;
 use crate::sim::World;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Units in the shared scorer.
@@ -274,6 +274,11 @@ const RNG_SLOT_SELF: u64 = 41;
 const RNG_SLOT_ACT: u64 = 42;
 
 /// A genome, with what it costs to run: the connections it holds.
+///
+/// **`w` is read-only once built**: [`MindGenome::plan`] is derived from it
+/// here, so a caller that wants other weights builds a new genome rather
+/// than editing this one (nothing in the tree writes `w` after `new`; the
+/// field is public for reading).
 #[derive(Clone, Debug)]
 pub struct MindGenome {
     pub w: Vec<f32>,
@@ -281,6 +286,9 @@ pub struct MindGenome {
     /// excluded: what the body pays for every decision, priced like today's
     /// brain's active synapses (`CreatureDef::synapse_fraction`).
     pub live: u32,
+    /// The scorer's per-option part with its zero weights left out
+    /// ([`ScorerPlan`]), built once per genome and shared by its clones.
+    plan: ScorerPlan,
 }
 
 impl MindGenome {
@@ -291,8 +299,95 @@ impl MindGenome {
             "a mind genome is exactly GENOME_LEN; a short one means the layout changed"
         );
         let live = w[S_CTX..].iter().filter(|v| v.abs() >= W_EPS).count() as u32;
-        MindGenome { w, live }
+        let plan = ScorerPlan::new(&w);
+        MindGenome { w, live, plan }
     }
+}
+
+/// **The per-option scorer with its zero weights left out** -- the same
+/// sums [`decide`] takes over every one of a unit's [`FEATURES`] weights, in
+/// the same order, skipping only the terms whose weight is exactly zero, and
+/// skipping a unit whose output weight is exactly zero altogether.
+///
+/// **Why**: the per-option part is [`UNITS`] x [`FEATURES`] multiplies per
+/// option, every option, every decision, and is most of what a decision
+/// costs; a trained genome holds a few hundred live links over the whole
+/// head, so most of those multiplies are by zero (performance lane,
+/// 2026-10-21).
+///
+/// **Why it picks exactly as the dense sum does**: a skipped term is
+/// `0 * x`, which is a zero for any finite `x` (every feature is a squash or
+/// a flag, so finite: asserted in debug builds), and adding a zero to a sum
+/// leaves its value unchanged. The only bit it can move is the sign of a sum
+/// that is itself zero (`-0 + 0` is `+0`), and nothing downstream reads that
+/// sign: the squash keeps it, products and sums with anything nonzero erase
+/// it, and every comparison and the `(s + 1) / 2` shift treat `-0` as `0`.
+/// The kept terms are added in their original order, so no rounding moves.
+/// `ScorerPlan::dense` (tests only) is the dense sum as it was, and
+/// `the_sparse_scorer_decides_exactly_as_the_dense_one` holds the two equal,
+/// bit for bit, over sparse random genomes.
+///
+/// **All units at once, each in its own order** (2026-10-22): the plan
+/// keeps a feature if any live unit weighs it, with every unit's weight on
+/// it side by side, so one pass over the option's features adds each one
+/// to all [`UNITS`] sums together -- work the compiler does several lanes
+/// at a time. A unit's own sum still takes its terms in feature order, and
+/// the terms it gains are `0 * x`, the zeros above, so nothing rounds
+/// differently. The sparse walk it replaces took 184 `(feature, weight)`
+/// steps one at a time for v2-C3, 8% of the mind colony's frame (ant cost
+/// review, 2026-10-22), which priced a dense sum as a rule change on the
+/// reading that it must add in a new order; across units it need not.
+///
+/// The live units sit in the first lanes, in unit order; a genome with
+/// eight or fewer takes eight lanes rather than sixteen ([`score_lanes`]),
+/// which is what keeps a sparse one (the trail arena's dig-4b4: 8 units,
+/// 89 weights) from paying for lanes it does not use.
+#[derive(Clone, Debug, Default)]
+struct ScorerPlan {
+    /// Units whose output weight is not zero, in unit order: lane `k` is
+    /// unit `units[k]`.
+    units: Vec<usize>,
+    /// Features some unit of `units` weighs, in feature order, each with
+    /// every lane's weight on it (zero where its unit does not weigh it,
+    /// and in every lane past `units`).
+    feats: Vec<(usize, [f32; UNITS])>,
+}
+
+impl ScorerPlan {
+    fn new(g: &[f32]) -> ScorerPlan {
+        let out = &g[S_OUT..S_OUT + UNITS];
+        ScorerPlan::of((0..UNITS).filter(|&u| out[u] != 0.0).collect(), g)
+    }
+
+    fn of(units: Vec<usize>, g: &[f32]) -> ScorerPlan {
+        let feats = (0..FEATURES)
+            .filter(|&i| units.iter().any(|&u| g[S_FEAT + u * FEATURES + i] != 0.0))
+            .map(|i| (i, std::array::from_fn(|k| units.get(k).map_or(0.0, |&u| g[S_FEAT + u * FEATURES + i]))))
+            .collect();
+        ScorerPlan { units, feats }
+    }
+
+    /// Every unit and every weight, zeros included: the sum as [`decide`]
+    /// took it before the plan, kept as the reference the plan is held to.
+    #[cfg(test)]
+    fn dense(g: &[f32]) -> ScorerPlan {
+        let feats = (0..FEATURES).map(|i| (i, std::array::from_fn(|u| g[S_FEAT + u * FEATURES + i]))).collect();
+        ScorerPlan { units: (0..UNITS).collect(), feats }
+    }
+}
+
+/// The first `N` lanes' sums for one option: each lane from its `start`,
+/// over `feats` in their order.
+#[inline]
+fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNITS])], x: &[f32; FEATURES]) -> [f32; UNITS] {
+    let mut z = *start;
+    for (i, w) in feats {
+        let x = x[*i];
+        for u in 0..N {
+            z[u] += w[u] * x;
+        }
+    }
+    z
 }
 
 /// **A saved genome in today's layout**, its length naming its layout. One
@@ -1001,6 +1096,17 @@ pub fn blinded(g: &[f32]) -> Vec<f32> {
 ///   which a score must not reward like a follower.
 ///
 /// `None` for any other name.
+/// **The `forager` preset's egg bar switched off**, for an arena whose ant
+/// cannot starve: a fed ant banks 1e9 J, which the energy sense reads as a
+/// full tank many times over (`CreatureDef::sensed_tank`), so the preset's
+/// "past the egg bar, go home and feed" flag is on from the first frame and
+/// it never forages. Before 2026-10-22 the sense read a fed ant's bank
+/// against the 1e9 budget, a flat 0.5, and the flag stayed off by accident.
+#[cfg(test)]
+pub(crate) fn below_the_egg_bar(g: &mut [f32]) {
+    g[MEM + 2 * M_IN + c::ENERGY] = 0.0;
+}
+
 pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
     use options::f;
     let mut g = blank(verbs);
@@ -1341,7 +1447,10 @@ pub struct MindCounts {
 /// `OrganismState` is untouched.
 #[derive(Clone, Debug, Default)]
 pub struct Minds {
-    ants: HashMap<OrganismId, Mind>,
+    /// Fx-hashed: asked three times an ant a tick (`has`, the bill's `get`,
+    /// the decision's `get`/`get_mut`), and nothing reads it in its
+    /// iteration order (`prune`'s `retain` keeps by id).
+    ants: crate::sim::fxhash::FxHashMap<OrganismId, Mind>,
     pruned_at: u64,
     pub counts: MindCounts,
     /// **Every pellet a mind puts down**, as `(x, y, frame, ant)`: the soil
@@ -1459,12 +1568,19 @@ fn prune(world: &mut World) {
 /// senses taken against `state.last` and [`c::ROOF_CUT`] off this
 /// decision's options. Returns the context and this decision's values for
 /// the next one's change senses.
-pub fn context(
+pub fn context(world: &World, organism: OrganismId, def: &CreatureDef, state: &MindState, opts: &[Opt]) -> ([f32; CONTEXT], [f32; 5]) {
+    context_at(world, organism, def, state, opts, None)
+}
+
+/// [`context`], given the caller's own [`adjacent_nest`] at a cell, this
+/// tick, with no cell written since.
+fn context_at(
     world: &World,
     organism: OrganismId,
     def: &CreatureDef,
     state: &MindState,
     opts: &[Opt],
+    at_nest: Option<((i32, i32), bool)>,
 ) -> ([f32; CONTEXT], [f32; 5]) {
     let mut v = [0.0f32; CONTEXT];
     v[c::ROOF_CUT] = roof_cut(opts);
@@ -1475,7 +1591,8 @@ pub fn context(
     let Some(&(hx, hy)) = st.chain.first() else {
         return (v, [0.0; 5]);
     };
-    let e = (st.energy / def.start_energy.max(f32::EPSILON)).max(0.0);
+    let tank = def.sensed_tank.unwrap_or(def.start_energy);
+    let e = (st.energy / tank.max(f32::EPSILON)).max(0.0);
     v[c::ENERGY] = e / (1.0 + e);
     let cap = organism_crop_capacity(world, organism, def);
     v[c::CROP] = st.crop.map_or(0.0, |cr| {
@@ -1486,9 +1603,15 @@ pub fn context(
         }
     });
     v[c::SPOIL] = f32::from(u8::from(st.spoil.is_some()));
-    v[c::AT_NEST] = f32::from(u8::from(adjacent_nest(world, hx, hy, def)));
+    // `at_nest`: the caller's own `adjacent_nest` at a cell, this tick,
+    // with no cell written since -- the same answer when it is the head.
+    let home = match at_nest {
+        Some((at, home)) if at == (hx, hy) => home,
+        _ => adjacent_nest(world, hx, hy, def),
+    };
+    v[c::AT_NEST] = f32::from(u8::from(home));
     let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
-    // SCRATCH (teacher lane, never for main): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
+    // SCRATCH (teacher lane): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
     static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
@@ -1578,6 +1701,22 @@ pub fn decide(
     state: &mut MindState,
     draw: &mut rng::Rng,
 ) -> Option<Decision> {
+    decide_planned(g, &ScorerPlan::new(g), ctx, opts, state, draw)
+}
+
+/// How many options [`decide_planned`] lists on the stack.
+const STACK_OPTS: usize = 48;
+
+/// [`decide`] with the scorer's plan built once per genome
+/// ([`MindGenome::plan`]) rather than once a call: what [`tick`] runs.
+fn decide_planned(
+    g: &[f32],
+    plan: &ScorerPlan,
+    ctx: &[f32; CONTEXT],
+    opts: &[Opt],
+    state: &mut MindState,
+    draw: &mut rng::Rng,
+) -> Option<Decision> {
     debug_assert_eq!(g.len(), GENOME_LEN);
     let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
     let sharp = sharpness(g);
@@ -1600,19 +1739,26 @@ pub fn decide(
     let mut scores = vec![0.0f32; opts.len()];
     let mut best = [f32::NEG_INFINITY; VERBS];
     let (mut all_sum, mut all_n) = (0.0f32, 0u32);
+    // Each lane's sum as it starts for each verb, before the option's terms.
+    let start: [[f32; UNITS]; VERBS] =
+        std::array::from_fn(|v| std::array::from_fn(|k| plan.units.get(k).map_or(0.0, |&u| pre[u] + g[S_VERB + u * VERBS + v])));
+    let narrow = plan.units.len() <= UNITS / 2;
     for (o, opt) in opts.iter().enumerate() {
         if !on(opt.verb) {
             continue;
         }
         let v = opt.verb as usize;
+        debug_assert!(opt.feats.iter().all(|x| x.is_finite()), "a feature that is not finite: {:?}", opt.verb);
+        // Every unit's sum at once, each over its terms in their order
+        // ([`ScorerPlan`]).
+        let z = if narrow {
+            score_lanes::<{ UNITS / 2 }>(&start[v], &plan.feats, &opt.feats)
+        } else {
+            score_lanes::<UNITS>(&start[v], &plan.feats, &opt.feats)
+        };
         let mut raw = out[UNITS];
-        for u in 0..UNITS {
-            let feat = &g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES];
-            let mut z = pre[u] + g[S_VERB + u * VERBS + v];
-            for (w, x) in feat.iter().zip(&opt.feats) {
-                z += w * x;
-            }
-            raw += out[u] * squash(z);
+        for (k, &u) in plan.units.iter().enumerate() {
+            raw += out[u] * squash(z[k]);
         }
         let s = squash(sharp * raw);
         scores[o] = s;
@@ -1657,14 +1803,31 @@ pub fn decide(
         jobs[v] = Some(j);
         weights[v] = (j + 1.0) / 2.0;
     }
-    let present: Vec<usize> = (0..VERBS).filter(|&v| jobs[v].is_some()).collect();
-    let shifted: Vec<f32> = present.iter().map(|&v| weights[v]).collect();
-    let verb = Verb::ALL[present[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())]];
+    let (mut present, mut shifted, mut n) = ([0usize; VERBS], [0.0f32; VERBS], 0);
+    for v in (0..VERBS).filter(|&v| jobs[v].is_some()) {
+        (present[n], shifted[n]) = (v, weights[v]);
+        n += 1;
+    }
+    let verb = Verb::ALL[present[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())]];
 
-    // Its target.
-    let targets: Vec<usize> = (0..opts.len()).filter(|&o| opts[o].verb == verb).collect();
-    let shifted: Vec<f32> = targets.iter().map(|&o| (scores[o] + 1.0) / 2.0).collect();
-    let pick = targets[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())];
+    // Its target. The verb's and the target's lists sit on the stack for
+    // any list a body makes (~11 options, at most a few dozen; a longer one,
+    // which nothing builds, takes the heap): four of the small allocations
+    // the ant cost review priced as churn (2026-10-22).
+    let (mut t_stack, mut s_stack, mut t_heap, mut s_heap) = ([0usize; STACK_OPTS], [0.0f32; STACK_OPTS], Vec::new(), Vec::new());
+    let (targets, shifted): (&mut [usize], &mut [f32]) = if opts.len() <= STACK_OPTS {
+        (&mut t_stack[..], &mut s_stack[..])
+    } else {
+        t_heap.resize(opts.len(), 0);
+        s_heap.resize(opts.len(), 0.0);
+        (&mut t_heap[..], &mut s_heap[..])
+    };
+    let mut n = 0;
+    for o in (0..opts.len()).filter(|&o| opts[o].verb == verb) {
+        (targets[n], shifted[n]) = (o, (scores[o] + 1.0) / 2.0);
+        n += 1;
+    }
+    let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
 
     // Memory, from what the ant felt, saw and chose.
     let mut fresh = [0.0f32; MEMORY];
@@ -1789,18 +1952,22 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
-            let (mut ctx, now) = context(world, organism, def, &mind.state, &opts);
-            // SCRATCH (investigation, not for main): PP_ABLATE=name,name zeroes those senses before every decision.
+            // `at_nest` was read above at `(x, y)`; since then only the
+            // colony odour was blended and no fall happened, so no cell
+            // moved (ant cost review A4, 2026-10-22).
+            let (mut ctx, now) = context_at(world, organism, def, &mind.state, &opts, Some(((x, y), at_nest)));
+            // SCRATCH (investigation): PP_ABLATE=name,name zeroes those senses before every decision.
             scratch_log::ablate(&mut ctx);
             // SCRATCH (teacher lane): `PP_BOTTOM_CTX=1` (with `PP_BOTTOM`) puts "a cut at the bottom of my hole, below
             // the ground as built, is in reach" on the borrowed context slot c::CROWD (17), which reads 0 in every solo
             // arena: the job stage reads it straight, past the scorer's saturated best-score channel.
-            if std::env::var("PP_BOTTOM_CTX").is_ok() {
+            static BOTTOM_CTX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *BOTTOM_CTX.get_or_init(|| std::env::var("PP_BOTTOM_CTX").is_ok()) {
                 ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
             }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
-            let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
+            let mut d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
             if let Some(d) = d.as_ref() {
                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
@@ -1821,7 +1988,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                             mind.state.mem = mem0;
                             mind.state.last_verb = last0;
                             let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1002);
-                            if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
+                            if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
                                 d = Some(d2);
                                 redrawn = Some(allowed);
                                 static V: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1858,7 +2025,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                                 mind.state.mem = mem0;
                                 mind.state.last_verb = last0;
                                 let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1003);
-                                if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
+                                if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
                                     d = Some(d2);
                                     redrawn = Some(allowed);
                                 }
@@ -1889,7 +2056,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                                 mind.state.mem = mem0;
                                 mind.state.last_verb = last0;
                                 let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1000);
-                                if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
+                                if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
                                     d = Some(d2);
                                     redrawn = Some(allowed);
                                 }
@@ -1982,7 +2149,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     // the settle, since a dead ant's body is corpse, and corpse is food.
     let soil = world.organism(organism).is_some_and(|s| s.spoil.is_some());
     let food_near = soil && {
-        let corpse = world.materials.id_of("corpse");
+        let corpse = world.materials.known(Known::Corpse);
         DIRS.iter().any(|&(dx, dy)| {
             let cell = world.get(hx + dx, hy + dy);
             world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0 && Some(cell.material) != corpse
@@ -2074,7 +2241,7 @@ fn pick_up(
     let food = bite.material;
     if jaws
         || world.materials.get(food).food_energy <= 0.0
-        || world.materials.id_of("corpse") == Some(food)
+        || world.materials.known(Known::Corpse) == Some(food)
         || bite.organism_id() != 0
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
@@ -2512,6 +2679,88 @@ mod tests {
             count[d.pick] += 1;
         }
         count
+    }
+
+    /// **The sparse scorer is a speed-up and nothing else** ([`ScorerPlan`]):
+    /// over sparse random genomes (about the density a trained one has, with
+    /// whole units switched off at the output), random contexts, memories
+    /// and option lists, every decision's pick, scores, jobs, emits and new
+    /// memory match the dense sum bit for bit, a zero's sign aside.
+    #[test]
+    fn the_sparse_scorer_decides_exactly_as_the_dense_one() {
+        let same = |a: f32, b: f32| a.to_bits() == b.to_bits() || (a == 0.0 && b == 0.0);
+        let mut r = rng::stream(11, 2, 3, 99);
+        let mut compared = 0;
+        for trial in 0..400 {
+            let mut g = blank(&Verb::ALL);
+            let density = [0.05, 0.25, 0.6][trial % 3];
+            for w in g.iter_mut().skip(S_CTX) {
+                if r.unit_f32() < density {
+                    *w = r.unit_f32() * 4.0 - 2.0;
+                }
+            }
+            for v in Verb::ALL {
+                g[SWITCH + v as usize] = if r.unit_f32() < 0.8 { 1.0 } else { -1.0 };
+            }
+            let ctx: [f32; CONTEXT] = std::array::from_fn(|_| r.unit_f32() * 2.0 - 1.0);
+            let mut state = MindState::default();
+            for m in state.mem.iter_mut() {
+                *m = r.unit_f32() * 2.0 - 1.0;
+            }
+            let opts: Vec<Opt> = (0..1 + (r.unit_f32() * 20.0) as usize)
+                .map(|k| Opt {
+                    verb: Verb::ALL[(r.unit_f32() * VERBS as f32) as usize % VERBS],
+                    target: (k as i32, 0),
+                    feats: std::array::from_fn(|_| if r.unit_f32() < 0.5 { 0.0 } else { r.unit_f32() * 2.0 - 1.0 }),
+                })
+                .collect();
+            let (sparse, dense) = (ScorerPlan::new(&g), ScorerPlan::dense(&g));
+            let (mut s1, mut s2) = (state, state);
+            let (mut d1, mut d2) = (rng::stream(5, trial as u64, 0, RNG_SLOT_MIND), rng::stream(5, trial as u64, 0, RNG_SLOT_MIND));
+            let a = decide_planned(&g, &sparse, &ctx, &opts, &mut s1, &mut d1);
+            let b = decide_planned(&g, &dense, &ctx, &opts, &mut s2, &mut d2);
+            let (a, b) = match (a, b) {
+                (Some(a), Some(b)) => (a, b),
+                (None, None) => continue,
+                _ => panic!("trial {trial}: one decided and the other did not"),
+            };
+            compared += 1;
+            assert_eq!(a.pick, b.pick, "trial {trial}");
+            assert!(a.scores.iter().zip(&b.scores).all(|(x, y)| same(*x, *y)), "trial {trial}: scores {:?} vs {:?}", a.scores, b.scores);
+            assert!(a.jobs.iter().zip(&b.jobs).all(|(x, y)| match (x, y) {
+                (Some(x), Some(y)) => same(*x, *y),
+                (None, None) => true,
+                _ => false,
+            }), "trial {trial}: jobs");
+            assert!(a.emits.iter().zip(&b.emits).all(|(x, y)| same(*x, *y)), "trial {trial}: emits");
+            assert!(s1.mem.iter().zip(&s2.mem).all(|(x, y)| same(*x, *y)), "trial {trial}: memory");
+            assert_eq!(s1.last_verb, s2.last_verb);
+        }
+        assert!(compared > 300, "too few trials decided anything: {compared}");
+        // The positive control: a plan that drops one live weight is caught.
+        let mut g = blank(&Verb::ALL);
+        for (i, w) in g.iter_mut().enumerate().skip(S_CTX) {
+            *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
+        }
+        let mut broken = ScorerPlan::new(&g);
+        broken.feats[0].1[0] = 0.0;
+        // Every feature nonzero, so whichever weight was dropped is read.
+        let opts: Vec<Opt> = walks()
+            .into_iter()
+            .map(|mut o| {
+                o.feats = std::array::from_fn(|i| 0.1 + i as f32 / FEATURES as f32);
+                o
+            })
+            .collect();
+        let ctx = [0.3; CONTEXT];
+        let mut caught = false;
+        for k in 0..50 {
+            let (mut s1, mut s2) = (MindState::default(), MindState::default());
+            let a = decide_planned(&g, &broken, &ctx, &opts, &mut s1, &mut rng::stream(1, k, 0, 0)).expect("pick");
+            let b = decide_planned(&g, &ScorerPlan::dense(&g), &ctx, &opts, &mut s2, &mut rng::stream(1, k, 0, 0)).expect("pick");
+            caught |= a.scores.iter().zip(&b.scores).any(|(x, y)| !same(*x, *y));
+        }
+        assert!(caught, "a plan missing a live weight scored the same: the comparison is blind");
     }
 
     #[test]
@@ -3711,8 +3960,15 @@ mod tests {
 }
 
 
-/// SCRATCH (box-rank / investigation, not for main): `PP_MIND_LOG=<file>` writes one row per mind decision
+/// SCRATCH (box-rank / investigation): `PP_MIND_LOG=<file>` writes one row per mind decision
 /// and the soil arena's cut and put-down events, for tracing individuals offline.
+///
+/// **Every `PP_*` switch here is off unless its variable is set**, and each is
+/// read once (`OnceLock`), so a run with none set takes the plain path: the
+/// teacher lane's harness (`examples/inrun.rs`, `examples/copylog.rs`) landed
+/// on `main` 2026-10-22 with these hooks re-threaded into the restructured
+/// [`tick`] (`context_at`, `decide_planned`), and with none set an hA1 batch
+/// came back byte-identical to the compute branch it came from.
 pub mod scratch_log {
     use super::*;
     use std::io::Write;

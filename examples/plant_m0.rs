@@ -7,11 +7,16 @@
 //! cargo run --release --example plant_m0 -- mode=community mix=roles4 seed=1 frames=450000 sample=25000 ants=0
 //! # the crippled-species control: shrub's photosynthesis x0.1 at sowing
 //! cargo run --release --example plant_m0 -- mode=community mix=roles4 seed=1 cripple=shrub
+//! # trained species files standing in for shipped roles, under their names
+//! cargo run --release --example plant_m0 -- mode=community mix=roles seed=1 swap=shrub:best.ron,tree:t.ron
 //! # M0.6(a)'s control: two plants two columns apart against one alone
 //! cargo run --release --example plant_m0 -- mode=boxed
 //! # M1 A1: two copies of one bed in lockstep, one draw taken from the
 //! # copy's shared world stream at frame `at` and nothing else changed
 //! cargo run --release --example plant_m0 -- mode=nudge mix=roles4 loadfail=0 at=1000 frames=60000 sample=2000
+//! # rungs 5-6's arena: a stand of the other roles grown once, copied per
+//! # arm, sown with the role's seed (`none` = the resident-only control)
+//! cargo run --release --example plant_m0 -- mode=stand role=tree mix=stand-tree width=192 arms=none,shipped,t.ron
 //! ```
 //!
 //! **Every unknown argument is refused** (`Reports/instruments.md`: an ignored
@@ -40,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -76,7 +81,13 @@ fn mix(name: &str) -> Vec<&'static str> {
         // the trained four. `roles4` above is M0's mix, from before the
         // remap, and every M1 community run to 2026-10-21 used it.
         "roles" => vec!["tree", "shrub", "herb", "creeper"],
-        other => panic!("mix={other} is not mix7|roles4|roles"),
+        // **A resident stand for rungs 5-6** (`mode=stand`): the roles
+        // without the one being sown into it.
+        "stand-tree" => vec!["shrub", "herb", "creeper"],
+        "stand-shrub" => vec!["tree", "herb", "creeper"],
+        "stand-herb" => vec!["tree", "shrub", "creeper"],
+        "stand-creeper" => vec!["tree", "shrub", "herb"],
+        other => panic!("mix={other} is not mix7|roles4|roles|stand-ROLE"),
     }
 }
 
@@ -85,18 +96,19 @@ fn mix(name: &str) -> Vec<&'static str> {
 /// (`played_bed.ron`); the same layout with and without ants, so the two
 /// arms differ only by the colony.
 fn columns(n: usize, width: i32) -> Vec<i32> {
-    let spans = [(10, 205), (315, width - 10)];
+    // A bed too narrow for the band (rungs 5-6's stand) is spread whole.
+    let spans: Vec<(i32, i32)> = if width >= 330 { vec![(10, 205), (315, width - 10)] } else { vec![(10, width - 10)] };
     let total: i32 = spans.iter().map(|(a, b)| b - a).sum();
     (0..n)
         .map(|i| {
             let mut t = (total as f32 * (i as f32 + 0.5) / n as f32) as i32;
-            for (a, b) in spans {
+            for &(a, b) in &spans {
                 if t < b - a {
                     return a + t;
                 }
                 t -= b - a;
             }
-            spans[1].1 - 1
+            spans[spans.len() - 1].1 - 1
         })
         .collect()
 }
@@ -183,6 +195,24 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
         horizon: frames,
     };
     let (mut w, _, placed) = scenario.build();
+    // `swap=shrub:FILE.ron,tree:FILE.ron`: a trained species file stands in
+    // for a shipped role under the shipped name, so the mix, the census and
+    // the pictures all read it as that role -- the community bed as the
+    // judge of a trainer's champions (plant-community plan §6.2, rung 7).
+    // Registered after `build`, which has planted only seeds: a founder
+    // reads its species at germination (`seed_genotype`) and every tick
+    // after, and the seed material is the role's either way.
+    if let Some(spec) = m.get("swap") {
+        for item in spec.split(',') {
+            let (name, file) = item.split_once(':').expect("swap=NAME:FILE.ron,...");
+            let mut def = pixel_physics::train_plant::load(std::path::Path::new(file)).expect("the swapped species loads");
+            assert!(w.species.id_of(name).is_some(), "swap: no species {name} in the bed");
+            def.name = name.to_string();
+            let ron = pixel_physics::sim::species_export::to_ron(&def).expect("exports");
+            w.species.register_ron(&ron).expect("the swapped species registers");
+            println!("plant_m0 swap: {name} <- {file}");
+        }
+    }
     // In-bed heredity off, as on the bed of record: a census of today's
     // species, not of whatever they mutate into over 450,000 frames.
     w.fate_mutation_chance = 0.0;
@@ -251,23 +281,34 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
 /// `shade=1` turns on `World::shade_plasticity` (A5), and
 /// `genes=SPECIES:avoid|tolerate:VALUE,...` sets a species' shade genes on
 /// this bed only -- the A/B the shade genes are measured on before any
-/// species file changes. Prints what it set.
+/// species file changes. `scald=1` turns on `World::shade_scald` (A5's
+/// bright-light price). Prints what it set.
 fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
     w.shade_plasticity = get(m, "shade", u8::from(w.shade_plasticity)) != 0;
+    w.shade_scald = get(m, "scald", u8::from(w.shade_scald)) != 0;
+    w.seedling_waits = get(m, "waits", u8::from(w.seedling_waits)) != 0;
+    // `reserves=1`: `World::seedling_reserves`.
+    w.seedling_reserves = get(m, "reserves", u8::from(w.seedling_reserves)) != 0;
+    // `settle=1`: `World::seed_settles`.
+    w.seed_settles = get(m, "settle", u8::from(w.seed_settles)) != 0;
     if let Some(spec) = m.get("genes") {
         for item in spec.split(',') {
             let parts: Vec<&str> = item.split(':').collect();
-            let [name, gene, value] = parts[..] else { panic!("genes=SPECIES:avoid|tolerate:VALUE,...") };
+            let [name, gene, value] = parts[..] else { panic!("genes=SPECIES:avoid|tolerate|germ:VALUE,...") };
             let id = w.species.id_of(name).unwrap_or_else(|| panic!("genes: no species {name}"));
-            let param = match gene {
-                "avoid" => ParamId::ShadeAvoid,
-                "tolerate" => ParamId::ShadeTolerate,
-                other => panic!("genes: {other} is not avoid|tolerate"),
+            // `germ`: the seed's `Germinate.light_threshold` (absolute
+            // light, open 2.40), the first of the three walls a seed meets
+            // under a canopy -- a gene, so selection can move it.
+            let (cell_type, param) = match gene {
+                "avoid" => (CellType::GrowingTip, ParamId::ShadeAvoid),
+                "tolerate" => (CellType::GrowingTip, ParamId::ShadeTolerate),
+                "germ" => (CellType::Seed, ParamId::GerminateLight),
+                other => panic!("genes: {other} is not avoid|tolerate|germ"),
             };
-            assert!(w.species.set_param(id, CellType::GrowingTip, param, 0, value.parse().expect("gene value")), "genes: {name} has no Grow on its growing tip");
+            assert!(w.species.set_param(id, cell_type, param, 0, value.parse().expect("gene value")), "genes: {name} has no {gene} gene");
         }
     }
-    println!("plant_m0 shade_plasticity={} open_light={:.2} genes={}", w.shade_plasticity, w.open_light, m.get("genes").map_or("none", String::as_str));
+    println!("plant_m0 shade_plasticity={} shade_scald={} open_light={:.2} genes={}", w.shade_plasticity, w.shade_scald, w.open_light, m.get("genes").map_or("none", String::as_str));
 }
 
 fn community(m: &BTreeMap<String, String>) {
@@ -1025,13 +1066,14 @@ fn trace_founder(w: &World, id: OrganismId, label: &str) {
         let &(x, y) = st.cells.keys().next().expect("one cell");
         let (here, below) = (w.get(x, y), w.get(x, y + 1));
         println!(
-            "    TRACE {label} seed at ({x},{y}) {} type {:?} light {:.2} | below {} holds {} available {:.2}",
+            "    TRACE {label} seed at ({x},{y}) {} type {:?} light {:.2} | below {} holds {} available {:.2} owned {}",
             w.materials.get(here.material).name,
             organism::cell_type(here.aux()),
             pixel_physics::sim::plant::ambient_light_above(w, x, y),
             w.materials.get(below.material).name,
             w.materials.get(below.material).water_capacity,
-            pixel_physics::sim::update::plant_available_fraction(below)
+            pixel_physics::sim::update::plant_available_fraction(below),
+            below.organism_id() != 0
         );
     }
     let (mut leaves, mut tips, mut buds, mut carbon, mut light) = (0, 0, 0, 0.0f32, 0.0f32);
@@ -1061,6 +1103,18 @@ fn trace_founder(w: &World, id: OrganismId, label: &str) {
         st.nutrient_status,
         st.senescent
     );
+    // `PIXEL_PHYSICS_TRACE_CELLS=1`: a small plant cell by cell -- what each
+    // cell is and the carbon it holds, which is where a seedling's stake
+    // went when its tip reads too poor to grow.
+    if std::env::var("PIXEL_PHYSICS_TRACE_CELLS").is_ok() && st.cells.len() <= 32 {
+        let mut cells: Vec<_> = st.cells.keys().copied().collect();
+        cells.sort_by_key(|&(x, y)| (y, x));
+        let row: Vec<String> = cells
+            .iter()
+            .map(|&(x, y)| format!("{:?}@{},{}={:.2}", organism::cell_type(w.get(x, y).aux()).unwrap_or(CellType::Seed), x, y, w.carbon_at(x, y)))
+            .collect();
+        println!("    CELLS {label} {}", row.join(" "));
+    }
 }
 
 fn plastic(m: &BTreeMap<String, String>) {
@@ -1160,6 +1214,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                 let mut args = m.clone();
                 args.insert("shade".into(), u8::from(plastic).to_string());
                 apply_shade(&args, &mut w);
+                // `endow=X`: the founder seed carries X carbon, as a seed its
+                // parent bred would (`Reproduce.seed_cost`), instead of a
+                // planted seed's 0. Under a canopy the first step is paid
+                // from this or not at all.
+                if let Some(e) = m.get("endow") {
+                    pixel_physics::sim::plant::endow_seed(&mut w, id, e.parse().expect("endow=X"));
+                }
                 let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
                 // `trace=N`: the first seed's founder every N frames -- its
                 // organs, its earnings against its bill, and its stores.
@@ -1185,6 +1246,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                             let mut by: BTreeMap<String, u32> = BTreeMap::new();
                             for r in log.iter().filter(|r| r.organism == id && !r.root) {
                                 *by.entry(format!("{:?}", r.why)).or_default() += 1;
+                            }
+                            // `PIXEL_PHYSICS_TRACE_CELLS=1`: every shoot-tip visit,
+                            // with the carbon it held against the price of a cell.
+                            if std::env::var("PIXEL_PHYSICS_TRACE_CELLS").is_ok() {
+                                for r in log.iter().filter(|r| r.organism == id && !r.root) {
+                                    println!("    VISIT f={} ({},{}) order {} carbon {:.3} cost {:.3} why {:?} retired {}", r.frame, r.x, r.y, r.order, r.carbon, r.cost, r.why, r.retired);
+                                }
                             }
                             log.clear();
                             println!("    WHYS {label} s={s} f={f} {by:?}");
@@ -1213,9 +1281,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                 // within seed rather than by mean of survivors: a shoot's
                 // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
                 println!(
-                    "    SEED {label} s={s} shoot {} sprouts {}",
+                    "    SEED {label} s={s} shoot {} sprouts {} shed shade {} scald {} waits {} reserves {}",
                     form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])),
-                    w.collar_sprouts
+                    w.collar_sprouts,
+                    w.shed_shade,
+                    w.shed_scald,
+                    w.seedling_waits_held,
+                    w.seedling_reserves_drawn
                 );
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);
@@ -1423,6 +1495,182 @@ fn copy(_m: &BTreeMap<String, String>) {
     println!("  new species registered into the copy and sown: placed {} plant(s); after 5,000 frames {} live, shoot cells {:?}", placed.plants, grown.len(), grown);
 }
 
+/// **Rungs 5-6's arena, as a probe** (plan §6.2): a resident stand of the
+/// other roles (`mix=stand-ROLE`, `swap=` for trained residents) grown
+/// `grow` frames once, then copied once per arm. Each copy is sown with `sow`
+/// seeds of `role`, spread evenly, and run `window` frames more; `none` sows
+/// nothing and is the resident-only control (review B1), `shipped` sows the
+/// shipped species, and a path sows that species file under the role's
+/// name. Arms run on their own threads from the one grown world.
+///
+/// Each row, per species: `plants` (germinated), `bank` (waiting seeds),
+/// `leaf` cells, and `shoot` cells over the whole species. The question it
+/// was built for: does a candidate that floods the long bed with its own
+/// seedlings (the seed-trained tree, 2026-10-22) hold the residents below
+/// where the shipped role holds them, inside a window a trainer can pay for?
+fn stand(m: &BTreeMap<String, String>) {
+    let started = std::time::Instant::now();
+    let role: String = get(m, "role", "tree".to_string());
+    let (mut w, bed, scenario, residents, mix_name, placed) = community_bed(m);
+    assert!(!residents.contains(&role.as_str()), "role={role} is also a resident of mix={mix_name}");
+    let (grow, window, sample, sow, gap) = (get(m, "grow", 60_000u64), get(m, "window", 80_000u64), get(m, "sample", 10_000u64), get(m, "sow", 3usize), get(m, "gap", 0i32));
+    let gapat = get(m, "gapat", 0u64);
+    let arms: Vec<String> = get(m, "arms", "none,shipped".to_string()).split(',').map(str::to_string).collect();
+    println!(
+        "plant_m0 stand: role={role} mix={mix_name} {residents:?} seed={} width={} grow={grow} window={window} sample={sample} sow={sow} gap={gap} gapat={gapat} arms={} plants_placed={placed}",
+        bed.seed,
+        bed.width,
+        arms.join(",")
+    );
+    let tuning = player::Tuning::default();
+    let (mut particles, mut blasts) = (ParticleSystem::new(), Blasts::new());
+    for _ in 0..grow {
+        pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
+    }
+    let mut names: Vec<&str> = residents.clone();
+    names.push(role.as_str());
+    let row = |w: &World| -> String {
+        let mut per: BTreeMap<&str, [u64; 4]> = names.iter().map(|s| (*s, [0u64; 4])).collect();
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            let def = w.species.get(st.species);
+            let Some(r) = per.get_mut(def.name.as_str()) else { continue };
+            let germinated = st.cells.keys().any(|&(x, y)| organism::cell_type(w.get(x, y).aux()) != Some(CellType::Seed));
+            if st.shoot_cells == 0 || !germinated {
+                r[1] += 1;
+                continue;
+            }
+            r[0] += 1;
+            r[3] += st.shoot_cells as u64;
+            let leaf = w.materials.id_of(&def.leaf_material);
+            r[2] += st.cells.keys().filter(|&&(x, y)| Some(w.get(x, y).material) == leaf).count() as u64;
+        }
+        names.iter().map(|n| { let r = per[n]; format!("{n} {}/{}/{}/{}", r[0], r[1], r[2], r[3]) }).collect::<Vec<_>>().join(" | ")
+    };
+    println!("grown f={grow} | {}  (plants/bank/leaf/shoot)", row(&w));
+    let results: Vec<(String, Vec<String>)> = std::thread::scope(|sc| {
+        let handles: Vec<_> = arms
+            .iter()
+            .map(|arm| {
+                let (mut c, bed, scenario, role, row) = (w.clone(), &bed, &scenario, role.as_str(), &row);
+                sc.spawn(move || {
+                    let mut out = Vec::new();
+                    if arm != "none" && arm != "shipped" {
+                        let mut def = pixel_physics::train_plant::load(std::path::Path::new(arm)).expect("the arm's species loads");
+                        def.name = role.to_string();
+                        let ron = pixel_physics::sim::species_export::to_ron(&def).expect("exports");
+                        c.species.register_ron(&ron).expect("the arm's species registers");
+                    }
+                    // `gap=G`: a disturbance gap G columns wide cut at each
+                    // sowing column in every arm, `none` included -- every
+                    // plant cell above the ground in it erased, roots left to
+                    // resprout. Measured without it (2026-10-22, 4 seeds, a
+                    // 60,000-frame stand of shrub, herb and creeper 192
+                    // wide): no tree seed sown onto the stand ever
+                    // germinated, shipped or trained, so every tree arm
+                    // ended cell-identical to the shipped one and the rung
+                    // could not tell a flooding tree from any other.
+                    //
+                    // `gapat=F`: cut it F frames into the window instead, over
+                    // seed sown under the closed stand -- whether a seedling
+                    // bank waiting on the floor is released when the canopy
+                    // opens (advance regeneration), which is what
+                    // `World::seedling_reserves` is for.
+                    // A late cut spares the sown role: a fallen crown opens
+                    // the floor, it does not clear the seedlings waiting on
+                    // it (first measured with them cut too, 2026-10-22, and
+                    // the bank was the thing erased).
+                    let cut = |c: &mut World, spare: bool| {
+                        let role_id = c.species.id_of(role);
+                        for i in 0..sow {
+                            let x0 = (bed.width as f32 * (i as f32 + 0.5) / sow as f32) as i32 - gap / 2;
+                            for x in x0.max(0)..(x0 + gap).min(bed.width) {
+                                for y in 0..bed.ground_y {
+                                    let id = c.get(x, y).organism_id();
+                                    if id != 0 && !(spare && c.organism(id).map(|o| o.species) == role_id) {
+                                        c.set(x, y, Cell::EMPTY);
+                                    }
+                                }
+                            }
+                        }
+                    };
+                    if gap > 0 && gapat == 0 {
+                        cut(&mut c, false);
+                    }
+                    let mut sown: Vec<OrganismId> = Vec::new();
+                    if arm != "none" {
+                        let at: Vec<Placement> =
+                            (0..sow).map(|i| Placement::Plant { species: role.to_string(), x: (bed.width as f32 * (i as f32 + 0.5) / sow as f32) as i32 }).collect();
+                        let before: std::collections::HashSet<_> = c.live_organism_ids().into_iter().collect();
+                        let n = pixel_physics::lab::scenario::apply_placements(&mut c, &at, bed);
+                        // `endow=X`: each sown seed carries X carbon, as a
+                        // seed its parent bred would (`Reproduce.seed_cost`,
+                        // 0.25 for shrub and creeper), instead of a planted
+                        // seed's 0 -- so the rung sows what natural
+                        // recruitment drops. Default 0, the old behaviour.
+                        let stake = get(m, "endow", 0.0f32);
+                        sown = c.live_organism_ids().into_iter().filter(|id| !before.contains(id)).collect();
+                        if stake > 0.0 {
+                            for &id in &sown {
+                                pixel_physics::sim::plant::endow_seed(&mut c, id, stake);
+                            }
+                        }
+                        out.push(format!("sown {} of {sow} endow {stake}", n.plants));
+                    }
+                    // `trace=N`: every sown plant every N frames (printed as it
+                    // runs, so give it one arm), and how each one died.
+                    let trace = get(m, "trace", 0u64);
+                    if trace > 0 {
+                        c.death_log = Some(Vec::new());
+                    }
+                    let (mut p, mut b) = (ParticleSystem::new(), Blasts::new());
+                    for f in 1..=window {
+                        pixel_physics::lab::tick_world(&mut c, &mut p, &mut b, &tuning, bed, Some(scenario));
+                        if gap > 0 && f == gapat {
+                            cut(&mut c, true);
+                            out.push(format!("f={f} gap cut | {}", row(&c)));
+                        }
+                        if trace > 0 && f % trace == 0 {
+                            for (i, &id) in sown.iter().enumerate() {
+                                if c.organism(id).is_some() {
+                                    trace_founder(&c, id, &format!("f={f} sown{i}"));
+                                }
+                            }
+                        }
+                        if f % sample == 0 || f == window {
+                            out.push(format!("f={f} | {}", row(&c)));
+                        }
+                    }
+                    out.push(format!(
+                        "SWITCHES reserves_drawn {} settled {} heaved {} germinations {}",
+                        c.seedling_reserves_drawn, c.seeds_settled, c.seeds_heaved, c.germinations
+                    ));
+                    for d in c.death_log.iter().flatten().filter(|d| sown.contains(&d.id)) {
+                        out.push(format!(
+                            "DEATH sown{} at f={} age {} cause {:?} declared {} dormant_seed {} at {:?}",
+                            sown.iter().position(|&id| id == d.id).unwrap_or(0),
+                            d.frame,
+                            d.frame - d.born_frame,
+                            d.cause,
+                            d.declared,
+                            d.dormant_seed,
+                            d.at
+                        ));
+                    }
+                    out
+                })
+            })
+            .collect();
+        arms.iter().cloned().zip(handles.into_iter().map(|h| h.join().expect("an arm's thread"))).collect()
+    });
+    for (arm, rows) in results {
+        for r in rows {
+            println!("arm={arm} {r}");
+        }
+    }
+    println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
+}
+
 /// **Does one draw from the shared world stream reshuffle the bed?** Two
 /// copies of one community bed, stepped in lockstep. At frame `at` the copy
 /// takes one `World::rng` draw and throws it away: no cell, field or
@@ -1562,10 +1810,11 @@ fn main() {
         "plastic" => plastic(&m),
         "cost" => cost(&m),
         "copy" => copy(&m),
+        "stand" => stand(&m),
         "nudge" => nudge(&m),
         "draincost" => drain_cost(&m),
         other => {
-            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|nudge|draincost");
+            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|stand|nudge|draincost");
             std::process::exit(2);
         }
     }

@@ -1,0 +1,39 @@
+quiet_unread: 0 links of unread units zeroed; live links 1432 -> 1432
+revive_hidden: []
+revive_units: [] (inputs seeded, sigma 0.3)
+trainable slots: 1250 (live 1244, allow-list 247, frozen 16, of them live 2)
+group none : train  24758  held out   5242  target ref
+group carry: train  53790  held out   6210  target teacher
+group keepL: train  17969  held out   3858  target ref
+group keep : train  25037  held out   4963  target ref
+step 0: held-out KL none 0.0559 carry 1.5506 keepL 0.0000 keep 0.0000
+step 100: held-out KL none 0.1422 carry 0.4112 keepL 0.0056 keep 0.0482  sum 0.6072  (23 s)
+step 200: held-out KL none 0.1452 carry 0.2227 keepL 0.0049 keep 0.0326  sum 0.4053  (46 s)
+step 300: held-out KL none 0.1503 carry 0.1476 keepL 0.0069 keep 0.0268  sum 0.3317  (69 s)
+step 400: held-out KL none 0.1481 carry 0.1174 keepL 0.0062 keep 0.0262  sum 0.2978  (92 s)
+step 500: held-out KL none 0.1466 carry 0.1146 keepL 0.0129 keep 0.0241  sum 0.2983  (114 s)
+step 600: held-out KL none 0.1437 carry 0.1082 keepL 0.0037 keep 0.0263  sum 0.2819  (137 s)
+step 700: held-out KL none 0.1444 carry 0.1205 keepL 0.0043 keep 0.0229  sum 0.2921  (160 s)
+step 800: held-out KL none 0.1407 carry 0.1069 keepL 0.0034 keep 0.0241  sum 0.2751  (189 s)
+step 900: held-out KL none 0.1369 carry 0.1166 keepL 0.0032 keep 0.0211  sum 0.2778  (212 s)
+step 1000: held-out KL none 0.1443 carry 0.1022 keepL 0.0047 keep 0.0278  sum 0.2790  (234 s)
+step 1100: held-out KL none 0.1306 carry 0.1070 keepL 0.0037 keep 0.0202  sum 0.2614  (258 s)
+step 1200: held-out KL none 0.1317 carry 0.1058 keepL 0.0035 keep 0.0200  sum 0.2610  (280 s)
+step 1300: held-out KL none 0.1259 carry 0.1063 keepL 0.0140 keep 0.0214  sum 0.2676  (303 s)
+step 1400: held-out KL none 0.1305 carry 0.1086 keepL 0.0034 keep 0.0224  sum 0.2649  (326 s)
+step 1500: held-out KL none 0.1303 carry 0.1020 keepL 0.0037 keep 0.0194  sum 0.2553  (349 s)
+step 1600: held-out KL none 0.1341 carry 0.0961 keepL 0.0039 keep 0.0220  sum 0.2561  (371 s)
+step 1700: held-out KL none 0.1340 carry 0.0952 keepL 0.0067 keep 0.0246  sum 0.2605  (394 s)
+step 1800: held-out KL none 0.1261 carry 0.1299 keepL 0.0036 keep 0.0283  sum 0.2879  (417 s)
+step 1900: held-out KL none 0.1333 carry 0.0630 keepL 0.0045 keep 0.0253  sum 0.2261  (439 s)
+step 2000: held-out KL none 0.1272 carry 0.0604 keepL 0.0027 keep 0.0209  sum 0.2112  (462 s)
+step 2100: held-out KL none 0.1224 carry 0.0613 keepL 0.0028 keep 0.0210  sum 0.2075  (485 s)
+step 2200: held-out KL none 0.1237 carry 0.0600 keepL 0.0039 keep 0.0202  sum 0.2077  (514 s)
+step 2300: held-out KL none 0.1367 carry 0.0565 keepL 0.0031 keep 0.0217  sum 0.2181  (537 s)
+step 2400: held-out KL none 0.1283 carry 0.0582 keepL 0.0027 keep 0.0198  sum 0.2090  (560 s)
+step 2500: held-out KL none 0.1244 carry 0.0535 keepL 0.0028 keep 0.0192  sum 0.1999  (582 s)
+wrote /tmp/claude-0/-home-user-Pixel-Physics/27939a3f-efe9-5f8e-aa38-c8f353d2e900/scratchpad/st/cp/hm1.txt: best step 2500, live links 1432 (start 1432), moved 1066, revived 0 []
+  none  start: overlap with target 0.951 | copy: overlap with target 0.903
+  carry start: overlap with target 0.483 P(label verb) 0.984 | copy: overlap with target 0.952 P(label verb) 0.992
+  keepL start: overlap with target 1.000 | copy: overlap with target 0.988
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.964

@@ -215,7 +215,7 @@ fn arena(genome_path: &str, csv: &str) {
         .and_then(|n| n.parse().ok())
         .expect("a sparse genome file: `genome <len> ...` on its first line");
     let genome = load_genome(std::path::Path::new(genome_path), len);
-    let soil = Soil { ants: 1, frames, step: 4, shaft: 8, budget: Some(1200.0), foot: true, step_near: 0.0 };
+    let soil = Soil { ants: 1, frames, step: 4, shaft: 8, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
     println!(
         "roof_cues arena: genome {genome_path} ({len} slots), soil step 4 shaft 8 foot budget 1200, {frames} frames, \
          {n_sealed} sealed + {n_hold} hold-out layouts, every {every}, truth every {truth_every}"

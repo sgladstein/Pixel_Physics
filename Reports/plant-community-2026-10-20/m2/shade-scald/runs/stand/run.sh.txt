@@ -1,0 +1,4 @@
+#!/bin/bash
+IFS='|' read -r role seed waits out <<< "$1"
+F=FILES
+PIXEL_PHYSICS_SHADE_SCALD=1 plant_m0 mode=stand role=$role mix=stand-$role width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed grow=60000 window=80000 sow=4 waits=$waits arms=shipped,$F/${role}_t1.0.ron > "$out" 2>&1

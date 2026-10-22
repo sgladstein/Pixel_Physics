@@ -622,8 +622,49 @@ This session cannot launch anything.
 >    -- meant as the shade-tolerant understory -- is the one dim hurts most
 >    (5 of 12 establish against 12; the herb loses nothing). Dry soil is not
 >    a station yet: growth ignores soil water above germination. The mister
->    is ~94% of a small bed's cost. Next: rung scores, then rung 1 predicting
->    rung 2. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
+>    is ~94% of a small bed's cost. **Rung 2 is the filter** (`plantrain
+>    mode=ladder`, 16 mutated children each of herb and shrub): it repeats
+>    on fresh layouts at 0.62-0.90 and predicts a whole life at 0.71-0.78,
+>    at a fifth of the cost. Rung 1 is too early for the herb (12 of 17
+>    children identical at frame 3,000), so it stays a death filter only.
+>    One random shrub child already grows twice the shipped shrub in dim
+>    light. **All four roles re-fit on rung 2
+>    (`.../m2/refit/`):** selection beats a random null on every role
+>    (+0.20 to +0.50 on the final set, ahead on every bed; the null does not
+>    move), and the shrub repeats on a second seed. Over a whole life every
+>    role ends 1.6-5x its shipped size, **in the dim station too**: the tree
+>    re-fit is nearly as big under the dim lamp as the full one, and the
+>    herb five times its shipped size. Rung 2 charges nothing for size, so
+>    the §4.2 trade-offs are not in these files; they are rung 4's starting
+>    points, not species to ship. The mister was drenching small beds (a
+>    rate per box, not per column); it now rains per column
+>    (`lab::rain::RATE_WIDTH`, the 512 lab unchanged), halving a training
+>    bed's cost without moving the shipped species' sizes. **Rung 4 (each
+>    role beside each other role, a whole life; `.../m2/hold/`)** is in the
+>    trainer. From the shipped species only the shrub moved (+0.73 against
+>    a +0.27 random null: it now sets fruit, at twice the size). From the
+>    re-fits nothing improved on its start, and the starts win by crowding:
+>    the re-fit shrub takes a shrub beside it from 367 cells to 21. The
+>    neighbour term is too weak to stop that. **A neighbour floor**
+>    (`score::NEIGHBOUR_FLOOR`: the score shrinks once the neighbour is
+>    under half its usual size) made selection steer: the shrub and herb
+>    trained from the re-fits stopped smothering. **The mixed community
+>    bed is now the judge** (`plant_m0 swap=ROLE:FILE.ron`, `.../m2/community/`,
+>    five minutes a run): the re-fits double the tree canopy and wipe out
+>    the herb or creeper; the floor champions keep the shipped tree's
+>    canopy and the herb survives as fewer, larger plants -- at 200,000
+>    frames. **At the full 450,000 they do not hold** (six seeds): the
+>    trained herb sets a quarter of the shipped herb's seed and dies out on
+>    four seeds of six (shipped: one), because rung 4 pays one flowering
+>    however many seeds it sets. The shipped bed itself ends as tree and
+>    herb: the creeper is gone on every seed, the shrub on four. **Rung 4
+>    now pays seed set** (`sized_score`, plan §5 step 5), and retrained:
+>    the shrub and tree set 2-4x their starts' seed, the herb is back to
+>    shipped. In the 450,000-frame bed the seed-trained shrub, herb and
+>    creeper with the **shipped** tree keep 3.2 roles alive a seed against
+>    shipped's 2.2, the shrub on 6 of 6; the seed-trained tree floods the
+>    bed with seedlings and costs the others (rungs 5-6's job). Candidates
+>    to ship: the seed-trained shrub and herb, the owner's call. (Original text:) **M2: rungs 1-3 and the role re-fit** (§6.3 step 1), with §13's
 >    budget-per-rung log built alongside. Revision 5's handoff named rungs
 >    4-6 here, but rungs 1-3 do not exist yet and §13 puts nearly all the
 >    generations there; rungs 4-6 (recruitment, long-run coexistence) follow
@@ -1007,6 +1048,31 @@ the review (§12), **M1 runs in this order**:
      that open the canopy, which the tree has at 60,000), a shade-tolerant
      species whose seedlings recruit under cover, and training (rungs 4-6),
      which can move both genes. Off until then.
+
+   **Priced, 2026-10-22; the understory is still closed**
+   (`Reports/plant-community-2026-10-20/m2/shade-scald/`). Sun scald
+   (`World::shade_scald`, off): a tolerant plant's leaves shed in bright
+   light, so the tolerant shrub is smaller on 13 of 16 seeds under the lamp
+   (0.74x) and untouched in shade, where it lives on 5 of 16 at lamp 0.2
+   against 0. Training beside the tree did not pick tolerance up (the free
+   photosynthesis rate came first). Under a grown stand the floor reads
+   2-3% of open light, and every sown seedling dies before its first leaf
+   whatever its tolerance: germination's light threshold, a first step the
+   tip gives up on (`World::seedling_waits`, off, fixes part), then a first
+   leaf and a root it cannot pay for.
+
+   **The seedling fixed, the floor still too dark, 2026-10-22** (owner's
+   choice A; `Reports/plant-community-2026-10-20/m2/shade-seedling/`).
+   `World::seedling_reserves` (off): a leafless seedling funds its first
+   leaf from its seed's carbon, which surplus-only allocation never moved.
+   `World::seed_settles` (off): the parked seed-settle rule, narrowed --
+   a seed sinks through litter and deadwood, a sprout lifts what lies on it.
+   Under a grown stand the creeper then keeps a seedling bank (alive at the
+   end on 8 of 12 beds against 0), but the floor reads 0.4-1.7% of open
+   light at the ground, below what any shade gene in range can grow in, and
+   a gap opened over the bank releases it on only 2 of 8. A retrain for
+   that floor would select where nothing grows; the next lever is the
+   light (a crown that lets more through, or a canopy that opens).
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with

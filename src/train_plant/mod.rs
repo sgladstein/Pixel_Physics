@@ -36,7 +36,7 @@ pub mod score;
 
 use crate::sim::organism::{CellType, SpeciesDef};
 use crate::sim::rng::Rng;
-use arena::{BedSpec, Census, Layout};
+use arena::{BedSpec, Census, Layout, Neighbour, Rung, Station};
 use genome::{Gene, Group};
 use rayon::prelude::*;
 use score::Constants;
@@ -76,13 +76,24 @@ pub struct Settings {
     pub teeth: bool,
     pub bed: BedSpec,
     pub constants: Constants,
+    /// **Which rung a genome is scored on** (plant-community plan §6.2).
+    /// `Life` is P1's bed and stepped score, on `bed`; `Grow` is rung 2 in
+    /// every one of `stations`, scored by [`score::grow_score`] against the
+    /// control's own size there.
+    pub rung: Rung,
+    /// The stations a `Grow` or `Hold` genome is grown in; every bed is one
+    /// layout in one station. Ignored by `Life`, which grows in `bed`.
+    pub stations: Vec<Station>,
+    /// The shipped plants a `Hold` genome is grown beside, one bed each per
+    /// layout and station. Ignored by every other rung.
+    pub neighbours: Vec<Neighbour>,
     pub out: PathBuf,
 }
 
 impl Settings {
     pub fn line(&self) -> String {
         format!(
-            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} out={}",
+            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} rung={} stations={} neighbours={} out={}",
             self.start.display(),
             self.control,
             self.groups.iter().map(|g| g.name()).collect::<Vec<_>>().join(","),
@@ -104,6 +115,9 @@ impl Settings {
             self.constants.n_est,
             self.constants.k_seed,
             self.constants.size_floor,
+            self.rung.name(),
+            self.stations.iter().map(|st| st.name).collect::<Vec<_>>().join(","),
+            self.neighbours.iter().map(|nb| nb.species).collect::<Vec<_>>().join(","),
             self.out.display()
         )
     }
@@ -132,6 +146,15 @@ impl Settings {
         }
         if self.bed.every == 0 || self.bed.frames == 0 {
             return Err("every= and frames= must be at least 1".into());
+        }
+        if self.rung == Rung::Establish {
+            return Err("rung=establish ranks nothing: 12 of 17 herb children read identical at frame 3,000 (`plantrain mode=ladder`); train on grow or life".into());
+        }
+        if matches!(self.rung, Rung::Grow | Rung::Hold) && self.stations.is_empty() {
+            return Err(format!("rung={} needs at least one station", self.rung.name()));
+        }
+        if self.rung == Rung::Hold && self.neighbours.is_empty() {
+            return Err("rung=hold needs at least one neighbour".into());
         }
         Ok(())
     }
@@ -176,6 +199,87 @@ pub fn census_all(arms: &[Arm], layouts: &[Layout], bed: &BedSpec) -> Vec<Vec<Ce
     flat.chunks(layouts.len().max(1)).map(|c| c.to_vec()).collect()
 }
 
+/// **The run's beds and scores, whichever rung it is on**: `out[arm][bed]`.
+/// `Life` is [`score_all`] on `s.bed`. `Grow` grows every layout in every
+/// station (`rung.spec`, `s.bed.n_est`), bed `station * layouts + layout`,
+/// and scores each by [`score::grow_score`] against `refs[station]`. `Hold`
+/// does the same over every station and neighbour ([`rung_specs`]) and
+/// scores by [`score::hold_score`].
+pub fn rung_scores(arms: &[Arm], base: u64, n: usize, s: &Settings, refs: &[score::Yardstick]) -> Vec<Vec<f32>> {
+    let layouts = s.rung.layouts(base, n);
+    match s.rung {
+        Rung::Life | Rung::Establish => score_all(arms, &layouts, &s.bed, &s.constants),
+        Rung::Grow | Rung::Hold => {
+            let mut out = vec![Vec::new(); arms.len()];
+            for (ci, spec) in rung_specs(s).into_iter().enumerate() {
+                let y = refs.get(ci).copied().unwrap_or(score::Yardstick { own_end: 1.0, own_seeds: 1.0, nb_end: 1.0, nb_seeds: 1.0, nb_score: 0.0 });
+                for (a, row) in census_all(arms, &layouts, &spec).iter().enumerate() {
+                    out[a].extend(row.iter().map(|c| match s.rung {
+                        Rung::Hold => score::hold_score(c, &s.constants, &y),
+                        _ => score::grow_score(c, spec.n_est, y.own_end),
+                    }));
+                }
+            }
+            out
+        }
+    }
+}
+
+/// The beds a `Grow` or `Hold` genome is grown in, one per layout of each:
+/// every station, and under `Hold` every neighbour within it. A bed's index
+/// in a score row is `cell * layouts + layout`, cells in this order.
+pub fn rung_specs(s: &Settings) -> Vec<BedSpec> {
+    let mut out = Vec::new();
+    for &station in &s.stations {
+        let spec = BedSpec { n_est: s.bed.n_est, ..s.rung.spec(station) };
+        match s.rung {
+            Rung::Hold => out.extend(s.neighbours.iter().map(|&nb| BedSpec { neighbour: Some(nb), ..spec })),
+            _ => out.push(spec),
+        }
+    }
+    out
+}
+
+/// A cell's name in the hold-out file: the station, and under `Hold` the
+/// neighbour beside it.
+pub fn cell_name(s: &Settings, ci: usize) -> String {
+    match s.rung {
+        Rung::Grow => s.stations.get(ci).map_or("-".into(), |st| st.name.to_string()),
+        Rung::Hold => {
+            let k = s.neighbours.len().max(1);
+            format!("{}/{}", s.stations.get(ci / k).map_or("-", |st| st.name), s.neighbours.get(ci % k).map_or("-", |nb| nb.species))
+        }
+        _ => "-".into(),
+    }
+}
+
+/// **The yardsticks `Grow` and `Hold` score against**, one per
+/// [`rung_specs`] cell, from the control on `n` layouts from `base` -- the
+/// hold-out, so the training layouts never set them: the control's mean end
+/// shoot, and under `Hold` its neighbour's mean end shoot beside it and that
+/// neighbour's mean [`score::sized_score`] there, what it manages next to
+/// the shipped species. Empty for `Life`.
+pub fn grow_refs(control: &Arm, base: u64, n: usize, s: &Settings) -> Vec<score::Yardstick> {
+    if !matches!(s.rung, Rung::Grow | Rung::Hold) {
+        return Vec::new();
+    }
+    let layouts = s.rung.layouts(base, n);
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+    rung_specs(s)
+        .into_iter()
+        .map(|spec| {
+            let row = census_all(std::slice::from_ref(control), &layouts, &spec).remove(0);
+            let own_end = mean(&row.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
+            let nbs: Vec<&Census> = row.iter().filter_map(|c| c.neighbour.as_deref()).collect();
+            let nb_end = mean(&nbs.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
+            let own_seeds = mean(&row.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
+            let nb_seeds = mean(&nbs.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
+            let nb_score = mean(&nbs.iter().map(|c| score::sized_score(c, &s.constants, nb_end, nb_seeds)).collect::<Vec<_>>());
+            score::Yardstick { own_end, own_seeds, nb_end, nb_seeds, nb_score }
+        })
+        .collect()
+}
+
 /// Bed scores, `out[arm][layout]`.
 pub fn score_all(arms: &[Arm], layouts: &[Layout], bed: &BedSpec, k: &Constants) -> Vec<Vec<f32>> {
     census_all(arms, layouts, bed).iter().map(|row| row.iter().map(|c| score::bed_score(c, k)).collect()).collect()
@@ -188,17 +292,25 @@ pub fn load(path: &std::path::Path) -> Result<SpeciesDef, String> {
 }
 
 /// **The teeth arms** (plan §7.4): handicaps of known direction, built from
-/// the start species. `seedbound`: the shoot's `Grew` rule makes a seed
+/// the start species. `seedbound`: every shoot-tip rule that grows a tip makes a seed
 /// rather than a tip, so the plant never grows past its first cell
 /// (`selection_arena`'s `lethal`). `starved`: every photosynthesis rate cut to
 /// a tenth.
 pub fn teeth_arms(start: &SpeciesDef, run: u64) -> Vec<Arm> {
     let mut seedbound = genome::clone_def(start);
     seedbound.name = format!("{}_t{run}_seedbound", start.name);
+    // **Every rule that grows a tip, not only `Grew`.** The shrub's tip also
+    // grows on `Node` (its child is a tip there too), so cutting `Grew` alone
+    // left a seedbound shrub scoring the control's own score on 2 of 3 rung-2
+    // beds and on every whole-life bed at 8,000 frames (2026-10-21), and the
+    // teeth check refused every shrub run on rung 4.
     if let Some((_, rules)) = seedbound.fates.iter_mut().find(|(c, _)| *c == CellType::GrowingTip) {
         for f in rules.iter_mut() {
-            if f.when == crate::sim::organism::FateWhen::Grew {
+            if f.when == crate::sim::organism::FateWhen::Grew || f.child == Some(CellType::GrowingTip) {
                 f.child = Some(CellType::Seed);
+            }
+            if f.lateral == Some(CellType::GrowingTip) {
+                f.lateral = None;
             }
         }
     }
@@ -246,13 +358,26 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
     let probe = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 15, 15));
     let control = Arm::shipped(&s.control);
-    let holdout = arena::layouts(HOLDOUT_BASE + s.seed * 1_000, s.holdout);
+    let holdout_base = HOLDOUT_BASE + s.seed * 1_000;
+    let holdout = s.rung.layouts(holdout_base, s.holdout);
+    let refs = grow_refs(&control, holdout_base, s.holdout, s);
+    if !refs.is_empty() {
+        println!(
+            "plantrain: {} yardsticks (the control's end shoot; under hold own end/seeds, the neighbour's end/seeds and score): {}",
+            s.rung.name(),
+            refs.iter()
+                .enumerate()
+                .map(|(ci, y)| if s.rung == Rung::Hold { format!("{} {:.0}/{:.1} {:.0}/{:.1}/{:.2}", cell_name(s, ci), y.own_end, y.own_seeds, y.nb_end, y.nb_seeds, y.nb_score) } else { format!("{} {:.1}", cell_name(s, ci), y.own_end) })
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
 
     // **Teeth, before generation 0.**
     let teeth = teeth_arms(&start, s.seed);
     let mut arms = vec![control.clone(), Arm::of(&start)];
     arms.extend(teeth.iter().cloned());
-    let scored = score_all(&arms, &holdout, &s.bed, &s.constants);
+    let scored = rung_scores(&arms, holdout_base, s.holdout, s, &refs);
     let names = ["control", "start", "seedbound", "starved"];
     for (i, row) in scored.iter().enumerate() {
         let (mean, min) = score::fold(row);
@@ -278,7 +403,7 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
 
     let mut progress = String::from("gen,best,median,control,best_min,holdout_best,holdout_control,paired_mean,ahead,behind,halfwidth,best_name,best_moves\n");
-    let mut holdout_csv = String::from("gen,layout,seed,offset,best,control\n");
+    let mut holdout_csv = String::from("gen,bed,seed,offset,station,best,control\n");
     let keep = ((s.pop as f32 * s.keep).round() as usize).clamp(1, s.pop);
     let mut champion: (SpeciesDef, String) = (genome::clone_def(&start), "start".into());
     for g in 0..s.gens {
@@ -287,10 +412,10 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
                 return Err(format!("generation {g} child {i} ({}) is invalid: {e:?}", def.name));
             }
         }
-        let train = arena::layouts(TRAIN_BASE + s.seed * 100_000 + g as u64 * 100, s.layouts);
+        let train_base = TRAIN_BASE + s.seed * 100_000 + g as u64 * 100;
         let mut arms: Vec<Arm> = pop.iter().map(|(d, _)| Arm::of(d)).collect();
         arms.push(control.clone());
-        let scores = score_all(&arms, &train, &s.bed, &s.constants);
+        let scores = rung_scores(&arms, train_base, s.layouts, s, &refs);
         let control_train = score::fold(scores.last().expect("the control row")).0;
         let mut ranked: Vec<(usize, f32, f32)> = scores[..pop.len()]
             .iter()
@@ -307,11 +432,15 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
         champion = (genome::clone_def(&pop[bi].0), pop[bi].1.clone());
 
         // The monitoring hold-out: champion against control, paired.
-        let h = score_all(&[Arm::of(&champion.0), control.clone()], &holdout, &s.bed, &s.constants);
+        let h = rung_scores(&[Arm::of(&champion.0), control.clone()], holdout_base, s.holdout, s, &refs);
         let (hb, hc) = (score::fold(&h[0]).0, score::fold(&h[1]).0);
         let (pm, ahead, behind, hw) = score::paired(&h[0], &h[1]);
-        for (li, l) in holdout.iter().enumerate() {
-            let _ = writeln!(holdout_csv, "{g},{li},{},{},{:.4},{:.4}", l.seed, l.offset.name(), h[0][li], h[1][li]);
+        // One row per bed; under `Grow` the beds run station by station, each
+        // over the same layouts.
+        for (bi, (cb, cc)) in h[0].iter().zip(&h[1]).enumerate() {
+            let l = holdout[bi % holdout.len().max(1)];
+            let station = cell_name(s, bi / holdout.len().max(1));
+            let _ = writeln!(holdout_csv, "{g},{bi},{},{},{station},{cb:.4},{cc:.4}", l.seed, l.offset.name());
         }
         let _ = writeln!(
             progress,
@@ -364,12 +493,12 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
     }
 
     // **The final set, read once.**
-    let finals = arena::layouts(FINAL_BASE + s.seed * 1_000, s.final_set);
-    let f = score_all(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], &finals, &s.bed, &s.constants);
+    let finals_base = FINAL_BASE + s.seed * 1_000;
+    let f = rung_scores(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], finals_base, s.final_set, s, &refs);
     let fp = score::paired(&f[0], &f[1]);
     let report = format!(
-        "{line}\nfinal set ({} layouts): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
-        finals.len(),
+        "{line}\nfinal set ({} beds): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
+        f[0].len(),
         score::fold(&f[0]).0,
         score::fold(&f[1]).0,
         score::fold(&f[2]).0,
@@ -458,6 +587,9 @@ mod tests {
             teeth: false,
             bed: BedSpec { frames: 1_500, ..BedSpec::default() },
             constants: Constants { n_est: 20, k_seed: 24, size_floor: 55 },
+            rung: Rung::Life,
+            stations: vec![Station::BRIGHT],
+            neighbours: Vec::new(),
             out,
         };
         let a = run(&settings(dir.join("a"))).expect("run a");

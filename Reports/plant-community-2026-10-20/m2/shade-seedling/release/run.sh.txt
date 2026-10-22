@@ -1,0 +1,10 @@
+#!/bin/bash
+role=$1; seed=$2; arm=$3
+out=/tmp/claude-0/sh/rel2/${role}_s${seed}_${arm}.txt
+grep -q "plant_m0 done" $out 2>/dev/null && exit 0
+case $arm in
+  A) sw="waits=0 reserves=0 settle=0";;
+  B) sw="waits=0 reserves=0 settle=0 genes=$role:germ:0.02";;
+  C) sw="waits=1 reserves=1 settle=1 genes=$role:germ:0.02";;
+esac
+/tmp/claude-0/sh/plant_m0_g mode=stand role=$role mix=stand-$role width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed grow=60000 window=120000 sample=10000 sow=4 gap=16 gapat=40000 endow=0.25 $sw arms=shipped > $out 2>&1

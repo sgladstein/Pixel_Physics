@@ -1,0 +1,2117 @@
+diff --git a/examples/copylog.rs b/examples/copylog.rs
+new file mode 100644
+index 00000000..10b5b317
+--- /dev/null
++++ b/examples/copylog.rs
+@@ -0,0 +1,83 @@
++//! SCRATCH (teacher-training step 1, not for main): run one genome on a set of training-style worlds with the copier's
++//! log on, and write each world's score.
++//!
++//! cargo run --release --example copylog -- <soil|fetch|trail> <genome> <run_seed> <n> <out.csv> [threads]
++//!
++//! The genome is loaded **through the suite** (soil 8 rows, fetch, trail -- the dig-8 runs' arenas), as training would
++//! load it, so no arena's bans are baked in; each arena applies its own when it runs. `PP_GENOME_OUT=<file>` saves the
++//! genome as loaded (the copier's starting point). `PP_COPY_LOG=<file>` turns the log on; `PP_TEACH_LABEL=1` adds the
++//! teacher's state labels (soil only). Worlds are `train::training_layouts(run_seed, 0, n)`: pick run seeds that no
++//! other set uses (the 96 evaluation worlds are 9001 and 9002).
++use pixel_physics::sim::creature;
++use pixel_physics::sim::creature::mind::scratch_log;
++use pixel_physics::train::challenges::{Scarce, Soil, Suite, Trail};
++use pixel_physics::train::{self, Challenge};
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::Mutex;
++
++fn soil() -> Soil {
++    Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 }
++}
++fn fetch() -> Scarce {
++    Scarce {
++        ants: 1,
++        frames: 6000,
++        drip: 5,
++        every: 1000,
++        game_walk: false,
++        brake: Some(creature::FoodBrake::FORAGE),
++        dist: (10, 30),
++        steps: true,
++        fed: true,
++        dig: false,
++    }
++}
++fn trail() -> Trail {
++    Trail { ants: 6, frames: 6000, clones: false }
++}
++
++fn main() {
++    std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    let (arena, genome, run_seed, n, out) = (a[0].as_str(), a[1].as_str(), a[2].parse::<u64>().unwrap(), a[3].parse::<usize>().unwrap(), a[4].as_str());
++    let threads = a.get(5).map_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()), |t| t.parse().unwrap());
++    let suite = Suite::new(vec![(Box::new(soil()), false), (Box::new(fetch()), true), (Box::new(trail()), true)], 0.8);
++    let g = train::start_mind(&suite, genome);
++    if let Ok(p) = std::env::var("PP_GENOME_OUT") {
++        train::save_genome(std::path::Path::new(&p), &g).unwrap();
++    }
++    let ch: Box<dyn Challenge> = match arena {
++        "soil" => Box::new(soil()),
++        "fetch" => Box::new(fetch()),
++        "trail" => Box::new(trail()),
++        _ => panic!("arena: soil|fetch|trail"),
++    };
++    let lays = train::training_layouts(run_seed, 0, n);
++    println!(
++        "copylog: {arena}, {genome}, run seed {run_seed}, {n} worlds, {threads} threads, copy log {}, labels {}",
++        scratch_log::copy_on(),
++        scratch_log::label_on()
++    );
++    let next = AtomicUsize::new(0);
++    let res = Mutex::new(Vec::new());
++    std::thread::scope(|sc| {
++        for _ in 0..threads {
++            sc.spawn(|| loop {
++                let k = next.fetch_add(1, Ordering::Relaxed);
++                let Some(&lay) = lays.get(k) else { break };
++                scratch_log::WORLD.with(|w| w.set(k as u64));
++                let r = ch.run(lay, &[g.as_slice()], &mut |_, _| {});
++                let full = if arena == "soil" { r[0].parts[24] } else { f64::NAN };
++                res.lock().unwrap().push((k, lay.seed, r[0].fit, full));
++            });
++        }
++    });
++    scratch_log::copy_flush();
++    let mut v = res.into_inner().unwrap();
++    v.sort_by_key(|r| r.0);
++    let rows: Vec<String> = v.iter().map(|(k, s, f, l)| format!("{k},{s},{f},{l}")).collect();
++    std::fs::write(out, format!("world,seed,score,full_loads\n{}\n", rows.join("\n"))).unwrap();
++    let mean = v.iter().map(|r| r.2).sum::<f64>() / v.len() as f64;
++    println!("wrote {out}: mean score {mean:.3}");
++    println!("{}", scratch_log::teach_report());
++}
+diff --git a/examples/copyreplay.rs b/examples/copyreplay.rs
+new file mode 100644
+index 00000000..0dddb467
+--- /dev/null
++++ b/examples/copyreplay.rs
+@@ -0,0 +1,60 @@
++//! SCRATCH (teacher-training step 1, not for main): the copier's reference. Re-runs the brain's own `mind::decide` on
++//! the states in a copy log, with ANY genome, and writes every option's score and every verb's job score -- so the
++//! Python forward pass can be checked against the real thing on a genome it was not fitted to.
++//!
++//! cargo run --release --example copyreplay -- <copy log> <genome as loaded> <out> [max rows]
++//!
++//! The genome is read raw (`train::load_genome`), not through a challenge: it must be exactly the vector the copier
++//! holds. Out: one line per Q row, `tag,frame,id|score score ...|job job ...` (`nan` for a verb with no job).
++use pixel_physics::sim::creature::mind::{self, MindState};
++use pixel_physics::sim::creature::options::{Opt, Verb, FEATURES};
++use pixel_physics::sim::rng::Rng;
++use pixel_physics::train;
++use std::io::{BufRead, Write};
++
++fn main() {
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    let (log, genome, out) = (&a[0], &a[1], &a[2]);
++    let max: usize = a.get(3).map_or(usize::MAX, |m| m.parse().unwrap());
++    let g = train::load_genome(std::path::Path::new(genome), mind::GENOME_LEN);
++    let mut w = std::io::BufWriter::new(std::fs::File::create(out).unwrap());
++    let mut done = 0;
++    for line in std::io::BufReader::new(std::fs::File::open(log).unwrap()).lines() {
++        let line = line.unwrap();
++        let p: Vec<&str> = line.split(',').collect();
++        if p.get(1) != Some(&"Q") {
++            continue;
++        }
++        // tag,Q,frame,id,x,y,settle,pick,last,carrying,labels,ctx,mem0,opts
++        let last: i32 = p[8].parse().unwrap();
++        let ctx: Vec<f32> = p[11].split(' ').map(|x| x.parse().unwrap()).collect();
++        let mem: Vec<f32> = p[12].split(' ').map(|x| x.parse().unwrap()).collect();
++        let opts: Vec<Opt> = p[13]
++            .split(';')
++            .filter(|o| !o.is_empty())
++            .map(|o| {
++                let q: Vec<&str> = o.splitn(5, ':').collect();
++                let mut feats = [0.0f32; FEATURES];
++                for kv in q[4].split(' ').filter(|s| !s.is_empty()) {
++                    let (i, v) = kv.split_once('=').unwrap();
++                    feats[i.parse::<usize>().unwrap()] = v.parse().unwrap();
++                }
++                Opt { verb: Verb::ALL[q[0].parse::<usize>().unwrap()], target: (q[1].parse().unwrap(), q[2].parse().unwrap()), feats }
++            })
++            .collect();
++        let mut state = MindState::default();
++        state.mem.copy_from_slice(&mem);
++        state.last_verb = (last >= 0).then(|| Verb::ALL[last as usize]);
++        let ctx: [f32; mind::CONTEXT] = ctx.try_into().unwrap();
++        let mut draw = Rng::new(1);
++        let Some(d) = mind::decide(&g, &ctx, &opts, &mut state, &mut draw) else { continue };
++        let s: Vec<String> = d.scores.iter().map(|x| format!("{x}")).collect();
++        let j: Vec<String> = d.jobs.iter().map(|x| x.map_or("nan".into(), |v| format!("{v}"))).collect();
++        writeln!(w, "{},{},{}|{}|{}", p[0], p[2], p[3], s.join(" "), j.join(" ")).unwrap();
++        done += 1;
++        if done >= max {
++            break;
++        }
++    }
++    println!("replayed {done} decisions into {out}");
++}
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+new file mode 100644
+index 00000000..d870178b
+--- /dev/null
++++ b/examples/inrun.rs
+@@ -0,0 +1,682 @@
++//! SCRATCH (teacher lane, in-run selection pilot, 2026-10-21; never for main): one colony on the training bed with
++//! Dig on and surface food, every founder given a mind from a mix of genomes, the body's egg-laying off. Writes the
++//! per-ant events the pilot's score is built from, and the nest's open cells every `window` frames.
++//!
++//! cargo run --release --example inrun -- founders=v2.txt:15,s171.txt:15[,zero:4] frames=200000 seed=1 out=DIR
++//!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1]
++//!
++//! Genomes load through the copylog suite, as training loads them. `zero` is an all-zero mind (every option scored
++//! alike: a random chooser, the do-nothing-useful control).
++//!
++//! out/ants.csv     id,tag                     founders, in id order
++//! out/events.csv   frame,id,kind,x,y,v,cutter
++//!     dig       a cut of a cell that was ground below the datum at frame 0 (v: depth below the datum)
++//!     recut     a cut of anything else (spoil, mound, fill); cutter: the tag found within 2 cells, or 0
++//!     out       a pellet let go above the datum (left the nest); cutter: the pellet's cutter, or 0
++//!     in        a pellet let go at or below the datum; its tag is kept at that spot for a recut
++//!     field     a food cell taken into the crop away from home (v: its worth)
++//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`)
++//!     churn     any other food cell put down within 12 columns of the nest
++//!     eat       the crop's digestion paid this ant v (face worth)
++//!     death     v: the cause's index
++//! out/map_fNNNNNNN.txt  `x0 y0 w h`, then rows of `.` open / `a` animal / `f` provisions / `#` other, the nest box
++//! out/surface.txt       the datum, one row per column
++use pixel_physics::sim::creature;
++use pixel_physics::train::challenges::{inrun, Scarce, Soil, Suite, Trail};
++use pixel_physics::train::{self};
++use std::collections::HashMap;
++use std::io::Write;
++use std::sync::Arc;
++
++fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
++    a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
++}
++
++fn main() {
++    std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    // pile=1 (default): every founder starts at the nest door, heaped (the game's own
++    // `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`), not spread along the ground (owner, 2026-10-21).
++    if arg(&a, "pile") != Some("0") {
++        std::env::set_var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS", "pile");
++    }
++    let num = |k: &str, d: u64| arg(&a, k).map_or(d, |v| v.parse().unwrap());
++    let (frames, seed, dist, drip, every, window) = (num("frames", 200_000), num("seed", 1), num("dist", 40) as i32, num("drip", 5) as u32, num("every", 500), num("window", 2000));
++    let maps = num("maps", 1) == 1;
++    let cap = num("cap", 60) as usize;
++    let spread = num("spread", 0) as i32;
++    let out = std::path::PathBuf::from(arg(&a, "out").expect("out=DIR"));
++    std::fs::create_dir_all(&out).unwrap();
++    let suite = Suite::new(
++        vec![
++            (Box::new(Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 }), false),
++            (
++                Box::new(Scarce { ants: 1, frames: 6000, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE), dist: (10, 30), steps: true, fed: true, dig: false }),
++                true,
++            ),
++            (Box::new(Trail { ants: 6, frames: 6000, clones: false }), true),
++        ],
++        0.8,
++    );
++    // founders=path:count,...
++    let mut mix: Vec<(String, Arc<creature::mind::MindGenome>, usize)> = Vec::new();
++    // The raw genome behind each mix entry, for the selection loop's children.
++    let mut raw: Vec<Vec<f32>> = Vec::new();
++    let mut glen = 0;
++    for part in arg(&a, "founders").expect("founders=path:count,...").split(',') {
++        let (p, n) = part.rsplit_once(':').expect("path:count");
++        // path@tag:count names the genome's family (a later round's founders keep their line).
++        let (p, tag_over) = p.split_once('@').map_or((p, None), |(p, t)| (p, Some(t.to_string())));
++        let n: usize = n.parse().unwrap();
++        if p == "zero" {
++            mix.push((p.to_string(), Arc::new(creature::mind::MindGenome::new(vec![0.0; creature::mind::GENOME_LEN])), n));
++            raw.push(Vec::new());
++        } else {
++            // A `.raw.txt` genome is taken as saved (a harness's own output), not through the suite's rung entry.
++            let g = if p.ends_with(".raw.txt") { train::load_genome(std::path::Path::new(p), creature::mind::GENOME_LEN) } else { train::start_mind(&suite, p) };
++            raw.push(g.clone());
++            glen = g.len();
++            let tag = tag_over.unwrap_or_else(|| std::path::Path::new(p).file_stem().unwrap().to_string_lossy().to_string());
++            mix.push((tag, inrun::mind(&g), n));
++        }
++    }
++    // mutants=N:pm:sigma:mseed -- N trainer-style mutants of the first genome, one founder each (m00..),
++    // replacing the founders list's counts; the same mseed gives the same mutants on every colony seed.
++    if let Some(spec) = arg(&a, "mutants") {
++        let v: Vec<&str> = spec.split(':').collect();
++        let (n, pm, sigma, ms): (usize, f32, f32, u64) = (v[0].parse().unwrap(), v[1].parse().unwrap(), v[2].parse().unwrap(), v[3].parse().unwrap());
++        let base = train::start_mind(&suite, arg(&a, "founders").unwrap().split(',').next().unwrap().rsplit_once(':').unwrap().0);
++        let slots = inrun::slots();
++        let mut rng = train::Rng(ms);
++        mix.clear();
++        raw.clear();
++        let mut f = std::fs::File::create(out.join("mutants.txt")).unwrap();
++        for k in 0..n {
++            let g = if k == 0 { base.clone() } else { train::mutate(&base, &slots, pm, sigma, 0.0, 1.0, &[], &mut rng) };
++            let d: f32 = g.iter().zip(&base).map(|(x, y)| (x - y).abs()).sum();
++            writeln!(f, "m{k:02} changed {} L1 {d:.2}", g.iter().zip(&base).filter(|(x, y)| x != y).count()).unwrap();
++            mix.push((format!("m{k:02}"), inrun::mind(&g), 1));
++            raw.push(g);
++        }
++    }
++    for (m, r) in mix.iter_mut().zip(raw.iter_mut()).filter(|(m, _)| m.0 == "zero") {
++        m.1 = inrun::mind(&vec![0.0; glen]);
++        *r = vec![0.0; glen];
++    }
++    let ants: usize = mix.iter().map(|m| m.2).sum();
++    // Interleaved round-robin, so no genome owns one end of the founding heap.
++    let mut order: Vec<usize> = Vec::with_capacity(ants);
++    let mut left: Vec<usize> = mix.iter().map(|m| m.2).collect();
++    while order.len() < ants {
++        for (i, n) in left.iter_mut().enumerate() {
++            if *n > 0 {
++                *n -= 1;
++                order.push(i);
++            }
++        }
++    }
++    let slot = |k: usize| order[k.min(ants - 1)];
++    let (mut w, sc, sp) = inrun::colony(seed, ants, dist, drip, every, &|k| mix[slot(k)].1.clone());
++    w.cut_log = Some(Vec::new());
++    w.food_log = Some(Vec::new());
++    w.digest_log = Some(Vec::new());
++    w.death_log = Some(Vec::new());
++    let founders = inrun::ants(&w, sp);
++    // flat=1: every founder starts on one full grant (the founding deals staggered reserves).
++    // grants=G: every founder starts on G full grants (default: the founding's staggered reserves).
++    if let Some(g) = arg(&a, "grants") {
++        inrun::flat_reserves(&mut w, sp, g.parse().unwrap());
++    }
++    println!(
++        "inrun: seed {seed}, {} founders ({}), {frames} frames, food {dist} cols out, {drip} cells every {every} up to {cap} a side, out {}",
++        founders.len(),
++        mix.iter().map(|m| format!("{}x{}", m.0, m.2)).collect::<Vec<_>>().join(" "),
++        out.display()
++    );
++    let mut f = std::fs::File::create(out.join("ants.csv")).unwrap();
++    writeln!(f, "id,tag").unwrap();
++    for (k, id) in founders.iter().enumerate() {
++        writeln!(f, "{id},{}", mix[slot(k)].0).unwrap();
++    }
++    // ---- The in-run selection loop (sel=score|random; off by default) ----
++    let sel = arg(&a, "sel").unwrap_or("off").to_string();
++    let fnum = |k: &str, d: f64| arg(&a, k).map_or(d, |v| v.parse::<f64>().unwrap());
++    let (min_age, judge_every, cooldown) = (num("min_age", 15_000), num("judge", 500), num("cooldown", 5_000));
++    let (zb0, zc0, kprice) = (fnum("zbirth", 2.0), fnum("zcut", 2.0), fnum("k", 2.0));
++    let (lo, hi) = (num("lo", 24) as usize, num("hi", 36) as usize);
++    let (kpm, ksigma) = (fnum("kpm", 0.03) as f32, fnum("ksigma", 1.0) as f32);
++    let kid_grants = fnum("kid_grants", 1.0) as f32;
++    // Exchange rates between jobs, and a debit per food cell swallowed away from home (default: the ledger's 1,1,1,0).
++    let (w_del, w_dig, w_clear, w_field) = (fnum("w_deliver", 1.0), fnum("w_dig", 1.0), fnum("w_clear", 1.0), fnum("w_field", 0.0));
++    // Pay by depth: a delivery `d` rows below the datum is worth (1 + w_depth * min(d, 10) / 10) times (owner, 2026-10-21:
++    // food dropped at the door is not food stored in the nest).
++    let w_depth = fnum("w_depth", 0.0);
++    // Pay by how far the spoil went: a pellet let go within `rim` columns of the nest pays nothing for its carry (nor the
++    // cutter's half), rising to full `rim_ramp` columns further out. Spoil heaped on the rim rolls back into the pit:
++    // after the pit's peak, 764 pellets let go within 30 columns against 198 dropped inside it (p5, 2026-10-21).
++    let (rim, rim_ramp) = (fnum("rim", 0.0), fnum("rim_ramp", 10.0).max(1.0));
++    // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
++    // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
++    // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
++    let w_home_eat = fnum("w_home_eat", 0.0);
++    // A floor on turnover: when `turnover` frames pass with no birth, the adult with the lowest z is replaced by a
++    // child of the adult with the highest (random arm: both at random). A healthy colony otherwise froze: in the
++    // nest-purpose rounds, once the headcount sat in its band no ant cleared the bars and rounds 2-3 had 0-47 births
++    // in 200k frames, so selection stopped exactly when the colony was doing well (p6, 2026-10-21).
++    let turnover = num("turnover", 0);
++    // turn=T (owner, 2026-10-21: "a target turnover and the bar moves based on the distribution of score"): each
++    // adult is replaced about once per T frames. The bar is a rank, not a fixed z, so it holds whatever scale the
++    // score has after a reweighting. Clear failures (z below -zhard) go on top of the quota; no ant below the median
++    // breeds to fill it; the best get up to three children (passes over the top half and quarter); headcount
++    // outside lo..hi adds births or culls. Replaces the z bars and `turnover` when set.
++    let turn = num("turn", 0);
++    let zhard = fnum("zhard", 3.0);
++    // Parents stay (owner's debate, 2026-10-21), but each child is earned fresh: fresh_kid=1 judges a parent's next
++    // child on its record since its last one (at least min_age frames of it), and kid_cap bounds a lifetime's children.
++    let fresh_kid = num("fresh_kid", 0) == 1;
++    let kid_cap = num("kid_cap", 1000) as u32;
++    // retire=1: a parent leaves once it has had `kid_cap` children (its last child takes its place). Without it the
++    // capped parents, immortal with old age off, sat in the colony unable to breed: 307 of 342 judgements owing a
++    // replacement found no eligible parent (p7 seed 4, 2026-10-21) -- the "old ants clogging" the owner and I agreed
++    // to watch for.
++    let retire = num("retire", 0) == 1;
++    let mut retiring: Vec<u32> = Vec::new();
++    let mut capped_only = false;
++    let mut quota = 0.0f64;
++    let mut quota_cut: Vec<u32> = Vec::new();
++    // Diagnostics: judgements with a quota due, how many found no eligible parent, and placements that failed.
++    let (mut q_due, mut q_noparent, mut birth_fail) = (0u64, 0u64, 0u64);
++    let mut last_birth = 0u64;
++    let mut srng = train::Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5);
++    let kslots = inrun::slots();
++    struct Who {
++        born: u64,
++        credit: f64,
++        g2: f64,
++        family: String,
++        gen: u32,
++        genome: Vec<f32>,
++        last_kid: u64,
++        kids: u32,
++        // Worked since its last paid meal at home: out on a trip (head 15+ columns from the nest), a cut of the
++        // ground, or a pellet carried out (owner, 2026-10-21: "also reward diggers who eat in the nest").
++        tripped: bool,
++        // The record at its last child (credit, sum of squares): with `fresh_kid`, the next child is earned on the
++        // record since then.
++        at_kid: (f64, f64),
++    }
++    let mut book: HashMap<u32, Who> = HashMap::new();
++    for (k, id) in founders.iter().enumerate() {
++        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++    }
++    let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
++    let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
++    writeln!(births, "frame,id,parent,family,gen,kind").unwrap();
++    let mut sel_log = std::io::BufWriter::new(std::fs::File::create(out.join("sel.csv")).unwrap());
++    writeln!(sel_log, "frame,alive,adults,births,removals,bias,median,food_price,dig_price,clear_price,ghosts").unwrap();
++    let mut bias = 0.0f64;
++    // Ants culled this frame whose death record has not come in yet. `slay` frees the slot at once and the record lands
++    // a frame later, so a child born in the same judgement can take the culled ant's id; without this, that record
++    // struck the child out of the book and it lived on unjudged (a "ghost": up to 16 of 40 ants in the first pilots).
++    let mut culled_pending: std::collections::HashSet<u32> = Default::default();
++    // The prices (the ledger's): food from delivered / eaten worth over 5,000 frames; dig from open nest cells per
++    // ant against 25; clear from pellets let go inside, net of re-cuts, per ant.
++    let mut delivered: std::collections::VecDeque<(u64, f64)> = Default::default();
++    let mut eaten: std::collections::VecDeque<(u64, f64)> = Default::default();
++    let (mut cell_worth, mut n_field) = (0.0f64, 0u64);
++    let mut loose_n = 0i64;
++    let mut dig_price = 1.0 + kprice;
++    let mut base_open: Option<i64> = None;
++    // The datum and the ground below it at frame 0.
++    let (bw, bh) = (256i32, 128i32); // the training bed (`bed_timed`)
++    let surf: Vec<i32> = (0..bw).map(|x| inrun::surface(&w, &sc, x)).collect();
++    let mut f = std::fs::File::create(out.join("surface.txt")).unwrap();
++    for s in &surf {
++        writeln!(f, "{s}").unwrap();
++    }
++    let mut orig = vec![false; (bw * bh) as usize];
++    for x in 0..bw {
++        for y in surf[x as usize]..bh {
++            orig[(y * bw + x) as usize] = inrun::ground(&w, x, y);
++        }
++    }
++    let mut ev = std::io::BufWriter::new(std::fs::File::create(out.join("events.csv")).unwrap());
++    writeln!(ev, "frame,id,kind,x,y,v,cutter").unwrap();
++    // Who cut the pellet each ant holds; pellets let go inside, by spot; field food each ant holds.
++    let mut held: HashMap<u32, u32> = HashMap::new();
++    let mut loose: HashMap<(i32, i32), u32> = HashMap::new();
++    let t0 = std::time::Instant::now();
++    for fr in 1..=frames {
++        inrun::step(&mut w, &sc);
++        if fr % every == 1 || every == 1 {
++            for x in [inrun::NEST + dist, inrun::NEST - dist] {
++                inrun::top_up(&mut w, &sc, x, cap, drip as usize, spread);
++            }
++        }
++        let frame = w.frame;
++        for (x, y, _, who) in w.cut_log.as_mut().unwrap().drain(..) {
++            let i = (y * bw + x) as usize;
++            if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
++                orig[i] = false;
++                held.insert(who, who);
++                writeln!(ev, "{frame},{who},dig,{x},{y},{},{who}", y - surf[x as usize]).unwrap();
++                if let Some(b) = book.get_mut(&who) {
++                    b.tripped = true;
++                    let g = 0.5 * w_dig * dig_price;
++                    b.credit += g;
++                    b.g2 += g * g;
++                }
++            } else {
++                let mut tag = 0;
++                'find: for r in 0..=2 {
++                    for dy in -r..=r {
++                        for dx in -r..=r {
++                            if let Some(t) = loose.remove(&(x + dx, y + dy)) {
++                                tag = t;
++                                break 'find;
++                            }
++                        }
++                    }
++                }
++                held.insert(who, tag);
++                writeln!(ev, "{frame},{who},recut,{x},{y},0,{tag}").unwrap();
++                if tag != 0 {
++                    loose_n -= 1;
++                }
++            }
++        }
++        for r in w.food_log.as_mut().unwrap().drain(..) {
++            let (x, y) = r.at;
++            let home = (x - inrun::NEST).abs() <= 12;
++            match r.kind {
++                creature::FOOD_SWALLOW if r.flag => {
++                    if let Some(b) = book.get_mut(&r.who) {
++                        if b.tripped && w_home_eat > 0.0 {
++                            b.tripped = false;
++                            b.credit += w_home_eat;
++                            b.g2 += w_home_eat * w_home_eat;
++                        }
++                    }
++                    writeln!(ev, "{frame},{},homeeat,{x},{y},{},0", r.who, r.worth).unwrap()
++                }
++                creature::FOOD_SWALLOW if !r.flag => {
++                    n_field += 1;
++                    cell_worth += (r.worth as f64 - cell_worth) / n_field as f64;
++                    if let Some(b) = book.get_mut(&r.who) {
++                        b.credit -= w_field;
++                        b.g2 += w_field * w_field;
++                    }
++                    writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
++                }
++                creature::FOOD_DROP if r.flag => {
++                    delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
++                    if let Some(b) = book.get_mut(&r.who) {
++                        let got: f64 = delivered.iter().map(|d| d.1).sum();
++                        let ate: f64 = eaten.iter().map(|d| d.1).sum();
++                        let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
++                        let g = deep * w_del * (1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0));
++                        b.credit += g;
++                        b.g2 += g * g;
++                    }
++                    writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
++                }
++                creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
++                _ => {}
++            }
++        }
++        for (who, worth, _) in w.digest_log.as_mut().unwrap().drain(..) {
++            writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();
++            eaten.push_back((frame, worth as f64));
++        }
++        for r in w.death_log.as_mut().unwrap().drain(..) {
++            if r.species == sp {
++                writeln!(ev, "{frame},{},death,0,0,{},0", r.id, r.cause.index()).unwrap();
++                held.remove(&r.id);
++                if !culled_pending.remove(&r.id) {
++                    book.remove(&r.id);
++                }
++            }
++        }
++        // A pellet let go: where the head is now.
++        let gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
++        for id in gone {
++            let tag = held.remove(&id).unwrap();
++            let Some(&(x, y)) = w.organism(id).and_then(|s| s.chain.first()) else { continue };
++            if y < surf[x.clamp(0, bw - 1) as usize] {
++                writeln!(ev, "{frame},{id},out,{x},{y},0,{tag}").unwrap();
++                let alive = book.len().max(1) as f64;
++                let far = ((((x - inrun::NEST).abs() as f64) - rim) / rim_ramp).clamp(0.0, 1.0);
++                let far = if rim > 0.0 { far } else { 1.0 };
++                let pc = far * w_clear * (1.0 + kprice * (loose_n as f64 / (2.0 * alive)).clamp(0.0, 1.0));
++                if let Some(b) = book.get_mut(&id) {
++                    b.tripped = true;
++                    b.credit += pc;
++                    b.g2 += pc * pc;
++                }
++                if tag != 0 {
++                    if let Some(b) = book.get_mut(&tag) {
++                        let g = far * 0.5 * w_dig * dig_price;
++                        b.credit += g;
++                        b.g2 += g * g;
++                    }
++                }
++            } else {
++                loose.insert((x, y), tag);
++                loose_n += 1;
++                writeln!(ev, "{frame},{id},in,{x},{y},0,{tag}").unwrap();
++            }
++        }
++        if fr % 100 == 0 {
++            for (id, b) in book.iter_mut() {
++                if let Some(&(x, _)) = w.organism(*id).and_then(|s| s.chain.first()) {
++                    if (x - inrun::NEST).abs() >= 15 {
++                        b.tripped = true;
++                    }
++                }
++            }
++        }
++        while delivered.front().is_some_and(|d| d.0 + 5000 < frame) {
++            delivered.pop_front();
++        }
++        while eaten.front().is_some_and(|d| d.0 + 5000 < frame) {
++            eaten.pop_front();
++        }
++        if fr % 1000 == 0 || fr == 1 {
++            let mut open_n = 0i64;
++            for x in (inrun::NEST - 100)..=(inrun::NEST + 100) {
++                for y in surf[x as usize].max(40)..bh {
++                    if matches!(inrun::cell_char(&w, x, y), '.' | 'a') {
++                        open_n += 1;
++                    }
++                }
++            }
++            let b0 = *base_open.get_or_insert(open_n);
++            let per = (open_n - b0) as f64 / book.len().max(1) as f64;
++            dig_price = 1.0 + kprice * (1.0 - per / 25.0).max(0.0);
++        }
++        if sel != "off" && fr % judge_every == 0 {
++            // Each ant's rate per 1,000 frames alive, against the adults' median, in units of its own standard error:
++            // a sum of credits is Poisson-like, so its error is sqrt(sum of squares), floored at what the colony's
++            // average ant would have shown over the same age (an ant with no events is not certain).
++            let ids: Vec<u32> = { let mut v: Vec<u32> = book.keys().copied().collect(); v.sort_unstable(); v };
++            let n = ids.len();
++            let (sg2, st): (f64, f64) = ids.iter().map(|i| { let b = &book[i]; (b.g2, (frame - b.born) as f64 / 1000.0) }).fold((0.0, 0.0), |a, c| (a.0 + c.0, a.1 + c.1));
++            let rate_g2 = sg2 / st.max(1e-9);
++            let adults: Vec<u32> = ids.iter().copied().filter(|i| frame - book[i].born >= min_age).collect();
++            let mut births_n = 0;
++            let (mut q_now, mut hard_n) = (0usize, 0usize);
++            let mut removals_n = 0;
++            let mut med = f64::NAN;
++            // One adult is enough to judge by once `turn` is on: a colony crashed to two ants by a dry store could
++            // otherwise never refill (seed 4: 24 -> 2 at 120k, then no judgement for the rest of the round).
++            if adults.len() >= if turn > 0 { 1 } else { 3 } {
++                if n < lo {
++                    bias = (bias - 0.05).max(-1.5);
++                } else if n > hi {
++                    bias = (bias + 0.05).min(1.5);
++                }
++                let score = |b: &Who| b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1);
++                let mut sc: Vec<f64> = adults.iter().map(|i| score(&book[i])).collect();
++                sc.sort_by(|a, b| a.partial_cmp(b).unwrap());
++                med = sc[sc.len() / 2];
++                let z = |b: &Who| {
++                    let t = ((frame - b.born) as f64 / 1000.0).max(0.1);
++                    (score(b) - med) / (b.g2.max(rate_g2 * t).sqrt() / t).max(1e-6)
++                };
++                let (zb, zc) = (zb0 + bias, zc0 - bias);
++                // The family cap: no founder line past a quarter of the colony.
++                let mut fam: HashMap<String, usize> = HashMap::new();
++                for i in &ids {
++                    *fam.entry(book[i].family.clone()).or_default() += 1;
++                }
++                // A quarter of the band's top, not of the colony now: as a quarter of `n` it shut every family out
++                // once a colony was small (n 7: cap 2), so a starving colony could not refill (p7, 2026-10-21).
++                let cap_f = (hi / 4).max(2);
++                // Who the score picks: parents with their kid counts, and removals.
++                let mut parents: Vec<(u32, u32)> = Vec::new();
++                for i in &adults {
++                    let b = &book[i];
++                    let zi = z(b);
++                    if zi > zb && frame - b.last_kid >= cooldown && (b.last_kid > 0 || frame - b.born >= min_age) {
++                        parents.push((*i, ((zi - zb).floor() as u32 + 1).min(3)));
++                    }
++                }
++                let mut cut: Vec<u32> = adults.iter().copied().filter(|i| z(&book[i]) < -zc).collect();
++                if turnover > 0 && parents.is_empty() && frame - last_birth >= turnover {
++                    let zs: Vec<(u32, f64)> = adults.iter().map(|i| (*i, z(&book[i]))).collect();
++                    let best = zs.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(b.0.cmp(&a.0))).unwrap().0;
++                    let worst = zs.iter().min_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0))).unwrap().0;
++                    if best != worst {
++                        parents.push((best, 1));
++                        if !cut.contains(&worst) {
++                            cut.push(worst);
++                        }
++                    }
++                }
++                if turn > 0 {
++                    let mut zs: Vec<(u32, f64)> = adults.iter().map(|i| (*i, z(&book[i]))).collect();
++                    zs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
++                    // Owed replacements carry over until a child is actually born (capped at 5, so a dry spell does
++                    // not end in a burst): taken off at the moment of the birth, they were lost whenever no parent was
++                    // eligible (58 of 146 due judgements in a 200k test).
++                    quota = (quota + adults.len() as f64 * judge_every as f64 / turn as f64).min(5.0);
++                    let q = quota.floor() as usize;
++                    q_now = q;
++                    cut = zs.iter().filter(|p| p.1 < -zhard).map(|p| p.0).collect();
++                    let hard = cut.len();
++                    hard_n = hard;
++                    let extra_cut = n.saturating_sub(hi);
++                    for p in &zs {
++                        if cut.len() >= hard + extra_cut || p.1 >= 0.0 {
++                            break;
++                        }
++                        if !cut.contains(&p.0) {
++                            cut.push(p.0);
++                        }
++                    }
++                    // The quota's removals wait for its births: each is made only once a child has taken its place,
++                    // so a colony that cannot breed is not also emptied (p7: 36 culls against 30 births, 24 -> 7).
++                    quota_cut = zs.iter().filter(|p| p.1 < 0.0 && !cut.contains(&p.0)).take(q).map(|p| p.0).collect();
++                    let want = (hard + quota_cut.len() + lo.saturating_sub(n)) as u32;
++                    // Breeding z: lifetime, or with fresh_kid the record since the last child.
++                    let zb_of = |i: u32| -> Option<f64> {
++                        let b = &book[&i];
++                        if b.kids >= kid_cap || frame - b.last_kid < cooldown {
++                            return None;
++                        }
++                        if !fresh_kid || b.kids == 0 {
++                            return Some(z(b));
++                        }
++                        let since = frame - b.last_kid;
++                        if since < min_age {
++                            return None;
++                        }
++                        let t = since as f64 / 1000.0;
++                        let (c, g2) = (b.credit - b.at_kid.0, b.g2 - b.at_kid.1);
++                        Some((c / t - med) / (g2.max(rate_g2 * t).sqrt() / t).max(1e-6))
++                    };
++                    // Parents whose family is at its cap are passed over here, so their children go to the next in line
++                    // rather than not being born (the cap otherwise stopped most births once a line did well).
++                    if std::env::var("INRUN_DEBUG").is_ok() && frame % 20000 == 0 {
++                        for p in &zs {
++                            let b = &book[&p.0];
++                            eprintln!("dbg f{frame} n{n} id{} z{:.2} zb{:?} kids{} since{} fam{}={} cap{cap_f}", p.0, p.1, zb_of(p.0), b.kids, frame - b.last_kid, b.family, fam.get(&b.family).copied().unwrap_or(0));
++                        }
++                    }
++                    let mut okz: Vec<(u32, f64)> = zs
++                        .iter()
++                        .filter_map(|p| zb_of(p.0).map(|v| (p.0, v)))
++                        .filter(|p| p.1 > 0.0 || (n < lo && p.1 >= 0.0))
++                        .collect();
++                    // The family cap steers births to other lines; it never stops them. When every eligible parent is
++                    // in a capped line (a colony down to one family: seed 4, all nine ants m20), they breed anyway.
++                    let open: Vec<(u32, f64)> = okz.iter().copied().filter(|p| fam.get(&book[&p.0].family).copied().unwrap_or(0) < cap_f).collect();
++                    capped_only = open.is_empty();
++                    // A colony below its band with no eligible parent breeds from its best ant by lifetime record:
++                    // the evidence still picks which ant, the bar is not lowered to "anyone". Seed 4 sat at two ants
++                    // for 120k frames because the better one's record since its last child was below the median.
++                    if okz.is_empty() && n < lo {
++                        if let Some(best) = zs.last() {
++                            okz.push(*best);
++                        }
++                    }
++                    if !capped_only {
++                        okz = open;
++                    }
++                    okz.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
++                    let ok: Vec<u32> = okz.into_iter().map(|p| p.0).collect();
++                    let mut kids = vec![0u32; ok.len()];
++                    let mut given = 0;
++                    'passes: for span in [ok.len(), ok.len().div_ceil(2), ok.len().div_ceil(4)] {
++                        for k in kids.iter_mut().take(span) {
++                            if given >= want {
++                                break 'passes;
++                            }
++                            *k += 1;
++                            given += 1;
++                        }
++                    }
++                    if want > 0 {
++                        q_due += 1;
++                        if ok.is_empty() {
++                            q_noparent += 1;
++                        }
++                    }
++                    parents = ok.into_iter().zip(kids).filter(|p| p.1 > 0).collect();
++                }
++                let room = (hi + 4).saturating_sub(n);
++                let floor_room = n.saturating_sub(lo.saturating_sub(8));
++                cut.truncate(floor_room);
++                if sel == "random" {
++                    // Same counts, chosen blind.
++                    let kids: u32 = parents.iter().map(|p| p.1).sum();
++                    let pool: Vec<u32> = adults.iter().copied().filter(|i| frame - book[i].last_kid >= cooldown || book[i].last_kid == 0).collect();
++                    parents = (0..kids).filter(|_| !pool.is_empty()).map(|_| (pool[srng.below(pool.len())], 1)).collect();
++                    let mut ad = adults.clone();
++                    let mut c2 = Vec::new();
++                    for _ in 0..cut.len().min(ad.len()) {
++                        c2.push(ad.swap_remove(srng.below(ad.len())));
++                    }
++                    cut = c2;
++                    let mut qc = Vec::new();
++                    for _ in 0..quota_cut.len().min(ad.len()) {
++                        qc.push(ad.swap_remove(srng.below(ad.len())));
++                    }
++                    quota_cut = qc;
++                }
++                for &id in &cut {
++                    if inrun::cull(&mut w, id) {
++                        culled_pending.insert(id);
++                        removals_n += 1;
++                        writeln!(births, "{frame},{id},0,{},{},cull", book[&id].family, book[&id].gen).unwrap();
++                        book.remove(&id);
++                    }
++                }
++                for (pid, k) in parents {
++                    for _ in 0..k {
++                        if births_n >= room {
++                            break;
++                        }
++                        let Some(p) = book.get(&pid) else { break };
++                        let f = p.family.clone();
++                        if fam.get(&f).copied().unwrap_or(0) >= cap_f && !(turn > 0 && capped_only) {
++                            break;
++                        }
++                        let child = train::mutate(&p.genome, &kslots, kpm, ksigma, 0.0, 1.0, &[], &mut srng);
++                        let gen = p.gen + 1;
++                        let placed = inrun::birth(&mut w, sp, inrun::mind(&child), kid_grants);
++                        if placed.is_none() {
++                            birth_fail += 1;
++                        }
++                        if let Some(cid) = placed {
++                            births_n += 1;
++                            last_birth = frame;
++                            *fam.entry(f.clone()).or_default() += 1;
++                            let pb = book.get_mut(&pid).unwrap();
++                            pb.last_kid = frame;
++                            pb.kids += 1;
++                            pb.at_kid = (pb.credit, pb.g2);
++                            if retire && pb.kids >= kid_cap {
++                                retiring.push(pid);
++                            }
++                            writeln!(births, "{frame},{cid},{pid},{f},{gen},birth").unwrap();
++                            writeln!(csv_ants, "{cid},{f}").unwrap();
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++                        }
++                    }
++                }
++                for id in std::mem::take(&mut retiring) {
++                    if book.contains_key(&id) && inrun::cull(&mut w, id) {
++                        culled_pending.insert(id);
++                        removals_n += 1;
++                        writeln!(births, "{frame},{id},0,{},{},retire", book[&id].family, book[&id].gen).unwrap();
++                        book.remove(&id);
++                    }
++                }
++                let refill = lo.saturating_sub(n) as usize;
++                let paid = births_n.saturating_sub(refill + hard_n).min(q_now);
++                quota -= paid as f64;
++                for id in std::mem::take(&mut quota_cut).into_iter().take(births_n.saturating_sub(refill + hard_n)) {
++                    if book.contains_key(&id) && inrun::cull(&mut w, id) {
++                        culled_pending.insert(id);
++                        removals_n += 1;
++                        writeln!(births, "{frame},{id},0,{},{},cull", book[&id].family, book[&id].gen).unwrap();
++                        book.remove(&id);
++                    }
++                }
++            }
++            let got: f64 = delivered.iter().map(|d| d.1).sum();
++            let ate: f64 = eaten.iter().map(|d| d.1).sum();
++            let fp = 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0);
++            let cp = 1.0 + kprice * (loose_n as f64 / (2.0 * book.len().max(1) as f64)).clamp(0.0, 1.0);
++            // Live ants the book does not know (must stay 0).
++            let ghosts = inrun::ants(&w, sp).iter().filter(|i| !book.contains_key(i)).count();
++            writeln!(sel_log, "{frame},{},{},{births_n},{removals_n},{bias:.2},{med:.3},{fp:.2},{dig_price:.2},{cp:.2},{ghosts}", book.len(), adults.len()).unwrap();
++        }
++        if fr % window == 0 {
++            let alive = inrun::ants(&w, sp).len();
++            println!(
++                "frame {fr:7}  alive {alive:3}  {:.1}s  food W {} E {} home {}",
++                t0.elapsed().as_secs_f64(),
++                inrun::food_near(&w, inrun::NEST - dist, 8 + spread),
++                inrun::food_near(&w, inrun::NEST + dist, 8 + spread),
++                inrun::food_near(&w, inrun::NEST, 6)
++            );
++            let mut pf = std::fs::File::create(out.join(format!("ants_f{fr:07}.txt"))).unwrap();
++            for id in inrun::ants(&w, sp) {
++                if let Some(st) = w.organism(id) {
++                    let (x, y) = st.chain.first().copied().unwrap_or((0, 0));
++                    writeln!(pf, "{id} {x} {y} {:.1} {}", st.energy, u8::from(st.spoil.is_some())).unwrap();
++                }
++            }
++            if maps {
++                let (x0, x1, y0, y1) = (inrun::NEST - 100, inrun::NEST + 100, 40, bh - 1);
++                let mut m = std::fs::File::create(out.join(format!("map_f{fr:07}.txt"))).unwrap();
++                writeln!(m, "{x0} {y0} {} {}", x1 - x0 + 1, y1 - y0 + 1).unwrap();
++                for y in y0..=y1 {
++                    let row: String = (x0..=x1).map(|x| inrun::cell_char(&w, x, y)).collect();
++                    writeln!(m, "{row}").unwrap();
++                }
++            }
++        }
++    }
++    ev.flush().unwrap();
++    if sel != "off" {
++        sel_log.flush().unwrap();
++        births.flush().unwrap();
++        let dir = out.join("final");
++        std::fs::create_dir_all(&dir).unwrap();
++        let mut f = std::fs::File::create(dir.join("index.csv")).unwrap();
++        writeln!(f, "id,family,gen,born,kids,score").unwrap();
++        let frame = w.frame;
++        for (id, b) in &book {
++            train::save_genome(&dir.join(format!("{id}.raw.txt")), &b.genome).unwrap();
++            writeln!(f, "{id},{},{},{},{},{:.3}", b.family, b.gen, b.born, b.kids, b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1)).unwrap();
++        }
++    }
++    if sel != "off" {
++        println!("selection: quota due {q_due}, no eligible parent {q_noparent}, placements failed {birth_fail}");
++    }
++    println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
++    println!("{}", creature::mind::scratch_log::hungry_report());
++}
+diff --git a/examples/mutants.rs b/examples/mutants.rs
+new file mode 100644
+index 00000000..b61c4419
+--- /dev/null
++++ b/examples/mutants.rs
+@@ -0,0 +1,27 @@
++//! SCRATCH (teacher-training measurement 1, not for main): children of one genome, made by the trainer's own mutation
++//! rule at the dig-8 runs' settings (pm 0.03, sigma 0.3, prune 0.3, grow 0.1; no crossover), for the paired-world test.
++//! cargo run --release --example mutants -- <start genome> <n> <seed> <out dir> [pm sigma prune grow]
++use pixel_physics::train::challenges::Soil;
++use pixel_physics::train::{self, Rng};
++use std::path::Path;
++
++fn main() {
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    let (start, n, seed, out): (&str, usize, u64, &str) = (&a[0], a[1].parse().unwrap(), a[2].parse().unwrap(), &a[3]);
++    let soil = Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 };
++    let g = train::start_mind(&soil, start);
++    let slots = train::trainable_for(&soil, g.len());
++    let mut rng = Rng(seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
++    let num = |i: usize, d: f32| a.get(i).map_or(d, |s| s.parse().unwrap());
++    let (pm, sigma, prune, grow) = (num(4, 0.03), num(5, 0.3), num(6, 0.3), num(7, 0.1));
++    println!("mutants: pm {pm} sigma {sigma} prune {prune} grow {grow}");
++    std::fs::create_dir_all(out).unwrap();
++    let live = |g: &[f32]| g.iter().filter(|w| **w != 0.0).count();
++    for k in 0..n {
++        let c = train::mutate(&g, &slots, pm, sigma, prune, grow, &vec![false; g.len()], &mut rng);
++        let changed = g.iter().zip(&c).filter(|(a, b)| a != b).count();
++        let p = Path::new(out).join(format!("m{k:02}.txt"));
++        train::save_genome(&p, &c).unwrap();
++        println!("{} changed {changed} live {} (parent {})", p.display(), live(&c), live(&g));
++    }
++}
+diff --git a/examples/reliab.rs b/examples/reliab.rs
+new file mode 100644
+index 00000000..b4088159
+--- /dev/null
++++ b/examples/reliab.rs
+@@ -0,0 +1,39 @@
++//! SCRATCH (investigation part 4, not for main): every genome solo on two independent sets of training-style worlds.
++//! cargo run --release --example reliab -- <shaft> <frames> <out.csv> <genome files...>
++use pixel_physics::train::challenges::Soil;
++use pixel_physics::train::{self, Challenge};
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::Mutex;
++
++fn main() {
++    std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
++    let a: Vec<String> = std::env::args().skip(1).collect();
++    let (shaft, frames, out, files): (i32, u64, &str, &[String]) = (a[0].parse().unwrap(), a[1].parse().unwrap(), &a[2], &a[3..]);
++    let budget = 1200.0 * frames as f32 / 6000.0;
++    let soil = Soil { ants: 1, frames, step: 4, shaft, budget: Some(budget), foot: true, step_near: 0.0 };
++    let gs: Vec<Vec<f32>> = files.iter().map(|f| train::start_mind(&soil, f)).collect();
++    // Two independent 48-world sets, drawn the way training draws a generation's (mirrored pairs).
++    let sets = [train::training_layouts(9001, 0, 48), train::training_layouts(9002, 0, 48)];
++    let n = gs.len();
++    let jobs: Vec<(usize, usize, usize)> = (0..2).flat_map(|s| (0..48).flat_map(move |l| (0..n).map(move |g| (s, l, g)))).collect();
++    let next = AtomicUsize::new(0);
++    let res = Mutex::new(Vec::new());
++    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
++    println!("reliab: {} genomes x 2 sets x 48 worlds, shaft {shaft}, frames {frames}, budget {budget}, threads {threads}", gs.len());
++    std::thread::scope(|sc| {
++        for _ in 0..threads {
++            sc.spawn(|| loop {
++                let j = next.fetch_add(1, Ordering::Relaxed);
++                let Some(&(s, l, g)) = jobs.get(j) else { break };
++                let r = soil.run(sets[s][l], &[gs[g].as_slice()], &mut |_, _| {});
++                res.lock().unwrap().push(format!("{},{},{},{},{},{}", files[g], s, l, sets[s][l].k, r[0].parts[0], r[0].parts[24]));
++            });
++        }
++    });
++    let mut v = res.into_inner().unwrap();
++    v.sort();
++    std::fs::write(out, format!("file,set,world,k,score,full_loads\n{}\n", v.join("\n"))).unwrap();
++    // SCRATCH (teacher-training ceiling test): how often the teacher acted.
++    println!("{}", pixel_physics::sim::creature::mind::scratch_log::teach_report());
++    println!("wrote {out}");
++}
+diff --git a/examples/train.rs b/examples/train.rs
+index 0abc5e4d..6d9a3e30 100644
+--- a/examples/train.rs
++++ b/examples/train.rs
+@@ -724,7 +724,12 @@ fn main() {
+             Some(f) => genome_of(f),
+             None => g0.clone(),
+         };
+-        train::picture(ch.as_ref(), &g, train::holdout_layouts(1)[0], p);
++        // SCRATCH (not for main): PP_GIF_SEALED=k draws sealed world k instead of hold-out world 0.
++        let lay = match std::env::var("PP_GIF_SEALED").ok().and_then(|v| v.parse::<usize>().ok()) {
++            Some(k) => train::sealed_layouts(k + 1)[k],
++            None => train::holdout_layouts(1)[0],
++        };
++        train::picture(ch.as_ref(), &g, lay, p);
+         println!("picture in {}", p.display());
+         return;
+     }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 5ceb2ff6..9fde1e32 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -32070,6 +32070,17 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
+     true
+ }
+ 
++/// SCRATCH (teacher lane, never for main): [`slay`] by organism id. `slay` kills whatever animal owns the cell at
++/// a point, and ants overlap (`climbs_over_kin`), so culling by the head's position killed a different ant about
++/// half the time (the in-run pilot's "ghosts").
++pub fn cull_organism(world: &mut World, organism: OrganismId) -> bool {
++    if world.organism(organism).is_none() {
++        return false;
++    }
++    creature_dies(world, organism, organism::DeathCause::Culled);
++    true
++}
++
+ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::DeathCause) {
+     // **Give the foliage back before anything else happens.** An animal
+     // that dies inside a bush is holding cells of it (`organism::Parted`),
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 9b1d1802..2ab3547c 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1472,7 +1472,11 @@ pub fn context(
+     let Some(&(hx, hy)) = st.chain.first() else {
+         return (v, [0.0; 5]);
+     };
+-    let e = (st.energy / def.start_energy.max(f32::EPSILON)).max(0.0);
++    // SCRATCH (hungry lane): `PP_ENERGY_REAL=J` reads the bank against J joules (the species' authored start_energy,
++    // 200) instead of this world's def, which a training arena's `budget_to` rescales to its own budget.
++    static REAL: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
++    let unit = REAL.get_or_init(|| std::env::var("PP_ENERGY_REAL").ok().map(|v| v.parse().expect("PP_ENERGY_REAL"))).unwrap_or(def.start_energy);
++    let e = (st.energy / unit.max(f32::EPSILON)).max(0.0);
+     v[c::ENERGY] = e / (1.0 + e);
+     let cap = organism_crop_capacity(world, organism, def);
+     v[c::CROP] = st.crop.map_or(0.0, |cr| {
+@@ -1783,15 +1787,85 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
+                 &mut opts,
+             );
+-            let (ctx, now) = context(world, organism, def, &mind.state, &opts);
++            let (mut ctx, now) = context(world, organism, def, &mind.state, &opts);
++            // SCRATCH (investigation, not for main): PP_ABLATE=name,name zeroes those senses before every decision.
++            scratch_log::ablate(&mut ctx);
++            // SCRATCH (teacher lane): `PP_BOTTOM_CTX=1` (with `PP_BOTTOM`) puts "a cut at the bottom of my hole, below
++            // the ground as built, is in reach" on the borrowed context slot c::CROWD (17), which reads 0 in every solo
++            // arena: the job stage reads it straight, past the scorer's saturated best-score channel.
++            if std::env::var("PP_BOTTOM_CTX").is_ok() {
++                ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
++            }
+             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+-            let d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
++            let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
++            let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
++            if let Some(d) = d.as_ref() {
++                scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
++                scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
++            }
++            // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
++            let mut redrawn: Option<Vec<Opt>> = None;
++            if scratch_log::teach_on() {
++                if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
++                    let own_verb = opts[pick].verb;
++                    // Positive control for `remember`: the brain's own verb must reproduce the memory decide wrote.
++                    let check = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, own_verb);
++                    if check.iter().zip(&mind.state.mem).any(|(a, b)| (a - b).abs() > 1e-6) {
++                        scratch_log::COUNTS[10].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                    }
++                    match scratch_log::teach(world, organism, &opts, pick, &jobs) {
++                        scratch_log::Teach::Keep => {}
++                        scratch_log::Teach::Force(i) => {
++                            if let Some(d) = d.as_mut() {
++                                d.pick = i;
++                            }
++                            mind.state.last_verb = Some(opts[i].verb);
++                        }
++                        scratch_log::Teach::Veto(v) => {
++                            let allowed: Vec<Opt> = opts.iter().copied().filter(|o| o.verb != v).collect();
++                            if !allowed.is_empty() {
++                                mind.state.mem = mem0;
++                                mind.state.last_verb = last0;
++                                let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1000);
++                                if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
++                                    d = Some(d2);
++                                    redrawn = Some(allowed);
++                                }
++                            }
++                        }
++                    }
++                    let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
++                    if let Some(d) = d.as_mut() {
++                        if let Some(i) = scratch_log::walk_home(world, organism, (x, y), list, d.pick) {
++                            d.pick = i;
++                        }
++                    }
++                    // Memory and the job pull follow the verb actually carried out, summed over the full option list.
++                    if let Some(d) = d.as_ref() {
++                        let done = list[d.pick].verb;
++                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, done);
++                        mind.state.last_verb = Some(done);
++                    }
++                }
++            }
++            if redrawn.is_none() && scratch_log::hungry_rule().is_some() {
++                if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
++                    if let Some(i) = scratch_log::hungry_out(world, organism, (x, y), &ctx, &opts, pick) {
++                        if let Some(d) = d.as_mut() {
++                            d.pick = i;
++                        }
++                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, Verb::Walk);
++                        mind.state.last_verb = Some(Verb::Walk);
++                    }
++                }
++            }
+             mind.state.last = Some(now);
+             let mut offered = [false; VERBS];
+             for o in opts.iter() {
+                 offered[o.verb as usize] = true;
+             }
+-            (d.map(|d| (opts[d.pick], d.emits, opts.len())), offered)
++            let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
++            (d.map(|d| (list[d.pick], d.emits, list.len())), offered)
+         });
+         let (decided, offered) = decided;
+         if let Some(m) = world.minds.as_mut() {
+@@ -1973,6 +2047,8 @@ fn pick_up(
+         world.bare_seeds_carried += 1;
+     }
+     crop_take(world, organism, food, bite.shade, worth, passenger);
++    // SCRATCH (teacher lane, in-run pilot): the harness's food ledger.
++    super::note_food(world, organism, (fx, fy), super::FOOD_SWALLOW, worth, at_home);
+     let fresh = crop.is_none_or(|c| c.worth() <= 0.0);
+     if let Some(state) = world.organism_mut(organism) {
+         state.life.bites += 1;
+@@ -2130,6 +2206,8 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
+         st.forage_returns += u64::from(returned);
+     }
+     note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
++    // SCRATCH (teacher lane, in-run pilot): flag = a trip cell put down at the nest, the game's own delivery.
++    super::note_food(world, organism, (dx, dy), super::FOOD_DROP, 0.0, trip_cell && at_nest);
+     if let Some(m) = world.minds.as_mut() {
+         m.counts.put_down += 1;
+         m.counts.delivered += u64::from(at_nest);
+@@ -3508,3 +3586,736 @@ mod tests {
+         );
+     }
+ }
++
++
++/// SCRATCH (box-rank / investigation, not for main): `PP_MIND_LOG=<file>` writes one row per mind decision
++/// and the soil arena's cut and put-down events, for tracing individuals offline.
++pub mod scratch_log {
++    use super::*;
++    use std::io::Write;
++    use std::sync::atomic::{AtomicU64, Ordering};
++    use std::sync::{Mutex, OnceLock};
++
++    // ---- SCRATCH (teacher-training ceiling test): a hand-written teacher that makes three of the brain's calls.
++    // `PP_TEACH=dig,drop,home[,margin=N]` turns each correction on. The teacher reads only what the copyability probe
++    // showed the ant can sense (frame-0 ground, depth, the hole as it stands), held per thread by the soil arena for
++    // the run's frames and cleared before the settle, so it never acts while the score is being taken.
++    //   dig   empty jaws: dig the deepest foot cell when one is in reach (force); a dig with none in reach is vetoed
++    //   drop  carrying spoil: put it down on a cell clear of the hole when one is offered (force); a put-down inside
++    //         the hole's zone is vetoed. `margin=N` widens "clear" by N cells (a pellet at exactly 3 may slide back)
++    //   home  empty, on the surface, 3+ columns from the mouth, walking: take the step nearest the mouth's column
++    //   down  empty, below ground, no foot cell in reach, walking: take the deepest step, if one goes deeper. Added
++    //         after the first ceiling run: with wall cuts vetoed and nothing in their place, the ant walked up and down
++    //         the shaft for 6,000 frames and never reached the foot (s161 had only ever got down by digging its way)
++    // A veto removes the verb and lets the brain redraw from what is left, so the teacher never invents behaviour
++    // where it abstains. Shut in (no Walk option offered), the teacher abstains on dig and drop: digging out is legal.
++    pub struct TeachCtx {
++        pub x0: i32,
++        pub y0: i32,
++        pub nw: usize,
++        pub nh: usize,
++        pub ground0: Vec<bool>,
++        pub datum: Vec<Option<i32>>,
++        pub founding: Vec<(i32, i32)>,
++        pub shaft: i32,
++        pub mouth_x: f32,
++        /// Chebyshev radius a put-down must keep from every hole cell (SOIL_AWAY - 1, plus the margin).
++        pub clear: i32,
++    }
++    thread_local! {
++        pub static TEACH: std::cell::RefCell<Option<TeachCtx>> = const { std::cell::RefCell::new(None) };
++    }
++    /// 0 decisions under a teacher, 1 dig forced, 2 dig vetoed, 3 drop forced, 4 drop vetoed, 5 walk-home forced,
++    /// 6 shut-in abstains, 7 decisions with the teacher on but no facts on this thread (should be the settle only),
++    /// 8 go-down forced, 9 calls skipped by compliance (q or floor), 10 positive-control failures of `remember`
++    /// (re-running the brain's own verb must give the memory `decide` wrote).
++    pub static COUNTS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
++    pub fn down_on() -> bool {
++        static D: OnceLock<bool> = OnceLock::new();
++        *D.get_or_init(|| std::env::var("PP_TEACH").unwrap_or_default().split(',').any(|p| p == "down"))
++    }
++    pub fn arms() -> (bool, bool, bool, i32) {
++        static A: OnceLock<(bool, bool, bool, i32)> = OnceLock::new();
++        *A.get_or_init(|| {
++            let s = std::env::var("PP_TEACH").unwrap_or_default();
++            let parts: Vec<&str> = s.split(',').filter(|p| !p.is_empty()).collect();
++            let margin = parts.iter().find_map(|p| p.strip_prefix("margin=")).map_or(0, |m| m.parse().expect("PP_TEACH margin"));
++            for p in &parts {
++                assert!(matches!(*p, "dig" | "drop" | "home" | "down") || p.starts_with("margin="), "PP_TEACH: unknown part {p}");
++            }
++            (parts.contains(&"dig"), parts.contains(&"drop"), parts.contains(&"home"), margin)
++        })
++    }
++    /// The brain's own memory update (`decide`'s "Memory" block), re-run for the verb actually carried out, with
++    /// all_best / all_mean over the brain's FULL option list. Review fix (2026-10-21): the first ceiling test left the
++    /// memory a forced dig wrote as if the brain had done its own pick, and a veto's redraw summed the options without
++    /// the vetoed verb's, so the ceiling's ant remembered something other than what it did.
++    pub fn remember(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], opts: &[Opt], scores: &[f32], verb: Verb) -> [f32; MEMORY] {
++        let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
++        let (mut best, mut sum, mut n) = (f32::NEG_INFINITY, 0.0f32, 0u32);
++        for (o, op) in opts.iter().enumerate() {
++            if on(op.verb) {
++                best = best.max(scores[o]);
++                sum += scores[o];
++                n += 1;
++            }
++        }
++        let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
++        let mut fresh = [0.0f32; MEMORY];
++        for (m, slot) in fresh.iter_mut().enumerate() {
++            let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
++            let mut s = row[M_IN - 1] + row[CONTEXT] * best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
++            for (w, x) in row[..CONTEXT].iter().zip(ctx) {
++                s += w * x;
++            }
++            for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
++                s += w * x;
++            }
++            let r = rate(g, m);
++            *slot = r * mem0[m] + (1.0 - r) * squash(s);
++        }
++        fresh
++    }
++    /// `PP_TEACH_Q=q`: each call is applied with probability q (the compliance curve). `PP_TEACH_FLOOR=1`: each call
++    /// is applied only as often as a brain saturated towards it would obey under `choose_weighted`'s floor (labelled
++    /// options at w = 1, the rest at w = 0; a veto leaves Dig at w = 0 against the other verbs' own weights) -- the
++    /// most a copied brain could deliver (method review M1).
++    fn q() -> f32 {
++        static Q: OnceLock<f32> = OnceLock::new();
++        *Q.get_or_init(|| std::env::var("PP_TEACH_Q").ok().map_or(1.0, |v| v.parse().expect("PP_TEACH_Q")))
++    }
++    fn floor_mode() -> bool {
++        static F: OnceLock<bool> = OnceLock::new();
++        *F.get_or_init(|| std::env::var("PP_TEACH_FLOOR").is_ok_and(|v| v == "1" || v == "2"))
++    }
++    /// `PP_TEACH_FLOOR=2`: the strict floor. Every decision a rule covers is drawn from the saturated policy, not only
++    /// those where the brain's own draw was wrong -- so a copy that is right on average still digs a wall now and then
++    /// with no foot cell in reach (method review M1's ~2.8 a world).
++    fn strict_floor() -> bool {
++        static F: OnceLock<bool> = OnceLock::new();
++        *F.get_or_init(|| std::env::var("PP_TEACH_FLOOR").is_ok_and(|v| v == "2"))
++    }
++    fn roll(world: &World, organism: OrganismId, salt: u64) -> f32 {
++        rng::stream(world.seed, organism as u64, world.frame, 4300 + salt).unit_f32()
++    }
++    /// `PP_TEACH_SAT=s` (default 1): how far a copied brain's scores reach -- labelled options at score +s, the rest
++    /// at -s (w = (1 + s) / 2 and (1 - s) / 2). 1 is full saturation; 0.9 is what squash reaches at |x| = 9.
++    fn sat() -> f32 {
++        static S: OnceLock<f32> = OnceLock::new();
++        *S.get_or_init(|| std::env::var("PP_TEACH_SAT").ok().map_or(1.0, |v| v.parse().expect("PP_TEACH_SAT")))
++    }
++    fn lo_w() -> f32 {
++        (PICK_FLOOR + (1.0 - sat()) / 2.0).powi(2)
++    }
++    /// Obedience among `labelled` options against `others`, at saturation `sat()`.
++    fn obey(labelled: usize, others: usize) -> f32 {
++        let hi = (PICK_FLOOR + (1.0 + sat()) / 2.0).powi(2);
++        labelled as f32 * hi / (labelled as f32 * hi + others as f32 * lo_w())
++    }
++    fn applies(world: &World, organism: OrganismId, salt: u64, obedience: f32) -> bool {
++        let p = q() * if floor_mode() { obedience } else { 1.0 };
++        if p >= 1.0 {
++            return true;
++        }
++        let ok = rng::stream(world.seed, organism as u64, world.frame, 4200 + salt).unit_f32() < p;
++        if !ok {
++            COUNTS[9].fetch_add(1, Ordering::Relaxed);
++        }
++        ok
++    }
++    pub fn teach_on() -> bool {
++        let a = arms();
++        a.0 || a.1 || a.2 || down_on()
++    }
++    impl TeachCtx {
++        fn ground0(&self, x: i32, y: i32) -> bool {
++            let (i, j) = (x - self.x0, y - self.y0);
++            i >= 0 && j >= 0 && (i as usize) < self.nw && (j as usize) < self.nh && self.ground0[j as usize * self.nw + i as usize]
++        }
++        /// As the arena's `depth_below_ground`: rows below the lowest datum within 3 columns.
++        fn depth(&self, x: i32, y: i32) -> i32 {
++            (x - 3..=x + 3)
++                .filter_map(|c| usize::try_from(c - self.x0).ok().and_then(|i| self.datum.get(i).copied().flatten()))
++                .max()
++                .map_or(0, |low| y - low)
++        }
++    }
++    pub enum Teach {
++        Keep,
++        Force(usize),
++        Veto(Verb),
++    }
++    fn shut_in(opts: &[Opt]) -> bool {
++        !opts.iter().any(|o| o.verb == Verb::Walk)
++    }
++    /// The dig and drop corrections, on the brain's pick.
++    pub fn teach(world: &World, organism: OrganismId, opts: &[Opt], pick: usize, jobs: &[Option<f32>; VERBS]) -> Teach {
++        let (dig, drop, _, _) = arms();
++        TEACH.with(|t| {
++            let t = t.borrow();
++            let Some(t) = t.as_ref() else {
++                COUNTS[7].fetch_add(1, Ordering::Relaxed);
++                return Teach::Keep;
++            };
++            COUNTS[0].fetch_add(1, Ordering::Relaxed);
++            let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
++            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++            let chosen = opts[pick];
++            if (dig || drop) && shut_in(opts) {
++                COUNTS[6].fetch_add(1, Ordering::Relaxed);
++                return Teach::Keep;
++            }
++            if dig && !carrying {
++                let foot = |o: &Opt| {
++                    let (x, y) = o.target;
++                    t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
++                };
++                let best = opts
++                    .iter()
++                    .enumerate()
++                    .filter(|(_, o)| o.verb == Verb::Dig && foot(o))
++                    .max_by(|a, b| {
++                        (t.depth(a.1.target.0, a.1.target.1), -(a.1.target.0 as f32 - t.mouth_x).abs())
++                            .partial_cmp(&(t.depth(b.1.target.0, b.1.target.1), -(b.1.target.0 as f32 - t.mouth_x).abs()))
++                            .unwrap()
++                    })
++                    .map(|(i, _)| i);
++                let others = (0..VERBS).filter(|&v| v != Verb::Dig as usize && jobs[v].is_some()).count();
++                let n_foot = opts.iter().filter(|o| o.verb == Verb::Dig && foot(o)).count();
++                let n_dig = opts.iter().filter(|o| o.verb == Verb::Dig).count();
++                if strict_floor() {
++                    let lo = lo_w();
++                    let rest: f32 = (0..VERBS)
++                        .filter(|&v| v != Verb::Dig as usize)
++                        .filter_map(|v| jobs[v].map(|j| (PICK_FLOOR + (j + 1.0) / 2.0).powi(2)))
++                        .sum();
++                    let u = roll(world, organism, 1);
++                    match best {
++                        // A foot cell in reach: obey with the saturated probability, else leave the brain's pick.
++                        Some(i) => {
++                            if u < obey(1, others) * obey(n_foot, n_dig - n_foot) {
++                                if !(chosen.verb == Verb::Dig && foot(&chosen)) {
++                                    COUNTS[1].fetch_add(1, Ordering::Relaxed);
++                                    return Teach::Force(i);
++                                }
++                            } else {
++                                COUNTS[9].fetch_add(1, Ordering::Relaxed);
++                                if chosen.verb == Verb::Dig && foot(&chosen) {
++                                    return Teach::Veto(Verb::Dig);
++                                }
++                            }
++                        }
++                        // None in reach: a saturated copy still digs with probability lo / (lo + rest) -- at the
++                        // brain's best-scored Dig option -- and otherwise does not dig.
++                        None if n_dig > 0 => {
++                            if u < lo / (lo + rest) {
++                                COUNTS[9].fetch_add(1, Ordering::Relaxed);
++                                if chosen.verb != Verb::Dig {
++                                    let leak = opts.iter().enumerate().filter(|(_, o)| o.verb == Verb::Dig).map(|(i, _)| i).next();
++                                    if let Some(i) = leak {
++                                        return Teach::Force(i);
++                                    }
++                                }
++                            } else if chosen.verb == Verb::Dig {
++                                COUNTS[2].fetch_add(1, Ordering::Relaxed);
++                                return Teach::Veto(Verb::Dig);
++                            }
++                        }
++                        None => {}
++                    }
++                    return Teach::Keep;
++                }
++                match best {
++                    Some(i) if !(chosen.verb == Verb::Dig && foot(&chosen)) => {
++                        if applies(world, organism, 1, obey(1, others) * obey(n_foot, n_dig - n_foot)) {
++                            COUNTS[1].fetch_add(1, Ordering::Relaxed);
++                            return Teach::Force(i);
++                        }
++                    }
++                    None if chosen.verb == Verb::Dig => {
++                        let lo = lo_w();
++                        let rest: f32 = (0..VERBS)
++                            .filter(|&v| v != Verb::Dig as usize)
++                            .filter_map(|v| jobs[v].map(|j| (PICK_FLOOR + (j + 1.0) / 2.0).powi(2)))
++                            .sum();
++                        if applies(world, organism, 2, 1.0 - lo / (lo + rest)) {
++                            COUNTS[2].fetch_add(1, Ordering::Relaxed);
++                            return Teach::Veto(Verb::Dig);
++                        }
++                    }
++                    _ => {}
++                }
++            }
++            if drop && carrying {
++                let mut hole: std::collections::HashSet<(i32, i32)> = t.founding.iter().copied().collect();
++                hole.extend(cuts.iter().filter(|c| t.ground0(c.0, c.1)).map(|c| (c.0, c.1)));
++                let r = t.clear;
++                let gap = |(x, y): (i32, i32)| {
++                    (-r - 3..=r + 3)
++                        .flat_map(|dy| (-r - 3..=r + 3).map(move |dx| (dx, dy)))
++                        .filter(|d| hole.contains(&(x + d.0, y + d.1)))
++                        .map(|(dx, dy)| dx.abs().max(dy.abs()))
++                        .min()
++                        .unwrap_or(i32::MAX)
++                };
++                let clear = |o: &Opt| gap(o.target) > r;
++                // "The first cell clear": of the clear put-downs, the one nearest the hole (the shortest carry).
++                let best = opts
++                    .iter()
++                    .enumerate()
++                    .filter(|(_, o)| o.verb == Verb::Drop && clear(o))
++                    .min_by_key(|(_, o)| gap(o.target))
++                    .map(|(i, _)| i);
++                match best {
++                    Some(i) if !(chosen.verb == Verb::Drop && clear(&chosen)) => {
++                        COUNTS[3].fetch_add(1, Ordering::Relaxed);
++                        return Teach::Force(i);
++                    }
++                    None if chosen.verb == Verb::Drop => {
++                        COUNTS[4].fetch_add(1, Ordering::Relaxed);
++                        return Teach::Veto(Verb::Drop);
++                    }
++                    _ => {}
++                }
++            }
++            Teach::Keep
++        })
++    }
++    /// The walk-home correction, on the final pick (after any veto's redraw).
++    pub fn walk_home(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], pick: usize) -> Option<usize> {
++        if !(arms().2 || down_on()) || opts[pick].verb != Verb::Walk {
++            return None;
++        }
++        TEACH.with(|t| {
++            let t = t.borrow();
++            let t = t.as_ref()?;
++            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++            if carrying {
++                return None;
++            }
++            if down_on() && t.depth(at.0, at.1) > 0 {
++                let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
++                let foot = |o: &Opt| {
++                    let (x, y) = o.target;
++                    o.verb == Verb::Dig && t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
++                };
++                if opts.iter().any(foot) {
++                    return None;
++                }
++                let here = t.depth(at.0, at.1);
++                let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++                let deepest = *walks.iter().max_by_key(|&&i| (t.depth(opts[i].target.0, opts[i].target.1), -(opts[i].target.0 - at.0).abs()))?;
++                let dd = t.depth(opts[deepest].target.0, opts[deepest].target.1);
++                if dd > here && dd > t.depth(opts[pick].target.0, opts[pick].target.1) {
++                    let n_deep = walks.iter().filter(|&&i| t.depth(opts[i].target.0, opts[i].target.1) == dd).count();
++                    if applies(world, organism, 3, obey(n_deep, walks.len() - n_deep)) {
++                        COUNTS[7 + 1].fetch_add(1, Ordering::Relaxed);
++                        return Some(deepest);
++                    }
++                }
++                return None;
++            }
++            if !arms().2 || t.depth(at.0, at.1) > 0 || (at.0 as f32 - t.mouth_x).abs() < 3.0 {
++                return None;
++            }
++            let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++            if walks.len() < 2 {
++                return None;
++            }
++            let d = |i: usize| (opts[i].target.0 as f32 - t.mouth_x).abs();
++            let best = *walks.iter().min_by(|a, b| d(**a).partial_cmp(&d(**b)).unwrap())?;
++            let n_near = walks.iter().filter(|&&i| d(i) == d(best)).count();
++            if d(best) < d(pick) && applies(world, organism, 5, obey(n_near, walks.len() - n_near)) {
++                COUNTS[5].fetch_add(1, Ordering::Relaxed);
++                Some(best)
++            } else {
++                None
++            }
++        })
++    }
++    // ---- SCRATCH (teacher-training step 1, the copier's log): `PP_COPY_LOG=<file>` writes, per decision, everything a
++    // copier needs to recompute the brain's choice for ANY genome -- every option of every verb at full precision
++    // (Rust's shortest round-trip float form), the brain's own scores, its memory before the decision -- and, in the
++    // soil arena with `PP_TEACH_LABEL` set, the teacher's state labels: pure functions of the state, written whatever
++    // the brain picked (review finding 1). Every row starts with a world tag (`WORLD`, set by the example per job) so
++    // worlds can run on several threads into one file; `SETTLE` marks the scored settle's rest-mind rows.
++    thread_local! {
++        pub static WORLD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
++        pub static SETTLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    }
++    fn copy_out() -> Option<&'static Mutex<std::io::BufWriter<std::fs::File>>> {
++        static F: OnceLock<Option<Mutex<std::io::BufWriter<std::fs::File>>>> = OnceLock::new();
++        F.get_or_init(|| {
++            std::env::var("PP_COPY_LOG")
++                .ok()
++                .map(|p| Mutex::new(std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(p).expect("copy log"))))
++        })
++        .as_ref()
++    }
++    pub fn copy_on() -> bool {
++        copy_out().is_some()
++    }
++    /// One row into the copy log, prefixed with this thread's world tag.
++    pub fn cline(s: &str) {
++        if let Some(f) = copy_out() {
++            let tag = WORLD.with(|w| w.get());
++            let _ = writeln!(f.lock().unwrap(), "{tag},{s}");
++        }
++    }
++    pub fn copy_flush() {
++        if let Some(f) = copy_out() {
++            let _ = f.lock().unwrap().flush();
++        }
++    }
++    pub fn label_on() -> bool {
++        static L: OnceLock<bool> = OnceLock::new();
++        *L.get_or_init(|| std::env::var("PP_TEACH_LABEL").is_ok())
++    }
++    /// The teacher's state labels for one decision, as option indices into `opts`. Each mirrors the acting rule's test
++    /// in `teach` / `walk_home` exactly, but is computed whatever the brain picked:
++    ///   dig   `M` must-dig (a foot cell in reach; `digset` = the acting rule's choice key's arg-max set), `N`
++    ///         must-not-dig (Dig offered, no foot cell), `-` abstain (carrying, shut in, or no Dig offered)
++    ///   down  the deepest steps (key: depth, then nearest column), when empty, below ground, no foot cell in reach,
++    ///         and the deepest step is deeper than here
++    ///   home  the steps nearest the mouth's column, when empty, on the surface, 3+ columns from the mouth, 2+ steps
++    fn labels(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) -> String {
++        TEACH.with(|t| {
++            let t = t.borrow();
++            let Some(t) = t.as_ref() else { return "-|-|-|-".to_string() };
++            let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
++            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++            let foot = |o: &Opt| {
++                let (x, y) = o.target;
++                o.verb == Verb::Dig && t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
++            };
++            let join = |v: &[usize]| if v.is_empty() { "-".to_string() } else { v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";") };
++            let any_foot = opts.iter().any(foot);
++            let (mut dig, mut digset) = ("-", Vec::new());
++            if !carrying && !shut_in(opts) && opts.iter().any(|o| o.verb == Verb::Dig) {
++                if any_foot {
++                    dig = "M";
++                    let key = |o: &Opt| (t.depth(o.target.0, o.target.1), -(o.target.0 as f32 - t.mouth_x).abs());
++                    let best = opts.iter().filter(|o| foot(o)).map(key).fold(None, |m: Option<(i32, f32)>, k| match m {
++                        Some(b) if b >= k => Some(b),
++                        _ => Some(k),
++                    });
++                    digset = (0..opts.len()).filter(|&i| foot(&opts[i]) && Some(key(&opts[i])) == best).collect();
++                } else {
++                    dig = "N";
++                }
++            }
++            let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++            let here = t.depth(at.0, at.1);
++            let mut down = Vec::new();
++            if !carrying && here > 0 && !any_foot && !walks.is_empty() {
++                let key = |i: usize| (t.depth(opts[i].target.0, opts[i].target.1), -(opts[i].target.0 - at.0).abs());
++                let best = walks.iter().map(|&i| key(i)).max().unwrap();
++                if best.0 > here {
++                    down = walks.iter().copied().filter(|&i| key(i) == best).collect();
++                }
++            }
++            let mut home = Vec::new();
++            if !carrying && here <= 0 && (at.0 as f32 - t.mouth_x).abs() >= 3.0 && walks.len() >= 2 {
++                let d = |i: usize| (opts[i].target.0 as f32 - t.mouth_x).abs();
++                let best = walks.iter().map(|&i| d(i)).fold(f32::INFINITY, f32::min);
++                home = walks.iter().copied().filter(|&i| d(i) == best).collect();
++            }
++            format!("{dig}|{}|{}|{}", join(&digset), join(&down), join(&home))
++        })
++    }
++    /// The copy log's decision row: `Q,frame,id,x,y,settle,pick,last_verb,carrying,labels,ctx,mem0,opts` -- opts as
++    /// `verb:tx:ty:score:i=v i=v ...` (nonzero features), `;`-joined.
++    #[allow(clippy::too_many_arguments)]
++    pub fn copy_decision(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
++        if !copy_on() {
++            return;
++        }
++        let f = |v: &[f32]| v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ");
++        let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++        let lab = if label_on() { labels(world, organism, at, opts) } else { "-|-|-|-".to_string() };
++        let all: Vec<String> = opts
++            .iter()
++            .enumerate()
++            .map(|(k, op)| {
++                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}={x}")).collect();
++                format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
++            })
++            .collect();
++        // SCRATCH (teacher lane, 2026-10-21): the "bottom of the hole" candidate sense, appended as a 15th field so
++        // every reader of fields 0-13 is unchanged. Per Dig option, for reach R in BOTTOM_REACH: target row minus the
++        // deepest open row of the cavity the head stands in, flooded through open cells (empty, or this ant's own
++        // body) within Chebyshev R of the head -- what an ant feels by touch and gravity: is there open space lower
++        // than the cell it is about to cut? `-` for other verbs.
++        let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
++        let bottom: Vec<String> = opts
++            .iter()
++            .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
++            .collect();
++        // SCRATCH (hungry lane): the hungry teacher's label as a 16th field, `p|i;j` or `-`, whenever `PP_HUNGRY` is set.
++        let hungry = match hungry_rule() {
++            Some((lo, hi)) => {
++                let (lab, p) = hungry_label(world, organism, at, ctx, opts, lo, hi);
++                if lab.is_empty() { "-".to_string() } else { format!("{p}|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) }
++            }
++            None => "-".to_string(),
++        };
++        let row = |settle: u8| {
++            format!(
++                "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{hungry}",
++                world.frame,
++                at.0,
++                at.1,
++                settle,
++                d.pick,
++                last.map_or(-1, |v| v as i32),
++                u8::from(carrying),
++                f(ctx),
++                f(mem0),
++                all.join(";"),
++                bottom.join(";")
++            )
++        };
++        // `PP_COPY_SAMPLE=k`: keep every labelled row and one in k of the rest, each kept row preceded by the same
++        // ant's previous decision marked settle=2 (memory context only, never a training row), so the copier's
++        // one-step memory path still links a kept row to the decision just before it.
++        let k: u64 = sample_k();
++        let settle = u8::from(SETTLE.with(|s| s.get()));
++        if k <= 1 {
++            cline(&row(settle));
++            return;
++        }
++        let keep = hungry != "-" || rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64() % k == 0;
++        let line = row(settle);
++        PREV_ROW.with(|m| {
++            let mut m = m.borrow_mut();
++            if keep {
++                if let Some((written, prev)) = m.get(&organism) {
++                    if !*written {
++                        cline(prev);
++                    }
++                }
++                cline(&line);
++            }
++            m.insert(organism, (keep, row(2)));
++        });
++    }
++    thread_local! {
++        static PREV_ROW: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
++    }
++    fn sample_k() -> u64 {
++        static K: OnceLock<u64> = OnceLock::new();
++        *K.get_or_init(|| std::env::var("PP_COPY_SAMPLE").ok().map_or(1, |v| v.parse().expect("PP_COPY_SAMPLE")))
++    }
++    pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
++    /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
++    /// own row if nothing else is open.
++    pub fn cavity_low(world: &World, organism: OrganismId, head: (i32, i32), r: i32) -> i32 {
++        let open = |x: i32, y: i32| {
++            let c = world.get(x, y);
++            c.material == crate::sim::material::EMPTY || c.organism_id() == organism
++        };
++        let mut seen = std::collections::HashSet::new();
++        let mut stack = vec![head];
++        seen.insert(head);
++        let mut low = head.1;
++        while let Some((x, y)) = stack.pop() {
++            low = low.max(y);
++            for dx in -1..=1 {
++                for dy in -1..=1 {
++                    let n = (x + dx, y + dy);
++                    if (n.0 - head.0).abs() <= r && (n.1 - head.1).abs() <= r && !seen.contains(&n) && open(n.0, n.1) {
++                        seen.insert(n);
++                        stack.push(n);
++                    }
++                }
++            }
++        }
++        low
++    }
++
++    // ---- SCRATCH (hungry lane, 2026-10-21): "go out when hungry". `PP_HUNGRY=lo:hi[:q]` (grants of start_energy):
++    // an ant whose energy reads below `hi` grants, crop empty, jaws free, with no food in reach to pick up, is sent
++    // out with probability (hi - e) / (hi - lo) (1 at or below `lo`; graded so a lockstep colony does not leave as
++    // one): below the ground as built it takes the highest step, on the surface the step furthest from its home's
++    // column. Reads only what the ant feels (its own energy, crop, jaws, depth) plus where its home is.
++    pub fn hungry_rule() -> Option<(f32, f32)> {
++        static H: OnceLock<Option<(f32, f32)>> = OnceLock::new();
++        *H.get_or_init(|| {
++            std::env::var("PP_HUNGRY").ok().map(|v| {
++                let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HUNGRY lo:hi")).collect();
++                (p[0], p[1])
++            })
++        })
++    }
++    pub static HUNGRY_COUNTS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
++    /// The teacher's label: the outward steps for a hungry ant, or empty. `p` is the label's weight.
++    pub fn hungry_label(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], lo: f32, hi: f32) -> (Vec<usize>, f32) {
++        let e = ctx[c::ENERGY] / (1.0 - ctx[c::ENERGY]).max(1e-6);
++        // `PP_HUNGRY_FLOOR=f`: no label below f grants. The training arenas read energy against their own budget, not
++        // start_energy: fetch and trail sit at exactly 1 grant (0.5) for ever and the soil arena's ant falls from 1 to
++        // 0.25 grants while it digs, so a lesson keyed on "below 2 grants" also fires on every soil-arena decision. The
++        // window [floor, hi) is the part of the colony's hunger no arena reads.
++        static FLOOR: OnceLock<f32> = OnceLock::new();
++        let floor = *FLOOR.get_or_init(|| std::env::var("PP_HUNGRY_FLOOR").ok().map_or(0.0, |v| v.parse().expect("PP_HUNGRY_FLOOR")));
++        // `PP_HUNGRY_RETURN=1`: a failed search comes back. Empty jaws and crop, on the surface, `PP_HUNGRY_R` columns
++        // or more from home, at any energy: the steps nearer home. The first copy that learned "walk away" (h4,
++        // 2026-10-21) learned it without the radius and ran 16-22 of 24 founders to the bed's walls in 10k frames.
++        if std::env::var("PP_HUNGRY_RETURN").is_ok() && ctx[c::CROP] == 0.0 && ctx[c::SPOIL] == 0.0 && ctx[c::DEPTH] <= 0.05 {
++            let radius: i32 = std::env::var("PP_HUNGRY_R").ok().map_or(40, |v| v.parse().expect("PP_HUNGRY_R"));
++            let nx = world.organism(organism).map_or(at.0, |s| s.forage_anchor.0);
++            if (at.0 - nx).abs() >= radius && !opts.iter().any(|o| o.verb == Verb::PickUp) {
++                let back: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && (opts[i].target.0 - nx).abs() < (at.0 - nx).abs()).collect();
++                return if back.is_empty() { (Vec::new(), 0.0) } else { (back, 1.0) };
++            }
++        }
++        if e >= hi || e < floor || ctx[c::CROP] > 0.0 {
++            return (Vec::new(), 0.0);
++        }
++        let p = ((hi - e) / (hi - lo)).clamp(0.0, 1.0);
++        // Laden with spoil: a pellet in the jaws keeps food out of them. Put it down out of the hole when that is
++        // offered; otherwise carry it up and away (traced 2026-10-21: in the die-off 94% of hungry decisions were ants
++        // holding a pellet at the bottom of the chamber, an upward step offered on all but 38 of 15,052, Drop on 184).
++        let laden = ctx[c::SPOIL] > 0.0;
++        if laden {
++            let drops: Vec<usize> = (0..opts.len())
++                .filter(|&i| opts[i].verb == Verb::Drop && opts[i].feats[options::f::CUT] == 0.0 && opts[i].feats[options::f::DEPTH] <= 0.0)
++                .collect();
++            if !drops.is_empty() {
++                return (drops, p);
++            }
++        }
++        // Food in reach: take it into the crop (a hungry ant eats what it finds; the first build walked past the heap to
++        // the bed's wall and 16 of 24 founders starved there).
++        let picks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::PickUp).collect();
++        if !laden && !picks.is_empty() {
++            return (picks, p);
++        }
++        let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++        if walks.is_empty() {
++            return (Vec::new(), 0.0);
++        }
++        let nx = world.organism(organism).map_or(at.0, |s| s.forage_anchor.0);
++        // The teacher may know where food is (T1 amended): the nearest provisions column within 12 rows, searched
++        // outward; with none found, away from home.
++        let food = world.materials.id_of("provisions");
++        let fx = food.and_then(|m| {
++            (0..=100).find_map(|dx| {
++                [at.0 - dx, at.0 + dx].into_iter().find(|&cx| (at.1 - 12..=at.1 + 12).any(|cy| world.in_bounds(cx, cy) && world.get(cx, cy).material == m))
++            })
++        });
++        // `PP_HUNGRY_AWAY=1`: away from home only, never toward the food the teacher can see (the food-seeking build
++        // chased provisions buried in a mound wall and piled 12 ants into a tower beside it, 2026-10-21).
++        let away = std::env::var("PP_HUNGRY_AWAY").is_ok();
++        let toward = |tx: i32| -> i32 { if laden || away { (tx - nx).abs() } else { fx.map_or((tx - nx).abs(), |f| -(tx - f).abs()) } };
++        let key = |i: usize| -> (i32, i32) {
++            let (tx, ty) = opts[i].target;
++            if ctx[c::DEPTH] > 0.05 { (at.1 - ty, toward(tx)) } else { (toward(tx), at.1 - ty) }
++        };
++        // A search has a radius (`PP_HUNGRY_R`, default 40 columns): with the founding heaps still empty, the
++        // away-only build ran 13-17 of 24 founders to the bed's walls, where they starved in the first 10k frames.
++        let radius: i32 = std::env::var("PP_HUNGRY_R").ok().map_or(40, |v| v.parse().expect("PP_HUNGRY_R"));
++        if !laden && (at.0 - nx).abs() >= radius {
++            return (Vec::new(), 0.0);
++        }
++        let best = walks.iter().map(|&i| key(i)).max().unwrap();
++        let here = if ctx[c::DEPTH] > 0.05 { (0, toward(at.0)) } else { (toward(at.0), 0) };
++        if best <= here || (std::env::var("PP_HUNGRY_SOFT").is_ok() && best.0 <= here.0) {
++            return (Vec::new(), 0.0);
++        }
++        // `PP_HUNGRY_SOFT=1`: every step that gains on the key's first part (higher, below ground; further out, above),
++        // not only the best -- a label a scorer can learn from the HOME and UP features.
++        if std::env::var("PP_HUNGRY_SOFT").is_ok() {
++            return (walks.into_iter().filter(|&i| key(i).0 > here.0).collect(), p);
++        }
++        (walks.into_iter().filter(|&i| key(i) == best).collect(), p)
++    }
++    pub fn hungry_out(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], pick: usize) -> Option<usize> {
++        let (lo, hi) = hungry_rule()?;
++        let (lab, p) = hungry_label(world, organism, at, ctx, opts, lo, hi);
++        if lab.is_empty() {
++            return None;
++        }
++        HUNGRY_COUNTS[0].fetch_add(1, Ordering::Relaxed);
++        if lab.contains(&pick) {
++            HUNGRY_COUNTS[1].fetch_add(1, Ordering::Relaxed);
++            return None;
++        }
++        static ACT: OnceLock<f32> = OnceLock::new();
++        let act = *ACT.get_or_init(|| std::env::var("PP_HUNGRY_ACT").ok().map_or(1.0, |v| v.parse().expect("PP_HUNGRY_ACT")));
++        if roll(world, organism, 77) >= p * act {
++            HUNGRY_COUNTS[2].fetch_add(1, Ordering::Relaxed);
++            return None;
++        }
++        HUNGRY_COUNTS[3].fetch_add(1, Ordering::Relaxed);
++        Some(lab[(roll(world, organism, 78) * lab.len() as f32) as usize % lab.len()])
++    }
++    pub fn hungry_report() -> String {
++        let c: Vec<u64> = HUNGRY_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!("hungry {:?}: labelled {} | brain already out {} | skipped by grade {} | forced {}", hungry_rule(), c[0], c[1], c[2], c[3])
++    }
++
++    pub fn teach_report() -> String {
++        let c: Vec<u64> = COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!(
++            "teacher {:?}: decisions {} | dig forced {} vetoed {} | drop forced {} vetoed {} | walk-home forced {} | shut-in abstains {} | no facts {} | down forced {} | skipped (q/floor) {} | remember mismatches {} | q {} floor {} sat {}",
++            arms(), c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], q(), floor_mode(), sat()
++        )
++    }
++
++    fn out() -> Option<&'static Mutex<std::io::LineWriter<std::fs::File>>> {
++        static F: OnceLock<Option<Mutex<std::io::LineWriter<std::fs::File>>>> = OnceLock::new();
++        F.get_or_init(|| {
++            std::env::var("PP_MIND_LOG").ok().map(|p| Mutex::new(std::io::LineWriter::new(std::fs::File::create(p).expect("log"))))
++        })
++        .as_ref()
++    }
++    pub fn ablate(ctx: &mut [f32; CONTEXT]) {
++        static IDX: OnceLock<Vec<usize>> = OnceLock::new();
++        let idx = IDX.get_or_init(|| {
++            let names = context_names();
++            std::env::var("PP_ABLATE").unwrap_or_default().split(',').filter(|n| !n.is_empty())
++                .map(|n| names.iter().position(|m| *m == n).unwrap_or_else(|| panic!("PP_ABLATE: no sense {n}"))).collect()
++        });
++        for &i in idx {
++            ctx[i] = 0.0;
++        }
++    }
++    pub fn line(s: String) {
++        if let Some(f) = out() {
++            let _ = writeln!(f.lock().unwrap(), "{s}");
++        }
++    }
++    #[allow(clippy::too_many_arguments)]
++    pub fn decision(seed: u64, frame: u64, id: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
++        if out().is_none() {
++            return;
++        }
++        let o = &opts[d.pick];
++        let mut best = [f32::NAN; VERBS];
++        for (k, op) in opts.iter().enumerate() {
++            let v = op.verb as usize;
++            if best[v].is_nan() || d.scores[k] > best[v] {
++                best[v] = d.scores[k];
++            }
++        }
++        let f = |v: &[f32]| v.iter().map(|x| format!("{x:.4}")).collect::<Vec<_>>().join(" ");
++        let jobs: Vec<String> = d.jobs.iter().map(|j| j.map_or("nan".into(), |j| format!("{j:.4}"))).collect();
++        line(format!(
++            "M,{seed},{frame},{id},{},{},{},{},{},{},{},{},{},{}",
++            at.0, at.1, o.verb as usize, o.target.0, o.target.1,
++            last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
++        ) + &format!(",{}", f(&o.feats)));
++        // SCRATCH (teacher-training measurement 2): every Walk, Dig and Drop option, not only the chosen one, so a
++        // copier can see the whole choice. Per option `verb tx ty brain_score|k:v k:v` with only nonzero features.
++        let all: Vec<String> = opts
++            .iter()
++            .enumerate()
++            .filter(|(_, op)| matches!(op.verb, Verb::Walk | Verb::Dig | Verb::Drop))
++            .map(|(k, op)| {
++                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}:{x:.3}")).collect();
++                format!("{} {} {} {:.4}|{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
++            })
++            .collect();
++        line(format!("O,{seed},{frame},{id},{},{}", d.pick, all.join(";")));
++    }
++}
+diff --git a/src/sim/creature/options.rs b/src/sim/creature/options.rs
+index dc5339fb..7300903c 100644
+--- a/src/sim/creature/options.rs
++++ b/src/sim/creature/options.rs
+@@ -487,6 +487,20 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof:
+     if crop_food {
+         push(Verb::Eat, head, &|_| {});
+     }
++    // SCRATCH (teacher lane, 2026-10-21, never for main): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
++    // sense onto every Dig option, borrowing the unwritten `f::BUILDING` slot: 1 when no open cell of the cavity the
++    // head stands in (flooded through open cells within Chebyshev `reach` of the head) lies lower than the target.
++    if let Some(r) = bottom_reach() {
++        let low = super::mind::scratch_log::cavity_low(world, organism, head, r);
++        for o in out.iter_mut().filter(|o| o.verb == Verb::Dig) {
++            o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
++        }
++    }
++}
++
++fn bottom_reach() -> Option<i32> {
++    static R: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
++    *R.get_or_init(|| std::env::var("PP_BOTTOM").ok().and_then(|v| v.parse().ok()))
+ }
+ 
+ /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
+diff --git a/src/train/challenges.rs b/src/train/challenges.rs
+index 59445cab..46fa7861 100644
+--- a/src/train/challenges.rs
++++ b/src/train/challenges.rs
+@@ -1952,11 +1952,42 @@ impl Challenge for Soil {
+         let founding = founding_cut(&w, &sc.bed);
+         let datum: Vec<Option<i32>> = xs.clone().map(|x| w.room_surface_at(x)).collect();
+         let deep = |x: i32, y: i32| depth_below_ground(&datum, x0, x, y);
++        // SCRATCH (teacher-training measurement 2): the privileged facts a teacher reads, once a world: extents, the
++        // depth datum per column, the founding hole, the ground at frame 0.
++        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
++            let dat: Vec<String> = datum.iter().map(|d| d.map_or("x".into(), |v| v.to_string())).collect();
++            let fc: Vec<String> = founding.iter().map(|(x, y)| format!("{x}:{y}")).collect();
++            let g0: String = ground0.iter().map(|&b| if b { '1' } else { '0' }).collect();
++            let row = format!("G,{},{x0},{y0},{nw},{},{},{},{},{g0}", w.seed, ground0.len() / nw, self.shaft, dat.join(" "), fc.join(" "));
++            creature::mind::scratch_log::cline(&row);
++            creature::mind::scratch_log::line(row);
++        }
++        // SCRATCH (teacher-training ceiling test): hand the teacher its facts for the run's frames only.
++        if creature::mind::scratch_log::teach_on() || creature::mind::scratch_log::label_on() {
++            let top = founding.iter().map(|c| c.1).min().unwrap_or(0);
++            let mouth: Vec<i32> = founding.iter().filter(|c| c.1 == top).map(|c| c.0).collect();
++            let ctx = creature::mind::scratch_log::TeachCtx {
++                x0,
++                y0,
++                nw,
++                nh: ground0.len() / nw,
++                ground0: ground0.clone(),
++                datum: datum.clone(),
++                founding: founding.clone(),
++                shaft: self.shaft,
++                mouth_x: mouth.iter().sum::<i32>() as f32 / mouth.len().max(1) as f32,
++                clear: SOIL_AWAY - 1 + creature::mind::scratch_log::arms().3,
++            };
++            creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = Some(ctx));
++        }
+         let dig_j0 = w.creature_stats.dig_energy;
+         for f in 0..self.frames {
+             frame(&mut w, true);
+             look(f + 1, &w);
+         }
++        // The settle that follows is scored: the teacher must not act in it.
++        creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = None);
++        creature::mind::scratch_log::SETTLE.with(|s| s.set(true));
+         let alive = ants_of(&w, sp);
+         let holding = alive.iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
+         let energy_left = alive.iter().filter_map(|&id| w.organism(id).map(|s| s.energy as f64)).sum::<f64>() / placed.len().max(1) as f64;
+@@ -1981,6 +2012,24 @@ impl Challenge for Soil {
+         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
+         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
+         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
++        creature::mind::scratch_log::SETTLE.with(|s| s.set(false));
++        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline -- into the
++        // decision log, and the copy log (world-tagged) when that is on.
++        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
++            let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
++            let mut rows = Vec::new();
++            for &(x, y, f, id) in &cuts {
++                rows.push(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
++            }
++            for &(x, y, f, id) in &dumps {
++                rows.push(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
++            }
++            rows.push(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
++            for r in rows {
++                creature::mind::scratch_log::cline(&r);
++                creature::mind::scratch_log::line(r);
++            }
++        }
+         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
+         vec![Score {
+             fit: trip.score,
+@@ -2596,6 +2645,167 @@ impl Challenge for Suite {
+     }
+ }
+ 
++/// SCRATCH (teacher lane, in-run selection pilot, 2026-10-21; never for main):
++/// one colony on the training bed with Dig on and surface food dripped at
++/// `dist` columns, every ant given its own mind, the body's egg-laying off.
++pub mod inrun {
++    use super::*;
++
++    pub const NEST: i32 = NEST_X;
++
++    /// The scarce-dig arena's emits: what its minds may signal.
++    pub fn emits() -> [bool; creature::mind::EMITS] {
++        Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits()
++    }
++
++    pub fn mind(genome: &[f32]) -> std::sync::Arc<creature::mind::MindGenome> {
++        arena_mind(genome, SOIL_VERBS, emits())
++    }
++
++    /// The slots the scarce-dig trainer would mutate.
++    pub fn slots() -> Vec<usize> {
++        creature::mind::trainable(SOIL_VERBS, emits())
++    }
++
++    /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
++    /// (founders in id order).
++    pub fn colony(seed: u64, ants: usize, dist: i32, drip: u32, every: u64, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
++        // Food is topped up by the harness ([`top_up`]), capped, on both sides:
++        // an uncapped drip buried the nest under provisions by frame 20,000
++        // (two heaps of 50 cells every 500 frames, 88 ants eating ~35 cells a
++        // thousand frames), and one-sided food starved the founders standing
++        // on the other side (60 founders, food east: 27 of 60 by frame 1,500).
++        let _ = (dist, drip, every);
++        let sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
++        let (mut w, _, _) = sc.build();
++        w.births_paused = true;
++        let sp = w.species.id_of("ant").expect("ant");
++        let mut def = w.species.get(sp).creature.clone().expect("creature");
++        def.reproduce_threshold = 1.0e30;
++        // No old age (owner, 2026-10-21): selection's removals are the only deaths but starvation.
++        def.life_half_life = 0;
++        w.species.set_creature(sp, def);
++        for (k, id) in ants_of(&w, sp).into_iter().enumerate() {
++            creature::mind::give(&mut w, id, genome_of(k));
++        }
++        (w, sc, sp)
++    }
++
++    /// Provisions within `reach` columns of `x`, at or above the datum's
++    /// lowest row there plus `below` (the heap and what rolled off it).
++    pub fn food_near(w: &World, x: i32, reach: i32) -> usize {
++        let Some(p) = w.materials.id_of("provisions") else { return 0 };
++        let mut n = 0;
++        for cx in (x - reach)..=(x + reach) {
++            for y in 0..128 {
++                if w.get(cx, y).material == p {
++                    n += 1;
++                }
++            }
++        }
++        n
++    }
++
++    /// Top the heap at `x` up towards `cap` cells, at most `drip` at a time.
++    pub fn top_up(w: &mut World, sc: &Scenario, x: i32, cap: usize, drip: usize, spread: i32) -> usize {
++        let have = food_near(w, x, 8 + spread);
++        if have >= cap {
++            return 0;
++        }
++        let add = (cap - have).min(drip) as i32;
++        // spread>0 scatters the food over x±spread instead of one heap (a 90-ant
++        // colony jammed in two clumps a few columns short of single heaps).
++        let heap = if spread > 0 {
++            crate::lab::scenario::Placement::Scatter { material: "provisions".into(), x0: x - spread, x1: x + spread, cells: add }
++        } else {
++            crate::lab::scenario::Placement::Heap { material: "provisions".into(), x, cells: add }
++        };
++        crate::lab::scenario::apply_placements(w, &[heap], &sc.bed);
++        add as usize
++    }
++
++    pub fn step(w: &mut World, sc: &Scenario) {
++        frame_timed(w, sc, true);
++    }
++
++    pub fn ants(w: &World, sp: SpeciesId) -> Vec<OrganismId> {
++        ants_of(w, sp)
++    }
++
++    /// A child of the colony at its door: placed as a founder is (`plant_founder_in`, homed on the door), given
++    /// `genome` and `grants` full grants. Tries the door's columns and the rows above it until the body fits.
++    pub fn birth(w: &mut World, sp: SpeciesId, genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
++        let any = *ants_of(w, sp).first()?;
++        let (colony, anchor) = w.organism(any).map(|s| (s.colony, s.forage_anchor))?;
++        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
++        for dy in 1..16 {
++            for dx in [0, 2, -2, 4, -4, 6, -6] {
++                let (x, y) = (anchor.0 + dx, anchor.1 - dy);
++                if !w.in_bounds(x, y) || w.get(x, y).material != material::EMPTY {
++                    continue;
++                }
++                if let Some(site) = creature::plant_founder_in(w, x, y, "ant", Some(colony), Some(anchor)) {
++                    let crate::sim::scheduler::ActiveKind::Creature { organism } = site.kind else { continue };
++                    w.schedule_active_site(site);
++                    creature::mind::give(w, organism, genome);
++                    if let Some(s) = w.organism_mut(organism) {
++                        s.energy = full;
++                    }
++                    return Some(organism);
++                }
++            }
++        }
++        None
++    }
++
++    /// Remove an ant on the engine's own death path (a corpse, the slot freed), by id: `slay` by position hit the wrong
++    /// ant wherever ants overlapped.
++    pub fn cull(w: &mut World, id: OrganismId) -> bool {
++        creature::cull_organism(w, id)
++    }
++
++    /// Every founder on `grants` full grants (the founding deals staggered reserves).
++    pub fn flat_reserves(w: &mut World, sp: SpeciesId, grants: f32) {
++        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
++        for id in ants_of(w, sp) {
++            if let Some(s) = w.organism_mut(id) {
++                s.energy = full;
++            }
++        }
++    }
++
++    /// The frozen ground datum of column `x` (the dig arena's).
++    pub fn surface(w: &World, sc: &Scenario, x: i32) -> i32 {
++        census::surface_of(w, &sc.bed, x)
++    }
++
++    /// Open to an ant: empty, or an animal's body (the dig arena's `open`).
++    pub fn open(w: &World, x: i32, y: i32) -> bool {
++        let m = w.get(x, y).material;
++        m == material::EMPTY || w.materials.kind(m) == material::MaterialKind::Creature
++    }
++
++    /// One cell for a picture: `.` open, `a` an animal, `f` provisions, `#` anything else.
++    pub fn cell_char(w: &World, x: i32, y: i32) -> char {
++        let m = w.get(x, y).material;
++        if m == material::EMPTY {
++            '.'
++        } else if w.materials.kind(m) == material::MaterialKind::Creature {
++            'a'
++        } else if Some(m) == w.materials.id_of("provisions") {
++            'f'
++        } else {
++            '#'
++        }
++    }
++
++    /// Ground as the dig arena counts it: powder or solid, not a body.
++    pub fn ground(w: &World, x: i32, y: i32) -> bool {
++        let c = w.get(x, y);
++        c.material != material::EMPTY && matches!(w.materials.kind(c.material), material::MaterialKind::Powder | material::MaterialKind::Solid) && c.organism_id() == 0
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/src/train/mod.rs b/src/train/mod.rs
+index e5a6391e..9e20142c 100644
+--- a/src/train/mod.rs
++++ b/src/train/mod.rs
+@@ -2070,7 +2070,10 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
+     let particles = crate::sim::particle::ParticleSystem::new();
+     let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
+     ch.run(layout, &gs, &mut |f, w| {
+-        if !shots.contains(&f) && f <= frames {
++        // SCRATCH GIF FRAMES (not for main): PP_GIF_EVERY=n PP_GIF_DIR=d saves every n-th frame alone.
++        let gif_every: u64 = std::env::var("PP_GIF_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
++        let gif_frame = gif_every > 0 && f % gif_every == 0;
++        if !gif_frame && !shots.contains(&f) && f <= frames {
+             return;
+         }
+         let Some(b) = w.bounds() else { return };
+@@ -2108,6 +2111,13 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
+                 }
+             }
+         }
++        if gif_frame {
++            let dir = std::env::var("PP_GIF_DIR").unwrap_or_else(|_| ".".into());
++            let _ = image::save_buffer(format!("{dir}/f{f:06}.png"), &buf, vw, vh, image::ColorType::Rgba8);
++            if !shots.contains(&f) {
++                return;
++            }
++        }
+         sheet.extend_from_slice(&buf);
+     });
+     if size.0 > 0 {

@@ -64,7 +64,7 @@ use super::chunk::Rect;
 use super::contest;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_APPETITE, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
 use super::plant;
 use super::rng;
@@ -463,7 +463,9 @@ pub fn tick(world: &mut World, site: &ActiveSite, ahead: &SpecWindow) -> Vec<Act
     // the worm, which keeps its own researched burrowing economics. See
     // the section header above `plant_creature_seed` for why these are
     // deliberately two locomotion models rather than one parameterised one.
-    match world.species.get(state.species).creature.clone() {
+    // Shared, not cloned: the copy and its drop were ~1% of the new ant's
+    // frame (`SpeciesRegistry::creature_shared`).
+    match world.species.creature_shared(state.species) {
         Some(def) => creature_tick(world, site.x, site.y, organism, &def, ahead),
         None => worm_tick(world, site.x, site.y, organism),
     }
@@ -1136,13 +1138,13 @@ pub fn food_place(world: &World, at: (i32, i32)) -> (bool, i32) {
     (store, depth)
 }
 
-/// SCRATCH (teacher lane, never for main): the `PP_BANK_CAP` probe, in tanks; `None` when unset.
+/// SCRATCH (teacher lane): the `PP_BANK_CAP` probe, in tanks; `None` when unset.
 fn scratch_bank_cap() -> Option<f32> {
     static CAP: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *CAP.get_or_init(|| std::env::var("PP_BANK_CAP").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
 }
 
-/// SCRATCH (teacher lane, never for main): `PP_DIGEST_BAR=N` (tanks) is the appetite gate's reference instead of
+/// SCRATCH (teacher lane): `PP_DIGEST_BAR=N` (tanks) is the appetite gate's reference instead of
 /// `reproduce_threshold`, for a bed that switches breeding off by setting the bar to 1e30 (which leaves the gate inert).
 fn scratch_digest_bar() -> Option<f32> {
     static BAR: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
@@ -5360,6 +5362,14 @@ pub fn digest_rate_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32
     def.digest_rate / ratio_factor(traits[TRAIT_DIGEST_RATE]).max(f32::EPSILON)
 }
 
+/// **How hard this particular animal's crop holds back while it is fed**
+/// (`TRAIT_APPETITE`): the species' `digest_hunger_weight` plus the allele,
+/// on the `0..=1` the gate reads. Additive, so a species authored at 0 can
+/// evolve a gate, and exactly the authored weight at allele 0.
+pub fn appetite_weight_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    (def.digest_hunger_weight + traits[TRAIT_APPETITE]).clamp(0.0, 1.0)
+}
+
 /// **How much this particular animal's crop holds.**
 ///
 /// The reciprocal axis again; a capacity is a scale rather than an offset.
@@ -5746,10 +5756,24 @@ pub(super) fn try_bud(
     // samples), so nothing laid. Budding and a reach of 0 keep the head read.
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    // **After a walk that found no site, the layer waits** before walking
+    // again ([`super::brood::EGG_RETRY_FRAMES`], 2026-10-22): 70-80% of
+    // walks found nothing, and the walk was 11% of the new ant's frame.
+    let retry = super::brood::egg_retry_frames();
+    if retry > 0 && laying.is_some() && nest_gate && pile_reach > 0 && world.organism(organism).is_some_and(|s| world.frame < s.egg_walk_after) {
+        world.creature_stats.buds_held_for_nest += 1;
+        return None;
+    }
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
         Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
             Some(cell) => Some(cell),
             None => {
+                if retry > 0 {
+                    let frame = world.frame;
+                    if let Some(s) = world.organism_mut(organism) {
+                        s.egg_walk_after = frame + retry;
+                    }
+                }
                 world.creature_stats.buds_held_for_nest += 1;
                 return None;
             }
@@ -6166,22 +6190,8 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
             silence_emit_b(&mut genome);
         }
         state.genome = genome;
-        for (slot, t) in state.traits.iter_mut().enumerate() {
-            let width = trait_width(def, slot);
-            if mutates && width > 0.0 {
-                // `gut_bias` is a position on a `-1..=1` axis and every
-                // other slot in `CREATURE_TRAITS` is defined the same way,
-                // so the clamp is the axis rather than a tuning choice.
-                //
-                // **The two arms-race slots are the exception, and this line
-                // is what makes the reach dial mean anything at all.**
-                // Widening only the resolvers would have been *vacuous*:
-                // a birth clamps here, so no lineage could ever hold the
-                // allele the widened resolver was waiting to read. It is
-                // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
-                let bound = allele_bound(slot, reach);
-                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
-            }
+        if mutates {
+            mutate_traits(&mut state.traits, def, reach, &mut draw);
         }
         child_traits = state.traits;
         child_generation = state.generation;
@@ -6208,6 +6218,50 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         state.born_with = born_with;
     }
     (child_traits, child_generation, child_born_frame)
+}
+
+/// **The body's half of a birth**: every trait slot takes one uniform step
+/// of up to its [`trait_width`] from `draw`, in slot order, held inside its
+/// own bound. Split out of [`mutate_newborn`] (2026-10-22) so the in-run
+/// training bed, whose births are placed by the harness rather than by
+/// `try_bud`, mutates a body by the game's own rule and not a copy of it. A
+/// slot of width 0 takes no draw, so the game's streams are unchanged.
+pub fn mutate_traits(traits: &mut [f32; CREATURE_TRAITS], def: &CreatureDef, reach: f32, draw: &mut rng::Rng) {
+    for (slot, t) in traits.iter_mut().enumerate() {
+        let width = trait_width(def, slot);
+        if width > 0.0 {
+            // `gut_bias` is a position on a `-1..=1` axis and every
+            // other slot in `CREATURE_TRAITS` is defined the same way,
+            // so the clamp is the axis rather than a tuning choice.
+            //
+            // **The two arms-race slots are the exception, and this line
+            // is what makes the reach dial mean anything at all.**
+            // Widening only the resolvers would have been *vacuous*:
+            // a birth clamps here, so no lineage could ever hold the
+            // allele the widened resolver was waiting to read. It is
+            // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
+            let bound = allele_bound(slot, reach);
+            *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
+        }
+    }
+}
+
+/// **Give a placed animal its parent's body, mutated by [`mutate_traits`]**,
+/// on the same per-child stream a bud or an egg uses (`RNG_SLOT_BIRTH`), and
+/// return it. For a harness that places its own children (the in-run
+/// training bed's `inrun::birth`): `try_bud` and `brood::lay_egg` already do
+/// this through [`mutate_newborn`]. `mutate` false copies the body exactly.
+/// Leaves the brain genome, the generation and `born_with` alone.
+pub fn inherit_body(world: &mut World, child: OrganismId, def: &CreatureDef, parent_traits: [f32; CREATURE_TRAITS], mutate: bool) -> [f32; CREATURE_TRAITS] {
+    let mut traits = parent_traits;
+    if mutate {
+        let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
+        mutate_traits(&mut traits, def, world.trait_reach, &mut draw);
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.traits = traits;
+    }
+    traits
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -6283,6 +6337,12 @@ impl World {
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
         self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
+    }
+
+    /// [`World::found_colony_of`] with the founders' heap given rather than
+    /// read from `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` (`scenario::place_colony`).
+    pub fn found_colony_heaped(&mut self, x: i32, y: i32, species: &str, ants: i32, pile: bool) -> usize {
+        self.found_colony_with(x, y, species, ants, nest_door_of(self), pile)
     }
 
     /// **Where a founder's home is under a door**: the cell above the door's
@@ -8764,7 +8824,12 @@ fn settle(
     // has to land in the same breath as the animal receives it. Crediting at
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
-    let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    let gut_traits = traits_of(world, organism, def);
+    let digest_rate = digest_rate_of(def, &gut_traits);
+    // **The gate's weight is this animal's own** (`TRAIT_APPETITE`, 2026-10-22):
+    // the species' authored `digest_hunger_weight` plus the allele, which is
+    // the authored weight exactly at allele 0.
+    let appetite = appetite_weight_of(def, &gut_traits);
     // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
     // is 0.0 for every species that has not authored it and then takes the
     // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
@@ -8786,8 +8851,8 @@ fn settle(
     let digest_rate = {
         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
         let bar = scratch_digest_bar().map_or(def.reproduce_threshold, |n| n * def.start_energy);
-        if carrying && def.digest_hunger_weight > 0.0 && bar > 0.0 {
-            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
+        if carrying && appetite > 0.0 && bar > 0.0 {
+            let w = appetite;
             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
             // **Flat at full rate up to `start_energy`, then falling to the
             // breeding bar** -- not a straight line from zero, which is what
@@ -8869,7 +8934,7 @@ fn settle(
             if c.unit <= 0.0 || c.cells == 0 {
                 return 0.0;
             }
-            // SCRATCH (teacher lane, never for main): `PP_BANK_CAP=N` stops digestion while the bank holds N tanks
+            // SCRATCH (teacher lane): `PP_BANK_CAP=N` stops digestion while the bank holds N tanks
             // (start_energy) or more, so a full ant keeps what it eats in its crop to carry and share. Unset: no change.
             if let Some(cap) = scratch_bank_cap() {
                 if world.organism(organism).is_some_and(|s| s.energy >= cap * def.start_energy) {
@@ -9433,11 +9498,15 @@ fn sense(
     // for this and touches no memory.
     inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, x, y) as f32 / pheromone::Scent::MAX as f32;
 
-    let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
+    // Four points a sensor offset apart, nearly always in one field block:
+    // the block's corners read once (`field::BilinearSampler`), the same
+    // values `field_at_bilinear` reads.
+    let mut field_near = world.field_bilinear_sampler();
+    let mut moisture_at = |px: i32, py: i32| field_near.at(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
     inputs[I::MoistureFront as usize] = moisture_at(fx, fy);
     inputs[I::MoistureLateral as usize] = moisture_at(rx, ry) - moisture_at(lx, ly);
 
-    let here = world.field_at_bilinear(x as f32, y as f32);
+    let here = field_near.at(x as f32, y as f32);
     // Divided through by the day/night oscillator, per CLAUDE.md: a
     // threshold sampled at an arbitrary phase of a designed oscillator is a
     // different threshold every hour, and the light channel swings 20:1.
@@ -11363,6 +11432,95 @@ pub fn scent_accepts(judge: &[f32; CREATURE_TRAITS], other: &[f32; CREATURE_TRAI
     scent_distance_sq(&scent_of(judge), &scent_of(other)) <= r * r
 }
 
+/// **Which animals of one group are still one family**: the connected
+/// components of the mutual-kin graph over `traits` -- `i` and `j` joined
+/// when each passes [`scent_accepts`] judging the other -- as one label per
+/// animal, equal labels for one component. `World::regroup_by_scent`'s
+/// clustering, and only that.
+///
+/// **Why not every pair.** It was a union over all `n(n-1)/2` pairs, and
+/// `Lab::tick` runs it every tick: 28-35% of a grown goal-box colony's
+/// frame at ~410 ants (callgrind, performance lane, 2026-10-21), against
+/// its own doc's "a comparison per animal". The components are the same
+/// with far fewer pairs. Take one hub, the animal nearest the group's mean
+/// scent, and join it to every animal that is mutually kin with it: those
+/// are one component already, so a pair with both ends among them adds
+/// nothing. Every other edge has an end outside the hub's star, so only
+/// those animals are paired with the rest. A cohesive colony -- every
+/// colony the lab has grown -- costs `n` comparisons plus `n` per animal
+/// outside the star, and a colony split in two costs what it did.
+///
+/// **Exactly the old predicate.** Each scent and squared radius is
+/// computed once as `scent_accepts` computes it, and the distance once per
+/// pair: `scent_distance_sq` is symmetric bit for bit (`a - b` and `b - a`
+/// differ only in sign, and the squares agree), so `d <= r_i^2 && d <=
+/// r_j^2` is the two calls the union made. Which hub is chosen changes how
+/// many pairs are tried, never the components; the labels are not the old
+/// union's roots, and its one caller reads them only as "same or not".
+/// `kin_components_match_every_pair` holds it to the all-pairs union.
+pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
+    let n = traits.len();
+    let scent: Vec<[f32; 3]> = traits.iter().map(scent_of).collect();
+    let r2: Vec<f32> = traits
+        .iter()
+        .map(|t| {
+            let r = tolerance_radius(t);
+            r * r
+        })
+        .collect();
+    let kin = |i: usize, j: usize| {
+        let d = scent_distance_sq(&scent[i], &scent[j]);
+        d <= r2[i] && d <= r2[j]
+    };
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    fn join(p: &mut [usize], a: usize, b: usize) {
+        let (a, b) = (find(p, a), find(p, b));
+        if a != b {
+            p[a.max(b)] = a.min(b);
+        }
+    }
+    if n == 0 {
+        return parent;
+    }
+    // The hub: nearest the mean scent (f64, so the choice is stable; it
+    // only ever changes how many pairs are tried).
+    let mut mean = [0.0f64; 3];
+    for s in &scent {
+        for k in 0..3 {
+            mean[k] += f64::from(s[k]) / n as f64;
+        }
+    }
+    let off = |s: &[f32; 3]| (0..3).map(|k| (f64::from(s[k]) - mean[k]).powi(2)).sum::<f64>();
+    let hub = (0..n).min_by(|&a, &b| off(&scent[a]).total_cmp(&off(&scent[b]))).unwrap_or(0);
+    let mut outside = Vec::new();
+    for i in 0..n {
+        if i == hub {
+            continue;
+        }
+        if kin(hub, i) {
+            join(&mut parent, hub, i);
+        } else {
+            outside.push(i);
+        }
+    }
+    for &o in &outside {
+        for j in 0..n {
+            if j != o && find(&mut parent, o) != find(&mut parent, j) && kin(o, j) {
+                join(&mut parent, o, j);
+            }
+        }
+    }
+    (0..n).map(|i| find(&mut parent, i)).collect()
+}
+
 /// **Frames for an unbitten animal to mend one whole cell of bite damage**
 /// (`OrganismState::gnawed`), or `None` when wounds never heal.
 ///
@@ -12398,8 +12556,13 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
 /// deeper than the reach with nothing in between, and that is not a cell an
 /// ant is standing in.
 fn under_cover(world: &World, x: i32, y: i32) -> bool {
+    under_cover_by(world, &mut Direct(world), x, y)
+}
+
+/// [`under_cover`], reading cells through `read` ([`CellRead`]).
+pub(super) fn under_cover_by(world: &World, read: &mut impl CellRead, x: i32, y: i32) -> bool {
     (1..=COVER_REACH).any(|dy| {
-        let cell = world.get(x, y - dy);
+        let cell = read.cell(x, y - dy);
         cell.material != material::EMPTY
             && cell.organism_id() == 0
             && matches!(world.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid)
@@ -13036,15 +13199,134 @@ impl NestWay {
 /// With `parted` ([`WayGaps::brood`]), a cell the walk parts as it goes
 /// ([`is_partable`]: brood and crumbs under [`PushPast`]) is open too, as the
 /// walk itself counts it ([`cell_is_enterable`]).
+#[cfg(test)]
 fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
+    way_cell_by(world, &mut Direct(world), x, y, parted)
+}
+
+/// [`way_cell`], reading cells through `read` ([`CellRead`]).
+fn way_cell_by(world: &World, read: &mut impl CellRead, x: i32, y: i32, parted: bool) -> bool {
     if !world.in_bounds(x, y) {
         return false;
     }
-    let c = world.get(x, y);
+    let c = read.cell(x, y);
     (c.material == material::EMPTY || is_animal_cell(world, c) || (parted && parting_enabled() && is_partable(world, c)))
         && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
-            world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(world.get(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
+            world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(read.cell(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
         })
+}
+
+/// **[`way_cell`] and [`under_cover`] for one nest's ways, each cell asked
+/// once.** [`step_nest_rest`] builds up to four ways per nest over boxes
+/// round the same site -- in, the mound's, the mound's in, to the open air
+/// -- and each fill asks [`way_cell`] (nine reads) of a cell once per
+/// neighbour that reaches it, and [`under_cover`] (up to twenty) as often:
+/// 12% of the shipped lab box's instructions (lab-world's profile,
+/// 2026-10-22). Both are pure reads of an unchanging world, so each cell's
+/// answer is kept, over the box all four ways cover; a cell outside it is
+/// asked directly, through the same remembered reads.
+struct WayCells<'w> {
+    memo: CellMemo<'w>,
+    parted: bool,
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+    /// Per cell of the box: 0 not yet asked, 1 no, 2 yes.
+    way: Vec<u8>,
+    cover: Vec<u8>,
+}
+
+impl<'w> WayCells<'w> {
+    /// For `site`'s ways: columns `REST_REACH_X` either side of the site,
+    /// rows from `REST_REACH_Y` above its founding ground to `REST_REACH_Y`
+    /// below `door_row`, the union of the four ways' boxes.
+    fn new(world: &'w World, site: usize, door_row: i32, parted: bool) -> Self {
+        let s = world.nest_sites[site];
+        let (x0, y0) = (s.x - REST_REACH_X, (s.surface - REST_REACH_Y).min(door_row));
+        let (w, h) = (2 * REST_REACH_X + 1, door_row + REST_REACH_Y - y0 + 1);
+        // One further out for `way_cell`'s neighbours, `COVER_REACH` further
+        // up for `under_cover`'s column.
+        let memo = CellMemo::new(world, (x0 - 1, y0 - 1 - COVER_REACH), (x0 + w, y0 + h));
+        let n = (w * h) as usize;
+        WayCells { memo, parted, x0, y0, w, h, way: vec![0; n], cover: vec![0; n] }
+    }
+
+    fn slot(&self, x: i32, y: i32) -> Option<usize> {
+        let (lx, ly) = (x - self.x0, y - self.y0);
+        (lx >= 0 && ly >= 0 && lx < self.w && ly < self.h).then(|| (ly * self.w + lx) as usize)
+    }
+
+    /// [`way_cell`] at `(x, y)`, with this nest's `parted`.
+    fn way(&mut self, world: &World, x: i32, y: i32) -> bool {
+        let parted = self.parted;
+        let Some(i) = self.slot(x, y) else {
+            return way_cell_by(world, &mut self.memo, x, y, parted);
+        };
+        if self.way[i] == 0 {
+            self.way[i] = 1 + u8::from(way_cell_by(world, &mut self.memo, x, y, parted));
+        }
+        self.way[i] == 2
+    }
+
+    /// [`under_cover`] at `(x, y)`.
+    fn covered(&mut self, world: &World, x: i32, y: i32) -> bool {
+        let Some(i) = self.slot(x, y) else {
+            return under_cover_by(world, &mut self.memo, x, y);
+        };
+        if self.cover[i] == 0 {
+            self.cover[i] = 1 + u8::from(under_cover_by(world, &mut self.memo, x, y));
+        }
+        self.cover[i] == 2
+    }
+}
+
+#[cfg(test)]
+mod way_cells_tests {
+    use super::*;
+
+    /// **A nest's remembered way cells answer as the world does**
+    /// ([`WayCells`], what the four way builders read through): every cell
+    /// in and round the box of a grown colony's nest, asked in a shuffled
+    /// order, twice, against [`way_cell`] and [`under_cover`] read fresh.
+    /// The tallies are the control that the box holds both answers.
+    #[test]
+    fn the_way_cells_read_as_the_world_does() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, colony_ants: 12, width: 256, height: 128, ground_y: 64, soil_depth: 40, ..crate::lab::scene::LabBox::default() }.build();
+        for _ in 0..3000 {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+            w.step_pheromones();
+        }
+        let parted = way_gaps_of(&w).brood;
+        let mut r = crate::sim::rng::stream(3, 3, 3, 3);
+        let (mut way, mut not_way, mut covered, mut open) = (0, 0, 0, 0);
+        let mut sites = 0;
+        for site in 0..w.nest_sites.len() {
+            let Some(cut) = w.nest_sites[site].shaft else { continue };
+            sites += 1;
+            let s = w.nest_sites[site];
+            let mut cells = WayCells::new(&w, site, cut.top - 1, parted);
+            let mut all: Vec<(i32, i32)> = (s.surface - REST_REACH_Y - 3..=cut.top + REST_REACH_Y + 3).flat_map(|y| (s.x - REST_REACH_X - 3..=s.x + REST_REACH_X + 3).map(move |x| (x, y))).collect();
+            for i in (1..all.len()).rev() {
+                let j = (r.unit_f32() * (i + 1) as f32) as usize % (i + 1);
+                all.swap(i, j);
+            }
+            for _ in 0..2 {
+                for &(x, y) in &all {
+                    let (wy, cv) = (way_cell(&w, x, y, parted), under_cover(&w, x, y));
+                    assert_eq!(cells.way(&w, x, y), wy, "way at ({x}, {y})");
+                    assert_eq!(cells.covered(&w, x, y), cv, "cover at ({x}, {y})");
+                    way += usize::from(wy);
+                    not_way += usize::from(!wy);
+                    covered += usize::from(cv);
+                    open += usize::from(!cv);
+                }
+            }
+        }
+        assert!(sites > 0 && way > 300 && not_way > 1000 && covered > 1000 && open > 1000, "sites {sites}: way {way}/{not_way}, cover {covered}/{open}");
+    }
 }
 
 /// **Build a nest's way in**: breadth first from the door over the mouth,
@@ -13055,6 +13337,11 @@ fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
 /// ant out: along a gallery that opens on the surface the way stops at the
 /// opening (under `below`, one row under the founding ground).
 fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_nest_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+fn build_nest_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
     let gaps = way_gaps_of(world);
     let cut = s.shaft?;
@@ -13066,7 +13353,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         let (lx, ly) = (x - x0, y - y0);
         (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
     };
-    let inside = |x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && (under_cover(world, x, y) || (gaps.below && y > s.surface)));
+    let inside = |cells: &mut WayCells, x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && (cells.covered(world, x, y) || (gaps.below && y > s.surface)));
     let mut q = std::collections::VecDeque::new();
     dist[idx(door.0, door.1).expect("the door is the box's top row")] = 0;
     q.push_back(door);
@@ -13075,7 +13362,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !inside(nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !inside(cells, nx, ny) || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -13376,25 +13663,34 @@ pub fn step_nest_rest(world: &mut World) {
     let minds_only = mind::every_ant_has_one(world);
     let mound = mound && !minds_only;
     let escape = escape && !minds_only;
-    // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
-    // reads them and nothing is built.
-    world.mound_ways = if mound {
-        (0..world.nest_sites.len()).filter_map(|i| build_mound_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
-    // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
-    world.mound_in_ways = if mound_in_of(world) && !minds_only {
-        (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
-    // The ways to the open air ([`NeedsFirst`]'s escape parts), likewise.
-    world.out_ways = if escape {
-        (0..world.nest_sites.len()).filter_map(|i| build_out_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
+    // The three ways below share each nest's cells ([`WayCells`]): one
+    // world, read after `keep_store_place`, which moves no cell.
+    let mound_in = mound_in_of(world) && !minds_only;
+    let parted = way_gaps_of(world).brood;
+    let (mut mound_ways, mut mound_in_ways, mut out_ways) = (Vec::new(), Vec::new(), Vec::new());
+    for i in 0..world.nest_sites.len() {
+        if !(mound || mound_in || escape) {
+            break;
+        }
+        let Some(cut) = world.nest_sites[i].shaft else { continue };
+        let mut cells = WayCells::new(world, i, cut.top - 1, parted);
+        // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
+        // reads them and nothing is built.
+        if mound {
+            mound_ways.extend(build_mound_way_with(world, i, &mut cells));
+        }
+        // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
+        if mound_in {
+            mound_in_ways.extend(build_mound_in_way_with(world, i, &mut cells));
+        }
+        // The ways to the open air ([`NeedsFirst`]'s escape parts), likewise.
+        if escape {
+            out_ways.extend(build_out_way_with(world, i, &mut cells));
+        }
+    }
+    world.mound_ways = mound_ways;
+    world.mound_in_ways = mound_in_ways;
+    world.out_ways = out_ways;
 }
 
 /// **Where a resting ant is pulled, and how hard** ([`nest_rest_of`]); `None`
@@ -14678,8 +14974,13 @@ pub fn mound_in_of(_world: &World) -> bool {
 /// founding cut's top row, its columns) over every cell an ant can stand in
 /// ([`way_cell`]), open or covered, in the mound way's box.
 pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_mound_in_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_mound_in_way`], asking its cells through `cells`.
+fn build_mound_in_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14693,7 +14994,7 @@ pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
     for x in cut.x0..=cut.x1 {
         for y in [cut.top - 1, cut.top] {
             if let Some(i) = idx(x, y) {
-                if dist[i] == u16::MAX && way_cell(world, x, y, gaps.brood) {
+                if dist[i] == u16::MAX && cells.way(world, x, y) {
                     dist[i] = 0;
                     q.push_back((x, y));
                 }
@@ -14705,7 +15006,7 @@ pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -14736,8 +15037,13 @@ fn mound_in_target(world: &World, state: &crate::sim::organism::OrganismState, h
 /// to it, so nothing below the founding ground is on it. A pocket the mound
 /// has closed is not on it.
 pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_mound_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_mound_way`], asking its cells through `cells`.
+fn build_mound_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14750,7 +15056,7 @@ pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
     let mut q = std::collections::VecDeque::new();
     for y in y0..y0 + h {
         for x in x0..x0 + w {
-            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+            if cells.way(world, x, y) && !cells.covered(world, x, y) {
                 dist[idx(x, y).expect("in the box")] = 0;
                 q.push_back((x, y));
             }
@@ -14761,7 +15067,7 @@ pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !under_cover(world, nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.covered(world, nx, ny) || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -14809,8 +15115,13 @@ fn shut_in_mound(world: &World, x: i32, y: i32) -> bool {
 /// so the nest and its shaft are in it as well as the mound. A covered cell
 /// it leaves unreached has no way out that an ant could walk: [`shut_in`].
 pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_out_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_out_way`], asking its cells through `cells`.
+fn build_out_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14823,7 +15134,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
     let mut q = std::collections::VecDeque::new();
     for y in y0..y0 + h {
         for x in x0..x0 + w {
-            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+            if cells.way(world, x, y) && !cells.covered(world, x, y) {
                 dist[idx(x, y).expect("in the box")] = 0;
                 q.push_back((x, y));
             }
@@ -14834,7 +15145,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -18941,6 +19252,323 @@ pub fn is_at_home(world: &World, organism: OrganismId) -> Option<bool> {
 }
 
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    adjacent_nest_by(world, x, y, def, &mut Direct(world))
+}
+
+/// **Where a read of the grid comes from**: the world itself ([`Direct`]),
+/// or a window that remembers what it has read ([`CellMemo`]), so one
+/// search that reads the same few cells over and over -- the egg pile's
+/// walk, a mind's option list -- fetches each once. The reader only
+/// changes how often a cell is fetched, never what it holds, so a function
+/// written over it has one definition whichever is passed.
+pub(super) trait CellRead {
+    fn cell(&mut self, x: i32, y: i32) -> Cell;
+}
+
+/// [`CellRead`] plus whether a cell is dug home (`World::nest_dug`): what
+/// [`adjacent_nest`] reads.
+pub(super) trait NestReader: CellRead {
+    fn dug(&mut self, x: i32, y: i32) -> bool;
+}
+
+/// The world, read as it stands.
+pub(super) struct Direct<'w>(pub &'w World);
+
+impl CellRead for Direct<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        self.0.get(x, y)
+    }
+}
+
+impl NestReader for Direct<'_> {
+    #[inline]
+    fn dug(&mut self, x: i32, y: i32) -> bool {
+        self.0.nest_dug.contains(&(x, y))
+    }
+}
+
+/// **A rectangle of the world that remembers each cell it reads**; a read
+/// outside it goes to the world. `World::get` is a bounds check and a chunk
+/// lookup by hash, ~56 instructions, and the searches that use this read
+/// each cell of their neighbourhood several times over (performance lane,
+/// 2026-10-21). It borrows the world immutably, so the world cannot change
+/// under it.
+pub(super) struct CellMemo<'w> {
+    world: &'w World,
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+    cells: Vec<Option<Cell>>,
+}
+
+impl<'w> CellMemo<'w> {
+    /// The rectangle from `min` to `max`, both inclusive.
+    pub(super) fn new(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
+        let (w, h) = ((max.0 - min.0 + 1).max(0), (max.1 - min.1 + 1).max(0));
+        // The buffer the last memo on this thread dropped, if any: a decision
+        // builds one or two, and the allocation was part of the churn the ant
+        // cost review priced (A2, 2026-10-22). Every slot starts unread.
+        let mut cells = MEMO_CELLS.take();
+        cells.clear();
+        cells.resize((w * h) as usize, None);
+        CellMemo { world, x0: min.0, y0: min.1, w, h, cells }
+    }
+
+    /// The same rectangle with every cell read up front, for a caller that
+    /// will read nearly all of it: one chunk lookup per run of a row that
+    /// stays in one chunk, rather than one per cell. Each cell is what
+    /// `World::get` returns -- out of bounds, `Cell::OUT_OF_BOUNDS`; in
+    /// bounds in no resident chunk, `Cell::EMPTY` -- by the same two tests.
+    pub(super) fn filled(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
+        let mut memo = Self::new(world, min, max);
+        let w = memo.w;
+        each_cell_in(world, min, max, |i, j, cell| memo.cells[(j * w + i) as usize] = Some(cell));
+        memo
+    }
+
+    #[inline]
+    fn slot(&self, x: i32, y: i32) -> Option<usize> {
+        // One unsigned compare per axis: a cell left of or above the
+        // rectangle wraps to a huge offset and fails it too.
+        let (dx, dy) = (x.wrapping_sub(self.x0) as u32, y.wrapping_sub(self.y0) as u32);
+        if dx < self.w as u32 && dy < self.h as u32 {
+            Some(dy as usize * self.w as usize + dx as usize)
+        } else {
+            None
+        }
+    }
+}
+
+thread_local! {
+    /// [`CellMemo`]'s spare buffer: the largest one dropped on this thread.
+    static MEMO_CELLS: std::cell::Cell<Vec<Option<Cell>>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+impl Drop for CellMemo<'_> {
+    fn drop(&mut self) {
+        let cells = std::mem::take(&mut self.cells);
+        MEMO_CELLS.with(|spare| {
+            let kept = spare.take();
+            spare.set(if cells.capacity() >= kept.capacity() { cells } else { kept });
+        });
+    }
+}
+
+impl CellRead for CellMemo<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        match self.slot(x, y) {
+            Some(i) => *self.cells[i].get_or_insert_with(|| self.world.get(x, y)),
+            None => self.world.get(x, y),
+        }
+    }
+}
+
+/// Every cell of the rectangle from `min` to `max` (both inclusive), row by
+/// row, as `f(column, row, cell)` counted from `min`: what `World::get`
+/// returns for each -- out of bounds, `Cell::OUT_OF_BOUNDS`; in bounds in no
+/// resident chunk, `Cell::EMPTY` -- by the same two tests, with one chunk
+/// lookup per run of a row that stays in one chunk rather than one a cell.
+fn each_cell_in(world: &World, min: (i32, i32), max: (i32, i32), mut f: impl FnMut(i32, i32, Cell)) {
+    let w = max.0 - min.0 + 1;
+    for j in 0..(max.1 - min.1 + 1).max(0) {
+        let y = min.1 + j;
+        let mut i = 0;
+        while i < w {
+            let coord = super::chunk::ChunkCoord::containing(min.0 + i, y);
+            let chunk = world.chunk(coord);
+            // The run of this row inside `coord`'s chunk.
+            let end = ((coord.x + 1) * super::chunk::CHUNK_SIZE - min.0).min(w);
+            for i in i..end {
+                let x = min.0 + i;
+                let cell = if !world.in_bounds(x, y) {
+                    Cell::OUT_OF_BOUNDS
+                } else {
+                    chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
+                };
+                f(i, j, cell);
+            }
+            i = end;
+        }
+    }
+}
+
+/// **Home for a whole square at once**, for a search that asks
+/// [`adjacent_nest`] of many cells close together -- the egg pile's walk
+/// ([`super::brood::pile_site`]) asks it of up to 80 cells, and each ask
+/// reads eight neighbours and nine dug-home entries, so a 9x9 walk read
+/// each of the ~121 cells round it about six times over: ~55,000
+/// instructions a walk, 18% of a grown colony's frame (callgrind, ~410
+/// ants, performance lane, 2026-10-21).
+///
+/// **Under the shipped rule** -- home is a cell within one of the dug nest
+/// (`NestHome::Dug`) or beside nest material (`Material`), with no
+/// storeroom-as-home, no site rows and a reach of one -- the square's home
+/// cells are worked out once from one read of each cell (a chunk lookup per
+/// row run, [`CellMemo::filled`]) and one dug-home lookup each: the same
+/// two tests [`adjacent_nest`] makes, over the same cells, just not
+/// repeated. With neither anywhere in reach, nothing is home and
+/// [`HomeLens::any_home`] lets the walk stop before it starts -- which is
+/// what paid: the walk's own cost was flat across three versions of the
+/// lookup above, because 84% of walks start away from home and walk every
+/// cell to find nothing (pile_site 1.86G -> 0.89G instructions, mind colony
+/// 9.87G -> 8.61G over 600 frames, bit-identical; 2026-10-22). **Under any
+/// other rule** each ask goes to [`adjacent_nest`] itself, its cell reads
+/// remembered. Either way the answer is [`adjacent_nest`]'s;
+/// `the_egg_walk_window_reads_home_exactly_as_the_world_does` holds it to
+/// that under all four `NestHome` rules.
+pub(super) struct HomeLens<'w> {
+    memo: CellMemo<'w>,
+    /// The square whose home is known: `centre` +- `reach`.
+    x0: i32,
+    y0: i32,
+    side: i32,
+    home: SquareHome,
+}
+
+/// What a [`HomeLens`] knows of its square's home.
+enum SquareHome {
+    /// Not worked out: a rule other than the shipped one, where each ask
+    /// goes to [`adjacent_nest`].
+    Asked,
+    /// No cell of it is home.
+    Nowhere,
+    /// Home for each cell, row by row.
+    Each(Vec<bool>),
+}
+
+impl<'w> HomeLens<'w> {
+    /// The square of `reach` cells round `centre`, for `def`'s home; cells
+    /// are read from one further out, for the neighbours of its edge.
+    pub(super) fn new(world: &'w World, centre: (i32, i32), reach: i32, def: &CreatureDef) -> Self {
+        let r = reach.max(0);
+        let (min, max) = ((centre.0 - r - 1, centre.1 - r - 1), (centre.0 + r + 1, centre.1 + r + 1));
+        let side = 2 * r + 1;
+        let (x0, y0) = (centre.0 - r, centre.1 - r);
+        let mode = nest_home(world);
+        let plain = matches!(mode, NestHome::Dug | NestHome::Material)
+            && !storeroom_of(world).room_is_home()
+            && nest_site_rows().is_none()
+            && nest_reach_radius() == 1;
+        if !plain {
+            return HomeLens { memo: CellMemo::new(world, min, max), x0, y0, side, home: SquareHome::Asked };
+        }
+        // With nothing home in the square the walk reads no cell of it, so
+        // the cells are kept ([`CellMemo::filled`]) only once some is, and
+        // until then this lens remembers none (an empty window).
+        let nowhere = |world| HomeLens { memo: CellMemo::new(world, centre, (centre.0 - 1, centre.1 - 1)), x0, y0, side, home: SquareHome::Nowhere };
+        let n = (side * side) as usize;
+        let Some(nest) = world.materials.id_of(&def.nest) else {
+            return nowhere(world);
+        };
+        // Over the outer square, `side + 2` wide: how many cells of each
+        // 3x3 are nest material, and how many dug home. Read straight from
+        // the chunks, row by row: 84% of walks find nothing here, and for
+        // them this read is the walk (2026-10-22).
+        let outer = side + 2;
+        let on = (outer * outer) as usize;
+        let mut is_nest = vec![0u8; on];
+        each_cell_in(world, min, max, |i, j, cell| is_nest[(j * outer + i) as usize] = u8::from(cell.material == nest));
+        let mut is_dug = vec![0u8; on];
+        if mode == NestHome::Dug && !world.nest_dug.is_empty() {
+            // Whichever is fewer: the square's cells looked up in the set, or
+            // the set's cells placed in the square. The same cells either way.
+            if world.nest_dug.len() < on {
+                for &(x, y) in &world.nest_dug {
+                    let (i, j) = (x - min.0, y - min.1);
+                    if (0..outer).contains(&i) && (0..outer).contains(&j) {
+                        is_dug[(j * outer + i) as usize] = 1;
+                    }
+                }
+            } else {
+                for j in 0..outer {
+                    for i in 0..outer {
+                        is_dug[(j * outer + i) as usize] = u8::from(world.nest_dug.contains(&(min.0 + i, min.1 + j)));
+                    }
+                }
+            }
+        }
+        // Nothing within one of the square: no cell of it is home, the
+        // walk's common case, with no sums to take.
+        if is_nest.iter().chain(&is_dug).all(|&v| v == 0) {
+            return nowhere(world);
+        }
+        // 3x3 sums, rows then columns: home is a dug cell anywhere in the
+        // 3x3 (the founding cut, [`adjacent_nest`]'s `in_cut`), or nest
+        // material on any of the eight round the centre.
+        let box3 = |v: &[u8]| -> Vec<u8> {
+            let mut rows = vec![0u8; (outer * side) as usize];
+            for j in 0..outer {
+                for i in 0..side {
+                    let k = (j * outer + i) as usize;
+                    rows[(j * side + i) as usize] = v[k] + v[k + 1] + v[k + 2];
+                }
+            }
+            let mut sum = vec![0u8; n];
+            for j in 0..side {
+                for i in 0..side {
+                    let k = (j * side + i) as usize;
+                    sum[k] = rows[k] + rows[k + side as usize] + rows[k + 2 * side as usize];
+                }
+            }
+            sum
+        };
+        let (dug, nests) = (box3(&is_dug), box3(&is_nest));
+        let home = (0..n)
+            .map(|k| {
+                let (i, j) = (k as i32 % side, k as i32 / side);
+                dug[k] > 0 || nests[k] > is_nest[((j + 1) * outer + i + 1) as usize]
+            })
+            .collect();
+        // The walk reads nearly every cell of the outer square.
+        HomeLens { memo: CellMemo::filled(world, min, max), x0, y0, side, home: SquareHome::Each(home) }
+    }
+
+    /// Whether any cell of the square can be home: `false` only under the
+    /// shipped rule with no nest material and no dug home anywhere within
+    /// one of it, which is where most walks start (84% of 550,000 in the
+    /// mind colony's run to frame 40,600; 1.3% found a site).
+    pub(super) fn any_home(&self) -> bool {
+        match &self.home {
+            SquareHome::Asked => true,
+            SquareHome::Nowhere => false,
+            SquareHome::Each(h) => h.iter().any(|&b| b),
+        }
+    }
+
+    /// Whether `(x, y)` is home to `def` (the `def` this lens was built
+    /// for): [`adjacent_nest`], through this lens.
+    pub(super) fn home(&mut self, x: i32, y: i32, def: &CreatureDef) -> bool {
+        let (dx, dy) = (x - self.x0, y - self.y0);
+        if dx >= 0 && dy >= 0 && dx < self.side && dy < self.side {
+            match &self.home {
+                SquareHome::Asked => {}
+                SquareHome::Nowhere => return false,
+                SquareHome::Each(home) => return home[(dy * self.side + dx) as usize],
+            }
+        }
+        let world = self.memo.world;
+        adjacent_nest_by(world, x, y, def, self)
+    }
+}
+
+impl CellRead for HomeLens<'_> {
+    #[inline]
+    fn cell(&mut self, x: i32, y: i32) -> Cell {
+        self.memo.cell(x, y)
+    }
+}
+
+impl NestReader for HomeLens<'_> {
+    fn dug(&mut self, x: i32, y: i32) -> bool {
+        self.memo.world.nest_dug.contains(&(x, y))
+    }
+}
+
+/// [`adjacent_nest`], reading cells and the dug home through `read`.
+fn adjacent_nest_by(world: &World, x: i32, y: i32, def: &CreatureDef, read: &mut impl NestReader) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
     // rule, which is what keeps `ancestor` and `flitter` reading a constant
@@ -18961,7 +19589,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         NestHome::Material => false,
         NestHome::Shaft => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)),
         NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
-        NestHome::Dug => !world.nest_dug.is_empty() && (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(x + dx, y + dy)))),
+        NestHome::Dug => !world.nest_dug.is_empty() && (-1..=1).any(|dy| (-1..=1).any(|dx| read.dug(x + dx, y + dy))),
     };
     if in_cut {
         return true;
@@ -18985,9 +19613,9 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     }
     let r = nest_reach_radius();
     if r == 1 {
-        return NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest);
+        return NEIGHBOURS_8.iter().any(|&(dx, dy)| read.cell(x + dx, y + dy).material == nest);
     }
-    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && world.get(x + dx, y + dy).material == nest))
+    (-r..=r).any(|dy| (-r..=r).any(|dx| (dx != 0 || dy != 0) && read.cell(x + dx, y + dy).material == nest))
 }
 
 /// **Where a trail mark lands — the head, or the cell just vacated.**
@@ -19526,7 +20154,8 @@ pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
 }
 
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
-    let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
+    let mut field_near = world.field_bilinear_sampler();
+    let mut m = |px: i32, py: i32| field_near.at(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
     let gy = m(x, y + 4) - m(x, y - 4);
     ((gx * gx + gy * gy).sqrt() / WORM_MOISTURE_SATURATION).clamp(0.0, 1.0)
@@ -26826,9 +27455,18 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
 /// The support check and fall of `fall_if_unsupported`, for a caller that
 /// has not already read the body.
 fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef) -> bool {
-    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
+    let Some(state) = world.organism(organism) else {
         return false;
     };
+    // **Standing on ground is settled with the body borrowed**, and the
+    // body is copied only for an animal that may fall: the two clones
+    // every tick were 0.3% of the new ant's frame (callgrind, 2026-10-22),
+    // and `touches_ground` is a pure read that `fall_if_unsupported` asks
+    // first anyway, so the answer is the same.
+    if touches_ground(world, &state.chain) {
+        return false;
+    }
+    let (chain, groups) = (state.chain.clone(), state.segment_groups.clone());
     let stacker = stacker_of(world, organism);
     fall_if_unsupported(world, organism, def, &chain, &groups, stacker)
 }
@@ -30894,6 +31532,32 @@ fn body_after_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32
     }
 }
 
+/// [`body_after_step`]'s landing alone, written into `out` -- for a
+/// caller that tries several headings and keeps none of the landings, so
+/// one buffer serves them all. A chain's follow is built in place; the
+/// other two plans copy `body_after_step`'s answer, so every plan lands
+/// exactly where it would. The options' eight walk landings were 384 k
+/// `Vec`s a 600 frames, ~1% of the new ant's frame with their frees
+/// (callgrind, 2026-10-22).
+fn landing_after_step_into(
+    world: &World,
+    def: &CreatureDef,
+    body: BodyShape,
+    head: (i32, i32),
+    headings: (u8, u8),
+    push: bool,
+    out: &mut Vec<(i32, i32)>,
+) {
+    out.clear();
+    if def.body.is_rigid() || matches!(def.body, BodyPlan::Segmented(_)) {
+        out.extend_from_slice(&body_after_step(world, def, body, head, headings.0, headings.1, push).0);
+    } else {
+        // `chain_follow`, into the buffer.
+        out.push(head);
+        out.extend(body.chain.iter().take(body.chain.len().saturating_sub(1)).copied());
+    }
+}
+
 /// **This individual's own grown body shape — the stable reference
 /// `segmented_body_after_step` uses to decide whether a segment should
 /// *attempt* a lateral this step (§7f(1)), and `relocate_chain` uses for a
@@ -32091,9 +32755,11 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
     true
 }
 
-/// SCRATCH (teacher lane, never for main): [`slay`] by organism id. `slay` kills whatever animal owns the cell at
-/// a point, and ants overlap (`climbs_over_kin`), so culling by the head's position killed a different ant about
-/// half the time (the in-run pilot's "ghosts").
+/// [`slay`] by organism id: the same death, for the animal with this id
+/// wherever it stands. **Ants overlap** (`climbs_over_kin`), so culling by a
+/// head's position killed a different ant about half the time -- the in-run
+/// pilot's "ghosts", ants the selection loop no longer knew (teacher lane,
+/// 2026-10-21). `lab::training` culls through this.
 pub fn cull_organism(world: &mut World, organism: OrganismId) -> bool {
     if world.organism(organism).is_none() {
         return false;
@@ -32462,6 +33128,62 @@ mod tests {
         assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
         t[organism::TRAIT_LADEN_A] = -1.0;
         assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+    }
+
+    /// **The appetite gene at 0 is the species' gate to the bit**, it can
+    /// open a gate on a species authored without one, and it stays on the
+    /// gate's `0..=1` axis whichever way it is pushed.
+    #[test]
+    fn the_appetite_gene_adds_to_the_authored_gate() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        let mut t = [0.0f32; CREATURE_TRAITS];
+        for authored in [0.0f32, 0.3, 1.0] {
+            def.digest_hunger_weight = authored;
+            assert_eq!(appetite_weight_of(&def, &t).to_bits(), authored.to_bits(), "allele 0 moved the authored weight {authored}");
+        }
+        def.digest_hunger_weight = 0.0;
+        t[TRAIT_APPETITE] = 0.4;
+        assert_eq!(appetite_weight_of(&def, &t), 0.4, "a lineage of a gateless species can evolve a gate");
+        t[TRAIT_APPETITE] = -0.3;
+        assert_eq!(appetite_weight_of(&def, &t), 0.0, "below zero is no gate, not a negative one");
+        def.digest_hunger_weight = 1.0;
+        t[TRAIT_APPETITE] = 0.5;
+        assert_eq!(appetite_weight_of(&def, &t), 1.0, "the full gate is the top of the axis");
+    }
+
+    /// **`mutate_traits` is the game's birth rule for a body**: a width-0
+    /// slot takes no draw and does not move, an open slot moves by at most
+    /// its width, and `inherit_body` lays a parent's body on a placed child.
+    #[test]
+    fn a_body_mutates_only_where_it_has_a_width() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.trait_variance = [0.0; CREATURE_TRAITS];
+        def.scent_drift = 0.0;
+        let parent = [0.1f32; CREATURE_TRAITS];
+        let (mut a, mut b) = (rng::Rng::new(7), rng::Rng::new(7));
+        let mut t = parent;
+        mutate_traits(&mut t, &def, 1.0, &mut a);
+        assert_eq!(t, parent, "nothing open, nothing moved");
+        assert_eq!(a.unit_f32().to_bits(), b.unit_f32().to_bits(), "a closed body took a draw");
+        def.trait_variance[TRAIT_APPETITE] = 0.15;
+        let mut moved = 0;
+        for k in 0..200 {
+            let mut t = parent;
+            mutate_traits(&mut t, &def, 1.0, &mut rng::Rng::new(k));
+            for slot in 0..CREATURE_TRAITS {
+                if slot == TRAIT_APPETITE {
+                    assert!((t[slot] - parent[slot]).abs() <= 0.15 + 1e-6, "a step wider than the width");
+                    moved += usize::from(t[slot] != parent[slot]);
+                } else {
+                    assert_eq!(t[slot], parent[slot], "closed slot {slot} moved");
+                }
+            }
+        }
+        assert!(moved > 190, "the open slot hardly ever moved: {moved} of 200");
     }
 
     #[test]
@@ -49232,6 +49954,88 @@ mod tests {
         assert!(a[0].iter().chain(b[0].iter()).all(|v| v.abs() <= 0.5), "an offset is bounded by the spread: {a:?} {b:?}");
         let (a2, b2) = scents(0.5);
         assert_eq!((a2[0], b2[0]), (a[0], b[0]), "the same seed draws the same offsets");
+    }
+
+    /// **`kin_components` finds exactly the components the all-pairs union
+    /// did** -- the union `World::regroup_by_scent` ran before it, kept here
+    /// as the reference, over groups built to exercise every path: one
+    /// tight cloud (the hub's star is everything), two or three clouds
+    /// apart, a chain whose ends are joined only through animals outside
+    /// the hub's star, one-sided tolerance (a narrow judge refuses a wide
+    /// one that would accept it), and plain random scatter. The tallies at
+    /// the end are the positive control that each kind actually occurred.
+    #[test]
+    fn kin_components_match_every_pair() {
+        use crate::sim::organism::{SCENT_SLOTS, TRAIT_TOLERANCE};
+        fn reference(t: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
+            let n = t.len();
+            let mut p: Vec<usize> = (0..n).collect();
+            fn find(p: &mut [usize], mut i: usize) -> usize {
+                while p[i] != i {
+                    p[i] = p[p[i]];
+                    i = p[i];
+                }
+                i
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    if scent_accepts(&t[i], &t[j]) && scent_accepts(&t[j], &t[i]) {
+                        let (a, b) = (find(&mut p, i), find(&mut p, j));
+                        if a != b {
+                            p[a.max(b)] = a.min(b);
+                        }
+                    }
+                }
+            }
+            (0..n).map(|i| find(&mut p, i)).collect()
+        }
+        let animal = |s: [f32; 3], tol: f32| {
+            let mut t = [0.0f32; CREATURE_TRAITS];
+            for k in 0..3 {
+                t[SCENT_SLOTS[k]] = s[k];
+            }
+            t[TRAIT_TOLERANCE] = tol;
+            t
+        };
+        let mut r = crate::sim::rng::stream(3, 1, 4, 1);
+        let mut u = move || r.unit_f32();
+        let (mut split, mut via_outside, mut trials) = (0, 0, 0);
+        for trial in 0..600 {
+            let n = 2 + (u() * 60.0) as usize;
+            let kind = trial % 5;
+            let group: Vec<[f32; CREATURE_TRAITS]> = (0..n)
+                .map(|i| match kind {
+                    // One cloud, well inside one radius.
+                    0 => animal([u() * 0.4, u() * 0.4, u() * 0.4], u() * 0.4 - 0.2),
+                    // Two or three clouds, far apart.
+                    1 => {
+                        let c = (i % (2 + trial % 2)) as f32 * 5.0;
+                        animal([c + u() * 0.3, u() * 0.3, 0.0], 0.0)
+                    }
+                    // A chain along one axis, one step under the radius.
+                    2 => animal([i as f32 * 0.8 + u() * 0.05, 0.0, 0.0], -0.1),
+                    // One-sided tolerance: narrow and wide judges mixed.
+                    3 => animal([u() * 2.0, u() * 2.0, 0.0], if i % 2 == 0 { -0.9 } else { 1.0 }),
+                    // Scatter.
+                    _ => animal([u() * 4.0 - 2.0, u() * 4.0 - 2.0, u() * 4.0 - 2.0], u() * 2.0 - 1.0),
+                })
+                .collect();
+            let (got, want) = (kin_components(&group), reference(&group));
+            for i in 0..n {
+                for j in 0..n {
+                    assert_eq!(got[i] == got[j], want[i] == want[j], "trial {trial} (kind {kind}): animals {i} and {j}");
+                }
+            }
+            trials += 1;
+            let parts = { let mut w = want.clone(); w.sort_unstable(); w.dedup(); w.len() };
+            split += usize::from(parts > 1);
+            // Joined through the outside: a component bigger than the
+            // hub's star that holds an animal the hub does not accept.
+            via_outside += usize::from(kind == 2 && parts == 1 && n > 4);
+        }
+        assert_eq!(trials, 600);
+        assert!(split > 100, "too few groups that split to test anything: {split}");
+        assert!(via_outside > 50, "too few chains joined only through the outside: {via_outside}");
     }
 
     /// **A lineage that drifts out of its colony's family is named as a new

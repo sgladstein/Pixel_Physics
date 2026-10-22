@@ -1,0 +1,52 @@
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.45 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   119 p50   144 p75   148 cv 0.67 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.74 | neighbour score 3.00 end shoot p50  1744 flowered 0/8 alive 8/8
+             hold score 3.68 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   550 p50   713 p75   851 cv 0.50 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 3.90 | neighbour score 3.00 end shoot p50  1448 flowered 0/8 alive 8/8
+             hold score 3.75 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1500 | end shoot p25   203 p50   287 p75   451 cv 0.88 | rgr/1k p25 0.07 p50 0.08 p75 0.08
+             own score 3.91 | neighbour score 3.00 end shoot p50  1425 flowered 0/8 alive 8/8
+             hold score 3.49 | neighbour under the floor 2/8 (kept p25 1.00) under a tenth 0/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   720 p50   791 p75   825 cv 0.10 | rgr/1k p25 0.09 p50 0.09 p75 0.10
+             own score 4.06 | neighbour score 3.00 end shoot p50  1158 flowered 0/8 alive 8/8
+             hold score 3.54 | neighbour under the floor 3/8 (kept p25 0.89) under a tenth 0/8
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.02 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   141 p50   160 p75   233 cv 0.71 | rgr/1k p25 0.05 p50 0.06 p75 0.07
+             own score 3.95 | neighbour score 3.01 end shoot p50   302 flowered 8/8 alive 8/8
+             hold score 3.92 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   725 p50   961 p75  1004 cv 0.44 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.92 | neighbour score 3.00 end shoot p50   118 flowered 8/8 alive 8/8
+             hold score 2.10 | neighbour under the floor 6/8 (kept p25 0.17) under a tenth 3/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1500 | end shoot p25   325 p50   501 p75   600 cv 0.70 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.05 | neighbour score 3.00 end shoot p50   312 flowered 8/8 alive 8/8
+             hold score 3.33 | neighbour under the floor 3/8 (kept p25 0.78) under a tenth 0/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   870 p50   982 p75  1007 cv 0.16 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 3.00 end shoot p50    81 flowered 8/8 alive 8/8
+             hold score 1.94 | neighbour under the floor 6/8 (kept p25 0.17) under a tenth 4/8
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.14 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   152 p50   215 p75   234 cv 0.66 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 4.04 | neighbour score 3.89 end shoot p50   231 flowered 7/8 alive 8/8
+             hold score 3.35 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 1/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   752 p50   882 p75   908 cv 0.63 | rgr/1k p25 0.09 p50 0.10 p75 0.10
+             own score 3.92 | neighbour score 3.78 end shoot p50   184 flowered 7/8 alive 8/8
+             hold score 3.50 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1500 | end shoot p25   277 p50   413 p75   545 cv 0.73 | rgr/1k p25 0.07 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.66 end shoot p50   240 flowered 6/8 alive 8/8
+             hold score 3.60 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   926 p50  1015 p75  1027 cv 0.12 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 4.07 | neighbour score 3.26 end shoot p50   162 flowered 4/8 alive 8/8
+             hold score 2.67 | neighbour under the floor 3/8 (kept p25 0.67) under a tenth 0/8
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.01 core-s a bed
+    herb     germ  8/8 est  8/8 est@ p50   1750 | end shoot p25   162 p50   211 p75   236 cv 0.65 | rgr/1k p25 0.06 p50 0.06 p75 0.07
+             own score 3.96 | neighbour score 3.00 end shoot p50    81 flowered 0/8 alive 8/8
+             hold score 3.93 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   933 p50  1046 p75  1103 cv 0.42 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 3.93 | neighbour score 2.99 end shoot p50    74 flowered 0/8 alive 8/8
+             hold score 3.76 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    score_best.ron germ  8/8 est  8/8 est@ p50   1500 | end shoot p25   282 p50   491 p75   661 cv 0.75 | rgr/1k p25 0.08 p50 0.09 p75 0.09
+             own score 4.07 | neighbour score 3.00 end shoot p50    90 flowered 0/8 alive 8/8
+             hold score 4.04 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   914 p50   980 p75  1038 cv 0.42 | rgr/1k p25 0.10 p50 0.10 p75 0.10
+             own score 4.06 | neighbour score 2.97 end shoot p50    67 flowered 0/8 alive 8/8
+             hold score 3.99 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8

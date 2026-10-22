@@ -117,7 +117,8 @@
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{self, Dig, Forage, Scarce, Soil, Suite, Trail};
+use pixel_physics::train::challenges::maze::Walls;
+use pixel_physics::train::challenges::{self, Dig, Forage, Maze, OpenMaze, Scarce, Soil, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -139,6 +140,8 @@ struct Arena {
     budget: Option<f32>,
     foot: bool,
     step_near: f64,
+    nest: bool,
+    maze: (usize, bool, u32, Option<f32>, Walls, bool),
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -158,6 +161,8 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         budget,
         foot,
         step_near,
+        nest,
+        maze,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -179,6 +184,27 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
                 clones,
             })
         }
+        "maze" => {
+            let (forks, ramp, spread, blend, walls, laden) = maze;
+            Box::new(Maze {
+                ants: ants.unwrap_or(6),
+                frames: frames.unwrap_or(12_000),
+                clones,
+                forks,
+                ramp,
+                spread,
+                blend,
+                walls,
+                laden,
+            })
+        }
+        "openmaze" => Box::new(OpenMaze {
+            ants: ants.unwrap_or(6),
+            frames: frames.unwrap_or(12_000),
+            clones,
+            ramp: maze.1,
+            laden: maze.5,
+        }),
         "dig" => Box::new(Dig {
             ants: ants.unwrap_or(12),
             frames: frames.unwrap_or(20_000),
@@ -235,8 +261,9 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             budget,
             foot,
             step_near,
+            nest,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
+        _ => panic!("challenge={name}: forage|forage-far|trail|maze|openmaze|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
 }
 
@@ -317,6 +344,7 @@ fn main() {
     let mut foot = false;
     let mut step_near = 0.0;
     let mut budget = Some(challenges::SOIL_BUDGET);
+    let mut maze = (3usize, true, 0u32, None, Walls::Through, false);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -392,6 +420,22 @@ fn main() {
                     "dist={v}: want {lo} <= lo <= hi <= 110"
                 );
             }
+            // The maze (`challenges::Maze`): forks, whether the trail ramps
+            // towards the goal, plane passes run over it before the ants
+            // start, the blend for those passes, and how they meet the rock.
+            "forks" => maze.0 = v.parse().ok().filter(|&n: &usize| (1..=4).contains(&n)).unwrap_or_else(|| panic!("forks={v}: 1-4")),
+            "ramp" => maze.1 = on(k, v),
+            "laden" => maze.5 = on(k, v),
+            "spread" => maze.2 = v.parse().unwrap_or_else(|_| panic!("spread={v}: plane passes")),
+            "blend" => maze.3 = Some(v.parse().unwrap_or_else(|_| panic!("blend={v}: 0-1"))),
+            "walls" => {
+                maze.4 = match v {
+                    "through" => Walls::Through,
+                    "sink" => Walls::Sink,
+                    "reflect" => Walls::Reflect,
+                    _ => panic!("walls={v}: through|sink|reflect"),
+                }
+            }
             "steps" => {
                 assert!(v == "on" || v == "off", "steps={v}: on|off");
                 steps = v == "on";
@@ -457,7 +501,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} test={test} calib={calib:?} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} noprune={:?} probe={}x{} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} stepnear={step_near} budget={budget:?} maze={maze:?} pic={pic:?} trace={trace:?} sealed={sealed} test={test} calib={calib:?} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} noprune={:?} probe={}x{} race={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -504,6 +548,9 @@ fn main() {
     if step_near > 0.0 {
         set.arena += &format!(" stepnear={step_near}");
     }
+    if maze != (3, true, 0, None, Walls::Through, false) {
+        set.arena += &format!(" maze={maze:?}");
+    }
     // The floors are set on the calibration worlds, so a run's must stay
     // its own on a resume; written only when it differs from the hold-out,
     // which every state before it used.
@@ -548,6 +595,9 @@ fn main() {
         budget,
         foot,
         step_near,
+        // The soil trip's `nest` part: only where something prints it.
+        nest: score.is_some() || noise,
+        maze,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
@@ -724,7 +774,7 @@ fn main() {
             Some(f) => genome_of(f),
             None => g0.clone(),
         };
-        // SCRATCH (not for main): PP_GIF_SEALED=k draws sealed world k instead of hold-out world 0.
+        // SCRATCH: PP_GIF_SEALED=k draws sealed world k instead of hold-out world 0.
         let lay = match std::env::var("PP_GIF_SEALED").ok().and_then(|v| v.parse::<usize>().ok()) {
             Some(k) => train::sealed_layouts(k + 1)[k],
             None => train::holdout_layouts(1)[0],
