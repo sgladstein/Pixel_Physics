@@ -42,7 +42,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap"];
+const KNOWN: &[&str] = &["scald", "endow", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -1182,6 +1182,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                 let mut args = m.clone();
                 args.insert("shade".into(), u8::from(plastic).to_string());
                 apply_shade(&args, &mut w);
+                // `endow=X`: the founder seed carries X carbon, as a seed its
+                // parent bred would (`Reproduce.seed_cost`), instead of a
+                // planted seed's 0. Under a canopy the first step is paid
+                // from this or not at all.
+                if let Some(e) = m.get("endow") {
+                    pixel_physics::sim::plant::endow_seed(&mut w, id, e.parse().expect("endow=X"));
+                }
                 let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
                 // `trace=N`: the first seed's founder every N frames -- its
                 // organs, its earnings against its bill, and its stores.

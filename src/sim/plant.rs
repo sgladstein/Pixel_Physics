@@ -4158,6 +4158,19 @@ fn provisioning(shoot_cells: u32, authored_maturity: u32) -> f32 {
     (shoot_cells as f32 / authored_maturity as f32).clamp(MIN_PROVISIONING, 1.0)
 }
 
+/// **Give a planted seed the carbon a bred one carries** (`OrganismState::
+/// endowment`, written into the seedling at germination). A placed or
+/// planted seed starts with 0, as every scene has assumed; a measurement of
+/// recruitment under a canopy, where the first growth step is paid from the
+/// seed or not at all, wants the stake its parent would have paid
+/// (`Reproduce.seed_cost`). An instrument for harnesses; nothing in the sim
+/// calls it.
+pub fn endow_seed(world: &mut World, organism_id: OrganismId, carbon: f32) {
+    if let Some(s) = world.organism_mut(organism_id) {
+        s.endowment = carbon;
+    }
+}
+
 /// The least a seedling may be given, as a share of `seed_cost`.
 ///
 /// Not zero, and not by taste: `germinate` writes the endowment as the
@@ -11320,6 +11333,15 @@ fn shade_at(world: &World, x: i32, y: i32) -> f32 {
 /// needs to stand still.
 const SHADE_UPKEEP_CUT: f32 = 0.5;
 
+/// `SHADE_UPKEEP_CUT`, or `PIXEL_PHYSICS_SHADE_UPKEEP_CUT` when set: the
+/// sweep the cut is measured on. A measurement instrument, read once per
+/// process.
+fn shade_upkeep_cut() -> f32 {
+    use std::sync::OnceLock;
+    static CUT: OnceLock<f32> = OnceLock::new();
+    *CUT.get_or_init(|| std::env::var("PIXEL_PHYSICS_SHADE_UPKEEP_CUT").ok().and_then(|v| v.parse().ok()).unwrap_or(SHADE_UPKEEP_CUT))
+}
+
 /// What a shade-tolerant leaf gives up in bright light: at full light a
 /// fully tolerant plant's leaves earn `1 - SHADE_LEAF_PRICE` of it. The
 /// price that keeps tolerance from being free (A5.2, the leaf economics
@@ -13551,7 +13573,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // compensation point. Measured before this: at a quarter of full
         // light every founder of every species lost its tissue and died
         // within 60,000 frames, genes or no genes.
-        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - SHADE_UPKEEP_CUT * shade_tolerate);
+        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue) * (1.0 - shade_upkeep_cut() * shade_tolerate);
         if !root_tissue {
             basis += maintenance_basis(q_peak, l_node(upkeep_leaf_cluster));
         }
@@ -25654,6 +25676,40 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let used = leaf_light_used(&w, x, y, 1.0);
         assert!((used - light * (1.0 - SHADE_LEAF_PRICE * full)).abs() < 1e-5, "a fully tolerant leaf at light {light} used {used}");
         assert_eq!(leaf_light_used(&w, x, y, 0.0), light, "no tolerance, no price");
+    }
+
+    /// **Sun scald sheds a tolerant plant's leaves in open light, only with
+    /// `World::shade_scald` on, and never a plant with no tolerance** (A5's
+    /// bright-light price, `SCALD_RATE`). One grown tree in open sky, its
+    /// upkeep run the same number of times in three arms from the same
+    /// clone: tolerance 1.0 with the switch off sheds nothing to scald,
+    /// tolerance 0 with it on sheds nothing, and tolerance 1.0 with it on
+    /// sheds -- the positive control the other two need.
+    #[test]
+    fn sun_scald_sheds_only_a_tolerant_plants_leaves_and_only_when_on() {
+        let mut w = test_world();
+        w.seed = 1;
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        run_with_fields(&mut w, 4_000);
+        let tree = w.organism(id).expect("the tree should be alive").species;
+        let leaves = |w: &World| w.organism(id).map_or(0, |s| s.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count());
+        assert!(leaves(&w) > 20, "test setup: the tree should be in leaf, has {}", leaves(&w));
+        let scalded = |tolerate: f32, on: bool| {
+            let mut w = w.clone();
+            assert!(w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::ShadeTolerate, 0, tolerate), "test setup: the tree has a Grow");
+            w.shade_plasticity = true;
+            w.shade_scald = on;
+            for _ in 0..200 {
+                w.frame += 1;
+                organism_upkeep(&mut w, id);
+            }
+            w.shed_scald
+        };
+        assert_eq!(scalded(1.0, false), 0, "switch off: no leaf may scald");
+        assert_eq!(scalded(0.0, true), 0, "no tolerance: no leaf may scald");
+        let on = scalded(1.0, true);
+        assert!(on > 0, "a fully tolerant tree in open sky should scald with the switch on, shed {on}");
     }
 
     struct SeedBed {
