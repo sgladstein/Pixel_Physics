@@ -139,3 +139,41 @@ filling every gap with its own seedlings. That is the plan's rung 5/6
 (recruit and invade against a resident stand), not something rung 4 can
 see. **Candidates to ship, pending the owner: the seed-trained shrub and
 herb.** Not the tree, not the creeper.
+
+## Eighteen seeds: the shrub holds, the herb pays for it (2026-10-22)
+
+Seeds 7-18 added to `shipped` and `seeds3` (three runner threads,
+`/mnt/project-files/plant-community/runners/mixed450.sh`; logs in `450k/`).
+Beds out of 18 in which each role is alive at frame 450,000:
+
+| arm | tree | shrub | herb | creeper | roles alive, mean | herb plants, median |
+|---|---|---|---|---|---|---|
+| shipped | 18 | 3 | 17 | 4 | 2.33 | 39 |
+| seeds3 (shipped tree) | 18 | **16** | **13** | 7 | **3.00** | **14** |
+
+The six-seed result holds for the shrub and the bed as a whole, and not
+for the herb: the trained herb is lost on five beds of eighteen against
+the shipped herb's one, and where it lives it is a third as many plants.
+On the beds where it dies the trained shrub is large (s11: 43 shrubs, s13:
+28), so this may be the shrub's thicket rather than the herb itself. Each
+trained species alone in an otherwise shipped bed (`split450.sh`, arms
+`shrub1` and `herb1`) is the run that separates the two.
+
+### Each trained species alone (seeds 1-12)
+
+`shrub1`: the seed-trained shrub alone in an otherwise shipped bed;
+`herb1`: the seed-trained herb alone (`/mnt/project-files/plant-community/runners/split450.sh`,
+logs in `450k/`). Beds out of 12 with each role alive at 450,000:
+
+| arm | tree | shrub | herb | creeper | roles alive, mean | herb plants, median |
+|---|---|---|---|---|---|---|
+| shipped | 12 | 2 | 11 | 1 | 2.17 | 35 |
+| seeds3 | 12 | 11 | 9 | 4 | 3.00 | 21 |
+| **shrub1** | 12 | **11** | **12** | 0 | **2.92** | 26 |
+| herb1 | 12 | 2 | 11 | 3 | 2.33 | 24 |
+
+**The trained shrub is the gain, and it does not cost the shipped herb**:
+alone it lives on 11 beds of 12 and the shipped herb beside it on all 12.
+The trained herb alone does no better than shipped (alive on 11 of 12,
+fewer plants), and with the trained shrub it is lost on three. The
+recommendation is to ship the trained shrub and keep the shipped herb.
