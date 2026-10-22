@@ -1611,6 +1611,9 @@ fn context_at(
     };
     v[c::AT_NEST] = f32::from(u8::from(home));
     let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
+    // SCRATCH (teacher lane): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
+    static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
     let home = (!world.home_blind).then_some(st.forage_anchor);
     let dist = home.map_or(0.0, |(ax, ay)| {
@@ -1619,6 +1622,9 @@ fn context_at(
     });
     v[c::HOME_SEEN] = f32::from(u8::from(home.is_some()));
     v[c::HOME_DIST] = squash(dist / 32.0);
+    // SCRATCH (`options::home_vec`): "how far past the food band", unsquashed, on d_alarm's slot (written over below
+    // only when there is a last decision; this one wins).
+    let far = options::home_vec().filter(|_| home.is_some()).map(|(r, w)| options::far_ramp(dist, r, w));
     let now = [scents[0], scents[1], scents[2], e, dist];
     if let Some(last) = state.last {
         for k in 0..3 {
@@ -1626,6 +1632,9 @@ fn context_at(
         }
         v[c::D_ENERGY] = squash(10.0 * (now[3] - last[3]));
         v[c::D_HOME] = squash((now[4] - last[4]) / 2.0);
+    }
+    if let Some(far) = far {
+        v[c::D_SCENT + 2] = far;
     }
     v[c::SINCE_NEST] = squash(st.since_nest as f32 / 200.0);
     v[c::AGE] = squash(world.frame.saturating_sub(st.born_frame) as f32 / 20_000.0);
@@ -1952,15 +1961,176 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             // `at_nest` was read above at `(x, y)`; since then only the
             // colony odour was blended and no fall happened, so no cell
             // moved (ant cost review A4, 2026-10-22).
-            let (ctx, now) = context_at(world, organism, def, &mind.state, &opts, Some(((x, y), at_nest)));
+            let (mut ctx, now) = context_at(world, organism, def, &mind.state, &opts, Some(((x, y), at_nest)));
+            // SCRATCH (investigation): PP_ABLATE=name,name zeroes those senses before every decision.
+            scratch_log::ablate(&mut ctx);
+            // SCRATCH (teacher lane): `PP_BOTTOM_CTX=1` (with `PP_BOTTOM`) puts "a cut at the bottom of my hole, below
+            // the ground as built, is in reach" on the borrowed context slot c::CROWD (17), which reads 0 in every solo
+            // arena: the job stage reads it straight, past the scorer's saturated best-score channel.
+            static BOTTOM_CTX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *BOTTOM_CTX.get_or_init(|| std::env::var("PP_BOTTOM_CTX").is_ok()) {
+                ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
+            }
+            // SCRATCH (starvation-trace thread, 2026-10-22): `PP_FAR_CTX=R` puts "more than R columns from home" on the
+            // borrowed context slot c::D_ALARM (9), which reads 0 on every bed decision (alarm is never laid). The
+            // come-home copies hm1/hm2 leaked into foraging, guessed because c::HOME_DIST = squash(dist/32) reads 0.56 at
+            // 40 columns and 0.65 at 60: too flat to separate "far" from "in the food band".
+            if let Some(r) = scratch_log::far_ctx() {
+                if let Some(st) = world.organism(organism) {
+                    let ax = st.forage_anchor.0;
+                    let nx = world.nest_sites.iter().min_by_key(|s| (s.x - ax).abs()).map_or(ax, |s| s.x);
+                    ctx[c::D_SCENT + 2] = f32::from(u8::from((x - nx).abs() > r));
+                }
+            }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
-            let d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
+            let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+            let mut d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
+            if let Some(d) = d.as_ref() {
+                scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+                // SCRATCH (foraging-loop thread): the carry-home teacher's label rides the copy log as a 16th field.
+                if scratch_log::copy_on() && scratch_log::carry_act().is_some() {
+                    let lab = scratch_log::carry_label(world, organism, def, (x, y), &ctx, &opts);
+                    scratch_log::CARRY_LAB.with(|c| *c.borrow_mut() = if lab.is_empty() { "-".into() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) });
+                }
+                scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+            }
+            // SCRATCH (maze thread, 2026-10-22; ported by the far-from-home sense thread): `PP_TRAIL_ACT=1` (with
+            // `PP_TRAIL_LABEL`) lets the recruitment-trail teacher act: when the brain chose to walk and the label
+            // applies, the step is the teacher's instead. The verb is the brain's, so memory stays consistent.
+            if let Some(d) = d.as_mut() {
+                if scratch_log::trail_act() && opts[d.pick].verb == Verb::Walk {
+                    if let Some(up) = scratch_log::trail_up(world, organism, &ctx, &opts) {
+                        if !up.contains(&d.pick) {
+                            d.pick = up[0];
+                        }
+                    }
+                }
+            }
+            // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
+            let mut redrawn: Option<Vec<Opt>> = None;
+            // SCRATCH (dig-scoring thread, 2026-10-22; owner: "refusal as a teacher makes sense"): `PP_RIMVETO=N`
+            // refuses a cut of ground (not spoil) fewer than N rows below the frozen datum within `PP_RIMVETO_R`
+            // (default 20) columns of `PP_RIMVETO_X` (default 128): when the brain picks one, every such Dig option is
+            // taken off and it redraws from the rest, deep cuts included. The crater's teacher, for copying; the
+            // 2026-10-21 version (`PP_STORE_VERB=dig`, inrun-wt) took off every Dig and is not this.
+            if let Some((n, nx, nr)) = scratch_log::rimveto() {
+                let rim = |o: &Opt| scratch_log::rim_cut(world, o, n, nx, nr);
+                if let Some(i) = d.as_ref().map(|d| d.pick) {
+                    if rim(&opts[i]) {
+                        let allowed: Vec<Opt> = opts.iter().copied().filter(|o| !rim(o)).collect();
+                        if !allowed.is_empty() {
+                            mind.state.mem = mem0;
+                            mind.state.last_verb = last0;
+                            let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1002);
+                            if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
+                                d = Some(d2);
+                                redrawn = Some(allowed);
+                                static V: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                                let k = V.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                if k.is_multiple_of(1000) {
+                                    eprintln!("PP_RIMVETO refusals {k}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // SCRATCH (dig-scoring thread, 2026-10-22): `PP_SPOILVETO=R` refuses letting go of a pellet of spoil below
+            // the frozen datum (inside the nest or the crater) or within R columns of `PP_RIMVETO_X` (default 128): when
+            // the brain picks such a Drop with spoil in the jaws, every such Drop is taken off and it redraws. Late in a
+            // 200k round a third of carried spoil was let go in the shaft (median 6 rows down, 6 columns from the door)
+            // and a third of re-cuts were soil sliding back from beside the door (hA1, 8 seeds); with PP_RIMVETO on, a
+            // third of spoil went down within 5 columns of the door. The spoil teacher, for copying.
+            static SPOILVETO: std::sync::OnceLock<Option<(i32, i32)>> = std::sync::OnceLock::new();
+            let sv = *SPOILVETO.get_or_init(|| {
+                let r = std::env::var("PP_SPOILVETO").ok()?.parse::<i32>().ok()?;
+                Some((r, std::env::var("PP_RIMVETO_X").ok().and_then(|v| v.parse().ok()).unwrap_or(128)))
+            });
+            if let Some((r, nx)) = sv {
+                if world.organism(organism).is_some_and(|s| s.spoil.is_some()) {
+                    let near = |o: &Opt| {
+                        let (tx, ty) = o.target;
+                        o.verb == Verb::Drop && ((tx - nx).abs() <= r || world.room_surface_at(tx).is_some_and(|s| ty >= s))
+                    };
+                    if let Some(i) = d.as_ref().map(|d| d.pick) {
+                        if near(&opts[i]) {
+                            let allowed: Vec<Opt> = opts.iter().copied().filter(|o| !near(o)).collect();
+                            if !allowed.is_empty() {
+                                mind.state.mem = mem0;
+                                mind.state.last_verb = last0;
+                                let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1003);
+                                if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
+                                    d = Some(d2);
+                                    redrawn = Some(allowed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if scratch_log::teach_on() {
+                if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
+                    let own_verb = opts[pick].verb;
+                    // Positive control for `remember`: the brain's own verb must reproduce the memory decide wrote.
+                    let check = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, own_verb);
+                    if check.iter().zip(&mind.state.mem).any(|(a, b)| (a - b).abs() > 1e-6) {
+                        scratch_log::COUNTS[10].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    match scratch_log::teach(world, organism, &opts, pick, &jobs) {
+                        scratch_log::Teach::Keep => {}
+                        scratch_log::Teach::Force(i) => {
+                            if let Some(d) = d.as_mut() {
+                                d.pick = i;
+                            }
+                            mind.state.last_verb = Some(opts[i].verb);
+                        }
+                        scratch_log::Teach::Veto(v) => {
+                            let allowed: Vec<Opt> = opts.iter().copied().filter(|o| o.verb != v).collect();
+                            if !allowed.is_empty() {
+                                mind.state.mem = mem0;
+                                mind.state.last_verb = last0;
+                                let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1000);
+                                if let Some(d2) = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &allowed, &mut mind.state, &mut again) {
+                                    d = Some(d2);
+                                    redrawn = Some(allowed);
+                                }
+                            }
+                        }
+                    }
+                    let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
+                    if let Some(d) = d.as_mut() {
+                        if let Some(i) = scratch_log::walk_home(world, organism, (x, y), list, d.pick) {
+                            d.pick = i;
+                        }
+                    }
+                    // Memory and the job pull follow the verb actually carried out, summed over the full option list.
+                    if let Some(d) = d.as_ref() {
+                        let done = list[d.pick].verb;
+                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, done);
+                        mind.state.last_verb = Some(done);
+                    }
+                }
+            }
+            // SCRATCH (foraging-loop thread): `PP_CARRY=q`, the carry-home teacher (`scratch_log::carry_label`) acting
+            // on a share q of the decisions it labels.
+            if redrawn.is_none() && scratch_log::carry_act().is_some() {
+                if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
+                    if let Some(i) = scratch_log::carry_out(world, organism, def, (x, y), &ctx, &opts, pick) {
+                        if let Some(d) = d.as_mut() {
+                            d.pick = i;
+                        }
+                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
+                        mind.state.last_verb = Some(opts[i].verb);
+                    }
+                }
+            }
             mind.state.last = Some(now);
             let mut offered = [false; VERBS];
             for o in opts.iter() {
                 offered[o.verb as usize] = true;
             }
-            (d.map(|d| (opts[d.pick], d.emits, opts.len())), offered)
+            let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
+            (d.map(|d| (list[d.pick], d.emits, list.len())), offered)
         });
         let (decided, offered) = decided;
         if let Some(m) = world.minds.as_mut() {
@@ -2142,6 +2312,8 @@ fn pick_up(
         world.bare_seeds_carried += 1;
     }
     crop_take(world, organism, food, bite.shade, worth, passenger);
+    // SCRATCH (teacher lane, in-run pilot): the harness's food ledger.
+    super::note_food(world, organism, (fx, fy), super::FOOD_SWALLOW, worth, at_home);
     let fresh = crop.is_none_or(|c| c.worth() <= 0.0);
     if let Some(state) = world.organism_mut(organism) {
         state.life.bites += 1;
@@ -2233,8 +2405,15 @@ fn put_down_pellet(world: &mut World, organism: OrganismId, (dx, dy): (i32, i32)
     let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) else {
         return false;
     };
-    // On ground, as the list offered it (`options::build`).
-    if !spoil_site_open(world, dx, dy, true) {
+    // On ground, as the list offered it (`options::build`) -- or, under scratch `PP_NEEDDROP`, the hungry need's site.
+    let need = options::need_drop_on()
+        && world.organism(organism).is_some_and(|s| {
+            !spoil.store
+                && s.chain.first().is_some_and(|&h| {
+                    world.species.get(s.species).creature.as_ref().is_some_and(|def| super::needs_hungry(world, s, def, h)) && super::need_drop_site(world, h) == Some((dx, dy))
+                })
+        });
+    if !spoil_site_open(world, dx, dy, true) && !need {
         return false;
     }
     // where it comes to rest (`creature::spoil_rest`), which is also where the dump log scores it
@@ -2318,6 +2497,8 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         st.forage_returns += u64::from(returned);
     }
     note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
+    // SCRATCH (teacher lane, in-run pilot): flag = a trip cell put down at the nest, the game's own delivery.
+    super::note_food(world, organism, (dx, dy), super::FOOD_DROP, 0.0, trip_cell && at_nest);
     if let Some(m) = world.minds.as_mut() {
         m.counts.put_down += 1;
         m.counts.delivered += u64::from(at_nest);
@@ -3822,5 +4003,1172 @@ mod tests {
             0,
             "a blank mind costs nothing to run"
         );
+    }
+}
+
+
+/// SCRATCH (box-rank / investigation): `PP_MIND_LOG=<file>` writes one row per mind decision
+/// and the soil arena's cut and put-down events, for tracing individuals offline.
+///
+/// **Every `PP_*` switch here is off unless its variable is set**, and each is
+/// read once (`OnceLock`), so a run with none set takes the plain path: the
+/// teacher lane's harness (`examples/inrun.rs`, `examples/copylog.rs`) landed
+/// on `main` 2026-10-22 with these hooks re-threaded into the restructured
+/// [`tick`] (`context_at`, `decide_planned`), and with none set an hA1 batch
+/// came back byte-identical to the compute branch it came from.
+pub mod scratch_log {
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    // ---- SCRATCH (foraging-loop thread, 2026-10-22): "carry it home", the old ant's laden rules as a teacher. The
+    // game's own ant (chooser_step + act) delivers 25% of what it bites in the in-run bed against h1's 3%, with the
+    // same body: h1 swallows 38% of its bites by choice and puts 41% back down in the field, no nearer home. The
+    // label, for an ant holding food it took away from home (`trip_cells` > 0) with at least `PP_CARRY_FLOOR` tanks
+    // (default 1; under it the ant may eat its load):
+    //   at the nest (the delivery's own `nest_within_reach`): put it down (every Drop offered)
+    //   else, food in reach the crop can take: pick it up (fill before walking, `fills_before_walking`)
+    //   else: the steps that end nearest home (forage_anchor, Euclidean), if nearer than the head is now
+    // So it never eats the load and never puts it down away from home. Reads only what the ant has: its crop, bank,
+    // the options and where home is.
+    pub fn carry_act() -> Option<f32> {
+        static Q: OnceLock<Option<f32>> = OnceLock::new();
+        *Q.get_or_init(|| std::env::var("PP_CARRY").ok().map(|v| v.parse().expect("PP_CARRY=q")))
+    }
+    pub static CARRY_COUNTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+    /// `PP_CARRY_WAY=1`: steps through the colony's tunnels to the founding hole's mouth, as a distance field over open
+    /// (or ant-held) cells, rebuilt every 50 frames. Traced (pa8 seed 1, ant 23): hungry and empty in one of h1's side
+    /// galleries 11 columns out, the "highest step" label climbed into the gallery roof and fell back for 3,000
+    /// frames until it starved. A teacher may know the way; the copy then has to find a sense that carries it.
+    pub fn way_dist(world: &World, mouth: (i32, i32), p: (i32, i32)) -> Option<u32> {
+        type Field = (u64, (i32, i32), HashMap<(i32, i32), u32>);
+        thread_local! { static FIELD: std::cell::RefCell<Field> = std::cell::RefCell::new((u64::MAX, (0, 0), HashMap::new())); }
+        FIELD.with(|f| {
+            let mut f = f.borrow_mut();
+            let epoch = world.frame / 50;
+            if f.0 != epoch || f.1 != mouth {
+                let open = |x: i32, y: i32| (x - mouth.0).abs() <= 70 && y >= mouth.1 - 20 && y <= mouth.1 + 50 && (world.is_empty(x, y) || world.get(x, y).organism_id() != 0);
+                let mut d: HashMap<(i32, i32), u32> = HashMap::new();
+                let mut q = std::collections::VecDeque::new();
+                for dx in -2..=2 {
+                    for dy in -2..=1 {
+                        let c = (mouth.0 + dx, mouth.1 + dy);
+                        if open(c.0, c.1) {
+                            d.insert(c, 0);
+                            q.push_back(c);
+                        }
+                    }
+                }
+                while let Some((x, y)) = q.pop_front() {
+                    let k = d[&(x, y)];
+                    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                        let n = (x + dx, y + dy);
+                        if !d.contains_key(&n) && open(n.0, n.1) {
+                            d.insert(n, k + 1);
+                            q.push_back(n);
+                        }
+                    }
+                }
+                *f = (epoch, mouth, d);
+            }
+            f.2.get(&p).copied()
+        })
+    }
+    fn way_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_CARRY_WAY").is_ok())
+    }
+    /// The offered walks that end nearest the mouth through the tunnels, if nearer than the head.
+    fn way_walks(world: &World, mouth: (i32, i32), at: (i32, i32), opts: &[Opt]) -> Option<Vec<usize>> {
+        let here = way_dist(world, mouth, at)?;
+        let ws: Vec<(usize, u32)> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).filter_map(|i| way_dist(world, mouth, opts[i].target).map(|k| (i, k))).collect();
+        let best = ws.iter().map(|w| w.1).min().filter(|&b| b < here)?;
+        Some(ws.into_iter().filter(|w| w.1 == best).map(|w| w.0).collect())
+    }
+    /// Hungry branches: spoil-drop, spoil-up, spoil-stuck, eat, pick, empty-nothing (no label).
+    pub static HUNGRY_BRANCH: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    // `PP_CARRY_HUNGRY=H` (tanks) adds the old ant's hungry rules (`needs_first_act`; the hungry lane's trace: 94% of
+    // starving decisions were ants holding a soil pellet at the chamber bottom beside a full store). Under H tanks:
+    //   holding spoil: put it down off the hole (a Drop with no CUT and no DEPTH), else take the highest step
+    //   food in the crop: eat it (a trip load at the nest included: a hungry ant does not hand its load over)
+    //   empty: pick up any food in reach
+    fn carry_hungry() -> Option<f32> {
+        static H: OnceLock<Option<f32>> = OnceLock::new();
+        *H.get_or_init(|| std::env::var("PP_CARRY_HUNGRY").ok().map(|v| v.parse().expect("PP_CARRY_HUNGRY")))
+    }
+    pub static HOMEFAR: AtomicU64 = AtomicU64::new(0);
+    pub fn far_ctx() -> Option<i32> {
+        static R: OnceLock<Option<i32>> = OnceLock::new();
+        *R.get_or_init(|| std::env::var("PP_FAR_CTX").ok().map(|v| v.parse().expect("PP_FAR_CTX")))
+    }
+    fn homefar() -> Option<i32> {
+        static R: OnceLock<Option<i32>> = OnceLock::new();
+        *R.get_or_init(|| std::env::var("PP_HOMEFAR").ok().map(|v| v.parse().expect("PP_HOMEFAR")))
+    }
+    pub fn carry_label(world: &World, organism: OrganismId, def: &CreatureDef, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt]) -> Vec<usize> {
+        let Some(st) = world.organism(organism) else { return Vec::new() };
+        let of = |v: Verb| -> Vec<usize> { (0..opts.len()).filter(|&i| opts[i].verb == v).collect() };
+        let e = ctx[c::ENERGY] / (1.0 - ctx[c::ENERGY]).max(1e-6);
+        // `PP_CARRY_DUMP=id:f0:f1`: print one ant's options while it decides, for tracing a stuck carrier.
+        if let Ok(v) = std::env::var("PP_CARRY_DUMP") {
+            let p: Vec<u64> = v.split(':').map(|x| x.parse().unwrap()).collect();
+            if organism as u64 == p[0] && (p[1]..=p[2]).contains(&world.frame) && world.frame.is_multiple_of(30) {
+                let ms = |x: i32, y: i32| { let c = world.get(x, y); format!("{}{}", world.materials.get(c.material).name.chars().take(4).collect::<String>(), if c.organism_id() != 0 { format!("#{}", c.organism_id()) } else { String::new() }) };
+                let chain: Vec<(i32, i32)> = st.chain.clone();
+                eprintln!("DUMP f{} e{:.2} at{:?} chain{:?} spoil{} below[{} {} {}] opts: {}", world.frame, e, at, chain, st.spoil.is_some(), ms(at.0 - 1, at.1 + 1), ms(at.0, at.1 + 1), ms(at.0 + 1, at.1 + 1),
+                    opts.iter().map(|o| format!("{:?}{:?}", o.verb, o.target)).collect::<Vec<_>>().join(" "));
+            }
+        }
+        // `PP_CARRY_HOME_R=R`: home is the body's own `nest_within_reach` AND within R columns of the founding hole.
+        // The bed's home rule (`NestHome::Dug`) counts every cell the colony ever cut, and h1 cuts surface soil out at
+        // the food, so the unbounded teacher "delivered" 1,994 of its 5,239 loads 12+ columns out (old ant: 0).
+        static HOME_R: OnceLock<Option<i32>> = OnceLock::new();
+        let home_r = *HOME_R.get_or_init(|| std::env::var("PP_CARRY_HOME_R").ok().map(|v| v.parse().expect("PP_CARRY_HOME_R")));
+        // With R set, "home" is also the founding site (the nearest `nest_sites` entry, its ground row), not
+        // `forage_anchor`: the anchor follows every nest contact, so it drifts out to those same field cuts.
+        let site = home_r.and_then(|_| world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map(|s| (s.x, s.surface)));
+        let anchor = site.unwrap_or(st.forage_anchor);
+        let mouth = (anchor.0, anchor.1 - 1);
+        let below_ground = ctx[c::DEPTH] > 0.05;
+        // Underground with a way to the mouth known: take it (`PP_CARRY_WAY`), for every walking rule below.
+        let way = |opts: &[Opt]| if way_on() && below_ground { way_walks(world, mouth, at, opts) } else { None };
+        let home = |p: (i32, i32)| nest_within_reach(world, organism, p.0, p.1, def) && home_r.is_none_or(|r| (p.0 - anchor.0).abs() <= r);
+        // Walled in: holding spoil, and nothing offered but stepping into its own body, turning round or resting.
+        if st.spoil.is_some() && opts.iter().all(|o| matches!(o.verb, Verb::TurnAround | Verb::Rest) || (o.verb == Verb::Walk && st.chain.contains(&o.target))) {
+            WALLED.lock().unwrap().get_or_insert_with(HashMap::new).insert(organism, world.frame);
+        }
+        // SCRATCH (starvation-trace thread, 2026-10-22): `PP_HOMEFAR=R`, "come home when empty and far". An ant with
+        // nothing in the crop and no pellet, more than R columns from the founding hole, takes the step that brings it
+        // nearest home's column; with none (a wall face), the step down. The trace (/mnt/project-files/starve-trace/):
+        // 50-62% of hA1 starvation deaths walked out fat past 60 columns, showed no homeward pull at any tank (net
+        // -2% to +2% of walks) with a correct home sense, and starved at the box walls ~45k frames later.
+        if let Some(r) = homefar() {
+            if st.crop.is_none() && st.spoil.is_none() {
+                let ax = st.forage_anchor.0;
+                let nx = world.nest_sites.iter().min_by_key(|s| (s.x - ax).abs()).map_or(ax, |s| s.x);
+                if (at.0 - nx).abs() > r {
+                    let walks = of(Verb::Walk);
+                    let far = |x: i32| (x - nx).abs();
+                    if let Some(best) = walks.iter().map(|&i| far(opts[i].target.0)).min().filter(|&b| b < far(at.0)) {
+                        HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                    }
+                    if let Some(low) = walks.iter().map(|&i| opts[i].target.1).max().filter(|&l| l > at.1) {
+                        HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| opts[i].target.1 == low).collect();
+                    }
+                }
+            }
+        }
+        if carry_hungry().is_some_and(|h| e < h) {
+            if st.spoil.is_some() {
+                // A cut offered with a pellet in the jaws is the pack move (`PP_PACK`): only a walled-in ant has one.
+                let packs = of(Verb::Dig);
+                if !packs.is_empty() {
+                    return packs;
+                }
+                // `PP_CARRY_ANYDROP=1`: the old ant's hungry put-down (`need_drop_site`) takes any footing beside the head, so
+                // under it any offered Drop is the label; and an ant hanging in a gallery (nothing under the head) steps
+                // down to the floor, where the mind's on-ground pellet rule can offer one. Traced (ph8 seed 4, ant 9):
+                // hungry with a pellet in an open gallery, only Walks offered, the "highest step" label climbed and fell
+                // back for 2,000 frames until it starved beside a full store.
+                let any_drop = std::env::var("PP_CARRY_ANYDROP").is_ok();
+                if any_drop && ctx[c::DEPTH] > 0.05 && of(Verb::Drop).is_empty() && world.is_empty(at.0, at.1 + 1) {
+                    let walks = of(Verb::Walk);
+                    if let Some(low) = walks.iter().map(|&i| opts[i].target.1).max().filter(|&l| l > at.1) {
+                        return walks.into_iter().filter(|&i| opts[i].target.1 == low).collect();
+                    }
+                }
+                let off: Vec<usize> = (0..opts.len())
+                    .filter(|&i| opts[i].verb == Verb::Drop && (any_drop || (opts[i].feats[options::f::CUT] == 0.0 || std::env::var("PP_CARRY_ANYCUT").is_ok()) && opts[i].feats[options::f::DEPTH] <= 0.0))
+                    .collect();
+                if !off.is_empty() {
+                    HUNGRY_BRANCH[0].fetch_add(1, Ordering::Relaxed);
+                    return off;
+                }
+                if let Some(w) = way(opts) {
+                    return w;
+                }
+                let walks = of(Verb::Walk);
+                // On the surface: carry it away from home's column (the hungry lane's "up, then away"); climbing alone
+                // ran hungry carriers up and down the mound (10,512 up-labels against 34 off-hole drops, seed 3).
+                if ctx[c::DEPTH] <= 0.05 {
+                    let nx = anchor.0;
+                    let far = |x: i32| (x - nx).abs();
+                    if let Some(best) = walks.iter().map(|&i| far(opts[i].target.0)).max().filter(|&b| b > far(at.0)) {
+                        HUNGRY_BRANCH[1].fetch_add(1, Ordering::Relaxed);
+                        return walks.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                    }
+                }
+                let top = walks.iter().map(|&i| opts[i].target.1).min().unwrap_or(at.1);
+                HUNGRY_BRANCH[if top < at.1 { 1 } else { 2 }].fetch_add(1, Ordering::Relaxed);
+                // Stuck (no way up, nowhere off the hole): put it down anywhere, so the jaws can eat or dig out.
+                // `PP_CARRY_STUCK=0` leaves the brain's pick instead.
+                if top >= at.1 && std::env::var("PP_CARRY_STUCK").map_or(true, |v| v != "0") {
+                    let digs = of(Verb::Dig);
+                    return if digs.is_empty() { of(Verb::Drop) } else { digs };
+                }
+                return if top < at.1 { walks.into_iter().filter(|&i| opts[i].target.1 == top).collect() } else { Vec::new() };
+            }
+            // `PP_CARRY_NOEAT=1`: as the old ant, never Eat. It chooses to eat 0 of its bites and digests ~70% from the
+            // crop it carries (bed, seeds 1-4); every old ant ends 25+ tanks. A hungry ant with food keeps holding it
+            // (anything but Eat or Drop) and the body feeds it; a trip load goes on home by the carry rules below.
+            let no_eat = std::env::var("PP_CARRY_NOEAT").is_ok();
+            if no_eat && st.crop.is_some() && st.trip_cells == 0 {
+                return (0..opts.len()).filter(|&i| !matches!(opts[i].verb, Verb::Eat | Verb::Drop)).collect();
+            }
+            if !no_eat && st.crop.is_some() && (st.trip_cells == 0 || home(at)) {
+                HUNGRY_BRANCH[3].fetch_add(1, Ordering::Relaxed);
+                return of(Verb::Eat);
+            }
+            if st.crop.is_none() {
+                let p = of(Verb::PickUp);
+                HUNGRY_BRANCH[if p.is_empty() { 5 } else { 4 }].fetch_add(1, Ordering::Relaxed);
+                if !p.is_empty() {
+                    return p;
+                }
+                // `PP_CARRY_STORE=1`: the old ant's hungry rule first -- walk to the nest's store over the way
+                // (`NestWay::store_at`, the field the game ant's store pull walks) and eat there. Every starved ant
+                // in pw8 died beside a store that still held food, most within 8 columns of the hole.
+                if std::env::var("PP_CARRY_STORE").is_ok() {
+                    if let Some(w) = world.nest_ways.iter().find(|w| w.store_at(at.0, at.1).is_some()) {
+                        let here = w.store_at(at.0, at.1).unwrap();
+                        let ws: Vec<(usize, u16)> = of(Verb::Walk).into_iter().filter_map(|i| w.store_at(opts[i].target.0, opts[i].target.1).map(|k| (i, k))).collect();
+                        if let Some(best) = ws.iter().map(|x| x.1).min().filter(|&b| b < here) {
+                            return ws.into_iter().filter(|x| x.1 == best).map(|x| x.0).collect();
+                        }
+                    }
+                }
+                // Nothing in reach: go out for it (the hungry lane's lesson, its 40-column radius), never dig. Below the
+                // ground as built, the highest step; on the surface, the step furthest from home's column.
+                if st.spoil.is_none() && std::env::var("PP_CARRY_OUT").map_or(true, |v| v != "0") {
+                    if let Some(w) = way(opts) {
+                        return w;
+                    }
+                    let walks = of(Verb::Walk);
+                    let nx = anchor.0;
+                    let below = ctx[c::DEPTH] > 0.05;
+                    let key = |(tx, ty): (i32, i32)| if below { (at.1 - ty, (tx - nx).abs()) } else { ((tx - nx).abs(), at.1 - ty) };
+                    if !below && (at.0 - nx).abs() >= 40 {
+                        return Vec::new();
+                    }
+                    let here = key(at);
+                    let Some(best) = walks.iter().map(|&i| key(opts[i].target)).max() else { return Vec::new() };
+                    if best.0 > here.0 {
+                        return walks.into_iter().filter(|&i| key(opts[i].target).0 == best.0).collect();
+                    }
+                }
+            }
+        }
+        // `PP_CARRY_HUNGRYONLY=1`: the hungry rules alone, no carry-home labels (a ceiling for a hungry-only lesson).
+        if st.crop.is_none() || st.trip_cells == 0 || std::env::var("PP_CARRY_HUNGRYONLY").is_ok() {
+            return Vec::new();
+        }
+        static FLOOR: OnceLock<f32> = OnceLock::new();
+        let floor = *FLOOR.get_or_init(|| std::env::var("PP_CARRY_FLOOR").ok().map_or(1.0, |v| v.parse().expect("PP_CARRY_FLOOR")));
+        if e < floor {
+            return Vec::new();
+        }
+        if home(at) {
+            return of(Verb::Drop);
+        }
+        let picks = of(Verb::PickUp);
+        if !picks.is_empty() {
+            return picks;
+        }
+        if let Some(w) = way(opts) {
+            return w;
+        }
+        let (ax, ay) = anchor;
+        let d = |(x, y): (i32, i32)| (((x - ax) * (x - ax) + (y - ay) * (y - ay)) as f32).sqrt();
+        let walks = of(Verb::Walk);
+        let Some(best) = walks.iter().map(|&i| d(opts[i].target)).min_by(|a, b| a.partial_cmp(b).unwrap()) else { return Vec::new() };
+        if best >= d(at) {
+            return Vec::new();
+        }
+        walks.into_iter().filter(|&i| d(opts[i].target) == best).collect()
+    }
+    pub fn carry_out(world: &World, organism: OrganismId, def: &CreatureDef, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], pick: usize) -> Option<usize> {
+        let q = carry_act()?;
+        let lab = carry_label(world, organism, def, at, ctx, opts);
+        if lab.is_empty() {
+            return None;
+        }
+        CARRY_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        if lab.contains(&pick) {
+            CARRY_COUNTS[1].fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        if roll(world, organism, 91) >= q {
+            return None;
+        }
+        CARRY_COUNTS[2].fetch_add(1, Ordering::Relaxed);
+        Some(lab[(roll(world, organism, 92) * lab.len() as f32) as usize % lab.len()])
+    }
+    pub static PACKS: AtomicU64 = AtomicU64::new(0);
+    pub static WALLED: Mutex<Option<HashMap<OrganismId, u64>>> = Mutex::new(None);
+    // ---- SCRATCH (foraging-loop thread, 2026-10-22): `PP_SHADOW=1`, the old ant as the teacher. Every founder keeps
+    // its mind but walks by the game's own rules (chooser + act), as `PP_NOMIND`; before each of its ticks the mind
+    // is shown the options and context it would have had and decides (memory only, never acted on), and after the
+    // tick the old ant's move is read back off the body -- the cut, put-down, pick-up or step it made -- as the option
+    // indices that match it. That row (the 16th copy-log field) is the label. Hand-written rules failed five times
+    // (report-2026-10-22.md, "Correction"); this asks the bar itself.
+    pub fn shadow_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_SHADOW").is_ok_and(|v| v == "1"))
+    }
+    struct Pending {
+        row: String,
+        opts: Vec<Opt>,
+        cells: Vec<(u16, OrganismId)>,
+        ctx: [f32; CONTEXT],
+        mem0: [f32; MEMORY],
+        scores: Vec<f32>,
+        head: (i32, i32),
+        tail: Option<(i32, i32)>,
+        spoil: bool,
+        crop: u16,
+    }
+    thread_local! {
+        static SHADOW: std::cell::RefCell<HashMap<OrganismId, Pending>> = std::cell::RefCell::new(HashMap::new());
+        static SHADOW_PREV: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
+        static CAPTURE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    }
+    pub static SHADOW_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+    fn cell_key(world: &World, p: (i32, i32)) -> (u16, OrganismId) {
+        let c = world.get(p.0, p.1);
+        (c.material.0, c.organism_id())
+    }
+    /// The options the old ant's last tick matches: what changed on the body, and which offered target it touched.
+    fn shadow_label(world: &World, organism: OrganismId, p: &Pending) -> Vec<usize> {
+        let Some(st) = world.organism(organism) else { return Vec::new() };
+        let head = st.chain.first().copied().unwrap_or(p.head);
+        let spoil = st.spoil.is_some();
+        let crop = st.crop.map_or(0, |c| c.cells);
+        let changed = |i: usize| cell_key(world, p.opts[i].target) != p.cells[i];
+        let with = |v: Verb, need_change: bool| -> Vec<usize> { (0..p.opts.len()).filter(|&i| p.opts[i].verb == v && (!need_change || changed(i))).collect() };
+        if !p.spoil && spoil {
+            SHADOW_COUNTS[1].fetch_add(1, Ordering::Relaxed);
+            return with(Verb::Dig, true);
+        }
+        if p.spoil && !spoil {
+            SHADOW_COUNTS[2].fetch_add(1, Ordering::Relaxed);
+            let mut v = with(Verb::Drop, true);
+            v.extend(with(Verb::Dig, true));
+            return v;
+        }
+        if crop > p.crop {
+            SHADOW_COUNTS[3].fetch_add(1, Ordering::Relaxed);
+            return with(Verb::PickUp, true);
+        }
+        if crop < p.crop {
+            let v = with(Verb::Drop, true);
+            if !v.is_empty() {
+                SHADOW_COUNTS[4].fetch_add(1, Ordering::Relaxed);
+                return v;
+            }
+            // Digested, or fed to a nestmate: not a choice the options name.
+            SHADOW_COUNTS[7].fetch_add(1, Ordering::Relaxed);
+            return Vec::new();
+        }
+        if head != p.head {
+            SHADOW_COUNTS[5].fetch_add(1, Ordering::Relaxed);
+            if Some(head) == p.tail {
+                return with(Verb::TurnAround, false);
+            }
+            return (0..p.opts.len()).filter(|&i| p.opts[i].verb == Verb::Walk && p.opts[i].target == head).collect();
+        }
+        SHADOW_COUNTS[6].fetch_add(1, Ordering::Relaxed);
+        with(Verb::Rest, false)
+    }
+    /// Close the ant's pending row with the label its tick earned, write it (sampled), and walk the memory on with
+    /// the verb the old ant used.
+    fn shadow_resolve(world: &mut World, organism: OrganismId) {
+        let Some(p) = SHADOW.with(|s| s.borrow_mut().remove(&organism)) else { return };
+        let lab = shadow_label(world, organism, &p);
+        SHADOW_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        let field = if lab.is_empty() { "-".to_string() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) };
+        if !p.row.contains(",@L@") {
+            return;
+        }
+        let row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        // `PP_SHADOW_SAMPLE=n`: keep one in n rows labelled a plain step or rest, every other labelled row; a kept row
+        // is preceded by the ant's previous row marked settle=2 (memory context), as `PP_COPY_SAMPLE` does.
+        static N: OnceLock<u64> = OnceLock::new();
+        let n = *N.get_or_init(|| std::env::var("PP_SHADOW_SAMPLE").ok().map_or(1, |v| v.parse().expect("PP_SHADOW_SAMPLE")));
+        let plain = lab.is_empty() || lab.iter().all(|&i| matches!(p.opts[i].verb, Verb::Walk | Verb::Rest | Verb::TurnAround));
+        let keep = !lab.is_empty() && (!plain || n <= 1 || rng::stream(world.seed, organism as u64, world.frame, 4445).next_u64().is_multiple_of(n));
+        let settle2 = |r: &str| {
+            let mut f: Vec<&str> = r.splitn(7, ',').collect();
+            if f.len() == 7 {
+                f[5] = "2";
+            }
+            f.join(",")
+        };
+        SHADOW_PREV.with(|pm| {
+            let mut pm = pm.borrow_mut();
+            if keep {
+                if let Some((written, prev)) = pm.get(&organism) {
+                    if !*written {
+                        cline(&settle2(prev));
+                    }
+                }
+                cline(&row);
+            }
+            pm.insert(organism, (keep, row));
+        });
+        // Memory follows the verb carried out; with no label, the mind's own pick stands (decide already wrote it).
+        if let Some(&i) = lab.first() {
+            let verb = p.opts[i].verb;
+            if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
+                m.state.mem = remember(&m.genome.w, &p.ctx, &p.mem0, &p.opts, &p.scores, verb);
+                m.state.last_verb = Some(verb);
+            }
+        }
+    }
+    /// Before the old ant's tick: close the last row, then show the mind this tick's options and let it decide.
+    pub fn shadow_pre(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef) {
+        shadow_resolve(world, organism);
+        let Some(mut mind) = world.minds.as_mut().and_then(|m| m.ants.get(&organism).cloned()) else { return };
+        let mut opts = Vec::new();
+        options::build_with(world, organism, def, mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0, &mut opts);
+        if opts.is_empty() {
+            return;
+        }
+        let (ctx, now) = context(world, organism, def, &mind.state, &opts);
+        let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+        let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+        let Some(d) = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw) else { return };
+        mind.state.last = Some(now);
+        CAPTURE.with(|c| *c.borrow_mut() = Some(String::new()));
+        CARRY_LAB.with(|c| *c.borrow_mut() = "@L@".into());
+        copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, &d);
+        let row = CAPTURE.with(|c| c.borrow_mut().take()).unwrap_or_default();
+        let st = world.organism(organism);
+        let p = Pending {
+            row: row.trim_end().to_string(),
+            cells: opts.iter().map(|o| cell_key(world, o.target)).collect(),
+            ctx,
+            mem0,
+            scores: d.scores.clone(),
+            head: (x, y),
+            tail: st.and_then(|s| s.chain.last().copied()),
+            spoil: st.is_some_and(|s| s.spoil.is_some()),
+            crop: st.and_then(|s| s.crop).map_or(0, |c| c.cells),
+            opts,
+        };
+        if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
+            m.state = mind.state;
+        }
+        if !p.row.is_empty() {
+            SHADOW.with(|s| s.borrow_mut().insert(organism, p));
+        }
+    }
+    pub static DROPWHY: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    pub fn carry_report() -> String {
+        if let Some(m) = WALLED.lock().unwrap().as_ref() {
+            let mut v: Vec<_> = m.iter().collect();
+            v.sort();
+            eprintln!("WALLED {}", v.iter().map(|(i, f)| format!("{i}:{f}")).collect::<Vec<_>>().join(" "));
+        }
+        let dw: Vec<u64> = DROPWHY.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        if dw[0] > 0 {
+            eprintln!("DROPWHY pellet holders under 1 tank: {} decisions; an empty cell beside the head {}; an on-ground spoil site {}; the game ant's need site {}; 3+ nestmates beside {}; no empty cell and a nestmate beside {}", dw[0], dw[1], dw[2], dw[3], dw[4], dw[5]);
+        }
+        let c: Vec<u64> = CARRY_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        eprintln!("PACKS {} HOMEFAR labels {}", PACKS.load(Ordering::Relaxed), HOMEFAR.load(Ordering::Relaxed));
+        let h: Vec<u64> = HUNGRY_BRANCH.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        format!("carry {:?}: labelled {} | brain already agreed {} | forced {} || hungry decisions: spoil drop {} up {} stuck {} | eat {} | pick {} | empty, nothing to pick {}", carry_act(), c[0], c[1], c[2], h[0], h[1], h[2], h[3], h[4], h[5])
+    }
+
+    // ---- SCRATCH (teacher-training ceiling test): a hand-written teacher that makes three of the brain's calls.
+    // `PP_TEACH=dig,drop,home[,margin=N]` turns each correction on. The teacher reads only what the copyability probe
+    // showed the ant can sense (frame-0 ground, depth, the hole as it stands), held per thread by the soil arena for
+    // the run's frames and cleared before the settle, so it never acts while the score is being taken.
+    //   dig   empty jaws: dig the deepest foot cell when one is in reach (force); a dig with none in reach is vetoed
+    //   drop  carrying spoil: put it down on a cell clear of the hole when one is offered (force); a put-down inside
+    //         the hole's zone is vetoed. `margin=N` widens "clear" by N cells (a pellet at exactly 3 may slide back)
+    //   home  empty, on the surface, 3+ columns from the mouth, walking: take the step nearest the mouth's column
+    //   down  empty, below ground, no foot cell in reach, walking: take the deepest step, if one goes deeper. Added
+    //         after the first ceiling run: with wall cuts vetoed and nothing in their place, the ant walked up and down
+    //         the shaft for 6,000 frames and never reached the foot (s161 had only ever got down by digging its way)
+    // A veto removes the verb and lets the brain redraw from what is left, so the teacher never invents behaviour
+    // where it abstains. Shut in (no Walk option offered), the teacher abstains on dig and drop: digging out is legal.
+    pub struct TeachCtx {
+        pub x0: i32,
+        pub y0: i32,
+        pub nw: usize,
+        pub nh: usize,
+        pub ground0: Vec<bool>,
+        pub datum: Vec<Option<i32>>,
+        pub founding: Vec<(i32, i32)>,
+        pub shaft: i32,
+        pub mouth_x: f32,
+        /// Chebyshev radius a put-down must keep from every hole cell (SOIL_AWAY - 1, plus the margin).
+        pub clear: i32,
+    }
+    thread_local! {
+        pub static TEACH: std::cell::RefCell<Option<TeachCtx>> = const { std::cell::RefCell::new(None) };
+    }
+    /// 0 decisions under a teacher, 1 dig forced, 2 dig vetoed, 3 drop forced, 4 drop vetoed, 5 walk-home forced,
+    /// 6 shut-in abstains, 7 decisions with the teacher on but no facts on this thread (should be the settle only),
+    /// 8 go-down forced, 9 calls skipped by compliance (q or floor), 10 positive-control failures of `remember`
+    /// (re-running the brain's own verb must give the memory `decide` wrote).
+    pub static COUNTS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+    pub fn down_on() -> bool {
+        static D: OnceLock<bool> = OnceLock::new();
+        *D.get_or_init(|| std::env::var("PP_TEACH").unwrap_or_default().split(',').any(|p| p == "down"))
+    }
+    pub fn arms() -> (bool, bool, bool, i32) {
+        static A: OnceLock<(bool, bool, bool, i32)> = OnceLock::new();
+        *A.get_or_init(|| {
+            let s = std::env::var("PP_TEACH").unwrap_or_default();
+            let parts: Vec<&str> = s.split(',').filter(|p| !p.is_empty()).collect();
+            let margin = parts.iter().find_map(|p| p.strip_prefix("margin=")).map_or(0, |m| m.parse().expect("PP_TEACH margin"));
+            for p in &parts {
+                assert!(matches!(*p, "dig" | "drop" | "home" | "down") || p.starts_with("margin="), "PP_TEACH: unknown part {p}");
+            }
+            (parts.contains(&"dig"), parts.contains(&"drop"), parts.contains(&"home"), margin)
+        })
+    }
+    /// The brain's own memory update (`decide`'s "Memory" block), re-run for the verb actually carried out, with
+    /// all_best / all_mean over the brain's FULL option list. Review fix (2026-10-21): the first ceiling test left the
+    /// memory a forced dig wrote as if the brain had done its own pick, and a veto's redraw summed the options without
+    /// the vetoed verb's, so the ceiling's ant remembered something other than what it did.
+    pub fn remember(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], opts: &[Opt], scores: &[f32], verb: Verb) -> [f32; MEMORY] {
+        let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
+        let (mut best, mut sum, mut n) = (f32::NEG_INFINITY, 0.0f32, 0u32);
+        for (o, op) in opts.iter().enumerate() {
+            if on(op.verb) {
+                best = best.max(scores[o]);
+                sum += scores[o];
+                n += 1;
+            }
+        }
+        let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
+        let mut fresh = [0.0f32; MEMORY];
+        for (m, slot) in fresh.iter_mut().enumerate() {
+            let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
+            let mut s = row[M_IN - 1] + row[CONTEXT] * best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
+            for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+                s += w * x;
+            }
+            for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
+                s += w * x;
+            }
+            let r = rate(g, m);
+            *slot = r * mem0[m] + (1.0 - r) * squash(s);
+        }
+        fresh
+    }
+    /// `PP_TEACH_Q=q`: each call is applied with probability q (the compliance curve). `PP_TEACH_FLOOR=1`: each call
+    /// is applied only as often as a brain saturated towards it would obey under `choose_weighted`'s floor (labelled
+    /// options at w = 1, the rest at w = 0; a veto leaves Dig at w = 0 against the other verbs' own weights) -- the
+    /// most a copied brain could deliver (method review M1).
+    fn q() -> f32 {
+        static Q: OnceLock<f32> = OnceLock::new();
+        *Q.get_or_init(|| std::env::var("PP_TEACH_Q").ok().map_or(1.0, |v| v.parse().expect("PP_TEACH_Q")))
+    }
+    fn floor_mode() -> bool {
+        static F: OnceLock<bool> = OnceLock::new();
+        *F.get_or_init(|| std::env::var("PP_TEACH_FLOOR").is_ok_and(|v| v == "1" || v == "2"))
+    }
+    /// `PP_TEACH_FLOOR=2`: the strict floor. Every decision a rule covers is drawn from the saturated policy, not only
+    /// those where the brain's own draw was wrong -- so a copy that is right on average still digs a wall now and then
+    /// with no foot cell in reach (method review M1's ~2.8 a world).
+    fn strict_floor() -> bool {
+        static F: OnceLock<bool> = OnceLock::new();
+        *F.get_or_init(|| std::env::var("PP_TEACH_FLOOR").is_ok_and(|v| v == "2"))
+    }
+    fn roll(world: &World, organism: OrganismId, salt: u64) -> f32 {
+        rng::stream(world.seed, organism as u64, world.frame, 4300 + salt).unit_f32()
+    }
+    /// `PP_TEACH_SAT=s` (default 1): how far a copied brain's scores reach -- labelled options at score +s, the rest
+    /// at -s (w = (1 + s) / 2 and (1 - s) / 2). 1 is full saturation; 0.9 is what squash reaches at |x| = 9.
+    fn sat() -> f32 {
+        static S: OnceLock<f32> = OnceLock::new();
+        *S.get_or_init(|| std::env::var("PP_TEACH_SAT").ok().map_or(1.0, |v| v.parse().expect("PP_TEACH_SAT")))
+    }
+    fn lo_w() -> f32 {
+        (PICK_FLOOR + (1.0 - sat()) / 2.0).powi(2)
+    }
+    /// Obedience among `labelled` options against `others`, at saturation `sat()`.
+    fn obey(labelled: usize, others: usize) -> f32 {
+        let hi = (PICK_FLOOR + (1.0 + sat()) / 2.0).powi(2);
+        labelled as f32 * hi / (labelled as f32 * hi + others as f32 * lo_w())
+    }
+    fn applies(world: &World, organism: OrganismId, salt: u64, obedience: f32) -> bool {
+        let p = q() * if floor_mode() { obedience } else { 1.0 };
+        if p >= 1.0 {
+            return true;
+        }
+        let ok = rng::stream(world.seed, organism as u64, world.frame, 4200 + salt).unit_f32() < p;
+        if !ok {
+            COUNTS[9].fetch_add(1, Ordering::Relaxed);
+        }
+        ok
+    }
+    pub fn teach_on() -> bool {
+        let a = arms();
+        a.0 || a.1 || a.2 || down_on()
+    }
+    impl TeachCtx {
+        fn ground0(&self, x: i32, y: i32) -> bool {
+            let (i, j) = (x - self.x0, y - self.y0);
+            i >= 0 && j >= 0 && (i as usize) < self.nw && (j as usize) < self.nh && self.ground0[j as usize * self.nw + i as usize]
+        }
+        /// As the arena's `depth_below_ground`: rows below the lowest datum within 3 columns.
+        fn depth(&self, x: i32, y: i32) -> i32 {
+            (x - 3..=x + 3)
+                .filter_map(|c| usize::try_from(c - self.x0).ok().and_then(|i| self.datum.get(i).copied().flatten()))
+                .max()
+                .map_or(0, |low| y - low)
+        }
+    }
+    pub enum Teach {
+        Keep,
+        Force(usize),
+        Veto(Verb),
+    }
+    fn shut_in(opts: &[Opt]) -> bool {
+        !opts.iter().any(|o| o.verb == Verb::Walk)
+    }
+    /// The dig and drop corrections, on the brain's pick.
+    pub fn teach(world: &World, organism: OrganismId, opts: &[Opt], pick: usize, jobs: &[Option<f32>; VERBS]) -> Teach {
+        let (dig, drop, _, _) = arms();
+        TEACH.with(|t| {
+            let t = t.borrow();
+            let Some(t) = t.as_ref() else {
+                COUNTS[7].fetch_add(1, Ordering::Relaxed);
+                return Teach::Keep;
+            };
+            COUNTS[0].fetch_add(1, Ordering::Relaxed);
+            let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
+            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+            let chosen = opts[pick];
+            if (dig || drop) && shut_in(opts) {
+                COUNTS[6].fetch_add(1, Ordering::Relaxed);
+                return Teach::Keep;
+            }
+            if dig && !carrying {
+                let foot = |o: &Opt| {
+                    let (x, y) = o.target;
+                    t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
+                };
+                let best = opts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| o.verb == Verb::Dig && foot(o))
+                    .max_by(|a, b| {
+                        (t.depth(a.1.target.0, a.1.target.1), -(a.1.target.0 as f32 - t.mouth_x).abs())
+                            .partial_cmp(&(t.depth(b.1.target.0, b.1.target.1), -(b.1.target.0 as f32 - t.mouth_x).abs()))
+                            .unwrap()
+                    })
+                    .map(|(i, _)| i);
+                let others = (0..VERBS).filter(|&v| v != Verb::Dig as usize && jobs[v].is_some()).count();
+                let n_foot = opts.iter().filter(|o| o.verb == Verb::Dig && foot(o)).count();
+                let n_dig = opts.iter().filter(|o| o.verb == Verb::Dig).count();
+                if strict_floor() {
+                    let lo = lo_w();
+                    let rest: f32 = (0..VERBS)
+                        .filter(|&v| v != Verb::Dig as usize)
+                        .filter_map(|v| jobs[v].map(|j| (PICK_FLOOR + (j + 1.0) / 2.0).powi(2)))
+                        .sum();
+                    let u = roll(world, organism, 1);
+                    match best {
+                        // A foot cell in reach: obey with the saturated probability, else leave the brain's pick.
+                        Some(i) => {
+                            if u < obey(1, others) * obey(n_foot, n_dig - n_foot) {
+                                if !(chosen.verb == Verb::Dig && foot(&chosen)) {
+                                    COUNTS[1].fetch_add(1, Ordering::Relaxed);
+                                    return Teach::Force(i);
+                                }
+                            } else {
+                                COUNTS[9].fetch_add(1, Ordering::Relaxed);
+                                if chosen.verb == Verb::Dig && foot(&chosen) {
+                                    return Teach::Veto(Verb::Dig);
+                                }
+                            }
+                        }
+                        // None in reach: a saturated copy still digs with probability lo / (lo + rest) -- at the
+                        // brain's best-scored Dig option -- and otherwise does not dig.
+                        None if n_dig > 0 => {
+                            if u < lo / (lo + rest) {
+                                COUNTS[9].fetch_add(1, Ordering::Relaxed);
+                                if chosen.verb != Verb::Dig {
+                                    let leak = opts.iter().enumerate().filter(|(_, o)| o.verb == Verb::Dig).map(|(i, _)| i).next();
+                                    if let Some(i) = leak {
+                                        return Teach::Force(i);
+                                    }
+                                }
+                            } else if chosen.verb == Verb::Dig {
+                                COUNTS[2].fetch_add(1, Ordering::Relaxed);
+                                return Teach::Veto(Verb::Dig);
+                            }
+                        }
+                        None => {}
+                    }
+                    return Teach::Keep;
+                }
+                match best {
+                    Some(i) if !(chosen.verb == Verb::Dig && foot(&chosen)) => {
+                        if applies(world, organism, 1, obey(1, others) * obey(n_foot, n_dig - n_foot)) {
+                            COUNTS[1].fetch_add(1, Ordering::Relaxed);
+                            return Teach::Force(i);
+                        }
+                    }
+                    None if chosen.verb == Verb::Dig => {
+                        let lo = lo_w();
+                        let rest: f32 = (0..VERBS)
+                            .filter(|&v| v != Verb::Dig as usize)
+                            .filter_map(|v| jobs[v].map(|j| (PICK_FLOOR + (j + 1.0) / 2.0).powi(2)))
+                            .sum();
+                        if applies(world, organism, 2, 1.0 - lo / (lo + rest)) {
+                            COUNTS[2].fetch_add(1, Ordering::Relaxed);
+                            return Teach::Veto(Verb::Dig);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if drop && carrying {
+                let mut hole: std::collections::HashSet<(i32, i32)> = t.founding.iter().copied().collect();
+                hole.extend(cuts.iter().filter(|c| t.ground0(c.0, c.1)).map(|c| (c.0, c.1)));
+                let r = t.clear;
+                let gap = |(x, y): (i32, i32)| {
+                    (-r - 3..=r + 3)
+                        .flat_map(|dy| (-r - 3..=r + 3).map(move |dx| (dx, dy)))
+                        .filter(|d| hole.contains(&(x + d.0, y + d.1)))
+                        .map(|(dx, dy)| dx.abs().max(dy.abs()))
+                        .min()
+                        .unwrap_or(i32::MAX)
+                };
+                let clear = |o: &Opt| gap(o.target) > r;
+                // "The first cell clear": of the clear put-downs, the one nearest the hole (the shortest carry).
+                let best = opts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| o.verb == Verb::Drop && clear(o))
+                    .min_by_key(|(_, o)| gap(o.target))
+                    .map(|(i, _)| i);
+                match best {
+                    Some(i) if !(chosen.verb == Verb::Drop && clear(&chosen)) => {
+                        COUNTS[3].fetch_add(1, Ordering::Relaxed);
+                        return Teach::Force(i);
+                    }
+                    None if chosen.verb == Verb::Drop => {
+                        COUNTS[4].fetch_add(1, Ordering::Relaxed);
+                        return Teach::Veto(Verb::Drop);
+                    }
+                    _ => {}
+                }
+            }
+            Teach::Keep
+        })
+    }
+    /// The walk-home correction, on the final pick (after any veto's redraw).
+    pub fn walk_home(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], pick: usize) -> Option<usize> {
+        if !(arms().2 || down_on()) || opts[pick].verb != Verb::Walk {
+            return None;
+        }
+        TEACH.with(|t| {
+            let t = t.borrow();
+            let t = t.as_ref()?;
+            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+            if carrying {
+                return None;
+            }
+            if down_on() && t.depth(at.0, at.1) > 0 {
+                let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
+                let foot = |o: &Opt| {
+                    let (x, y) = o.target;
+                    o.verb == Verb::Dig && t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
+                };
+                if opts.iter().any(foot) {
+                    return None;
+                }
+                let here = t.depth(at.0, at.1);
+                let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
+                let deepest = *walks.iter().max_by_key(|&&i| (t.depth(opts[i].target.0, opts[i].target.1), -(opts[i].target.0 - at.0).abs()))?;
+                let dd = t.depth(opts[deepest].target.0, opts[deepest].target.1);
+                if dd > here && dd > t.depth(opts[pick].target.0, opts[pick].target.1) {
+                    let n_deep = walks.iter().filter(|&&i| t.depth(opts[i].target.0, opts[i].target.1) == dd).count();
+                    if applies(world, organism, 3, obey(n_deep, walks.len() - n_deep)) {
+                        COUNTS[7 + 1].fetch_add(1, Ordering::Relaxed);
+                        return Some(deepest);
+                    }
+                }
+                return None;
+            }
+            if !arms().2 || t.depth(at.0, at.1) > 0 || (at.0 as f32 - t.mouth_x).abs() < 3.0 {
+                return None;
+            }
+            let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
+            if walks.len() < 2 {
+                return None;
+            }
+            let d = |i: usize| (opts[i].target.0 as f32 - t.mouth_x).abs();
+            let best = *walks.iter().min_by(|a, b| d(**a).partial_cmp(&d(**b)).unwrap())?;
+            let n_near = walks.iter().filter(|&&i| d(i) == d(best)).count();
+            if d(best) < d(pick) && applies(world, organism, 5, obey(n_near, walks.len() - n_near)) {
+                COUNTS[5].fetch_add(1, Ordering::Relaxed);
+                Some(best)
+            } else {
+                None
+            }
+        })
+    }
+    // ---- SCRATCH (teacher-training step 1, the copier's log): `PP_COPY_LOG=<file>` writes, per decision, everything a
+    // copier needs to recompute the brain's choice for ANY genome -- every option of every verb at full precision
+    // (Rust's shortest round-trip float form), the brain's own scores, its memory before the decision -- and, in the
+    // soil arena with `PP_TEACH_LABEL` set, the teacher's state labels: pure functions of the state, written whatever
+    // the brain picked (review finding 1). Every row starts with a world tag (`WORLD`, set by the example per job) so
+    // worlds can run on several threads into one file; `SETTLE` marks the scored settle's rest-mind rows.
+    thread_local! {
+        pub static WORLD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        pub static SETTLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    fn copy_out() -> Option<&'static Mutex<std::io::BufWriter<std::fs::File>>> {
+        static F: OnceLock<Option<Mutex<std::io::BufWriter<std::fs::File>>>> = OnceLock::new();
+        F.get_or_init(|| {
+            std::env::var("PP_COPY_LOG")
+                .ok()
+                .map(|p| Mutex::new(std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(p).expect("copy log"))))
+        })
+        .as_ref()
+    }
+    /// SCRATCH (teacher lane, 2026-10-22): `PP_RIMVETO=N` with `PP_RIMVETO_X` / `PP_RIMVETO_R`, read once (the dig
+    /// thread's first cut read the environment on every decision).
+    pub fn rimveto() -> Option<(i32, i32, i32)> {
+        static V: OnceLock<Option<(i32, i32, i32)>> = OnceLock::new();
+        *V.get_or_init(|| {
+            let n = std::env::var("PP_RIMVETO").ok()?.parse::<i32>().ok()?;
+            let nx = std::env::var("PP_RIMVETO_X").ok().and_then(|v| v.parse().ok()).unwrap_or(128);
+            let nr = std::env::var("PP_RIMVETO_R").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+            Some((n, nx, nr))
+        })
+    }
+    /// The refusal's test: a Dig of ground (not spoil) fewer than `n` rows below the frozen datum within `nr` columns
+    /// of `nx`. One function for the acting veto and the copy log's label, so the two cannot drift apart.
+    pub fn rim_cut(world: &World, o: &Opt, n: i32, nx: i32, nr: i32) -> bool {
+        let (tx, ty) = o.target;
+        o.verb == Verb::Dig
+            && (tx - nx).abs() <= nr
+            && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
+            && Some(world.get(tx, ty).material) != world.materials.id_of("spoil")
+    }
+    pub fn copy_on() -> bool {
+        copy_out().is_some()
+    }
+    /// One row into the copy log, prefixed with this thread's world tag.
+    pub fn cline(s: &str) {
+        if shadow_on() && CAPTURE.with(|c| c.borrow().is_some()) {
+            CAPTURE.with(|c| c.borrow_mut().as_mut().unwrap().push_str(s));
+            return;
+        }
+        if let Some(f) = copy_out() {
+            let tag = WORLD.with(|w| w.get());
+            let _ = writeln!(f.lock().unwrap(), "{tag},{s}");
+        }
+    }
+    pub fn copy_flush() {
+        if let Some(f) = copy_out() {
+            let _ = f.lock().unwrap().flush();
+        }
+    }
+    pub fn label_on() -> bool {
+        static L: OnceLock<bool> = OnceLock::new();
+        *L.get_or_init(|| std::env::var("PP_TEACH_LABEL").is_ok())
+    }
+    /// The teacher's state labels for one decision, as option indices into `opts`. Each mirrors the acting rule's test
+    /// in `teach` / `walk_home` exactly, but is computed whatever the brain picked:
+    ///   dig   `M` must-dig (a foot cell in reach; `digset` = the acting rule's choice key's arg-max set), `N`
+    ///         must-not-dig (Dig offered, no foot cell), `-` abstain (carrying, shut in, or no Dig offered)
+    ///   down  the deepest steps (key: depth, then nearest column), when empty, below ground, no foot cell in reach,
+    ///         and the deepest step is deeper than here
+    ///   home  the steps nearest the mouth's column, when empty, on the surface, 3+ columns from the mouth, 2+ steps
+    fn labels(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) -> String {
+        TEACH.with(|t| {
+            let t = t.borrow();
+            let Some(t) = t.as_ref() else { return "-|-|-|-".to_string() };
+            let cuts: &[(i32, i32, u64, OrganismId)] = world.cut_log.as_deref().unwrap_or(&[]);
+            let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+            let foot = |o: &Opt| {
+                let (x, y) = o.target;
+                o.verb == Verb::Dig && t.ground0(x, y) && !cuts.iter().any(|c| (c.0, c.1) == (x, y)) && t.depth(x, y) >= t.shaft
+            };
+            let join = |v: &[usize]| if v.is_empty() { "-".to_string() } else { v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";") };
+            let any_foot = opts.iter().any(foot);
+            let (mut dig, mut digset) = ("-", Vec::new());
+            if !carrying && !shut_in(opts) && opts.iter().any(|o| o.verb == Verb::Dig) {
+                if any_foot {
+                    dig = "M";
+                    let key = |o: &Opt| (t.depth(o.target.0, o.target.1), -(o.target.0 as f32 - t.mouth_x).abs());
+                    let best = opts.iter().filter(|o| foot(o)).map(key).fold(None, |m: Option<(i32, f32)>, k| match m {
+                        Some(b) if b >= k => Some(b),
+                        _ => Some(k),
+                    });
+                    digset = (0..opts.len()).filter(|&i| foot(&opts[i]) && Some(key(&opts[i])) == best).collect();
+                } else {
+                    dig = "N";
+                }
+            }
+            let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
+            let here = t.depth(at.0, at.1);
+            let mut down = Vec::new();
+            if !carrying && here > 0 && !any_foot && !walks.is_empty() {
+                let key = |i: usize| (t.depth(opts[i].target.0, opts[i].target.1), -(opts[i].target.0 - at.0).abs());
+                let best = walks.iter().map(|&i| key(i)).max().unwrap();
+                if best.0 > here {
+                    down = walks.iter().copied().filter(|&i| key(i) == best).collect();
+                }
+            }
+            let mut home = Vec::new();
+            if !carrying && here <= 0 && (at.0 as f32 - t.mouth_x).abs() >= 3.0 && walks.len() >= 2 {
+                let d = |i: usize| (opts[i].target.0 as f32 - t.mouth_x).abs();
+                let best = walks.iter().map(|&i| d(i)).fold(f32::INFINITY, f32::min);
+                home = walks.iter().copied().filter(|&i| d(i) == best).collect();
+            }
+            format!("{dig}|{}|{}|{}", join(&digset), join(&down), join(&home))
+        })
+    }
+    /// The copy log's decision row: `Q,frame,id,x,y,settle,pick,last_verb,carrying,labels,ctx,mem0,opts` -- opts as
+    /// `verb:tx:ty:score:i=v i=v ...` (nonzero features), `;`-joined.
+    #[allow(clippy::too_many_arguments)]
+    pub fn copy_decision(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
+        if !copy_on() {
+            return;
+        }
+        let f = |v: &[f32]| v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ");
+        let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+        let lab = if label_on() { labels(world, organism, at, opts) } else { "-|-|-|-".to_string() };
+        let all: Vec<String> = opts
+            .iter()
+            .enumerate()
+            .map(|(k, op)| {
+                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}={x}")).collect();
+                format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
+            })
+            .collect();
+        // SCRATCH (teacher lane, 2026-10-21): the "bottom of the hole" candidate sense, appended as a 15th field so
+        // every reader of fields 0-13 is unchanged. Per Dig option, for reach R in BOTTOM_REACH: target row minus the
+        // deepest open row of the cavity the head stands in, flooded through open cells (empty, or this ant's own
+        // body) within Chebyshev R of the head -- what an ant feels by touch and gravity: is there open space lower
+        // than the cell it is about to cut? `-` for other verbs.
+        // SCRATCH (teacher lane, 2026-10-22): the crater refusal's label as a 17th field (the 16th, `-` here, is the
+        // foraging-loop thread's teacher label): the option indices `PP_RIMVETO` would take off, a pure function of
+        // the state, written whatever the brain picked; `-` when none or the refusal is off.
+        let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
+        let bottom: Vec<String> = opts
+            .iter()
+            .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+            .collect();
+        let carry = CARRY_LAB.with(|c| std::mem::replace(&mut *c.borrow_mut(), "-".into()));
+        // SCRATCH (maze thread, 2026-10-22; ported): the recruitment-trail teacher's label shares the 16th field,
+        // `hp|i;j` as the copier reads it, when the carry teacher has none. `PP_TRAIL_LABEL=hp[:spread]`.
+        let carry = if carry != "-" {
+            carry
+        } else {
+            trail_label().map_or_else(
+                || "-".to_string(),
+                |(hp, _)| trail_up(world, organism, ctx, opts).map_or_else(|| "-".to_string(), |up| format!("{hp}|{}", up.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";"))),
+            )
+        };
+        // The crater refusal's label as a 17th field (teacher lane's format): the option indices `PP_RIMVETO` would
+        // take off, whatever the brain picked; `-` when none or the refusal is off.
+        let refused = rimveto().map_or_else(|| "-".to_string(), |(n, nx, nr)| {
+            let r: Vec<String> = (0..opts.len()).filter(|&i| rim_cut(world, &opts[i], n, nx, nr)).map(|i| i.to_string()).collect();
+            if r.is_empty() { "-".to_string() } else { r.join(";") }
+        });
+        let row = |settle: u8| {
+            format!(
+                "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{carry},{refused}",
+                world.frame,
+                at.0,
+                at.1,
+                settle,
+                d.pick,
+                last.map_or(-1, |v| v as i32),
+                u8::from(carrying),
+                f(ctx),
+                f(mem0),
+                all.join(";"),
+                bottom.join(";")
+            )
+        };
+        // `PP_COPY_SAMPLE=k[:m]` (the hungry lane's sampler): keep one in m labelled rows (default every one) and one
+        // in k of the rest, each kept row preceded by the same ant's previous decision marked settle=2 (memory context
+        // only, never a training row), so the copier's one-step memory path still links a kept row to the one before.
+        let (k, m) = sample_km();
+        let settle = u8::from(SETTLE.with(|s| s.get()));
+        if k <= 1 && m <= 1 {
+            cline(&row(settle));
+            return;
+        }
+        let r = rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64();
+        let keep = if carry != "-" || refused != "-" { r.is_multiple_of(m) } else { r.is_multiple_of(k) };
+        PREV_ROW.with(|pm| {
+            let mut pm = pm.borrow_mut();
+            if keep {
+                if let Some((written, prev)) = pm.get(&organism) {
+                    if !*written {
+                        cline(prev);
+                    }
+                }
+                cline(&row(settle));
+            }
+            pm.insert(organism, (keep, row(2)));
+        });
+    }
+    thread_local! {
+        pub static CARRY_LAB: std::cell::RefCell<String> = std::cell::RefCell::new("-".into());
+        static PREV_ROW: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
+    }
+    /// The recruitment-trail teacher's steps (maze thread, 2026-10-22; ported from trail-teacher-vs-ee38ae5b.patch):
+    /// for an ant with an empty crop and empty jaws, away from the nest, with 2+ Walk options whose B there-minus-here
+    /// differs by at least the label's `spread`, the steps up B.
+    pub fn trail_up(world: &World, organism: OrganismId, ctx: &[f32; CONTEXT], opts: &[Opt]) -> Option<Vec<usize>> {
+        let (_, spread) = trail_label()?;
+        let empty = world.organism(organism).is_some_and(|s| s.crop.map_or(0, |c| c.cells) == 0 && s.spoil.is_none());
+        let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
+        if !empty || ctx[c::AT_NEST] > 0.0 || walks.len() < 2 {
+            return None;
+        }
+        // `PP_TRAIL_OUT=1`: the second rule (after the first one trapped climbers on a runaway B peak short of the
+        // food): stay on the trail -- Walk options whose B there is at least half the best -- and of those take the
+        // step farthest from the nest's column (outward). No trail in reach (best B there < 0.05): abstain.
+        if trail_out() {
+            let bt = |i: usize| opts[i].feats[options::f::SCENT + 3];
+            let best = walks.iter().map(|&i| bt(i)).fold(f32::NEG_INFINITY, f32::max);
+            if best < 0.05 {
+                return None;
+            }
+            let on: Vec<usize> = walks.iter().copied().filter(|&i| bt(i) >= 0.5 * best).collect();
+            let out = |i: usize| (opts[i].target.0 - 128).abs();
+            let far = on.iter().map(|&i| out(i)).max()?;
+            return Some(on.into_iter().filter(|&i| out(i) == far).collect());
+        }
+        let bd = |i: usize| opts[i].feats[options::f::SCENT + 4];
+        let hi = walks.iter().map(|&i| bd(i)).fold(f32::NEG_INFINITY, f32::max);
+        let lo = walks.iter().map(|&i| bd(i)).fold(f32::INFINITY, f32::min);
+        (hi - lo >= spread).then(|| walks.iter().copied().filter(|&i| bd(i) == hi).collect())
+    }
+    fn trail_out() -> bool {
+        static O: OnceLock<bool> = OnceLock::new();
+        *O.get_or_init(|| std::env::var("PP_TRAIL_OUT").is_ok())
+    }
+    pub fn trail_act() -> bool {
+        static A: OnceLock<bool> = OnceLock::new();
+        *A.get_or_init(|| std::env::var("PP_TRAIL_ACT").is_ok())
+    }
+    fn trail_label() -> Option<(f32, f32)> {
+        static T: OnceLock<Option<(f32, f32)>> = OnceLock::new();
+        *T.get_or_init(|| {
+            let v = std::env::var("PP_TRAIL_LABEL").ok()?;
+            let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_TRAIL_LABEL hp[:spread]")).collect();
+            Some((p[0], p.get(1).copied().unwrap_or(0.2)))
+        })
+    }
+    fn sample_km() -> (u64, u64) {
+        static K: OnceLock<(u64, u64)> = OnceLock::new();
+        *K.get_or_init(|| {
+            std::env::var("PP_COPY_SAMPLE").ok().map_or((1, 1), |v| {
+                let p: Vec<u64> = v.split(':').map(|x| x.parse().expect("PP_COPY_SAMPLE k[:m]")).collect();
+                (p[0], p.get(1).copied().unwrap_or(1))
+            })
+        })
+    }
+    pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
+    /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
+    /// own row if nothing else is open.
+    pub fn cavity_low(world: &World, organism: OrganismId, head: (i32, i32), r: i32) -> i32 {
+        let open = |x: i32, y: i32| {
+            let c = world.get(x, y);
+            c.material == crate::sim::material::EMPTY || c.organism_id() == organism
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![head];
+        seen.insert(head);
+        let mut low = head.1;
+        while let Some((x, y)) = stack.pop() {
+            low = low.max(y);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let n = (x + dx, y + dy);
+                    if (n.0 - head.0).abs() <= r && (n.1 - head.1).abs() <= r && !seen.contains(&n) && open(n.0, n.1) {
+                        seen.insert(n);
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        low
+    }
+
+    pub fn teach_report() -> String {
+        let c: Vec<u64> = COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        format!(
+            "teacher {:?}: decisions {} | dig forced {} vetoed {} | drop forced {} vetoed {} | walk-home forced {} | shut-in abstains {} | no facts {} | down forced {} | skipped (q/floor) {} | remember mismatches {} | q {} floor {} sat {}",
+            arms(), c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], q(), floor_mode(), sat()
+        )
+    }
+
+    fn out() -> Option<&'static Mutex<std::io::LineWriter<std::fs::File>>> {
+        static F: OnceLock<Option<Mutex<std::io::LineWriter<std::fs::File>>>> = OnceLock::new();
+        F.get_or_init(|| {
+            std::env::var("PP_MIND_LOG").ok().map(|p| Mutex::new(std::io::LineWriter::new(std::fs::File::create(p).expect("log"))))
+        })
+        .as_ref()
+    }
+    pub fn ablate(ctx: &mut [f32; CONTEXT]) {
+        static IDX: OnceLock<Vec<usize>> = OnceLock::new();
+        let idx = IDX.get_or_init(|| {
+            let names = context_names();
+            std::env::var("PP_ABLATE").unwrap_or_default().split(',').filter(|n| !n.is_empty())
+                .map(|n| names.iter().position(|m| *m == n).unwrap_or_else(|| panic!("PP_ABLATE: no sense {n}"))).collect()
+        });
+        for &i in idx {
+            ctx[i] = 0.0;
+        }
+    }
+    pub fn line(s: String) {
+        if let Some(f) = out() {
+            let _ = writeln!(f.lock().unwrap(), "{s}");
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn decision(seed: u64, frame: u64, id: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
+        if out().is_none() {
+            return;
+        }
+        let o = &opts[d.pick];
+        let mut best = [f32::NAN; VERBS];
+        for (k, op) in opts.iter().enumerate() {
+            let v = op.verb as usize;
+            if best[v].is_nan() || d.scores[k] > best[v] {
+                best[v] = d.scores[k];
+            }
+        }
+        let f = |v: &[f32]| v.iter().map(|x| format!("{x:.4}")).collect::<Vec<_>>().join(" ");
+        let jobs: Vec<String> = d.jobs.iter().map(|j| j.map_or("nan".into(), |j| format!("{j:.4}"))).collect();
+        line(format!(
+            "M,{seed},{frame},{id},{},{},{},{},{},{},{},{},{},{}",
+            at.0, at.1, o.verb as usize, o.target.0, o.target.1,
+            last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
+        ) + &format!(",{}", f(&o.feats)));
+        // SCRATCH (teacher-training measurement 2): every Walk, Dig and Drop option, not only the chosen one, so a
+        // copier can see the whole choice. Per option `verb tx ty brain_score|k:v k:v` with only nonzero features.
+        let all: Vec<String> = opts
+            .iter()
+            .enumerate()
+            .filter(|(_, op)| matches!(op.verb, Verb::Walk | Verb::Dig | Verb::Drop))
+            .map(|(k, op)| {
+                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}:{x:.3}")).collect();
+                format!("{} {} {} {:.4}|{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
+            })
+            .collect();
+        line(format!("O,{seed},{frame},{id},{},{}", d.pick, all.join(";")));
     }
 }

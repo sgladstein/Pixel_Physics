@@ -1138,6 +1138,19 @@ pub fn food_place(world: &World, at: (i32, i32)) -> (bool, i32) {
     (store, depth)
 }
 
+/// SCRATCH (teacher lane): the `PP_BANK_CAP` probe, in tanks; `None` when unset.
+fn scratch_bank_cap() -> Option<f32> {
+    static CAP: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *CAP.get_or_init(|| std::env::var("PP_BANK_CAP").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
+}
+
+/// SCRATCH (teacher lane): `PP_DIGEST_BAR=N` (tanks) is the appetite gate's reference instead of
+/// `reproduce_threshold`, for a bed that switches breeding off by setting the bar to 1e30 (which leaves the gate inert).
+fn scratch_digest_bar() -> Option<f32> {
+    static BAR: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *BAR.get_or_init(|| std::env::var("PP_DIGEST_BAR").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
+}
+
 /// Book one tick's digestion in [`World::digest_log`] while one is
 /// running: the animal, the face worth its crop gave up this tick, and
 /// whether the crop held a trip's food.
@@ -7941,7 +7954,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // the bill, digestion and birth inside -- stays the same. Nobody has a
     // mind in the game, so this is one `Option` read per tick there.
     if world.minds.is_some() && mind::has(world, organism) {
-        return mind::tick(world, x, y, organism, def);
+        // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
+        if !mind::scratch_log::shadow_on() {
+            return mind::tick(world, x, y, organism, def);
+        }
+        mind::scratch_log::shadow_pre(world, x, y, organism, def);
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
@@ -8837,7 +8854,8 @@ fn settle(
     // ungated overstates by about ten to one.
     let digest_rate = {
         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
-        if carrying && appetite > 0.0 && def.reproduce_threshold > 0.0 {
+        let bar = scratch_digest_bar().map_or(def.reproduce_threshold, |n| n * def.start_energy);
+        if carrying && appetite > 0.0 && bar > 0.0 {
             let w = appetite;
             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
             // **Flat at full rate up to `start_energy`, then falling to the
@@ -8856,9 +8874,9 @@ fn settle(
             // only band where withholding cargo costs it nothing it needs.
             // Below subsistence it is starving and must eat at full rate; that
             // is not a special case bolted on, it is where the ramp starts.
-            let floor = def.start_energy.min(def.reproduce_threshold);
-            let span = (def.reproduce_threshold - floor).max(f32::EPSILON);
-            let hunger = ((def.reproduce_threshold - energy) / span).clamp(0.0, 1.0);
+            let floor = def.start_energy.min(bar);
+            let span = (bar - floor).max(f32::EPSILON);
+            let hunger = ((bar - energy) / span).clamp(0.0, 1.0);
             let scaled = digest_rate * (1.0 - w + w * hunger);
             // The pair `CLAUDE.md` asks for: `digest_appetite_ticks` is the
             // "it fired" half and `digest_appetite_held` the effect from the
@@ -8919,6 +8937,13 @@ fn settle(
             // and leaves at what it is actually worth.
             if c.unit <= 0.0 || c.cells == 0 {
                 return 0.0;
+            }
+            // SCRATCH (teacher lane): `PP_BANK_CAP=N` stops digestion while the bank holds N tanks
+            // (start_energy) or more, so a full ant keeps what it eats in its crop to carry and share. Unset: no change.
+            if let Some(cap) = scratch_bank_cap() {
+                if world.organism(organism).is_some_and(|s| s.energy >= cap * def.start_energy) {
+                    return 0.0;
+                }
             }
             // The gut's filter applies here, where the food is actually
             // absorbed -- the crop holds face value net of what has been

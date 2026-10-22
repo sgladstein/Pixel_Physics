@@ -1975,11 +1975,42 @@ impl Challenge for Soil {
         let founding = founding_cut(&w, &sc.bed);
         let datum: Vec<Option<i32>> = xs.clone().map(|x| w.room_surface_at(x)).collect();
         let deep = |x: i32, y: i32| depth_below_ground(&datum, x0, x, y);
+        // SCRATCH (teacher-training measurement 2): the privileged facts a teacher reads, once a world: extents, the
+        // depth datum per column, the founding hole, the ground at frame 0.
+        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
+            let dat: Vec<String> = datum.iter().map(|d| d.map_or("x".into(), |v| v.to_string())).collect();
+            let fc: Vec<String> = founding.iter().map(|(x, y)| format!("{x}:{y}")).collect();
+            let g0: String = ground0.iter().map(|&b| if b { '1' } else { '0' }).collect();
+            let row = format!("G,{},{x0},{y0},{nw},{},{},{},{},{g0}", w.seed, ground0.len() / nw, self.shaft, dat.join(" "), fc.join(" "));
+            creature::mind::scratch_log::cline(&row);
+            creature::mind::scratch_log::line(row);
+        }
+        // SCRATCH (teacher-training ceiling test): hand the teacher its facts for the run's frames only.
+        if creature::mind::scratch_log::teach_on() || creature::mind::scratch_log::label_on() {
+            let top = founding.iter().map(|c| c.1).min().unwrap_or(0);
+            let mouth: Vec<i32> = founding.iter().filter(|c| c.1 == top).map(|c| c.0).collect();
+            let ctx = creature::mind::scratch_log::TeachCtx {
+                x0,
+                y0,
+                nw,
+                nh: ground0.len() / nw,
+                ground0: ground0.clone(),
+                datum: datum.clone(),
+                founding: founding.clone(),
+                shaft: self.shaft,
+                mouth_x: mouth.iter().sum::<i32>() as f32 / mouth.len().max(1) as f32,
+                clear: SOIL_AWAY - 1 + creature::mind::scratch_log::arms().3,
+            };
+            creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = Some(ctx));
+        }
         let dig_j0 = w.creature_stats.dig_energy;
         for f in 0..self.frames {
             frame(&mut w, true);
             look(f + 1, &w);
         }
+        // The settle that follows is scored: the teacher must not act in it.
+        creature::mind::scratch_log::TEACH.with(|t| *t.borrow_mut() = None);
+        creature::mind::scratch_log::SETTLE.with(|s| s.set(true));
         let alive = ants_of(&w, sp);
         let holding = alive.iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
         let energy_left = alive.iter().filter_map(|&id| w.organism(id).map(|s| s.energy as f64)).sum::<f64>() / placed.len().max(1) as f64;
@@ -2004,6 +2035,24 @@ impl Challenge for Soil {
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+        creature::mind::scratch_log::SETTLE.with(|s| s.set(false));
+        // SCRATCH (investigation): every cut and put-down, for tracing pellets offline -- into the
+        // decision log, and the copy log (world-tagged) when that is on.
+        if std::env::var("PP_MIND_LOG").is_ok() || creature::mind::scratch_log::copy_on() {
+            let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
+            let mut rows = Vec::new();
+            for &(x, y, f, id) in &cuts {
+                rows.push(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
+            }
+            for &(x, y, f, id) in &dumps {
+                rows.push(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
+            }
+            rows.push(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
+            for r in rows {
+                creature::mind::scratch_log::cline(&r);
+                creature::mind::scratch_log::line(r);
+            }
+        }
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         // The nest as it stands after the settle, its door the founding
         // shaft's column. At steps 4-5 every ant's nest is a shaft and the
@@ -2693,6 +2742,182 @@ pub mod colony_bed {
         let mut sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
         sc.placements.retain(|p| !matches!(p, crate::lab::scenario::Placement::Colony { .. }));
         sc
+    }
+}
+
+/// SCRATCH (teacher lane, in-run selection pilot, 2026-10-21): the rest of
+/// `examples/inrun.rs`'s bed -- one colony on the training bed with Dig on
+/// and surface food dripped at `dist` columns, every ant given its own mind,
+/// the body's egg-laying off. Only the harness calls it. Landed on `main`
+/// 2026-10-22 (owner: no work parked on branches) with the scratch switches
+/// it reads, every one off unless its variable or argument is set; off, an
+/// hA1 batch came back byte-identical to the compute branch.
+pub mod inrun {
+    use super::*;
+
+    pub const NEST: i32 = colony_bed::NEST;
+
+    // The mind, its emits and a child's slots are the game's training page's own ([`colony_bed`]), which main took
+    // from this module when the in-run loop moved into the lab (`lab::training`).
+    pub use super::colony_bed::{emits, mind, slots};
+
+    /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
+    /// (founders in id order).
+    pub fn colony(seed: u64, ants: usize, dist: i32, drip: u32, every: u64, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
+        // Food is topped up by the harness ([`top_up`]), capped, on both sides:
+        // an uncapped drip buried the nest under provisions by frame 20,000
+        // (two heaps of 50 cells every 500 frames, 88 ants eating ~35 cells a
+        // thousand frames), and one-sided food starved the founders standing
+        // on the other side (60 founders, food east: 27 of 60 by frame 1,500).
+        let _ = (dist, drip, every);
+        let sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        let (mut w, _, _) = sc.build();
+        w.births_paused = true;
+        let sp = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.reproduce_threshold = 1.0e30;
+        // No old age (owner, 2026-10-21): selection's removals are the only deaths but starvation.
+        def.life_half_life = 0;
+        // SCRATCH (foraging-loop thread): `PP_SYNAPSE_K=f` scales the brain's per-link bill, to price a copy's grown
+        // links (c1 1,347 against h1's 881) at the founder's bill and see whether the bill is what starves it.
+        if let Some(k) = std::env::var("PP_SYNAPSE_K").ok().and_then(|v| v.parse::<f32>().ok()) {
+            def.synapse_fraction *= k;
+        }
+        w.species.set_creature(sp, def);
+        // SCRATCH (foraging-loop thread's switch, 2026-10-22): PP_NOMIND=1 leaves every founder on the game's own ant
+        // (chooser + act), the old ant, in this same bed. Unset: no change.
+        let nomind = std::env::var("PP_NOMIND").is_ok_and(|v| v == "1");
+        for (k, id) in ants_of(&w, sp).into_iter().enumerate() {
+            if !nomind {
+                creature::mind::give(&mut w, id, genome_of(k));
+            }
+        }
+        // `PP_SHADOW=1` (mind.rs): minds watch the old ant, so the world builds the old ant's ways as it does with none.
+        if creature::mind::scratch_log::shadow_on() {
+            if let Some(m) = w.minds.as_mut() {
+                m.build_ways = true;
+            }
+        }
+        (w, sc, sp)
+    }
+
+    /// Provisions within `reach` columns of `x`, at or above the datum's
+    /// lowest row there plus `below` (the heap and what rolled off it).
+    pub fn food_near(w: &World, x: i32, reach: i32) -> usize {
+        let Some(p) = w.materials.id_of("provisions") else { return 0 };
+        let mut n = 0;
+        for cx in (x - reach)..=(x + reach) {
+            for y in 0..128 {
+                if w.get(cx, y).material == p {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// Top the heap at `x` up towards `cap` cells, at most `drip` at a time.
+    pub fn top_up(w: &mut World, sc: &Scenario, x: i32, cap: usize, drip: usize, spread: i32) -> usize {
+        let have = food_near(w, x, 8 + spread);
+        if have >= cap {
+            return 0;
+        }
+        let add = (cap - have).min(drip) as i32;
+        // spread>0 scatters the food over x±spread instead of one heap (a 90-ant
+        // colony jammed in two clumps a few columns short of single heaps).
+        let heap = if spread > 0 {
+            crate::lab::scenario::Placement::Scatter { material: "provisions".into(), x0: x - spread, x1: x + spread, cells: add }
+        } else {
+            crate::lab::scenario::Placement::Heap { material: "provisions".into(), x, cells: add }
+        };
+        crate::lab::scenario::apply_placements(w, &[heap], &sc.bed);
+        add as usize
+    }
+
+    pub fn step(w: &mut World, sc: &Scenario) {
+        frame_timed(w, sc, true);
+    }
+
+    pub fn ants(w: &World, sp: SpeciesId) -> Vec<OrganismId> {
+        ants_of(w, sp)
+    }
+
+    /// A child of the colony at its door: placed as a founder is (`plant_founder_in`, homed on the door), given
+    /// `genome` and `grants` full grants. Tries the door's columns and the rows above it until the body fits.
+    pub fn birth(w: &mut World, sp: SpeciesId, genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
+        let any = *ants_of(w, sp).first()?;
+        let (colony, anchor) = w.organism(any).map(|s| (s.colony, s.forage_anchor))?;
+        birth_in(w, sp, colony, anchor, genome, grants)
+    }
+
+    /// [`birth`] into a named colony and anchor, for a colony with no ant left alive to read them from.
+    pub fn birth_in(w: &mut World, sp: SpeciesId, colony: u32, anchor: (i32, i32), genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
+        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
+        for dy in 1..16 {
+            for dx in [0, 2, -2, 4, -4, 6, -6] {
+                let (x, y) = (anchor.0 + dx, anchor.1 - dy);
+                if !w.in_bounds(x, y) || w.get(x, y).material != material::EMPTY {
+                    continue;
+                }
+                if let Some(site) = creature::plant_founder_in(w, x, y, "ant", Some(colony), Some(anchor)) {
+                    let crate::sim::scheduler::ActiveKind::Creature { organism } = site.kind else { continue };
+                    w.schedule_active_site(site);
+                    creature::mind::give(w, organism, genome);
+                    if let Some(s) = w.organism_mut(organism) {
+                        s.energy = full;
+                    }
+                    return Some(organism);
+                }
+            }
+        }
+        None
+    }
+
+    /// Remove an ant on the engine's own death path (a corpse, the slot freed), by id: `slay` by position hit the wrong
+    /// ant wherever ants overlapped.
+    pub fn cull(w: &mut World, id: OrganismId) -> bool {
+        creature::cull_organism(w, id)
+    }
+
+    /// Every founder on `grants` full grants (the founding deals staggered reserves).
+    pub fn flat_reserves(w: &mut World, sp: SpeciesId, grants: f32) {
+        let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
+        for id in ants_of(w, sp) {
+            if let Some(s) = w.organism_mut(id) {
+                s.energy = full;
+            }
+        }
+    }
+
+    /// The frozen ground datum of column `x` (the dig arena's).
+    pub fn surface(w: &World, sc: &Scenario, x: i32) -> i32 {
+        census::surface_of(w, &sc.bed, x)
+    }
+
+    /// Open to an ant: empty, or an animal's body (the dig arena's `open`).
+    pub fn open(w: &World, x: i32, y: i32) -> bool {
+        let m = w.get(x, y).material;
+        m == material::EMPTY || w.materials.kind(m) == material::MaterialKind::Creature
+    }
+
+    /// One cell for a picture: `.` open, `a` an animal, `f` provisions, `#` anything else.
+    pub fn cell_char(w: &World, x: i32, y: i32) -> char {
+        let m = w.get(x, y).material;
+        if m == material::EMPTY {
+            '.'
+        } else if w.materials.kind(m) == material::MaterialKind::Creature {
+            'a'
+        } else if Some(m) == w.materials.id_of("provisions") {
+            'f'
+        } else {
+            '#'
+        }
+    }
+
+    /// Ground as the dig arena counts it: powder or solid, not a body.
+    pub fn ground(w: &World, x: i32, y: i32) -> bool {
+        let c = w.get(x, y);
+        c.material != material::EMPTY && matches!(w.materials.kind(c.material), material::MaterialKind::Powder | material::MaterialKind::Solid) && c.organism_id() == 0
     }
 }
 

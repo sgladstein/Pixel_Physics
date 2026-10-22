@@ -774,7 +774,12 @@ fn main() {
             Some(f) => genome_of(f),
             None => g0.clone(),
         };
-        train::picture(ch.as_ref(), &g, train::holdout_layouts(1)[0], p);
+        // SCRATCH: PP_GIF_SEALED=k draws sealed world k instead of hold-out world 0.
+        let lay = match std::env::var("PP_GIF_SEALED").ok().and_then(|v| v.parse::<usize>().ok()) {
+            Some(k) => train::sealed_layouts(k + 1)[k],
+            None => train::holdout_layouts(1)[0],
+        };
+        train::picture(ch.as_ref(), &g, lay, p);
         println!("picture in {}", p.display());
         return;
     }
