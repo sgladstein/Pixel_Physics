@@ -5615,6 +5615,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/inrun-selection/README.md](brain-training/inrun-selection/README.md) — **snapshot (2026-10-22) of
+  the Teacher lane's in-run selection, the current ant-brain training.** Where the harness lives (branch
+  `claude/project-thread-8y5ak0`, plus a frozen patch that no longer applies to main), how to run a cloud batch and the
+  common-garden judge, the founder genomes (h1, c1, hA1, r4, r5, hA1noB), the results that changed the plan (selection
+  breeds better foragers and erodes digging), and a frozen export of the living design doc.
 - [brain-training/design/test-probe-design-2026-10-21.md](brain-training/design/test-probe-design-2026-10-21.md) —
   **built (`probe=`, `test=`, `calib=`):** reserved test worlds (seeds 30,000+) and a progress probe that scores the
   champion and the hold-best there every 10 generations into `test.csv`, read by nothing the run decides. Why: the
