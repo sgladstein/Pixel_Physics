@@ -674,47 +674,151 @@ fn openings(cells: &[(usize, usize)], nest: &[bool], w: usize, h: usize) -> usiz
 /// door's world column. Returns the score and each cell's class over the
 /// world's extents (row-major, `extents`' order).
 ///
-/// **The grid starts [`MOUND_REACH`] rows above the highest ground**, not at
-/// the top of the box. The score's sky is an unbroken open column from the
-/// grid's top row down, and a lab box has a lid: read from the lid, no
-/// column was ever open to the sky, so a crater read as nest and its pit as
-/// 0 (the teacher lane's in-run colony at 200k frames, seed 6: pit 0, dug 55,
-/// score -61.9 read from the lid; pit 59, dug 25, score -81.8 read from its
-/// map, which starts in the air). `MOUND_REACH` is the census's own line
-/// between the bed's mound and the box's lid or a lamp (`joined_room` seeds
-/// its sky the same way).
+/// **Every cell more than [`MOUND_REACH`] rows above its own column's ground
+/// reads as air**, whatever is there. The score's sky is an unbroken open
+/// column from the grid's top row down, and a lab box has a lid: read from
+/// the lid, no column was ever open to the sky, so a crater read as nest and
+/// its pit as 0 (the teacher lane's in-run colony at 200k frames, seed 6: pit
+/// 0, dug 55, score -61.9 read from the lid; pit 59, dug 25, score -81.8 read
+/// from its map, which starts in the air). `MOUND_REACH` is the census's own
+/// line between the bed's mound and the box's lid or a lamp, and it is drawn
+/// **per column**, as the census draws it: the first fix (d8770ccb) started
+/// the whole grid `MOUND_REACH` above the *highest* ground, and a box's wall
+/// columns freeze their datum just under the lid (`freeze_room_datum`), so in
+/// the in-run bed the grid still started at the lid and every 25k check of a
+/// 64-seed cloud batch printed pit 0 (2026-10-22; z30_3 read pit 0, dug 17
+/// in the run and pit 46, dug 5 from its map).
 pub fn of_world(world: &World, spec: &LabBox, door_x: i32, p: &Profile) -> (NestScore, Vec<Class>) {
-    let (xs, ys) = extents(world, spec);
-    let x0 = *xs.start();
-    let w = (xs.end() - x0 + 1).max(0) as usize;
-    let datum: Vec<i32> = xs.clone().map(|x| surface_of(world, spec, x)).collect();
-    let top = datum.iter().copied().min().unwrap_or(*ys.start()) - MOUND_REACH;
-    let (y0, skip) = if top > *ys.start() {
-        (top, (top - ys.start()) as usize)
-    } else {
-        (*ys.start(), 0)
-    };
-    let h = (ys.end() - y0 + 1).max(0) as usize;
-    let solid: Vec<bool> = (0..world.materials.len())
-        .map(|i| {
-            let m = MaterialId(i as u16);
-            matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid)
-                && food_value(world, Cell::new(m, 0)) <= 0.0
+    let g = Grid::of(world, spec);
+    let door = (door_x - g.x0).clamp(0, g.w as i32 - 1) as usize;
+    let (s, class) = score(&g.open, g.w, g.h, &g.ground, door, p);
+    (s, class)
+}
+
+/// **Whether a lab world's nest still reaches the open air** -- the colony
+/// score's door rung (`A ladder of dig metrics for the colony score`,
+/// 2026-10-21). The nest is every open cell at least `rows` rows below the
+/// frozen datum within `reach` columns of `door_x`, and the door is open when
+/// an unbroken 4-connected run of open cells joins the nest's **largest
+/// piece** to the air (the grid's top row). The largest piece, because a plug
+/// part way down the shaft leaves the stub above it reaching the air while
+/// the room below is shut (this function's own test, as first written).
+/// `None` when there is no nest yet, so a check before the first cut is not
+/// counted either way.
+///
+/// **Why it is needed**: as trained, a crater is always open, so nothing
+/// asked whether the door was. With rim cuts banned (a ceiling test on the
+/// teacher lane's colony, 30 ants, seed 1) the colony dug a room about 22 by
+/// 4 cells and then sealed it, letting go of 2,940 pellets inside; a lone ant
+/// was cut off from the air on up to 41% of checks. Open is [`of_world`]'s
+/// open, so an ant standing in the shaft is not a plug.
+pub fn door_open(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i32) -> Option<bool> {
+    let g = Grid::of(world, spec);
+    let (w, h) = (g.w, g.h);
+    let nest: Vec<usize> = (0..w)
+        .filter(|&x| (x as i32 + g.x0 - door_x).abs() <= reach)
+        .flat_map(|x| {
+            let from = (g.ground[x] + rows).max(0) as usize;
+            (from..h).map(move |y| y * w + x)
         })
+        .filter(|&i| g.open[i])
         .collect();
-    let mut open = vec![false; w * h];
-    for y in y0..=*ys.end() {
-        for x in xs.clone() {
-            let c = world.get(x, y);
-            open[(y - y0) as usize * w + (x - x0) as usize] = c.organism_id() != 0 || !solid[c.material.0 as usize];
+    if nest.is_empty() {
+        return None;
+    }
+    let mut seen = vec![false; w * h];
+    let mut queue: VecDeque<usize> = (0..w).filter(|&x| g.open[x]).collect();
+    for &i in &queue {
+        seen[i] = true;
+    }
+    while let Some(i) = queue.pop_front() {
+        let (x, y) = (i % w, i / w);
+        let next = [
+            (x > 0).then(|| i - 1),
+            (x + 1 < w).then(|| i + 1),
+            (y > 0).then(|| i - w),
+            (y + 1 < h).then(|| i + w),
+        ];
+        for j in next.into_iter().flatten() {
+            if g.open[j] && !seen[j] {
+                seen[j] = true;
+                queue.push_back(j);
+            }
         }
     }
-    let ground: Vec<i32> = datum.iter().map(|g| g - y0).collect();
-    let door = (door_x - x0).clamp(0, w as i32 - 1) as usize;
-    let (s, class) = score(&open, w, h, &ground, door, p);
-    let mut full = vec![Class::Not; skip * w];
-    full.extend(class);
-    (s, full)
+    // The nest's pieces, by the same 4-connected rule, kept to nest cells.
+    let mut is_nest = vec![false; w * h];
+    for &i in &nest {
+        is_nest[i] = true;
+    }
+    let mut piece = vec![usize::MAX; w * h];
+    let (mut best, mut best_len) = (0, 0);
+    for &start in &nest {
+        if piece[start] != usize::MAX {
+            continue;
+        }
+        piece[start] = start;
+        let mut stack = vec![start];
+        let mut len = 0;
+        while let Some(i) = stack.pop() {
+            len += 1;
+            let (x, y) = (i % w, i / w);
+            let next = [
+                (x > 0).then(|| i - 1),
+                (x + 1 < w).then(|| i + 1),
+                (y > 0).then(|| i - w),
+                (y + 1 < h).then(|| i + w),
+            ];
+            for j in next.into_iter().flatten() {
+                if is_nest[j] && piece[j] == usize::MAX {
+                    piece[j] = start;
+                    stack.push(j);
+                }
+            }
+        }
+        if len > best_len {
+            (best, best_len) = (start, len);
+        }
+    }
+    Some(nest.iter().any(|&i| piece[i] == best && seen[i]))
+}
+
+/// A lab world read as the score's grid over its extents: [`of_world`]'s
+/// open cells, with the air above each column's reach, and the datum.
+struct Grid {
+    open: Vec<bool>,
+    w: usize,
+    h: usize,
+    ground: Vec<i32>,
+    x0: i32,
+}
+
+impl Grid {
+    fn of(world: &World, spec: &LabBox) -> Grid {
+        let (xs, ys) = extents(world, spec);
+        let x0 = *xs.start();
+        let w = (xs.end() - x0 + 1).max(0) as usize;
+        let datum: Vec<i32> = xs.clone().map(|x| surface_of(world, spec, x)).collect();
+        let y0 = *ys.start();
+        let h = (ys.end() - y0 + 1).max(0) as usize;
+        let solid: Vec<bool> = (0..world.materials.len())
+            .map(|i| {
+                let m = MaterialId(i as u16);
+                matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid)
+                    && food_value(world, Cell::new(m, 0)) <= 0.0
+            })
+            .collect();
+        let mut open = vec![false; w * h];
+        for y in y0..=*ys.end() {
+            for (i, x) in xs.clone().enumerate() {
+                let c = world.get(x, y);
+                open[(y - y0) as usize * w + i] =
+                    y < datum[i] - MOUND_REACH || c.organism_id() != 0 || !solid[c.material.0 as usize];
+            }
+        }
+        let ground: Vec<i32> = datum.iter().map(|g| g - y0).collect();
+        Grid { open, w, h, ground, x0 }
+    }
 }
 
 #[cfg(test)]
@@ -1037,6 +1141,96 @@ mod tests {
             new.score,
             crater.score
         );
+    }
+
+    /// A wall column whose datum froze just under the lid must not drag the
+    /// whole grid's sky up to the lid: the crater still reads as pit.
+    #[test]
+    fn a_wall_does_not_hide_a_crater() {
+        let spec = LabBox {
+            founders: 0,
+            colonies: 0,
+            width: 128,
+            ..LabBox::default()
+        };
+        let mut world = spec.build();
+        let (xs, ys) = extents(&world, &spec);
+        let wall = *xs.start() + 2;
+        let soil = world.get(60, spec.ground_y + 30);
+        for y in *ys.start()..spec.ground_y {
+            world.set(wall, y, soil);
+        }
+        world.freeze_room_datum();
+        assert!(
+            surface_of(&world, &spec, wall) < surface_of(&world, &spec, 60) - MOUND_REACH,
+            "the control: the wall's datum sits far above the bed's ({} vs {})",
+            surface_of(&world, &spec, wall),
+            surface_of(&world, &spec, 60)
+        );
+        let g = surface_of(&world, &spec, 60);
+        for y in g..g + 4 {
+            for x in 30..46 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        let (crater, class) = of_world(&world, &spec, 60, &HARVESTER);
+        assert_eq!(crater.pit, 16 * 4, "{crater:?}");
+        assert_eq!(
+            class.len(),
+            ((xs.end() - xs.start() + 1) * (ys.end() - ys.start() + 1)) as usize
+        );
+    }
+
+    /// The door rung: no nest reads None, a dug nest reaches the air, a plug
+    /// two rows down the shaft cuts it off, and digging the plug out opens it.
+    #[test]
+    fn a_plugged_shaft_cuts_the_nest_off_from_the_air() {
+        let spec = LabBox {
+            founders: 0,
+            colonies: 0,
+            width: 128,
+            ..LabBox::default()
+        };
+        let mut world = spec.build();
+        let door = 60;
+        let soil = world.get(door, spec.ground_y + 30);
+        assert_eq!(door_open(&world, &spec, door, 3, 20), None, "an uncut bed has no nest");
+        let fill = |world: &mut World, x0: i32, x1: i32, y0: i32, y1: i32, c: Cell| {
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    world.set(x, spec.ground_y + y, c);
+                }
+            }
+        };
+        fill(&mut world, door - 8, door + 8, 0, 2, Cell::EMPTY);
+        assert_eq!(
+            door_open(&world, &spec, door, 3, 20),
+            None,
+            "a crater three rows deep is not a nest"
+        );
+        fill(&mut world, door - 1, door, 3, 12, Cell::EMPTY);
+        fill(&mut world, door + 1, door + 20, 9, 12, Cell::EMPTY);
+        assert_eq!(door_open(&world, &spec, door, 3, 20), Some(true), "a shaft to a room");
+        fill(&mut world, door - 1, door, 4, 5, soil);
+        assert_eq!(
+            door_open(&world, &spec, door, 3, 20),
+            Some(false),
+            "plugged two rows down"
+        );
+        fill(&mut world, door - 1, door, 5, 5, Cell::EMPTY);
+        assert_eq!(
+            door_open(&world, &spec, door, 3, 20),
+            Some(false),
+            "a one-row plug still shuts it"
+        );
+        fill(&mut world, door - 1, door - 1, 4, 4, Cell::EMPTY);
+        assert_eq!(
+            door_open(&world, &spec, door, 3, 20),
+            Some(true),
+            "one cell cut through reopens it"
+        );
+        // The room alone, beyond `reach` of a moved door, is no nest of that door's.
+        assert_eq!(door_open(&world, &spec, door + 60, 3, 20), None);
     }
 
     /// The general profile drops only the layout term.

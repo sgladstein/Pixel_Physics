@@ -212,8 +212,15 @@ fn main() {
     // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
     // fewer than N rows below the datum inside the nest region, and `rim_debit=F` charges F times the cut half instead.
     // Off by default (rim_rows=0) until judged against the controls.
+    // Judged 2026-10-22 (64 seeds x 6 rounds, h1 founders, turnover 30k): rim_rows=3 took extinctions from 20 to 34 of
+    // 64, nearly all round-1 starvation die-offs; total food unchanged. The rim cutter is the ant that goes up to the
+    // surface (in round 1 of 12 seeds, mostly-rim cutters delivered more food than mostly-deep cutters in 9), so paying it
+    // nothing selects against going out. Two softer shapes: `rim_share=F` pays a rim cut F of a full cut (both halves)
+    // instead of nothing, and `deep_bonus=B` pays a cut rim_rows or more below the datum (1 + B) times.
     let rim_rows = fnum("rim_rows", 0.0) as i32;
     let rim_debit = fnum("rim_debit", 0.0);
+    let rim_share = fnum("rim_share", 0.0);
+    let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
@@ -296,7 +303,7 @@ fn main() {
     // The general nest score (lab::nestscore, PR #770, HARVESTER profile) every 25,000 frames, printed beside food
     // home: printed only, never paid (owner, 2026-10-21). A read of the grid; it changes nothing in the run.
     let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
-    writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell").unwrap();
+    writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open").unwrap();
     let mut food_home = 0u64;
     writeln!(sel_log, "frame,alive,adults,births,removals,bias,median,food_price,dig_price,clear_price,ghosts").unwrap();
     let mut bias = 0.0f64;
@@ -359,8 +366,9 @@ fn main() {
     writeln!(ev, "frame,id,kind,x,y,v,cutter").unwrap();
     // Who cut the pellet each ant holds; pellets let go inside, by spot; field food each ant holds.
     // Each pellet carries (cutter, whether it was cut in the nest region).
-    let mut held: HashMap<u32, (u32, bool)> = HashMap::new();
-    let mut loose: HashMap<(i32, i32), (u32, bool)> = HashMap::new();
+    // A pellet's cutter and its worth: 0 outside the nest region, rim_share at the rim, 1 + deep_bonus below it.
+    let mut held: HashMap<u32, (u32, f64)> = HashMap::new();
+    let mut loose: HashMap<(i32, i32), (u32, f64)> = HashMap::new();
     let t0 = std::time::Instant::now();
     for fr in 1..=frames {
         inrun::step(&mut w, &sc);
@@ -374,29 +382,33 @@ fn main() {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
                 orig[i] = false;
-                let mut nest = in_nest(x);
                 let depth = y - surf[x as usize];
-                if nest && depth < rim_rows {
-                    nest = false;
-                    if let Some(b) = book.get_mut(&who) {
-                        let g = -rim_debit * 0.5 * w_dig * dig_price;
-                        b.credit += g;
-                        b.g2 += g * g;
+                let mut worth = if in_nest(x) { 1.0 } else { 0.0 };
+                if worth > 0.0 && rim_rows > 0 {
+                    if depth < rim_rows {
+                        worth = rim_share;
+                        if let Some(b) = book.get_mut(&who) {
+                            let g = -rim_debit * 0.5 * w_dig * dig_price;
+                            b.credit += g;
+                            b.g2 += g * g;
+                        }
+                    } else {
+                        worth = 1.0 + deep_bonus;
                     }
                 }
-                held.insert(who, (who, nest));
+                held.insert(who, (who, worth));
                 writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
-                if !nest {
+                if worth == 0.0 {
                     continue;
                 }
                 if let Some(b) = book.get_mut(&who) {
                     b.tripped = true;
-                    let g = 0.5 * w_dig * dig_price;
+                    let g = worth * 0.5 * w_dig * dig_price;
                     b.credit += g;
                     b.g2 += g * g;
                 }
             } else {
-                let (mut tag, mut nest) = (0, false);
+                let (mut tag, mut nest) = (0, 0.0);
                 'find: for r in 0..=2 {
                     for dy in -r..=r {
                         for dx in -r..=r {
@@ -482,14 +494,14 @@ fn main() {
         let mut gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
         gone.sort_unstable();
         for id in gone {
-            let (tag, nest) = held.remove(&id).unwrap();
+            let (tag, worth) = held.remove(&id).unwrap();
             let Some(&(x, y)) = w.organism(id).and_then(|s| s.chain.first()) else { continue };
             if y < surf[x.clamp(0, bw - 1) as usize] {
                 writeln!(ev, "{frame},{id},out,{x},{y},0,{tag}").unwrap();
                 let alive = book.len().max(1) as f64;
                 let far = ((((x - inrun::NEST).abs() as f64) - rim) / rim_ramp).clamp(0.0, 1.0);
                 let far = if rim > 0.0 { far } else { 1.0 };
-                let far = if nest { far } else { 0.0 };
+                let far = far * worth;
                 let pc = far * w_clear * (1.0 + kprice * (loose_n as f64 / (2.0 * alive)).clamp(0.0, 1.0));
                 if let Some(b) = book.get_mut(&id) {
                     b.tripped = true;
@@ -504,7 +516,7 @@ fn main() {
                     }
                 }
             } else {
-                loose.insert((x, y), (tag, nest));
+                loose.insert((x, y), (tag, worth));
                 loose_n += 1;
                 writeln!(ev, "{frame},{id},in,{x},{y},0,{tag}").unwrap();
             }
@@ -967,7 +979,9 @@ fn main() {
         if fr % 25_000 == 0 {
             let door = w.nest_sites.first().map_or(inrun::NEST, |s| s.x);
             let (ns, _) = pixel_physics::lab::nestscore::of_world(&w, &sc.bed, door, &pixel_physics::lab::nestscore::HARVESTER);
-            writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell()).unwrap();
+            // door_open (dig thread, PR #780): the nest's largest piece joins the air; -1 before there is a nest.
+            let door_open = pixel_physics::lab::nestscore::door_open(&w, &sc.bed, door, 3, 20).map_or(-1, |o| o as i32);
+            writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell()).unwrap();
         }
         if fr % 1000 == 0 {
             let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);
