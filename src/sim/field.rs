@@ -709,6 +709,62 @@ pub(crate) fn tile_and_local(field_x: i32, field_y: i32) -> (ChunkCoord, i32, i3
     (tile, field_x.rem_euclid(FIELD_TILE_SIZE), field_y.rem_euclid(FIELD_TILE_SIZE))
 }
 
+/// Where a read finds a tile: the whole map, or a solve pass's [`TileNear`].
+/// Every reader below (`sample`, `is_blocked`, `sample_bilinear`, ...) is
+/// generic over it, so there is one copy of each rule and the two lookups
+/// cannot drift apart.
+pub(crate) trait TileLookup {
+    fn tile(&self, coord: ChunkCoord) -> Option<&FieldTile>;
+}
+
+impl TileLookup for ChunkMap<FieldTile> {
+    #[inline]
+    fn tile(&self, coord: ChunkCoord) -> Option<&FieldTile> {
+        self.get(&coord)
+    }
+}
+
+/// **The 3x3 block of tiles around the one being solved, looked up once
+/// instead of once per read.** A tile is only `FIELD_TILE_SIZE` (4) field
+/// cells wide, so 12 of its 16 cells sit on an edge and nearly every
+/// neighbour read in the solve passes crossed into a hash lookup: measured
+/// 2026-10-22 on `plantcost scene=community`, ~17 `ChunkMap` probes per
+/// field cell in `step_diffusion` alone, and `sample_bilinear` at ~830
+/// instructions a call. A read that lands outside the block (advection's
+/// source can reach `ADVECTION_MAX_TILES` away) still goes to the map, so
+/// this answers exactly what the map would: same `ChunkCoord::new` keys,
+/// same misses.
+pub(crate) struct TileNear<'a> {
+    tiles: &'a ChunkMap<FieldTile>,
+    cx: i32,
+    cy: i32,
+    near: [Option<&'a FieldTile>; 9],
+}
+
+impl<'a> TileNear<'a> {
+    pub(crate) fn new(tiles: &'a ChunkMap<FieldTile>, coord: ChunkCoord) -> Self {
+        let mut near = [None; 9];
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                near[((dy + 1) * 3 + dx + 1) as usize] = tiles.get(&ChunkCoord::new(coord.x + dx, coord.y + dy));
+            }
+        }
+        TileNear { tiles, cx: coord.x, cy: coord.y, near }
+    }
+}
+
+impl TileLookup for TileNear<'_> {
+    #[inline]
+    fn tile(&self, coord: ChunkCoord) -> Option<&FieldTile> {
+        let (dx, dy) = (coord.x - self.cx, coord.y - self.cy);
+        if dx.abs() <= 1 && dy.abs() <= 1 && coord.slice == 0 {
+            self.near[((dy + 1) * 3 + dx + 1) as usize]
+        } else {
+            self.tiles.get(&coord)
+        }
+    }
+}
+
 /// Read a field cell from a snapshot by world-cell coordinate. Any world
 /// coordinate inside the same `FIELD_SCALE` block reads the same cell. Out of
 /// bounds and unloaded regions both read as ambient — the field has no
@@ -717,7 +773,7 @@ pub(crate) fn tile_and_local(field_x: i32, field_y: i32) -> (ChunkCoord, i32, i3
 ///
 /// `pub(crate)`: `World::field_at` is the public read API; this is the shared
 /// implementation it and the solve passes both call.
-pub(crate) fn sample(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> FieldCell {
+pub(crate) fn sample<T: TileLookup + ?Sized>(tiles: &T, bounds: Option<Rect>, world_x: i32, world_y: i32) -> FieldCell {
     if let Some(b) = bounds {
         if !b.contains(world_x, world_y) {
             return FieldCell::AMBIENT;
@@ -725,7 +781,7 @@ pub(crate) fn sample(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, world_x:
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    match tiles.get(&tile_coord) {
+    match tiles.tile(tile_coord) {
         Some(tile) => tile.get_local(lx, ly),
         None => FieldCell::AMBIENT,
     }
@@ -847,8 +903,8 @@ pub(crate) fn ground_wetness_at(
         .max(moisture_source_at(tiles, bounds, world_x, world_y + FIELD_SCALE))
 }
 
-pub(crate) fn is_moisture_source(
-    tiles: &ChunkMap<FieldTile>,
+pub(crate) fn is_moisture_source<T: TileLookup + ?Sized>(
+    tiles: &T,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -860,7 +916,7 @@ pub(crate) fn is_moisture_source(
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    tiles.get(&tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
+    tiles.tile(tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
 }
 
 /// `(is_blocked, glows)` in a single tile fetch, for `step_diffusion`'s
@@ -883,8 +939,8 @@ pub(crate) fn is_moisture_source(
 /// test, not by eye. Out of bounds is a wall that does not glow; a missing
 /// tile is open and dark — both halves match `is_blocked`'s own edge
 /// semantics.
-fn blocked_and_glow(
-    tiles: &ChunkMap<FieldTile>,
+fn blocked_and_glow<T: TileLookup + ?Sized>(
+    tiles: &T,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -896,13 +952,13 @@ fn blocked_and_glow(
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    match tiles.get(&tile_coord) {
+    match tiles.tile(tile_coord) {
         Some(tile) => (tile.is_blocked_local(lx, ly), tile.has_glow && tile.glow_local(lx, ly) > 0.0),
         None => (false, false),
     }
 }
 
-pub(crate) fn is_blocked(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
+pub(crate) fn is_blocked<T: TileLookup + ?Sized>(tiles: &T, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
     if let Some(b) = bounds {
         // The world edge is a wall — every CA rule already treats it as one
         // via `Cell::OUT_OF_BOUNDS`; the field must agree, or pressure would
@@ -913,7 +969,7 @@ pub(crate) fn is_blocked(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, worl
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    match tiles.get(&tile_coord) {
+    match tiles.tile(tile_coord) {
         Some(tile) => tile.is_blocked_local(lx, ly),
         None => false,
     }
@@ -939,8 +995,8 @@ pub(crate) fn is_blocked(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, worl
 /// grid with the modest velocities this solver produces makes that gap small
 /// in practice, and it is exactly the kind of thing worth revisiting if a
 /// future milestone needs sharper containment than this gives.
-pub(crate) fn sample_bilinear(
-    tiles: &ChunkMap<FieldTile>,
+pub(crate) fn sample_bilinear<T: TileLookup + ?Sized>(
+    tiles: &T,
     bounds: Option<Rect>,
     fx: f32,
     fy: f32,
@@ -3125,9 +3181,51 @@ fn seed_tile_light_from_glow(tile: &mut FieldTile) {
     }
 }
 
+/// **What the block scan in [`rebuild_blocked`] reads off a cell's
+/// material, and nothing else** -- five fields copied out of the registry
+/// into one small entry per material, so the scan's per-cell read is an
+/// index into a few hundred bytes rather than into a 616-byte `Material`
+/// each. Worth little on the shipped lab box alone (-0.36% of its
+/// instructions, 2026-10-21, filed in `Reports/dead-ends.md`), where the
+/// stale-block mask keeps the scan small; on a planted bed the scan is 6.4%
+/// of the frame, and this with the row slice below took it -1.2% of the bed
+/// (2026-10-22). Same values in the same order, so bit-identical: the field
+/// hash is the gate.
+#[derive(Clone, Copy)]
+struct ScanTraits {
+    /// `Solid` or `Plant`: the cell blocks the field and deepens its column.
+    opaque: bool,
+    liquid: bool,
+    water_capacity: u16,
+    glow: f32,
+    beam: f32,
+}
+
+fn scan_traits(materials: &super::material::MaterialRegistry) -> Vec<ScanTraits> {
+    (0..materials.len())
+        .map(|i| {
+            let mat = materials.get(super::material::MaterialId(i as u16));
+            ScanTraits {
+                opaque: matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant),
+                liquid: mat.kind == super::material::MaterialKind::Liquid,
+                water_capacity: mat.water_capacity,
+                glow: mat.glow,
+                beam: mat.beam,
+            }
+        })
+        .collect()
+}
+
 fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &mut ChunkMap<FieldTile>) -> u64 {
     debug_assert_eq!(coords.len(), stale.len(), "one stale-block mask per rescanned coord");
     let mut scanned = 0u64;
+    if coords.is_empty() {
+        return scanned;
+    }
+    // Built per call rather than cached: materials can change live
+    // (`tunables.rs`, a hot-reload), and a table rebuilt each solve cannot go
+    // stale. A few hundred entries, against at least one 256-cell block.
+    let traits = scan_traits(&world.materials);
     for (&coord, &mask) in coords.iter().zip(stale) {
         // Fetched once per chunk instead of once per *CA cell scanned*
         // (previously up to `FIELD_TILE_SIZE^2 * FIELD_SCALE^2` = 4096
@@ -3245,7 +3343,19 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                 // cell's worth.** At the default `water_opacity() == 0.0` every value
                 // here is a whole number and the reads below are the old ones exactly.
                 let mut column_depth = [0f32; FIELD_SCALE as usize];
+                // **One bounds test per block, not per cell, where it can
+                // be.** The comment below is why the per-cell test exists:
+                // a block straddling the world's edge. A block wholly inside
+                // the world can never take that branch, so for it the test
+                // is skipped and nothing else changes.
+                let inside = world.in_bounds(bx0, by0) && world.in_bounds(bx0 + FIELD_SCALE - 1, by0 + FIELD_SCALE - 1);
                 for dy in 0..FIELD_SCALE {
+                    // One row of the block, sliced once: a block is
+                    // `FIELD_SCALE`-aligned inside its chunk, so its row is
+                    // contiguous in `Chunk::cells` and `get_world`'s two
+                    // `rem_euclid`s per cell are paid once per row.
+                    let base = super::chunk::local_index(bx0, by0 + dy);
+                    let row = &chunk.cells()[base..base + FIELD_SCALE as usize];
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
                         // overlapping `bounds` (`ensure_chunks_for`), so a
@@ -3266,12 +3376,12 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                         // via `sample`/`is_blocked`) rather than a visible
                         // one. Treated the same as `Cell::OUT_OF_BOUNDS`
                         // reads elsewhere: solid, so blocked.
-                        if !world.in_bounds(bx0 + dx, by0 + dy) {
+                        if !inside && !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
                             column_depth[dx as usize] += 1.0;
                             continue;
                         }
-                        let cell = chunk.get_world(bx0 + dx, by0 + dy);
+                        let cell = row[dx as usize];
                         // `Plant` blocks too, not just `Solid` -- a tree
                         // trunk or canopy is exactly as solid as a rock
                         // wall for this purpose. Missing this reopened the
@@ -3304,12 +3414,16 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &m
                         // folded to one is cheaper than what the glow read
                         // was added to, not just cheaper than its first
                         // version.
-                        let mat = world.materials.get(cell.material);
-                        if matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
+                        //
+                        // And since 2026-10-21 not even one: `traits` is the
+                        // five fields this scan reads, per material, in a
+                        // compact table (`ScanTraits`).
+                        let mat = traits[cell.material.0 as usize];
+                        if mat.opaque {
                             blocked = true;
                             column_depth[dx as usize] += 1.0;
                         }
-                        if mat.kind == super::material::MaterialKind::Liquid {
+                        if mat.liquid {
                             // **Water dims the column without `blocked`, and that
                             // separation is the whole design.** A blocked block is
                             // skipped entirely by `step_diffusion`, which is the
@@ -3395,6 +3509,7 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
     // once per field cell -- and the tiles run on separate workers. See
     // `par_solve_tiles` for why that is sound and bit-identical.
     par_solve_tiles(coords, next, |coord, tile| {
+        let old = TileNear::new(old, coord);
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
@@ -3410,11 +3525,11 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
                 if tile.is_blocked_local(lx, ly) {
                     continue; // stays ambient — a wall cell has no pressure of its own
                 }
-                let here = sample(old, bounds, wx, wy);
-                let left = sample(old, bounds, wx - FIELD_SCALE, wy);
-                let right = sample(old, bounds, wx + FIELD_SCALE, wy);
-                let up = sample(old, bounds, wx, wy - FIELD_SCALE);
-                let down = sample(old, bounds, wx, wy + FIELD_SCALE);
+                let here = sample(&old, bounds, wx, wy);
+                let left = sample(&old, bounds, wx - FIELD_SCALE, wy);
+                let right = sample(&old, bounds, wx + FIELD_SCALE, wy);
+                let up = sample(&old, bounds, wx, wy - FIELD_SCALE);
+                let down = sample(&old, bounds, wx, wy + FIELD_SCALE);
 
                 let divergence = (left.vx - right.vx) + (up.vy - down.vy);
                 let mut pressure = (here.pressure + divergence * PRESSURE_VELOCITY_COUPLING) * PRESSURE_DAMPING;
@@ -3483,24 +3598,26 @@ fn step_velocity(
     };
 
     par_solve_tiles(coords, next, |coord, tile| {
+        let old_near = TileNear::new(old, coord);
+        let new_near = TileNear::new(&new_pressure, coord);
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
                 let mut cell = tile.get_local(lx, ly);
 
-                if is_blocked(&new_pressure, bounds, wx, wy) {
+                if is_blocked(&new_near, bounds, wx, wy) {
                     cell.vx = 0.0;
                     cell.vy = 0.0;
                     tile.set_local(lx, ly, cell);
                     continue;
                 }
 
-                let old_here = sample(old, bounds, wx, wy);
-                let p_left = sample(&new_pressure, bounds, wx - FIELD_SCALE, wy);
-                let p_right = sample(&new_pressure, bounds, wx + FIELD_SCALE, wy);
-                let p_up = sample(&new_pressure, bounds, wx, wy - FIELD_SCALE);
-                let p_down = sample(&new_pressure, bounds, wx, wy + FIELD_SCALE);
+                let old_here = sample(&old_near, bounds, wx, wy);
+                let p_left = sample(&new_near, bounds, wx - FIELD_SCALE, wy);
+                let p_right = sample(&new_near, bounds, wx + FIELD_SCALE, wy);
+                let p_up = sample(&new_near, bounds, wx, wy - FIELD_SCALE);
+                let p_down = sample(&new_near, bounds, wx, wy + FIELD_SCALE);
 
                 let mut vx = (old_here.vx + (p_left.pressure - p_right.pressure) * PRESSURE_VELOCITY_COUPLING)
                     * VELOCITY_DAMPING;
@@ -3532,13 +3649,13 @@ fn step_velocity(
                 // condition for a continuum velocity *field* like this one is
                 // no-penetration — the normal component goes to zero at the
                 // wall, full stop, nothing bounces. That is what is here now.
-                let flowing_into_blocked_left = vx < 0.0 && is_blocked(&new_pressure, bounds, wx - FIELD_SCALE, wy);
-                let flowing_into_blocked_right = vx > 0.0 && is_blocked(&new_pressure, bounds, wx + FIELD_SCALE, wy);
+                let flowing_into_blocked_left = vx < 0.0 && is_blocked(&new_near, bounds, wx - FIELD_SCALE, wy);
+                let flowing_into_blocked_right = vx > 0.0 && is_blocked(&new_near, bounds, wx + FIELD_SCALE, wy);
                 if flowing_into_blocked_left || flowing_into_blocked_right {
                     vx = 0.0;
                 }
-                let flowing_into_blocked_up = vy < 0.0 && is_blocked(&new_pressure, bounds, wx, wy - FIELD_SCALE);
-                let flowing_into_blocked_down = vy > 0.0 && is_blocked(&new_pressure, bounds, wx, wy + FIELD_SCALE);
+                let flowing_into_blocked_up = vy < 0.0 && is_blocked(&new_near, bounds, wx, wy - FIELD_SCALE);
+                let flowing_into_blocked_down = vy > 0.0 && is_blocked(&new_near, bounds, wx, wy + FIELD_SCALE);
                 if flowing_into_blocked_up || flowing_into_blocked_down {
                     vy = 0.0;
                 }
@@ -3676,16 +3793,43 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
     let old = world.fields_ref();
     let bounds = world.bounds();
     par_solve_tiles(coords, next, |coord, tile| {
+        let old = TileNear::new(old, coord);
         let (ox, oy) = coord.origin();
+        // **Every read this tile's 16 cells make, gathered once.** A cell is
+        // read as `here` by itself and as a neighbour by up to four others,
+        // each time through `sample` plus a blocked test plus, for moisture,
+        // a source test; gathered, each position is read once (2026-10-22,
+        // `plantcost scene=community`). The tile and a one-cell ring around
+        // it, corners left out since nothing here reads a diagonal; the
+        // values are the readers' own, at the same world coordinates, so
+        // nothing below can tell the difference.
+        const SPAN: i32 = FIELD_TILE_SIZE + 2;
+        const SPAN_AREA: usize = (SPAN * SPAN) as usize;
+        let mut ring_cell = [FieldCell::AMBIENT; SPAN_AREA];
+        let mut ring_blocked = [false; SPAN_AREA];
+        let mut ring_glows = [false; SPAN_AREA];
+        let mut ring_source = [false; SPAN_AREA];
+        for py in 0..SPAN {
+            for px in 0..SPAN {
+                if (px == 0 || px == SPAN - 1) && (py == 0 || py == SPAN - 1) {
+                    continue;
+                }
+                let (wx, wy) = (ox + (px - 1) * FIELD_SCALE, oy + (py - 1) * FIELD_SCALE);
+                let i = (py * SPAN + px) as usize;
+                ring_cell[i] = sample(&old, bounds, wx, wy);
+                (ring_blocked[i], ring_glows[i]) = blocked_and_glow(&old, bounds, wx, wy);
+                ring_source[i] = is_moisture_source(&old, bounds, wx, wy);
+            }
+        }
+        let at = |lx: i32, ly: i32| ((ly + 1) * SPAN + lx + 1) as usize;
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
-                let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
                 // Same-frame occupancy, for the same reason `step_pressure`
                 // needs it — `next`, not `old`.
                 if tile.is_blocked_local(lx, ly) {
                     continue; // stays ambient — a wall has no temperature or light of its own
                 }
-                let here = sample(old, bounds, wx, wy);
+                let here = ring_cell[at(lx, ly)];
 
                 // A blocked neighbour contributes `here`'s own value instead
                 // of whatever the wall cell happens to hold, so it pulls the
@@ -3712,24 +3856,23 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
                 // the sealed-room optical guard is untouched: this admits
                 // light *from a light source*, not through stone.
                 let neighbour = |dx: i32, dy: i32| {
-                    let (nx, ny) = (wx + dx, wy + dy);
-                    let (blocked, glows) = blocked_and_glow(old, bounds, nx, ny);
-                    if blocked {
-                        if glows {
+                    let n = at(lx + dx, ly + dy);
+                    if ring_blocked[n] {
+                        if ring_glows[n] {
                             let mut wall = here;
-                            wall.light = sample(old, bounds, nx, ny).light;
+                            wall.light = ring_cell[n].light;
                             wall
                         } else {
                             here
                         }
                     } else {
-                        sample(old, bounds, nx, ny)
+                        ring_cell[n]
                     }
                 };
-                let left = neighbour(-FIELD_SCALE, 0);
-                let right = neighbour(FIELD_SCALE, 0);
-                let up = neighbour(0, -FIELD_SCALE);
-                let down = neighbour(0, FIELD_SCALE);
+                let left = neighbour(-1, 0);
+                let right = neighbour(1, 0);
+                let up = neighbour(0, -1);
+                let down = neighbour(0, 1);
                 let neighbour_avg_t = (left.temperature + right.temperature + up.temperature + down.temperature) / 4.0;
                 // **The sky's share diffuses on exactly the same stencil, and
                 // it has to.** `apply_sky_temperature_to` re-derives this
@@ -3779,17 +3922,17 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
                 // carries the same shape of exception (see `neighbour`
                 // above) for blocked blocks that are themselves the light.
                 let moisture_neighbour = |dx: i32, dy: i32| -> f32 {
-                    let (nx, ny) = (wx + dx, wy + dy);
-                    if is_blocked(old, bounds, nx, ny) && !is_moisture_source(old, bounds, nx, ny) {
+                    let n = at(lx + dx, ly + dy);
+                    if ring_blocked[n] && !ring_source[n] {
                         here.moisture
                     } else {
-                        sample(old, bounds, nx, ny).moisture
+                        ring_cell[n].moisture
                     }
                 };
-                let neighbour_avg_m = (moisture_neighbour(-FIELD_SCALE, 0)
-                    + moisture_neighbour(FIELD_SCALE, 0)
-                    + moisture_neighbour(0, -FIELD_SCALE)
-                    + moisture_neighbour(0, FIELD_SCALE))
+                let neighbour_avg_m = (moisture_neighbour(-1, 0)
+                    + moisture_neighbour(1, 0)
+                    + moisture_neighbour(0, -1)
+                    + moisture_neighbour(0, 1))
                     / 4.0;
 
                 let temperature = (here.temperature
@@ -3890,14 +4033,15 @@ fn step_advection(
     };
 
     par_solve_tiles(coords, next, |coord, tile| {
+        let pre = TileNear::new(&pre_advection, coord);
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
-                if is_blocked(&pre_advection, bounds, wx, wy) {
+                if is_blocked(&pre, bounds, wx, wy) {
                     continue;
                 }
-                let here = sample(&pre_advection, bounds, wx, wy);
+                let here = sample(&pre, bounds, wx, wy);
 
                 // Clamped to one *tile* of back-trace per axis — the width
                 // of the halo, which is what makes the clamp necessary and
@@ -3929,7 +4073,7 @@ fn step_advection(
                 let dy = (here.vy * FIELD_SCALE as f32).clamp(-max_step, max_step);
                 let src_x = wx as f32 - dx;
                 let src_y = wy as f32 - dy;
-                let transported = sample_bilinear(&pre_advection, bounds, src_x, src_y, here);
+                let transported = sample_bilinear(&pre, bounds, src_x, src_y, here);
 
                 let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
                 let blended = FieldCell {
