@@ -6272,6 +6272,12 @@ impl World {
         self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
     }
 
+    /// [`World::found_colony_of`] with the founders' heap given rather than
+    /// read from `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` (`scenario::place_colony`).
+    pub fn found_colony_heaped(&mut self, x: i32, y: i32, species: &str, ants: i32, pile: bool) -> usize {
+        self.found_colony_with(x, y, species, ants, nest_door_of(self), pile)
+    }
+
     /// **Where a founder's home is under a door**: the cell above the door's
     /// centre, founded at `(x, y)` -- `None` without a door. The one copy of
     /// the rule: [`World::found_colony_with`] homes every founder here, and a
@@ -32427,6 +32433,19 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
     }
     let organism = cell.organism_id();
     if organism == 0 || world.organism(organism).is_none() {
+        return false;
+    }
+    creature_dies(world, organism, organism::DeathCause::Culled);
+    true
+}
+
+/// [`slay`] by organism id: the same death, for the animal with this id
+/// wherever it stands. **Ants overlap** (`climbs_over_kin`), so culling by a
+/// head's position killed a different ant about half the time -- the in-run
+/// pilot's "ghosts", ants the selection loop no longer knew (teacher lane,
+/// 2026-10-21). `lab::training` culls through this.
+pub fn cull_organism(world: &mut World, organism: OrganismId) -> bool {
+    if world.organism(organism).is_none() {
         return false;
     }
     creature_dies(world, organism, organism::DeathCause::Culled);

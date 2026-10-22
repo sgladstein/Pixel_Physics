@@ -169,6 +169,9 @@ GAME = {
     # held world stands on defaults off, so almost all of it is `engine` code
     # that this row does not claim; what is `held` is the inversion itself --
     # the two life gates, the circles, the economy and the binary.
+    # The in-run selection harness as a page of the lab, and the new ant's
+    # brain as a switch in the box. `lab` because only the lab builds it.
+    "colony training in the box, and the new ant": "lab",
     "the held world — the third game, and time you carry": "held",
 }
 
@@ -413,6 +416,9 @@ TOPICS = {
     # already exists but nothing before this built.
     "a saved starting box, and replicating it in a rack": [
         "Lab scenarios status — a saved starting box with a question written on it",
+    ],
+    "colony training in the box, and the new ant": [
+        "Colony training status — the new ant in the box, and selection you can watch",
     ],
     "the held world — the third game, and time you carry": [
         "Held world status — the third game, and time you carry in a circle",

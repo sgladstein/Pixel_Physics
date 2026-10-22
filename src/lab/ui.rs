@@ -244,6 +244,12 @@ const GOOD: [u8; 4] = [112, 208, 132, 255];
 const FAIR: [u8; 4] = [224, 192, 92, 255];
 const POOR: [u8; 4] = [224, 112, 92, 255];
 const MARKER: [u8; 4] = [255, 214, 92, 255];
+
+/// The TRAINING page's views, in the order its SHOWING row steps them.
+const TRAINING_TABS: [&str; 4] = ["STATUS", "SETTINGS", "BEST ANTS", "WHAT HAPPENED"];
+
+/// What the ANT BRAIN row says on hover, on both pages it appears on.
+const ANT_BRAIN_NOTE: &str = "OLD: EVERY ANT DECIDES BY THE HAND-BUILT BRAIN, THE SHIPPED GAME. NEW: EVERY ANT IN THE BOX DECIDES BY H1, THE MIND TRAINED IN THE TEACHER LANE (GO OUT WHEN HUNGRY, DIG, CARRY FOOD HOME). A NEWBORN TAKES ITS PARENT'S MIND UNCHANGED -- MINDS ONLY EVOLVE ON THE COLONY TRAINING PAGE. CLICK TO SWITCH; SWITCHING BACK TAKES EVERY MIND AWAY.";
 /// The ring under the cursor that says what the active tool will cover.
 /// Bright and cool, so it reads against soil, water and the lit sky alike.
 const TOOL_RING: [u8; 4] = [150, 226, 255, 255];
@@ -659,6 +665,32 @@ pub enum Action {
     /// `Renderer::magnify_grain`'s own ladder step. `CycleMagnifyInk`'s
     /// sibling.
     CycleMagnifyGrain,
+    /// A click on the TRAINING page. See [`TrainingAct`].
+    Training(TrainingAct),
+    /// **ANT BRAIN: OLD / NEW** -- the hand-built brain or the trained mind
+    /// for every ant in the box (`Lab::set_new_ant`).
+    ToggleNewAnt,
+}
+
+/// **What a click on the TRAINING page does** (`Lab::training_act`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrainingAct {
+    /// Put the training bed on screen and found round 0.
+    Start,
+    /// End the run; the bed stays as an ordinary box.
+    Stop,
+    /// End the round now and found the next on its best ants.
+    NextRound,
+    /// Step the page to its next view.
+    Tab,
+    /// Step one setting (`training::KNOBS[i]`) to its next value.
+    Knob(usize),
+    /// Every setting back to the teacher lane's control.
+    Defaults,
+    /// The next START's seed.
+    Seed,
+    /// Follow this ant.
+    Ant(crate::sim::cell::OrganismId),
 }
 
 /// **What a left-click on the world does.**
@@ -1112,6 +1144,12 @@ pub enum Panel {
     /// the bar has been measured full twice (`Panel::PlantList`) and the key
     /// table lives in `bin/lab.rs`, which another lane owns this round.
     Food,
+    /// **Colony training** -- selection inside one living colony of the new
+    /// ant, the teacher lane's in-run loop (`lab::training`), started,
+    /// watched and steered from here. Owner, 2026-10-22: *"a user interface
+    /// to play test the colony evolution training"*. Reached from MENU and
+    /// the ANTS page, the bar being full (`Panel::PlantList`).
+    Training,
 }
 
 impl Panel {
@@ -1131,6 +1169,7 @@ impl Panel {
             Panel::History => "HISTORY",
             Panel::Menu => "MENU",
             Panel::Food => "FOOD",
+            Panel::Training => "COLONY TRAINING",
         }
     }
 }
@@ -3468,6 +3507,17 @@ pub struct Ui {
     /// whoever built this page). `Lab::new` and `CycleDisplayFloor` are the
     /// two writers.
     display_floor: u32,
+    /// Which view the TRAINING page shows: status, settings, best ants,
+    /// what happened.
+    training_tab: usize,
+    /// **The training run as the page shows it**, read off the run by `Lab`
+    /// before each draw while the page is open (`training::Training::view`);
+    /// `None` with no run. The settings the next START would use are in
+    /// `training_next`.
+    training_view: Option<super::training::View>,
+    training_next: Option<(super::training::Settings, u64)>,
+    /// Mirrors `Lab::new_ant`, for the rows that show it.
+    new_ant: bool,
 }
 
 /// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
@@ -3601,6 +3651,19 @@ impl Ui {
             place: Tool::Soil,
             ..Self::default()
         }
+    }
+
+    /// The TRAINING page's next view.
+    pub fn next_training_tab(&mut self) {
+        self.training_tab = (self.training_tab + 1) % TRAINING_TABS.len();
+    }
+
+    /// What the TRAINING page and the ANT BRAIN rows show, set by `Lab`
+    /// before each draw.
+    pub fn set_training(&mut self, view: Option<super::training::View>, next: (super::training::Settings, u64), new_ant: bool) {
+        self.training_view = view;
+        self.training_next = Some(next);
+        self.new_ant = new_ant;
     }
 
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
@@ -4725,6 +4788,9 @@ impl Ui {
                 "EVERY ANIMAL IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE ANTS PAGE UNTIL NOW."),
             Row::choice("FOOD", "MOUSE", Action::Panel(Panel::Food),
                 "WHAT EACH COLONY IS LIVING ON, IN JOULES: WHERE THE FOOD COMES FROM, WHAT IT IS SPENT ON, AND HOW MANY ANIMALS ARE RUNNING ON EMPTY. NO KEY -- REACHED FROM THE ANTS PAGE."),
+            Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
+                "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
+            Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
             Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
                 "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
             Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
@@ -5209,6 +5275,195 @@ impl Ui {
         fit_rows(rows, page_content_budget())
     }
 
+    /// **The TRAINING page** (`Panel::Training`): one of four views over the
+    /// run `Lab` handed in (`set_training`), each fitted to the page.
+    fn training_rows(&self) -> Vec<Row> {
+        use super::training::{Kind, Mode, KNOBS};
+        let tab = self.training_tab % TRAINING_TABS.len();
+        let mut rows = vec![Row::choice(
+            "SHOWING",
+            TRAINING_TABS[tab],
+            Action::Training(TrainingAct::Tab),
+            "CLICK FOR THE NEXT VIEW OF THE RUN: STATUS, SETTINGS, THE BEST ANTS, WHAT HAPPENED.",
+        )];
+        let (next, seed) = self.training_next.clone().unwrap_or_default();
+        let view = self.training_view.as_ref();
+        let settings = view.map_or(&next, |v| &v.settings);
+        match (tab, view) {
+            (0, None) => {
+                rows.push(Row::choice(
+                    "START TRAINING",
+                    format!("SEED {seed}"),
+                    Action::Training(TrainingAct::Start),
+                    "REPLACES THE BOX ON SCREEN WITH THE TRAINING BED (256 X 128, FOOD DROPPED 25 COLUMNS OUT ON BOTH SIDES) AND FOUNDS ROUND 0 AT THE NEST DOOR: THE TRAINED MIND H1 AND ITS MUTANTS, 24 OF WHOM FIT. EVERY 500 FRAMES THE WORST ANTS ARE CULLED AND THE BEST HAVE CHILDREN; AFTER 200K FRAMES A FRESH BED IS FOUNDED ON THE ROUND'S BEST. THE CLOCK STOPS SO YOU SEE THE BED FIRST -- SPACE TO RUN.",
+                ));
+                rows.push(Row::choice("SEED", seed.to_string(), Action::Training(TrainingAct::Seed), "WHICH BED AND WHICH COIN-FLIPS THE NEXT START USES, 1 TO 8. THE SAME SEED AND SETTINGS GIVE THE SAME RUN."));
+                let changed = KNOBS.iter().filter(|k| !k.is_default(settings)).count();
+                rows.push(Row::value(
+                    "SETTINGS",
+                    if changed == 0 { "THE CONTROL".to_string() } else { format!("{changed} CHANGED") },
+                    if changed == 0 { GOOD } else { FAIR },
+                    "THE TEACHER LANE'S CONTROL (CTL.TXT) UNLESS CHANGED ON THE SETTINGS VIEW. SETTINGS CAN ALSO BE CHANGED WHILE IT RUNS.",
+                ));
+                rows.push(Row::value("FOUNDER MIND", "H1", VALUE, "THE 'GO OUT WHEN HUNGRY' LESSON'S MIND (TEACHER LANE, 2026-10-21), THE IN-RUN CONTROL'S FOUNDER. ROUND 0 IS H1 AND 29 MUTANTS OF IT."));
+            }
+            (0, Some(v)) => {
+                let band = if v.alive < settings.lo || v.alive > settings.hi { FAIR } else { GOOD };
+                rows.push(Row::value("ROUND", format!("{}   SEED {}", v.round, v.seed), VALUE, "WHICH ROUND THIS IS. EACH ROUND IS A FRESH BED FOUNDED ON THE LAST ROUND'S BEST LIVING ANTS; ITS SEED IS THE RUN'S SEED X 1000 + THE ROUND."));
+                rows.push(Row::value(
+                    "FRAME",
+                    format!("{} OF {}", compact(v.fr as f64), compact(settings.round_frames as f64)),
+                    VALUE,
+                    "FRAMES THIS ROUND HAS RUN. AT THE END THE NEXT ROUND IS FOUNDED BY ITSELF.",
+                ));
+                rows.push(Row::value(
+                    "ALIVE",
+                    format!("{}  ({} ADULT)  BAND {}-{}", v.alive, v.adults, settings.lo, settings.hi),
+                    if v.alive == 0 { POOR } else { band },
+                    "ANTS ALIVE, AND HOW MANY ARE OLD ENOUGH TO BE JUDGED (8,000 FRAMES). SELECTION CULLS ABOVE THE BAND AND REFILLS BELOW IT.",
+                ));
+                rows.push(Row::value("BORN / REMOVED", format!("{} / {}", v.births, v.removals), VALUE, "CHILDREN BORN THIS ROUND, AND ANTS CULLED OR RETIRED BY SELECTION. A PARENT RETIRES AFTER ITS 4TH CHILD."));
+                rows.push(Row::value(
+                    "STARVED",
+                    v.starved.to_string(),
+                    if v.starved > v.births / 2 + 5 { FAIR } else { VALUE },
+                    "ANTS THAT STARVED THIS ROUND. A COLONY THAT STOPS GOING OUT STARVES TOGETHER, ALL WITHIN A THOUSAND FRAMES OR SO.",
+                ));
+                rows.push(Row::value("FOOD HOME", format!("{} CELLS", v.food_home), VALUE, "FOOD CELLS CARRIED HOME AND PUT DOWN AT THE NEST THIS ROUND: THE GAME'S OWN DELIVERY. THE NUMBER THAT SAYS WHETHER SELECTION IS MAKING FORAGERS."));
+                rows.push(Row::value(
+                    "MEDIAN SCORE",
+                    if v.median.is_nan() { "--".to_string() } else { format!("{:.2}", v.median) },
+                    VALUE,
+                    "THE MIDDLE ADULT'S SCORE: WHAT IT EARNED PER 1,000 FRAMES ALIVE. AN ANT IS JUDGED AGAINST THIS IN UNITS OF ITS OWN NOISE.",
+                ));
+                rows.push(Row::value(
+                    "NEST SCORE",
+                    v.nest_score.map_or("--".to_string(), |n| format!("{n:.0}")),
+                    VALUE,
+                    "THE GENERAL NEST SCORE (CHAMBERS, TUNNELS, A DOOR THAT STAYS OPEN), READ EVERY 25,000 FRAMES. PRINTED ONLY -- IT PAYS NOBODY.",
+                ));
+                let keep = |xs: Vec<u32>| -> Vec<u32> {
+                    let step = xs.len().div_ceil(56).max(1);
+                    xs.into_iter().step_by(step).collect()
+                };
+                let alive: Vec<u32> = keep(v.samples.iter().map(|s| s.alive as u32).collect());
+                rows.push(Row::spark(
+                    format!("ALIVE THIS ROUND  NOW {}", v.alive),
+                    alive,
+                    GOOD,
+                    "ANTS ALIVE, SAMPLED EVERY 1,000 FRAMES OF THE ROUND, OLDEST ON THE LEFT.",
+                ));
+                let mut last = 0;
+                let home: Vec<u32> = keep(
+                    v.samples
+                        .iter()
+                        .map(|s| {
+                            let d = s.food_home - last;
+                            last = s.food_home;
+                            d as u32
+                        })
+                        .collect(),
+                );
+                rows.push(Row::spark("FOOD HOME PER 1K FRAMES", home, FAIR, "FOOD CELLS CARRIED HOME IN EACH 1,000 FRAMES OF THE ROUND, OLDEST ON THE LEFT."));
+                let mut bars: Vec<(u32, [u8; 4])> = v.past.iter().map(|r| (r.food_home as u32, if r.mode == Mode::Score { GOOD } else { FAINT })).collect();
+                bars.push((v.food_home as u32, VALUE));
+                rows.push(Row::spark_tinted(
+                    format!("FOOD HOME BY ROUND  {}", v.past.iter().map(|r| r.food_home.to_string()).chain([format!("{}..", v.food_home)]).collect::<Vec<_>>().join(" ")),
+                    bars,
+                    "FOOD CARRIED HOME IN EACH ROUND, ROUND 0 ON THE LEFT, THE ROUND RUNNING NOW LAST (WHITE, STILL GROWING). GREEN ROUNDS WERE SELECTED BY SCORE, GREY AT RANDOM OR OFF. IF SELECTION WORKS, THIS CLIMBS ROUND OVER ROUND.",
+                ));
+                if v.extinct {
+                    rows.push(Row::value("EXTINCT", "NO ANT LEFT", POOR, "THE ROUND ENDED WITH NOBODY ALIVE, SO THERE IS NOTHING TO FOUND THE NEXT ROUND ON. START AGAIN, OR CHANGE THE SETTINGS FIRST."));
+                }
+                rows.push(Row::choice("NEXT ROUND NOW", "", Action::Training(TrainingAct::NextRound), "END THIS ROUND HERE AND FOUND THE NEXT ON ITS BEST LIVING ANTS, WITHOUT WAITING FOR THE ROUND'S LAST FRAME."));
+                rows.push(Row::choice("START AGAIN", format!("SEED {seed}"), Action::Training(TrainingAct::Start), "THROW THIS RUN AWAY AND FOUND ROUND 0 AGAIN, WITH THE SETTINGS AS THEY ARE NOW. R DOES THE SAME."));
+                rows.push(Row::choice("STOP TRAINING", "", Action::Training(TrainingAct::Stop), "END THE RUN. THE BED STAYS ON SCREEN AS AN ORDINARY BOX AND ITS ANTS KEEP THEIR MINDS, BUT NOBODY IS JUDGED, CULLED OR BORN BY SELECTION ANY MORE."));
+            }
+            (1, _) => {
+                for (i, k) in KNOBS.iter().enumerate() {
+                    let tint = if k.is_default(settings) { GOOD } else { FAIR };
+                    let note = format!(
+                        "{} HARNESS KEY {}. THE CONTROL IS {}. {}",
+                        k.note,
+                        k.key.to_uppercase(),
+                        k.value(&super::training::Settings::default()),
+                        if view.is_some() { "CHANGES THE RUN FROM THE NEXT FRAME." } else { "USED BY THE NEXT START." }
+                    );
+                    rows.push(Row::choice_tinted(k.label, k.value(settings), Action::Training(TrainingAct::Knob(i)), tint, note));
+                }
+                rows.push(Row::choice("BACK TO THE CONTROL", "", Action::Training(TrainingAct::Defaults), "EVERY SETTING BACK TO THE TEACHER LANE'S CONTROL (CTL.TXT, KID GRANTS 3). GREEN VALUES ARE THE CONTROL'S, YELLOW ARE CHANGED."));
+            }
+            (2, Some(v)) => {
+                // Three fit beside the label at the page's width; a fourth ran off it.
+                let lines: Vec<String> = v.lines.iter().take(3).map(|(l, n)| format!("{} {n}", l.to_uppercase())).collect();
+                rows.push(Row::value("LINES", lines.join(" "), VALUE, "LIVING ANTS PER FOUNDER LINE (THE ROUND-0 MUTANT EACH DESCENDS FROM), MOST FIRST. ONE LINE TAKING OVER IS SELECTION AT WORK -- OR LUCK; COMPARE A RUN AT RANDOM."));
+                let budget = page_content_budget() - rows.iter().map(Row::height).sum::<i32>() - LINE;
+                let fit = (budget / LINE).max(0) as usize;
+                for a in v.ants.iter().take(fit) {
+                    let line = a.family.split('.').next().unwrap_or("").to_uppercase();
+                    // The id stays in the note: it is seven digits wide (the
+                    // world's ids carry high bits) and crowded the score off
+                    // the row, while line and generation are what is read.
+                    rows.push(Row::choice(
+                        format!("{line} G{}", a.gen),
+                        format!("{:.2}  KIDS {}  {:.1}T", a.score, a.kids, a.tanks),
+                        Action::Training(TrainingAct::Ant(a.id)),
+                        format!(
+                            "ANT {}: FAMILY {}, GENERATION {}, BORN AT ROUND FRAME {}. SCORE {:.2} PER 1,000 FRAMES, {} CHILDREN, {} LIVE LINKS IN ITS MIND, {:.1} TANKS IN THE BANK. CLICK TO FOLLOW IT.",
+                            a.id,
+                            a.family.to_uppercase(),
+                            a.gen,
+                            a.born,
+                            a.score,
+                            a.kids,
+                            a.links,
+                            a.tanks
+                        ),
+                    ));
+                }
+                if v.ants.len() > fit {
+                    rows.push(Row::value("MORE", format!("+{}", v.ants.len() - fit), FAINT, "MORE ANTS THAN THE PAGE HAS ROOM FOR, LOWER SCORES."));
+                }
+            }
+            (3, Some(v)) => {
+                let budget = page_content_budget() - rows.iter().map(Row::height).sum::<i32>();
+                let fit = (budget / LINE).max(0) as usize;
+                if v.recent.is_empty() {
+                    rows.push(Row::value("NOTHING YET", "", FAINT, "NOBODY HAS BEEN BORN OR CULLED THIS ROUND. ADULTS ARE JUDGED FROM 8,000 FRAMES OLD."));
+                }
+                for e in v.recent.iter().take(fit) {
+                    let line = e.family.split('.').next().unwrap_or("").to_uppercase();
+                    let (what, tint) = match e.kind {
+                        Kind::Birth => ("BORN", GOOD),
+                        Kind::Refill => ("REFILL", GOOD),
+                        Kind::Hall => ("HALL", FAIR),
+                        Kind::Cull => ("CULLED", POOR),
+                        Kind::Retire => ("RETIRED", FAINT),
+                    };
+                    // No ids: the world's are seven digits wide and the font has
+                    // no `#`, so a birth with its parent's ran off the page.
+                    // `births.csv` from `examples/labtrain.rs` carries them.
+                    let value = match (e.links, e.score) {
+                        (Some(_), _) => format!("{line} G{}", e.gen),
+                        (None, Some(sc)) => format!("{line} AT {sc:.2}"),
+                        (None, None) => line,
+                    };
+                    rows.push(Row::value(
+                        format!("F{} {what}", compact(e.frame as f64)),
+                        value,
+                        tint,
+                        "BORN: A CHILD OF A PARENT WHOSE SCORE SINCE ITS LAST CHILD BEAT THE MEDIAN. REFILL: A CHILD TO REFILL A COLONY BELOW ITS BAND. HALL: A CHILD OF AN ANT THAT STARVED RECENTLY. CULLED: REMOVED FOR A SCORE FAR BELOW THE MEDIAN, OR TO MAKE ROOM FOR A CHILD. RETIRED: LEFT AFTER ITS 4TH CHILD. FRAMES ARE WORLD FRAMES.",
+                    ));
+                }
+            }
+            (_, None) => {
+                rows.push(Row::value("NO RUN", "START ONE FIRST", FAINT, "THIS VIEW READS A RUNNING TRAINING. START ONE FROM THE STATUS VIEW."));
+            }
+            _ => {}
+        }
+        rows
+    }
+
     fn compare_rows(&self, world: &World) -> Vec<Row> {
         let (Some(a), Some(b)) = (self.held, self.pinned) else {
             return vec![Row::value(
@@ -5333,6 +5588,7 @@ impl Ui {
             | Panel::Menu => Vec::new(),
             Panel::Compare => self.compare_rows(world),
             Panel::Food => self.food_rows(world),
+            Panel::Training => self.training_rows(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -5527,6 +5783,7 @@ impl Ui {
                         Action::CycleCreatureColour,
                         "WHAT COLOUR EVERY ANIMAL WEARS IN THE BOX, AND WHAT THE CHART AND LEGEND BELOW GROUP AND COLOUR BY. CLICK TO CYCLE: OWN COLOUR, BY SPECIES, BY COLONY. THE CHART GROUPS BY COLONY ONLY IN THAT LAST MODE -- OTHERWISE IT SUMS EVERY COLONY OF A SPECIES INTO ONE LINE.",
                     ),
+                    Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
                     // **The selector for the marker, beside the selector for
                     // the colour it uses.** Movement is what makes an animal
                     // legible in play, so this is a pause-time aid rather
@@ -5567,6 +5824,13 @@ impl Ui {
                     ants,
                     Action::Panel(Panel::AntList),
                     "OPEN THE ROSTER: ONE ROW PER ANIMAL, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT ANIMAL AND ITS NUMBERS ON SCREEN. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, WHICH IS THE WHOLE REASON THIS LIST EXISTS.",
+                ));
+                rows.push(Row::head(
+                    "COLONY TRAINING",
+                    false,
+                    0,
+                    Action::Panel(Panel::Training),
+                    "OPEN THE TRAINING PAGE: SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT -- THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND.",
                 ));
                 rows
             }
