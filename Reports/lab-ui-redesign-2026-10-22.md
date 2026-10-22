@@ -11,14 +11,31 @@
 
 What it is: pages dock on the left, BATTLE then the cell page and BIOSPHERE on the right, all between the clock line (`ui::DOCK_TOP`) and the tab strip (`ui::dock_bottom`). When two would still touch, the one opened or clicked last stays and the other folds to a title strip you click to bring back. Every window has the same `X`. Hover explanations and the LOOK readout search for a clear spot (`ui::place_clear`) and show their first sentence until the pointer rests. The notice line moved into the tab strip. Also: BIOSPHERE and BATTLE stop clicks; ESC closes the window opened last and quits only on a second press with nothing open; REBUILD asks twice; the wheel scrolls the window under it and zooms only over the box; BIOSPHERE opens shut, and a short welcome card replaced the 30-line key list as the first screen; a page and BIOSPHERE may now be up together. Not done in step 1: "+N MORE" is still not scrollable on the generic pages (step 4 replaces most of those lists with charts).
 
-**Step 2 measured, not shipped (2026-10-22).** Crisp text means painting the interface at 2x. The lab can already paint a 1024x640 frame (the pixel budget at a zoomed-out rung), so the cost was read there on a 1024x640 bed, paused, `Lab::draw` timed over 200 frames, two alternating passes each:
+**Step 2 shipped (2026-10-22, branch `claude/project-thread-i9wmgj`): crisp text on its own layer.** The first try (below) painted the whole frame at 2x and failed the rule. What shipped is the plan's other version: the box stays at 1x in its own buffer, and the bar, pages, clock and notes are painted into a separate 1024x640 layer (`Lab::draw_layered`, `render::Hud::layer`) that the binary composites over the box on the GPU (`src/bin/lab/layer.rs`). Text on the layer is a real face, JetBrains Mono SemiBold capitals rasterised onto the 5x7 font's own grid doubled (`scripts/crispfont.py` -> `src/hud_crisp.rs`), so no page was laid out again and every hit box is where it was. Marks that sit on world cells (life marks, the pinned trail, the inspect ring, the brush ring, BATTLE's band) stay in the box at 1x (`Ui::draw_world_marks`). The layer is repainted only when something on it can have changed: any input, a tick (at most every 30 ms, `CHROME_LIVE`), or a 250 ms heartbeat. `PIXEL_PHYSICS_LAB_CRISP=0` is the old path.
+
+**Why it is cheaper rather than dearer.** In the old path `Ui::is_dirty` and `time::hud_is_dirty` both answer `true` unconditionally (the clock and bar are always on screen), so the lab redrew the whole box every frame and its dirty-rect skip never ran. With the interface off the box, only the world marks force that.
+
+`Lab::draw`, ms per frame, mean over 2 runs x 2 passes x 200 draws paced at 60 Hz, shipped 512x320 bed ticked 900 frames (`examples/labdraw.rs`; main's binary and the branch's run alternately in one session):
+
+| arm | main | layer | layer repaints |
+|---|---|---|---|
+| paused, nothing open | 2.45 | **0.22** | 13 of 200 (heartbeat) |
+| paused, pointer resting on the box | 2.50 | **0.21** | 13 of 200 |
+| paused, ANTS + BIOSPHERE | 3.83 | **0.25** | 13 of 200 |
+| paused, ANTS + BIOSPHERE, pointer moving (worst case: repaint every frame) | 3.88 | **1.45** | 200 of 200 |
+| running, nothing open | 4.20 | **3.99** | ~100 of 200 |
+| running, ANTS + BIOSPHERE | 5.58 | **4.67** | ~100 of 200 |
+
+Not in those numbers: the layer's upload to the GPU (2.6 MB, only on a frame that repainted) and the composite pass, which replaces the `pixels` crate's own. Checked: the world is bit-identical drawn either way or not drawn at all (`the_interface_layer_leaves_the_world_bit_identical`); the 1x path's frames are byte-identical to main's on all six arms; `labui split=1` reads 0 overlapping pixels on all 74 screens on both paths (`crisp=1` photographs the layer, `crisp=pair` puts today and crisp side by side); and in the real window under xvfb + lavapipe the GPU composite matches the CPU screenshot to within one colour level on every pixel. Two costs found and paid on the way, by callgrind: the layer's translucent blend in float was 19% of a run (now integer, with a constant for the transparent case), and window backgrounds went through `Hud::put` per pixel (now `Hud::fill_rect`, which also made the 1x path's pages ~0.3 ms cheaper). Not done: mixed case for prose; a 3x face for 1.5x and 3x screens (those are sampled bilinearly from 2x).
+
+**The first try, measured and not shipped (2026-10-22).** Crisp text means painting the interface at 2x. The lab can already paint a 1024x640 frame (the pixel budget at a zoomed-out rung), so the cost was read there on a 1024x640 bed, paused, `Lab::draw` timed over 200 frames, two alternating passes each:
 
 | frame drawn | box alone | ANTS page + BIOSPHERE open | the two windows' share |
 |---|---|---|---|
 | 512x320 (today) | 3.3-3.6 ms | 5.0-6.0 ms | 1.4-2.7 ms |
 | 1024x640 | 8.5 ms | 12.8-13.8 ms | 4.3-5.3 ms |
 
-So drawing the whole frame at 2x roughly doubles to triples the draw, and the windows alone cost about 3 ms more. That fails the plan's rule (ships only if a settled box with both docks open costs no more than today). What would pass is the plan's other version: the interface on its own 2x layer, repainted only when something on it changes, with the box staying at 1x. That needs a second texture and shader in `bin/lab.rs` beside the `pixels` crate's one, so it is left for a decision rather than built overnight. Steps 3 to 5 went ahead at 1x as the plan says.
+So drawing the whole frame at 2x roughly doubles to triples the draw, and the windows alone cost about 3 ms more. That fails the plan's rule (ships only if a settled box with both docks open costs no more than today), which is why the shipped version above puts the interface on a layer of its own instead.
 
 **Step 3, in part (2026-10-22).** MENU is grouped into WATCH, INDIVIDUALS and EXPERIMENT on the left and the display switches (PAINT OVER THE BOX, PANELS AND CLOCK, MAGNIFIER) on the right; THE RACK is now CHAMBERS, THE SHELF is KEPT JARS, PARAMS is NUMBERS, REACTION ON EVENT is ON AN EVENT. Not done: the bar's direct page buttons and the collapsed speed cell, and RESET moving off the bar.
 

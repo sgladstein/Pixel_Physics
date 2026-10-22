@@ -318,7 +318,36 @@ pub struct Lab {
     /// the box we just left; without this the old chamber is painted under the
     /// new one wherever the new one happens to be settled.
     view_dirty: bool,
+    /// The interface layer must be repainted on the next `draw_layered`.
+    /// See [`Lab::touch_chrome`].
+    chrome_due: bool,
+    /// When the interface was last painted, and at which world frame.
+    chrome_painted: Option<(std::time::Instant, u64)>,
+    /// Which path the last draw took (`Some(true)` layered), so a switch
+    /// between them can force the box's one full redraw it needs.
+    painted_layered: Option<bool>,
 }
+
+/// The lab's interface layer, in pixels: the logical screen at
+/// [`LAYER_SCALE`]. See [`Lab::draw_layered`].
+pub const LAYER_SIZE: (u32, u32) = (WIDTH * 2, HEIGHT * 2);
+/// Layer pixels per logical pixel. Two is what the crisp face is cut for
+/// (`hud::draw_text_crisp`).
+pub const LAYER_SCALE: i32 = 2;
+/// **The longest the interface layer goes unrepainted**, whatever else is
+/// happening. Every change an input or a tick causes is repainted on the
+/// next frame; this catches the rest -- a background batch's progress, a
+/// hover note's rest timer, a notice timing out -- at a quarter-second's
+/// lag, which none of them is read at.
+pub const CHROME_HEARTBEAT: std::time::Duration = std::time::Duration::from_millis(250);
+/// **How often a running box repaints the interface for the box's sake
+/// alone** -- its numbers, charts and clock -- when nothing was touched:
+/// at most every 30 ms, so a 60 Hz window repaints the layer on every other
+/// frame. A pointer, a key or a click repaints on the very next frame
+/// regardless (`Lab::touch_chrome`). Numbers changing at 60 Hz are not read
+/// any better than at 30, and the second repaint was most of what the layer
+/// cost over today while running (`examples/labdraw.rs`).
+pub const CHROME_LIVE: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// **A chamber that is not currently on screen.**
 ///
@@ -625,6 +654,9 @@ impl Lab {
             new_ant: false,
             new_ant_mind: None,
             view_dirty: false,
+            chrome_due: true,
+            chrome_painted: None,
+            painted_layered: None,
         }
     }
 
@@ -2136,6 +2168,61 @@ impl Lab {
     }
 
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
+        self.paint(frame_buf, None, fps);
+    }
+
+    /// **[`Lab::draw`] with the interface on a layer of its own**: the box
+    /// into `frame_buf` at its own resolution, the bar, pages, clock and notes
+    /// into `layer` at twice the logical size ([`LAYER_SIZE`], premultiplied
+    /// RGBA, transparent where the box shows through), for `bin/lab.rs` to
+    /// composite on the GPU. Returns whether `layer` was repainted -- when it
+    /// was not, it holds last frame's interface untouched and the binary need
+    /// not upload it.
+    ///
+    /// **Why a layer** (`Reports/lab-ui-redesign-2026-10-22.md` step 2): text
+    /// at 2x reads crisp, and painting the whole frame at 2x to get it cost
+    /// 2-3x the draw. On its own layer the box stays at 1x, and two more
+    /// things fall out. The interface is repainted only when something on it
+    /// can have changed ([`Lab::touch_chrome`], a tick, or
+    /// [`CHROME_HEARTBEAT`]), where before it was redrawn on every frame;
+    /// and the box no longer needs a full redraw every frame just because
+    /// text sat on it last frame, which every frame did -- the clock and the
+    /// bar are always up, so `Ui::is_dirty` and `time::hud_is_dirty` answer
+    /// `true` unconditionally and the dirty-rect skip never ran in the lab.
+    /// Only the marks that sit on world cells (`Ui::draw_world_marks`) are
+    /// still drawn into the box, and only they force the full redraw.
+    pub fn draw_layered(&mut self, frame_buf: &mut [u8], layer: &mut [u8], fps: f32) -> bool {
+        self.paint(frame_buf, Some(layer), fps)
+    }
+
+    /// Something the interface shows may have changed -- an input event, a
+    /// key, a click -- so the next [`Lab::draw_layered`] repaints the layer.
+    /// `bin/lab.rs` calls it for every input event it receives, which is
+    /// what keeps the layer honest about keys that reach past `Lab::act`
+    /// straight into the renderer; the cursor and the bar's own verbs call it
+    /// here as well.
+    pub fn touch_chrome(&mut self) {
+        self.chrome_due = true;
+    }
+
+    /// The buffer the next draw goes into does not hold the last frame's box
+    /// -- a harness drawing into a fresh one each time -- so the dirty-rect
+    /// skip must not trust it. The window's own buffer persists and never
+    /// needs this.
+    pub fn invalidate_view(&mut self) {
+        self.view_dirty = true;
+    }
+
+    /// Whether the interface layer is due a repaint. See [`Lab::draw_layered`].
+    fn chrome_due(&self, now: std::time::Instant) -> bool {
+        self.chrome_due
+            || self.chrome_painted.is_none_or(|(at, frame)| {
+                let since = now.duration_since(at);
+                (frame != self.world.frame && since >= CHROME_LIVE) || since >= CHROME_HEARTBEAT
+            })
+    }
+
+    fn paint(&mut self, frame_buf: &mut [u8], layer: Option<&mut [u8]>, fps: f32) -> bool {
         self.apply_pixel_budget();
         // The cutaway follows the bed's ground row, which a rebuild can move.
         if self.renderer.nest_cutaway.is_some() {
@@ -2154,11 +2241,23 @@ impl Lab {
         // permanent chrome and its hover highlight moves with the cursor, so
         // `ui::Ui::is_dirty` is in this expression for the same reason
         // `time::hud_is_dirty` is.
-        let force_full = self.ui.cursor().is_some()
-            || self.ui.is_dirty()
-            || self.stats.showing()
-            || self.time.hud_is_dirty()
-            || self.show_help
+        //
+        // **On the layered path only the marks in the box force it**
+        // (`Lab::draw_layered`): nothing else is drawn into this buffer, so
+        // last frame's only footprint the skip cannot see is theirs. A switch
+        // between the two paths forces it once, since the single-buffer path
+        // left the whole interface sitting on the terrain.
+        let layered = layer.is_some();
+        let path_changed = self.painted_layered.replace(layered) != Some(layered);
+        let force_full = if layered {
+            self.ui.world_marked()
+        } else {
+            self.ui.cursor().is_some()
+                || self.ui.is_dirty()
+                || self.stats.showing()
+                || self.time.hud_is_dirty()
+                || self.show_help
+        } || path_changed
             // A chamber switch. See `Lab::view_dirty`.
             || std::mem::take(&mut self.view_dirty);
         // **Hold the view inside the box, here rather than at every place the
@@ -2180,6 +2279,23 @@ impl Lab {
             viewport,
             force_full,
         );
+        self.ui.draw_world_marks(frame_buf, &self.world, &self.renderer);
+        // **Everything from here on is the interface**, painted on `hc` into
+        // `frame_buf` -- the box's own buffer on the single-buffer path, or
+        // the cleared 2x layer when one is due.
+        let now = std::time::Instant::now();
+        let (hc, frame_buf) = match layer {
+            Some(layer) => {
+                if !self.chrome_due(now) {
+                    return false;
+                }
+                layer.fill(0);
+                (crate::render::Hud::layer(LAYER_SIZE.0, LAYER_SIZE.1, LAYER_SCALE), layer)
+            }
+            None => (hc, frame_buf),
+        };
+        self.chrome_due = false;
+        self.chrome_painted = Some((now, self.world.frame));
         crate::render::paint_owner::set("CLOCK");
         self.time.draw(hc, frame_buf, &self.world);
         // **A request the machine cannot meet has to say so**, which is the
@@ -2265,7 +2381,7 @@ impl Lab {
         self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
-        self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
+        self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
         // the bar, and a control you can see but not reach is worse than one
         // that is plainly behind a page.
@@ -2301,14 +2417,19 @@ impl Lab {
                 Some((r, false)) => self.stats.draw_placed(hc, frame_buf, &self.world, self.ui.cursor(), (r.x, r.y, r.w, r.h)),
                 _ => None,
             };
-            self.ui.paint_stats_close(&self.renderer, frame_buf);
-            self.ui.paint_stats_note(&self.renderer, frame_buf, note);
+            self.ui.paint_stats_close(hc, frame_buf);
+            self.ui.paint_stats_note(hc, frame_buf, note);
         }
+        true
     }
 
     /// Where the mouse is, in framebuffer pixels — `None` when it has left the
     /// window. Drives the hover highlight and the hover explanations.
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
+        // The bar's hover highlight and the notes follow the pointer.
+        if self.ui.cursor() != at {
+            self.chrome_due = true;
+        }
         self.ui.set_cursor(at);
         if at.is_none() {
             self.finish_stroke();
@@ -2324,6 +2445,7 @@ impl Lab {
     /// semantics are untouched — this only fires when the press landed on the
     /// world and a painting tool is armed.
     pub fn press(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         self.ui.press(x, y);
         if self.show_help || self.ui.covers(x, y) {
             return;
@@ -2358,6 +2480,7 @@ impl Lab {
     /// button rather than as a seventh tool is what makes the pair a single
     /// gesture instead of two modes.
     pub fn press_erase(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
@@ -3306,6 +3429,7 @@ impl Lab {
     /// argument for the mouse: a key can toggle a page, and nothing on the
     /// keyboard can say *that ant*.
     pub fn release(&mut self, x: i32, y: i32) {
+        self.chrome_due = true;
         if self.stroke.take().is_some() {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
@@ -3358,6 +3482,7 @@ impl Lab {
     /// The mouse wheel at `(x, y)`; `true` when a window took it, `false`
     /// when it is the box's to zoom. See [`ui::Ui::wheel_at`].
     pub fn wheel(&mut self, x: i32, y: i32, down: bool) -> bool {
+        self.chrome_due = true;
         match self.ui.wheel_at(x, y, down) {
             None => false,
             Some(None) => true,
@@ -3374,6 +3499,7 @@ impl Lab {
     /// keyboard shortcut cannot drift: `bin/lab.rs`'s key handler routes
     /// through here too, and there is no second copy of "what SPACE does".
     pub fn act(&mut self, action: ui::Action) {
+        self.chrome_due = true;
         // **Any other verb takes a pending confirm back**, so a second Esc
         // or R reads as "yes" only when nothing happened in between (the
         // code review's case: Esc, open and close MENU, Esc quit unasked).
@@ -4585,11 +4711,7 @@ fn draw_welcome(hc: crate::render::Hud, frame: &mut [u8]) {
     let w = WELCOME.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
     let (bw, bh) = (w + 32, WELCOME.len() as i32 * 10 + 30);
     let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2 - 20);
-    for y in y0..(y0 + bh) {
-        for x in x0..(x0 + bw) {
-            hc.blend(frame, x, y, [12, 14, 20, 255], 0.9);
-        }
-    }
+    hc.blend_rect(frame, x0, y0, bw, bh, [12, 14, 20, 255], 0.9);
     for x in x0..x0 + bw {
         hc.put(frame, x, y0, EDGE);
         hc.put(frame, x, y0 + bh - 1, EDGE);
@@ -4610,20 +4732,16 @@ fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
     let w = HELP.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
     let (bw, bh) = (w + 24, HELP.len() as i32 * 10 + 20);
     let (x0, y0) = ((WIDTH as i32 - bw) / 2, (HEIGHT as i32 - bh) / 2);
-    for y in y0..(y0 + bh) {
-        for x in x0..(x0 + bw) {
-            // Dim what is behind rather than covering it, so the box stays
-            // visible under the page and the page reads as an overlay.
-            //
-            // **Through the canvas, not by indexing the frame.** This used to
-            // compute its own offset from `WIDTH`, which is the logical width
-            // and no longer the buffer's; at a grown buffer it dimmed a
-            // diagonal smear across the top-left instead of a panel. Blending
-            // to black at 0.75 is `dst / 4` to the byte, so the look is
-            // unchanged at scale 1.
-            hc.blend(frame, x, y, [0, 0, 0, 255], 0.75);
-        }
-    }
+    // Dim what is behind rather than covering it, so the box stays
+    // visible under the page and the page reads as an overlay.
+    //
+    // **Through the canvas, not by indexing the frame.** This used to
+    // compute its own offset from `WIDTH`, which is the logical width
+    // and no longer the buffer's; at a grown buffer it dimmed a
+    // diagonal smear across the top-left instead of a panel. Blending
+    // to black at 0.75 is `dst / 4` to the byte, so the look is
+    // unchanged at scale 1.
+    hc.blend_rect(frame, x0, y0, bw, bh, [0, 0, 0, 255], 0.75);
     for (i, line) in HELP.iter().enumerate() {
         let colour = if i == 0 { [235, 235, 200, 255] } else { [200, 200, 200, 255] };
         hc.text(frame, x0 + 12, y0 + 12 + i as i32 * 10, line, colour);
@@ -4902,6 +5020,136 @@ mod tests {
         // ...and at x1 it is the identity, which is every build before this.
         lab.pixel_budget = 1;
         assert_eq!(lab.to_logical(511, 319), (511, 319));
+    }
+
+    // ------------------------------------------------- the interface layer
+
+    fn layer_buf() -> Vec<u8> {
+        vec![0u8; (LAYER_SIZE.0 * LAYER_SIZE.1 * 4) as usize]
+    }
+
+    fn box_buf() -> Vec<u8> {
+        vec![0u8; (WIDTH * HEIGHT * 4) as usize]
+    }
+
+    fn lab_digest(w: &World) -> u64 {
+        let b = w.bounds().expect("the lab bed sets bounds");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x100_0000_01b3);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                mix(c.material.0 as u64);
+                mix(c.shade as u64);
+                mix(c.aux() as u64);
+                mix(c.organism_id() as u64);
+            }
+        }
+        let (born, died) = w.organism_turnover();
+        for v in [w.live_organism_count() as u64, w.live_creature_count() as u64, born, died] {
+            mix(v);
+        }
+        h
+    }
+
+    /// **Drawing through the layer leaves the world bit-identical** to
+    /// drawing into one buffer, and to not drawing at all. The layered path
+    /// skips the interface on most frames, and the interface is where the
+    /// lab reads the world for its pages (the roster, BIOSPHERE, the pinned
+    /// individual), so a draw with a side effect on the box would show here
+    /// as three digests that disagree.
+    #[test]
+    fn the_interface_layer_leaves_the_world_bit_identical() {
+        let run = |mode: u8| {
+            let mut lab = Lab::new(rack_bed(7));
+            lab.show_help = false;
+            lab.act(ui::Action::Panel(ui::Panel::Ants));
+            lab.act(ui::Action::Stats);
+            let (mut frame, mut layer) = (box_buf(), layer_buf());
+            for i in 0..240 {
+                lab.tick_for_harness();
+                lab.set_cursor(Some((100 + (i % 40), 120)));
+                match mode {
+                    0 => {}
+                    1 => lab.draw(&mut frame, 60.0),
+                    _ => {
+                        lab.draw_layered(&mut frame, &mut layer, 60.0);
+                    }
+                }
+            }
+            lab_digest(&lab.world)
+        };
+        let (none, one, layered) = (run(0), run(1), run(2));
+        assert_eq!(none, one, "drawing into one buffer changed the world");
+        assert_eq!(none, layered, "drawing through the interface layer changed the world");
+    }
+
+    /// **The layer is repainted when something on it can have changed, and
+    /// not otherwise**: a still pointer over a paused box repaints nothing
+    /// until the heartbeat, and a moved pointer, a verb or a tick each do.
+    #[test]
+    fn the_interface_layer_repaints_only_when_it_is_due() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "the first frame must paint the layer");
+        assert!(!lab.draw_layered(&mut frame, &mut layer, 60.0), "a paused, untouched box repainted its layer");
+        lab.set_cursor(Some((40, 40)));
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "a moved pointer did not repaint the layer");
+        lab.set_cursor(Some((40, 40)));
+        assert!(!lab.draw_layered(&mut frame, &mut layer, 60.0), "a pointer that did not move repainted the layer");
+        lab.act(ui::Action::Panel(ui::Panel::Box));
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "opening a page did not repaint the layer");
+        std::thread::sleep(CHROME_LIVE + std::time::Duration::from_millis(5));
+        lab.tick_for_harness();
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "a tick did not repaint the layer");
+        std::thread::sleep(CHROME_HEARTBEAT);
+        assert!(lab.draw_layered(&mut frame, &mut layer, 60.0), "the heartbeat did not repaint the layer");
+    }
+
+    /// **The layer holds the interface and nothing else**: opaque under the
+    /// bar, transparent over an open stretch of box. And the box's own
+    /// buffer holds no interface: the bar's rows of it are the box, drawn the
+    /// same as with no interface at all.
+    #[test]
+    fn the_interface_layer_covers_the_bar_and_not_the_box() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let alpha = |x: u32, y: u32| layer[((y * LAYER_SIZE.0 + x) * 4 + 3) as usize];
+        let bar = (ui::bar_top() as u32 + 4) * 2;
+        assert_eq!(alpha(LAYER_SIZE.0 / 2, bar), 255, "the bar is not opaque on the layer");
+        assert_eq!(alpha(LAYER_SIZE.0 / 2, LAYER_SIZE.1 / 2), 0, "the middle of an untouched box is painted on the layer");
+        let mut single = box_buf();
+        lab.draw(&mut single, 60.0);
+        let row = (ui::bar_top() as u32 + 4) * WIDTH * 4;
+        let (a, b) = (&frame[row as usize..(row + WIDTH * 4) as usize], &single[row as usize..(row + WIDTH * 4) as usize]);
+        assert_ne!(a, b, "the box buffer has the bar in it on the layered path");
+    }
+
+    /// **A mark drawn in the box is erased the next frame**, which is the
+    /// one full redraw the layered path still owes the dirty-rect skip
+    /// (`Ui::world_marked`): the brush ring follows the pointer over a
+    /// paused box, and with the pointer gone the box must be exactly a fresh
+    /// full redraw of itself.
+    #[test]
+    fn a_mark_in_the_box_does_not_outlive_its_frame_on_the_layered_path() {
+        let mut lab = Lab::new(rack_bed(3));
+        lab.show_help = false;
+        lab.act(ui::Action::Tool(ui::Tool::Food));
+        let (mut frame, mut layer) = (box_buf(), layer_buf());
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let before = frame.clone();
+        lab.set_cursor(Some((200, 120)));
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        assert_ne!(frame, before, "the brush ring was not drawn in the box -- the case below would prove nothing");
+        lab.set_cursor(None);
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+        let mut fresh = box_buf();
+        lab.invalidate_view();
+        lab.draw_layered(&mut fresh, &mut layer, 60.0);
+        assert_eq!(frame, fresh, "the brush ring stayed in the box after the pointer left");
     }
 
     // ------------------------------------------------------- the rack

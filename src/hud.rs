@@ -186,6 +186,69 @@ pub fn draw_text_scaled(frame: &mut [u8], (width, height): (u32, u32), scale: i3
     }
 }
 
+#[path = "hud_crisp.rs"]
+mod crisp;
+
+/// **The lab's crisp text**: `draw_text` on the same grid at exactly twice
+/// the resolution, with each glyph's antialiased coverage from a real face
+/// (`scripts/crispfont.py`) instead of the 5x7 dots blown up. `(x, y)` and
+/// the advance are logical, as for `draw_text_scaled` at scale 2, and a
+/// glyph's ink stays inside the 10x14 box a doubled 5x7 glyph fills plus one
+/// column -- so a page laid out for the dot font keeps its layout, and
+/// `text_width` stays true.
+///
+/// **Drawn into a premultiplied layer, not over the world.** The interface
+/// layer (`render::Hud::layer`) starts each repaint transparent and is
+/// composited over the box by the GPU, so coverage is an alpha: each pixel
+/// becomes `colour * a + dst * (1 - a)` in all four channels, which over a
+/// transparent pixel leaves a premultiplied colour and over an opaque panel
+/// is the ordinary blend. A character the table has no glyph for draws
+/// nothing, as in `draw_text`.
+pub fn draw_text_crisp(frame: &mut [u8], (width, height): (u32, u32), (x, y): (i32, i32), text: &str, colour: [u8; 4]) {
+    let (cw, ch) = (crisp::CELL_W as i32, crisp::CELL_H as i32);
+    let mut cursor_x = x * 2;
+    let top = y * 2;
+    let alpha = colour[3] as u32;
+    for c in text.chars() {
+        if let Some(cov) = crisp::coverage(c.to_ascii_uppercase()) {
+            for row in 0..ch {
+                let py = top + row;
+                if py < 0 || py >= height as i32 {
+                    continue;
+                }
+                for col in 0..cw {
+                    let px = cursor_x + col;
+                    let v = cov[(row * cw + col) as usize] as u32;
+                    if v == 0 || px < 0 || px >= width as i32 {
+                        continue;
+                    }
+                    let a = v * alpha / 255;
+                    let i = (py as usize * width as usize + px as usize) * 4;
+                    if a == 255 {
+                        frame[i..i + 3].copy_from_slice(&colour[..3]);
+                        frame[i + 3] = 255;
+                        continue;
+                    }
+                    for k in 0..3 {
+                        let d = frame[i + k] as u32;
+                        frame[i + k] = ((colour[k] as u32 * a + d * (255 - a) + 127) / 255) as u8;
+                    }
+                    let d = frame[i + 3] as u32;
+                    frame[i + 3] = ((255 * a + d * (255 - a) + 127) / 255) as u8;
+                }
+            }
+        }
+        cursor_x += (GLYPH_WIDTH + GLYPH_SPACING) * 2;
+    }
+}
+
+/// Whether the crisp table can draw `c` -- the same question `has_glyph`
+/// answers for the dot font, so a test can hold the two sets equal.
+pub fn has_crisp_glyph(c: char) -> bool {
+    let upper = c.to_ascii_uppercase();
+    upper == ' ' || crisp::coverage(upper).is_some()
+}
+
 /// Total pixel width `draw_text` would occupy for `text` — for right-
 /// aligning or centering a label before drawing it.
 pub fn text_width(text: &str) -> i32 {
@@ -254,6 +317,40 @@ mod tests {
         for c in ". , : - / % ( ) [ ] ! ? + =".chars().filter(|c| !c.is_whitespace()) {
             let bits: u32 = glyph_for(c).iter().map(|row| row.count_ones()).sum();
             assert!(bits > 0, "'{c}' is listed as supported but draws no pixels");
+        }
+    }
+
+    /// **The crisp table covers exactly the dot font's set**, so a string
+    /// that draws in one draws in the other -- the blank-gap bug the notes in
+    /// `glyph_for` record four times would otherwise come back on the crisp
+    /// layer alone.
+    #[test]
+    fn the_crisp_font_has_every_glyph_the_dot_font_has_and_no_more() {
+        for c in (0x20u8..0x7f).map(char::from) {
+            assert_eq!(has_glyph(c), has_crisp_glyph(c), "{c:?} is in one font and not the other");
+        }
+    }
+
+    /// **Crisp ink stays inside the cell a doubled dot glyph owns** -- the
+    /// promise that lets every page keep its layout. Every glyph is drawn
+    /// alone at (1, 1) logical into a buffer with room around it; nothing may
+    /// land outside the 11x14 box at (2, 2).
+    #[test]
+    fn crisp_glyphs_keep_inside_their_doubled_cell() {
+        let (w, h) = (40u32, 40u32);
+        for c in (0x21u8..0x7f).map(char::from).filter(|c| has_crisp_glyph(*c)) {
+            let mut frame = vec![0u8; (w * h * 4) as usize];
+            draw_text_crisp(&mut frame, (w, h), (1, 1), &c.to_string(), [255, 255, 255, 255]);
+            let mut lit = 0;
+            for y in 0..h as i32 {
+                for x in 0..w as i32 {
+                    if frame[((y * w as i32 + x) * 4 + 3) as usize] != 0 {
+                        lit += 1;
+                        assert!((2..13).contains(&x) && (2..16).contains(&y), "{c:?} inks ({x}, {y}), outside its cell");
+                    }
+                }
+            }
+            assert!(lit > 0, "{c:?} draws nothing");
         }
     }
 
