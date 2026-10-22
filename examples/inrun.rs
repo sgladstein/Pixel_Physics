@@ -244,6 +244,11 @@ fn main() {
     // fell 89 -> 9 per colony-round (13 of 13 lower, 8 seeds x 2 rounds), every pellet put down on the crater floor
     // booked as a 'tdrop', while the pit did not shrink (94 -> 98).
     let nest_top = num("nest_top", 0) as i32;
+    // zone_debit=F (owner, 2026-10-22: "we could even add a cost for digging outside the nest... I wouldn't want that
+    // forever... but top priority is teaching them to dig in the nest and not crater"): an original-ground cut that
+    // does not pay under nest=zone -- outside the zone, or in its top `nest_top` rows -- charges F times the cut half.
+    // A training-time lever, meant to come off. 0 = off.
+    let zone_debit = fnum("zone_debit", 0.0);
     // Rim quarrying (dig-scoring thread, 2026-10-21): a lone ant learns to come down from the surface, cut the first wall
     // cell and go straight back out, and the nest becomes a crater (44 of 49 cuts in the top 4 rows after 12k; 70-80% of
     // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
@@ -473,6 +478,13 @@ fn main() {
                         writeln!(ev, "{frame},{who},zpay,{x},{y},{depth},{who}").unwrap();
                         1.0
                     } else {
+                        if zone_debit > 0.0 {
+                            if let Some(b) = book.get_mut(&who) {
+                                let g = -zone_debit * 0.5 * w_dig * dig_price;
+                                b.credit += g;
+                                b.g2 += g * g;
+                            }
+                        }
                         0.0
                     }
                 } else if in_nest(x) {
