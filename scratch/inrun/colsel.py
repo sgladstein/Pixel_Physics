@@ -7,7 +7,7 @@ score, which is negative for every crater-digging colony and ~+1 for a colony th
 usage: colsel.py OUT MODE NCOL ROUNDS FRAMES GENOME [inrun args...]
   MODE plain   every colony runs rounds.sh's loop on its own (the control).
   MODE gate    after each round, a colony may be in the top half only if it passed the dig gate (GATE or more cuts of
-               original ground within 20 columns in the round's second half, or a chamber/niche in the final nest).
+               original ground within 20 columns in the round's second half).
                Gate-passers rank by rank-sum of (home8, starved fewer, late cuts, rooms); the rest below them by late cuts.
                The bottom half is refounded from the top half's carried ants (best donates to worst).
   MODE lex     the same gate; the bottom half's donors are picked by epsilon-lexicase over the gate-passers on the cases
@@ -161,7 +161,10 @@ for r in range(R):
     res = {c: result(dirs[c], F) if c in dirs else None for c in cols}
     carry = {c: carried(dirs[c]) if c in dirs else None for c in cols}
     ok = [c for c in cols if carry[c] is not None]
-    passed = {c: c in ok and (res[c][1] >= GATE or res[c][3] > 0) for c in cols}
+    # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
+    # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
+    # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
+    passed = {c: c in ok and res[c][1] >= GATE for c in cols}
     if MODE == 'plain':
         order = sorted(ok, key=lambda c: c)
     else:
