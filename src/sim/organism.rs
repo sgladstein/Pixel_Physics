@@ -7416,7 +7416,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 27;
+pub const CREATURE_TRAITS: usize = 28;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7835,6 +7835,29 @@ pub const TRAIL_PLANE_SLOTS: [usize; 4] = [TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_E
 /// ant keeps its own memory (`OrganismState::return_met`) in place of the
 /// nest-wide clock. Width 0, as the walk genes.
 pub const TRAIT_RETURN_MEMORY: usize = 26;
+/// Slot 27: **the appetite gate, as a gene** -- how much this ant's crop
+/// holds back digesting while the ant is already fed, read through
+/// `creature::appetite_weight_of` as `digest_hunger_weight + allele`,
+/// clamped to `0..=1`.
+///
+/// **Additive on the species' authored weight, with no species gate**, for
+/// `TRAIT_SIGHT_RANGE`'s ruling ("anything should be able to evolve"): the
+/// ant authors 0.0, so a multiplier would make the gate unreachable at any
+/// allele. At 0 the weight is the authored one exactly (`x + 0.0 == x`), so
+/// an unevolved ant digests bit-for-bit as it did before the slot existed.
+/// A negative allele on a species authored at 0 reads as no gate at all.
+///
+/// **Why it is a gene and not a brain output** (owner, 2026-10-22: "the body
+/// should be able to mutate too"): digestion is something a body does, not
+/// something an animal decides -- the same line `creature_tick`'s digestion
+/// comment draws -- so no link in a mind reaches it. The nearest a brain gets
+/// is shorter trips, which digest less on the way. Measured as a species
+/// switch in the in-run training bed (teacher lane, 2026-10-22, hA1, 64
+/// seeds): food home 8,269 against 1,700 per colony-round, higher in 62 of
+/// 64, with die-outs 16 against 8 -- a strong trade nobody could tune per
+/// lineage. Width 0 on every species, so nothing drifts until a measurement
+/// says letting it is safe.
+pub const TRAIT_APPETITE: usize = 27;
 /// **Every walk slot**, gains, planes and the forage memory -- what ships
 /// at width 0 and has its own page in the lab.
 pub const WALK_SLOTS: [usize; 11] = [
@@ -10283,6 +10306,12 @@ mod tests {
                 if DOOR_SLOTS.contains(&slot) {
                     assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's door gene {slot} drifts; turning a door gene's width on is a measured step, not a tuple edit");
                     assert_eq!(def.traits[slot], 0.0, "{name}.ron's door gene {slot} is off its ancestral 0 -- the door rule is no longer the shipped one");
+                    continue;
+                }
+                // The appetite gene ships on the same terms (`TRAIT_APPETITE`).
+                if slot == TRAIT_APPETITE {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's appetite gene drifts; turning its width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's appetite gene is off its ancestral 0 -- the gate is no longer the species' authored one");
                     continue;
                 }
                 if SCENT_SIDE_SLOTS.contains(&slot) {

@@ -9,7 +9,9 @@
 //! `genomes=` is a comma list of `mind::preset` names or mind files; `k=` the
 //! hold-out layout (`train::holdout_layouts`); `every=` frames between shots
 //! (100); `frames=` the run (12,000); `scale=` pixels per cell (2); `forks=`,
-//! `ramp=`, `spread=`, `blend=`, `walls=` as `examples/train`. `blind=1` cuts
+//! `ramp=`, `spread=`, `blend=`, `walls=` as `examples/train`. `open=1` films
+//! the open-air maze (`train::challenges::OpenMaze`) instead: the frame's
+//! bars grey, the path's bars light grey, the floor grey. `blind=1` cuts
 //! each genome's scent reads (`mind::blinded`). Drawn with fixed colours, not
 //! the game renderer: rock grey, dead ends dark red, the trail's channel B as
 //! green over open cells (brighter is stronger, on a fixed ramp), ants white
@@ -17,7 +19,7 @@
 use pixel_physics::sim::creature::mind;
 use pixel_physics::sim::pheromone::{self, Channel};
 use pixel_physics::train::challenges::maze::{Kind, Plan, Walls};
-use pixel_physics::train::challenges::Maze;
+use pixel_physics::train::challenges::{openmaze, Maze, OpenMaze};
 use pixel_physics::train::{self, Challenge};
 
 fn main() {
@@ -33,8 +35,10 @@ fn main() {
         spread: 0,
         blend: None,
         walls: Walls::Through,
+        laden: false,
     };
     let mut blind = false;
+    let mut open = false;
     for a in std::env::args().skip(1) {
         let (key, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match key {
@@ -58,26 +62,69 @@ fn main() {
                 }
             }
             "blind" => blind = v == "1",
+            "open" => open = v == "1",
+            "laden" => maze.laden = v == "1",
             _ => panic!("unknown argument {a}"),
         }
     }
     maze.frames = frames;
     println!(
-        "mazefilm genomes={genomes} k={k} every={every} frames={frames} scale={scale} ants={} forks={} ramp={} spread={} blend={:?} walls={:?} blind={blind} out={out}",
-        maze.ants, maze.forks, maze.ramp, maze.spread, maze.blend, maze.walls
+        "mazefilm genomes={genomes} k={k} every={every} frames={frames} scale={scale} ants={} forks={} ramp={} spread={} blend={:?} walls={:?} blind={blind} open={open} laden={} out={out}",
+        maze.ants, maze.forks, maze.ramp, maze.spread, maze.blend, maze.walls, maze.laden
     );
     let layout = train::holdout_layouts(k as usize + 1)[k as usize];
-    let plan = Plan::draw(layout, maze.forks);
-    // Crop to the rows the maze uses, plus a margin.
     let (w, h) = (256i32, 112i32);
-    let rows: Vec<i32> = (0..h)
-        .filter(|&y| (0..w).any(|x| plan.kind[(y * w + x) as usize] != Kind::Rock))
-        .collect();
-    let (y0, y1) = ((rows[0] - 3).max(0), (rows[rows.len() - 1] + 3).min(h - 1));
+    let opened = OpenMaze {
+        ants: maze.ants,
+        frames,
+        clones: false,
+        ramp: maze.ramp,
+        laden: maze.laden,
+    };
+    // The base colour of every cell, and whether the trail is drawn over it.
+    let (base, y0, y1): (Vec<([u8; 3], bool)>, i32, i32) = if open {
+        let plan = openmaze::Plan::draw(layout);
+        let base = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                if plan.path[i as usize] != i32::MAX {
+                    ([150, 150, 160], false)
+                } else if plan.at(x, y) || y >= h - 4 {
+                    ([70, 70, 76], false)
+                } else {
+                    ([10, 10, 14], true)
+                }
+            })
+            .collect();
+        (base, 0, h - 1)
+    } else {
+        let plan = Plan::draw(layout, maze.forks);
+        // Crop to the rows the maze uses, plus a margin.
+        let rows: Vec<i32> = (0..h)
+            .filter(|&y| (0..w).any(|x| plan.kind[(y * w + x) as usize] != Kind::Rock))
+            .collect();
+        let (y0, y1) = ((rows[0] - 3).max(0), (rows[rows.len() - 1] + 3).min(h - 1));
+        let (bed, _) = maze.world(layout);
+        let (right, flat, astray) = pixel_physics::train::challenges::maze::readability(&bed, &plan);
+        println!("trail as laid: {right:.3} of way cells point uphill towards the goal, {flat:.3} have no stronger neighbour, {astray:.3} of cells at a dead end's mouth point into it");
+        let base = plan
+            .kind
+            .iter()
+            .map(|k| match k {
+                Kind::Rock => ([70, 70, 76], false),
+                Kind::Dead => ([40, 8, 8], true),
+                Kind::Way => ([10, 10, 14], true),
+            })
+            .collect();
+        (base, y0, y1)
+    };
+    let goal = if open {
+        vec![openmaze::Plan::draw(layout).goal]
+    } else {
+        let g = Plan::draw(layout, maze.forks).goal;
+        (0..4).map(|gx| (g.0 - gx, g.1 + 1)).collect()
+    };
     let band_h = (y1 - y0 + 1) as u32;
-    let (bed, _) = maze.world(layout);
-    let (right, flat, astray) = pixel_physics::train::challenges::maze::readability(&bed, &plan);
-    println!("trail as laid: {right:.3} of way cells point uphill towards the goal, {flat:.3} have no stronger neighbour, {astray:.3} of cells at a dead end's mouth point into it");
     if genomes.is_empty() {
         return;
     }
@@ -89,7 +136,8 @@ fn main() {
             g = mind::blinded(&g);
         }
         let mut shots: Vec<Vec<u8>> = Vec::new();
-        let scores = maze.run(layout, &vec![&g[..]; maze.ants], &mut |f, world| {
+        let arena: &dyn Challenge = if open { &opened } else { &maze };
+        let scores = arena.run(layout, &vec![&g[..]; maze.ants], &mut |f, world| {
             if f % every != 0 {
                 return;
             }
@@ -97,13 +145,8 @@ fn main() {
             for y in y0..=y1 {
                 for x in 0..w {
                     let i = (((y - y0) * w + x) * 3) as usize;
-                    let c = match plan.kind[(y * w + x) as usize] {
-                        Kind::Rock => [70, 70, 76],
-                        Kind::Dead => [40, 8, 8],
-                        Kind::Way => [10, 10, 14],
-                    };
-                    let mut c = c;
-                    if plan.kind[(y * w + x) as usize] != Kind::Rock {
+                    let (mut c, scented) = base[(y * w + x) as usize];
+                    if scented {
                         let b = world.pheromone_at(Channel::B, x, y) as f32 / pheromone::Scent::MAX as f32;
                         if b > 0.0 {
                             c = [10, (60.0 + 195.0 * b.min(1.0)) as u8, 30];
@@ -112,8 +155,7 @@ fn main() {
                     img[i..i + 3].copy_from_slice(&c);
                 }
             }
-            for gx in 0..4 {
-                let (x, y) = (plan.goal.0 - gx, plan.goal.1 + 1);
+            for &(x, y) in &goal {
                 if (y0..=y1).contains(&y) {
                     let i = (((y - y0) * w + x) * 3) as usize;
                     img[i..i + 3].copy_from_slice(&[255, 140, 0]);
@@ -131,12 +173,19 @@ fn main() {
             shots.push(img);
         });
         let fit: f64 = scores.iter().map(|s| s.fit).sum::<f64>() / scores.len() as f64;
-        let goal = scores.iter().filter(|s| s.parts[3] > 0.0).count();
+        let reached = scores.iter().filter(|s| s.parts[3] > 0.0).count();
         let lost: f64 = scores.iter().map(|s| s.parts[4]).sum::<f64>() / scores.len() as f64;
-        println!(
-            "band {name}: along {fit:.3}, {goal} of {} ants reached the goal, {lost:.2} of the run in dead ends",
-            scores.len()
-        );
+        if open {
+            println!(
+                "band {name}: along {fit:.3}, {reached} of {} ants reached the goal, {lost:.2} of the run on the path",
+                scores.len()
+            );
+        } else {
+            println!(
+                "band {name}: along {fit:.3}, {reached} of {} ants reached the goal, {lost:.2} of the run in dead ends",
+                scores.len()
+            );
+        }
         bands.push(shots);
     }
     // Stack the bands, with a white rule between, scaled up.

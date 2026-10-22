@@ -198,9 +198,14 @@ pub fn step(world: &mut World) {
     passes.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     passes.dedup();
 
+    // `fire::FireTraits`, one entry per material, built once a frame rather
+    // than once a pass or a chunk: the box runs ~10 passes a frame and a
+    // build is a walk of every material. Nothing edits the registry between
+    // here and the end of the passes, so it cannot go stale.
+    let fire_traits = crate::sim::fire::FireTraits::table(&world.materials);
     for key in passes {
         let pass: Vec<ChunkCoord> = active.iter().copied().filter(|&c| pass_key(c) == key).collect();
-        run_pass(world, &pass, rightward);
+        run_pass(world, &pass, rightward, &fire_traits);
     }
 
     world.end_step();
@@ -252,7 +257,7 @@ fn pass_key(coord: ChunkCoord) -> (i32, i32) {
     (coord.y, coord.x.rem_euclid(2))
 }
 
-fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
+fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool, fire_traits: &[crate::sim::fire::FireTraits]) {
     if coords.is_empty() {
         return;
     }
@@ -299,7 +304,7 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
 
     let shared: &World = world;
     let sweep_one = |(coord, chunk, field, plan): (ChunkCoord, Chunk, FieldTile, SweepPlan)| {
-        let mut view = ChunkView::new(coord, chunk, field, shared);
+        let mut view = ChunkView::new(coord, chunk, field, shared, fire_traits);
         update::sweep_planned(&mut view, &plan, rightward);
         view.into_outcome()
     };
@@ -565,6 +570,9 @@ struct ChunkView<'w> {
     chunk: Chunk,
     field: FieldTile,
     world: &'w World,
+    /// `fire::FireTraits` per material, built once a frame by `step` and
+    /// served by `fire_traits_of`.
+    fire_traits: &'w [crate::sim::fire::FireTraits],
     remote_writes: HashMap<(i32, i32), Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
@@ -644,7 +652,13 @@ struct ChunkView<'w> {
 }
 
 impl<'w> ChunkView<'w> {
-    fn new(coord: ChunkCoord, chunk: Chunk, field: FieldTile, world: &'w World) -> Self {
+    fn new(
+        coord: ChunkCoord,
+        chunk: Chunk,
+        field: FieldTile,
+        world: &'w World,
+        fire_traits: &'w [crate::sim::fire::FireTraits],
+    ) -> Self {
         let inner = match world.bounds() {
             Some(b) => coord.bounds().intersection(b).unwrap_or(Rect::point(i32::MIN, i32::MIN)),
             None => coord.bounds(),
@@ -655,6 +669,7 @@ impl<'w> ChunkView<'w> {
             chunk,
             field,
             world,
+            fire_traits,
             remote_writes: HashMap::new(),
             dirty_touches: Vec::new(),
             field_writes: Vec::new(),
@@ -762,6 +777,19 @@ impl CellSurface for ChunkView<'_> {
         self.get_outside(x, y)
     }
 
+    /// One test that the whole cross is inside `inner` -- strictly inside on
+    /// both axes -- in place of four `contains`, and one index in place of
+    /// four. The same cells either way: `inner` is what `get` serves from
+    /// `chunk`, and anything else goes through `get` itself.
+    #[inline]
+    fn get_four(&self, x: i32, y: i32) -> [Cell; 4] {
+        let r = self.inner;
+        if x > r.min_x && x < r.max_x && y > r.min_y && y < r.max_y {
+            return self.chunk.get_four_world(x, y);
+        }
+        [self.get(x - 1, y), self.get(x + 1, y), self.get(x, y - 1), self.get(x, y + 1)]
+    }
+
     fn set(&mut self, x: i32, y: i32, cell: Cell) {
         if self.inner.contains(x, y) {
             // Liquid-body disturbance detection (`Reports/liquid-
@@ -839,6 +867,11 @@ impl CellSurface for ChunkView<'_> {
 
     fn materials(&self) -> &MaterialRegistry {
         &self.world.materials
+    }
+
+    #[inline]
+    fn fire_traits_of(&self, id: super::material::MaterialId) -> crate::sim::fire::FireTraits {
+        self.fire_traits[id.0 as usize]
     }
 
     fn begin_visit(&mut self, x: i32, y: i32) {
@@ -1052,6 +1085,35 @@ mod tests {
         // negative coordinates, so every group and every neighbour
         // configuration in the module doc's proof actually gets exercised.
         World::new(Rect::new(-128, -128, 255, 255))
+    }
+
+    /// `ChunkView::get_four`'s one-index path must serve exactly the cells
+    /// four `get`s would, at every position in the chunk: its interior, its
+    /// four edges (where the cross reaches a neighbouring chunk), and a
+    /// world edge cutting through it (where the cross reaches
+    /// `OUT_OF_BOUNDS`). Every cell carries its own temperature, so a read
+    /// off by one in any direction is a different value.
+    #[test]
+    fn get_four_reads_the_same_cells_as_four_gets() {
+        // The world's right and bottom edges cut chunk (1, 1) at 100.
+        let mut w = World::new(Rect::new(-64, -64, 100, 100));
+        for y in -64..=100 {
+            for x in -64..=100 {
+                let t = (x * 211 + y * 7) as i16;
+                w.set(x, y, SimCell::new(material::SAND, 0).with_temperature(t));
+            }
+        }
+        for coord in [ChunkCoord::new(0, 0), ChunkCoord::new(1, 1), ChunkCoord::new(-1, 0)] {
+            let chunk = w.take_chunk(coord).expect("painted, so resident");
+            let view = ChunkView::new(coord, chunk, FieldTile::new(), &w, &[]);
+            let b = coord.bounds();
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let four = [view.get(x - 1, y), view.get(x + 1, y), view.get(x, y - 1), view.get(x, y + 1)];
+                    assert!(view.get_four(x, y) == four, "{coord:?} at ({x}, {y})");
+                }
+            }
+        }
     }
 
     #[test]

@@ -56,6 +56,28 @@ pub struct Maze {
     pub blend: Option<f32>,
     /// How the spread meets the rock ([`Walls`]).
     pub walls: Walls,
+    /// Every ant starts carrying a crop of fruit ([`load_crops`]), so a
+    /// brain whose trail reading is gated on `f::LADEN` can be asked the
+    /// question laden; walk, turn and rest are its only verbs, so it keeps
+    /// the load for the whole run.
+    pub laden: bool,
+}
+
+/// **Put two cells of fruit in each ant's crop**, as the forager tests in
+/// `creature.rs` load one.
+pub fn load_crops(w: &mut World, ids: &[OrganismId]) {
+    let fruit = w.materials.id_of("fruit").expect("fruit");
+    for &id in ids {
+        let st = w.organism_mut(id).expect("a live ant");
+        st.crop = Some(crate::sim::organism::Crop {
+            material: fruit,
+            cells: 2,
+            digesting: 0.0,
+            unit: 960.0,
+            shade: 0,
+            passenger: None,
+        });
+    }
 }
 
 /// Rows of open air in a corridor, above its floor.
@@ -310,6 +332,9 @@ impl Maze {
         frame(&mut w, false);
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
+        if self.laden {
+            load_crops(&mut w, &ids);
+        }
         let head = |w: &World, id: OrganismId| w.organism(id).and_then(|s| s.chain.first().copied());
         let mut d0 = vec![1; n];
         for (k, &id) in ids.iter().enumerate() {
@@ -520,6 +545,7 @@ mod tests {
             spread: 0,
             blend: None,
             walls: Walls::Through,
+            laden: false,
         }
     }
 

@@ -850,11 +850,7 @@ impl Stats {
 
         let rows = self.rows(world);
 
-        for y in top..bottom {
-            for x in left..right {
-                hc.blend(frame, x, y, PANEL, PANEL_ALPHA);
-            }
-        }
+        hc.blend_rect(frame, left, top, right - left, bottom - top, PANEL, PANEL_ALPHA);
         for x in left..right {
             hc.put(frame, x, top, ACCENT);
             hc.put(frame, x, bottom - 1, ACCENT);
@@ -1854,11 +1850,7 @@ fn draw_note(hc: crate::render::Hud, frame: &mut [u8], note: &str, (_, cy): (i32
     // Top-aligned with the row, then pulled back on screen. `max(10)` rather
     // than clamping to 0 so it never sits under the top edge.
     let y = (cy - 4).min(super::HEIGHT as i32 - 10 - height).max(10);
-    for py in y..y + height {
-        for px in x..x + width {
-            hc.blend(frame, px, py, BG, ALPHA);
-        }
-    }
+    hc.blend_rect(frame, x, y, width, height, BG, ALPHA);
     for px in x..x + width {
         hc.put(frame, px, y, HEADING);
         hc.put(frame, px, y + height - 1, HEADING);

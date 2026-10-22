@@ -1,0 +1,25 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+needscost: scenario=nest_goal seed=2 at=40000 handat=40000 window=1200 reps=1 food=120 arms=mind scorer=- free="" mind=/mnt/project-files/perf/genomes/v2-C3.txt cg=0 RAYON_NUM_THREADS=1
+  mind at frame 40000: 360 ants, 360 organisms, world frame 40000, nest founded
+  reached frame 40000 in 22s
+  mind: 552 ants and brood given a mind at frame 40000
+census mind: 1200 frames
+  mind ticks 90465 (75.4 a frame), fell 5218 (5.77%), decisions 85247, options 922277 (10.82 a decision), describes 658919 (7.73 a decision)
+  on-verb options 922277 (100.0%), off-verb options 0 (0.0%), targets described only for off verbs 0 (0.0% of describes)
+  options/chosen by verb: walk 461116/55183, turn_around 85247/824, rest 85247/319, dig 37627/121, pick_up 1451/87, drop 22872/97, eat 24983/107, feed 203734/28509, attack 0/0
+  head unmoved since last decision 28867 (33.9%), option list bit-identical to last 21 (0.0%), identical and unmoved 21 (0.0%), identical ignoring scent+warmth 366 (0.4%)
+  same verb as last 50812 (59.6%; mean run 2.48), same verb+target as last 3969 (4.7%), rest 319 (0.4%; mean rest run 1.00), rest run hist 1/2/3/4-7/8-15/16+: 315/1/0/0/0/0
+  one verb on offer 0 (0.0%), no pickable verb 0, walk picks 55183 did 55183 (100.0%), failed acts 0
+  at nest 12243 (14.4%), at-nest answer flipped since last 1428 (1.68%)
+  roofed differs from the head's: options 81521 (8.8%), decisions with any 20031 (23.5%)
+  warmth exactly 0: 823844 (89.3%), |warmth| < 0.01: 911848 (98.9%)
+  all nine scent reads zero: options 0 (0.0%), whole decisions 0 (0.0%); home feature 0: 258288 (28.0%)
+  try_bud calls 90453 (100.0% of mind ticks), affordable 79702 (88.1% of ticks), of those from the same cell as the last affordable tick 26178 (32.8%), within 12 frames of it 26170 (32.8%); pile_site calls 8252, no home in the square 5794 (70.2%), site found 190 (2.3%)
+  egg walks that found a site while NOT beside home 85 (44.7% of sites found); walks beside home that found none 401
+  regroup_by_scent: calls 1200, groups past the one-scent fast path 1200 (members 452544), minted 0
+  feature nonzero share (of options) and whether this genome reads it: air 16.4% read; soil 2.9% read; spoil 0.2% read; food 0.3% read; brood 3.0% read; corpse 0.0% read; stone 0.0% read; water 0.0% read; ant 76.3% read; a 100.0% read; a_diff 50.8% read; a_ahead 65.1% read; b 92.4% read; b_diff 77.1% read; b_ahead 79.4% read; alarm 0.0% read; alarm_diff 0.0% read; alarm_ahead 0.0% read; building 0.0% read; stand 92.5% read; fall 3.5% read; climb 17.7% read; cut 11.3% read; hard 7.3% read; wet 17.3% read; up 65.1% read; depth 96.1% read; drop_below 11.2% read; headroom 29.2% read; roofed 13.4% read; nestmate 79.2% read; stranger 0.0% read; laden 42.3% read; hungry 1.1% read; larva 3.0% read; larva_hunger 1.0% read; dead 0.0% read; crowd 100.0% read; room 69.3% read; home 72.0% read; last_food 0.0% read; warmth 10.7% read; back 20.1% read; lined 0.9% read; roof_drop 0.4% read
+  genome: 10 live scorer units with 184 nonzero feature weights of 450 possible, verbs on: walk,turn_around,rest,dig,pick_up,drop,eat,feed; context inputs read by nothing: none
+  rep 0 mind         frames 40000..41200: 1.396 ms/frame, ants 360 -> 392
+  mind hashes at frame 41200: world f93b11aa38dfa7d0 field 52d2b79becc779e7 organisms eee84ac97009a3b0
+arm           min ms/frame  median ms/frame  mean ants
+mind                 1.396            1.396        376

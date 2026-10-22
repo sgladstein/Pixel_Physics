@@ -45,6 +45,22 @@ fn main() {
             // nothing and prints nothing, where `only=Log` is what a title
             // built from `{panel:?}` actually reads.
             Some(("split", v)) => split = v == "1",
+            // **The interface on its 2x layer** (`Lab::draw_layered`), each
+            // tile the composite the window shows at its default size,
+            // 1024x640. Tiles only (`split=1`): the sheet is laid out for
+            // 512x320 tiles. The overlap census is taken the same way on both
+            // paths, in logical pixels. `crisp=pair` puts today's 1x frame of
+            // the same moment, doubled, on the left of each tile, so the two
+            // differ only by the layer -- drawing does not move the world
+            // (`the_interface_layer_leaves_the_world_bit_identical`).
+            Some(("crisp", v)) => CRISP.store(
+                match v {
+                    "1" => 1,
+                    "pair" => 2,
+                    _ => 0,
+                },
+                std::sync::atomic::Ordering::Relaxed,
+            ),
             Some(("only", v)) => only = Some(v.to_string()),
             // **How many chambers the rack holds.** The tab strip is bar
             // chrome and is not drawn below two chambers, so a sheet taken at
@@ -1678,11 +1694,21 @@ fn main() {
             std::process::exit(2);
         }
     }
+    let crisp = CRISP.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    if crisp && !split {
+        eprintln!("labui: crisp=1 writes tiles only -- add split=1");
+        std::process::exit(2);
+    }
     if split {
         let stem = out.strip_suffix(".png").unwrap_or(&out);
+        let (tw, th) = match CRISP.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => (WIDTH, HEIGHT),
+            1 => pixel_physics::lab::LAYER_SIZE,
+            _ => (pixel_physics::lab::LAYER_SIZE.0 * 2, pixel_physics::lab::LAYER_SIZE.1),
+        };
         for (title, frame) in &tiles {
             let name = format!("{stem}-{}.png", title.to_lowercase().replace([' ', ':', '/'], "-"));
-            image::save_buffer(&name, frame, WIDTH, HEIGHT, image::ColorType::Rgba8).expect("write a tile");
+            image::save_buffer(&name, frame, tw, th, image::ColorType::Rgba8).expect("write a tile");
             println!("wrote {name}");
         }
         return;
@@ -1703,16 +1729,37 @@ fn blank() -> Vec<u8> {
     vec![0u8; (WIDTH * HEIGHT * 4) as usize]
 }
 
+/// 0 today's single buffer, 1 the interface layer, 2 both side by side.
+static CRISP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 fn shot(lab: &mut Lab) -> Vec<u8> {
     // **Drawn twice, and the first is thrown away**: the app draws every
     // frame, and the window rule (`ui::Window`) folds the page from where
     // it was drawn *last* frame, so the first frame after a page opens can
     // show it unfolded for one frame. A single draw photographs that frame
     // and nothing else.
-    lab.draw(&mut blank(), 60.0);
+    let mode = CRISP.load(std::sync::atomic::Ordering::Relaxed);
+    let crisp = mode > 0;
+    let (lw, lh) = pixel_physics::lab::LAYER_SIZE;
+    let mut layer = vec![0u8; (lw * lh * 4) as usize];
+    if crisp {
+        // `touch_chrome` because a paused box with a still pointer is
+        // exactly the case the layer skips repainting.
+        lab.touch_chrome();
+        lab.invalidate_view();
+        lab.draw_layered(&mut blank(), &mut layer, 60.0);
+    } else {
+        lab.draw(&mut blank(), 60.0);
+    }
     let mut frame = blank();
     render::paint_owner::begin(WIDTH, HEIGHT);
-    lab.draw(&mut frame, 60.0);
+    if crisp {
+        lab.touch_chrome();
+        lab.invalidate_view();
+        lab.draw_layered(&mut frame, &mut layer, 60.0);
+    } else {
+        lab.draw(&mut frame, 60.0);
+    }
     // **Which windows painted over which, read off the pixels** -- see
     // `render::paint_owner` for why this is not an intersection of the
     // layout's own rectangles. Printed beside each tile's name at the end,
@@ -1722,6 +1769,22 @@ fn shot(lab: &mut Lab) -> Vec<u8> {
     let total: u32 = overlaps.values().sum();
     let pairs: Vec<String> = overlaps.iter().map(|((a, b), n)| format!("{b} OVER {a} {n}")).collect();
     LAST_CENSUS.with(|c| *c.borrow_mut() = format!("overlap {total} px [{}]  box clear {clear} of {WIDTH} columns", pairs.join(", ")));
+    if mode == 2 {
+        let mut today = blank();
+        lab.draw(&mut today, 60.0);
+        let left = render::composite_layer(&today, (WIDTH, HEIGHT), &vec![0u8; (lw * lh * 4) as usize], (lw, lh));
+        let right = render::composite_layer(&frame, (WIDTH, HEIGHT), &layer, (lw, lh));
+        let row = (lw * 4) as usize;
+        let mut pair = Vec::with_capacity(row * 2 * lh as usize);
+        for y in 0..lh as usize {
+            pair.extend_from_slice(&left[y * row..(y + 1) * row]);
+            pair.extend_from_slice(&right[y * row..(y + 1) * row]);
+        }
+        return pair;
+    }
+    if crisp {
+        return render::composite_layer(&frame, (WIDTH, HEIGHT), &layer, (lw, lh));
+    }
     frame
 }
 

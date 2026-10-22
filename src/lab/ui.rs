@@ -319,11 +319,7 @@ pub fn hud_canvas(renderer: &crate::render::Renderer) -> render::Hud {
 }
 
 fn fill(hc: render::Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
-    for y in r.y..r.bottom() {
-        for x in r.x..r.right() {
-            hc.put(frame, x, y, colour);
-        }
-    }
+    hc.fill_rect(frame, r.x, r.y, r.w, r.h, colour);
 }
 
 fn outline(hc: render::Hud, frame: &mut [u8], r: Rect, colour: [u8; 4]) {
@@ -3422,6 +3418,8 @@ pub struct Ui {
     /// took. `labui` sets it, so its tiles and its census see the larger,
     /// harder-to-place note, the same one every run.
     pub notes_rested: bool,
+    /// See [`Ui::world_marked`].
+    world_marked: bool,
     /// `note_seen` for BIOSPHERE's notes, which are painted after `draw`.
     stats_note_seen: Option<(String, std::time::Instant)>,
     page_last: Option<Rect>,
@@ -3885,11 +3883,10 @@ impl Ui {
 
     /// BIOSPHERE's close box, painted after the page so the page does not
     /// paint over it. Its own `TAB CLOSE` was a legend, not a button.
-    pub fn paint_stats_close(&mut self, renderer: &crate::render::Renderer, frame: &mut [u8]) {
+    pub fn paint_stats_close(&mut self, hc: render::Hud, frame: &mut [u8]) {
         let Some((r, false)) = self.stats_place else {
             return;
         };
-        let hc = hud_canvas(renderer);
         let close = close_box(r, Action::CloseStats, "CLOSE THE BIOSPHERE PAGE. TAB, OR THE STATS BUTTON, OPENS IT AGAIN.");
         let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
         paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
@@ -3898,12 +3895,11 @@ impl Ui {
 
     /// BIOSPHERE's hover note, placed the way every other note is: clear of
     /// every window (`draw_note`), first sentence until the pointer rests.
-    pub fn paint_stats_note(&mut self, renderer: &crate::render::Renderer, frame: &mut [u8], note: Option<String>) {
+    pub fn paint_stats_note(&mut self, hc: render::Hud, frame: &mut [u8], note: Option<String>) {
         let (Some(note), Some((r, false)), Some((_, cy))) = (note, self.stats_place, self.cursor) else {
             self.stats_note_seen = None;
             return;
         };
-        let hc = hud_canvas(renderer);
         let since = match &self.stats_note_seen {
             Some((seen, at)) if *seen == note => *at,
             _ => {
@@ -11103,14 +11099,24 @@ impl Ui {
         renderer: &crate::render::Renderer,
         fps: f32,
     ) {
+        self.draw_world_marks(frame, world, renderer);
+        self.draw_chrome(hud_canvas(renderer), frame, world, spec, state, renderer, fps);
+    }
+
+    /// **The half of [`Ui::draw`] that is part of the box's picture**: every
+    /// mark that sits on a world cell and moves with it -- the life marks,
+    /// BATTLE's territory band, the pinned individual's trail and corners, the
+    /// inspected cell's ring, the brush ring. Drawn into the box's own buffer
+    /// at the box's resolution, every frame, because they move with the world.
+    ///
+    /// Split from the chrome for the lab's interface layer (`Lab::draw_layered`):
+    /// the chrome is drawn at 2x into a layer of its own and repainted only
+    /// when it changes, and these could not be, since a pinned ant walks on
+    /// frames where nothing on any page moved. [`Ui::world_marked`] says
+    /// whether this painted anything, which is what the box's dirty-rect skip
+    /// needs to know to erase it next frame.
+    pub fn draw_world_marks(&mut self, frame: &mut [u8], world: &World, renderer: &crate::render::Renderer) {
         let hc = hud_canvas(renderer);
-        // **The bar keeps its logical size however large the buffer is.**
-        // Every rect, glyph and icon below is positioned against `W`/`H`, so a
-        // grown buffer would put the whole bar in a corner at a fraction of
-        // its size. `render::Hud` turns each logical pixel into a
-        // `pixel_scale`-square block; at scale 1 it is the free functions it
-        // wraps, byte for byte.
-            self.bar = layout(state);
         // Before anything is painted, so the reticle, the page and the rows
         // under it are all reading one position rather than three.
         self.follow_inspected(world);
@@ -11165,49 +11171,6 @@ impl Ui {
         // draw (`battle`'s module doc).
         self.battle.update(world);
         self.battle.draw_world(hc, frame, world, renderer, bar_top());
-        render::paint_owner::set("BATTLE");
-        // **At the top of the right-hand column, one clock line down**, and
-        // the cell page and BIOSPHERE dock under it (`Window`). It used to sit
-        // at the same corner BIOSPHERE did, and BIOSPHERE painted over all of
-        // it -- 22,008 pixels in `labui`'s census, the largest single overlap
-        // on the sheet.
-        self.chrome = Bar::default();
-        self.drawn.clear();
-        // **Folds when a page reaches it**, unless it is the one in front
-        // (`Window::Battle`); found by the code review of this rule, since
-        // `labui` never shows a battle: MENU beside a two-colony BATTLE
-        // painted ~5k pixels over it.
-        self.battle_folded = self.battle.shown()
-            && self.focus != Window::Battle
-            && self.panel.is_some()
-            && self.page_last.zip(self.battle_last).is_some_and(|(p, b)| p.touches(&b));
-        if self.battle_folded {
-            let strip = fold_strip("BATTLE", Window::Battle, Action::ToggleBattle, Side::RightTop(DOCK_TOP));
-            let r = strip[0].rect.union(&strip[1].rect);
-            for wid in &strip {
-                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
-                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
-            }
-            self.chrome.widgets.extend(strip);
-            self.battle_box = Some(r);
-            self.drawn.push(r);
-        } else {
-            // Half the column at most, so the cell page and BIOSPHERE under
-            // it always have room to open.
-            self.battle_box = self
-                .battle
-                .draw_panel(hc, frame, world, W as i32 - MARGIN, DOCK_TOP, (dock_bottom() - DOCK_TOP) / 2)
-                .map(|(x, y, w, h)| Rect { x, y, w, h });
-            self.battle_last = self.battle_box.or(self.battle_last.filter(|_| self.battle.shown()));
-        }
-        if let Some(r) = self.battle_box.filter(|_| !self.battle_folded) {
-            self.drawn.push(r);
-            let close = close_box(r, Action::ToggleBattle, "HIDE THE BATTLE PANEL. F9, OR VIEW IN THE MENU, BRINGS IT BACK.");
-            let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
-            paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
-            self.chrome.widgets.push(close);
-        }
-        self.right_ceiling = self.battle_box.map_or(DOCK_TOP, |r| r.bottom() + 4);
         render::paint_owner::set(render::paint_owner::WORLD);
 
         if self.pinned.is_some() {
@@ -11316,6 +11279,82 @@ impl Ui {
             }
         }
 
+        let ring = self.tool != Tool::Look && self.cursor.is_some_and(|(_, y)| y < bar_top());
+        let life = self.life_marks != LifeMarks::Off && renderer.organism_overlay == render::OrganismOverlay::Off;
+        self.world_marked = life || ring || self.battle.shown() || self.pinned.is_some() || self.inspect.is_some();
+    }
+
+    /// Whether the last [`Ui::draw_world_marks`] painted over the box.
+    /// Conservative: true whenever a mark *could* have been drawn.
+    pub fn world_marked(&self) -> bool {
+        self.world_marked
+    }
+
+    /// **The interface itself**: the bar, every window and page, the hover
+    /// notes -- everything but the marks in the box. `hc` is the canvas to
+    /// paint on and `frame` its buffer: the box's own buffer in [`Ui::draw`],
+    /// or the lab's 2x interface layer (`render::Hud::layer`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_chrome(
+        &mut self,
+        hc: render::Hud,
+        frame: &mut [u8],
+        world: &World,
+        spec: &LabBox,
+        state: &BarState,
+        renderer: &crate::render::Renderer,
+        fps: f32,
+    ) {
+        // **The bar keeps its logical size however large the buffer is.**
+        // Every rect, glyph and icon below is positioned against `W`/`H`, so a
+        // grown buffer would put the whole bar in a corner at a fraction of
+        // its size. `render::Hud` turns each logical pixel into a
+        // `pixel_scale`-square block; at scale 1 it is the free functions it
+        // wraps, byte for byte.
+        self.bar = layout(state);
+        render::paint_owner::set("BATTLE");
+        // **At the top of the right-hand column, one clock line down**, and
+        // the cell page and BIOSPHERE dock under it (`Window`). It used to sit
+        // at the same corner BIOSPHERE did, and BIOSPHERE painted over all of
+        // it -- 22,008 pixels in `labui`'s census, the largest single overlap
+        // on the sheet.
+        self.chrome = Bar::default();
+        self.drawn.clear();
+        // **Folds when a page reaches it**, unless it is the one in front
+        // (`Window::Battle`); found by the code review of this rule, since
+        // `labui` never shows a battle: MENU beside a two-colony BATTLE
+        // painted ~5k pixels over it.
+        self.battle_folded = self.battle.shown()
+            && self.focus != Window::Battle
+            && self.panel.is_some()
+            && self.page_last.zip(self.battle_last).is_some_and(|(p, b)| p.touches(&b));
+        if self.battle_folded {
+            let strip = fold_strip("BATTLE", Window::Battle, Action::ToggleBattle, Side::RightTop(DOCK_TOP));
+            let r = strip[0].rect.union(&strip[1].rect);
+            for wid in &strip {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                paint_widget(hc, frame, wid, hover, hover && self.pressed == wid.action);
+            }
+            self.chrome.widgets.extend(strip);
+            self.battle_box = Some(r);
+            self.drawn.push(r);
+        } else {
+            // Half the column at most, so the cell page and BIOSPHERE under
+            // it always have room to open.
+            self.battle_box = self
+                .battle
+                .draw_panel(hc, frame, world, W as i32 - MARGIN, DOCK_TOP, (dock_bottom() - DOCK_TOP) / 2)
+                .map(|(x, y, w, h)| Rect { x, y, w, h });
+            self.battle_last = self.battle_box.or(self.battle_last.filter(|_| self.battle.shown()));
+        }
+        if let Some(r) = self.battle_box.filter(|_| !self.battle_folded) {
+            self.drawn.push(r);
+            let close = close_box(r, Action::ToggleBattle, "HIDE THE BATTLE PANEL. F9, OR VIEW IN THE MENU, BRINGS IT BACK.");
+            let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+            paint_widget(hc, frame, &close, hover, hover && self.pressed == close.action);
+            self.chrome.widgets.push(close);
+        }
+        self.right_ceiling = self.battle_box.map_or(DOCK_TOP, |r| r.bottom() + 4);
         render::paint_owner::set("PAGE");
         let mut note: Option<(String, Rect, i32, Note)> = None;
 

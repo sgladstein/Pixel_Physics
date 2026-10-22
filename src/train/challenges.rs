@@ -13,7 +13,9 @@ use crate::sim::pheromone::{self, Channel};
 use crate::sim::{creature, material, update, Cell, World};
 
 pub mod maze;
+pub mod openmaze;
 pub use maze::Maze;
+pub use openmaze::OpenMaze;
 
 /// Verbs that belong to other species or to a game this rig is not playing
 /// yet: hopping and flying (found by the probe as the cheap way to be

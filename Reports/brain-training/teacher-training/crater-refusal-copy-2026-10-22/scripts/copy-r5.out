@@ -1,0 +1,46 @@
+quiet_unread: 0 links of unread units zeroed; live links 1432 -> 1432
+revive_hidden: []
+revive_units: [] (inputs seeded, sigma 0.3)
+trainable slots: 1250 (live 1244, allow-list 247, frozen 16, of them live 2)
+rim_min_mass 0.02: kept 6416 rim rows, 218762 moved to none
+group rim  : train   4079  held out   2337  target teacher
+group none : train  19771  held out  10229  target ref
+group carry: train  15628  held out   4372  target teacher
+group keepL: train  18678  held out   5322  target ref
+group keep : train  25403  held out   4597  target ref
+step 0: held-out KL rim 0.2083 none -0.0000 carry 2.8046 keepL -0.0000 keep -0.0000
+step 100: held-out KL rim 0.2482 none 0.0410 carry 0.7179 keepL 0.0013 keep 0.0094  sum 1.0177  (13 s)
+step 200: held-out KL rim 0.2423 none 0.0462 carry 0.6664 keepL 0.0007 keep 0.0076  sum 0.9632  (27 s)
+step 300: held-out KL rim 0.2377 none 0.0429 carry 0.6545 keepL 0.0007 keep 0.0028  sum 0.9387  (40 s)
+step 400: held-out KL rim 0.2352 none 0.0408 carry 0.6467 keepL 0.0010 keep 0.0025  sum 0.9262  (53 s)
+step 500: held-out KL rim 0.2276 none 0.0379 carry 0.6427 keepL 0.0010 keep 0.0035  sum 0.9128  (67 s)
+step 600: held-out KL rim 0.2053 none 0.0353 carry 0.6509 keepL 0.0008 keep 0.0036  sum 0.8959  (79 s)
+step 700: held-out KL rim 0.2004 none 0.0313 carry 0.6390 keepL 0.0006 keep 0.0027  sum 0.8740  (91 s)
+step 800: held-out KL rim 0.1991 none 0.0313 carry 0.6236 keepL 0.0009 keep 0.0027  sum 0.8576  (105 s)
+step 900: held-out KL rim 0.1943 none 0.0305 carry 0.6186 keepL 0.0014 keep 0.0027  sum 0.8475  (117 s)
+step 1000: held-out KL rim 0.1960 none 0.0308 carry 0.6072 keepL 0.0007 keep 0.0028  sum 0.8375  (131 s)
+step 1100: held-out KL rim 0.1999 none 0.0310 carry 0.5982 keepL 0.0012 keep 0.0029  sum 0.8332  (144 s)
+step 1200: held-out KL rim 0.2229 none 0.0418 carry 0.4495 keepL 0.0014 keep 0.0034  sum 0.7190  (158 s)
+step 1300: held-out KL rim 0.1945 none 0.0450 carry 0.2096 keepL 0.0014 keep 0.0048  sum 0.4553  (171 s)
+step 1400: held-out KL rim 0.1979 none 0.0520 carry 0.1906 keepL 0.0012 keep 0.0043  sum 0.4460  (185 s)
+step 1500: held-out KL rim 0.1914 none 0.0534 carry 0.1931 keepL 0.0013 keep 0.0048  sum 0.4440  (197 s)
+step 1600: held-out KL rim 0.1992 none 0.0608 carry 0.1755 keepL 0.0014 keep 0.0051  sum 0.4420  (210 s)
+step 1700: held-out KL rim 0.1961 none 0.0630 carry 0.1728 keepL 0.0012 keep 0.0054  sum 0.4384  (222 s)
+step 1800: held-out KL rim 0.1900 none 0.0668 carry 0.1738 keepL 0.0038 keep 0.0059  sum 0.4404  (235 s)
+step 1900: held-out KL rim 0.1828 none 0.0641 carry 0.1848 keepL 0.0012 keep 0.0046  sum 0.4375  (248 s)
+step 2000: held-out KL rim 0.1850 none 0.0673 carry 0.1711 keepL 0.0020 keep 0.0049  sum 0.4302  (261 s)
+step 2100: held-out KL rim 0.1898 none 0.0719 carry 0.1659 keepL 0.0012 keep 0.0043  sum 0.4331  (274 s)
+step 2200: held-out KL rim 0.1808 none 0.0685 carry 0.1885 keepL 0.0018 keep 0.0044  sum 0.4440  (286 s)
+step 2300: held-out KL rim 0.1774 none 0.0678 carry 0.1944 keepL 0.0012 keep 0.0049  sum 0.4457  (299 s)
+step 2400: held-out KL rim 0.1795 none 0.0694 carry 0.1880 keepL 0.0012 keep 0.0049  sum 0.4430  (311 s)
+step 2500: held-out KL rim 0.1750 none 0.0627 carry 0.2192 keepL 0.0011 keep 0.0044  sum 0.4624  (324 s)
+step 2600: held-out KL rim 0.1764 none 0.0687 carry 0.2033 keepL 0.0013 keep 0.0045  sum 0.4543  (336 s)
+step 2700: held-out KL rim 0.1758 none 0.0690 carry 0.2081 keepL 0.0016 keep 0.0046  sum 0.4590  (349 s)
+step 2800: held-out KL rim 0.1755 none 0.0699 carry 0.1998 keepL 0.0010 keep 0.0050  sum 0.4513  (363 s)
+early stop at 2800; best step 2000
+wrote /tmp/claude-0/-home-user-Pixel-Physics/759d2b83-5c44-53ec-a7d9-b404cb2c99a4/scratchpad/cr/cp/r5.txt: best step 2000, live links 1432 (start 1432), moved 1056, revived 0 []
+  rim   start: overlap with target 0.905 | copy: overlap with target 0.884
+  none  start: overlap with target 1.000 | copy: overlap with target 0.943
+  carry start: overlap with target 0.250 P(label verb) 0.250 | copy: overlap with target 0.888 P(label verb) 0.890
+  keepL start: overlap with target 1.000 | copy: overlap with target 0.989
+  keep  start: overlap with target 1.000 | copy: overlap with target 0.988

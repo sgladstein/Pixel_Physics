@@ -1,0 +1,49 @@
+base 65a166ac7037b6b2bf5a7943fc87cf71f8efe186 (65a166ac7)
+new  80295015735a1616f6a893cbd33e5b849c699861 (802950157)
+
+labpair: base -> new
+keyed on (arm, seed): base 12 logs -> 12 seeds, new 12 logs -> 12 seeds; paired 12: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  run: scenario=played_bed frames=120000 sample=900 | table rows per log 134..134
+  header settings that differ between the arms: none (the arms differ in the binary, not a knob)
+
+GATE -- pre-ship regression check. median base -> new; seeds where new is higher/lower; sign p
+  births                                         647.0 ->       602.5    8/4   p 0.388   worse on 4/12 (lower is harm)
+  food eaten, J (intake)                     2,221,550 ->   2,214,373    8/4   p 0.388   worse on 4/12 (lower is harm)
+  ant-frames lived, millions                      20.7 ->        20.3    8/4   p 0.388   worse on 4/12 (lower is harm)
+  died of old age                                387.5 ->       384.0    7/5   p 0.774   worse on 5/12 (lower is harm)
+  starved per million ant-frames                   1.0 ->         0.7    4/8   p 0.388   worse on 4/12 (higher is harm)
+    starved, raw (scales with ant-frames)         22.5 ->        19.0    5/7   p 0.774   context, not gated
+
+CRASH TIMING -- not a gate: the box grazes out, so these say when the crash landed, not harm
+  died out (alive=0 at the end)                      0 ->           0   boxes of 12
+  under 10 at the end (incl. died out)               0 ->           0   boxes of 12
+  alive at the end                               218.5 ->       236.0    7/5   p 0.774
+  peak ants                                      285.5 ->       304.0    8/4   p 0.388
+  frame of the peak                             76,500 ->      81,450    8/4   p 0.388
+  fell below a quarter of peak (boxes)               2 ->           1   median frame 100,350 -> 103,500; at/after 100,000: 1 -> 1
+
+NEST AND LAYING -- context, not gated (BENCH line, src/lab/bench.rs)
+  eggs seen / laid, both arms pooled: 15,723 / 15,723
+  eggs seen (coverage check vs laid)             662.5 ->       607.5    8/4   p 0.388
+  eggs laid at home, % of seen                    99.8 ->        99.8    5/3   p 0.727
+  eggs within 8 cols of a nest                   362.0 ->       378.0    7/5   p 0.774
+  eggs over 32 cols from a nest                    0.0 ->         0.0    3/2   p 1.000
+  animals underground, % (time avg)               33.8 ->        29.4    4/8   p 0.388
+  animals underground at the end                  38.5 ->        73.0    8/4   p 0.388
+  deepest fall from running peak, %               32.4 ->        35.8    6/6   p 1.000
+  times halved from running peak                   0.0 ->         0.0    1/3   p 0.625
+  colonies lost (held >=3, now none)                 0 ->           0   of 12 -> 12 colonies
+
+NOT GATED -- kept for the record. Net food into home overcounts 3.4-4.6x (Reports/ant-scenes-2026-09-23.md s22j); raw deliveries are mostly home->home
+  net food into home (OVERCOUNT, s22j)         5,002.0 ->     6,615.0    7/5   p 0.774
+  deliveries, raw                             23,245.5 ->    29,165.0    7/5   p 0.774
+  pickups at home                             18,107.0 ->    21,205.5    7/5   p 0.774
+  deepest breeding generation                      5.0 ->         5.0    3/7   p 0.344
+  starved aloft (not in starved)                   0.0 ->         0.0    0/0   p 1.000
+  killed                                           0.0 ->         0.0    0/0   p 1.000
+labbench 2026-10-22 00:53:44: scripts/labbench.py 65a166ac7 802950157 --out /tmp/claude-0/-home-user-Pixel-Physics/3d68dc6e-67ba-504d-9434-8532daf39564/scratchpad/labbench-drain-real
+  out /tmp/claude-0/-home-user-Pixel-Physics/3d68dc6e-67ba-504d-9434-8532daf39564/scratchpad/labbench-drain-real
+  bed labforage scenario=played_bed frames={frames} seed={seed}  frames=120000 seeds=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] jobs=3
+base: 65a166ac7037b6b2bf5a7943fc87cf71f8efe186 (65a166ac7)
+base: building --example labforage ...
+base: built in 141s, pinned at /tmp/claude-0/-home-user-Pixel-Physics/3d68dc6e-67ba-504d-9434-8532daf39564/scratchpad/labbench-drain-real/bin/base-labforage

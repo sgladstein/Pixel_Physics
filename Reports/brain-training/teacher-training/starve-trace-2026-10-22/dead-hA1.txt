@@ -1,0 +1,164 @@
+hA1    id         6 d@ 85120 burst  1 at dx 123 y 5 tank-2k 2.07 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 6) life f58 d4 h0 dig15 lastfield 17515 lasteat 17545 store 9/0/149
+     chose {'walk': 0.99, 'rest': 0.01, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA1    id        15 d@ 96695 burst  3 at dx 120 y 63 tank-2k 1.93 spoil 0.03 crop 0.00 nest 0.00 x(246, 251) y(60, 67) life f43 d12 h7 dig22 lastfield 17730 lasteat 18180 store 4/0/157
+     chose {'walk': 0.99, 'dig': 0.0, 'turn': 0.01, 'drop': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.44, 'drop': 0.01}
+hA1    id         4 d@ 96835 burst  3 at dx 119 y 63 tank-2k 2.08 spoil 0.00 crop 0.00 nest 0.00 x(246, 251) y(60, 67) life f44 d9 h13 dig22 lastfield 21015 lasteat 21755 store 4/0/157
+     chose {'walk': 0.98, 'rest': 0.0, 'turn': 0.01, 'feed': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.61, 'feed': 0.39}
+hA1    id         9 d@ 97240 burst  3 at dx 98 y 61 tank-2k 1.97 spoil 0.01 crop 0.00 nest 0.00 x(192, 228) y(60, 64) life f7 d3 h2 dig37 lastfield 18360 lasteat 18835 store 5/0/153
+     chose {'walk': 0.98, 'dig': 0.01, 'drop': 0.01, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.58, 'drop': 0.01}
+hA1    id        22 d@129780 burst  2 at dx -62 y 85 tank-2k 2.33 spoil 1.00 crop 0.00 nest 0.00 x(66, 67) y(84, 85) life f51 d6 h16 dig15 lastfield 56755 lasteat 57230 store 4/0/158
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.03}
+hA1    id        24 d@129785 burst  2 at dx -62 y 85 tank-2k 2.33 spoil 1.00 crop 0.00 nest 0.00 x(66, 67) y(84, 85) life f27 d5 h14 dig23 lastfield 60120 lasteat 60590 store 4/0/158
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.0}
+hA2    id         6 d@ 48205 burst  1 at dx -124 y 5 tank-2k 2.05 spoil 0.00 crop 0.00 nest 0.00 x(4, 6) y(4, 6) life f21 d0 h0 dig0 lastfield 735 lasteat 1075 store 24/1/139
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA2    id         9 d@153355 burst  2 at dx 116 y 61 tank-2k 1.92 spoil 0.01 crop 0.00 nest 0.00 x(215, 245) y(61, 64) life f47 d19 h2 dig34 lastfield 60730 lasteat 64110 store 6/0/148
+     chose {'walk': 0.98, 'turn': 0.01, 'rest': 0.0, 'dig': 0.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.54, 'drop': 0.01}
+hA2    id        23 d@153395 burst  2 at dx 123 y 47 tank-2k 1.89 spoil 0.00 crop 0.00 nest 0.00 x(247, 251) y(4, 63) life f116 d47 h248 dig51 lastfield 124200 lasteat 125355 store 6/0/148
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.03}
+hA2    id        16 d@161740 burst  2 at dx -3 y 71 tank-2k 2.09 spoil 1.00 crop 0.00 nest 0.42 x(124, 133) y(60, 71) life f129 d9 h27 dig32 lastfield 47025 lasteat 130755 store 4/1/142
+     chose {'walk': 0.97, 'turn': 0.01, 'feed': 0.02}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.07, 'feed': 0.09}
+hA2    id         1 d@161750 burst  2 at dx 6 y 63 tank-2k 2.05 spoil 0.96 crop 0.00 nest 1.00 x(124, 135) y(62, 74) life f66 d18 h113 dig47 lastfield 123590 lasteat 156650 store 4/1/142
+     chose {'walk': 0.99, 'drop': 0.0, 'dig': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.09, 'drop': 0.19, 'dig': 0.03}
+hA2    id        13 d@197690 burst  1 at dx 26 y 63 tank-2k 2.33 spoil 1.00 crop 0.00 nest 0.00 x(153, 155) y(63, 63) life f267 d9 h34 dig76 lastfield 65300 lasteat 69020 store 10/0/160
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA3    id         6 d@ 34525 burst  1 at dx 123 y 6 tank-2k 2.32 spoil 1.00 crop 0.00 nest 0.00 x(249, 251) y(4, 10) life f12 d0 h0 dig7 lastfield 485 lasteat 2910 store 4/1/150
+     chose {'walk': 0.99, 'turn': 0.01, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA3    id         7 d@176930 burst 16 at dx 4 y 71 tank-2k 2.29 spoil 1.00 crop 0.00 nest 1.00 x(127, 138) y(66, 80) life f61 d9 h48 dig36 lastfield 162070 lasteat 162245 store 3/0/141
+     chose {'walk': 0.99, 'turn': 0.0, 'feed': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.19, 'feed': 0.33}
+hA3    id        18 d@176940 burst 16 at dx 8 y 77 tank-2k 1.94 spoil 1.00 crop 0.00 nest 1.00 x(123, 138) y(68, 80) life f14 d5 h17 dig7 lastfield 16065 lasteat 42985 store 3/0/141
+     chose {'walk': 0.99, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.28, 'feed': 0.23}
+hA3    id        17 d@177250 burst 16 at dx -1 y 71 tank-2k 1.16 spoil 1.00 crop 0.00 nest 1.00 x(125, 138) y(71, 80) life f16 d3 h89 dig29 lastfield 63520 lasteat 152625 store 3/0/140
+     chose {'walk': 0.98, 'feed': 0.01, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.14, 'feed': 0.37}
+hA3    id        21 d@177645 burst 16 at dx 1 y 73 tank-2k 1.08 spoil 0.52 crop 0.00 nest 1.00 x(125, 138) y(70, 80) life f118 d13 h6 dig38 lastfield 66165 lasteat 66490 store 3/0/140
+     chose {'walk': 0.98, 'rest': 0.01, 'turn': 0.0, 'drop': 0.01, 'dig': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.05, 'feed': 0.09, 'dig': 0.25}
+hA3    id         5 d@178240 burst 16 at dx 11 y 61 tank-2k 1.88 spoil 0.80 crop 0.00 nest 0.79 x(126, 143) y(55, 78) life f95 d12 h25 dig24 lastfield 58875 lasteat 154235 store 3/0/150
+     chose {'walk': 0.97, 'rest': 0.01, 'drop': 0.0, 'feed': 0.02}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.06, 'feed': 0.29, 'dig': 0.13, 'pick': 0.0}
+hA3    id         1 d@178305 burst 16 at dx 4 y 75 tank-2k 2.64 spoil 1.00 crop 0.00 nest 0.88 x(126, 138) y(52, 78) life f70 d17 h31 dig23 lastfield 175435 lasteat 175465 store 3/0/150
+     chose {'walk': 0.97, 'feed': 0.02, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.63, 'drop': 0.05}
+hA3    id        24 d@178720 burst 16 at dx 4 y 77 tank-2k 2.19 spoil 1.00 crop 0.00 nest 1.00 x(124, 135) y(71, 80) life f53 d9 h36 dig48 lastfield 41005 lasteat 114480 store 3/0/150
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.4, 'drop': 0.3}
+hA3    id        10 d@179065 burst 16 at dx 2 y 63 tank-2k 2.85 spoil 1.00 crop 0.00 nest 0.20 x(124, 130) y(56, 64) life f36 d7 h15 dig18 lastfield 58545 lasteat 59060 store 3/1/144
+     chose {'walk': 0.77, 'feed': 0.22, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.52}
+hA3    id        13 d@179065 burst 16 at dx 1 y 62 tank-2k 2.99 spoil 1.00 crop 0.00 nest 0.12 x(124, 130) y(54, 63) life f224 d4 h19 dig76 lastfield 88700 lasteat 90005 store 3/1/144
+     chose {'walk': 0.76, 'feed': 0.24, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.55}
+hA3    id        20 d@179085 burst 16 at dx -1 y 59 tank-2k 2.89 spoil 0.64 crop 0.00 nest 0.71 x(123, 138) y(50, 79) life f95 d10 h87 dig53 lastfield 140045 lasteat 148980 store 3/1/144
+     chose {'walk': 0.92, 'turn': 0.01, 'feed': 0.06, 'dig': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.51, 'dig': 0.18, 'drop': 0.06}
+hA3    id         9 d@179085 burst 16 at dx -2 y 61 tank-2k 2.57 spoil 1.00 crop 0.00 nest 0.06 x(124, 130) y(50, 63) life f32 d10 h0 dig11 lastfield 21075 lasteat 21450 store 3/1/144
+     chose {'walk': 0.78, 'feed': 0.22}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.47}
+hA3    id         2 d@179090 burst 16 at dx -3 y 61 tank-2k 2.68 spoil 1.00 crop 0.00 nest 0.21 x(124, 130) y(57, 66) life f60 d2 h44 dig17 lastfield 76990 lasteat 172315 store 3/1/144
+     chose {'walk': 0.79, 'feed': 0.2, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.5, 'drop': 0.0}
+hA3    id        11 d@179200 burst 16 at dx -8 y 64 tank-2k 0.99 spoil 0.85 crop 0.00 nest 0.81 x(119, 138) y(59, 80) life f118 d50 h52 dig28 lastfield 167395 lasteat 169355 store 3/1/144
+     chose {'walk': 0.98, 'drop': 0.0, 'rest': 0.01, 'dig': 0.0, 'feed': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.14, 'drop': 0.15, 'dig': 0.09}
+hA3    id         4 d@179220 burst 16 at dx 4 y 75 tank-2k 1.96 spoil 0.33 crop 0.00 nest 1.00 x(125, 138) y(71, 80) life f30 d7 h23 dig26 lastfield 20510 lasteat 44495 store 3/1/144
+     chose {'walk': 1.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.26, 'drop': 0.11, 'dig': 0.35}
+hA3    id        19 d@179655 burst 16 at dx -3 y 62 tank-2k 2.06 spoil 1.00 crop 0.00 nest 0.88 x(122, 133) y(59, 79) life f119 d14 h29 dig43 lastfield 140875 lasteat 143045 store 3/1/144
+     chose {'walk': 1.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.3, 'drop': 0.22}
+hA3    id        12 d@179820 burst 16 at dx 5 y 75 tank-2k 1.94 spoil 1.00 crop 0.00 nest 1.00 x(128, 135) y(72, 78) life f6 d0 h2 dig9 lastfield 7985 lasteat 59020 store 3/1/144
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.38, 'drop': 0.29}
+hA4    id         6 d@ 25940 burst  1 at dx -124 y 5 tank-2k 2.09 spoil 0.00 crop 0.00 nest 0.00 x(4, 6) y(4, 6) life f13 d0 h0 dig6 lastfield 1445 lasteat 2920 store 16/0/153
+     chose {'walk': 0.99, 'turn': 0.01, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA4    id        24 d@104620 burst  1 at dx 122 y 89 tank-2k 2.39 spoil 1.00 crop 0.00 nest 0.00 x(246, 251) y(88, 92) life f32 d9 h41 dig19 lastfield 20460 lasteat 20480 store 15/2/155
+     chose {'walk': 0.96, 'dig': 0.04, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 1.0}
+hA4    id         8 d@195695 burst  1 at dx 34 y 64 tank-2k 2.35 spoil 1.00 crop 0.00 nest 0.00 x(162, 163) y(63, 64) life f95 d26 h2 dig24 lastfield 60635 lasteat 62595 store 5/1/164
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA5    id         6 d@172680 burst  1 at dx -124 y 5 tank-2k 2.08 spoil 0.00 crop 0.00 nest 0.00 x(4, 5) y(4, 6) life f128 d1 h0 dig27 lastfield 68685 lasteat 69665 store 16/0/172
+     chose {'walk': 1.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA6    id         6 d@ 54850 burst  1 at dx -123 y 4 tank-2k 2.05 spoil 0.00 crop 0.00 nest 0.00 x(4, 5) y(4, 6) life f43 d0 h0 dig6 lastfield 4060 lasteat 4500 store 9/0/139
+     chose {'walk': 1.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA6    id         2 d@185045 burst  1 at dx 21 y 64 tank-2k 2.35 spoil 1.00 crop 0.00 nest 0.00 x(149, 150) y(63, 64) life f11 d1 h13 dig7 lastfield 61160 lasteat 62370 store 17/0/155
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA6    id        16 d@192810 burst  1 at dx -119 y 66 tank-2k 1.93 spoil 0.00 crop 0.00 nest 0.00 x(4, 10) y(57, 69) life f155 d0 h0 dig76 lastfield 24600 lasteat 26025 store 12/0/156
+     chose {'walk': 0.99, 'turn': 0.0, 'dig': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.66}
+hA7    id         6 d@ 53605 burst  1 at dx -124 y 6 tank-2k 2.06 spoil 0.00 crop 0.00 nest 0.00 x(4, 5) y(4, 6) life f33 d0 h0 dig1 lastfield 2885 lasteat 2905 store 53/1/192
+     chose {'walk': 1.0, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA7    id         9 d@ 57965 burst  1 at dx -115 y 61 tank-2k 1.95 spoil 0.00 crop 0.00 nest 0.00 x(12, 32) y(60, 65) life f10 d1 h0 dig12 lastfield 9125 lasteat 9540 store 40/1/180
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.64}
+hA7    id        14 d@ 63630 burst  1 at dx -122 y 60 tank-2k 1.98 spoil 0.01 crop 0.00 nest 0.00 x(4, 19) y(56, 65) life f31 d2 h0 dig16 lastfield 14495 lasteat 14510 store 36/1/177
+     chose {'walk': 0.96, 'turn': 0.03, 'dig': 0.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.53, 'drop': 0.01}
+hA7    id         8 d@ 67100 burst  1 at dx -111 y 62 tank-2k 1.95 spoil 0.02 crop 0.00 nest 0.00 x(14, 36) y(60, 65) life f13 d1 h0 dig29 lastfield 10815 lasteat 14350 store 37/0/172
+     chose {'walk': 0.99, 'dig': 0.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.62, 'drop': 0.01}
+hA8    id         6 d@ 42760 burst  1 at dx 123 y 4 tank-2k 2.06 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 7) life f32 d0 h0 dig5 lastfield 2225 lasteat 3485 store 14/0/134
+     chose {'walk': 1.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA9    id         3 d@  5110 burst  1 at dx -53 y 62 tank-2k 1.95 spoil 0.00 crop 0.00 nest 0.00 x(26, 78) y(62, 63) life f1 d0 h0 dig1 lastfield 960 lasteat 985 store 14/0/140
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.55}
+hA9    id         4 d@114095 burst  1 at dx 123 y 65 tank-2k 2.01 spoil 0.12 crop 0.00 nest 0.00 x(248, 251) y(61, 67) life f35 d2 h1 dig29 lastfield 18260 lasteat 18785 store 13/0/171
+     chose {'walk': 0.98, 'turn': 0.01, 'rest': 0.0, 'dig': 0.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.49, 'drop': 0.05}
+hA9    id         6 d@128425 burst  1 at dx 123 y 5 tank-2k 2.08 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 7) life f106 d0 h0 dig15 lastfield 18555 lasteat 19205 store 10/1/164
+     chose {'walk': 1.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA10   id         6 d@ 39685 burst  1 at dx 123 y 5 tank-2k 2.09 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 6) life f19 d0 h0 dig3 lastfield 6730 lasteat 6735 store 3/3/135
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA10   id        14 d@100525 burst  2 at dx -123 y 63 tank-2k 2.0 spoil 0.00 crop 0.00 nest 0.00 x(4, 8) y(57, 66) life f21 d0 h2 dig24 lastfield 15310 lasteat 17130 store 7/3/164
+     chose {'walk': 0.99, 'rest': 0.01, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.52}
+hA10   id         9 d@100625 burst  2 at dx -105 y 61 tank-2k 1.98 spoil 0.00 crop 0.00 nest 0.00 x(4, 27) y(60, 66) life f10 d2 h3 dig32 lastfield 12510 lasteat 15155 store 7/3/164
+     chose {'walk': 1.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.68, 'feed': 0.03}
+hA10   id        12 d@196360 burst 16 at dx 2 y 71 tank-2k 1.92 spoil 1.00 crop 0.00 nest 1.00 x(123, 133) y(67, 74) life f26 d4 h6 dig16 lastfield 33570 lasteat 43215 store 2/3/167
+     chose {'walk': 1.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.05, 'feed': 0.04}
+hA10   id        18 d@196670 burst 16 at dx -1 y 71 tank-2k 2.1 spoil 1.00 crop 0.00 nest 1.00 x(124, 138) y(67, 75) life f21 d5 h33 dig20 lastfield 23145 lasteat 180700 store 2/3/167
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.29, 'feed': 0.18}
+hA10   id        10 d@196745 burst 16 at dx 1 y 62 tank-2k 1.52 spoil 1.00 crop 0.00 nest 0.61 x(124, 134) y(55, 72) life f49 d14 h15 dig23 lastfield 148750 lasteat 158385 store 2/3/167
+     chose {'walk': 0.93, 'turn': 0.0, 'feed': 0.06, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.23, 'drop': 0.02}
+hA10   id        16 d@196755 burst 16 at dx -4 y 64 tank-2k 1.49 spoil 1.00 crop 0.00 nest 0.11 x(123, 130) y(59, 66) life f137 d3 h63 dig29 lastfield 149850 lasteat 165940 store 2/3/167
+     chose {'walk': 0.89, 'rest': 0.01, 'feed': 0.1, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.22}
+hA10   id         2 d@196770 burst 16 at dx 2 y 63 tank-2k 2.03 spoil 0.81 crop 0.00 nest 0.96 x(124, 137) y(61, 73) life f16 d7 h194 dig29 lastfield 16905 lasteat 187470 store 2/3/167
+     chose {'walk': 0.99, 'dig': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.13, 'feed': 0.15, 'drop': 0.14}
+hA10   id         1 d@196900 burst 16 at dx -1 y 61 tank-2k 1.87 spoil 1.00 crop 0.00 nest 0.96 x(122, 138) y(61, 74) life f123 d28 h101 dig48 lastfield 156275 lasteat 163515 store 2/3/167
+     chose {'walk': 0.99, 'rest': 0.01, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.37, 'drop': 0.19}
+hA10   id         3 d@196945 burst 16 at dx 2 y 73 tank-2k 1.9 spoil 1.00 crop 0.00 nest 1.00 x(122, 132) y(69, 75) life f252 d0 h4 dig54 lastfield 70985 lasteat 72300 store 2/3/167
+     chose {'walk': 0.99, 'rest': 0.0, 'feed': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.34, 'feed': 0.47}
+hA10   id         4 d@196985 burst 16 at dx 2 y 71 tank-2k 3.26 spoil 0.11 crop 0.00 nest 0.94 x(122, 132) y(61, 76) life f61 d15 h36 dig24 lastfield 122475 lasteat 150250 store 2/3/167
+     chose {'walk': 0.98, 'feed': 0.02, 'dig': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.35, 'dig': 0.42, 'drop': 0.05}
+hA10   id         5 d@197435 burst 16 at dx -9 y 67 tank-2k 1.47 spoil 0.61 crop 0.00 nest 0.90 x(116, 134) y(58, 72) life f142 d36 h74 dig46 lastfield 134115 lasteat 169635 store 2/3/166
+     chose {'walk': 0.98, 'turn': 0.01, 'feed': 0.01, 'rest': 0.01, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.29, 'drop': 0.05, 'dig': 0.18}
+hA10   id        19 d@197520 burst 16 at dx -8 y 68 tank-2k 2.04 spoil 0.00 crop 0.00 nest 1.00 x(116, 121) y(63, 70) life f64 d22 h138 dig50 lastfield 104405 lasteat 172295 store 2/3/166
+     chose {'walk': 1.0, 'feed': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.59, 'feed': 0.19}
+hA10   id        15 d@197635 burst 16 at dx -10 y 65 tank-2k 2.27 spoil 1.00 crop 0.00 nest 0.93 x(116, 121) y(61, 70) life f71 d18 h107 dig43 lastfield 68280 lasteat 194075 store 2/3/166
+     chose {'walk': 0.98, 'rest': 0.01, 'feed': 0.02}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.74, 'drop': 0.02}
+hA10   id        20 d@197640 burst 16 at dx -10 y 65 tank-2k 2.05 spoil 0.27 crop 0.00 nest 0.51 x(116, 127) y(49, 70) life f78 d24 h112 dig36 lastfield 103335 lasteat 178045 store 2/3/166
+     chose {'walk': 0.93, 'feed': 0.06, 'turn': 0.0, 'drop': 0.0, 'dig': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.49, 'drop': 0.0, 'dig': 0.27}
+hA10   id         8 d@197650 burst 16 at dx -8 y 67 tank-2k 2.18 spoil 0.87 crop 0.00 nest 0.85 x(115, 121) y(61, 69) life f92 d34 h24 dig66 lastfield 92905 lasteat 165030 store 2/3/166
+     chose {'walk': 0.97, 'feed': 0.02, 'rest': 0.0, 'drop': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.51, 'drop': 0.04, 'dig': 0.06}
+hA10   id        24 d@197660 burst 16 at dx -9 y 65 tank-2k 1.81 spoil 0.29 crop 0.00 nest 0.90 x(115, 123) y(59, 70) life f48 d14 h55 dig51 lastfield 34265 lasteat 190450 store 2/3/166
+     chose {'walk': 0.97, 'turn': 0.0, 'drop': 0.0, 'rest': 0.0, 'feed': 0.02}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.02, 'dig': 0.18, 'feed': 0.3}
+hA10   id        23 d@197690 burst 16 at dx -5 y 50 tank-2k 2.23 spoil 0.00 crop 0.00 nest 0.00 x(120, 124) y(48, 52) life f126 d49 h144 dig67 lastfield 184265 lasteat 184415 store 2/3/166
+     chose {'walk': 0.93, 'feed': 0.06, 'rest': 0.0, 'dig': 0.0, 'drop': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.3, 'feed': 0.11, 'drop': 0.0}
+hA10   id         7 d@197730 burst 16 at dx -11 y 66 tank-2k 2.2 spoil 0.00 crop 0.00 nest 0.93 x(115, 121) y(59, 70) life f66 d7 h64 dig29 lastfield 71335 lasteat 147195 store 2/3/166
+     chose {'walk': 0.98, 'feed': 0.01, 'turn': 0.0, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.68, 'dig': 0.44}
+hA11   id        13 d@ 34260 burst  3 at dx 101 y 64 tank-2k 1.98 spoil 0.00 crop 0.00 nest 0.00 x(229, 251) y(57, 65) life f18 d0 h0 dig19 lastfield 3690 lasteat 5365 store 3/0/136
+     chose {'walk': 0.99, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.63}
+hA11   id        15 d@ 35325 burst  3 at dx 122 y 64 tank-2k 1.98 spoil 0.00 crop 0.00 nest 0.00 x(244, 251) y(52, 65) life f22 d6 h2 dig7 lastfield 5570 lasteat 7630 store 3/0/145
+     chose {'walk': 0.99, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.64, 'feed': 0.06}
+hA11   id         8 d@ 36945 burst  3 at dx 121 y 64 tank-2k 2.01 spoil 0.00 crop 0.00 nest 0.00 x(244, 251) y(57, 65) life f6 d0 h1 dig8 lastfield 2550 lasteat 2970 store 3/0/132
+     chose {'walk': 0.99, 'turn': 0.01, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.09, 'dig': 0.65}
+hA11   id         4 d@ 41960 burst  4 at dx 122 y 62 tank-2k 2.0 spoil 0.12 crop 0.00 nest 0.00 x(234, 251) y(58, 66) life f18 d4 h8 dig12 lastfield 4175 lasteat 4295 store 4/2/148
+     chose {'walk': 0.96, 'turn': 0.01, 'rest': 0.01, 'dig': 0.01, 'drop': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.63, 'drop': 0.06}
+hA11   id         6 d@ 42020 burst  4 at dx 123 y 4 tank-2k 2.07 spoil 0.00 crop 0.00 nest 0.00 x(250, 251) y(4, 6) life f48 d0 h0 dig13 lastfield 5295 lasteat 6005 store 4/2/141
+     chose {'walk': 0.99, 'turn': 0.01, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA11   id        11 d@ 43160 burst  4 at dx 118 y 36 tank-2k 1.97 spoil 1.00 crop 0.00 nest 0.00 x(246, 251) y(4, 61) life f9 d4 h0 dig3 lastfield 2660 lasteat 5015 store 3/2/150
+     chose {'walk': 0.98, 'rest': 0.01, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'drop': 0.05}
+hA11   id        23 d@ 44770 burst  4 at dx 122 y 36 tank-2k 1.86 spoil 0.00 crop 0.00 nest 0.00 x(246, 251) y(4, 65) life f9 d2 h6 dig14 lastfield 3300 lasteat 4210 store 3/2/150
+     chose {'walk': 0.99, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.06, 'dig': 0.17}
+hA11   id        16 d@141895 burst  1 at dx 81 y 61 tank-2k 1.99 spoil 0.00 crop 0.00 nest 0.00 x(209, 239) y(60, 64) life f232 d0 h0 dig61 lastfield 136655 lasteat 136690 store 0/1/155
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.67}
+hA11   id        10 d@190270 burst  2 at dx 81 y 86 tank-2k 2.31 spoil 1.00 crop 0.00 nest 0.00 x(209, 209) y(85, 86) life f50 d8 h25 dig10 lastfield 53400 lasteat 58100 store 1/0/160
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.01, 'feed': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.11}
+hA11   id        17 d@190275 burst  2 at dx 81 y 85 tank-2k 2.31 spoil 1.00 crop 0.00 nest 0.00 x(209, 209) y(85, 86) life f66 d3 h54 dig30 lastfield 80675 lasteat 97885 store 1/0/160
+     chose {'walk': 0.99, 'turn': 0.0, 'rest': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'feed': 0.19, 'dig': 0.0}
+hA12   id         6 d@ 89910 burst  1 at dx -124 y 4 tank-2k 2.06 spoil 0.00 crop 0.00 nest 0.00 x(4, 5) y(4, 6) life f26 d0 h0 dig11 lastfield 18280 lasteat 18710 store 9/2/158
+     chose {'walk': 1.0, 'rest': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA12   id         8 d@110115 burst  2 at dx -18 y 68 tank-2k 2.31 spoil 1.00 crop 0.00 nest 0.00 x(110, 110) y(68, 69) life f51 d16 h0 dig15 lastfield 39050 lasteat 45405 store 11/1/145
+     chose {'walk': 0.99, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA12   id         1 d@110135 burst  2 at dx -18 y 68 tank-2k 2.31 spoil 1.00 crop 0.00 nest 0.00 x(110, 111) y(68, 69) life f48 d0 h0 dig14 lastfield 40960 lasteat 45505 store 11/1/145
+     chose {'walk': 0.99, 'turn': 0.0, 'dig': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.01}
+hA12   id        24 d@123265 burst  1 at dx -46 y 102 tank-2k 2.5 spoil 1.00 crop 0.00 nest 0.00 x(80, 87) y(98, 103) life f19 d4 h18 dig26 lastfield 34190 lasteat 64335 store 17/3/166
+     chose {'walk': 0.9, 'dig': 0.09, 'rest': 0.0, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 1.0}
+hA12   id         4 d@193300 burst  1 at dx 121 y 60 tank-2k 2.03 spoil 0.64 crop 0.00 nest 0.00 x(246, 251) y(57, 67) life f77 d9 h23 dig48 lastfield 67165 lasteat 67230 store 8/3/160
+     chose {'walk': 0.99, 'rest': 0.0, 'dig': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0, 'dig': 0.29, 'drop': 0.18}
+hA13   id         6 d@ 85515 burst  1 at dx 123 y 4 tank-2k 2.07 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 6) life f69 d0 h0 dig4 lastfield 4085 lasteat 4190 store 6/0/145
+     chose {'walk': 1.0, 'rest': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA14   id         6 d@ 89330 burst  1 at dx -124 y 5 tank-2k 2.08 spoil 0.00 crop 0.00 nest 0.00 x(4, 6) y(4, 6) life f46 d0 h0 dig1 lastfield 16560 lasteat 16720 store 5/0/160
+     chose {'walk': 1.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA15   id         6 d@105690 burst  1 at dx -124 y 4 tank-2k 2.09 spoil 0.00 crop 0.00 nest 0.00 x(4, 5) y(4, 7) life f63 d0 h0 dig10 lastfield 8330 lasteat 8785 store 22/0/149
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.0}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}
+hA16   id         6 d@ 96795 burst  1 at dx 123 y 5 tank-2k 2.09 spoil 0.00 crop 0.00 nest 0.00 x(249, 251) y(4, 6) life f107 d0 h0 dig7 lastfield 16525 lasteat 16875 store 11/2/179
+     chose {'walk': 0.99, 'rest': 0.0, 'turn': 0.01}  offered {'walk': 1.0, 'turn': 1.0, 'rest': 1.0}

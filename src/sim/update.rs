@@ -216,7 +216,8 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     // saves and stack frame, and this front is `#[inline(always)]` into
     // `sweep_row` (2026-10-22: lab box -4.5% instructions, -3.4% wall).
     // Bit-identical: no rule below draws from the generator or writes for
-    // an empty cell.
+    // an empty cell. `fire::update_from` no longer asks again, so this
+    // return is now load-bearing for it.
     if cell.material == material::EMPTY {
         return;
     }
