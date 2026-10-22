@@ -1969,6 +1969,10 @@ enum Body {
     /// the colour of its state. 3 px dots, so one stands out and a crowd
     /// reads as a crowd.
     Scatter { caption: String, points: Vec<(f32, f32, [u8; 4])> },
+    /// **One gene against a group**: the label, a bar out from a centre
+    /// line (`frac` in `-1.0..=1.0`, the group's mean at the centre and its
+    /// farthest member at either end), and the value. See `gene_bars`.
+    Delta { label: String, value: String, frac: f32 },
     Gap,
 }
 
@@ -2037,6 +2041,9 @@ impl Row {
     fn scatter(caption: impl Into<String>, points: Vec<(f32, f32, [u8; 4])>, note: impl Into<String>) -> Self {
         Self { body: Body::Scatter { caption: caption.into(), points }, note: note.into() }
     }
+    fn delta(label: impl Into<String>, value: impl Into<String>, frac: f32, note: impl Into<String>) -> Self {
+        Self { body: Body::Delta { label: label.into(), value: value.into(), frac }, note: note.into() }
+    }
     fn head(label: &str, open: bool, hidden: usize, action: Action, note: impl Into<String>) -> Self {
         Self {
             body: Body::Head { label: label.into(), open, hidden, action },
@@ -2069,6 +2076,7 @@ impl Row {
             Body::Stack { .. } => STACK_H + 2 + LINE,
             Body::Hist { .. } => HIST_H + 12,
             Body::Scatter { .. } => SCATTER_H + 12,
+            Body::Delta { .. } => LINE,
             Body::Gap => 4,
         }
     }
@@ -2084,6 +2092,7 @@ impl Row {
             Body::Section { label } => hud::text_width(label),
             Body::Stack { parts } => stack_legend(parts).iter().map(|(t, _)| hud::text_width(t) + 6).sum::<i32>().clamp(120, STACK_LEGEND_W),
             Body::Hist { caption, .. } | Body::Scatter { caption, .. } => hud::text_width(caption).max(120),
+            Body::Delta { label, value, .. } => hud::text_width(label) + 12 + DELTA_W + (hud::text_width(value) + 6).max(DELTA_VALUE_W),
             Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
             Body::Gap => 0,
         }
@@ -5646,11 +5655,14 @@ impl Ui {
             (0, Some(v)) => {
                 let band = if v.alive < settings.lo || v.alive > settings.hi { FAIR } else { GOOD };
                 rows.push(Row::value("ROUND", format!("{}   SEED {}", v.round, v.seed), VALUE, "WHICH ROUND THIS IS. EACH ROUND IS A FRESH BED FOUNDED ON THE LAST ROUND'S BEST LIVING ANTS; ITS SEED IS THE RUN'S SEED X 1000 + THE ROUND."));
-                rows.push(Row::value(
-                    "FRAME",
-                    format!("{} OF {}", compact(v.fr as f64), compact(settings.round_frames as f64)),
-                    VALUE,
-                    "FRAMES THIS ROUND HAS RUN. AT THE END THE NEXT ROUND IS FOUNDED BY ITSELF.",
+                // **How far through the round, as a bar** (plan step 4); the
+                // legend under it carries the two numbers the row used to.
+                rows.push(Row::stack(
+                    vec![
+                        ("RUN".to_string(), v.fr.min(settings.round_frames) as u32, GOOD),
+                        ("TO GO".to_string(), settings.round_frames.saturating_sub(v.fr) as u32, CHART_BG_LIT),
+                    ],
+                    "FRAMES THIS ROUND HAS RUN, AND FRAMES LEFT. AT THE END THE NEXT ROUND IS FOUNDED BY ITSELF.",
                 ));
                 rows.push(Row::value(
                     "ALIVE",
@@ -5678,6 +5690,32 @@ impl Ui {
                     VALUE,
                     "THE GENERAL NEST SCORE (CHAMBERS, TUNNELS, A DOOR THAT STAYS OPEN), READ EVERY 25,000 FRAMES. PRINTED ONLY -- IT PAYS NOBODY.",
                 ));
+                // **The verbs before the charts**: the page is fitted from the
+                // bottom (`fit_rows`), and with the round-over-round chart it
+                // ran past the screen and trimmed STOP TRAINING off it.
+                if v.extinct {
+                    rows.push(Row::value("EXTINCT", "NO ANT LEFT", POOR, "THE ROUND ENDED WITH NOBODY ALIVE, SO THERE IS NOTHING TO FOUND THE NEXT ROUND ON. START AGAIN, OR CHANGE THE SETTINGS FIRST."));
+                }
+                rows.push(Row::choice("NEXT ROUND NOW", "", Action::Training(TrainingAct::NextRound), "END THIS ROUND HERE AND FOUND THE NEXT ON ITS BEST LIVING ANTS, WITHOUT WAITING FOR THE ROUND'S LAST FRAME."));
+                rows.push(Row::choice("START AGAIN", format!("SEED {seed}"), Action::Training(TrainingAct::Start), "THROW THIS RUN AWAY AND FOUND ROUND 0 AGAIN, WITH THE SETTINGS AS THEY ARE NOW. R DOES THE SAME."));
+                rows.push(Row::choice("STOP TRAINING", "", Action::Training(TrainingAct::Stop), "END THE RUN. THE BED STAYS ON SCREEN AS AN ORDINARY BOX AND ITS ANTS KEEP THEIR MINDS, BUT NOBODY IS JUDGED, CULLED OR BORN BY SELECTION ANY MORE."));
+                // **Round over round**, once there is a round behind this one:
+                // the colony at each round's end, its children and its
+                // starved, the round running now last.
+                if !v.past.is_empty() {
+                    let per = |f: &dyn Fn(&super::training::RoundSummary) -> u32, now: u32| -> Vec<u32> {
+                        v.past.iter().map(f).chain([now]).collect()
+                    };
+                    rows.push(Row::lines(
+                        format!("BY ROUND, 0 TO {}: ALIVE, BORN, STARVED", v.round),
+                        vec![
+                            (per(&|r| r.alive as u32, v.alive as u32), GOOD),
+                            (per(&|r| r.births as u32, v.births as u32), VALUE),
+                            (per(&|r| r.starved as u32, v.starved as u32), POOR),
+                        ],
+                        "EACH ROUND'S END, ROUND 0 ON THE LEFT AND THE ROUND RUNNING NOW LAST: ANTS ALIVE (GREEN), CHILDREN BORN (WHITE) AND ANTS STARVED (RED), ON ONE SCALE. SELECTION THAT IS WORKING KEEPS THE GREEN UP AND PULLS THE RED DOWN.",
+                    ));
+                }
                 let keep = |xs: Vec<u32>| -> Vec<u32> {
                     let step = xs.len().div_ceil(56).max(1);
                     xs.into_iter().step_by(step).collect()
@@ -5708,12 +5746,6 @@ impl Ui {
                     bars,
                     "FOOD CARRIED HOME IN EACH ROUND, ROUND 0 ON THE LEFT, THE ROUND RUNNING NOW LAST (WHITE, STILL GROWING). GREEN ROUNDS WERE SELECTED BY SCORE, GREY AT RANDOM OR OFF. IF SELECTION WORKS, THIS CLIMBS ROUND OVER ROUND.",
                 ));
-                if v.extinct {
-                    rows.push(Row::value("EXTINCT", "NO ANT LEFT", POOR, "THE ROUND ENDED WITH NOBODY ALIVE, SO THERE IS NOTHING TO FOUND THE NEXT ROUND ON. START AGAIN, OR CHANGE THE SETTINGS FIRST."));
-                }
-                rows.push(Row::choice("NEXT ROUND NOW", "", Action::Training(TrainingAct::NextRound), "END THIS ROUND HERE AND FOUND THE NEXT ON ITS BEST LIVING ANTS, WITHOUT WAITING FOR THE ROUND'S LAST FRAME."));
-                rows.push(Row::choice("START AGAIN", format!("SEED {seed}"), Action::Training(TrainingAct::Start), "THROW THIS RUN AWAY AND FOUND ROUND 0 AGAIN, WITH THE SETTINGS AS THEY ARE NOW. R DOES THE SAME."));
-                rows.push(Row::choice("STOP TRAINING", "", Action::Training(TrainingAct::Stop), "END THE RUN. THE BED STAYS ON SCREEN AS AN ORDINARY BOX AND ITS ANTS KEEP THEIR MINDS, BUT NOBODY IS JUDGED, CULLED OR BORN BY SELECTION ANY MORE."));
             }
             (1, _) => {
                 for (i, k) in KNOBS.iter().enumerate() {
@@ -5846,8 +5878,20 @@ impl Ui {
             Row::gap(),
         ];
 
-        let left = params::specimen_rows(world, a.id);
-        let right = params::specimen_rows(world, b.id);
+        // **The genes as bars first, when both are living animals** (plan
+        // step 4): one row per gene they differ on, biggest difference
+        // first, the bar running from HELD at the centre line toward
+        // PINNED, scaled so the largest difference fills it. The genes then
+        // leave the text list below, which would only repeat them.
+        let genes = gene_pair_bars(world, a.id, b.id);
+        let barred = genes.is_some();
+        let is_gene = |label: &str| barred && params::TRAIT_ROWS.iter().any(|(_, n, _)| n.to_uppercase() == label);
+        if let Some(mut bars) = genes {
+            rows.append(&mut bars);
+            rows.push(Row::gap());
+        }
+        let left: Vec<_> = params::specimen_rows(world, a.id).into_iter().filter(|(l, _, _)| !is_gene(l)).collect();
+        let right: Vec<_> = params::specimen_rows(world, b.id).into_iter().filter(|(l, _, _)| !is_gene(l)).collect();
         let find = |rs: &[(String, String, String)], label: &str| -> Option<(String, String)> {
             rs.iter().find(|(l, _, _)| l == label).map(|(_, v, n)| (v.clone(), n.clone()))
         };
@@ -6717,36 +6761,54 @@ impl Ui {
         let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
         let spark_h: i32 = sparks.iter().map(Row::height).sum();
 
+        // Each group's rows, built once so its cost is what it will draw.
+        // An animal's GENOME is bars against its colony (`gene_bars`),
+        // keeping MADE, which is not a gene -- fewer rows than the numbers
+        // it replaces, so costing it by the numbers trimmed it to nothing.
+        let mut groups: Vec<Vec<Row>> = sections
+            .iter()
+            .map(|(label, _, section)| {
+                let bars = if *label == "GENOME" { gene_bars(world, cell.organism_id()) } else { None };
+                match bars {
+                    Some(mut bars) => {
+                        bars.extend(section.iter().filter(|(l, _, _)| l == "MADE").map(|(l, v, n)| Row::value(l, v, VALUE, n)));
+                        bars
+                    }
+                    None => section.iter().map(|(label, value, note)| Row::value(label, value, VALUE, note)).collect(),
+                }
+            })
+            .collect();
+        let costs: Vec<i32> = groups
+            .iter()
+            .enumerate()
+            .map(|(i, g)| g.iter().map(Row::height).sum::<i32>() + if state_at == Some(i) { spark_h } else { 0 })
+            .collect();
         if let Some(chosen) = chosen {
             open[chosen] = true;
-            room -= sections[chosen].2.len() as i32 * LINE;
-            if state_at == Some(chosen) {
-                room -= spark_h;
-            }
+            room -= costs[chosen];
             for i in 0..sections.len() {
-                let cost = sections[i].2.len() as i32 * LINE
-                    + if state_at == Some(i) { spark_h } else { 0 };
-                if !open[i] && cost <= room {
+                if !open[i] && costs[i] <= room {
                     open[i] = true;
-                    room -= cost;
+                    room -= costs[i];
                 }
             }
         }
-        for (i, (label, note, section)) in sections.iter().enumerate() {
+        for (i, (label, note, _)) in sections.iter().enumerate() {
             let open = open[i];
+            let len = groups[i].len();
             rows.push(Row::head(
                 label,
                 open,
-                if open { 0 } else { section.len() },
+                if open { 0 } else { len },
                 Action::SpecimenSection(i),
                 if open {
                     (*note).to_string()
                 } else {
-                    format!("{note} CLICK TO SHOW ITS {} ROWS -- THE PAGE HOLDS ONE GROUP AT A TIME BECAUSE ALL OF THEM AT ONCE DO NOT FIT ON THE SCREEN.", section.len())
+                    format!("{note} CLICK TO SHOW ITS {len} ROWS -- THE PAGE HOLDS ONE GROUP AT A TIME BECAUSE ALL OF THEM AT ONCE DO NOT FIT ON THE SCREEN.")
                 },
             ));
             if open {
-                let mut group: Vec<Row> = section.iter().map(|(label, value, note)| Row::value(label, value, VALUE, note)).collect();
+                let mut group = std::mem::take(&mut groups[i]);
                 if state_at == Some(i) {
                     // Moved rather than copied: `Row` is not `Clone` and does
                     // not need to be -- there is one `STATE` group, so these
@@ -7065,8 +7127,25 @@ fn paint_rows(
                         text(hc, frame, x, y + STACK_H + 3, &format!("+{}", rest + 1), FAINT);
                         break;
                     }
-                    text(hc, frame, x, y + STACK_H + 3, t, *tint);
+                    // A part drawn dark on the bar (a progress bar's
+                    // remainder) is named in FAINT, where it can be read.
+                    let ink = if tint.iter().take(3).map(|&c| c as u32).sum::<u32>() < 300 { FAINT } else { *tint };
+                    text(hc, frame, x, y + STACK_H + 3, t, ink);
                     x += hud::text_width(t) + 6;
+                }
+            }
+            Body::Delta { label, value, frac } => {
+                text(hc, frame, left, y, label, FAINT);
+                text(hc, frame, right - hud::text_width(value), y, value, VALUE);
+                let gap = (hud::text_width(value) + 6).max(DELTA_VALUE_W);
+                let track = Rect { x: right - gap - DELTA_W, y: y + 1, w: DELTA_W, h: hud::GLYPH_HEIGHT - 2 };
+                fill(hc, frame, track, CHART_BG);
+                let mid = track.x + track.w / 2;
+                let reach = (frac.clamp(-1.0, 1.0) * (track.w / 2) as f32).round() as i32;
+                let (x0, x1) = if reach < 0 { (mid + reach, mid) } else { (mid, mid + reach) };
+                fill(hc, frame, Rect { x: x0, y: track.y + 1, w: x1 - x0, h: track.h - 2 }, ACCENT);
+                for yy in track.y..track.bottom() {
+                    hc.put(frame, mid, yy, FAINT);
                 }
             }
             Body::Hist { caption, bins } => {
@@ -7222,6 +7301,9 @@ fn menu_rect(pages: &[Row], toggles: &[Row], anchor_x: i32, bottom: i32) -> Rect
 const STACK_H: i32 = 8;
 const HIST_H: i32 = 22;
 const SCATTER_H: i32 = 40;
+/// The unfilled part of a progress bar: lighter than `CHART_BG`, so the
+/// bar's end is visible.
+const CHART_BG_LIT: [u8; 4] = [44, 50, 62, 255];
 const CHART_BG: [u8; 4] = [24, 27, 33, 255];
 
 /// The colour a live individual's state wears on every population chart.
@@ -7383,6 +7465,105 @@ fn history_charts(lines: &[EndedLine]) -> Vec<Row> {
 /// The words under a stacked bar: `OK 31` and so on, in each part's colour,
 /// zero parts left out -- an empty category is not news, and every word it
 /// costs pushes the page wider.
+/// The bar of a [`Body::Delta`] row, and the room kept right of it for the
+/// value.
+const DELTA_W: i32 = 44;
+const DELTA_VALUE_W: i32 = 42;
+
+/// **An animal's genes against its colony's**, as bars out from the
+/// colony's mean, the gene it differs most on first (plan step 4: the
+/// GENOME group was twenty-odd signed numbers, which say what an ant *is*
+/// and not what makes it *unusual*). Each gene is scaled to its own spread
+/// in the colony -- its farthest member at the end of the bar -- because
+/// the slots do not share a unit. Genes every member carries identically
+/// are counted in one row rather than drawn as two dozen empty bars.
+///
+/// `None` for a plant, or an animal with no living colony-mate to compare
+/// against; the cell page then shows the numbers as before.
+fn gene_bars(world: &World, id: OrganismId) -> Option<Vec<Row>> {
+    let state = world.organism_state(id)?;
+    world.species.get(state.species).creature.as_ref()?;
+    let peers: Vec<&crate::sim::organism::OrganismState> = world
+        .live_organism_ids()
+        .into_iter()
+        .filter_map(|o| world.organism_state(o))
+        .filter(|s| s.species == state.species && s.colony == state.colony)
+        .collect();
+    if peers.len() < 2 {
+        return None;
+    }
+    let n = peers.len() as f32;
+    let mut genes: Vec<(f32, Row)> = Vec::new();
+    let mut same = 0;
+    for (slot, name, _) in params::TRAIT_ROWS {
+        let own = state.traits[*slot];
+        let mean = peers.iter().map(|s| s.traits[*slot]).sum::<f32>() / n;
+        let spread = peers.iter().map(|s| (s.traits[*slot] - mean).abs()).fold(0.0f32, f32::max);
+        if spread < 1e-6 {
+            same += 1;
+            continue;
+        }
+        let frac = (own - mean) / spread;
+        let label = name.replace('_', " ").to_uppercase();
+        let note = format!(
+            "THIS ANIMAL'S {label} IS {own:+.3}; ITS COLONY'S MEAN IS {mean:+.3} OVER {} ANIMALS. THE BAR RUNS FROM THAT MEAN, AT THE CENTRE LINE, TO THE FARTHEST ANY MEMBER SITS, AT EITHER END -- SO A FULL BAR IS THE COLONY'S ODDEST ON THIS GENE, WHICHEVER WAY.",
+            peers.len()
+        );
+        genes.push((frac.abs(), Row::delta(label, format!("{own:+.2}"), frac, note)));
+    }
+    genes.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut rows: Vec<Row> = vec![Row::value(
+        format!("AGAINST COLONY {}", state.colony),
+        format!("{} ANIMALS", peers.len()),
+        FAINT,
+        "EACH GENE BELOW IS THIS ANIMAL AGAINST ITS OWN COLONY, MOST UNUSUAL FIRST. CENTRE LINE: THE COLONY'S MEAN. END OF THE BAR: THE FARTHEST ANY MEMBER SITS. BARS ARE SCALED GENE BY GENE, BECAUSE THE GENES DO NOT SHARE A UNIT.",
+    )];
+    rows.extend(genes.into_iter().map(|(_, r)| r));
+    if same > 0 {
+        rows.push(Row::value(
+            "THE SAME IN EVERY MEMBER",
+            format!("{same} GENES"),
+            FAINT,
+            "GENES NO MEMBER OF THIS COLONY DIFFERS ON YET: A COLONY FOUNDED FROM ONE GENOME STARTS THIS WAY, AND MUTATION SPREADS THEM OUT OVER GENERATIONS. THE PARAMETERS PAGE HAS THEIR VALUES.",
+        ));
+    }
+    Some(rows)
+}
+
+/// **Two animals' genes, gene by gene**, for SIDE BY SIDE: a bar per gene
+/// they differ on, from the HELD one's value at the centre line toward the
+/// PINNED one's, the biggest difference first and filling the bar. `None`
+/// unless both are living animals.
+fn gene_pair_bars(world: &World, held: OrganismId, pinned: OrganismId) -> Option<Vec<Row>> {
+    let (a, b) = (world.organism_state(held)?, world.organism_state(pinned)?);
+    world.species.get(a.species).creature.as_ref()?;
+    world.species.get(b.species).creature.as_ref()?;
+    let diffs: Vec<(usize, &str, f32)> = params::TRAIT_ROWS
+        .iter()
+        .map(|(slot, name, _)| (*slot, *name, b.traits[*slot] - a.traits[*slot]))
+        .filter(|(_, _, d)| d.abs() > 1e-6)
+        .collect();
+    let widest = diffs.iter().map(|(_, _, d)| d.abs()).fold(0.0f32, f32::max);
+    let mut rows = vec![Row::value(
+        "GENES",
+        format!("HELD | PINNED, {} DIFFER", diffs.len()),
+        if diffs.is_empty() { FAINT } else { VALUE },
+        "ONE BAR PER GENE THE TWO DIFFER ON, BIGGEST DIFFERENCE FIRST. THE CENTRE LINE IS THE HELD ONE; THE BAR RUNS TOWARD THE PINNED ONE, RIGHT IF ITS VALUE IS HIGHER, AND THE LARGEST DIFFERENCE FILLS IT. GENES THEY SHARE EXACTLY ARE LEFT OUT.",
+    )];
+    let mut sorted = diffs;
+    sorted.sort_by(|x, y| y.2.abs().total_cmp(&x.2.abs()));
+    for (slot, name, d) in sorted {
+        let label = name.replace('_', " ").to_uppercase();
+        rows.push(Row::delta(
+            label.clone(),
+            format!("{:+.2} {:+.2}", a.traits[slot], b.traits[slot]),
+            d / widest,
+            format!("{label}: THE HELD ONE {:+.3}, THE PINNED ONE {:+.3}. THE BAR IS THE PINNED ONE MINUS THE HELD ONE, AGAINST THE LARGEST DIFFERENCE BETWEEN THEM ON ANY GENE.", a.traits[slot], b.traits[slot]),
+        ));
+    }
+    Some(rows)
+}
+
 /// The widest a stacked bar's one-line legend may make its page. HISTORY's
 /// page is as wide as its widest chart, and a box with every cause of death
 /// in it ran the legend past 420 px, into the fold strips docked on the
@@ -12691,6 +12872,10 @@ mod tests {
                         }
                     }
                     Body::Head { label, .. } => check(label, "group heading"),
+                    Body::Delta { label, value, .. } => {
+                        check(label, "gene bar");
+                        check(value, "gene bar value");
+                    }
                     Body::Gap => {}
                 }
                 check(&row.note, "row explanation");
@@ -14588,6 +14773,9 @@ mod tests {
             .iter()
             .skip_while(|r| !matches!(&r.body, Body::Value { label, .. } if label != "DIFFER" && label != "HELD" && label != "PINNED"))
             .filter_map(|r| match &r.body {
+                // The gene bars' own header leads its block, ahead of the
+                // paired rows this ordering is about (`gene_pair_bars`).
+                Body::Value { label, .. } if label == "GENES" => None,
                 Body::Value { tint, .. } => Some(*tint),
                 _ => None,
             })
@@ -14597,6 +14785,58 @@ mod tests {
         if let (Some(bright), Some(dim)) = (last_bright, first_dim) {
             assert!(bright < dim, "a matching row ({dim}) sorts above a differing one ({bright})");
         }
+    }
+
+    /// **An animal's genes open as bars against its colony, oddest first**
+    /// (`gene_bars`): every bar inside its track, sorted by how far it
+    /// reaches, the colony's size in the header, and nothing for a plant.
+    #[test]
+    fn genes_are_bars_against_the_colony_most_unusual_first() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
+        let ids = lab.world.live_organism_ids();
+        let ant = *ids
+            .iter()
+            .find(|&&id| lab.world.organism_state(id).is_some_and(|s| world_is_creature(&lab.world, s)))
+            .expect("test setup: the shipped box has ants");
+        let plant = *ids
+            .iter()
+            .find(|&&id| lab.world.organism_state(id).is_some_and(|s| !world_is_creature(&lab.world, s)))
+            .expect("test setup: the shipped box has plants");
+        // Founders start as one genome; make this one the colony's oddest on
+        // one gene, and another ant different on a second, by known amounts.
+        let (odd, other) = (params::TRAIT_ROWS[0].0, params::TRAIT_ROWS[1].0);
+        let mate = *ids
+            .iter()
+            .find(|&&id| id != ant && lab.world.organism_state(id).is_some_and(|s| world_is_creature(&lab.world, s)))
+            .expect("test setup: a second ant");
+        let base = lab.world.organism_state(ant).unwrap().traits[odd];
+        lab.world.set_organism_trait(ant, odd, base + 0.9);
+        let base2 = lab.world.organism_state(mate).unwrap().traits[other];
+        lab.world.set_organism_trait(mate, other, base2 - 0.5);
+        let world = &lab.world;
+        assert!(gene_bars(world, plant).is_none(), "a plant has no colony to be compared against");
+        let rows = gene_bars(world, ant).expect("an ant with colony-mates gets bars");
+        assert!(matches!(&rows[0].body, Body::Value { label, .. } if label.starts_with("AGAINST COLONY")));
+        let fracs: Vec<f32> = rows
+            .iter()
+            .filter_map(|r| match &r.body {
+                Body::Delta { frac, .. } => Some(*frac),
+                _ => None,
+            })
+            .collect();
+        assert!(!fracs.is_empty(), "the two genes changed above must show as bars");
+        assert!(fracs.iter().all(|f| (-1.0..=1.0).contains(f)), "a bar ran out of its track: {fracs:?}");
+        assert!(fracs.windows(2).all(|w| w[0].abs() >= w[1].abs()), "not oddest first: {fracs:?}");
+        assert!((fracs[0] - 1.0).abs() < 1e-4, "the gene it alone carries should fill the bar: {fracs:?}");
+        let first = rows.iter().find_map(|r| match &r.body {
+            Body::Delta { label, .. } => Some(label.clone()),
+            _ => None,
+        });
+        assert_eq!(first.as_deref(), Some(params::TRAIT_ROWS[0].1.replace('_', " ").to_uppercase().as_str()));
+    }
+
+    fn world_is_creature(world: &World, s: &crate::sim::organism::OrganismState) -> bool {
+        world.species.get(s.species).creature.is_some()
     }
 
     /// **The watch ring is about one individual, samples on simulated time,
