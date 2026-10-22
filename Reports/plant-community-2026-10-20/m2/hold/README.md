@@ -49,3 +49,20 @@ shoot tip's `Grew` rule, and the shrub's tip also grows on `Node`, so a
 "seedbound" shrub scored the control's own score on 2 of 3 rung-2 beds and
 the teeth check refused every shrub run on rung 4. It now cuts every rule
 that grows a tip (rung 2: seedbound shrub 1.18 against control 2.30).
+
+## The rung-2 re-fits on rung 4 (`rung2_refits_on_rung4.txt`)
+
+The re-fits from `../refit/` (selected on juvenile growth alone) are bigger
+here too, and **they cost the plant beside them**. End shoot p50 of a
+neighbour, beside the shipped founder -> beside its re-fit:
+
+| founder | tree neighbour | shrub neighbour | herb neighbour |
+|---|---|---|---|
+| tree | 1,346 -> 585 | 200 -> 102 | 118 -> 126 (flowered 7 -> 6 of 8) |
+| shrub | 1,789 -> 1,224 | 367 -> 21 | 246 -> 186 (flowered 8 -> 5 of 8) |
+| herb | 1,862 -> 1,429 | 312 -> 166 | 225 -> 226 |
+| creeper | 1,568 -> 1,483 | 496 -> 267 | 230 -> 242 |
+
+So rung 2 bred plants that win by crowding: the re-fit shrub takes a
+shipped shrub beside it from 367 cells to 21, and costs a herb three of its
+eight flowerings. This is what rung 4 charges for.
