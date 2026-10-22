@@ -6,6 +6,7 @@ tot = collections.Counter()
 for m in sorted(glob.glob(sys.argv[1] + '/*/r*/map_f0200000.txt')):
     d = m.rsplit('/', 1)[0]
     surf = [int(l) for l in open(d + '/surface.txt')]
+    if len(sys.argv) > 2 and int(open(d + '/stock.csv').read().strip().split('\n')[-1].split(',')[1]) < 12: continue  # living colonies only
     L = open(m).read().split('\n')
     x0, y0, W, H = map(int, L[0].split()); g = L[1:1 + H]
     reach = sealed = 0
