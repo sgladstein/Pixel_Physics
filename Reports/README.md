@@ -5777,6 +5777,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
   win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
 
+- [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
+  **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
+  tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
+  a paired 6-seed rerun at 3 tanks cut starvations 828 to 671 and lifted the nest score in 6 of 6. Also: the same genome
+  ends up as a heap resident or a stay-at-home, collapses are sudden, a mistyped harness key is silently ignored, and the
+  film is too small to see ants (an overlay tool is included).
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
