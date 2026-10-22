@@ -80,7 +80,8 @@ pub enum Verb {
     /// food, a dead ant or a live seed. Until fix plan step 1 the jaws could
     /// also cut food or a dead ant and carry it undigested, so putting it
     /// down counted no delivery; and Dig needed an empty crop, a rule rather
-    /// than physics (the jaws cut, the crop is inside).
+    /// than physics (the jaws cut, the crop is inside). **With a pellet in
+    /// the jaws, only when walled in**: the pack move ([`pack_on`]).
     Dig,
     /// Food in reach into the crop, with the jaws free: room for one more
     /// cell, the crop's one material, and a bite worth taking to this gut.
@@ -335,6 +336,23 @@ pub fn warmth_on() -> bool {
     })
 }
 
+/// **A mind walled in with a pellet can pack its way out**, as the game's
+/// ant does (`NEEDS_FIRST`'s `pack`) and the player's ant does (G): it cuts a
+/// cell beside its head, steps in, and packs the pellet into the cell its tail
+/// leaves (`pack_behind`). Without it a mind holding soil in a pocket no
+/// bigger than its body has no move but stepping into itself, turning round or
+/// resting: its jaws are full, so no cut, and there is no room for a put-down.
+/// Owner's ruling, 2026-10-22, on the foraging-loop thread's measurement: in
+/// the in-run bed with the carry-home teacher acting, 25 of 55 starved ants
+/// died walled in holding a pellet; with the move, starvation went 55 -> 25
+/// of 192 (8 colonies, 200k frames). On by default;
+/// `PIXEL_PHYSICS_MIND_PACK=off` is the body before. Minds only: the game's
+/// ant has its own pack in `NEEDS_FIRST`.
+pub fn pack_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
+}
+
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
     build_with(world, organism, def, true, out);
 }
@@ -422,11 +440,15 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     let gut = gut_of(world, organism, def);
     let room = crop.is_none_or(|c| c.worth() + c.unit <= organism_crop_capacity(world, organism, def));
     let feedable = crop_to_feed(world, st);
+    // **The pack move** ([`pack_on`]): walled in with a pellet in the jaws,
+    // every cut the jaws could make is offered, and `mind::dig` packs the
+    // pellet into the cell the tail leaves.
+    let pack = !jaws_free && pack_on() && st.spoil.is_some_and(|s| !s.store) && super::walled_in(world, organism, head);
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
         let food = world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0;
-        if jaws_free && diggable(world, def, organism, cell) {
+        if (jaws_free || pack) && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
                     feats[f::ROOF_DROP] = f32::from(u8::from(super::bite_is_hanging(world, t)));
@@ -926,7 +948,9 @@ mod tests {
                 );
                 // The body's own cut, less food and dead ants, with free
                 // jaws: a full crop no longer stops it (fix plan step 1).
-                let digs: Vec<(i32, i32)> = if jaws {
+                // With soil in the jaws, only a walled-in ant cuts: the pack move.
+                let walled = jaws && pack_on() && st.spoil.is_some_and(|s| !s.store) && super::super::walled_in(&w, id, head);
+                let digs: Vec<(i32, i32)> = if jaws && !walled {
                     Vec::new()
                 } else {
                     targets::dig_candidates(&w, &def, id, head)

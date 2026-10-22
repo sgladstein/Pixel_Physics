@@ -1321,6 +1321,9 @@ pub struct MindCounts {
     pub ate: u64,
     /// Soil: cells cut into the jaws, and pellets put down.
     pub dug: u64,
+    /// Pack moves made: a walled-in cut with a pellet in the jaws
+    /// (`options::pack_on`).
+    pub packed: u64,
     pub dumped: u64,
     /// **Ants that starved holding soil**, and of those, with food in
     /// reach (one of the eight cells round the head). **Why**: jaws
@@ -2115,6 +2118,25 @@ fn dig(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i3
         return false;
     };
     let cell = world.get(tx, ty);
+    // **The pack move** (`options::pack_on`): walled in with a pellet, the cut
+    // is `pack_behind`'s -- aimed at the target, the body steps into it and
+    // the old pellet goes where the tail was, the new cut in the jaws. No
+    // backfill: the pellet stays a pellet.
+    if !free && options::pack_on() && options::diggable(world, def, organism, cell) && super::walled_in(world, organism, head) {
+        let Some(load) = world.organism(organism).and_then(|s| s.spoil).filter(|l| !l.store) else {
+            return false;
+        };
+        let Some(aim) = DIRS.iter().position(|&d| d == (tx - head.0, ty - head.1)) else {
+            return false;
+        };
+        let packed = super::pack_behind(world, organism, def, head, load, false, Some(aim as u8));
+        if packed {
+            if let Some(m) = world.minds.as_mut() {
+                m.counts.packed += 1;
+            }
+        }
+        return packed;
+    }
     if !free || !options::diggable(world, def, organism, cell) {
         return false;
     }
@@ -3277,6 +3299,52 @@ mod tests {
             off_row += usize::from(ctx[c::DEPTH] != 0.0);
         }
         assert!(off_row > 0, "every ant read depth 0");
+    }
+
+    /// **Walled in with a pellet, a mind can pack its way out**
+    /// ([`options::pack_on`]): an ant sealed in soil holding a pellet is
+    /// offered cuts (and only then: the same ant with open ground beside it
+    /// is offered none), and acting one moves the head into the cut, puts the
+    /// old pellet in the cell the tail left, and counts a pack. Delete the
+    /// options' `pack` and the first assert goes red; delete `dig`'s pack
+    /// branch and the act fails.
+    #[test]
+    fn a_walled_in_mind_packs_its_pellet_behind() {
+        let (mut w, def, ids) = mind_box();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let load = organism::Spoil { cell: Cell::new(soil, 0), store: false };
+        let mut opts = Vec::new();
+        // An ant with open ground ahead, holding a pellet: no cut on offer.
+        let id = ids[0];
+        w.organism_mut(id).expect("live").spoil = Some(load);
+        options::build(&w, id, &def, &mut opts);
+        let open_digs = opts.iter().filter(|o| o.verb == Verb::Dig).count();
+        let walled = super::super::walled_in(&w, id, head_of(&w, id));
+        assert!(walled || open_digs == 0, "a pellet carrier with room to move was offered {open_digs} cuts");
+        // Seal it in: every cell within 3 of the head that is not a body becomes soil.
+        let chain = w.organism(id).expect("live").chain.clone();
+        let (hx, hy) = chain[0];
+        for x in hx - 3..=hx + 3 {
+            for y in hy - 3..=hy + 3 {
+                if !chain.contains(&(x, y)) && w.get(x, y).organism_id() == 0 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+        }
+        assert!(super::super::walled_in(&w, id, (hx, hy)), "test setup: the ant is not walled in (a nestmate beside it?)");
+        options::build(&w, id, &def, &mut opts);
+        let digs: Vec<Opt> = opts.iter().copied().filter(|o| o.verb == Verb::Dig).collect();
+        assert!(!digs.is_empty(), "walled in with a pellet, no cut was offered: {:?}", opts.iter().map(|o| (o.verb, o.target)).collect::<Vec<_>>());
+        assert!(opts.iter().all(|o| o.verb != Verb::Drop), "test setup: a put-down is open, so this is not the trap");
+        let up = *digs.iter().min_by_key(|o| o.target.1).expect("a cut");
+        let tail = *chain.last().expect("a tail");
+        let mut draw = rng::stream(1, id as u64, w.frame, RNG_SLOT_ACT);
+        assert!(act(&mut w, id, &def, up, &mut draw), "the pack move failed");
+        let st = w.organism(id).expect("alive");
+        assert_eq!(st.chain[0], up.target, "the head did not step into its cut");
+        assert!(st.spoil.is_some(), "the cut's own pellet is not in the jaws");
+        assert_eq!(w.get(tail.0, tail.1).material, soil, "the old pellet is not where the tail was");
+        assert_eq!(w.minds.as_ref().expect("minds").counts.packed, 1, "the pack was not counted");
     }
 
     fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
