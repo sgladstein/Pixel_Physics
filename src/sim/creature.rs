@@ -1136,6 +1136,12 @@ pub fn food_place(world: &World, at: (i32, i32)) -> (bool, i32) {
     (store, depth)
 }
 
+/// SCRATCH (teacher lane, never for main): the `PP_BANK_CAP` probe, in tanks; `None` when unset.
+fn scratch_bank_cap() -> Option<f32> {
+    static CAP: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *CAP.get_or_init(|| std::env::var("PP_BANK_CAP").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
+}
+
 /// Book one tick's digestion in [`World::digest_log`] while one is
 /// running: the animal, the face worth its crop gave up this tick, and
 /// whether the crop held a trip's food.
@@ -8854,6 +8860,13 @@ fn settle(
             // and leaves at what it is actually worth.
             if c.unit <= 0.0 || c.cells == 0 {
                 return 0.0;
+            }
+            // SCRATCH (teacher lane, never for main): `PP_BANK_CAP=N` stops digestion while the bank holds N tanks
+            // (start_energy) or more, so a full ant keeps what it eats in its crop to carry and share. Unset: no change.
+            if let Some(cap) = scratch_bank_cap() {
+                if world.organism(organism).is_some_and(|s| s.energy >= cap * def.start_energy) {
+                    return 0.0;
+                }
             }
             // The gut's filter applies here, where the food is actually
             // absorbed -- the crop holds face value net of what has been

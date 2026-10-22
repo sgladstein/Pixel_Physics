@@ -59,6 +59,10 @@ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
 }
 
 fn main() {
+    // SCRATCH: `bank_cap=N` sets the PP_BANK_CAP digestion probe (creature.rs) before any world exists.
+    if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("bank_cap=").map(str::to_string)) {
+        unsafe { std::env::set_var("PP_BANK_CAP", v) };
+    }
     std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
     let a: Vec<String> = std::env::args().skip(1).collect();
     // pile=1 (default): every founder starts at the nest door, heaped (the game's own
@@ -370,6 +374,10 @@ fn main() {
     let mut held: HashMap<u32, (u32, f64)> = HashMap::new();
     let mut loose: HashMap<(i32, i32), (u32, f64)> = HashMap::new();
     let t0 = std::time::Instant::now();
+    let film = fnum("film", 0.0) as u64;
+    let mut film_r = pixel_physics::render::Renderer::new();
+    let film_p = pixel_physics::sim::ParticleSystem::new();
+    let mut film_buf: Vec<u8> = Vec::new();
     for fr in 1..=frames {
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
@@ -1017,6 +1025,25 @@ fn main() {
             let n = tanks.len().max(1) as f64;
             let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
             writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
+        }
+        // `film=N`: every N frames, the game's own renderer over the bed, as film/fNNNNNNN.png (for a video).
+        if film > 0 && fr % film == 0 {
+            let (fw, fh) = (pixel_physics::app::WIDTH, pixel_physics::app::HEIGHT);
+            if film_buf.is_empty() {
+                film_buf = vec![0u8; (fw * fh * 4) as usize];
+                std::fs::create_dir_all(out.join("film")).unwrap();
+            }
+            film_r.draw(&w, &film_p, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut film_buf, (fw, fh), true);
+            let (x0, y0) = ((inrun::NEST - 80).max(0) as u32, 30u32);
+            let (cw, ch) = (161u32.min(fw - x0), (bh as u32).saturating_sub(y0).min(fh - y0));
+            let mut img = image::RgbaImage::new(cw, ch);
+            for y in 0..ch {
+                for x in 0..cw {
+                    let i = (((y0 + y) * fw + x0 + x) * 4) as usize;
+                    img.put_pixel(x, y, image::Rgba([film_buf[i], film_buf[i + 1], film_buf[i + 2], 255]));
+                }
+            }
+            img.save(out.join(format!("film/f{fr:07}.png"))).unwrap();
         }
         if fr % window == 0 {
             let alive = inrun::ants(&w, sp).len();
