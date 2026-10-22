@@ -487,6 +487,18 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     if capacity == 0 {
         return false;
     }
+    update_soil_water_cell(surface, x, y, cell, capacity)
+}
+
+/// [`update_soil_water`] for a caller that has already read the cell and its
+/// `water_capacity` (non-zero) -- `World::step_soil_water`'s `visit_soil_water`,
+/// whose prefilter makes exactly those two reads, so the pass no longer makes
+/// them twice. Identical to `update_soil_water` past its capacity test.
+#[inline(always)]
+pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, capacity: u16) -> bool {
+    if !soil_water_enabled() {
+        return false;
+    }
     // **This cell's texture** (`World::soil_texture`,
     // `material::SoilTexture`): loam, exactly as before, unless the world
     // reads texture. Field capacity and the drainage rate below are this

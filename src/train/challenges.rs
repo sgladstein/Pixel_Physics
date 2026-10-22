@@ -3,6 +3,7 @@
 
 use super::{Challenge, Layout, Score, Unit};
 use crate::lab::census::{self, Ids};
+use crate::lab::nestscore;
 use crate::lab::scenario::Scenario;
 use crate::sim::brain::BrainOutput as O;
 use crate::sim::chunk::Rect;
@@ -1427,6 +1428,15 @@ pub struct Soil {
     /// run's own hold-out numbers are not comparable across it; judge on
     /// `sealed=1` at the default.
     pub step_near: f64,
+    /// **Print the general nest score at the bell** (part `nest`,
+    /// [`nestscore`]; owner, 2026-10-21: a printed number, never paid).
+    /// `examples/train.rs` sets it for `score=` and `noise=1` only: a suite
+    /// runs this arena on ~2,800 worlds a generation and keeps only its fit,
+    /// so reading the nest on every one would slow every run for a number
+    /// nobody reads (brain lane, 2026-10-21). Off, the part is 0. A read of
+    /// the grid: it touches neither the world nor a random stream, so on or
+    /// off the run is the same bit for bit.
+    pub nest: bool,
 }
 
 /// The soil trip's verbs: the forager's ([`SCARCE_VERBS`]) and the cut.
@@ -1906,7 +1916,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share", "full_loads", "full_cuts", "full_share"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share", "full_loads", "full_cuts", "full_share", "nest"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -1982,6 +1992,16 @@ impl Challenge for Soil {
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
+        // The nest as it stands after the settle, its door the founding
+        // shaft's column. At steps 4-5 every ant's nest is a shaft and the
+        // cuts round it, which read near zero whatever the ant did (s171 on
+        // the 96 test worlds, 8-row shaft, as built: -13.5 to 6.3, median
+        // -2.5): a baseline for the room steps, not a signal yet ("Dig and
+        // nest scoring", 2026-10-21).
+        let nest = match (self.nest, w.nest_sites.first()) {
+            (true, Some(site)) => nestscore::of_world(&w, &sc.bed, site.x, &nestscore::HARVESTER).0.score,
+            _ => 0.0,
+        };
         vec![Score {
             fit: trip.score,
             parts: vec![
@@ -2016,6 +2036,10 @@ impl Challenge for Soil {
                 // / mean(full_cuts): s81's hold-best reads 0.50 here and 1.00
                 // pooled, and `load_share` is the same (review of PR 726, N9).
                 if trip.full_cuts > 0 { trip.full_loads as f64 / trip.full_cuts as f64 } else { 0.0 },
+                // Last, so every part before it keeps its column: the brain
+                // lane's `judge.py` and saved test-score files read
+                // `full_loads` by position.
+                nest,
             ],
         }]
     }
@@ -3964,7 +3988,7 @@ mod tests {
         let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
         for k in [0, 1] {
             let world = |step: u8| {
-                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0 };
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false, step_near: 0.0, nest: false };
                 assert_eq!(soil.mirrored(), step >= 4);
                 soil.world(lay(seed, k), &g)
             };
@@ -3991,7 +4015,7 @@ mod tests {
     /// the same bed built plainly, leaves it to the process (`None`).
     #[test]
     fn training_worlds_hold_pellets_where_they_are_put() {
-        let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget: None, foot: true, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget: None, foot: true, step_near: 0.0, nest: false };
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let (w, _, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         assert_eq!(w.spoil_roll, Some(0));
@@ -4055,7 +4079,7 @@ mod tests {
             (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
         };
         let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
-            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0 };
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false, step_near: 0.0, nest: false };
             let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
             assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
             let mut out = vec![];
@@ -4083,7 +4107,7 @@ mod tests {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let g = creature::mind::blank(SOIL_VERBS);
         let deepest = |w: &World, sc: &Scenario| founding_cut(w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(w, &sc.bed, x) + 1).max();
-        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0 };
+        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false, step_near: 0.0, nest: false };
         let (w, sc, _, _) = soil(0).world(lay, &g);
         assert_eq!(deepest(&w, &sc), None, "no shaft asked for, and a hole at frame 0");
         let (w, sc, _, _) = soil(2).world(lay, &g);
@@ -4108,7 +4132,7 @@ mod tests {
     #[test]
     fn the_soil_picture_paints_near_and_away_as_the_score_does() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false, step_near: 0.0, nest: false };
         let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
         let x = chamber.0 + 20;
@@ -4128,7 +4152,7 @@ mod tests {
     #[test]
     fn the_soil_ledger_matches_the_world_counts() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false, step_near: 0.0, nest: false };
         let (mut w, _, sp, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let (digs, dumped, dig_j) = (w.creature_stats.digs, w.creature_stats.spoil_dumped, w.creature_stats.dig_energy);
         for _ in 0..soil.frames {
@@ -4181,7 +4205,7 @@ mod tests {
     #[test]
     fn soil_never_offers_food_verbs() {
         use creature::options::Verb as V;
-        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
         let g = super::super::start_mind(&soil, "training/starts/s134-4b-g34.txt");
         for k in 0..2 {
             let (mut w, _, _, _) = soil.world(Layout { seed: 70_000, k, blind: false, legal: false }, &g);
@@ -4206,7 +4230,7 @@ mod tests {
     #[test]
     fn a_digging_suite_leaves_the_food_verbs_untested() {
         use creature::options::Verb as V;
-        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0 };
+        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
         let fetch = || Scarce {
             ants: 1,
             frames: 10,

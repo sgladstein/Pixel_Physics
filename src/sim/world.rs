@@ -10112,14 +10112,19 @@ impl World {
     /// every group while `scent_spread` and `scent_drift` are zero -- is
     /// one pass over its members and no pairwise work at all, so the
     /// shipped bed pays a comparison per animal per sample. A drifted group
-    /// of `k` pays `k(k-1)/2` three-term distances, which at the lab's few
-    /// hundred animals is well under a millisecond; it is run at the ANTS
-    /// page's sample cadence, never per tick. Clusters under
+    /// of `k` paid `k(k-1)/2` three-term distances, and the cadence this
+    /// doc promised (the ANTS page's samples, never per tick) is not the
+    /// one it runs at: `Lab::tick` calls it every tick, and the nest blend
+    /// keeps every colony's scents a cloud rather than a point, so a grown
+    /// goal-box colony spent 28-35% of its frame here (callgrind at ~410
+    /// ants, performance lane, 2026-10-21). The cadence is left alone --
+    /// moving it would move when a split is named, and so the run -- and
+    /// the pairing is `creature::kin_components`, about `k` comparisons
+    /// for a cohesive group with the same components. Clusters under
     /// `MIN_SPLIT_GROUP` animals are not minted: a single wanderer is not a
     /// new kind, it is an ant on its own, and it keeps its old label until
     /// it has descendants enough to be a line on the graph.
     pub fn regroup_by_scent(&mut self) -> usize {
-        use crate::sim::creature::scent_accepts;
         /// One animal as the pass sees it: its handle, its founding line
         /// and the traits its scent and tolerance are read from.
         struct Member {
@@ -10154,27 +10159,10 @@ impl World {
             if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
                 continue;
             }
-            // Union-find over mutual kin.
-            let n = members.len();
-            let mut parent: Vec<usize> = (0..n).collect();
-            fn find(p: &mut [usize], i: usize) -> usize {
-                let mut i = i;
-                while p[i] != i {
-                    p[i] = p[p[i]];
-                    i = p[i];
-                }
-                i
-            }
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    if scent_accepts(&members[i].traits, &members[j].traits) && scent_accepts(&members[j].traits, &members[i].traits) {
-                        let (a, b) = (find(&mut parent, i), find(&mut parent, j));
-                        if a != b {
-                            parent[a.max(b)] = a.min(b);
-                        }
-                    }
-                }
-            }
+            // The mutual-kin components (`creature::kin_components`, which
+            // pairs far fewer than all `n(n-1)/2` and finds the same ones).
+            let traits: Vec<[f32; organism::CREATURE_TRAITS]> = members.iter().map(|m| m.traits).collect();
+            let part = crate::sim::creature::kin_components(&traits);
             // Clusters, each carrying its lowest lineage and the id of the
             // member that holds it -- `LogKind::GroupSplit`'s own identity,
             // added beside the lineage tracking rather than as a second pass
@@ -10182,7 +10170,7 @@ impl World {
             let mut clusters: Vec<(u32, OrganismId, Vec<OrganismId>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
-                let r = find(&mut parent, i);
+                let r = part[i];
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
                     None => {
@@ -12080,16 +12068,27 @@ impl World {
     /// was out of the map. Idempotent -- `mark_moist_dirty` is a span union
     /// and a bit set -- which is what makes that replay exact rather than
     /// approximately right.
+    ///
+    /// **The edge test inlines and the walk does not** (2026-10-21): the test
+    /// is false for 60 of a chunk's 64 rows and columns, and as one call it
+    /// cost ~29 instructions a moisture write to learn that.
+    #[inline(always)]
     fn mark_moist_neighbours(&mut self, x: i32, y: i32, owner: ChunkCoord) {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
-            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                let n = ChunkCoord::containing(x + dx, y + dy);
-                if n != owner {
-                    if let Some(c) = self.chunks.get_mut(&n) {
-                        c.mark_moist_dirty(x, y);
-                    }
+            self.mark_moist_neighbours_at_edge(x, y, owner);
+        }
+    }
+
+    /// [`Self::mark_moist_neighbours`]'s walk, for a write on a chunk's edge.
+    #[inline(never)]
+    fn mark_moist_neighbours_at_edge(&mut self, x: i32, y: i32, owner: ChunkCoord) {
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let n = ChunkCoord::containing(x + dx, y + dy);
+            if n != owner {
+                if let Some(c) = self.chunks.get_mut(&n) {
+                    c.mark_moist_dirty(x, y);
                 }
             }
         }
@@ -13116,11 +13115,12 @@ impl CellSurface for World {
 fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
     stats.visited += 1;
     let cell = view.get(x, y);
-    if view.world.materials.get(cell.material).water_capacity == 0 {
+    let capacity = view.world.materials.get(cell.material).water_capacity;
+    if capacity == 0 {
         return;
     }
     stats.soil += 1;
-    if crate::sim::update::update_soil_water(view, x, y) {
+    if crate::sim::update::update_soil_water_cell(view, x, y, cell, capacity) {
         stats.changed += 1;
     }
 }

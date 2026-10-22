@@ -343,7 +343,7 @@ fn s171_nest(genome: &str, layout_k: u64) -> World {
         .and_then(|n| n.parse().ok())
         .expect("sparse genome");
     let g = load_genome(std::path::Path::new(genome), len);
-    let soil = Soil { ants: 1, frames: 12_000, step: 4, shaft: 8, budget: Some(1200.0), foot: true, step_near: 0.0 };
+    let soil = Soil { ants: 1, frames: 12_000, step: 4, shaft: 8, budget: Some(1200.0), foot: true, step_near: 0.0, nest: false };
     let layout = sealed_layouts(layout_k as usize + 1)[layout_k as usize];
     let mut last: Option<World> = None;
     soil.run(layout, &[&g], &mut |f, w| {
