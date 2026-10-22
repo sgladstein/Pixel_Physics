@@ -2325,7 +2325,17 @@ const SETTLE_EPSILON_PRESSURE: f32 = 0.01;
 const SETTLE_EPSILON_VELOCITY: f32 = 0.001;
 const SETTLE_EPSILON_TEMPERATURE: f32 = 0.02;
 const SETTLE_EPSILON_LIGHT: f32 = 0.005;
-const SETTLE_EPSILON_MOISTURE: f32 = 0.005;
+/// **Ten times the others' relative tolerance, on purpose** (owner, 2026-10-22).
+/// At 0.005 moisture held 20-29 of the lab box's 40 field tiles awake every
+/// frame (`FIELD_DRIFT=200`): drips and damp soil keep the humidity creeping by
+/// amounts nothing on screen shows, so the field re-solved ~37 tiles a frame.
+/// At 0.05 the lab box costs 8.7% fewer instructions and the plant community
+/// bed 6.0% fewer. Gated before shipping: ant labbench, 12 seeds paired, every
+/// gated row inside noise; plant rungs, 2 x 12 layouts, germination identical
+/// and end sizes inside the layout-to-layout spread; community bed, 4 seeds,
+/// moves both ways; mean air humidity unchanged by eye and by number. The
+/// project's own rule: stopping work early is an optimisation, not an error.
+const SETTLE_EPSILON_MOISTURE: f32 = 0.05;
 
 /// Whether every field cell in `next` is within its channel's settle epsilon
 /// of the corresponding cell in `old` — the field's own notion of "stopped
