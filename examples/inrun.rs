@@ -741,6 +741,8 @@ fn main() {
                     writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
                 }
                 creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
+                // SCRATCH (foraging-loop thread): food put down in the field, so a load's fate closes.
+                creature::FOOD_DROP => writeln!(ev, "{frame},{},fdrop,{x},{y},{},0", r.who, r.worth).unwrap(),
                 _ => {}
             }
         }
@@ -1472,5 +1474,7 @@ fn main() {
         age30.flush().unwrap();
     }
     write_nestmap(&w, &out.join("nestmap.txt"));
+    creature::mind::scratch_log::copy_flush();
+    println!("{}", creature::mind::scratch_log::carry_report());
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }

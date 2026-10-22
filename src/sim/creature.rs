@@ -7894,7 +7894,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // the bill, digestion and birth inside -- stays the same. Nobody has a
     // mind in the game, so this is one `Option` read per tick there.
     if world.minds.is_some() && mind::has(world, organism) {
-        return mind::tick(world, x, y, organism, def);
+        // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
+        if !mind::scratch_log::shadow_on() {
+            return mind::tick(world, x, y, organism, def);
+        }
+        mind::scratch_log::shadow_pre(world, x, y, organism, def);
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);

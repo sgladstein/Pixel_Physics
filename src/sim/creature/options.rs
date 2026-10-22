@@ -353,6 +353,50 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// SCRATCH (far-from-home sense thread, 2026-10-22; not for main): `PP_HOMEVEC=R:W`, a home vector that stays sharp
+/// far out. **Why**: the body's home vector reaches a mind only squashed -- `f::HOME` is `cos * squash(d / 32)` and
+/// `c::HOME_DIST` is `squash(d / 32)`, which read 0.44 at 25 columns (the food band), 0.65 at 60 and 0.76 at 100.
+/// Two lessons that need "far from home" (come home when empty and far, starvation trace; stay on the trail outward,
+/// maze thread) copied well onto hA1 and still leaked into foraging in the bed, and both write-ups name this ramp.
+/// With it on: every option gets `f::LAST_FOOD` (unwritten until now) = the step's cosine to home times
+/// [`far_ramp`], and the context's `c::D_SCENT + 2` (d_alarm, 0 on every bed decision: nothing lays alarm) reads the
+/// ramp itself. Both are exactly 0 within `R` of home. Unset: nothing is read or written, byte-identical.
+/// A genome with live links on either slot must have them zeroed before the switch means anything (hA1 has 8 and 16).
+pub fn home_vec() -> Option<(f32, f32)> {
+    static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let v = std::env::var("PP_HOMEVEC").ok()?;
+        let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HOMEVEC=R:W")).collect();
+        assert!(p.len() == 2 && p[1] > 0.0, "PP_HOMEVEC=R:W, W > 0");
+        Some((p[0], p[1]))
+    })
+}
+
+/// SCRATCH (far-from-home sense thread, 2026-10-22; not for main): `PP_HOMEDIR=1`, home's direction without its
+/// distance: every option gets `f::BUILDING` (unwritten; only the scratch `PP_BOTTOM` borrows it, on Dig options) =
+/// the step's cosine to home, unsquashed. **Why**: `f::HOME` = `cos * squash(d / 32)` is weakest near home -- 0.24 at
+/// 10 columns -- which is where the maze thread's trail rule 2 ("stay on the trail, step outward") has to know which
+/// way is out; its copies dithered (back-steps on 59% of sideways steps against 45%). A genome's live links on the
+/// slot must be zeroed first (hA1 has 11). Unset: nothing is written, byte-identical.
+pub fn home_dir() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let on = std::env::var("PP_HOMEDIR").is_ok_and(|v| v == "1");
+        assert!(!(on && std::env::var("PP_BOTTOM").is_ok()), "PP_HOMEDIR and PP_BOTTOM both write f::BUILDING");
+        on
+    })
+}
+
+/// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond.
+pub fn far_ramp(d: f32, r: f32, w: f32) -> f32 {
+    ((d - r) / w).clamp(0.0, 1.0)
+}
+
+fn eat_below() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_EAT_BELOW").ok().and_then(|v| v.parse().ok()))
+}
+
 /// SCRATCH (foraging-loop thread's switch, ported by the teacher lane 2026-10-22): `PP_NEEDDROP=1`, the old ant's
 /// hungry put-down for a mind. Unset: no change.
 pub fn need_drop_on() -> bool {
@@ -409,6 +453,22 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     } else {
         None
     };
+    // SCRATCH (foraging-loop thread): `PP_DROPWHY=1` counts, for a pellet holder under 1 tank, whether any cell
+    // beside the head is empty, whether any is an on-ground spoil site, and whether the game ant's need site exists.
+    if std::env::var("PP_DROPWHY").is_ok() && st.spoil.is_some() && st.energy < def.start_energy {
+        use std::sync::atomic::Ordering::Relaxed;
+        let ring: Vec<(i32, i32)> = DIRS.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect();
+        let empty = ring.iter().filter(|p| world.is_empty(p.0, p.1)).count();
+        let open = ring.iter().filter(|p| spoil_site_open(world, p.0, p.1, true)).count();
+        let ants = ring.iter().filter(|p| { let o = world.get(p.0, p.1).organism_id(); o != 0 && o != organism }).count();
+        let c = &super::mind::scratch_log::DROPWHY;
+        c[0].fetch_add(1, Relaxed);
+        if empty > 0 { c[1].fetch_add(1, Relaxed); }
+        if open > 0 { c[2].fetch_add(1, Relaxed); }
+        if super::need_drop_site(world, head).is_some() { c[3].fetch_add(1, Relaxed); }
+        if ants >= 3 { c[4].fetch_add(1, Relaxed); }
+        if empty == 0 && ants >= 1 { c[5].fetch_add(1, Relaxed); }
+    }
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
         let t = (head.0 + dx, head.1 + dy);
@@ -516,8 +576,11 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
                         let (quality, overhead) = super::yield_of(world, other, def, c.material);
                         quality * (1.0 - overhead) > 0.0 && c.unit - c.digesting > 0.0
                     });
+                    // SCRATCH (foraging-loop thread): `PP_NOADULTFEED=1` offers Feed to larvae only, to test whether
+                    // adult-to-adult sharing (24% of h1's decisions, each billed as jaw work) is what drains a home
+                    // crowd in lockstep.
                     let fed = match o.brood {
-                        None => poorer,
+                        None => poorer && std::env::var("PP_NOADULTFEED").is_err(),
                         Some(b) => {
                             b.stage == crate::sim::organism::BroodStage::Larva
                                 && o.energy < b.target
@@ -533,7 +596,10 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
             }
         }
     }
-    if crop_food {
+    // SCRATCH (foraging-loop thread): `PP_EAT_BELOW=N` offers Eat only while the bank holds under N tanks
+    // (start_energy), so a full ant cannot choose to swallow its load. Unset: no change.
+    let eat_ok = eat_below().is_none_or(|n| world.organism(organism).is_some_and(|s| s.energy < n * def.start_energy));
+    if crop_food && eat_ok {
         push(Verb::Eat, head, &|_| {});
     }
     // SCRATCH (teacher lane, 2026-10-21, never for main): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
@@ -702,6 +768,15 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         if h2 > 0.0 && s2 > 0.0 {
             let cos = (hx * sx + hy * sy) as f32 / (h2.sqrt() * s2.sqrt());
             v[f::HOME] = cos * squash(h2.sqrt() / 32.0);
+            // SCRATCH ([`home_vec`]): the same cosine, times how far past the food band home is, on the unwritten
+            // `f::LAST_FOOD` slot. Exactly 0 inside `R` of home, so a weight on it cannot move a choice there.
+            if let Some((r, w)) = home_vec() {
+                v[f::LAST_FOOD] = cos * far_ramp(h2.sqrt(), r, w);
+            }
+            // SCRATCH ([`home_dir`]): the cosine alone, at every distance, on the unwritten `f::BUILDING` slot.
+            if home_dir() {
+                v[f::BUILDING] = cos;
+            }
         }
     }
     if warmth_on() {
