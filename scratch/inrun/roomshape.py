@@ -58,8 +58,30 @@ def nest_cells(d):
         for q in ((dx - 1, dy), (dx + 1, dy), (dx, dy - 1), (dx, dy + 1)):
             if opn(*q) and below(*q) and q not in seen:
                 stack.append(q)
-    roofed = lambda dx, dy: any(grid[yy][dx] not in (e, '?') for yy in range(dy))
-    nest = {(dx, dy) for dx, dy in seen if abs(dx - door) <= 1 or roofed(dx, dy)}
+    # Nest vs crater (fixed 2026-10-22 20:50Z). A cell is crater when nothing roofs it -- no ground (soil, packed soil,
+    # spoil, stone) at or below the datum above it in its column -- AND its column opens to the sky through a gap at the
+    # datum wider than MOUTH cells. The old rule counted any non-open cell above as roof, so the stamped door markers
+    # ('nest', on the datum) and a crumb in flight roofed whole columns of an open pit, and the door's 3-wide column
+    # counted all the way down a crater (cyan stripes through every selected crater in the colsel6 picture). A first fix
+    # that kept only a walled shaft turned the old ant's own 3-wide mouth, and the chamber under it, into crater.
+    MOUTH = 5  # the stamped mouth: door markers + its 2-3 open cells (old ant: NN..N)
+    ground = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')}
+    top = lambda dx: max(0, surf[x0 + dx] - y0) if 0 <= x0 + dx < len(surf) else 0
+    roofed = lambda dx, dy: any(grid[yy][dx] in ground for yy in range(top(dx), dy))
+    gap = [0 <= top(dx) < H and grid[top(dx)][dx] not in ground for dx in range(W)]  # door markers, crumbs: open
+    wide = [False] * W
+    dx = 0
+    while dx < W:
+        if not gap[dx]:
+            dx += 1
+            continue
+        k = dx
+        while k < W and gap[k]:
+            k += 1
+        for q in range(dx, k):
+            wide[q] = k - dx > MOUTH
+        dx = k
+    nest = {(dx, dy) for dx, dy in seen if roofed(dx, dy) or not wide[dx]}
     crater = set(seen) - nest
     entry = min((p for p in nest if abs(p[0] - door) <= 1), key=lambda p: p[1], default=None)
     sp = chr(65 + legend.index('spoil')) if 'spoil' in legend else None
