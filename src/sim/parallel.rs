@@ -81,9 +81,7 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 
 use super::cell::Cell;
-use super::chunk::{Chunk, ChunkCoord, SweepPlan, CHUNK_SIZE, MAX_REACH};
-#[cfg(test)]
-use super::chunk::Rect;
+use super::chunk::{Chunk, ChunkCoord, Rect, SweepPlan, CHUNK_SIZE, MAX_REACH};
 use super::field::{self, FieldTile, FIELD_SCALE};
 use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
@@ -554,6 +552,16 @@ struct ChunkOutcome {
 /// falling through to the shared snapshot.
 struct ChunkView<'w> {
     coord: ChunkCoord,
+    /// The chunk's own bounds intersected with the world's: the cells this
+    /// view serves from `chunk` without asking anything else. One rect test
+    /// in place of `get`/`set`'s old pair -- `World::in_bounds` (an
+    /// `Option` match and a rect test) then `owns` (two `div_euclid`s and a
+    /// coordinate compare) -- on the sweep's commonest read, which was 6%
+    /// of the shipped lab box's instructions (callgrind, 2026-10-21). The
+    /// intersection and not the chunk's bounds alone, for the reason
+    /// `MoistureView::inner` gives: a chunk can overhang a world edge, and a
+    /// cell there must still read `OUT_OF_BOUNDS` and refuse writes.
+    inner: Rect,
     chunk: Chunk,
     field: FieldTile,
     world: &'w World,
@@ -637,8 +645,13 @@ struct ChunkView<'w> {
 
 impl<'w> ChunkView<'w> {
     fn new(coord: ChunkCoord, chunk: Chunk, field: FieldTile, world: &'w World) -> Self {
+        let inner = match world.bounds() {
+            Some(b) => coord.bounds().intersection(b).unwrap_or(Rect::point(i32::MIN, i32::MIN)),
+            None => coord.bounds(),
+        };
         Self {
             coord,
+            inner,
             chunk,
             field,
             world,
@@ -719,11 +732,11 @@ impl<'w> ChunkView<'w> {
 
 impl CellSurface for ChunkView<'_> {
     fn get(&self, x: i32, y: i32) -> Cell {
+        if self.inner.contains(x, y) {
+            return self.chunk.get_world(x, y);
+        }
         if !self.world.in_bounds(x, y) {
             return Cell::OUT_OF_BOUNDS;
-        }
-        if self.owns(x, y) {
-            return self.chunk.get_world(x, y);
         }
         // Check this worker's own queued writes before falling through to
         // the shared pre-pass snapshot — see the struct doc for why this is
@@ -735,10 +748,7 @@ impl CellSurface for ChunkView<'_> {
     }
 
     fn set(&mut self, x: i32, y: i32, cell: Cell) {
-        if !self.world.in_bounds(x, y) {
-            return;
-        }
-        if self.owns(x, y) {
+        if self.inner.contains(x, y) {
             // Liquid-body disturbance detection (`Reports/liquid-
             // heightfield-design.md` §5a): a *remote* write's disturbance
             // is caught for free when it's replayed through the ordinary
@@ -770,13 +780,16 @@ impl CellSurface for ChunkView<'_> {
             // repeated here. `old` is already in hand from the check above.
             let field_relevant = self.world.materials.field_relevant_write(old.material, cell.material);
             self.chunk.set_world(x, y, cell, reach, is_liquid, field_relevant);
-        } else {
+        } else if self.world.in_bounds(x, y) {
             // Reach for this chunk's own tracked value is handled when this
             // write is replayed through the ordinary `World::set` after the
             // pass (see `run_pass`) — this worker has no `&mut` to the
             // remote chunk to update it directly. That replay is also what
             // catches this write's own disturbance check, above.
             self.remote_writes.insert((x, y), cell);
+        } else {
+            // Outside the world: no write and no touch, as before `inner`.
+            return;
         }
         self.queue_touch_neighbours(x, y);
     }
