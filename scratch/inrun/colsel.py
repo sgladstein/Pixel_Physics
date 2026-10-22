@@ -22,6 +22,7 @@ Writes OUT/colsel.csv (one row per colony-round) and OUT/cg.csv (one row per col
 import csv, os, subprocess, sys, gzip, random, shutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nestcount
+import roomshape
 from concurrent.futures import ThreadPoolExecutor
 
 OUT, MODE, NCOL, R, F, G = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
@@ -45,11 +46,13 @@ INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # 
 MODE = MODE.removesuffix('+inherit')
 # Extra lexicase cases as MODE suffixes, in any order before +inherit: +spoil (less spoil left, see SPOIL), +crater
 # (fewer sky-open cells within 20 columns of the door: owner 2026-10-22, "not digging the top layer near the nest"),
-# +rooms (more chambers + niches by the nest score). colsel3-1022's best arm: crater 114 vs the old ant's 4, rooms 0-1.
+# +rooms (more chambers + niches by the nest score), +shape (roomshape.py, the dig-scoring thread's graded "on the way to
+# multiple rooms": a second room or the start of a side tunnel scores, the main room and the crater never do; old ant
+# median 20 over 12 garden worlds, colsel3's arms 3-6). colsel3-1022's best arm: crater 114 vs the old ant's 4, rooms 0-1.
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms'), k
+    assert k in ('spoil', 'crater', 'rooms', 'shape'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 C = [f'frames={F}', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
@@ -110,7 +113,8 @@ def result(rdir, frames):
             dug, pit = int(n['dug']), int(n['pit'])
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
-            n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0)
+            n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
+            roomshape.score(rdir) if n else 0.0)
 
 
 def ranks(vals, higher_better=True):
@@ -133,7 +137,8 @@ def cases(v):
     c = (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
     c = c + (-v[12],) if SPOIL else c
     c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
-    return c + (v[3],) if 'rooms' in EXTRA_CASES else c
+    c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
+    return c + (v[14],) if 'shape' in EXTRA_CASES else c
 
 
 def dig_passed(v):
@@ -171,7 +176,7 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape\n')
         for c in sorted(got):
             f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + '\n')
 
@@ -180,7 +185,7 @@ rng = random.Random(12345)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,passed_gate,rank,refounded_from\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,passed_gate,rank,refounded_from\n')
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
@@ -222,7 +227,7 @@ for r in range(R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * 14
+        v = res[c] or (0,) * 15
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
