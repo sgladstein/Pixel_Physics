@@ -23,6 +23,7 @@
 //! out/surface.txt       the datum, one row per column
 use pixel_physics::sim::creature;
 use pixel_physics::sim::organism;
+use pixel_physics::sim::pheromone;
 use pixel_physics::train::challenges::{inrun, Scarce, Soil, Suite, Trail};
 use pixel_physics::train::{self};
 use std::collections::HashMap;
@@ -390,7 +391,11 @@ fn main() {
     let trace = num("trace", 0);
     let mut trace_log = (trace > 0).then(|| std::io::BufWriter::new(std::fs::File::create(out.join("trace.csv")).unwrap()));
     if let Some(tl) = trace_log.as_mut() {
-        writeln!(tl, "frame,id,x,y,tank,crop,trip,spoil,since_nest,still").unwrap();
+        writeln!(tl, "frame,id,x,y,tank,crop,trip,spoil,since_nest,still,scent_a,scent_b").unwrap();
+    }
+    let mut scent_log = (trace > 0).then(|| std::io::BufWriter::new(std::fs::File::create(out.join("scent.csv")).unwrap()));
+    if let Some(sl) = scent_log.as_mut() {
+        writeln!(sl, "frame,laid_a,laid_b,cells_a,sum_a,cells_b,sum_b").unwrap();
     }
     let film = fnum("film", 0.0) as u64;
     let mut film_r = pixel_physics::render::Renderer::new();
@@ -1050,9 +1055,23 @@ fn main() {
                 if let Some(s) = w.organism(id) {
                     let (x, y) = s.chain.first().copied().unwrap_or((0, 0));
                     let crop = s.crop.map_or(0, |c| c.cells);
-                    writeln!(tl, "{fr},{id},{x},{y},{:.2},{crop},{},{},{},{}", s.energy as f64 / start_e, s.trip_cells, u8::from(s.spoil.is_some()), s.since_nest, s.still_ticks).unwrap();
+                    let (sa, sb) = (w.pheromone_at(pheromone::Channel::A, x, y), w.pheromone_at(pheromone::Channel::B, x, y));
+                    writeln!(tl, "{fr},{id},{x},{y},{:.2},{crop},{},{},{},{},{sa},{sb}", s.energy as f64 / start_e, s.trip_cells, u8::from(s.spoil.is_some()), s.since_nest, s.still_ticks).unwrap();
                 }
             }
+            // The trail planes over the bed's middle: what the minds have laid, and how much of it stands.
+            let laid = w.minds.as_ref().map_or([0.0; 3], |m| m.counts.laid);
+            let (mut na, mut sa, mut nb, mut sb) = (0u32, 0u64, 0u32, 0u64);
+            for x in (inrun::NEST - 100)..=(inrun::NEST + 100) {
+                for y in 0..bh {
+                    let (a, b) = (w.pheromone_at(pheromone::Channel::A, x, y), w.pheromone_at(pheromone::Channel::B, x, y));
+                    na += u32::from(a > 0);
+                    sa += u64::from(a);
+                    nb += u32::from(b > 0);
+                    sb += u64::from(b);
+                }
+            }
+            writeln!(scent_log.as_mut().unwrap(), "{fr},{:.0},{:.0},{na},{sa},{nb},{sb}", laid[0], laid[1]).unwrap();
         }
         // `film=N`: every N frames, the game's own renderer over the bed, as film/fNNNNNNN.png (for a video).
         if film > 0 && fr % film == 0 {
@@ -1119,6 +1138,9 @@ fn main() {
     ev.flush().unwrap();
     if let Some(tl) = trace_log.as_mut() {
         tl.flush().unwrap();
+    }
+    if let Some(sl) = scent_log.as_mut() {
+        sl.flush().unwrap();
     }
     if sel != "off" {
         sel_log.flush().unwrap();

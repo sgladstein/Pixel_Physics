@@ -1485,6 +1485,9 @@ pub fn context(
     v[c::SPOIL] = f32::from(u8::from(st.spoil.is_some()));
     v[c::AT_NEST] = f32::from(u8::from(adjacent_nest(world, hx, hy, def)));
     let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
+    // SCRATCH (teacher lane, never for main): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
+    static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
     let home = (!world.home_blind).then_some(st.forage_anchor);
     let dist = home.map_or(0.0, |(ax, ay)| {
