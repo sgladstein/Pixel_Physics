@@ -326,35 +326,68 @@ impl MindGenome {
 /// `ScorerPlan::dense` (tests only) is the dense sum as it was, and
 /// `the_sparse_scorer_decides_exactly_as_the_dense_one` holds the two equal,
 /// bit for bit, over sparse random genomes.
+///
+/// **All units at once, each in its own order** (2026-10-22): the plan
+/// keeps a feature if any live unit weighs it, with every unit's weight on
+/// it side by side, so one pass over the option's features adds each one
+/// to all [`UNITS`] sums together -- work the compiler does several lanes
+/// at a time. A unit's own sum still takes its terms in feature order, and
+/// the terms it gains are `0 * x`, the zeros above, so nothing rounds
+/// differently. The sparse walk it replaces took 184 `(feature, weight)`
+/// steps one at a time for v2-C3, 8% of the mind colony's frame (ant cost
+/// review, 2026-10-22), which priced a dense sum as a rule change on the
+/// reading that it must add in a new order; across units it need not.
+///
+/// The live units sit in the first lanes, in unit order; a genome with
+/// eight or fewer takes eight lanes rather than sixteen ([`score_lanes`]),
+/// which is what keeps a sparse one (the trail arena's dig-4b4: 8 units,
+/// 89 weights) from paying for lanes it does not use.
 #[derive(Clone, Debug, Default)]
 struct ScorerPlan {
-    /// Units whose output weight is not zero, each with its nonzero feature
-    /// weights as `(feature, weight)` in feature order.
-    units: Vec<(usize, Vec<(usize, f32)>)>,
+    /// Units whose output weight is not zero, in unit order: lane `k` is
+    /// unit `units[k]`.
+    units: Vec<usize>,
+    /// Features some unit of `units` weighs, in feature order, each with
+    /// every lane's weight on it (zero where its unit does not weigh it,
+    /// and in every lane past `units`).
+    feats: Vec<(usize, [f32; UNITS])>,
 }
 
 impl ScorerPlan {
     fn new(g: &[f32]) -> ScorerPlan {
         let out = &g[S_OUT..S_OUT + UNITS];
-        let units = (0..UNITS)
-            .filter(|&u| out[u] != 0.0)
-            .map(|u| {
-                let feat = &g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES];
-                (u, feat.iter().copied().enumerate().filter(|&(_, w)| w != 0.0).collect())
-            })
+        ScorerPlan::of((0..UNITS).filter(|&u| out[u] != 0.0).collect(), g)
+    }
+
+    fn of(units: Vec<usize>, g: &[f32]) -> ScorerPlan {
+        let feats = (0..FEATURES)
+            .filter(|&i| units.iter().any(|&u| g[S_FEAT + u * FEATURES + i] != 0.0))
+            .map(|i| (i, std::array::from_fn(|k| units.get(k).map_or(0.0, |&u| g[S_FEAT + u * FEATURES + i]))))
             .collect();
-        ScorerPlan { units }
+        ScorerPlan { units, feats }
     }
 
     /// Every unit and every weight, zeros included: the sum as [`decide`]
     /// took it before the plan, kept as the reference the plan is held to.
     #[cfg(test)]
     fn dense(g: &[f32]) -> ScorerPlan {
-        let units = (0..UNITS)
-            .map(|u| (u, g[S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES].iter().copied().enumerate().collect()))
-            .collect();
-        ScorerPlan { units }
+        let feats = (0..FEATURES).map(|i| (i, std::array::from_fn(|u| g[S_FEAT + u * FEATURES + i]))).collect();
+        ScorerPlan { units: (0..UNITS).collect(), feats }
     }
+}
+
+/// The first `N` lanes' sums for one option: each lane from its `start`,
+/// over `feats` in their order.
+#[inline]
+fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNITS])], x: &[f32; FEATURES]) -> [f32; UNITS] {
+    let mut z = *start;
+    for (i, w) in feats {
+        let x = x[*i];
+        for u in 0..N {
+            z[u] += w[u] * x;
+        }
+    }
+    z
 }
 
 /// **A saved genome in today's layout**, its length naming its layout. One
@@ -1687,21 +1720,26 @@ fn decide_planned(
     let mut scores = vec![0.0f32; opts.len()];
     let mut best = [f32::NEG_INFINITY; VERBS];
     let (mut all_sum, mut all_n) = (0.0f32, 0u32);
+    // Each lane's sum as it starts for each verb, before the option's terms.
+    let start: [[f32; UNITS]; VERBS] =
+        std::array::from_fn(|v| std::array::from_fn(|k| plan.units.get(k).map_or(0.0, |&u| pre[u] + g[S_VERB + u * VERBS + v])));
+    let narrow = plan.units.len() <= UNITS / 2;
     for (o, opt) in opts.iter().enumerate() {
         if !on(opt.verb) {
             continue;
         }
         let v = opt.verb as usize;
         debug_assert!(opt.feats.iter().all(|x| x.is_finite()), "a feature that is not finite: {:?}", opt.verb);
-        // Only the nonzero terms, in their order ([`ScorerPlan`]).
+        // Every unit's sum at once, each over its terms in their order
+        // ([`ScorerPlan`]).
+        let z = if narrow {
+            score_lanes::<{ UNITS / 2 }>(&start[v], &plan.feats, &opt.feats)
+        } else {
+            score_lanes::<UNITS>(&start[v], &plan.feats, &opt.feats)
+        };
         let mut raw = out[UNITS];
-        for (u, feat) in &plan.units {
-            let u = *u;
-            let mut z = pre[u] + g[S_VERB + u * VERBS + v];
-            for &(i, w) in feat {
-                z += w * opt.feats[i];
-            }
-            raw += out[u] * squash(z);
+        for (k, &u) in plan.units.iter().enumerate() {
+            raw += out[u] * squash(z[k]);
         }
         let s = squash(sharp * raw);
         scores[o] = s;
@@ -2552,7 +2590,7 @@ mod tests {
             *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
         }
         let mut broken = ScorerPlan::new(&g);
-        broken.units[0].1.remove(0);
+        broken.feats[0].1[0] = 0.0;
         // Every feature nonzero, so whichever weight was dropped is read.
         let opts: Vec<Opt> = walks()
             .into_iter()
