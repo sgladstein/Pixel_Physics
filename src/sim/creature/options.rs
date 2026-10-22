@@ -400,7 +400,9 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     // at a target copies the first's features before its own extras. Off
     // with `remember`, which is how `the_option_window_changes_no_feature`
     // holds both to the plain reads.
-    let mut described: Vec<((i32, i32), [f32; FEATURES])> = Vec::with_capacity(24);
+    // The list is this thread's, kept between builds (`DESCRIBED`).
+    let mut described = DESCRIBED.take();
+    described.clear();
     // The targets' temperatures, the field's corners read once for the few
     // blocks they fall in (`field::BilinearSampler`). Off with `remember`.
     let mut warm = remember.then(|| world.field_bilinear_sampler());
@@ -552,7 +554,17 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+    DESCRIBED.set(described);
 }
+
+thread_local! {
+    /// [`build_remembering`]'s list of targets described, kept between
+    /// builds so a decision does not allocate it (ant cost review A2).
+    static DESCRIBED: std::cell::Cell<Vec<Described>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+/// A target and the features [`describe`] gave it.
+type Described = ((i32, i32), [f32; FEATURES]);
 
 /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
 /// and dead ants. A corpse is food too (`food_energy` 120), so the one test

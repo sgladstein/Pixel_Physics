@@ -19227,7 +19227,13 @@ impl<'w> CellMemo<'w> {
     /// The rectangle from `min` to `max`, both inclusive.
     pub(super) fn new(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
         let (w, h) = ((max.0 - min.0 + 1).max(0), (max.1 - min.1 + 1).max(0));
-        CellMemo { world, x0: min.0, y0: min.1, w, h, cells: vec![None; (w * h) as usize] }
+        // The buffer the last memo on this thread dropped, if any: a decision
+        // builds one or two, and the allocation was part of the churn the ant
+        // cost review priced (A2, 2026-10-22). Every slot starts unread.
+        let mut cells = MEMO_CELLS.take();
+        cells.clear();
+        cells.resize((w * h) as usize, None);
+        CellMemo { world, x0: min.0, y0: min.1, w, h, cells }
     }
 
     /// The same rectangle with every cell read up front, for a caller that
@@ -19252,6 +19258,21 @@ impl<'w> CellMemo<'w> {
         } else {
             None
         }
+    }
+}
+
+thread_local! {
+    /// [`CellMemo`]'s spare buffer: the largest one dropped on this thread.
+    static MEMO_CELLS: std::cell::Cell<Vec<Option<Cell>>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
+impl Drop for CellMemo<'_> {
+    fn drop(&mut self) {
+        let cells = std::mem::take(&mut self.cells);
+        MEMO_CELLS.with(|spare| {
+            let kept = spare.take();
+            spare.set(if cells.capacity() >= kept.capacity() { cells } else { kept });
+        });
     }
 }
 
