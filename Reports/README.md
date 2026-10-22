@@ -5718,6 +5718,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   section: chambers are flat lenses 1-2 body lengths high, so the ladder's
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
+- [brain-training/teacher-training/crater-refusal-copy-2026-10-22.md](brain-training/teacher-training/crater-refusal-copy-2026-10-22.md)
+  — **finished: the dig lane's crater refusal (`PP_RIMVETO=3`) DAgger-copied into
+  founder hA1** (scratch, compute branch). The foraging lane's recipe as is did
+  not move (hA1 already avoids the refused cuts in 99.5% of labelled states);
+  training on only the states where hA1 would cut the rim, at 4x weight, gave
+  r4: with the refusal off, crater by the nest 39 -> 23 cells, food home
+  269 -> 333, deaths 4.3 -> 5.9 of 24 (32 seeds; acting ceiling crater 0, food
+  491). The spoil refusal copied as "never let go" (8 of 32 collapsed); adding
+  the dig lane's positive far-drop label (r5) made the only copy that digs more
+  (+21% cuts) but doubled field re-cuts. r4 and r5 handed to the Teacher lane.
+  Genomes, patch, copier and scripts in `crater-refusal-copy-2026-10-22/`.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
