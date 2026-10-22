@@ -13113,15 +13113,134 @@ impl NestWay {
 /// With `parted` ([`WayGaps::brood`]), a cell the walk parts as it goes
 /// ([`is_partable`]: brood and crumbs under [`PushPast`]) is open too, as the
 /// walk itself counts it ([`cell_is_enterable`]).
+#[cfg(test)]
 fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
+    way_cell_by(world, &mut Direct(world), x, y, parted)
+}
+
+/// [`way_cell`], reading cells through `read` ([`CellRead`]).
+fn way_cell_by(world: &World, read: &mut impl CellRead, x: i32, y: i32, parted: bool) -> bool {
     if !world.in_bounds(x, y) {
         return false;
     }
-    let c = world.get(x, y);
+    let c = read.cell(x, y);
     (c.material == material::EMPTY || is_animal_cell(world, c) || (parted && parting_enabled() && is_partable(world, c)))
         && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
-            world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(world.get(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
+            world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(read.cell(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
         })
+}
+
+/// **[`way_cell`] and [`under_cover`] for one nest's ways, each cell asked
+/// once.** [`step_nest_rest`] builds up to four ways per nest over boxes
+/// round the same site -- in, the mound's, the mound's in, to the open air
+/// -- and each fill asks [`way_cell`] (nine reads) of a cell once per
+/// neighbour that reaches it, and [`under_cover`] (up to twenty) as often:
+/// 12% of the shipped lab box's instructions (lab-world's profile,
+/// 2026-10-22). Both are pure reads of an unchanging world, so each cell's
+/// answer is kept, over the box all four ways cover; a cell outside it is
+/// asked directly, through the same remembered reads.
+struct WayCells<'w> {
+    memo: CellMemo<'w>,
+    parted: bool,
+    x0: i32,
+    y0: i32,
+    w: i32,
+    h: i32,
+    /// Per cell of the box: 0 not yet asked, 1 no, 2 yes.
+    way: Vec<u8>,
+    cover: Vec<u8>,
+}
+
+impl<'w> WayCells<'w> {
+    /// For `site`'s ways: columns `REST_REACH_X` either side of the site,
+    /// rows from `REST_REACH_Y` above its founding ground to `REST_REACH_Y`
+    /// below `door_row`, the union of the four ways' boxes.
+    fn new(world: &'w World, site: usize, door_row: i32, parted: bool) -> Self {
+        let s = world.nest_sites[site];
+        let (x0, y0) = (s.x - REST_REACH_X, (s.surface - REST_REACH_Y).min(door_row));
+        let (w, h) = (2 * REST_REACH_X + 1, door_row + REST_REACH_Y - y0 + 1);
+        // One further out for `way_cell`'s neighbours, `COVER_REACH` further
+        // up for `under_cover`'s column.
+        let memo = CellMemo::new(world, (x0 - 1, y0 - 1 - COVER_REACH), (x0 + w, y0 + h));
+        let n = (w * h) as usize;
+        WayCells { memo, parted, x0, y0, w, h, way: vec![0; n], cover: vec![0; n] }
+    }
+
+    fn slot(&self, x: i32, y: i32) -> Option<usize> {
+        let (lx, ly) = (x - self.x0, y - self.y0);
+        (lx >= 0 && ly >= 0 && lx < self.w && ly < self.h).then(|| (ly * self.w + lx) as usize)
+    }
+
+    /// [`way_cell`] at `(x, y)`, with this nest's `parted`.
+    fn way(&mut self, world: &World, x: i32, y: i32) -> bool {
+        let parted = self.parted;
+        let Some(i) = self.slot(x, y) else {
+            return way_cell_by(world, &mut self.memo, x, y, parted);
+        };
+        if self.way[i] == 0 {
+            self.way[i] = 1 + u8::from(way_cell_by(world, &mut self.memo, x, y, parted));
+        }
+        self.way[i] == 2
+    }
+
+    /// [`under_cover`] at `(x, y)`.
+    fn covered(&mut self, world: &World, x: i32, y: i32) -> bool {
+        let Some(i) = self.slot(x, y) else {
+            return under_cover_by(world, &mut self.memo, x, y);
+        };
+        if self.cover[i] == 0 {
+            self.cover[i] = 1 + u8::from(under_cover_by(world, &mut self.memo, x, y));
+        }
+        self.cover[i] == 2
+    }
+}
+
+#[cfg(test)]
+mod way_cells_tests {
+    use super::*;
+
+    /// **A nest's remembered way cells answer as the world does**
+    /// ([`WayCells`], what the four way builders read through): every cell
+    /// in and round the box of a grown colony's nest, asked in a shuffled
+    /// order, twice, against [`way_cell`] and [`under_cover`] read fresh.
+    /// The tallies are the control that the box holds both answers.
+    #[test]
+    fn the_way_cells_read_as_the_world_does() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, colony_ants: 12, width: 256, height: 128, ground_y: 64, soil_depth: 40, ..crate::lab::scene::LabBox::default() }.build();
+        for _ in 0..3000 {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+            w.step_pheromones();
+        }
+        let parted = way_gaps_of(&w).brood;
+        let mut r = crate::sim::rng::stream(3, 3, 3, 3);
+        let (mut way, mut not_way, mut covered, mut open) = (0, 0, 0, 0);
+        let mut sites = 0;
+        for site in 0..w.nest_sites.len() {
+            let Some(cut) = w.nest_sites[site].shaft else { continue };
+            sites += 1;
+            let s = w.nest_sites[site];
+            let mut cells = WayCells::new(&w, site, cut.top - 1, parted);
+            let mut all: Vec<(i32, i32)> = (s.surface - REST_REACH_Y - 3..=cut.top + REST_REACH_Y + 3).flat_map(|y| (s.x - REST_REACH_X - 3..=s.x + REST_REACH_X + 3).map(move |x| (x, y))).collect();
+            for i in (1..all.len()).rev() {
+                let j = (r.unit_f32() * (i + 1) as f32) as usize % (i + 1);
+                all.swap(i, j);
+            }
+            for _ in 0..2 {
+                for &(x, y) in &all {
+                    let (wy, cv) = (way_cell(&w, x, y, parted), under_cover(&w, x, y));
+                    assert_eq!(cells.way(&w, x, y), wy, "way at ({x}, {y})");
+                    assert_eq!(cells.covered(&w, x, y), cv, "cover at ({x}, {y})");
+                    way += usize::from(wy);
+                    not_way += usize::from(!wy);
+                    covered += usize::from(cv);
+                    open += usize::from(!cv);
+                }
+            }
+        }
+        assert!(sites > 0 && way > 300 && not_way > 1000 && covered > 1000 && open > 1000, "sites {sites}: way {way}/{not_way}, cover {covered}/{open}");
+    }
 }
 
 /// **Build a nest's way in**: breadth first from the door over the mouth,
@@ -13132,6 +13251,11 @@ fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
 /// ant out: along a gallery that opens on the surface the way stops at the
 /// opening (under `below`, one row under the founding ground).
 fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_nest_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+fn build_nest_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
     let gaps = way_gaps_of(world);
     let cut = s.shaft?;
@@ -13143,7 +13267,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         let (lx, ly) = (x - x0, y - y0);
         (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
     };
-    let inside = |x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && (under_cover(world, x, y) || (gaps.below && y > s.surface)));
+    let inside = |cells: &mut WayCells, x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && (cells.covered(world, x, y) || (gaps.below && y > s.surface)));
     let mut q = std::collections::VecDeque::new();
     dist[idx(door.0, door.1).expect("the door is the box's top row")] = 0;
     q.push_back(door);
@@ -13152,7 +13276,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !inside(nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !inside(cells, nx, ny) || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -13453,25 +13577,34 @@ pub fn step_nest_rest(world: &mut World) {
     let minds_only = mind::every_ant_has_one(world);
     let mound = mound && !minds_only;
     let escape = escape && !minds_only;
-    // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
-    // reads them and nothing is built.
-    world.mound_ways = if mound {
-        (0..world.nest_sites.len()).filter_map(|i| build_mound_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
-    // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
-    world.mound_in_ways = if mound_in_of(world) && !minds_only {
-        (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
-    // The ways to the open air ([`NeedsFirst`]'s escape parts), likewise.
-    world.out_ways = if escape {
-        (0..world.nest_sites.len()).filter_map(|i| build_out_way(world, i)).collect()
-    } else {
-        Vec::new()
-    };
+    // The three ways below share each nest's cells ([`WayCells`]): one
+    // world, read after `keep_store_place`, which moves no cell.
+    let mound_in = mound_in_of(world) && !minds_only;
+    let parted = way_gaps_of(world).brood;
+    let (mut mound_ways, mut mound_in_ways, mut out_ways) = (Vec::new(), Vec::new(), Vec::new());
+    for i in 0..world.nest_sites.len() {
+        if !(mound || mound_in || escape) {
+            break;
+        }
+        let Some(cut) = world.nest_sites[i].shaft else { continue };
+        let mut cells = WayCells::new(world, i, cut.top - 1, parted);
+        // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
+        // reads them and nothing is built.
+        if mound {
+            mound_ways.extend(build_mound_way_with(world, i, &mut cells));
+        }
+        // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
+        if mound_in {
+            mound_in_ways.extend(build_mound_in_way_with(world, i, &mut cells));
+        }
+        // The ways to the open air ([`NeedsFirst`]'s escape parts), likewise.
+        if escape {
+            out_ways.extend(build_out_way_with(world, i, &mut cells));
+        }
+    }
+    world.mound_ways = mound_ways;
+    world.mound_in_ways = mound_in_ways;
+    world.out_ways = out_ways;
 }
 
 /// **Where a resting ant is pulled, and how hard** ([`nest_rest_of`]); `None`
@@ -14755,8 +14888,13 @@ pub fn mound_in_of(_world: &World) -> bool {
 /// founding cut's top row, its columns) over every cell an ant can stand in
 /// ([`way_cell`]), open or covered, in the mound way's box.
 pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_mound_in_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_mound_in_way`], asking its cells through `cells`.
+fn build_mound_in_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14770,7 +14908,7 @@ pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
     for x in cut.x0..=cut.x1 {
         for y in [cut.top - 1, cut.top] {
             if let Some(i) = idx(x, y) {
-                if dist[i] == u16::MAX && way_cell(world, x, y, gaps.brood) {
+                if dist[i] == u16::MAX && cells.way(world, x, y) {
                     dist[i] = 0;
                     q.push_back((x, y));
                 }
@@ -14782,7 +14920,7 @@ pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -14813,8 +14951,13 @@ fn mound_in_target(world: &World, state: &crate::sim::organism::OrganismState, h
 /// to it, so nothing below the founding ground is on it. A pocket the mound
 /// has closed is not on it.
 pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_mound_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_mound_way`], asking its cells through `cells`.
+fn build_mound_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14827,7 +14970,7 @@ pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
     let mut q = std::collections::VecDeque::new();
     for y in y0..y0 + h {
         for x in x0..x0 + w {
-            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+            if cells.way(world, x, y) && !cells.covered(world, x, y) {
                 dist[idx(x, y).expect("in the box")] = 0;
                 q.push_back((x, y));
             }
@@ -14838,7 +14981,7 @@ pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !under_cover(world, nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.covered(world, nx, ny) || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -14886,8 +15029,13 @@ fn shut_in_mound(world: &World, x: i32, y: i32) -> bool {
 /// so the nest and its shaft are in it as well as the mound. A covered cell
 /// it leaves unreached has no way out that an ant could walk: [`shut_in`].
 pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
+    let door_row = world.nest_sites[site].shaft?.top - 1;
+    build_out_way_with(world, site, &mut WayCells::new(world, site, door_row, way_gaps_of(world).brood))
+}
+
+/// [`build_out_way`], asking its cells through `cells`.
+fn build_out_way_with(world: &World, site: usize, cells: &mut WayCells) -> Option<NestWay> {
     let s = world.nest_sites[site];
-    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
@@ -14900,7 +15048,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
     let mut q = std::collections::VecDeque::new();
     for y in y0..y0 + h {
         for x in x0..x0 + w {
-            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+            if cells.way(world, x, y) && !cells.covered(world, x, y) {
                 dist[idx(x, y).expect("in the box")] = 0;
                 q.push_back((x, y));
             }
@@ -14911,7 +15059,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+            if dist[i] != u16::MAX || !cells.way(world, nx, ny) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
