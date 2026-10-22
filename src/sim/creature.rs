@@ -33109,6 +33109,62 @@ mod tests {
         assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
     }
 
+    /// **The appetite gene at 0 is the species' gate to the bit**, it can
+    /// open a gate on a species authored without one, and it stays on the
+    /// gate's `0..=1` axis whichever way it is pushed.
+    #[test]
+    fn the_appetite_gene_adds_to_the_authored_gate() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        let mut t = [0.0f32; CREATURE_TRAITS];
+        for authored in [0.0f32, 0.3, 1.0] {
+            def.digest_hunger_weight = authored;
+            assert_eq!(appetite_weight_of(&def, &t).to_bits(), authored.to_bits(), "allele 0 moved the authored weight {authored}");
+        }
+        def.digest_hunger_weight = 0.0;
+        t[TRAIT_APPETITE] = 0.4;
+        assert_eq!(appetite_weight_of(&def, &t), 0.4, "a lineage of a gateless species can evolve a gate");
+        t[TRAIT_APPETITE] = -0.3;
+        assert_eq!(appetite_weight_of(&def, &t), 0.0, "below zero is no gate, not a negative one");
+        def.digest_hunger_weight = 1.0;
+        t[TRAIT_APPETITE] = 0.5;
+        assert_eq!(appetite_weight_of(&def, &t), 1.0, "the full gate is the top of the axis");
+    }
+
+    /// **`mutate_traits` is the game's birth rule for a body**: a width-0
+    /// slot takes no draw and does not move, an open slot moves by at most
+    /// its width, and `inherit_body` lays a parent's body on a placed child.
+    #[test]
+    fn a_body_mutates_only_where_it_has_a_width() {
+        let w = World::new(Rect::new(0, 0, 63, 63));
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.trait_variance = [0.0; CREATURE_TRAITS];
+        def.scent_drift = 0.0;
+        let parent = [0.1f32; CREATURE_TRAITS];
+        let (mut a, mut b) = (rng::Rng::new(7), rng::Rng::new(7));
+        let mut t = parent;
+        mutate_traits(&mut t, &def, 1.0, &mut a);
+        assert_eq!(t, parent, "nothing open, nothing moved");
+        assert_eq!(a.unit_f32().to_bits(), b.unit_f32().to_bits(), "a closed body took a draw");
+        def.trait_variance[TRAIT_APPETITE] = 0.15;
+        let mut moved = 0;
+        for k in 0..200 {
+            let mut t = parent;
+            mutate_traits(&mut t, &def, 1.0, &mut rng::Rng::new(k));
+            for slot in 0..CREATURE_TRAITS {
+                if slot == TRAIT_APPETITE {
+                    assert!((t[slot] - parent[slot]).abs() <= 0.15 + 1e-6, "a step wider than the width");
+                    moved += usize::from(t[slot] != parent[slot]);
+                } else {
+                    assert_eq!(t[slot], parent[slot], "closed slot {slot} moved");
+                }
+            }
+        }
+        assert!(moved > 190, "the open slot hardly ever moved: {moved} of 200");
+    }
+
     #[test]
     fn walk_genes_at_zero_are_exactly_the_constants() {
         let zero = [0.0f32; CREATURE_TRAITS];

@@ -10302,6 +10302,12 @@ mod tests {
                     assert_eq!(def.traits[slot], 0.0, "{name}.ron's door gene {slot} is off its ancestral 0 -- the door rule is no longer the shipped one");
                     continue;
                 }
+                // The appetite gene ships on the same terms (`TRAIT_APPETITE`).
+                if slot == TRAIT_APPETITE {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's appetite gene drifts; turning its width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's appetite gene is off its ancestral 0 -- the gate is no longer the species' authored one");
+                    continue;
+                }
                 if SCENT_SIDE_SLOTS.contains(&slot) {
                     assert_eq!(
                         def.trait_variance[slot], 0.0,
