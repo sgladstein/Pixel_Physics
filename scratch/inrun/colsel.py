@@ -43,8 +43,15 @@ if DIG == 'nest' and 'GATE' not in os.environ:
 CG_EVERY = int(os.environ.get('CG_EVERY', '2'))
 INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # MODE 'lex+inherit' = INHERIT=1
 MODE = MODE.removesuffix('+inherit')
-SPOIL = os.environ.get('SPOIL') == '1' or MODE.endswith('+spoil')  # MODE 'lex+spoil+inherit' = SPOIL=1
-MODE = MODE.removesuffix('+spoil')
+# Extra lexicase cases as MODE suffixes, in any order before +inherit: +spoil (less spoil left, see SPOIL), +crater
+# (fewer sky-open cells within 20 columns of the door: owner 2026-10-22, "not digging the top layer near the nest"),
+# +rooms (more chambers + niches by the nest score). colsel3-1022's best arm: crater 114 vs the old ant's 4, rooms 0-1.
+EXTRA_CASES = []
+while '+' in MODE:
+    MODE, k = MODE.rsplit('+', 1)
+    assert k in ('spoil', 'crater', 'rooms'), k
+    EXTRA_CASES.append(k)
+SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 C = [f'frames={F}', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 os.makedirs(OUT, exist_ok=True)
@@ -124,7 +131,9 @@ def cases(v):
     """The lexicase/rank cases of a colony result, every one higher-is-better: food home, fewer starved, then digging
     (DIG=nest: kept late cuts and nest size; DIG=cuts: raw late cuts and rooms)."""
     c = (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
-    return c + (-v[12],) if SPOIL else c
+    c = c + (-v[12],) if SPOIL else c
+    c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
+    return c + (v[3],) if 'rooms' in EXTRA_CASES else c
 
 
 def dig_passed(v):
@@ -134,7 +143,9 @@ def dig_passed(v):
 def lexicase(pool, res, rng):
     """Epsilon-lexicase: per case (random order) keep the colonies within one median absolute deviation of the best."""
     cand = list(pool)
-    order = list(range(4))
+    # Every case cases() returns. Was range(4) until 2026-10-22 19:00Z, so colsel4-1022's +spoil arm never read its
+    # fifth case and came out identical to its control in every round (a change that moved nothing).
+    order = list(range(len(cases(res[cand[0]]))))
     rng.shuffle(order)
     for k in order:
         vals = [cases(res[c])[k] for c in cand]
@@ -194,8 +205,9 @@ for r in range(R):
         gp = [c for c in ok if passed[c]]
         rs = {}
         if gp:
-            rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(4)]
-            rs = {c: sum(rk[k][i] for k in range(4)) for i, c in enumerate(gp)}
+            nk = len(cases(res[gp[0]]))
+            rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(nk)]
+            rs = {c: sum(rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
         order = sorted(gp, key=lambda c: (rs[c], c)) + sorted([c for c in ok if not passed[c]], key=lambda c: (-res[c][1], c))
     order += [c for c in cols if c not in ok]  # extinct last
     src = {c: '' for c in cols}
