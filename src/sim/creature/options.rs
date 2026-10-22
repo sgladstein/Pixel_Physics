@@ -353,6 +353,13 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// SCRATCH (foraging-loop thread's switch, ported by the teacher lane 2026-10-22): `PP_NEEDDROP=1`, the old ant's
+/// hungry put-down for a mind. Unset: no change.
+pub fn need_drop_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_NEEDDROP").is_ok_and(|v| v == "1"))
+}
+
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
     build_with(world, organism, def, true, out);
 }
@@ -394,6 +401,14 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     let parting = parting_enabled();
     let stacker = stacker_of(world, organism);
     let kin = kin_footing(world, organism, def);
+    // SCRATCH (`PP_NEEDDROP=1`): a hungry ant (`needs_hungry`, as `NEEDS_FIRST` reads it) holding soil may put it down
+    // where the game ant's need would (`need_drop_site`: any footing beside the head, not in a doorway, not closing a
+    // way). The starvation trace (2026-10-22): a third of hA1's starved ants die at home holding a pellet by a stocked store.
+    let need_site = if need_drop_on() && st.spoil.is_some_and(|s| !s.store) && super::needs_hungry(world, st, def, head) {
+        super::need_drop_site(world, head)
+    } else {
+        None
+    };
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
         let t = (head.0 + dx, head.1 + dy);
@@ -476,7 +491,7 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
         // options serve minds alone, so the game is untouched (review of
         // the dig rung design, finding 6).
         let drop = if st.spoil.is_some() {
-            spoil_site_open(world, t.0, t.1, true)
+            spoil_site_open(world, t.0, t.1, true) || need_site == Some(t)
         } else {
             crop.is_some_and(|c| c.cells > 0) && world.is_empty(t.0, t.1)
         };

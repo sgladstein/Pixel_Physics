@@ -2191,8 +2191,15 @@ fn put_down_pellet(world: &mut World, organism: OrganismId, (dx, dy): (i32, i32)
     let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) else {
         return false;
     };
-    // On ground, as the list offered it (`options::build`).
-    if !spoil_site_open(world, dx, dy, true) {
+    // On ground, as the list offered it (`options::build`) -- or, under scratch `PP_NEEDDROP`, the hungry need's site.
+    let need = options::need_drop_on()
+        && world.organism(organism).is_some_and(|s| {
+            !spoil.store
+                && s.chain.first().is_some_and(|&h| {
+                    world.species.get(s.species).creature.as_ref().is_some_and(|def| super::needs_hungry(world, s, def, h)) && super::need_drop_site(world, h) == Some((dx, dy))
+                })
+        });
+    if !spoil_site_open(world, dx, dy, true) && !need {
         return false;
     }
     // where it comes to rest (`creature::spoil_rest`), which is also where the dump log scores it
