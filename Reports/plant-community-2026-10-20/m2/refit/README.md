@@ -58,3 +58,27 @@ core-s; the shipped species' sizes barely move (shrub life bright 777 ->
 growth ignores soil water above the germination cliff (`../rungs/`). The
 re-fits above, trained in the wet beds, hold their gains in the lab's rain
 (`*/check_wet.txt` against `refit_rain_per_column.txt`).
+
+## Cheat watch: one free lever (plan §6.2)
+
+`GrowingTip.photosynthesize_rate` -- what a growing shoot tip fixes on its
+own -- rose in all five runs: tree 0.5 -> 2.26, shrub 0.5 -> 1.28 and
+0.5 -> 2.25, creeper 0.5 -> 1.54, herb 0.55 -> 0.94. One-gene sweeps
+(`plantrain mode=sweep gene=GrowingTip.photosynthesize_rate`, 12 layouts,
+base 7,000,000, whole life, peak shoot p50):
+
+| | shipped | 1.0 | 1.5 | 2.25 |
+|---|---|---|---|---|
+| tree, bright | 2,452 | 3,664 | 3,587 | 3,735 |
+| tree, dim | 1,108 | 1,676 | 2,460 | 3,149 |
+| shrub, bright | 744 | 745 | 830 | 810 |
+| shrub, dim | 398 | 503 | 711 | 593 |
+
+And back the other way, the re-fit with this one gene returned to 0.5:
+tree 5,695 -> 4,826 bright, 5,097 -> 2,551 dim; shrub 909 -> 814 bright,
+771 -> 594 dim. So it is most of the re-fits' shade gain. Its price is
+transpiration (`rate * TRANSPIRATION_PER_RATE`), and a young plant's growth
+ignores soil water above the germination cliff (`../rungs/`), so the price
+is never paid. Per the plan this is an engine pricing gap, not something to
+train around; it went to the soil-water lane (2026-10-21) with the sweep
+above as a check for its fix. Retrain once water grades growth.
