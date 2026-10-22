@@ -64,7 +64,7 @@ use super::chunk::Rect;
 use super::contest;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_APPETITE, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
 use super::plant;
 use super::rng;
@@ -5349,6 +5349,14 @@ pub fn digest_rate_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32
     def.digest_rate / ratio_factor(traits[TRAIT_DIGEST_RATE]).max(f32::EPSILON)
 }
 
+/// **How hard this particular animal's crop holds back while it is fed**
+/// (`TRAIT_APPETITE`): the species' `digest_hunger_weight` plus the allele,
+/// on the `0..=1` the gate reads. Additive, so a species authored at 0 can
+/// evolve a gate, and exactly the authored weight at allele 0.
+pub fn appetite_weight_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    (def.digest_hunger_weight + traits[TRAIT_APPETITE]).clamp(0.0, 1.0)
+}
+
 /// **How much this particular animal's crop holds.**
 ///
 /// The reciprocal axis again; a capacity is a scale rather than an offset.
@@ -6169,22 +6177,8 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
             silence_emit_b(&mut genome);
         }
         state.genome = genome;
-        for (slot, t) in state.traits.iter_mut().enumerate() {
-            let width = trait_width(def, slot);
-            if mutates && width > 0.0 {
-                // `gut_bias` is a position on a `-1..=1` axis and every
-                // other slot in `CREATURE_TRAITS` is defined the same way,
-                // so the clamp is the axis rather than a tuning choice.
-                //
-                // **The two arms-race slots are the exception, and this line
-                // is what makes the reach dial mean anything at all.**
-                // Widening only the resolvers would have been *vacuous*:
-                // a birth clamps here, so no lineage could ever hold the
-                // allele the widened resolver was waiting to read. It is
-                // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
-                let bound = allele_bound(slot, reach);
-                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
-            }
+        if mutates {
+            mutate_traits(&mut state.traits, def, reach, &mut draw);
         }
         child_traits = state.traits;
         child_generation = state.generation;
@@ -6211,6 +6205,50 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         state.born_with = born_with;
     }
     (child_traits, child_generation, child_born_frame)
+}
+
+/// **The body's half of a birth**: every trait slot takes one uniform step
+/// of up to its [`trait_width`] from `draw`, in slot order, held inside its
+/// own bound. Split out of [`mutate_newborn`] (2026-10-22) so the in-run
+/// training bed, whose births are placed by the harness rather than by
+/// `try_bud`, mutates a body by the game's own rule and not a copy of it. A
+/// slot of width 0 takes no draw, so the game's streams are unchanged.
+pub fn mutate_traits(traits: &mut [f32; CREATURE_TRAITS], def: &CreatureDef, reach: f32, draw: &mut rng::Rng) {
+    for (slot, t) in traits.iter_mut().enumerate() {
+        let width = trait_width(def, slot);
+        if width > 0.0 {
+            // `gut_bias` is a position on a `-1..=1` axis and every
+            // other slot in `CREATURE_TRAITS` is defined the same way,
+            // so the clamp is the axis rather than a tuning choice.
+            //
+            // **The two arms-race slots are the exception, and this line
+            // is what makes the reach dial mean anything at all.**
+            // Widening only the resolvers would have been *vacuous*:
+            // a birth clamps here, so no lineage could ever hold the
+            // allele the widened resolver was waiting to read. It is
+            // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
+            let bound = allele_bound(slot, reach);
+            *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
+        }
+    }
+}
+
+/// **Give a placed animal its parent's body, mutated by [`mutate_traits`]**,
+/// on the same per-child stream a bud or an egg uses (`RNG_SLOT_BIRTH`), and
+/// return it. For a harness that places its own children (the in-run
+/// training bed's `inrun::birth`): `try_bud` and `brood::lay_egg` already do
+/// this through [`mutate_newborn`]. `mutate` false copies the body exactly.
+/// Leaves the brain genome, the generation and `born_with` alone.
+pub fn inherit_body(world: &mut World, child: OrganismId, def: &CreatureDef, parent_traits: [f32; CREATURE_TRAITS], mutate: bool) -> [f32; CREATURE_TRAITS] {
+    let mut traits = parent_traits;
+    if mutate {
+        let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
+        mutate_traits(&mut traits, def, world.trait_reach, &mut draw);
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.traits = traits;
+    }
+    traits
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -8773,7 +8811,12 @@ fn settle(
     // has to land in the same breath as the animal receives it. Crediting at
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
-    let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    let gut_traits = traits_of(world, organism, def);
+    let digest_rate = digest_rate_of(def, &gut_traits);
+    // **The gate's weight is this animal's own** (`TRAIT_APPETITE`, 2026-10-22):
+    // the species' authored `digest_hunger_weight` plus the allele, which is
+    // the authored weight exactly at allele 0.
+    let appetite = appetite_weight_of(def, &gut_traits);
     // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
     // is 0.0 for every species that has not authored it and then takes the
     // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
@@ -8794,8 +8837,8 @@ fn settle(
     // ungated overstates by about ten to one.
     let digest_rate = {
         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
-        if carrying && def.digest_hunger_weight > 0.0 && def.reproduce_threshold > 0.0 {
-            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
+        if carrying && appetite > 0.0 && def.reproduce_threshold > 0.0 {
+            let w = appetite;
             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
             // **Flat at full rate up to `start_energy`, then falling to the
             // breeding bar** -- not a straight line from zero, which is what
