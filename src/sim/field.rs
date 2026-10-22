@@ -903,23 +903,16 @@ pub(crate) fn ground_wetness_at(
         .max(moisture_source_at(tiles, bounds, world_x, world_y + FIELD_SCALE))
 }
 
-pub(crate) fn is_moisture_source<T: TileLookup + ?Sized>(
-    tiles: &T,
-    bounds: Option<Rect>,
-    world_x: i32,
-    world_y: i32,
-) -> bool {
-    if let Some(b) = bounds {
-        if !b.contains(world_x, world_y) {
-            return false;
-        }
-    }
-    let (fx, fy) = field_coord_of(world_x, world_y);
-    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    tiles.tile(tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
-}
-
-/// `(is_blocked, glows)` in a single tile fetch, for `step_diffusion`'s
+/// **`(sample, is_blocked, glows, is_moisture_source)` at one position,
+/// through one bounds test and one tile fetch** -- the reads
+/// `step_diffusion`'s gather makes of every position it gathers. Until
+/// 2026-10-22 they were three functions, `sample`, `blocked_and_glow` and
+/// `is_moisture_source`, each repeating the address arithmetic and the
+/// fetch. Each value is the one its old function returned, out of bounds
+/// and on a missing tile alike, so the gather cannot tell the difference.
+///
+/// The blocked and glow half, `(is_blocked, glows)` in a single tile fetch,
+/// was `blocked_and_glow` until 2026-10-22, for `step_diffusion`'s
 /// neighbour read — the diffusion hot path, where asking the two questions
 /// through separate functions cost a second `HashMap` fetch of the same
 /// tile for every blocked neighbour (the first version did, and the paired
@@ -929,7 +922,7 @@ pub(crate) fn is_moisture_source<T: TileLookup + ?Sized>(
 /// per-block array read for the overwhelmingly common tile with no glow
 /// anywhere.
 ///
-/// The glow half exists for exactly the reason `is_moisture_source` does:
+/// The glow half exists for exactly the reason the moisture-source read does:
 /// `blocked` goes true for a whole 8x8 block the moment one cell in it is
 /// `Solid`, and a glowing lining is by definition solid, so the generic
 /// wall rule in `step_diffusion` read a lit lining's block as "contributes
@@ -939,22 +932,28 @@ pub(crate) fn is_moisture_source<T: TileLookup + ?Sized>(
 /// test, not by eye. Out of bounds is a wall that does not glow; a missing
 /// tile is open and dark — both halves match `is_blocked`'s own edge
 /// semantics.
-fn blocked_and_glow<T: TileLookup + ?Sized>(
+#[inline]
+fn diffusion_read<T: TileLookup + ?Sized>(
     tiles: &T,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
-) -> (bool, bool) {
+) -> (FieldCell, bool, bool, bool) {
     if let Some(b) = bounds {
         if !b.contains(world_x, world_y) {
-            return (true, false);
+            return (FieldCell::AMBIENT, true, false, false);
         }
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
     match tiles.tile(tile_coord) {
-        Some(tile) => (tile.is_blocked_local(lx, ly), tile.has_glow && tile.glow_local(lx, ly) > 0.0),
-        None => (false, false),
+        Some(tile) => (
+            tile.get_local(lx, ly),
+            tile.is_blocked_local(lx, ly),
+            tile.has_glow && tile.glow_local(lx, ly) > 0.0,
+            tile.moisture_source_local(lx, ly) > 0.0,
+        ),
+        None => (FieldCell::AMBIENT, false, false, false),
     }
 }
 
@@ -3959,9 +3958,7 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
                 }
                 let (wx, wy) = (ox + (px - 1) * FIELD_SCALE, oy + (py - 1) * FIELD_SCALE);
                 let i = (py * SPAN + px) as usize;
-                ring_cell[i] = sample(&old, bounds, wx, wy);
-                (ring_blocked[i], ring_glows[i]) = blocked_and_glow(&old, bounds, wx, wy);
-                ring_source[i] = is_moisture_source(&old, bounds, wx, wy);
+                (ring_cell[i], ring_blocked[i], ring_glows[i], ring_source[i]) = diffusion_read(&old, bounds, wx, wy);
             }
         }
         let at = |lx: i32, ly: i32| ((ly + 1) * SPAN + lx + 1) as usize;
@@ -3982,7 +3979,7 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
                 //
                 // One exception, folded into this closure and answered in
                 // the same tile fetch as the blocked test itself
-                // (`blocked_and_glow` — this is the diffusion hot path, and
+                // (`diffusion_read` — this is the diffusion hot path, and
                 // both a separate light-only closure and a separate
                 // `is_glow_source` call were written first; each cost an
                 // extra `HashMap` fetch per neighbour, the second one
