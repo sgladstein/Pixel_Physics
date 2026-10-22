@@ -5817,6 +5817,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   hm2 and hm3 (hm3 with a sharp `PP_FAR_CTX` sense) all starve more than hA1. No genome recommended; owner: "neither
   yet". Patches (scratch, env-gated), tools and genomes are in `starve-trace-2026-10-22/`.
 
+- [brain-training/teacher-training/far-home-sense-2026-10-22.md](brain-training/teacher-training/far-home-sense-2026-10-22.md) —
+  **a home sense that stays sharp far out, and the come-home lesson it makes copyable.** `PP_HOMEVEC=R:W` puts
+  "how far past R from home" on a borrowed context slot, and that times the step's cosine to home on an unwritten
+  option feature. Both read exactly 0 near home. A copy that trains only those 48 weights (hc1) cuts roamer deaths
+  as much as the teacher driving (2.69 -> 0.75 per colony) with food and digging unchanged. Stacked with the maze
+  thread's "lay B only while carrying" edit (hcs): 4.31 -> 1.22 starved per 24, food home +13%; handed to the
+  Teacher lane. Trail rule 2 still does not copy (its blocker is "on the trail", a comparison across options, not
+  the home sense). Patch, genomes, copiers and scripts in `far-home-sense-2026-10-22/`.
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
