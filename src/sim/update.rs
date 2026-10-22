@@ -574,8 +574,12 @@ pub(crate) fn update_soil_water_cell<S: CellSurface>(surface: &mut S, x: i32, y:
     // `infiltration_conserves_water_it_cannot_fit` passed against the gated
     // version only because infiltration never ran at all in that setup.
     let mut drank = false;
+    // No liquid can be beside the cell (2026-10-22, `CellSurface::
+    // no_liquid_beside`): the four reads below would each find nothing, so
+    // they are not made. Most of the bed is like this most of the time.
+    let infiltrate = !surface.no_liquid_beside(x, y);
     for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
-        if moisture >= capacity {
+        if !infiltrate || moisture >= capacity {
             break;
         }
         let n = surface.get(x + dx, y + dy);

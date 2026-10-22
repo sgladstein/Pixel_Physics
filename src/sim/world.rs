@@ -13466,6 +13466,13 @@ impl CellSurface for MoistureView<'_> {
         self.world.soil_through_roots
     }
 
+    #[inline(always)]
+    fn no_liquid_beside(&self, x: i32, y: i32) -> bool {
+        // All four neighbours inside this chunk: the rect test on the corners
+        // of the 3x3 around `(x, y)`, which covers the plus sign.
+        !self.chunk.has_liquid() && self.is_inner(x - 1, y - 1) && self.is_inner(x + 1, y + 1)
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         self.world.organism_due(base_interval)
     }
