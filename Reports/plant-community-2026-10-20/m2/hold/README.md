@@ -173,3 +173,31 @@ trained shrub ends 381-622 cells against the start's 516-742. The tree did
 not move: no child of the re-fit tree both kept its size and spared its
 neighbour. The herb and tree champions are level with or behind shipped on
 this score, so the re-fit was a poor place for them to start.
+
+## Rung 4 paying seed set, and the four roles retrained (2026-10-22)
+
+The mixed bed at 450,000 frames (`../community/`) showed the floor-trained
+herb dying out from short seed. `Census::seeds_set` now carries the
+founder's `OrganismState::seeds_set`, and `sized_score` pays a plant that
+set seed `4 + seeds` against the control's mean on the log size scale --
+the plan's step 5, which had been paid only for seedlings established
+inside the bed and so almost never. Seed set beside a tree / a herb
+(`seeds_probe.txt`): shipped herb 13.4 / 34.4, rung-2 re-fit 23.4 / 44.4,
+floor champion **10.0 / 16.9**. The new floored score ranks the floor herb
+below shipped beside a tree (3.72 against 4.11; `seeds_probe_scored.txt`).
+
+Retrained from the floor champions (`seeds/<role>/`;
+`/mnt/project-files/plant-community/runners/hold_seeds.sh`). Final set, 18
+beds, against shipped:
+
+| role | start | score champion | random champion | control |
+|---|---|---|---|---|
+| shrub | 3.87 | **4.00** (+1.17 +/-0.32, ahead 16 of 17) | 3.34 | 2.83 |
+| tree | 3.62 | **4.10** (+0.79 +/-0.53, ahead 15 of 17) | 3.24 | 3.31 |
+| herb | 3.68 | 4.07 (-0.03 +/-0.17) | 4.05 | 4.11 |
+| creeper | 3.85 | 3.82 (-0.08 +/-0.19) | 3.98 | 3.90 |
+
+Selection climbed seed in every role it moved: the shrub sets 19-53 seeds
+a life against its start's 10-35, the tree 46-87 against 25-34, and the herb
+is back to shipped (13-42 against its start's 10-21). Random selection
+moved none of them. The creeper did not move.
