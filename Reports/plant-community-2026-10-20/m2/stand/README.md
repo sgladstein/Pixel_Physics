@@ -49,3 +49,34 @@ gone by 450,000 frames on nearly every seed. Two cautions:
   before any training on it.
 - **The tree pays its residents.** Where it gets in, the residents lose a
   third of their shoot. The other roles cost them little.
+
+## Is the rung repeatable? Not at 12 seeds (`rep/herb_s*.txt`)
+
+Plan §12 (M8) asks for this before any training on the rung. The herb was
+sown into the same gapped stand (the residents now include the shipped
+trained shrub, PR #814) on 24 seeds, 150,000 frames, in five arms: none,
+shipped, and the three trained herbs (`hold/seeds`, `hold/floor`, `refit`).
+The 24 seeds were split into two independent halves of 12:
+
+| herb arm | alive, seeds 1-12 | alive, 13-24 | mean shoot, 1-12 | mean shoot, 13-24 | beats shipped on shoot (wins-losses), 1-12 | 13-24 |
+|---|---|---|---|---|---|---|
+| none (control) | 0 | 0 | 0 | 0 | | |
+| shipped | 5 | 6 | 356 | 249 | | |
+| seeds | 7 | 4 | 514 | 296 | 4-3 | 3-3 |
+| floor | 3 | 2 | 281 | 242 | 2-3 | 2-4 |
+| refit | 7 | 3 | 1,157 | 494 | **7-0** | **3-3** |
+
+- **"Alive out of 12" cannot rank arms.** It reverses between halves
+  (shipped 5 -> 6, refit 7 -> 3), a swing of three beds either way.
+- **Mean shoot keeps its order** (refit > seeds > shipped > floor in both
+  halves), but it is set by a few large beds: the median bed has no herb at
+  all in most arms.
+- **The paired comparison does not replicate.** Refit beat the shipped herb
+  on 7 of 7 decided seeds in the first half and 3 of 6 in the second. A
+  trainer scoring a candidate on 12 beds of this rung would be selecting on
+  which seeds it drew.
+
+So the rung needs either more beds per candidate (24 is the least that
+showed any stable order) or a quantity with less spread than invasion
+success, before it can be a training rung. The floor herb is the one
+consistent result: last or level in every split.

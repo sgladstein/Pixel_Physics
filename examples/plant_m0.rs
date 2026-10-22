@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -287,17 +287,25 @@ fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
     w.shade_plasticity = get(m, "shade", u8::from(w.shade_plasticity)) != 0;
     w.shade_scald = get(m, "scald", u8::from(w.shade_scald)) != 0;
     w.seedling_waits = get(m, "waits", u8::from(w.seedling_waits)) != 0;
+    // `reserves=1`: `World::seedling_reserves`.
+    w.seedling_reserves = get(m, "reserves", u8::from(w.seedling_reserves)) != 0;
+    // `settle=1`: `World::seed_settles`.
+    w.seed_settles = get(m, "settle", u8::from(w.seed_settles)) != 0;
     if let Some(spec) = m.get("genes") {
         for item in spec.split(',') {
             let parts: Vec<&str> = item.split(':').collect();
-            let [name, gene, value] = parts[..] else { panic!("genes=SPECIES:avoid|tolerate:VALUE,...") };
+            let [name, gene, value] = parts[..] else { panic!("genes=SPECIES:avoid|tolerate|germ:VALUE,...") };
             let id = w.species.id_of(name).unwrap_or_else(|| panic!("genes: no species {name}"));
-            let param = match gene {
-                "avoid" => ParamId::ShadeAvoid,
-                "tolerate" => ParamId::ShadeTolerate,
-                other => panic!("genes: {other} is not avoid|tolerate"),
+            // `germ`: the seed's `Germinate.light_threshold` (absolute
+            // light, open 2.40), the first of the three walls a seed meets
+            // under a canopy -- a gene, so selection can move it.
+            let (cell_type, param) = match gene {
+                "avoid" => (CellType::GrowingTip, ParamId::ShadeAvoid),
+                "tolerate" => (CellType::GrowingTip, ParamId::ShadeTolerate),
+                "germ" => (CellType::Seed, ParamId::GerminateLight),
+                other => panic!("genes: {other} is not avoid|tolerate|germ"),
             };
-            assert!(w.species.set_param(id, CellType::GrowingTip, param, 0, value.parse().expect("gene value")), "genes: {name} has no Grow on its growing tip");
+            assert!(w.species.set_param(id, cell_type, param, 0, value.parse().expect("gene value")), "genes: {name} has no {gene} gene");
         }
     }
     println!("plant_m0 shade_plasticity={} shade_scald={} open_light={:.2} genes={}", w.shade_plasticity, w.shade_scald, w.open_light, m.get("genes").map_or("none", String::as_str));
@@ -1058,13 +1066,14 @@ fn trace_founder(w: &World, id: OrganismId, label: &str) {
         let &(x, y) = st.cells.keys().next().expect("one cell");
         let (here, below) = (w.get(x, y), w.get(x, y + 1));
         println!(
-            "    TRACE {label} seed at ({x},{y}) {} type {:?} light {:.2} | below {} holds {} available {:.2}",
+            "    TRACE {label} seed at ({x},{y}) {} type {:?} light {:.2} | below {} holds {} available {:.2} owned {}",
             w.materials.get(here.material).name,
             organism::cell_type(here.aux()),
             pixel_physics::sim::plant::ambient_light_above(w, x, y),
             w.materials.get(below.material).name,
             w.materials.get(below.material).water_capacity,
-            pixel_physics::sim::update::plant_available_fraction(below)
+            pixel_physics::sim::update::plant_available_fraction(below),
+            below.organism_id() != 0
         );
     }
     let (mut leaves, mut tips, mut buds, mut carbon, mut light) = (0, 0, 0, 0.0f32, 0.0f32);
@@ -1094,6 +1103,18 @@ fn trace_founder(w: &World, id: OrganismId, label: &str) {
         st.nutrient_status,
         st.senescent
     );
+    // `PIXEL_PHYSICS_TRACE_CELLS=1`: a small plant cell by cell -- what each
+    // cell is and the carbon it holds, which is where a seedling's stake
+    // went when its tip reads too poor to grow.
+    if std::env::var("PIXEL_PHYSICS_TRACE_CELLS").is_ok() && st.cells.len() <= 32 {
+        let mut cells: Vec<_> = st.cells.keys().copied().collect();
+        cells.sort_by_key(|&(x, y)| (y, x));
+        let row: Vec<String> = cells
+            .iter()
+            .map(|&(x, y)| format!("{:?}@{},{}={:.2}", organism::cell_type(w.get(x, y).aux()).unwrap_or(CellType::Seed), x, y, w.carbon_at(x, y)))
+            .collect();
+        println!("    CELLS {label} {}", row.join(" "));
+    }
 }
 
 fn plastic(m: &BTreeMap<String, String>) {
@@ -1226,6 +1247,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                             for r in log.iter().filter(|r| r.organism == id && !r.root) {
                                 *by.entry(format!("{:?}", r.why)).or_default() += 1;
                             }
+                            // `PIXEL_PHYSICS_TRACE_CELLS=1`: every shoot-tip visit,
+                            // with the carbon it held against the price of a cell.
+                            if std::env::var("PIXEL_PHYSICS_TRACE_CELLS").is_ok() {
+                                for r in log.iter().filter(|r| r.organism == id && !r.root) {
+                                    println!("    VISIT f={} ({},{}) order {} carbon {:.3} cost {:.3} why {:?} retired {}", r.frame, r.x, r.y, r.order, r.carbon, r.cost, r.why, r.retired);
+                                }
+                            }
                             log.clear();
                             println!("    WHYS {label} s={s} f={f} {by:?}");
                         }
@@ -1253,12 +1281,13 @@ fn plastic(m: &BTreeMap<String, String>) {
                 // within seed rather than by mean of survivors: a shoot's
                 // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
                 println!(
-                    "    SEED {label} s={s} shoot {} sprouts {} shed shade {} scald {} waits {}",
+                    "    SEED {label} s={s} shoot {} sprouts {} shed shade {} scald {} waits {} reserves {}",
                     form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])),
                     w.collar_sprouts,
                     w.shed_shade,
                     w.shed_scald,
-                    w.seedling_waits_held
+                    w.seedling_waits_held,
+                    w.seedling_reserves_drawn
                 );
                 if let Some(f) = form(&w, id, bed.ground_y) {
                     rows.push(f);
@@ -1485,9 +1514,10 @@ fn stand(m: &BTreeMap<String, String>) {
     let (mut w, bed, scenario, residents, mix_name, placed) = community_bed(m);
     assert!(!residents.contains(&role.as_str()), "role={role} is also a resident of mix={mix_name}");
     let (grow, window, sample, sow, gap) = (get(m, "grow", 60_000u64), get(m, "window", 80_000u64), get(m, "sample", 10_000u64), get(m, "sow", 3usize), get(m, "gap", 0i32));
+    let gapat = get(m, "gapat", 0u64);
     let arms: Vec<String> = get(m, "arms", "none,shipped".to_string()).split(',').map(str::to_string).collect();
     println!(
-        "plant_m0 stand: role={role} mix={mix_name} {residents:?} seed={} width={} grow={grow} window={window} sample={sample} sow={sow} gap={gap} arms={} plants_placed={placed}",
+        "plant_m0 stand: role={role} mix={mix_name} {residents:?} seed={} width={} grow={grow} window={window} sample={sample} sow={sow} gap={gap} gapat={gapat} arms={} plants_placed={placed}",
         bed.seed,
         bed.width,
         arms.join(",")
@@ -1540,30 +1570,92 @@ fn stand(m: &BTreeMap<String, String>) {
                     // germinated, shipped or trained, so every tree arm
                     // ended cell-identical to the shipped one and the rung
                     // could not tell a flooding tree from any other.
-                    if gap > 0 {
+                    //
+                    // `gapat=F`: cut it F frames into the window instead, over
+                    // seed sown under the closed stand -- whether a seedling
+                    // bank waiting on the floor is released when the canopy
+                    // opens (advance regeneration), which is what
+                    // `World::seedling_reserves` is for.
+                    // A late cut spares the sown role: a fallen crown opens
+                    // the floor, it does not clear the seedlings waiting on
+                    // it (first measured with them cut too, 2026-10-22, and
+                    // the bank was the thing erased).
+                    let cut = |c: &mut World, spare: bool| {
+                        let role_id = c.species.id_of(role);
                         for i in 0..sow {
                             let x0 = (bed.width as f32 * (i as f32 + 0.5) / sow as f32) as i32 - gap / 2;
                             for x in x0.max(0)..(x0 + gap).min(bed.width) {
                                 for y in 0..bed.ground_y {
-                                    if c.get(x, y).organism_id() != 0 {
+                                    let id = c.get(x, y).organism_id();
+                                    if id != 0 && !(spare && c.organism(id).map(|o| o.species) == role_id) {
                                         c.set(x, y, Cell::EMPTY);
                                     }
                                 }
                             }
                         }
+                    };
+                    if gap > 0 && gapat == 0 {
+                        cut(&mut c, false);
                     }
+                    let mut sown: Vec<OrganismId> = Vec::new();
                     if arm != "none" {
                         let at: Vec<Placement> =
                             (0..sow).map(|i| Placement::Plant { species: role.to_string(), x: (bed.width as f32 * (i as f32 + 0.5) / sow as f32) as i32 }).collect();
+                        let before: std::collections::HashSet<_> = c.live_organism_ids().into_iter().collect();
                         let n = pixel_physics::lab::scenario::apply_placements(&mut c, &at, bed);
-                        out.push(format!("sown {} of {sow}", n.plants));
+                        // `endow=X`: each sown seed carries X carbon, as a
+                        // seed its parent bred would (`Reproduce.seed_cost`,
+                        // 0.25 for shrub and creeper), instead of a planted
+                        // seed's 0 -- so the rung sows what natural
+                        // recruitment drops. Default 0, the old behaviour.
+                        let stake = get(m, "endow", 0.0f32);
+                        sown = c.live_organism_ids().into_iter().filter(|id| !before.contains(id)).collect();
+                        if stake > 0.0 {
+                            for &id in &sown {
+                                pixel_physics::sim::plant::endow_seed(&mut c, id, stake);
+                            }
+                        }
+                        out.push(format!("sown {} of {sow} endow {stake}", n.plants));
+                    }
+                    // `trace=N`: every sown plant every N frames (printed as it
+                    // runs, so give it one arm), and how each one died.
+                    let trace = get(m, "trace", 0u64);
+                    if trace > 0 {
+                        c.death_log = Some(Vec::new());
                     }
                     let (mut p, mut b) = (ParticleSystem::new(), Blasts::new());
                     for f in 1..=window {
                         pixel_physics::lab::tick_world(&mut c, &mut p, &mut b, &tuning, bed, Some(scenario));
+                        if gap > 0 && f == gapat {
+                            cut(&mut c, true);
+                            out.push(format!("f={f} gap cut | {}", row(&c)));
+                        }
+                        if trace > 0 && f % trace == 0 {
+                            for (i, &id) in sown.iter().enumerate() {
+                                if c.organism(id).is_some() {
+                                    trace_founder(&c, id, &format!("f={f} sown{i}"));
+                                }
+                            }
+                        }
                         if f % sample == 0 || f == window {
                             out.push(format!("f={f} | {}", row(&c)));
                         }
+                    }
+                    out.push(format!(
+                        "SWITCHES reserves_drawn {} settled {} heaved {} germinations {}",
+                        c.seedling_reserves_drawn, c.seeds_settled, c.seeds_heaved, c.germinations
+                    ));
+                    for d in c.death_log.iter().flatten().filter(|d| sown.contains(&d.id)) {
+                        out.push(format!(
+                            "DEATH sown{} at f={} age {} cause {:?} declared {} dormant_seed {} at {:?}",
+                            sown.iter().position(|&id| id == d.id).unwrap_or(0),
+                            d.frame,
+                            d.frame - d.born_frame,
+                            d.cause,
+                            d.declared,
+                            d.dormant_seed,
+                            d.at
+                        ));
                     }
                     out
                 })

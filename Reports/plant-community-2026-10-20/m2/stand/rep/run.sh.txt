@@ -1,0 +1,4 @@
+cd /home/claude/Pixel_Physics
+for s in $(seq 1 24); do
+grep -q "plant_m0 done" /tmp/claude-0/rep/herb_s$s.txt 2>/dev/null || ./target/release/examples/plant_m0 mode=stand role=herb mix=stand-herb width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$s grow=60000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,Reports/plant-community-2026-10-20/m2/hold/seeds/herb/score_best.ron,Reports/plant-community-2026-10-20/m2/hold/floor/herb/score_best.ron,Reports/plant-community-2026-10-20/m2/refit/herb/score_best.ron > /tmp/claude-0/rep/herb_s$s.txt 2>&1
+done

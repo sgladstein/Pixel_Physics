@@ -1,0 +1,7 @@
+#!/bin/bash
+# role seed reserves germ
+role=$1; seed=$2; r=$3; g=$4
+out=/tmp/claude-0/sh/st/${role}_s${seed}_r${r}_g${g}.txt
+grep -q "plant_m0 done" $out 2>/dev/null && exit 0
+genes=""; [ "$g" != "def" ] && genes="genes=$role:germ:$g"
+/tmp/claude-0/sh/plant_m0_b mode=stand role=$role mix=stand-$role width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed grow=60000 window=80000 sample=10000 sow=4 scald=1 waits=1 endow=0.25 reserves=$r $genes arms=shipped > $out 2>&1

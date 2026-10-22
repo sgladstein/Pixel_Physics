@@ -1,0 +1,5 @@
+#!/bin/bash
+role=$1; seed=$2; st=$3
+out=/tmp/claude-0/sh/st2/${role}_s${seed}_settle${st}.txt
+grep -q "plant_m0 done" $out 2>/dev/null && exit 0
+/tmp/claude-0/sh/plant_m0_e mode=stand role=$role mix=stand-$role width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed grow=60000 window=80000 sample=10000 sow=4 scald=1 waits=1 endow=0.25 reserves=1 settle=$st genes=$role:germ:0.02 arms=shipped > $out 2>&1

@@ -1061,6 +1061,19 @@ the review (§12), **M1 runs in this order**:
    tip gives up on (`World::seedling_waits`, off, fixes part), then a first
    leaf and a root it cannot pay for.
 
+   **The seedling fixed, the floor still too dark, 2026-10-22** (owner's
+   choice A; `Reports/plant-community-2026-10-20/m2/shade-seedling/`).
+   `World::seedling_reserves` (off): a leafless seedling funds its first
+   leaf from its seed's carbon, which surplus-only allocation never moved.
+   `World::seed_settles` (off): the parked seed-settle rule, narrowed --
+   a seed sinks through litter and deadwood, a sprout lifts what lies on it.
+   Under a grown stand the creeper then keeps a seedling bank (alive at the
+   end on 8 of 12 beds against 0), but the floor reads 0.4-1.7% of open
+   light at the ground, below what any shade gene in range can grow in, and
+   a gap opened over the bank releases it on only 2 of 8. A retrain for
+   that floor would select where nothing grows; the next lever is the
+   light (a crown that lets more through, or a canopy that opens).
+
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
    some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`
