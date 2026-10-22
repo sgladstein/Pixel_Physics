@@ -1528,30 +1528,34 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         latched: false,
         icon: None,
         ratio: Some(ratio),
-        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. STOPPED, IT SAYS PAUSED -- NO TICK RUNS, SO THERE IS NOTHING TO REPORT.".to_string(),
+        note: format!(
+            "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. STOPPED, IT SAYS PAUSED -- NO TICK RUNS, SO THERE IS NOTHING TO REPORT. << AND >> STEP THE DIAL; KEYS 1 TO {} JUMP TO {}.",
+            state.presets.len().min(9),
+            state.presets.iter().take(9).map(|m| format!("{m}X")).collect::<Vec<_>>().join(" ")
+        ),
     };
 
-    // Group 2 — the speed ladder, one chip per stop.
-    // The caption is derived from the position, not from a list that has to
-    // be kept the same length as the ladder: the ladder gained a seventh stop
-    // and a hand-written list of six would have left that chip captionless.
-    let presets: Vec<Spec> = state
-        .presets
-        .iter()
-        .enumerate()
-        .map(|(i, mult)| {
-            let label = format!("{mult}X");
-            let key = if i < 9 { (i + 1).to_string() } else { String::new() };
-            Spec {
-                width: cell_width(hud::text_width(&label), &key, pad),
-                line1: label,
-                line2: key,
-                action: Some(Action::Preset(i)),
-                latched: state.requested == *mult,
-                icon: None,
-                ratio: None,
-                note: "RUN AT THIS MULTIPLE OF REAL TIME, STARTING THE BOX IF IT IS STOPPED. 1X IS REAL TIME. THE TOP OF THE LADDER IS DELIBERATELY PAST WHAT ANY BOX CAN DO -- THAT IS HOW THE ACHIEVED READOUT EARNS ITS KEEP.".to_string(),
-            }
+    // Group 2 — **the pages you watch, one button each** (plan step 3,
+    // 2026-10-22). They were reachable only through MENU or an F key; the
+    // seven speed chips that held this room are gone, because the readout
+    // beside `<<`/`>>` already says what the dial asks for and keys 1 to 7
+    // still jump straight to a stop.
+    let pages: Vec<Spec> = [(Panel::Plants, "F1"), (Panel::Ants, "F2"), (Panel::History, "F5"), (Panel::Box, "F3")]
+        .into_iter()
+        .map(|(p, key)| {
+            button(
+                p.title(),
+                key,
+                Action::Panel(p),
+                state.panel == Some(p),
+                match p {
+                    Panel::Plants => "THE PLANTS PAGE: HOW MANY, WHAT THEY ARE DOING, HOW MUCH THEY HOLD.",
+                    Panel::Ants => "THE ANTS PAGE: HOW MANY, WHAT THEY ARE DOING, THEIR ENERGY, AND THE COLONIES OVER TIME.",
+                    Panel::Box => "THE BOX ITSELF: ITS BED AND SOIL, RAIN, HOW FAST PLANTS GROW, ITS SEED, AND HOW HARD THE MACHINE IS WORKING.",
+                    _ => "WHICH LINES HAVE LOST ANYONE OR ENDED, HOW, AND HOW LONG THEY LASTED.",
+                },
+                pad,
+            )
         })
         .collect();
 
@@ -1571,6 +1575,11 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     // mouse-only player reaches everything a keyboard player already could.
     // Every key below still works exactly as it did -- this is one more
     // route in, not a replacement for the other three.
+    //
+    // (2026-10-22: PLANTS, ANTS and HISTORY are chips again, in the room the
+    // seven speed chips gave back -- group 2 above. `RESET` left the bar for
+    // MENU's EXPERIMENT group, where it is `REBUILD`, still on `R` and still
+    // asking twice.)
     let panels = [
         button(
             "MENU",
@@ -1594,14 +1603,6 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
             Action::Help,
             state.help,
             "THE KEY LIST. EVERY BUTTON ON THIS BAR ALSO HAS A KEY, AND THE KEY IS PRINTED UNDER THE BUTTON.",
-            pad,
-        ),
-        button(
-            "RESET",
-            "R",
-            Action::Reset,
-            false,
-            "TEAR THE BOX DOWN AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT.",
             pad,
         ),
     ];
@@ -1750,7 +1751,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
 
     let rows: [Vec<Vec<Spec>>; ROWS] = [
         vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay]],
-        vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
+        vec![vec![phase, slower, readout, faster], pages, panels.into_iter().collect()],
     ];
 
     let mut widgets = Vec::new();
@@ -13421,13 +13422,13 @@ mod tests {
         // Row 0: one chip per tool, the species chip, two brush steps, the
         // overlay and the shelf -- `PARAMS` moved to a MENU row, 2026-09-12
         // (`P` still opens it directly). Row 1: three transport buttons (the
-        // readout is not one), one chip per stop on the ladder, `MENU`
-        // itself (which folded `PLANTS`/`ANTS`/`BOX`), and `STATS`/`HELP`/
-        // `RESET`. Written as the sum rather than as a literal so that
-        // growing either list does not have to come here.
+        // readout is not one), the four page chips that replaced the
+        // ladder's seven (2026-10-22), and `MENU`/`STATS`/`HELP` -- `RESET`
+        // went into MENU. Written as the sum rather than as a literal so
+        // that growing either list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 4,
+            TOOLS.len() + 1 + 1 + 2 + 1 + 1 + 3 + 4 + 3,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.
@@ -13491,22 +13492,18 @@ mod tests {
         assert_eq!(line2(false, 1), "NO TICKS");
     }
 
-    /// The latch is the only thing on the bar saying which preset is live, and
-    /// exactly one of them must claim it.
+    /// **The readout is the one thing on the bar saying which stop is live**,
+    /// now the seven speed chips are gone (plan step 3): running, it names
+    /// the stop asked for at every stop on the ladder.
     #[test]
-    fn exactly_one_speed_chip_is_latched() {
-        for (i, requested) in super::super::time::PRESETS.iter().enumerate() {
-            let bar = layout(&state(*requested > 1, *requested));
-            let latched: Vec<usize> = bar
-                .widgets
-                .iter()
-                .enumerate()
-                .filter(|(_, w)| w.latched && matches!(w.action, Some(Action::Preset(_))))
-                .map(|(j, _)| j)
-                .collect();
-            assert_eq!(latched.len(), 1, "{requested}x latched {} chips", latched.len());
-            assert_eq!(bar.widgets[latched[0]].line1, format!("{requested}X"));
-            assert_eq!(bar.widgets[latched[0]].action, Some(Action::Preset(i)));
+    fn the_readout_names_the_stop_asked_for() {
+        for requested in super::super::time::PRESETS {
+            let bar = layout(&state(true, requested));
+            assert!(
+                bar.widgets.iter().any(|w| w.line1 == format!("ASK {requested}X")),
+                "no readout says ASK {requested}X"
+            );
+            assert!(!bar.widgets.iter().any(|w| matches!(w.action, Some(Action::Preset(_)))), "a speed chip came back");
         }
     }
 
@@ -13516,12 +13513,13 @@ mod tests {
 
     /// A button fires on release **over itself**, so a press can be taken back
     /// by sliding off it. `REBUILD` is the reason: a control that threw the box
-    /// away on the way past would be one mis-click from losing a run.
+    /// away on the way past would be one mis-click from losing a run. It lives
+    /// in MENU now, so a page chip stands in for it here; the rule is the bar's.
     #[test]
     fn a_press_slid_off_its_button_fires_nothing() {
         let s = state(false, 1);
         let mut ui = armed(&s);
-        let reset = ui.widget_rect(Action::Reset).expect("REBUILD is on the bar");
+        let reset = ui.widget_rect(Action::Panel(Panel::Plants)).expect("PLANTS is on the bar");
         let elsewhere = ui.widget_rect(Action::Stats).expect("STATS is on the bar");
         ui.press(reset.x + 2, reset.y + 2);
         assert_eq!(ui.release(elsewhere.x + 2, elsewhere.y + 2), Release::Consumed);
@@ -13531,7 +13529,7 @@ mod tests {
         // being dead.
         let mut ui = armed(&s);
         ui.press(reset.x + 2, reset.y + 2);
-        assert_eq!(ui.release(reset.x + 2, reset.y + 2), Release::Fired(Action::Reset));
+        assert_eq!(ui.release(reset.x + 2, reset.y + 2), Release::Fired(Action::Panel(Panel::Plants)));
     }
 
     /// A click on the interface must not also reach the world behind it —
@@ -15349,37 +15347,21 @@ mod tests {
         assert_eq!(faces[0].0, legend[0].0, "and it keeps its place in the order: {faces:?}");
     }
 
-    /// **The ladder grew a seventh stop the same day this bar was written and
-    /// pushed `REBUILD` off the right edge.** The bar now tightens rather than
-    /// overflowing, and this is the guard over that — asserted for a ladder
-    /// one stop longer than the real one, so the next stop is caught here
-    /// rather than in a screenshot.
-    #[test]
-    fn the_bar_still_fits_a_longer_speed_ladder() {
-        const LONGER: [u32; 8] = [1, 2, 4, 8, 16, 64, 256, 1024];
-        let mut s = state(true, 64);
-        s.presets = &LONGER;
-        let bar = layout(&s);
-        assert!(bar.fits(), "an eight-stop ladder does not fit");
-        // ...and the sensitivity half: a ladder long enough that no spacing
-        // can hold it must *report* that, rather than quietly dropping a
-        // control or silently overlapping two.
-        const ABSURD: [u32; 20] = [1; 20];
-        let mut s = state(true, 1);
-        s.presets = &ABSURD;
-        assert!(!layout(&s).fits(), "a twenty-stop ladder claimed to fit");
-    }
+    // `the_bar_still_fits_a_longer_speed_ladder` stood here: it guarded the
+    // seven speed chips' width, and they left the bar on 2026-10-22 (plan
+    // step 3). The ladder no longer sets any width, so the guard went with
+    // them; `the_bar_fits_the_screen_and_no_two_widgets_overlap` still holds
+    // the bar itself.
 
-    /// Every stop on the ladder has a key printed under it. The caption used
-    /// to come from a hand-written list of six; the seventh stop arrived and
-    /// that chip had no caption and no key at all.
+    /// **Every page chip prints the key `bin/lab.rs` binds to it**, and the
+    /// three pages are there at all. A caption that is not the key is worse
+    /// than none (the species chip's `;` taught that).
     #[test]
-    fn every_speed_chip_shows_a_key() {
+    fn every_page_chip_shows_its_key() {
         let bar = layout(&state(false, 1));
-        for wid in &bar.widgets {
-            if let Some(Action::Preset(i)) = wid.action {
-                assert_eq!(wid.line2, (i + 1).to_string(), "{:?} names the wrong key", wid.line1);
-            }
+        for (panel, key) in [(Panel::Plants, "F1"), (Panel::Ants, "F2"), (Panel::History, "F5"), (Panel::Box, "F3")] {
+            let chip = bar.widgets.iter().find(|w| w.action == Some(Action::Panel(panel)));
+            assert_eq!(chip.map(|w| w.line2.as_str()), Some(key), "{panel:?}'s chip");
         }
     }
 
