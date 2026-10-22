@@ -494,6 +494,49 @@ fn decayed(v: Scent, factor: u32) -> Scent {
     scaled.min(v - 1)
 }
 
+/// `x.round().clamp(0.0, Scent::MAX as f32) as Scent`, exactly, without the
+/// libm call.
+///
+/// **Why it exists, measured.** `f32::round` is not an instruction on the
+/// baseline x86-64 target (SSE4.1's `roundss` is not assumed), so it compiles
+/// to a call into libm's `roundf`, once per cell of every awake tile of
+/// every pass. In the trainer's fetch and soil arenas that call alone was
+/// 14% of all samples (`perf`, 2026-10-21, training speed thread), and the
+/// pass around it another 45%.
+///
+/// **Why it is the same function, not a close one.** The clamp first:
+/// `max(0.0)` sends a negative input, and NaN (`f32::max` ignores a NaN),
+/// to 0, which is what the original's clamp and `NaN as u16` gave; capping
+/// at `Scent::MAX + 0.5` (exact in `f32`) cannot change an answer, since
+/// everything from there up rounds to at least `Scent::MAX + 1` and clamps
+/// to `Scent::MAX` either way. Then round half away from zero for `x >= 0`
+/// is `trunc(x)`, plus one if the dropped fraction is at least a half;
+/// `x as i32` is that truncation, and in this range never saturates. For
+/// `0 <= x < 2^24` the fraction `x - trunc(x)` is exact in `f32`: both are
+/// multiples of `x`'s ulp, which is at most 1 there, and their difference
+/// is below 1. So the comparison against 0.5 sees the true fraction, which
+/// is the case `x + 0.5` then `floor` gets wrong (0.49999997 + 0.5 rounds
+/// up to 1.0). Every input the blend can produce is in `[0, Scent::MAX]`
+/// (a blend between two Scents). Checked against the original on **all
+/// 2^32 `f32` bit patterns**, 0 mismatches (a 20 s release-mode loop,
+/// 2026-10-21; a first draft without the clamp wrapped at `u32::MAX`, and
+/// that loop is what found it); the guard
+/// `round_to_scent_matches_round_everywhere` keeps the boundaries.
+///
+/// **Signed, and clamped before the cast, so the blend loop vectorises.**
+/// A float-to-`u32` cast has no SSE2 instruction and kept the loop scalar;
+/// to `i32` is one packed instruction. With the column sums below also
+/// over slices, the pass's inner loop is packed arithmetic (checked in
+/// `perf annotate`): soil arena 2,662 -> 2,464 ms, fetch 1,438 -> 1,368 ms
+/// on top of the row skip.
+#[inline]
+fn round_to_scent(x: f32) -> Scent {
+    let x = x.max(0.0).min(Scent::MAX as f32 + 0.5);
+    let whole = x as i32;
+    let up = i32::from(x - whole as f32 >= 0.5);
+    (whole + up).min(Scent::MAX as i32) as Scent
+}
+
 /// One channel's world-sized u8 plane, double-buffered for the pass.
 ///
 /// 512x320 x 1 byte x 2 buffers was ~320 KB per channel, ~640 KB for both,
@@ -666,6 +709,32 @@ impl PheromonePlane {
         let mut processed = 0;
         // Phase 1: compute into `back`, from `front` only.
         let mut new_max = self.tile_max.clone();
+        // **Which row of which tile holds any scent at all**, read once per
+        // pass from `front`: one flag per row per tile column. A row whose
+        // flag is clear, with its neighbours above and below clear as well,
+        // has nothing within a 3x3 reach, so it comes out zero and needs
+        // neither the column sums nor the blend: every `here` and every
+        // `sum` is 0, and the blend, round and decay of 0 is 0 for any
+        // `diffuse` (even a NaN one, which `round_to_scent` reads as 0). In
+        // the trainer's arenas most rows of an awake tile are like this -- a
+        // trail is a few rows near the ground line, and a 64-cell tile wakes
+        // whole. The flag covers the whole 64-cell segment, which is wider
+        // than the one-cell halo the window needs, so a clear flag is always
+        // right and a set one only means "do the arithmetic". An OR-fold
+        // rather than `any`: `any` stops early, so it is a scalar loop with a
+        // branch per cell, and most segments are zero and read to the end
+        // anyway; the fold vectorises.
+        let live: Vec<bool> = (0..self.h)
+            .flat_map(|ly| {
+                let row = &self.front[ly * self.w..(ly + 1) * self.w];
+                row.chunks(TILE).map(|seg| seg.iter().fold(0, |acc, &v| acc | v) != 0)
+            })
+            .collect();
+        let quiet = |ly: usize, tx: usize| {
+            let lo = tx.saturating_sub(1);
+            let hi = (tx + 1).min(self.tw - 1);
+            !live[ly * self.tw + lo..=ly * self.tw + hi].iter().any(|&l| l)
+        };
         // Column sums for one row of one tile, plus the column either side of
         // it -- see the window below. On the stack and reused across every
         // tile, so the pass allocates nothing.
@@ -709,6 +778,18 @@ impl PheromonePlane {
                     let base = ly * self.w;
                     let up = if ly > 0 { Some(base - self.w) } else { None };
                     let down = if ly + 1 < self.h { Some(base + self.w) } else { None };
+                    // Nothing within reach of this row: zero out, on either
+                    // spread (active space takes a max of zeros, which is
+                    // zero, and decays it to zero). The fill is belt and
+                    // braces: `back` already holds this row's last output,
+                    // which phase 2 copied to `front`, and `front` is zero
+                    // here, so removing it changes nothing today (the guard
+                    // test stays green without it). It is kept so a quiet
+                    // row's output never rests on that invariant.
+                    if quiet(ly, tx) && (ly == 0 || quiet(ly - 1, tx)) && (ly + 1 >= self.h || quiet(ly + 1, tx)) {
+                        self.back[base + x0..base + x1].fill(0);
+                        continue;
+                    }
                     // **The active-space path is a separate row, not a branch
                     // per cell.** The trail planes are the hot ones -- two of
                     // them, every awake tile, every pass -- and the alarm
@@ -759,35 +840,36 @@ impl PheromonePlane {
                         }
                         continue;
                     }
-                    for (i, slot) in cols.iter_mut().take(span + 2).enumerate() {
-                        // `i` runs over `lx - x0 + 1`, so `i == 0` is the
-                        // column left of the tile and `i == span + 1` the one
-                        // right of it.
-                        let Some(lx) = (x0 + i).checked_sub(1) else {
-                            *slot = 0;
-                            continue;
-                        };
-                        if lx >= self.w {
-                            *slot = 0;
-                            continue;
+                    // `cols[i]` is the column `lx = x0 + i - 1`, so `i == 0`
+                    // is the column left of the tile and `i == span + 1` the
+                    // one right of it. Zeroed, then each in-plane row added
+                    // over slices: the same integer sums as a per-column
+                    // loop with a bounds test on each read, but with no
+                    // branch per cell, so it vectorises.
+                    let (lo, hi) = (x0.saturating_sub(1), (x1 + 1).min(self.w));
+                    cols[..span + 2].fill(0);
+                    let sums = &mut cols[lo + 1 - x0..hi + 1 - x0];
+                    for row in [up, Some(base), down].into_iter().flatten() {
+                        for (slot, &v) in sums.iter_mut().zip(&self.front[row + lo..row + hi]) {
+                            *slot += u32::from(v);
                         }
-                        let mut s = u32::from(self.front[base + lx]);
-                        if let Some(u) = up {
-                            s += u32::from(self.front[u + lx]);
-                        }
-                        if let Some(d) = down {
-                            s += u32::from(self.front[d + lx]);
-                        }
-                        *slot = s;
                     }
-                    for lx in x0..x1 {
-                        let i = lx - x0 + 1;
-                        let sum = cols[i - 1] + cols[i] + cols[i + 1];
-                        let here = f32::from(self.front[base + lx]);
+                    let row_cols = &cols[..span + 2];
+                    let back = &mut self.back[base + x0..base + x1];
+                    // Slices zipped rather than indexed, so the loop carries
+                    // no bounds checks and can be vectorised. Each lane does
+                    // the same IEEE operations in the same order as the
+                    // scalar form (the max is over integers), so the output
+                    // is the same bits.
+                    let front = &self.front[base + x0..base + x1];
+                    let (diffuse, factor) = (self.diffuse, self.decay_factor);
+                    for ((out_cell, &here), win) in back.iter_mut().zip(front).zip(row_cols.windows(3)) {
+                        let sum = win[0] + win[1] + win[2];
+                        let here = f32::from(here);
                         let mean = sum as f32 / 9.0;
-                        let blended = (here + (mean - here) * self.diffuse).round().clamp(0.0, Scent::MAX as f32) as Scent;
-                        let out = decayed(blended, self.decay_factor);
-                        self.back[base + lx] = out;
+                        let blended = round_to_scent(here + (mean - here) * diffuse);
+                        let out = decayed(blended, factor);
+                        *out_cell = out;
                         tile_peak = tile_peak.max(out);
                     }
                 }
@@ -1253,6 +1335,99 @@ impl Pheromones {
 
 #[cfg(test)]
 mod tests {
+    /// **`round_to_scent` is `round().clamp().as` on every input the
+    /// blend can make, and on the edges either side of it.** Swept per
+    /// integer `n` over the whole `Scent` range: the half-integer itself and
+    /// the two `f32`s either side of it, the integer and its neighbours, plus
+    /// negatives, NaN, infinities and values far above the range. Fault
+    /// check (2026-10-21, the same probes in a standalone copy): `(x + 0.5)
+    /// as u32` in its place fails at 0.49999997, dropping the `.min` fails
+    /// on 18 probes above `Scent::MAX`, and the draft without the clamp
+    /// (an unsigned cast and a plain `+`) failed at infinity and 5e9.
+    #[test]
+    fn round_to_scent_matches_round_everywhere() {
+        let reference = |x: f32| x.round().clamp(0.0, Scent::MAX as f32) as Scent;
+        let mut probes = vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.0, -0.5, -0.49999997, -1.0, -1.5, 1.0e9, 5.0e9, f32::MAX, 70_000.0, 65_535.5, 65_536.0];
+        for n in 0..=(Scent::MAX as u32 + 2) {
+            for base in [n as f32, n as f32 + 0.5] {
+                probes.extend([base, f32::from_bits(base.to_bits().wrapping_sub(1)), f32::from_bits(base.to_bits() + 1)]);
+            }
+        }
+        for x in probes {
+            assert_eq!(round_to_scent(x), reference(x), "round_to_scent({x:e}) (bits {:#x})", x.to_bits());
+        }
+    }
+
+    /// **The tiled pass is the plain 3x3 pass, cell for cell, on every
+    /// pass.** A reference written the obvious way -- every cell, nine reads,
+    /// `f32::round` -- run beside a real plane fed the same random deposits,
+    /// and every cell compared after every pass. It covers what the pass's
+    /// shortcuts skip (tile sleep, quiet rows, the inline round), on a plane whose sides are not multiples of a tile, on both
+    /// spreads and at several blends, with deposits that come and go so
+    /// rows wake and fall quiet again.
+    ///
+    /// Fault checks (2026-10-21): letting a row count as quiet without
+    /// checking the row below it fails at pass 0 of the first arm. Leaving
+    /// a quiet row's `back` unwritten stays green, correctly: see the note
+    /// on the fill in `step`.
+    #[test]
+    fn the_tiled_pass_matches_a_plain_3x3_pass() {
+        fn reference(v: &[Scent], w: usize, h: usize, diffuse: f32, factor: u32, spread: Spread) -> Vec<Scent> {
+            let at = |x: i64, y: i64| if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 { 0 } else { v[y as usize * w + x as usize] };
+            let mut out = vec![0; w * h];
+            for y in 0..h as i64 {
+                for x in 0..w as i64 {
+                    let here = at(x, y);
+                    let (mut sum, mut top) = (0u32, 0 as Scent);
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            sum += u32::from(at(x + dx, y + dy));
+                            top = top.max(at(x + dx, y + dy));
+                        }
+                    }
+                    let next = match spread {
+                        Spread::Diffuse => {
+                            let (here, mean) = (f32::from(here), sum as f32 / 9.0);
+                            (here + (mean - here) * diffuse).round().clamp(0.0, Scent::MAX as f32) as Scent
+                        }
+                        Spread::ActiveSpace { fall } => top.saturating_sub(fall).max(here),
+                    };
+                    out[y as usize * w + x as usize] = decayed(next, factor);
+                }
+            }
+            out
+        }
+        let arms = [(Spread::Diffuse, DIFFUSE), (Spread::Diffuse, LAB_B_DIFFUSE), (Spread::Diffuse, 1.0), (Spread::ActiveSpace { fall: ALARM_FALL }, DIFFUSE)];
+        for (arm, &(spread, diffuse)) in arms.iter().enumerate() {
+            let bounds = Rect::new(-7, 3, 149, 99);
+            let mut plane = PheromonePlane::with_params(bounds, diffuse, DECAY_RHO);
+            plane.set_spread(spread);
+            let (w, h) = (plane.w, plane.h);
+            let mut seed = 0x9e37_79b9_7f4a_7c15u64 ^ arm as u64;
+            let mut next = move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed
+            };
+            for pass in 0..400 {
+                // Bursts of deposits, then quiet stretches, so whole tiles
+                // and rows go to zero and come back.
+                let burst = if (pass / 50) % 2 == 0 { 6 } else { 0 };
+                for _ in 0..burst {
+                    let (x, y) = (bounds.min_x + (next() % w as u64) as i32, bounds.min_y + (next() % h as u64) as i32);
+                    plane.deposit(x, y, (next() % u64::from(Scent::MAX)) as Scent);
+                }
+                let want = reference(&plane.front, w, h, plane.diffuse, plane.decay_factor, spread);
+                plane.step();
+                if let Some(i) = (0..w * h).find(|&i| plane.front[i] != want[i]) {
+                    panic!("arm {arm} pass {pass}: cell ({}, {}) is {} where the plain pass gives {}", i % w, i / w, plane.front[i], want[i]);
+                }
+            }
+            assert!(plane.front.iter().any(|&v| v > 0) || arm == 3, "arm {arm}: the plane must hold scent at the end, or nothing was compared");
+        }
+    }
+
     /// **An alarm must reach past the cell it was written on, and it must
     /// still stop.**
     ///
