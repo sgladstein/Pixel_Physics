@@ -1995,9 +1995,11 @@ impl Challenge for Soil {
         // The nest as it stands after the settle, its door the founding
         // shaft's column. At steps 4-5 every ant's nest is a shaft and the
         // cuts round it, which read near zero whatever the ant did (s171 on
-        // the 96 test worlds, 8-row shaft, as built: -13.5 to 6.3, median
-        // -2.5): a baseline for the room steps, not a signal yet ("Dig and
-        // nest scoring", 2026-10-21).
+        // the 96 test worlds, 8-row shaft: -22.4 to 4.8, median -5.2, once
+        // the open pit at the rim is charged; -13.5 to 6.3, median -2.5
+        // before the per-column sky, which read the box's walls as ground at
+        // the lid and every pit as 0): a baseline for the room steps, not a
+        // signal yet ("Dig and nest scoring", 2026-10-22).
         let nest = match (self.nest, w.nest_sites.first()) {
             (true, Some(site)) => nestscore::of_world(&w, &sc.bed, site.x, &nestscore::HARVESTER).0.score,
             _ => 0.0,
