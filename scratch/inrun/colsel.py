@@ -35,11 +35,16 @@ GATE = int(os.environ.get('GATE', '20'))
 # replay's "best" colony made 272 cuts near the door and kept a nest of 19 cells (old ant 278), its cuts all crater.
 # DIG=cuts is colsel-1022's rule. GATE then defaults to 5 kept late cuts (one round of hA1: 19; old ant: 48).
 DIG = os.environ.get('DIG', 'nest')
+# SPOIL=1 (or MODE lex+spoil): a fifth lexicase case, less loose spoil left below the datum within 20 columns of the
+# door at the end. The kept-nest rule (colsel3-1022, 16 rounds, lesson + nest-only inheritance) reached a median nest of 225 cells against the
+# old ant's 302, but left 88 spoil cells in and around it (old ant 0) and let 437 pellets go below the datum.
 if DIG == 'nest' and 'GATE' not in os.environ:
     GATE = 5
 CG_EVERY = int(os.environ.get('CG_EVERY', '2'))
 INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # MODE 'lex+inherit' = INHERIT=1
 MODE = MODE.removesuffix('+inherit')
+SPOIL = os.environ.get('SPOIL') == '1' or MODE.endswith('+spoil')  # MODE 'lex+spoil+inherit' = SPOIL=1
+MODE = MODE.removesuffix('+spoil')
 C = [f'frames={F}', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 os.makedirs(OUT, exist_ok=True)
@@ -118,7 +123,8 @@ def ranks(vals, higher_better=True):
 def cases(v):
     """The lexicase/rank cases of a colony result, every one higher-is-better: food home, fewer starved, then digging
     (DIG=nest: kept late cuts and nest size; DIG=cuts: raw late cuts and rooms)."""
-    return (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
+    c = (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
+    return c + (-v[12],) if SPOIL else c
 
 
 def dig_passed(v):
