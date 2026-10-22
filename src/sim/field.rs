@@ -903,6 +903,58 @@ pub(crate) fn ground_wetness_at(
         .max(moisture_source_at(tiles, bounds, world_x, world_y + FIELD_SCALE))
 }
 
+/// Side of the window a tile's solve gathers its reads into: the tile's own
+/// `FIELD_TILE_SIZE` cells and a one-cell ring around them.
+const GATHER_SPAN: i32 = FIELD_TILE_SIZE + 2;
+const GATHER_AREA: usize = (GATHER_SPAN * GATHER_SPAN) as usize;
+
+/// Where local cell `(lx, ly)` -- `-1..=FIELD_TILE_SIZE` on each axis, so the
+/// ring too -- sits in a [`gather_ring`] window.
+#[inline]
+fn gather_index(lx: i32, ly: i32) -> usize {
+    ((ly + 1) * GATHER_SPAN + lx + 1) as usize
+}
+
+/// **Calls `read(index, world_x, world_y)` once for every position a
+/// four-neighbour stencil over `coord`'s tile reads** -- its cells and the
+/// one-cell ring, corners left out since no stencil here reads a diagonal.
+/// A cell is read as `here` by itself and as a neighbour by up to four
+/// others; gathered, each position is fetched once (2026-10-22: diffusion,
+/// then pressure and velocity). The positions and coordinates are the ones
+/// the per-cell reads used, so a solve that indexes the window with
+/// [`gather_index`] reads exactly what it read before.
+#[inline]
+fn gather_ring(coord: ChunkCoord, mut read: impl FnMut(usize, i32, i32)) {
+    let (ox, oy) = coord.origin();
+    for py in 0..GATHER_SPAN {
+        for px in 0..GATHER_SPAN {
+            if (px == 0 || px == GATHER_SPAN - 1) && (py == 0 || py == GATHER_SPAN - 1) {
+                continue;
+            }
+            read(gather_index(px - 1, py - 1), ox + (px - 1) * FIELD_SCALE, oy + (py - 1) * FIELD_SCALE);
+        }
+    }
+}
+
+/// `(sample(..).pressure, is_blocked(..))` through one bounds test and one
+/// tile fetch, for `step_velocity`'s gather. Out of bounds is ambient
+/// pressure and a wall; a missing tile is ambient pressure and open -- what
+/// the two functions answer.
+#[inline]
+fn pressure_read<T: TileLookup + ?Sized>(tiles: &T, bounds: Option<Rect>, world_x: i32, world_y: i32) -> (f32, bool) {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return (FieldCell::AMBIENT.pressure, true);
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    match tiles.tile(tile_coord) {
+        Some(tile) => (tile.get_local(lx, ly).pressure, tile.is_blocked_local(lx, ly)),
+        None => (FieldCell::AMBIENT.pressure, false),
+    }
+}
+
 /// **`(sample, is_blocked, glows, is_moisture_source)` at one position,
 /// through one bounds test and one tile fetch** -- the reads
 /// `step_diffusion`'s gather makes of every position it gathers. Until
@@ -3652,10 +3704,12 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
     // `par_solve_tiles` for why that is sound and bit-identical.
     par_solve_tiles(coords, next, |coord, tile| {
         let old = TileNear::new(old, coord);
-        let (ox, oy) = coord.origin();
+        // Every cell's five reads, gathered once (`gather_ring`): 32 fetches
+        // per tile rather than 80, the same cells at the same coordinates.
+        let mut ring = [FieldCell::AMBIENT; GATHER_AREA];
+        gather_ring(coord, |i, wx, wy| ring[i] = sample(&old, bounds, wx, wy));
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
-                let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
                 // The *current* frame's occupancy, not `old`'s. `rebuild_blocked`
                 // already wrote this frame's accurate blocked map into `next`
                 // before this function runs; checking `old` here would be
@@ -3667,11 +3721,11 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
                 if tile.is_blocked_local(lx, ly) {
                     continue; // stays ambient — a wall cell has no pressure of its own
                 }
-                let here = sample(&old, bounds, wx, wy);
-                let left = sample(&old, bounds, wx - FIELD_SCALE, wy);
-                let right = sample(&old, bounds, wx + FIELD_SCALE, wy);
-                let up = sample(&old, bounds, wx, wy - FIELD_SCALE);
-                let down = sample(&old, bounds, wx, wy + FIELD_SCALE);
+                let here = ring[gather_index(lx, ly)];
+                let left = ring[gather_index(lx - 1, ly)];
+                let right = ring[gather_index(lx + 1, ly)];
+                let up = ring[gather_index(lx, ly - 1)];
+                let down = ring[gather_index(lx, ly + 1)];
 
                 let divergence = (left.vx - right.vx) + (up.vy - down.vy);
                 let mut pressure = (here.pressure + divergence * PRESSURE_VELOCITY_COUPLING) * PRESSURE_DAMPING;
@@ -3743,12 +3797,18 @@ fn step_velocity(
         let old_near = TileNear::new(old, coord);
         let new_near = TileNear::new(&new_pressure, coord);
         let (ox, oy) = coord.origin();
+        // The new pressure and occupancy every cell reads, gathered once
+        // (`gather_ring`, `pressure_read`): 32 fetches per tile rather than
+        // up to nine per cell.
+        let mut ring_pressure = [0.0f32; GATHER_AREA];
+        let mut ring_blocked = [false; GATHER_AREA];
+        gather_ring(coord, |i, wx, wy| (ring_pressure[i], ring_blocked[i]) = pressure_read(&new_near, bounds, wx, wy));
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
                 let mut cell = tile.get_local(lx, ly);
 
-                if is_blocked(&new_near, bounds, wx, wy) {
+                if ring_blocked[gather_index(lx, ly)] {
                     cell.vx = 0.0;
                     cell.vy = 0.0;
                     tile.set_local(lx, ly, cell);
@@ -3756,15 +3816,13 @@ fn step_velocity(
                 }
 
                 let old_here = sample(&old_near, bounds, wx, wy);
-                let p_left = sample(&new_near, bounds, wx - FIELD_SCALE, wy);
-                let p_right = sample(&new_near, bounds, wx + FIELD_SCALE, wy);
-                let p_up = sample(&new_near, bounds, wx, wy - FIELD_SCALE);
-                let p_down = sample(&new_near, bounds, wx, wy + FIELD_SCALE);
+                let p_left = ring_pressure[gather_index(lx - 1, ly)];
+                let p_right = ring_pressure[gather_index(lx + 1, ly)];
+                let p_up = ring_pressure[gather_index(lx, ly - 1)];
+                let p_down = ring_pressure[gather_index(lx, ly + 1)];
 
-                let mut vx = (old_here.vx + (p_left.pressure - p_right.pressure) * PRESSURE_VELOCITY_COUPLING)
-                    * VELOCITY_DAMPING;
-                let mut vy = (old_here.vy + (p_up.pressure - p_down.pressure) * PRESSURE_VELOCITY_COUPLING)
-                    * VELOCITY_DAMPING;
+                let mut vx = (old_here.vx + (p_left - p_right) * PRESSURE_VELOCITY_COUPLING) * VELOCITY_DAMPING;
+                let mut vy = (old_here.vy + (p_up - p_down) * PRESSURE_VELOCITY_COUPLING) * VELOCITY_DAMPING;
 
                 // No-penetration: only the component actually flowing *into*
                 // a wall is stopped, and it is clamped to zero, not reflected.
@@ -3791,13 +3849,13 @@ fn step_velocity(
                 // condition for a continuum velocity *field* like this one is
                 // no-penetration — the normal component goes to zero at the
                 // wall, full stop, nothing bounces. That is what is here now.
-                let flowing_into_blocked_left = vx < 0.0 && is_blocked(&new_near, bounds, wx - FIELD_SCALE, wy);
-                let flowing_into_blocked_right = vx > 0.0 && is_blocked(&new_near, bounds, wx + FIELD_SCALE, wy);
+                let flowing_into_blocked_left = vx < 0.0 && ring_blocked[gather_index(lx - 1, ly)];
+                let flowing_into_blocked_right = vx > 0.0 && ring_blocked[gather_index(lx + 1, ly)];
                 if flowing_into_blocked_left || flowing_into_blocked_right {
                     vx = 0.0;
                 }
-                let flowing_into_blocked_up = vy < 0.0 && is_blocked(&new_near, bounds, wx, wy - FIELD_SCALE);
-                let flowing_into_blocked_down = vy > 0.0 && is_blocked(&new_near, bounds, wx, wy + FIELD_SCALE);
+                let flowing_into_blocked_up = vy < 0.0 && ring_blocked[gather_index(lx, ly - 1)];
+                let flowing_into_blocked_down = vy > 0.0 && ring_blocked[gather_index(lx, ly + 1)];
                 if flowing_into_blocked_up || flowing_into_blocked_down {
                     vy = 0.0;
                 }
@@ -3936,7 +3994,6 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
     let bounds = world.bounds();
     par_solve_tiles(coords, next, |coord, tile| {
         let old = TileNear::new(old, coord);
-        let (ox, oy) = coord.origin();
         // **Every read this tile's 16 cells make, gathered once.** A cell is
         // read as `here` by itself and as a neighbour by up to four others,
         // each time through `sample` plus a blocked test plus, for moisture,
@@ -3945,23 +4002,14 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fiel
         // it, corners left out since nothing here reads a diagonal; the
         // values are the readers' own, at the same world coordinates, so
         // nothing below can tell the difference.
-        const SPAN: i32 = FIELD_TILE_SIZE + 2;
-        const SPAN_AREA: usize = (SPAN * SPAN) as usize;
-        let mut ring_cell = [FieldCell::AMBIENT; SPAN_AREA];
-        let mut ring_blocked = [false; SPAN_AREA];
-        let mut ring_glows = [false; SPAN_AREA];
-        let mut ring_source = [false; SPAN_AREA];
-        for py in 0..SPAN {
-            for px in 0..SPAN {
-                if (px == 0 || px == SPAN - 1) && (py == 0 || py == SPAN - 1) {
-                    continue;
-                }
-                let (wx, wy) = (ox + (px - 1) * FIELD_SCALE, oy + (py - 1) * FIELD_SCALE);
-                let i = (py * SPAN + px) as usize;
-                (ring_cell[i], ring_blocked[i], ring_glows[i], ring_source[i]) = diffusion_read(&old, bounds, wx, wy);
-            }
-        }
-        let at = |lx: i32, ly: i32| ((ly + 1) * SPAN + lx + 1) as usize;
+        let mut ring_cell = [FieldCell::AMBIENT; GATHER_AREA];
+        let mut ring_blocked = [false; GATHER_AREA];
+        let mut ring_glows = [false; GATHER_AREA];
+        let mut ring_source = [false; GATHER_AREA];
+        gather_ring(coord, |i, wx, wy| {
+            (ring_cell[i], ring_blocked[i], ring_glows[i], ring_source[i]) = diffusion_read(&old, bounds, wx, wy);
+        });
+        let at = gather_index;
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 // Same-frame occupancy, for the same reason `step_pressure`
