@@ -2027,7 +2027,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                                 redrawn = Some(allowed);
                                 static V: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                                 let k = V.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                                if k % 1000 == 0 {
+                                if k.is_multiple_of(1000) {
                                     eprintln!("PP_RIMVETO refusals {k}");
                                 }
                             }
@@ -4043,7 +4043,8 @@ pub mod scratch_log {
     /// galleries 11 columns out, the "highest step" label climbed into the gallery roof and fell back for 3,000
     /// frames until it starved. A teacher may know the way; the copy then has to find a sense that carries it.
     pub fn way_dist(world: &World, mouth: (i32, i32), p: (i32, i32)) -> Option<u32> {
-        thread_local! { static FIELD: std::cell::RefCell<(u64, (i32, i32), HashMap<(i32, i32), u32>)> = std::cell::RefCell::new((u64::MAX, (0, 0), HashMap::new())); }
+        type Field = (u64, (i32, i32), HashMap<(i32, i32), u32>);
+        thread_local! { static FIELD: std::cell::RefCell<Field> = std::cell::RefCell::new((u64::MAX, (0, 0), HashMap::new())); }
         FIELD.with(|f| {
             let mut f = f.borrow_mut();
             let epoch = world.frame / 50;
@@ -4113,7 +4114,7 @@ pub mod scratch_log {
         // `PP_CARRY_DUMP=id:f0:f1`: print one ant's options while it decides, for tracing a stuck carrier.
         if let Ok(v) = std::env::var("PP_CARRY_DUMP") {
             let p: Vec<u64> = v.split(':').map(|x| x.parse().unwrap()).collect();
-            if organism as u64 == p[0] && (p[1]..=p[2]).contains(&world.frame) && world.frame % 30 == 0 {
+            if organism as u64 == p[0] && (p[1]..=p[2]).contains(&world.frame) && world.frame.is_multiple_of(30) {
                 let ms = |x: i32, y: i32| { let c = world.get(x, y); format!("{}{}", world.materials.get(c.material).name.chars().take(4).collect::<String>(), if c.organism_id() != 0 { format!("#{}", c.organism_id()) } else { String::new() }) };
                 let chain: Vec<(i32, i32)> = st.chain.clone();
                 eprintln!("DUMP f{} e{:.2} at{:?} chain{:?} spoil{} below[{} {} {}] opts: {}", world.frame, e, at, chain, st.spoil.is_some(), ms(at.0 - 1, at.1 + 1), ms(at.0, at.1 + 1), ms(at.0 + 1, at.1 + 1),
@@ -4133,7 +4134,7 @@ pub mod scratch_log {
         let below_ground = ctx[c::DEPTH] > 0.05;
         // Underground with a way to the mouth known: take it (`PP_CARRY_WAY`), for every walking rule below.
         let way = |opts: &[Opt]| if way_on() && below_ground { way_walks(world, mouth, at, opts) } else { None };
-        let home = |p: (i32, i32)| nest_within_reach(world, organism, p.0, p.1, def) && home_r.map_or(true, |r| (p.0 - anchor.0).abs() <= r);
+        let home = |p: (i32, i32)| nest_within_reach(world, organism, p.0, p.1, def) && home_r.is_none_or(|r| (p.0 - anchor.0).abs() <= r);
         // Walled in: holding spoil, and nothing offered but stepping into its own body, turning round or resting.
         if st.spoil.is_some() && opts.iter().all(|o| matches!(o.verb, Verb::TurnAround | Verb::Rest) || (o.verb == Verb::Walk && st.chain.contains(&o.target))) {
             WALLED.lock().unwrap().get_or_insert_with(HashMap::new).insert(organism, world.frame);
@@ -4338,7 +4339,7 @@ pub mod scratch_log {
     pub static SHADOW_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
     fn cell_key(world: &World, p: (i32, i32)) -> (u16, OrganismId) {
         let c = world.get(p.0, p.1);
-        (c.material.0 as u16, c.organism_id())
+        (c.material.0, c.organism_id())
     }
     /// The options the old ant's last tick matches: what changed on the body, and which offered target it touched.
     fn shadow_label(world: &World, organism: OrganismId, p: &Pending) -> Vec<usize> {
@@ -4398,7 +4399,7 @@ pub mod scratch_log {
         static N: OnceLock<u64> = OnceLock::new();
         let n = *N.get_or_init(|| std::env::var("PP_SHADOW_SAMPLE").ok().map_or(1, |v| v.parse().expect("PP_SHADOW_SAMPLE")));
         let plain = lab.is_empty() || lab.iter().all(|&i| matches!(p.opts[i].verb, Verb::Walk | Verb::Rest | Verb::TurnAround));
-        let keep = !lab.is_empty() && (!plain || n <= 1 || rng::stream(world.seed, organism as u64, world.frame, 4445).next_u64() % n == 0);
+        let keep = !lab.is_empty() && (!plain || n <= 1 || rng::stream(world.seed, organism as u64, world.frame, 4445).next_u64().is_multiple_of(n));
         let settle2 = |r: &str| {
             let mut f: Vec<&str> = r.splitn(7, ',').collect();
             if f.len() == 7 {
@@ -5007,7 +5008,7 @@ pub mod scratch_log {
             return;
         }
         let r = rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64();
-        let keep = if carry != "-" || refused != "-" { r % m == 0 } else { r % k == 0 };
+        let keep = if carry != "-" || refused != "-" { r.is_multiple_of(m) } else { r.is_multiple_of(k) };
         PREV_ROW.with(|pm| {
             let mut pm = pm.borrow_mut();
             if keep {
