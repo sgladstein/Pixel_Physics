@@ -3125,10 +3125,13 @@ impl App {
             // reason** (`organism::WALK_SLOTS`): width 0 on every species, so
             // they read +0.00 six times over and clip the panel; the lab's
             // WALK page and cell page carry them. So are the two door slots
-            // (`organism::DOOR_SLOTS`), on the same terms.
+            // (`organism::DOOR_SLOTS`), on the same terms, and the appetite
+            // gene (`organism::TRAIT_APPETITE`, 2026-10-22): it went red on
+            // this panel's border test the day it landed.
             if organism::SCENT_SIDE_SLOTS.contains(&slot)
                 || organism::WALK_SLOTS.contains(&slot)
                 || organism::DOOR_SLOTS.contains(&slot)
+                || slot == organism::TRAIT_APPETITE
             {
                 continue;
             }
