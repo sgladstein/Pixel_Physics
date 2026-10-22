@@ -1,0 +1,6 @@
+base       seeds 32 starved/colony  4.31 (past 60 cols 2.69)  collapsed  2  home/colony    269  new cuts/colony   320  time past 60 cols 15.9%   vs base: fewer deaths 0, more 0
+zfar       seeds 32 starved/colony  3.75 (past 60 cols 2.19)  collapsed  1  home/colony    247  new cuts/colony   308  time past 60 cols 12.8%   vs base: fewer deaths 17, more 12
+hm3        seeds 32 starved/colony  6.81 (past 60 cols 2.66)  collapsed  5  home/colony    273  new cuts/colony   297  time past 60 cols 5.1%   vs base: fewer deaths 11, more 18
+hm2        seeds 32 starved/colony  8.59 (past 60 cols 1.34)  collapsed 11  home/colony    235  new cuts/colony   247  time past 60 cols 3.1%   vs base: fewer deaths 12, more 18
+hm1        seeds 32 starved/colony 19.97 (past 60 cols 0.25)  collapsed 32  home/colony     82  new cuts/colony   173  time past 60 cols 0.4%   vs base: fewer deaths 0, more 32
+ceil45     seeds 16 starved/colony  3.44 (past 60 cols 0.81)  collapsed  1  home/colony    289  new cuts/colony   268  time past 60 cols 2.3%   vs base: fewer deaths 5, more 6

@@ -5719,6 +5719,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   planned 8-16-cell rooms are 3-5x too tall), with five candidate
   blueprints drawn in `measurements/blueprints/`.
 
+- [brain-training/teacher-training/starve-trace-2026-10-22.md](brain-training/teacher-training/starve-trace-2026-10-22.md) —
+  **why hA1 ants still starve, after selection too (traced 2026-10-22), and a come-home lesson that did not take.**
+  The trace covers 16 colonies each of hA1, round-6 selected ants and the old ant: 82 / 65 / 1 of 384 ants starved.
+  Half to 62% are roamers. They leave the food fat, walk to the box walls and starve there, with a correct home
+  sense but no homeward pull at all once their crop is empty. About a third die at home with a soil pellet they
+  cannot put down. The rule `PP_HOMEFAR` cuts roamer deaths 70% when the teacher acts, but the DAgger copies hm1,
+  hm2 and hm3 (hm3 with a sharp `PP_FAR_CTX` sense) all starve more than hA1. No genome recommended; owner: "neither
+  yet". Patches (scratch, env-gated), tools and genomes are in `starve-trace-2026-10-22/`.
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
