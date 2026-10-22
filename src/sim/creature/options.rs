@@ -383,11 +383,14 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     // with `remember`, which is how `the_option_window_changes_no_feature`
     // holds both to the plain reads.
     let mut described: Vec<((i32, i32), [f32; FEATURES])> = Vec::with_capacity(24);
+    // The targets' temperatures, the field's corners read once for the few
+    // blocks they fall in (`field::BilinearSampler`). Off with `remember`.
+    let mut warm = remember.then(|| world.field_bilinear_sampler());
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
         let mut feats = match described.iter().find(|(t, _)| remember && *t == target) {
             Some(&(_, feats)) => feats,
             None => {
-                let feats = describe(world, &mut memo, &here, target);
+                let feats = describe(world, &mut memo, warm.as_mut(), &here, target);
                 described.push((target, feats));
                 feats
             }
@@ -564,7 +567,9 @@ fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::Organi
 
 /// The features every option reads at its target, verb-specific ones (the
 /// walk's footing) left for the caller to set.
-fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
+type Sampler<'w> = crate::sim::field::BilinearSampler<'w, crate::sim::fxhash::ChunkMap<crate::sim::field::FieldTile>>;
+
+fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'_>>, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
     let mut v = [0.0f32; FEATURES];
     let cell = memo.cell(x, y);
     let kind = world.materials.kind(cell.material);
@@ -628,6 +633,10 @@ fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, 
         .take_while(|&d| memo.cell(x, y - d).material == material::EMPTY)
         .count() as f32
         / REACH as f32;
+    // Remembering each cell's cover answer in the memo, so targets sharing
+    // a column skip the repeat, measured no better (mind colony 6.963G ->
+    // 6.979G, callgrind, 2026-10-22): the scan stops at the first ground
+    // overhead, and an empty sky row is one compare.
     v[f::ROOFED] = f32::from(u8::from(under_cover_by(world, memo, x, y)));
 
     if let Some(o) = who {
@@ -681,7 +690,11 @@ fn describe(world: &World, memo: &mut impl CellRead, here: &Here, (x, y): (i32, 
             v[f::HOME] = cos * squash(h2.sqrt() / 32.0);
         }
     }
-    v[f::WARMTH] = squash(world.field_at_bilinear(x as f32, y as f32).temperature - here.warmth);
+    let warmth = match warm {
+        Some(warm) => warm.at(x as f32, y as f32),
+        None => world.field_at_bilinear(x as f32, y as f32),
+    };
+    v[f::WARMTH] = squash(warmth.temperature - here.warmth);
     v[f::BACK] = f32::from(u8::from(here.neck == Some((x, y))));
     v
 }

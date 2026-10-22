@@ -10600,6 +10600,12 @@ impl World {
         field::sample_bilinear(&self.fields, self.bounds, fx, fy, fallback)
     }
 
+    /// [`Self::field_at_bilinear`] for many points close together: see
+    /// `field::BilinearSampler`.
+    pub(crate) fn field_bilinear_sampler(&self) -> field::BilinearSampler<'_, crate::sim::fxhash::ChunkMap<field::FieldTile>> {
+        field::BilinearSampler::new(&self.fields, self.bounds)
+    }
+
     /// How strongly the field block covering this position sources moisture,
     /// `0.0..=1.0`. See `field::moisture_source_at` — the point of reading
     /// this rather than `field_at(..).moisture` is that it is rebuilt from
