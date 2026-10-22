@@ -22,11 +22,37 @@
 //! out/map_fNNNNNNN.txt  `x0 y0 w h`, then rows of `.` open / `a` animal / `f` provisions / `#` other, the nest box
 //! out/surface.txt       the datum, one row per column
 use pixel_physics::sim::creature;
+use pixel_physics::sim::organism;
 use pixel_physics::train::challenges::{inrun, Scarce, Soil, Suite, Trail};
 use pixel_physics::train::{self};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
+
+/// Size-neutral mutation (owner, 2026-10-21: brain size should be set by the link cost, not by the mutation
+/// operator). Live links and settings take a weight step with probability `pm`; then `events` structural changes,
+/// each a fair coin between adding a link (an empty trainable slot gets a step) and removing one (a live link set to
+/// 0). The expected change in size is zero at every size, so there is no size the operator drifts toward: `train::mutate`
+/// at prune 0 / grow 1 added ~60 links a child (a one-way ratchet), and prune .3 / grow .1 pulled toward ~700.
+fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, rng: &mut train::Rng) -> Vec<f32> {
+    let first = creature::mind::FIRST_LINK;
+    let mut c = g.to_vec();
+    for &i in slots {
+        if (c[i] != 0.0 || i < first) && rng.unit() < pm {
+            c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+        }
+    }
+    for _ in 0..events {
+        let add = rng.unit() < 0.5;
+        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add).collect();
+        if pool.is_empty() {
+            continue;
+        }
+        let i = pool[rng.below(pool.len())];
+        c[i] = if add { (sigma * rng.step()).clamp(-40.0, 40.0) } else { 0.0 };
+    }
+    c
+}
 
 fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
@@ -117,6 +143,13 @@ fn main() {
     }
     let slot = |k: usize| order[k.min(ants - 1)];
     let (mut w, sc, sp) = inrun::colony(seed, ants, dist, drip, every, &|k| mix[slot(k)].1.clone());
+    // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the
+    // species file, where it would reach every world). Default: the species' own.
+    if let Some(v) = arg(&a, "synapse") {
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.synapse_fraction = v.parse().unwrap();
+        w.species.set_creature(sp, def);
+    }
     w.cut_log = Some(Vec::new());
     w.food_log = Some(Vec::new());
     w.digest_log = Some(Vec::new());
@@ -145,7 +178,20 @@ fn main() {
     let (zb0, zc0, kprice) = (fnum("zbirth", 2.0), fnum("zcut", 2.0), fnum("k", 2.0));
     let (lo, hi) = (num("lo", 24) as usize, num("hi", 36) as usize);
     let (kpm, ksigma) = (fnum("kpm", 0.03) as f32, fnum("ksigma", 1.0) as f32);
+    // Children's prune and grow. At prune 0 / grow 1 every mutated empty slot became a live link (~60 a child), and
+    // with nothing in the score charging for wire, brains went from ~700 links to ~2,200 in 20 generations; the body
+    // bills every link a tick, so the evolved lines starved (p8: 13 of 16 runs extinct). Links hold steady when
+    // pm * empty * grow = pm * live * prune: with ~2,100 empty and ~700 live, grow 0.1 against prune 0.3.
+    let (kprune, kgrow) = (fnum("kprune", 0.3) as f32, fnum("kgrow", 0.1) as f32);
+    // mutation=neutral: [`neutral_mutate`] with `kevents` structural changes a child.
+    let neutral = arg(&a, "mutation") == Some("neutral");
+    let kevents = num("kevents", 10) as usize;
     let kid_grants = fnum("kid_grants", 1.0) as f32;
+    // hall=F: an adult that starved stays a candidate parent for F frames, its score multiplied by `dead_w`, and a colony
+    // below `lo` refills from the best of the living and these dead together (owner's idea, 2026-10-21: pass on the best
+    // ants even if they starved, with a penalty for dying). Without it, a dry store starved 96% of a colony inside ~2k
+    // frames in 47 of 108 rounds (p10-p11), and the colony was rebuilt from whichever few were left. 0 = off.
+    let (hall_keep, dead_w) = (num("hall", 0), fnum("dead_w", 0.5));
     // Exchange rates between jobs, and a debit per food cell swallowed away from home (default: the ledger's 1,1,1,0).
     let (w_del, w_dig, w_clear, w_field) = (fnum("w_deliver", 1.0), fnum("w_dig", 1.0), fnum("w_clear", 1.0), fnum("w_field", 0.0));
     // Pay by depth: a delivery `d` rows below the datum is worth (1 + w_depth * min(d, 10) / 10) times (owner, 2026-10-21:
@@ -155,6 +201,26 @@ fn main() {
     // cutter's half), rising to full `rim_ramp` columns further out. Spoil heaped on the rim rolls back into the pit:
     // after the pit's peak, 764 pellets let go within 30 columns against 198 dropped inside it (p5, 2026-10-21).
     let (rim, rim_ramp) = (fnum("rim", 0.0), fnum("rim_ramp", 10.0).max(1.0));
+    // Only nest work pays: a cell cut more than `nest_r` columns from the nest earns no dig credit, and its pellet earns
+    // no clear credit wherever it goes. Without this, size-neutral colonies (p11) farmed credit by cutting surface soil
+    // 20-40 columns out and dropping it beside the hole: 'out' drops peaked there (8,203 at 20-29 columns, 7,663 at
+    // 30-39) while digs were spread evenly over 0-120. 0 = off (pay everywhere, the old rule).
+    let nest_r = fnum("nest_r", 20.0) as i32;
+    let in_nest = |x: i32| nest_r <= 0 || (x - inrun::NEST).abs() <= nest_r;
+    // Rim quarrying (dig-scoring thread, 2026-10-21): a lone ant learns to come down from the surface, cut the first wall
+    // cell and go straight back out, and the nest becomes a crater (44 of 49 cuts in the top 4 rows after 12k; 70-80% of
+    // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
+    // fewer than N rows below the datum inside the nest region, and `rim_debit=F` charges F times the cut half instead.
+    // Off by default (rim_rows=0) until judged against the controls.
+    // Judged 2026-10-22 (64 seeds x 6 rounds, h1 founders, turnover 30k): rim_rows=3 took extinctions from 20 to 34 of
+    // 64, nearly all round-1 starvation die-offs; total food unchanged. The rim cutter is the ant that goes up to the
+    // surface (in round 1 of 12 seeds, mostly-rim cutters delivered more food than mostly-deep cutters in 9), so paying it
+    // nothing selects against going out. Two softer shapes: `rim_share=F` pays a rim cut F of a full cut (both halves)
+    // instead of nothing, and `deep_bonus=B` pays a cut rim_rows or more below the datum (1 + B) times.
+    let rim_rows = fnum("rim_rows", 0.0) as i32;
+    let rim_debit = fnum("rim_debit", 0.0);
+    let rim_share = fnum("rim_share", 0.0);
+    let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
@@ -171,6 +237,12 @@ fn main() {
     // outside lo..hi adds births or culls. Replaces the z bars and `turnover` when set.
     let turn = num("turn", 0);
     let zhard = fnum("zhard", 3.0);
+    let shrunk = arg(&a, "rank") == Some("shrunk");
+    let lambda = fnum("lambda", 8.0);
+    // famprior=1 (with rank=shrunk): shrink toward the mean of the ant's family's OTHER adults instead of the colony
+    // median, when it has any. One ant's score predicts its line's at only ~0.3 however long the record (relia.py,
+    // 12 colonies: 0.16 at 4k, 0.33 at 8k, 0.29 at 16k), so relatives carry evidence a longer wait does not.
+    let famprior = num("famprior", 0) > 0;
     // Parents stay (owner's debate, 2026-10-21), but each child is earned fresh: fresh_kid=1 judges a parent's next
     // child on its record since its last one (at least min_age frames of it), and kid_cap bounds a lifetime's children.
     let fresh_kid = num("fresh_kid", 0) == 1;
@@ -186,6 +258,11 @@ fn main() {
     let mut quota_cut: Vec<u32> = Vec::new();
     // Diagnostics: judgements with a quota due, how many found no eligible parent, and placements that failed.
     let (mut q_due, mut q_noparent, mut birth_fail) = (0u64, 0u64, 0u64);
+    // Parents picked, and how many of them plain score would also have picked.
+    let mut zs_pick = (0u64, 0u64);
+    // Each ant's score as it reaches 30k frames of age (child minus parent at matched age).
+    let mut age30 = std::io::BufWriter::new(std::fs::File::create(out.join("age30.csv")).unwrap());
+    writeln!(age30, "id,score30").unwrap();
     let mut last_birth = 0u64;
     let mut srng = train::Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5);
     let kslots = inrun::slots();
@@ -206,13 +283,28 @@ fn main() {
         at_kid: (f64, f64),
     }
     let mut book: HashMap<u32, Who> = HashMap::new();
+    // The recently starved adults: (death frame, score at death, record).
+    let mut hall: Vec<(u64, f64, Who)> = Vec::new();
+    let (home_colony, home_anchor) = founders.first().and_then(|&i| w.organism(i)).map(|s| (s.colony, s.forage_anchor)).unwrap();
     for (k, id) in founders.iter().enumerate() {
         book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
     }
     let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
     let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
-    writeln!(births, "frame,id,parent,family,gen,kind").unwrap();
+    writeln!(births, "frame,id,parent,family,gen,kind,links").unwrap();
     let mut sel_log = std::io::BufWriter::new(std::fs::File::create(out.join("sel.csv")).unwrap());
+    // The colony's food stocks every 1,000 frames (owner, 2026-10-21: watch the store fall before anyone starves).
+    // nest_food: food cells at or below the ground datum within 12 columns of the nest (the heaps reach in to 15
+    // columns, and their feet sink below the datum: a 20-column reach counted 5-12 buried heap cells as "stored");
+    // door_food: above the datum within 12 columns and 4 rows; field_food: everything else within 45 columns. Tanks are banks in
+    // full grants; crop is cells carried in crops.
+    let mut stock_log = std::io::BufWriter::new(std::fs::File::create(out.join("stock.csv")).unwrap());
+    writeln!(stock_log, "frame,alive,nest_food,door_food,field_food,crop_cells,tank_mean,tank_min,tank_max,nest_corpse").unwrap();
+    // The general nest score (lab::nestscore, PR #770, HARVESTER profile) every 25,000 frames, printed beside food
+    // home: printed only, never paid (owner, 2026-10-21). A read of the grid; it changes nothing in the run.
+    let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
+    writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open").unwrap();
+    let mut food_home = 0u64;
     writeln!(sel_log, "frame,alive,adults,births,removals,bias,median,food_price,dig_price,clear_price,ghosts").unwrap();
     let mut bias = 0.0f64;
     // Ants culled this frame whose death record has not come in yet. `slay` frees the slot at once and the record lands
@@ -226,6 +318,36 @@ fn main() {
     let (mut cell_worth, mut n_field) = (0.0f64, 0u64);
     let mut loose_n = 0i64;
     let mut dig_price = 1.0 + kprice;
+    // fprice=tank: food is priced by how full the colony's tanks are, 1 + ktank * shortfall of the mean bank below `tank`
+    // full grants, so a delivery pays least while everyone is fat and most as the tanks drain (owner, 2026-10-21). The
+    // flow price (delivered over eaten, 5k frames) sat at 2.83-2.91 of its cap of 3 because pile bites count as eaten,
+    // so it never told a fat colony from a starving one: die-offs came with every ant at home on ~17x a full tank,
+    // draining in lockstep, none going out until all were empty (p12, 29 die-offs).
+    let tank_price = arg(&a, "fprice").is_some_and(|v| v == "tank");
+    let (tank_full, ktank) = (fnum("tank", 3.0), fnum("ktank", 4.0));
+    let start_e = w.species.get(sp).creature.as_ref().map_or(1.0, |d| d.start_energy) as f64;
+    let mut tank_p = 1.0;
+    // w_hungry=W: pay W when an ant leaves home (head from within 12 columns of the nest to 15+ out) while its own bank
+    // is below `hungry` full grants, at most once per `hungry_gap` frames (owner, 2026-10-21). Rewards the habit at the
+    // moment it is needed; the delivery it leads to comes far later and, at ~1 per 30k-frame life, too rarely to select on.
+    let (w_hungry, hungry_at, hungry_gap) = (fnum("w_hungry", 0.0), fnum("hungry", 2.0), num("hungry_gap", 3000));
+    // Per ant: (was last seen home, frame of its last paid hungry departure).
+    let mut leave: HashMap<u32, (bool, u64)> = HashMap::new();
+    let mut hungry_paid = 0u64;
+    // progress=1: food is paid half as it moves home and half on arrival (research lane, PR #768 s3: one delivery is
+    // one rare lump, about one per 30k-frame life, which selection cannot see). While an ant carries trip food (crop
+    // cells from a bite away from home), each 100 frames it is paid 0.5 * the delivery value * cells * (the columns it
+    // closed on the nest beyond its best so far / the columns it started from). The pay is an advance: if the crop
+    // empties with nothing delivered (eaten on the way), the trip's progress pay is taken back.
+    let progress = num("progress", 0) > 0;
+    // Per carrier: (start columns, best columns, progress paid, cells delivered this trip).
+    let mut carry: HashMap<u32, (f64, f64, f64, u32)> = HashMap::new();
+    // starve_at=F:G (a probe, not training): at frame F every ant's bank is set to G full grants, to see which brains
+    // leave home when hungry (die-offs: nobody did).
+    let starve_at: Option<(u64, f64)> = arg(&a, "starve_at").map(|v| {
+        let (f, g) = v.split_once(':').expect("starve_at=F:G");
+        (f.parse().unwrap(), g.parse().unwrap())
+    });
     let mut base_open: Option<i64> = None;
     // The datum and the ground below it at frame 0.
     let (bw, bh) = (256i32, 128i32); // the training bed (`bed_timed`)
@@ -243,8 +365,10 @@ fn main() {
     let mut ev = std::io::BufWriter::new(std::fs::File::create(out.join("events.csv")).unwrap());
     writeln!(ev, "frame,id,kind,x,y,v,cutter").unwrap();
     // Who cut the pellet each ant holds; pellets let go inside, by spot; field food each ant holds.
-    let mut held: HashMap<u32, u32> = HashMap::new();
-    let mut loose: HashMap<(i32, i32), u32> = HashMap::new();
+    // Each pellet carries (cutter, whether it was cut in the nest region).
+    // A pellet's cutter and its worth: 0 outside the nest region, rim_share at the rim, 1 + deep_bonus below it.
+    let mut held: HashMap<u32, (u32, f64)> = HashMap::new();
+    let mut loose: HashMap<(i32, i32), (u32, f64)> = HashMap::new();
     let t0 = std::time::Instant::now();
     for fr in 1..=frames {
         inrun::step(&mut w, &sc);
@@ -258,27 +382,44 @@ fn main() {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
                 orig[i] = false;
-                held.insert(who, who);
-                writeln!(ev, "{frame},{who},dig,{x},{y},{},{who}", y - surf[x as usize]).unwrap();
+                let depth = y - surf[x as usize];
+                let mut worth = if in_nest(x) { 1.0 } else { 0.0 };
+                if worth > 0.0 && rim_rows > 0 {
+                    if depth < rim_rows {
+                        worth = rim_share;
+                        if let Some(b) = book.get_mut(&who) {
+                            let g = -rim_debit * 0.5 * w_dig * dig_price;
+                            b.credit += g;
+                            b.g2 += g * g;
+                        }
+                    } else {
+                        worth = 1.0 + deep_bonus;
+                    }
+                }
+                held.insert(who, (who, worth));
+                writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
+                if worth == 0.0 {
+                    continue;
+                }
                 if let Some(b) = book.get_mut(&who) {
                     b.tripped = true;
-                    let g = 0.5 * w_dig * dig_price;
+                    let g = worth * 0.5 * w_dig * dig_price;
                     b.credit += g;
                     b.g2 += g * g;
                 }
             } else {
-                let mut tag = 0;
+                let (mut tag, mut nest) = (0, 0.0);
                 'find: for r in 0..=2 {
                     for dy in -r..=r {
                         for dx in -r..=r {
-                            if let Some(t) = loose.remove(&(x + dx, y + dy)) {
-                                tag = t;
+                            if let Some((t, n)) = loose.remove(&(x + dx, y + dy)) {
+                                (tag, nest) = (t, n);
                                 break 'find;
                             }
                         }
                     }
                 }
-                held.insert(who, tag);
+                held.insert(who, (tag, nest));
                 writeln!(ev, "{frame},{who},recut,{x},{y},0,{tag}").unwrap();
                 if tag != 0 {
                     loose_n -= 1;
@@ -309,12 +450,17 @@ fn main() {
                     writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
                 }
                 creature::FOOD_DROP if r.flag => {
+                    food_home += 1;
                     delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
                     if let Some(b) = book.get_mut(&r.who) {
                         let got: f64 = delivered.iter().map(|d| d.1).sum();
                         let ate: f64 = eaten.iter().map(|d| d.1).sum();
                         let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
-                        let g = deep * w_del * (1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0));
+                        let fpr = if tank_price { tank_p } else { 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0) };
+                        let g = deep * w_del * fpr * if progress { 0.5 } else { 1.0 };
+                        if let Some(c) = carry.get_mut(&r.who) {
+                            c.3 += 1;
+                        }
                         b.credit += g;
                         b.g2 += g * g;
                     }
@@ -333,20 +479,29 @@ fn main() {
                 writeln!(ev, "{frame},{},death,0,0,{},0", r.id, r.cause.index()).unwrap();
                 held.remove(&r.id);
                 if !culled_pending.remove(&r.id) {
-                    book.remove(&r.id);
+                    if let Some(b) = book.remove(&r.id) {
+                        let age = frame - b.born;
+                        if hall_keep > 0 && age >= min_age && r.cause == organism::DeathCause::Starved {
+                            hall.push((frame, b.credit / (age as f64 / 1000.0), b));
+                        }
+                    }
                 }
             }
         }
         // A pellet let go: where the head is now.
-        let gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
+        // Sorted: `held` is a HashMap, and the order pellets are handled in moves `loose_n` (an out-pellet's clear price
+        // reads it) and the order credits are summed. Unsorted, 2 of 64 seeds diverged between two runs of one build.
+        let mut gone: Vec<u32> = held.keys().copied().filter(|&id| w.organism(id).is_none_or(|s| s.spoil.is_none())).collect();
+        gone.sort_unstable();
         for id in gone {
-            let tag = held.remove(&id).unwrap();
+            let (tag, worth) = held.remove(&id).unwrap();
             let Some(&(x, y)) = w.organism(id).and_then(|s| s.chain.first()) else { continue };
             if y < surf[x.clamp(0, bw - 1) as usize] {
                 writeln!(ev, "{frame},{id},out,{x},{y},0,{tag}").unwrap();
                 let alive = book.len().max(1) as f64;
                 let far = ((((x - inrun::NEST).abs() as f64) - rim) / rim_ramp).clamp(0.0, 1.0);
                 let far = if rim > 0.0 { far } else { 1.0 };
+                let far = far * worth;
                 let pc = far * w_clear * (1.0 + kprice * (loose_n as f64 / (2.0 * alive)).clamp(0.0, 1.0));
                 if let Some(b) = book.get_mut(&id) {
                     b.tripped = true;
@@ -361,12 +516,72 @@ fn main() {
                     }
                 }
             } else {
-                loose.insert((x, y), tag);
+                loose.insert((x, y), (tag, worth));
                 loose_n += 1;
                 writeln!(ev, "{frame},{id},in,{x},{y},0,{tag}").unwrap();
             }
         }
+        if let Some((f, g)) = starve_at {
+            if fr == f {
+                inrun::flat_reserves(&mut w, sp, g as f32);
+            }
+        }
+        if progress && fr % 100 == 0 {
+            let fpr_now = if tank_price { tank_p } else { 1.0 + kprice };
+            let mut ids: Vec<u32> = book.keys().copied().collect();
+            ids.sort_unstable();
+            for id in ids {
+                let st = w.organism(id).map(|s| (s.chain.first().copied(), s.trip_cells, s.crop.map_or(0, |c| c.cells)));
+                let Some((Some((x, _)), trip, cells)) = st else { continue };
+                if trip > 0 && cells > 0 {
+                    let d = (x - inrun::NEST).abs() as f64;
+                    let c = carry.entry(id).or_insert((d.max(1.0), d, 0.0, 0));
+                    if d < c.1 {
+                        let g = 0.5 * w_del * fpr_now * cells as f64 * (c.1 - d) / c.0;
+                        c.1 = d;
+                        c.2 += g;
+                        let b = book.get_mut(&id).unwrap();
+                        b.credit += g;
+                        b.g2 += g * g;
+                    }
+                } else if let Some(c) = carry.remove(&id) {
+                    if c.3 == 0 && c.2 > 0.0 {
+                        let b = book.get_mut(&id).unwrap();
+                        b.credit -= c.2;
+                    }
+                }
+            }
+        }
         if fr % 100 == 0 {
+            if tank_price {
+                let es: Vec<f64> = inrun::ants(&w, sp).iter().filter_map(|&i| w.organism(i)).map(|s| s.energy as f64).collect();
+                let mean = es.iter().sum::<f64>() / es.len().max(1) as f64;
+                tank_p = 1.0 + ktank * (1.0 - mean / (tank_full * start_e)).clamp(0.0, 1.0);
+            }
+            if w_hungry > 0.0 {
+                let mut ids: Vec<u32> = book.keys().copied().collect();
+                ids.sort_unstable();
+                for id in ids {
+                    let Some(s) = w.organism(id) else { continue };
+                    let Some(&(x, _)) = s.chain.first() else { continue };
+                    let dx = (x - inrun::NEST).abs();
+                    let e = s.energy as f64;
+                    let st = leave.entry(id).or_insert((true, 0));
+                    if dx <= 12 {
+                        st.0 = true;
+                    } else if dx >= 15 && st.0 {
+                        st.0 = false;
+                        if e < hungry_at * start_e && (st.1 == 0 || frame - st.1 >= hungry_gap) {
+                            st.1 = frame;
+                            hungry_paid += 1;
+                            let b = book.get_mut(&id).unwrap();
+                            b.credit += w_hungry;
+                            b.g2 += w_hungry * w_hungry;
+                            writeln!(ev, "{frame},{id},hungryout,{x},0,{e:.0},0").unwrap();
+                        }
+                    }
+                }
+            }
             for (id, b) in book.iter_mut() {
                 if let Some(&(x, _)) = w.organism(*id).and_then(|s| s.chain.first()) {
                     if (x - inrun::NEST).abs() >= 15 {
@@ -395,6 +610,12 @@ fn main() {
             dig_price = 1.0 + kprice * (1.0 - per / 25.0).max(0.0);
         }
         if sel != "off" && fr % judge_every == 0 {
+            for (id, b) in &book {
+                let age = frame - b.born;
+                if age >= 30_000 && age < 30_000 + judge_every {
+                    writeln!(age30, "{id},{:.4}", b.credit / 30.0).unwrap();
+                }
+            }
             // Each ant's rate per 1,000 frames alive, against the adults' median, in units of its own standard error:
             // a sum of credits is Poisson-like, so its error is sqrt(sum of squares), floored at what the colony's
             // average ant would have shown over the same age (an ant with no events is not certain).
@@ -454,7 +675,37 @@ fn main() {
                     }
                 }
                 if turn > 0 {
-                    let mut zs: Vec<(u32, f64)> = adults.iter().map(|i| (*i, z(&book[i]))).collect();
+                    // rank=shrunk (research lane, PR #768): rank by the rate shrunk toward the median with `lambda`
+                    // thousand frames of prior, (credit + lambda * median) / (T + lambda) - median, instead of z. z
+                    // divides by the ant's own squared credits, so a rare large credit (a delivery) counts against
+                    // it: z and plain score agreed on only 44 of 133 parents (smoke9). The hard cull stays on z.
+                    let mut fsum: HashMap<&str, (f64, usize)> = HashMap::new();
+                    if famprior {
+                        for i in &adults {
+                            let e = fsum.entry(book[i].family.as_str()).or_default();
+                            e.0 += score(&book[i]);
+                            e.1 += 1;
+                        }
+                    }
+                    let prior = |b: &Who| -> f64 {
+                        match fsum.get(b.family.as_str()) {
+                            Some(&(s, n)) if n >= 2 => {
+                                let own = if frame - b.born >= min_age { score(b) } else { 0.0 };
+                                let k = if frame - b.born >= min_age { n - 1 } else { n };
+                                (s - own) / k as f64
+                            }
+                            _ => med,
+                        }
+                    };
+                    let rv = |b: &Who| -> f64 {
+                        if shrunk {
+                            let t = (frame - b.born) as f64 / 1000.0;
+                            (b.credit + lambda * prior(b)) / (t + lambda) - med
+                        } else {
+                            z(b)
+                        }
+                    };
+                    let mut zs: Vec<(u32, f64)> = adults.iter().map(|i| (*i, rv(&book[i]))).collect();
                     zs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
                     // Owed replacements carry over until a child is actually born (capped at 5, so a dry spell does
                     // not end in a burst): taken off at the moment of the birth, they were lost whenever no parent was
@@ -462,7 +713,7 @@ fn main() {
                     quota = (quota + adults.len() as f64 * judge_every as f64 / turn as f64).min(5.0);
                     let q = quota.floor() as usize;
                     q_now = q;
-                    cut = zs.iter().filter(|p| p.1 < -zhard).map(|p| p.0).collect();
+                    cut = zs.iter().filter(|p| z(&book[&p.0]) < -zhard).map(|p| p.0).collect();
                     let hard = cut.len();
                     hard_n = hard;
                     let extra_cut = n.saturating_sub(hi);
@@ -477,7 +728,9 @@ fn main() {
                     // The quota's removals wait for its births: each is made only once a child has taken its place,
                     // so a colony that cannot breed is not also emptied (p7: 36 culls against 30 births, 24 -> 7).
                     quota_cut = zs.iter().filter(|p| p.1 < 0.0 && !cut.contains(&p.0)).take(q).map(|p| p.0).collect();
-                    let want = (hard + quota_cut.len() + lo.saturating_sub(n)) as u32;
+                    // With the hall on, refilling below `lo` is its job (below), not the living-only quota's.
+                    let short = if hall_keep > 0 { 0 } else { lo.saturating_sub(n) };
+                    let want = (hard + quota_cut.len() + short) as u32;
                     // Breeding z: lifetime, or with fresh_kid the record since the last child.
                     let zb_of = |i: u32| -> Option<f64> {
                         let b = &book[&i];
@@ -485,7 +738,7 @@ fn main() {
                             return None;
                         }
                         if !fresh_kid || b.kids == 0 {
-                            return Some(z(b));
+                            return Some(rv(b));
                         }
                         let since = frame - b.last_kid;
                         if since < min_age {
@@ -493,6 +746,9 @@ fn main() {
                         }
                         let t = since as f64 / 1000.0;
                         let (c, g2) = (b.credit - b.at_kid.0, b.g2 - b.at_kid.1);
+                        if shrunk {
+                            return Some((c + lambda * prior(b)) / (t + lambda) - med);
+                        }
                         Some((c / t - med) / (g2.max(rate_g2 * t).sqrt() / t).max(1e-6))
                     };
                     // Parents whose family is at its cap are passed over here, so their children go to the next in line
@@ -543,6 +799,16 @@ fn main() {
                         }
                     }
                     parents = ok.into_iter().zip(kids).filter(|p| p.1 > 0).collect();
+                    // Research lane's check (b): would plain score have picked the same parents? z divides by the
+                    // ant's own squared credits, so rare large credits (a delivery) count against it.
+                    if !parents.is_empty() {
+                        let k = parents.len();
+                        let mut by_s: Vec<(u32, f64)> = adults.iter().filter(|i| frame - book[i].last_kid >= cooldown).map(|i| (*i, score(&book[i]))).collect();
+                        by_s.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+                        let same = parents.iter().filter(|p| by_s.iter().take(k).any(|q| q.0 == p.0)).count();
+                        zs_pick.0 += k as u64;
+                        zs_pick.1 += same as u64;
+                    }
                 }
                 let room = (hi + 4).saturating_sub(n);
                 let floor_room = n.saturating_sub(lo.saturating_sub(8));
@@ -582,7 +848,11 @@ fn main() {
                         if fam.get(&f).copied().unwrap_or(0) >= cap_f && !(turn > 0 && capped_only) {
                             break;
                         }
-                        let child = train::mutate(&p.genome, &kslots, kpm, ksigma, 0.0, 1.0, &[], &mut srng);
+                        let child = if neutral {
+                            neutral_mutate(&p.genome, &kslots, kpm, ksigma, kevents, &mut srng)
+                        } else {
+                            train::mutate(&p.genome, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                        };
                         let gen = p.gen + 1;
                         let placed = inrun::birth(&mut w, sp, inrun::mind(&child), kid_grants);
                         if placed.is_none() {
@@ -599,7 +869,7 @@ fn main() {
                             if retire && pb.kids >= kid_cap {
                                 retiring.push(pid);
                             }
-                            writeln!(births, "{frame},{cid},{pid},{f},{gen},birth").unwrap();
+                            writeln!(births, "{frame},{cid},{pid},{f},{gen},birth,{}", child.iter().filter(|v| **v != 0.0).count()).unwrap();
                             writeln!(csv_ants, "{cid},{f}").unwrap();
                             book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
                         }
@@ -613,7 +883,7 @@ fn main() {
                         book.remove(&id);
                     }
                 }
-                let refill = lo.saturating_sub(n) as usize;
+                let refill = if hall_keep > 0 { 0 } else { lo.saturating_sub(n) };
                 let paid = births_n.saturating_sub(refill + hard_n).min(q_now);
                 quota -= paid as f64;
                 for id in std::mem::take(&mut quota_cut).into_iter().take(births_n.saturating_sub(refill + hard_n)) {
@@ -625,13 +895,128 @@ fn main() {
                     }
                 }
             }
+            if hall_keep > 0 {
+                hall.retain(|h| frame - h.0 <= hall_keep);
+                let n_now = book.len();
+                if n_now < lo {
+                    // Plain score per 1k frames for both; a dead ant's is cut by `dead_w` (a loss grows by 1/dead_w).
+                    let pen = |v: f64| if v > 0.0 { v * dead_w } else { v / dead_w.max(1e-6) };
+                    let mut ids: Vec<u32> = book.keys().copied().collect();
+                    ids.sort_unstable();
+                    // (value, Some(living id) | None, hall index)
+                    let mut cand: Vec<(f64, Option<u32>, usize)> = ids
+                        .iter()
+                        .filter(|i| frame - book[i].born >= min_age && book[i].kids < kid_cap)
+                        .map(|i| (book[i].credit / ((frame - book[i].born) as f64 / 1000.0), Some(*i), 0))
+                        .collect();
+                    cand.extend(hall.iter().enumerate().filter(|h| h.1 .2.kids < kid_cap).map(|(k, h)| (pen(h.1), None, k)));
+                    if sel == "random" {
+                        for k in (1..cand.len()).rev() {
+                            cand.swap(k, srng.below(k + 1));
+                        }
+                    } else {
+                        cand.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+                    }
+                    // Graded as the quota's births are: one each down the list, then again down the top half, the top
+                    // quarter.
+                    let need = lo - n_now;
+                    let mut kids = vec![0u32; cand.len()];
+                    let mut given = 0;
+                    'hp: for span in [cand.len(), cand.len().div_ceil(2), cand.len().div_ceil(4)] {
+                        for k in kids.iter_mut().take(span) {
+                            if given >= need {
+                                break 'hp;
+                            }
+                            *k += 1;
+                            given += 1;
+                        }
+                    }
+                    for (c, k) in cand.iter().zip(kids) {
+                        for _ in 0..k {
+                            let (genome, family, gen, pid) = match c.1 {
+                                Some(i) => (book[&i].genome.clone(), book[&i].family.clone(), book[&i].gen, i),
+                                None => {
+                                    let h = &hall[c.2];
+                                    (h.2.genome.clone(), h.2.family.clone(), h.2.gen, 0)
+                                }
+                            };
+                            let child = if neutral {
+                                neutral_mutate(&genome, &kslots, kpm, ksigma, kevents, &mut srng)
+                            } else {
+                                train::mutate(&genome, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                            };
+                            let Some(cid) = inrun::birth_in(&mut w, sp, home_colony, home_anchor, inrun::mind(&child), kid_grants) else {
+                                birth_fail += 1;
+                                continue;
+                            };
+                            births_n += 1;
+                            last_birth = frame;
+                            match c.1 {
+                                Some(i) => {
+                                    let pb = book.get_mut(&i).unwrap();
+                                    pb.kids += 1;
+                                    pb.last_kid = frame;
+                                    pb.at_kid = (pb.credit, pb.g2);
+                                }
+                                None => hall[c.2].2.kids += 1,
+                            }
+                            let kind = if c.1.is_some() { "refill" } else { "hall" };
+                            writeln!(births, "{frame},{cid},{pid},{family},{},{kind},{}", gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                            writeln!(csv_ants, "{cid},{family}").unwrap();
+                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
+                        }
+                    }
+                }
+            }
             let got: f64 = delivered.iter().map(|d| d.1).sum();
             let ate: f64 = eaten.iter().map(|d| d.1).sum();
-            let fp = 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0);
+            let fp = if tank_price { tank_p } else { 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0) };
             let cp = 1.0 + kprice * (loose_n as f64 / (2.0 * book.len().max(1) as f64)).clamp(0.0, 1.0);
             // Live ants the book does not know (must stay 0).
             let ghosts = inrun::ants(&w, sp).iter().filter(|i| !book.contains_key(i)).count();
             writeln!(sel_log, "{frame},{},{},{births_n},{removals_n},{bias:.2},{med:.3},{fp:.2},{dig_price:.2},{cp:.2},{ghosts}", book.len(), adults.len()).unwrap();
+        }
+        if fr % 25_000 == 0 {
+            let door = w.nest_sites.first().map_or(inrun::NEST, |s| s.x);
+            let (ns, _) = pixel_physics::lab::nestscore::of_world(&w, &sc.bed, door, &pixel_physics::lab::nestscore::HARVESTER);
+            // door_open (dig thread, PR #780): the nest's largest piece joins the air; -1 before there is a nest.
+            let door_open = pixel_physics::lab::nestscore::door_open(&w, &sc.bed, door, 3, 20).map_or(-1, |o| o as i32);
+            writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell()).unwrap();
+        }
+        if fr % 1000 == 0 {
+            let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);
+            let corpse_m = w.materials.id_of("corpse");
+            for x in (inrun::NEST - 45).max(0)..=(inrun::NEST + 45).min(bw - 1) {
+                let dx = (x - inrun::NEST).abs();
+                let sy = surf[x as usize];
+                for y in 0..bh {
+                    let c = w.get(x, y);
+                    if c.organism_id() != 0 || w.materials.get(c.material).food_energy <= 0.0 {
+                        continue;
+                    }
+                    // Corpses are edible but are not stored food: at seed 1's die-off every "food" cell in the
+                    // nest was a dead ant (or crumbs off one), none provisions.
+                    if Some(c.material) == corpse_m {
+                        if y >= sy && dx <= 12 {
+                            nest_c += 1;
+                        }
+                        continue;
+                    }
+                    if y >= sy && dx <= 12 {
+                        nest_f += 1;
+                    } else if y < sy && dx <= 12 && sy - y <= 4 {
+                        door_f += 1;
+                    } else {
+                        field_f += 1;
+                    }
+                }
+            }
+            let ants = inrun::ants(&w, sp);
+            let tanks: Vec<f64> = ants.iter().filter_map(|&i| w.organism(i)).map(|s| s.energy as f64 / start_e).collect();
+            let crop: u32 = ants.iter().filter_map(|&i| w.organism(i)).map(|s| s.crop.map_or(0, |c| c.cells as u32)).sum();
+            let n = tanks.len().max(1) as f64;
+            let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
+            writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
         }
         if fr % window == 0 {
             let alive = inrun::ants(&w, sp).len();
@@ -640,7 +1025,9 @@ fn main() {
             for id in inrun::ants(&w, sp) {
                 if let Some(st) = w.organism(id) {
                     let (x, y) = st.chain.first().copied().unwrap_or((0, 0));
-                    writeln!(pf, "{id} {x} {y} {:.1} {}", st.energy, u8::from(st.spoil.is_some())).unwrap();
+                    // Columns 6-7: the ledger's credit so far and the founder line (for reliability by record length).
+                    let (cr, fam) = book.get(&id).map_or((0.0, "-"), |b| (b.credit, b.family.as_str()));
+                    writeln!(pf, "{id} {x} {y} {:.1} {} {cr:.3} {fam}", st.energy, u8::from(st.spoil.is_some())).unwrap();
                 }
             }
             if maps {
@@ -669,7 +1056,8 @@ fn main() {
         }
     }
     if sel != "off" {
-        println!("selection: quota due {q_due}, no eligible parent {q_noparent}, placements failed {birth_fail}");
+        println!("selection: hungry departures paid {hungry_paid}, quota due {q_due}, no eligible parent {q_noparent}, placements failed {birth_fail}; parents {} of which plain score agrees {}", zs_pick.0, zs_pick.1);
+        age30.flush().unwrap();
     }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }

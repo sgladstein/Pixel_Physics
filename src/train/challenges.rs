@@ -2737,6 +2737,11 @@ pub mod inrun {
     pub fn birth(w: &mut World, sp: SpeciesId, genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
         let any = *ants_of(w, sp).first()?;
         let (colony, anchor) = w.organism(any).map(|s| (s.colony, s.forage_anchor))?;
+        birth_in(w, sp, colony, anchor, genome, grants)
+    }
+
+    /// [`birth`] into a named colony and anchor, for a colony with no ant left alive to read them from.
+    pub fn birth_in(w: &mut World, sp: SpeciesId, colony: u32, anchor: (i32, i32), genome: std::sync::Arc<creature::mind::MindGenome>, grants: f32) -> Option<OrganismId> {
         let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
         for dy in 1..16 {
             for dx in [0, 2, -2, 4, -4, 6, -6] {

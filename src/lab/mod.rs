@@ -40,6 +40,7 @@ pub mod bench;
 pub mod census;
 pub mod names;
 pub mod nestcensus;
+pub mod nestscore;
 pub mod pace;
 pub mod params;
 pub mod plainspeak;
