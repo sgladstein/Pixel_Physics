@@ -1142,6 +1142,13 @@ fn scratch_bank_cap() -> Option<f32> {
     *CAP.get_or_init(|| std::env::var("PP_BANK_CAP").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
 }
 
+/// SCRATCH (teacher lane, never for main): `PP_DIGEST_BAR=N` (tanks) is the appetite gate's reference instead of
+/// `reproduce_threshold`, for a bed that switches breeding off by setting the bar to 1e30 (which leaves the gate inert).
+fn scratch_digest_bar() -> Option<f32> {
+    static BAR: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *BAR.get_or_init(|| std::env::var("PP_DIGEST_BAR").ok().and_then(|v| v.parse().ok()).filter(|c: &f32| *c > 0.0))
+}
+
 /// Book one tick's digestion in [`World::digest_log`] while one is
 /// running: the animal, the face worth its crop gave up this tick, and
 /// whether the crop held a trip's food.
@@ -8778,7 +8785,8 @@ fn settle(
     // ungated overstates by about ten to one.
     let digest_rate = {
         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
-        if carrying && def.digest_hunger_weight > 0.0 && def.reproduce_threshold > 0.0 {
+        let bar = scratch_digest_bar().map_or(def.reproduce_threshold, |n| n * def.start_energy);
+        if carrying && def.digest_hunger_weight > 0.0 && bar > 0.0 {
             let w = def.digest_hunger_weight.clamp(0.0, 1.0);
             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
             // **Flat at full rate up to `start_energy`, then falling to the
@@ -8797,9 +8805,9 @@ fn settle(
             // only band where withholding cargo costs it nothing it needs.
             // Below subsistence it is starving and must eat at full rate; that
             // is not a special case bolted on, it is where the ramp starts.
-            let floor = def.start_energy.min(def.reproduce_threshold);
-            let span = (def.reproduce_threshold - floor).max(f32::EPSILON);
-            let hunger = ((def.reproduce_threshold - energy) / span).clamp(0.0, 1.0);
+            let floor = def.start_energy.min(bar);
+            let span = (bar - floor).max(f32::EPSILON);
+            let hunger = ((bar - energy) / span).clamp(0.0, 1.0);
             let scaled = digest_rate * (1.0 - w + w * hunger);
             // The pair `CLAUDE.md` asks for: `digest_appetite_ticks` is the
             // "it fired" half and `digest_appetite_held` the effect from the

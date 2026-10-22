@@ -63,6 +63,11 @@ fn main() {
     if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("bank_cap=").map(str::to_string)) {
         unsafe { std::env::set_var("PP_BANK_CAP", v) };
     }
+    // SCRATCH: `digest_bar=N` (tanks) sets PP_DIGEST_BAR, the appetite gate's reference (`hungergate=`), because this
+    // bed turns breeding off with a 1e30 breeding bar and the gate otherwise reads hunger 1 at any bank.
+    if let Some(v) = std::env::args().find_map(|a| a.strip_prefix("digest_bar=").map(str::to_string)) {
+        unsafe { std::env::set_var("PP_DIGEST_BAR", v) };
+    }
     std::env::set_var("PIXEL_PHYSICS_MUTATION", "off");
     let a: Vec<String> = std::env::args().skip(1).collect();
     // pile=1 (default): every founder starts at the nest door, heaped (the game's own
@@ -152,6 +157,14 @@ fn main() {
     if let Some(v) = arg(&a, "synapse") {
         let mut def = w.species.get(sp).creature.clone().expect("creature");
         def.synapse_fraction = v.parse().unwrap();
+        w.species.set_creature(sp, def);
+    }
+    // hungergate=W: the ant's `digest_hunger_weight` for this run (a trial, not the species file). At 1 the crop stops
+    // digesting as the bank nears the breeding bar, so a full forager carries its load home (owner, 2026-10-22: 89-96%
+    // of all food digested went into ants already past the bar; the colony ate 2-2.5x what it burned).
+    if let Some(v) = arg(&a, "hungergate") {
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.digest_hunger_weight = v.parse().unwrap();
         w.species.set_creature(sp, def);
     }
     w.cut_log = Some(Vec::new());
