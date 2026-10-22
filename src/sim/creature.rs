@@ -19237,27 +19237,8 @@ impl<'w> CellMemo<'w> {
     /// bounds in no resident chunk, `Cell::EMPTY` -- by the same two tests.
     pub(super) fn filled(world: &'w World, min: (i32, i32), max: (i32, i32)) -> Self {
         let mut memo = Self::new(world, min, max);
-        for j in 0..memo.h {
-            let y = memo.y0 + j;
-            let mut i = 0;
-            while i < memo.w {
-                let x = memo.x0 + i;
-                let coord = super::chunk::ChunkCoord::containing(x, y);
-                let chunk = world.chunk(coord);
-                // The run of this row inside `coord`'s chunk.
-                let end = ((coord.x + 1) * super::chunk::CHUNK_SIZE - memo.x0).min(memo.w);
-                for i in i..end {
-                    let x = memo.x0 + i;
-                    let cell = if !world.in_bounds(x, y) {
-                        Cell::OUT_OF_BOUNDS
-                    } else {
-                        chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
-                    };
-                    memo.cells[(j * memo.w + i) as usize] = Some(cell);
-                }
-                i = end;
-            }
-        }
+        let w = memo.w;
+        each_cell_in(world, min, max, |i, j, cell| memo.cells[(j * w + i) as usize] = Some(cell));
         memo
     }
 
@@ -19280,6 +19261,35 @@ impl CellRead for CellMemo<'_> {
         match self.slot(x, y) {
             Some(i) => *self.cells[i].get_or_insert_with(|| self.world.get(x, y)),
             None => self.world.get(x, y),
+        }
+    }
+}
+
+/// Every cell of the rectangle from `min` to `max` (both inclusive), row by
+/// row, as `f(column, row, cell)` counted from `min`: what `World::get`
+/// returns for each -- out of bounds, `Cell::OUT_OF_BOUNDS`; in bounds in no
+/// resident chunk, `Cell::EMPTY` -- by the same two tests, with one chunk
+/// lookup per run of a row that stays in one chunk rather than one a cell.
+fn each_cell_in(world: &World, min: (i32, i32), max: (i32, i32), mut f: impl FnMut(i32, i32, Cell)) {
+    let w = max.0 - min.0 + 1;
+    for j in 0..(max.1 - min.1 + 1).max(0) {
+        let y = min.1 + j;
+        let mut i = 0;
+        while i < w {
+            let coord = super::chunk::ChunkCoord::containing(min.0 + i, y);
+            let chunk = world.chunk(coord);
+            // The run of this row inside `coord`'s chunk.
+            let end = ((coord.x + 1) * super::chunk::CHUNK_SIZE - min.0).min(w);
+            for i in i..end {
+                let x = min.0 + i;
+                let cell = if !world.in_bounds(x, y) {
+                    Cell::OUT_OF_BOUNDS
+                } else {
+                    chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
+                };
+                f(i, j, cell);
+            }
+            i = end;
         }
     }
 }
@@ -19314,9 +19324,18 @@ pub(super) struct HomeLens<'w> {
     x0: i32,
     y0: i32,
     side: i32,
-    /// Home for each cell of that square, under the shipped rule; `None`
-    /// under any other, where each ask goes to [`adjacent_nest`].
-    home: Option<Vec<bool>>,
+    home: SquareHome,
+}
+
+/// What a [`HomeLens`] knows of its square's home.
+enum SquareHome {
+    /// Not worked out: a rule other than the shipped one, where each ask
+    /// goes to [`adjacent_nest`].
+    Asked,
+    /// No cell of it is home.
+    Nowhere,
+    /// Home for each cell, row by row.
+    Each(Vec<bool>),
 }
 
 impl<'w> HomeLens<'w> {
@@ -19333,24 +19352,24 @@ impl<'w> HomeLens<'w> {
             && nest_site_rows().is_none()
             && nest_reach_radius() == 1;
         if !plain {
-            return HomeLens { memo: CellMemo::new(world, min, max), x0, y0, side, home: None };
+            return HomeLens { memo: CellMemo::new(world, min, max), x0, y0, side, home: SquareHome::Asked };
         }
-        // The walk reads nearly every cell of the outer square, and the
-        // home test below reads all of them.
-        let mut memo = CellMemo::filled(world, min, max);
+        // With nothing home in the square the walk reads no cell of it, so
+        // the cells are kept ([`CellMemo::filled`]) only once some is, and
+        // until then this lens remembers none (an empty window).
+        let nowhere = |world| HomeLens { memo: CellMemo::new(world, centre, (centre.0 - 1, centre.1 - 1)), x0, y0, side, home: SquareHome::Nowhere };
         let n = (side * side) as usize;
         let Some(nest) = world.materials.id_of(&def.nest) else {
-            return HomeLens { memo, x0, y0, side, home: Some(vec![false; n]) };
+            return nowhere(world);
         };
         // Over the outer square, `side + 2` wide: how many cells of each
-        // 3x3 are nest material, and how many dug home.
+        // 3x3 are nest material, and how many dug home. Read straight from
+        // the chunks, row by row: 84% of walks find nothing here, and for
+        // them this read is the walk (2026-10-22).
         let outer = side + 2;
         let on = (outer * outer) as usize;
         let mut is_nest = vec![0u8; on];
-        for (k, n) in is_nest.iter_mut().enumerate() {
-            let (i, j) = (k as i32 % outer, k as i32 / outer);
-            *n = u8::from(memo.cell(min.0 + i, min.1 + j).material == nest);
-        }
+        each_cell_in(world, min, max, |i, j, cell| is_nest[(j * outer + i) as usize] = u8::from(cell.material == nest));
         let mut is_dug = vec![0u8; on];
         if mode == NestHome::Dug && !world.nest_dug.is_empty() {
             // Whichever is fewer: the square's cells looked up in the set, or
@@ -19363,16 +19382,17 @@ impl<'w> HomeLens<'w> {
                     }
                 }
             } else {
-                for (k, d) in is_dug.iter_mut().enumerate() {
-                    let (i, j) = (k as i32 % outer, k as i32 / outer);
-                    *d = u8::from(world.nest_dug.contains(&(min.0 + i, min.1 + j)));
+                for j in 0..outer {
+                    for i in 0..outer {
+                        is_dug[(j * outer + i) as usize] = u8::from(world.nest_dug.contains(&(min.0 + i, min.1 + j)));
+                    }
                 }
             }
         }
         // Nothing within one of the square: no cell of it is home, the
         // walk's common case, with no sums to take.
         if is_nest.iter().chain(&is_dug).all(|&v| v == 0) {
-            return HomeLens { memo, x0, y0, side, home: Some(vec![false; n]) };
+            return nowhere(world);
         }
         // 3x3 sums, rows then columns: home is a dug cell anywhere in the
         // 3x3 (the founding cut, [`adjacent_nest`]'s `in_cut`), or nest
@@ -19401,7 +19421,8 @@ impl<'w> HomeLens<'w> {
                 dug[k] > 0 || nests[k] > is_nest[((j + 1) * outer + i + 1) as usize]
             })
             .collect();
-        HomeLens { memo, x0, y0, side, home: Some(home) }
+        // The walk reads nearly every cell of the outer square.
+        HomeLens { memo: CellMemo::filled(world, min, max), x0, y0, side, home: SquareHome::Each(home) }
     }
 
     /// Whether any cell of the square can be home: `false` only under the
@@ -19409,16 +19430,22 @@ impl<'w> HomeLens<'w> {
     /// one of it, which is where most walks start (84% of 550,000 in the
     /// mind colony's run to frame 40,600; 1.3% found a site).
     pub(super) fn any_home(&self) -> bool {
-        self.home.as_ref().is_none_or(|h| h.iter().any(|&b| b))
+        match &self.home {
+            SquareHome::Asked => true,
+            SquareHome::Nowhere => false,
+            SquareHome::Each(h) => h.iter().any(|&b| b),
+        }
     }
 
     /// Whether `(x, y)` is home to `def` (the `def` this lens was built
     /// for): [`adjacent_nest`], through this lens.
     pub(super) fn home(&mut self, x: i32, y: i32, def: &CreatureDef) -> bool {
         let (dx, dy) = (x - self.x0, y - self.y0);
-        if let Some(home) = &self.home {
-            if dx >= 0 && dy >= 0 && dx < self.side && dy < self.side {
-                return home[(dy * self.side + dx) as usize];
+        if dx >= 0 && dy >= 0 && dx < self.side && dy < self.side {
+            match &self.home {
+                SquareHome::Asked => {}
+                SquareHome::Nowhere => return false,
+                SquareHome::Each(home) => return home[(dy * self.side + dx) as usize],
             }
         }
         let world = self.memo.world;

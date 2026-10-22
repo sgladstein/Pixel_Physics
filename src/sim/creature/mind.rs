@@ -1652,6 +1652,9 @@ pub fn decide(
     decide_planned(g, &ScorerPlan::new(g), ctx, opts, state, draw)
 }
 
+/// How many options [`decide_planned`] lists on the stack.
+const STACK_OPTS: usize = 48;
+
 /// [`decide`] with the scorer's plan built once per genome
 /// ([`MindGenome::plan`]) rather than once a call: what [`tick`] runs.
 fn decide_planned(
@@ -1743,14 +1746,31 @@ fn decide_planned(
         jobs[v] = Some(j);
         weights[v] = (j + 1.0) / 2.0;
     }
-    let present: Vec<usize> = (0..VERBS).filter(|&v| jobs[v].is_some()).collect();
-    let shifted: Vec<f32> = present.iter().map(|&v| weights[v]).collect();
-    let verb = Verb::ALL[present[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())]];
+    let (mut present, mut shifted, mut n) = ([0usize; VERBS], [0.0f32; VERBS], 0);
+    for v in (0..VERBS).filter(|&v| jobs[v].is_some()) {
+        (present[n], shifted[n]) = (v, weights[v]);
+        n += 1;
+    }
+    let verb = Verb::ALL[present[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())]];
 
-    // Its target.
-    let targets: Vec<usize> = (0..opts.len()).filter(|&o| opts[o].verb == verb).collect();
-    let shifted: Vec<f32> = targets.iter().map(|&o| (scores[o] + 1.0) / 2.0).collect();
-    let pick = targets[choose_weighted(&shifted, PICK_FLOOR, draw.unit_f32())];
+    // Its target. The verb's and the target's lists sit on the stack for
+    // any list a body makes (~11 options, at most a few dozen; a longer one,
+    // which nothing builds, takes the heap): four of the small allocations
+    // the ant cost review priced as churn (2026-10-22).
+    let (mut t_stack, mut s_stack, mut t_heap, mut s_heap) = ([0usize; STACK_OPTS], [0.0f32; STACK_OPTS], Vec::new(), Vec::new());
+    let (targets, shifted): (&mut [usize], &mut [f32]) = if opts.len() <= STACK_OPTS {
+        (&mut t_stack[..], &mut s_stack[..])
+    } else {
+        t_heap.resize(opts.len(), 0);
+        s_heap.resize(opts.len(), 0.0);
+        (&mut t_heap[..], &mut s_heap[..])
+    };
+    let mut n = 0;
+    for o in (0..opts.len()).filter(|&o| opts[o].verb == verb) {
+        (targets[n], shifted[n]) = (o, (scores[o] + 1.0) / 2.0);
+        n += 1;
+    }
+    let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
 
     // Memory, from what the ant felt, saw and chose.
     let mut fresh = [0.0f32; MEMORY];
