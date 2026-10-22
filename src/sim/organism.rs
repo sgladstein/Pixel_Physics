@@ -3532,6 +3532,17 @@ pub struct CreatureDef {
     /// Frames between decisions.
     pub tick_interval: u64,
     pub start_energy: f32,
+    /// **The joules the mind's energy sense reads as one full tank**, when
+    /// that is not `start_energy` (`None`, every authored species). The
+    /// training arenas rescale `start_energy` to their budget so the bills
+    /// keep their size (`train::challenges::budget_to`: fetch and trail
+    /// 1e9, soil 2,400), and the sense divided by it read a flat 0.5 in
+    /// fetch and trail and 0.5 -> 0.2 while digging, where the colony and
+    /// the game read the real tank (0.75-0.95). A lesson keyed on hunger
+    /// then fired all through the soil arena (hungry-lesson thread,
+    /// 2026-10-21; owner's go). `budget_to` keeps the authored budget here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensed_tank: Option<f32>,
     /// Charged every tick regardless of what the creature does, **per cell
     /// of the body the animal still has**.
     ///
@@ -4572,6 +4583,7 @@ impl CreatureDef {
             body,
             tick_interval,
             start_energy,
+            sensed_tank,
             idle_cost_per_cell,
             move_cost_per_cell,
             dig_cost_in_moves,
@@ -4667,6 +4679,8 @@ impl CreatureDef {
             // material's `penetration_resistance`, which does not move with
             // resolution either.
             start_energy: *start_energy,
+            // The same joules as `start_energy`, passed through with it.
+            sensed_tank: *sensed_tank,
             synapse_fraction: *synapse_fraction,
 
             // ---- a rate charged per cell *read* per decision: / (k x time) ----
