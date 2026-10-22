@@ -575,6 +575,12 @@ pub struct PheromonePlane {
     /// two trail planes, [`Spread::ActiveSpace`] for the alarm — see
     /// [`ALARM_FALL`].
     spread: Spread,
+    /// **Which cells scent can be in**, 1 open and 0 rock, when the plane
+    /// respects walls ([`trail_walls`]); `None` is the shipped plane, which
+    /// spreads through stone as through air and runs exactly the code it ran
+    /// before. Refreshed from the world before each pass over the awake tiles
+    /// and a one-cell rim ([`Pheromones::refresh_walls`]).
+    walls: Option<Vec<u8>>,
 }
 
 impl PheromonePlane {
@@ -630,6 +636,7 @@ impl PheromonePlane {
             decay_factor: factor,
             diffuse,
             spread: Spread::Diffuse,
+            walls: None,
         }
     }
 
@@ -659,6 +666,11 @@ impl PheromonePlane {
         let Some(i) = self.index(x, y) else {
             return false;
         };
+        // Nothing lands in rock on a walled plane: the quiet-row skip in
+        // `step` needs every blocked cell to hold 0.
+        if self.walls.as_ref().is_some_and(|m| m[i] == 0) {
+            return false;
+        }
         self.front[i] = self.front[i].saturating_add(amount);
         let (tx, ty) = ((x - self.origin.0) as usize / TILE, (y - self.origin.1) as usize / TILE);
         self.deposited[ty * self.tw + tx] = true;
@@ -836,6 +848,49 @@ impl PheromonePlane {
                             let raised = neighbourhood.saturating_sub(fall).max(here);
                             let out = decayed(raised, self.decay_factor);
                             self.back[base + lx] = out;
+                            tile_peak = tile_peak.max(out);
+                        }
+                        continue;
+                    }
+                    if let Some(mask) = &self.walls {
+                        // **Rock blocks the spread** ([`trail_walls`]): each
+                        // open cell blends towards the mean of its open
+                        // neighbours only, and a rock cell holds nothing. The
+                        // same column-sum window as the shipped row below, run
+                        // twice -- once over the scent, once over the mask for
+                        // the count -- so it is the shipped blend wherever all
+                        // nine cells are open. A separate row, not a branch in
+                        // that one, so `walls: None` runs its old code.
+                        let (lo, hi) = (x0.saturating_sub(1), (x1 + 1).min(self.w));
+                        let mut ncols = [0u32; TILE + 2];
+                        cols[..span + 2].fill(0);
+                        {
+                            let sums = &mut cols[lo + 1 - x0..hi + 1 - x0];
+                            let counts = &mut ncols[lo + 1 - x0..hi + 1 - x0];
+                            for row in [up, Some(base), down].into_iter().flatten() {
+                                for ((slot, n), (&v, &m)) in sums
+                                    .iter_mut()
+                                    .zip(counts.iter_mut())
+                                    .zip(self.front[row + lo..row + hi].iter().zip(&mask[row + lo..row + hi]))
+                                {
+                                    *slot += u32::from(v);
+                                    *n += u32::from(m);
+                                }
+                            }
+                        }
+                        let (diffuse, factor) = (self.diffuse, self.decay_factor);
+                        let back = &mut self.back[base + x0..base + x1];
+                        let front = &self.front[base + x0..base + x1];
+                        let open = &mask[base + x0..base + x1];
+                        for (((out_cell, &here), &m), (win, nwin)) in
+                            back.iter_mut().zip(front).zip(open).zip(cols[..span + 2].windows(3).zip(ncols[..span + 2].windows(3)))
+                        {
+                            let sum = win[0] + win[1] + win[2];
+                            let n = (nwin[0] + nwin[1] + nwin[2]).max(1);
+                            let here = f32::from(here);
+                            let mean = sum as f32 / n as f32;
+                            let out = decayed(round_to_scent(here + (mean - here) * diffuse), factor) * Scent::from(m);
+                            *out_cell = out;
                             tile_peak = tile_peak.max(out);
                         }
                         continue;
@@ -1063,13 +1118,49 @@ pub const LAB_B_RHO: f32 = DECAY_RHO;
 /// laden ants (`examples/trailprofile.rs`).
 pub const LAB_B_DIFFUSE: f32 = 0.05;
 
+/// **Whether rock blocks the trails' spread** -- `PIXEL_PHYSICS_TRAIL_WALLS=1`,
+/// off unless set. Off, a trail plane spreads through stone and soil as
+/// through air, so scent seeps into the rock round a tunnel and is lost
+/// there; on, the 3x3 blend averages over open cells only and rock holds
+/// nothing.
+///
+/// **Why it is here** (maze thread, 2026-10-22, `train::challenges::maze`):
+/// a trail is only a direction where it is stronger one way than the other,
+/// and seeping into rock makes a tunnel's middle rows stronger than its
+/// edges, which points across the tunnel instead of along it. A maze trail
+/// stamped and spread 12 passes (144 frames) this way pointed the way at
+/// 0.61 of its cells against 0.85 as laid, and the hand-built follower fell
+/// 0.69 -> 0.15; with rock blocking the spread, 0.84 and 0.67.
+///
+/// **What it costs to switch on, before measuring anything else**: today the
+/// soak into rock and sky is the only thing that erases channel A
+/// ([`TRAIL_A_RHO`] is 0), so with walls on a trail in a closed tunnel never
+/// fades. Measure it beside a non-zero `PIXEL_PHYSICS_A_RHO`.
+///
+/// **And trained diggers read the scent in the soil** (maze thread,
+/// 2026-10-22): the dig rung's champion s171-8 scores 88.0 on soil step 4 and
+/// 24.6 with this on (hold-out, same genome), and founder c1 falls 71.9 ->
+/// 8.5 with its scent reads cut, so the dig skill uses scent that has soaked
+/// into the faces round its hole -- exactly what this rule removes. If it
+/// ever ships, digging has to be retrained on it.
+pub fn trail_walls() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_WALLS").is_ok_and(|v| v == "1"))
+}
+
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
+        let mut planes = [
+            PheromonePlane::with_params(bounds, DIFFUSE, a_rho()),
+            PheromonePlane::with_params(bounds, b_diffuse(), b_rho()),
+        ];
+        if trail_walls() {
+            for p in &mut planes {
+                p.walls = Some(vec![1; p.w * p.h]);
+            }
+        }
         Self {
-            planes: [
-                PheromonePlane::with_params(bounds, DIFFUSE, a_rho()),
-                PheromonePlane::with_params(bounds, b_diffuse(), b_rho()),
-            ],
+            planes,
             alarm: None,
             bounds,
             alarm_rho: ALARM_RHO,
@@ -1290,6 +1381,78 @@ impl Pheromones {
         }
     }
 
+    /// **Switch the trail planes' walls on or off** in a built world, for a
+    /// harness that cannot set [`trail_walls`]'s variable before the world
+    /// exists. Turning them on opens every cell until the next pass's
+    /// [`Self::refresh_walls`].
+    pub fn set_walls(&mut self, on: bool) {
+        for p in &mut self.planes {
+            p.walls = on.then(|| vec![1; p.w * p.h]);
+        }
+    }
+
+    /// Whether the trail planes respect walls ([`trail_walls`]).
+    pub fn walled(&self) -> bool {
+        self.planes[0].walls.is_some()
+    }
+
+    /// **Bring the trail planes' wall masks up to date** before a pass: every
+    /// cell of each awake tile, and a one-cell rim round it (a rim cell's
+    /// openness is part of an edge cell's count). `fill(y, x0, out)` writes
+    /// 1 (open) or 0 (rock) for world row `y` from column `x0` into `out`, a
+    /// run at a time so the caller can read a chunk once per run rather than
+    /// once per cell. A rock cell that holds scent -- ground fallen into a
+    /// tunnel -- is emptied here, so nothing is stored in rock. Does nothing
+    /// on an unwalled plane. Both trail planes share one mask, so it is read
+    /// once and copied.
+    pub fn refresh_walls(&mut self, mut fill: impl FnMut(i32, i32, &mut [u8])) {
+        let Some(mut mask) = self.planes[0].walls.take() else { return };
+        let (w, h, tw, th, origin) = (self.planes[0].w, self.planes[0].h, self.planes[0].tw, self.planes[0].th, self.planes[0].origin);
+        // Which row of which tile holds scent on either plane, as `step`'s
+        // own `live` flags are read: one OR-fold per 64-cell segment.
+        let live: Vec<bool> = (0..h)
+            .flat_map(|ly| {
+                let (a, b) = (&self.planes[0].front[ly * w..(ly + 1) * w], &self.planes[1].front[ly * w..(ly + 1) * w]);
+                a.chunks(TILE).zip(b.chunks(TILE)).map(|(sa, sb)| sa.iter().chain(sb).fold(0, |acc, &v| acc | v) != 0)
+            })
+            .collect();
+        for ty in 0..th {
+            for tx in 0..tw {
+                if !self.planes.iter().any(|p| p.tile_awake(tx, ty)) {
+                    continue;
+                }
+                let (x0, y0) = ((tx * TILE).saturating_sub(1), (ty * TILE).saturating_sub(1));
+                let (x1, y1) = ((tx * TILE + TILE + 1).min(w), (ty * TILE + TILE + 1).min(h));
+                let (c0, c1) = (tx.saturating_sub(1), (tx + 1).min(tw - 1));
+                for ly in y0..y1 {
+                    // **Only rows the pass will read**: it computes a row only
+                    // when scent lies within one row of it, and reads the mask
+                    // one row further, so a row with no scent within two rows
+                    // (over this tile and a column either side) is never read
+                    // this pass, and holds no scent to empty. Exact, not a
+                    // cache: a row is refreshed on every pass it is read. Read
+                    // at segment grain (this tile and one either side), which
+                    // is wider than the pass needs and so never too narrow.
+                    let near = (ly.saturating_sub(2)..(ly + 3).min(h)).any(|r| live[r * tw + c0..=r * tw + c1].iter().any(|&l| l));
+                    if !near {
+                        continue;
+                    }
+                    let row = &mut mask[ly * w + x0..ly * w + x1];
+                    fill(origin.1 + ly as i32, origin.0 + x0 as i32, row);
+                    for plane in &mut self.planes {
+                        for (k, &m) in row.iter().enumerate() {
+                            if m == 0 {
+                                plane.front[ly * w + x0 + k] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.planes[1].walls = Some(mask.clone());
+        self.planes[0].walls = Some(mask);
+    }
+
     /// Whether anything in this world has ever been bitten hard enough to
     /// call out — i.e. whether the alarm plane exists at all.
     ///
@@ -1370,6 +1533,72 @@ mod tests {
     /// checking the row below it fails at pass 0 of the first arm. Leaving
     /// a quiet row's `back` unwritten stays green, correctly: see the note
     /// on the fill in `step`.
+    /// **The walled pass ([`trail_walls`]) is the plain 3x3 pass over open
+    /// cells only, cell for cell, on every pass**: a reference that averages
+    /// each open cell's open neighbours and holds rock at 0, run beside a
+    /// walled plane on a random mask (a third rock) with deposits that come
+    /// and go, as the unwalled guard below does. Fault checks (2026-10-22):
+    /// dividing by 9 instead of the open count fails at pass 0; letting a rock
+    /// cell keep its blend fails at pass 0; dropping the deposit clamp fails
+    /// once a deposit lands in rock.
+    #[test]
+    fn the_walled_pass_matches_a_plain_walled_3x3_pass() {
+        let bounds = Rect::new(-7, 3, 149, 99);
+        let mut plane = PheromonePlane::with_params(bounds, DIFFUSE, DECAY_RHO);
+        let (w, h) = (plane.w, plane.h);
+        let mut seed = 0x51ed_270b_2730_9a4fu64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mask: Vec<u8> = (0..w * h).map(|_| u8::from(next() % 3 != 0)).collect();
+        plane.walls = Some(mask.clone());
+        let reference = |v: &[Scent], factor: u32| -> Vec<Scent> {
+            let at = |x: i64, y: i64, m: bool| -> u32 {
+                if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 {
+                    return 0;
+                }
+                let i = y as usize * w + x as usize;
+                if m { u32::from(mask[i]) } else { u32::from(v[i]) }
+            };
+            let mut out = vec![0; w * h];
+            for y in 0..h as i64 {
+                for x in 0..w as i64 {
+                    let i = y as usize * w + x as usize;
+                    if mask[i] == 0 {
+                        continue;
+                    }
+                    let (mut sum, mut n) = (0u32, 0u32);
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            sum += at(x + dx, y + dy, false);
+                            n += at(x + dx, y + dy, true);
+                        }
+                    }
+                    let (here, mean) = (f32::from(v[i]), sum as f32 / n as f32);
+                    out[i] = decayed((here + (mean - here) * DIFFUSE).round().clamp(0.0, Scent::MAX as f32) as Scent, factor);
+                }
+            }
+            out
+        };
+        for pass in 0..400 {
+            let burst = if (pass / 50) % 2 == 0 { 6 } else { 0 };
+            for _ in 0..burst {
+                let (x, y) = (bounds.min_x + (next() % w as u64) as i32, bounds.min_y + (next() % h as u64) as i32);
+                plane.deposit(x, y, (next() % u64::from(Scent::MAX)) as Scent);
+            }
+            let want = reference(&plane.front, plane.decay_factor);
+            plane.step();
+            if let Some(i) = (0..w * h).find(|&i| plane.front[i] != want[i]) {
+                panic!("pass {pass}: cell ({}, {}) is {} where the plain walled pass gives {}", i % w, i / w, plane.front[i], want[i]);
+            }
+        }
+        assert!(plane.front.iter().any(|&v| v > 0), "the plane must hold scent at the end, or nothing was compared");
+        assert!((0..w * h).all(|i| mask[i] == 1 || plane.front[i] == 0), "rock held scent");
+    }
+
     #[test]
     fn the_tiled_pass_matches_a_plain_3x3_pass() {
         fn reference(v: &[Scent], w: usize, h: usize, diffuse: f32, factor: u32, spread: Spread) -> Vec<Scent> {

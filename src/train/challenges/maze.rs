@@ -56,6 +56,28 @@ pub struct Maze {
     pub blend: Option<f32>,
     /// How the spread meets the rock ([`Walls`]).
     pub walls: Walls,
+    /// Every ant starts carrying a crop of fruit ([`load_crops`]), so a
+    /// brain whose trail reading is gated on `f::LADEN` can be asked the
+    /// question laden; walk, turn and rest are its only verbs, so it keeps
+    /// the load for the whole run.
+    pub laden: bool,
+}
+
+/// **Put two cells of fruit in each ant's crop**, as the forager tests in
+/// `creature.rs` load one.
+pub fn load_crops(w: &mut World, ids: &[OrganismId]) {
+    let fruit = w.materials.id_of("fruit").expect("fruit");
+    for &id in ids {
+        let st = w.organism_mut(id).expect("a live ant");
+        st.crop = Some(crate::sim::organism::Crop {
+            material: fruit,
+            cells: 2,
+            digesting: 0.0,
+            unit: 960.0,
+            shade: 0,
+            passenger: None,
+        });
+    }
 }
 
 /// Rows of open air in a corridor, above its floor.
@@ -310,6 +332,9 @@ impl Maze {
         frame(&mut w, false);
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
+        if self.laden {
+            load_crops(&mut w, &ids);
+        }
         let head = |w: &World, id: OrganismId| w.organism(id).and_then(|s| s.chain.first().copied());
         let mut d0 = vec![1; n];
         for (k, &id) in ids.iter().enumerate() {
@@ -520,6 +545,7 @@ mod tests {
             spread: 0,
             blend: None,
             walls: Walls::Through,
+            laden: false,
         }
     }
 
@@ -582,5 +608,38 @@ mod tests {
         };
         let (through, reflect) = (read(Walls::Through), read(Walls::Reflect));
         assert!(reflect > through + 0.15, "through {through:.3}, reflect {reflect:.3}");
+    }
+
+    /// **The shipped plane, walled, is the model's reflect rule**: the same
+    /// trail spread 12 passes by `spread_trail` (f32) and by the real plane
+    /// with `set_walls(true)` (u16, rounded each pass) agree to a few units in
+    /// every open cell, and the real plane leaves nothing in rock. Unwalled,
+    /// the real plane leaks into rock, which is the difference the switch
+    /// exists for.
+    #[test]
+    fn the_walled_plane_spreads_as_the_reflect_model_does() {
+        let layout = super::super::super::holdout_layouts(1)[0];
+        let m = maze();
+        let (mut model, plan) = m.world(layout);
+        spread_trail(&mut model, &plan, 12, pheromone::b_diffuse(), Walls::Reflect);
+        let (mut real, _) = m.world(layout);
+        real.pheromones.set_walls(true);
+        for f in 0..12 * pheromone::PHEROMONE_INTERVAL {
+            real.frame = f;
+            real.step_pheromones();
+        }
+        let (mut worst, mut in_rock) = (0i32, 0u32);
+        for y in 0..H {
+            for x in 0..W {
+                let (a, b) = (model.pheromone_at(Channel::B, x, y), real.pheromone_at(Channel::B, x, y));
+                if plan.at(x, y) == Kind::Rock {
+                    in_rock += u32::from(b > 0);
+                } else {
+                    worst = worst.max((i32::from(a) - i32::from(b)).abs());
+                }
+            }
+        }
+        assert_eq!(in_rock, 0, "the walled plane kept scent in rock");
+        assert!(worst < 64, "walled plane and model differ by {worst} in an open cell");
     }
 }
