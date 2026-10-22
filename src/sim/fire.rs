@@ -278,6 +278,17 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     // `update_cell` already made is not disturbed. See `CellSurface::begin_visit`.
     surface.begin_visit(x, y);
     let original = surface.get(x, y);
+    update_from(surface, x, y, original)
+}
+
+/// [`update`] for a caller that has already opened the visit and holds the
+/// cell as it stands: `update::update_cell`, which reads it a few lines
+/// earlier. Re-reading it here was 2.7% of the lab box's instructions
+/// (2026-10-22), one cell read per swept cell for a value already in hand.
+/// `original` must be exactly what `surface.get(x, y)` returns now.
+#[inline]
+pub(crate) fn update_from<S: CellSurface>(surface: &mut S, x: i32, y: i32, original: Cell) -> bool {
+    debug_assert!(original == surface.get(x, y), "update_from given a stale cell at ({x}, {y})");
     if original.material == material::EMPTY {
         return false;
     }

@@ -10903,8 +10903,8 @@ impl World {
     /// [`Chunk::take_stale_blocks`] for the chunk at `coord`; a chunk that is
     /// not resident answers "everything", which makes the field rescan the
     /// whole tile, the safe direction.
-    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> u16 {
-        self.chunks.get_mut(&coord).map_or(u16::MAX, |c| c.take_stale_blocks())
+    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> (u16, u16) {
+        self.chunks.get_mut(&coord).map_or((u16::MAX, u16::MAX), |c| c.take_stale_blocks())
     }
 
     pub(crate) fn take_chunk(&mut self, coord: ChunkCoord) -> Option<Chunk> {
@@ -12041,6 +12041,10 @@ impl World {
         let Some(chunk) = self.chunks.get_mut(&coord) else {
             return;
         };
+        // The moisture channel changes wetness and nothing else: the field
+        // rescans a block only it marked for `moisture_source` alone
+        // (`Chunk::cell_stale_blocks`), which a material change would fool.
+        debug_assert_eq!(chunk.get_world(x, y).material, cell.material, "a moisture write must keep the material");
         chunk.set_world_quiet(x, y, cell);
         chunk.mark_moist_dirty(x, y);
         // A neighbour one cell the other side of the boundary is in the next
@@ -13340,6 +13344,8 @@ impl CellSurface for MoistureView<'_> {
             return;
         }
         if self.is_inner(x, y) {
+            // See `World::set_soil_moisture`'s matching assert.
+            debug_assert_eq!(self.chunk.get_world(x, y).material, cell.material, "a moisture write must keep the material");
             self.chunk.set_world_quiet(x, y, cell);
             self.chunk.mark_moist_dirty(x, y);
             self.world.mark_moist_neighbours(x, y, self.coord);

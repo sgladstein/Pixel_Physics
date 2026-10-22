@@ -375,6 +375,15 @@ pub struct Chunk {
     /// `take_chunk`/`put_chunk`, so a chunk out on a rayon worker keeps its
     /// marks.
     stale_blocks: u16,
+    /// **The part of [`Self::stale_blocks`] that a cell write made**, as
+    /// opposed to a soil-moisture write. A block marked only by
+    /// `mark_moist_dirty` still holds the materials it held at its last scan
+    /// -- a moisture write is a quiet write of the same material -- so of the
+    /// five arrays `field::rebuild_blocked` derives, only `moisture_source`
+    /// can have moved, and the field rescans that one alone (2026-10-22).
+    /// Set wherever `stale_blocks` is set except the moisture channel;
+    /// cleared with it.
+    cell_stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -675,6 +684,7 @@ impl Chunk {
             moist_cells: moisture_marks_cells(),
             sweep_rows: row_spans_enabled(),
             stale_blocks: u16::MAX,
+            cell_stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
             nutrient_recovered_at: 0,
@@ -837,7 +847,9 @@ impl Chunk {
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
         if field_relevant {
-            self.stale_blocks |= self.block_bit(x, y);
+            let bit = self.block_bit(x, y);
+            self.stale_blocks |= bit;
+            self.cell_stale_blocks |= bit;
         }
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
@@ -1232,6 +1244,7 @@ impl Chunk {
         self.pending_moist_rows = full_rows(self.coord);
         self.pending_moist_cells = full_moist_cells();
         self.stale_blocks = u16::MAX;
+        self.cell_stale_blocks = u16::MAX;
     }
 
     /// The bit in [`Self::stale_blocks`] for the block holding world cell
@@ -1250,10 +1263,21 @@ impl Chunk {
     }
 
     /// Take the stale-block mask, leaving it clear: the field has rescanned
-    /// those blocks and everything written from here on is new.
+    /// those blocks and everything written from here on is new. Returns
+    /// `(stale, cells)`: every stale block, and the ones a cell write marked
+    /// (see [`Self::cell_stale_blocks`]); `stale & !cells` is the blocks
+    /// only soil moisture moved in.
     #[inline]
-    pub fn take_stale_blocks(&mut self) -> u16 {
-        std::mem::take(&mut self.stale_blocks)
+    pub fn take_stale_blocks(&mut self) -> (u16, u16) {
+        (std::mem::take(&mut self.stale_blocks), std::mem::take(&mut self.cell_stale_blocks))
+    }
+
+    /// Both masks [`Self::take_stale_blocks`] would take, without taking
+    /// them: the field's moisture-only rescan test needs to know which path a
+    /// block will take.
+    #[cfg(test)]
+    pub(crate) fn stale_masks(&self) -> (u16, u16) {
+        (self.stale_blocks, self.cell_stale_blocks)
     }
 
     /// Whether any block holds a write the field has not derived from yet --
