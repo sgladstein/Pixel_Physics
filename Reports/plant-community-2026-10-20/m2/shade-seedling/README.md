@@ -269,11 +269,18 @@ tree's first senescent line and the floor every 50,000 frames.
   Nothing collapses. Grass needs no re-derivation: the error is the
   plant's cadence, and a plant small enough to tick every 45 frames reads
   the same age on both clocks.
-- **Not judged:** the lab game itself, with its colony eating plants;
-  there, trees would die about 7x sooner than they do now.
+- **The lab game with its colony** (`treegaps/lab/`, `latecensus`, the
+  played bed, 12 paired seeds x 500,000 frames, main vs this change):
+  the ants' gut-priced food on the bed, averaged over each run, is 18%
+  smaller (2,527 -> 2,069, smaller on 10 of 12 seeds; leaf -21%, seed
+  -13%). The colony does not show it: mean ants 126 -> 117, deliveries
+  -2%, digs -5%, each 6 of 12 either way, starvation deaths +12% (8 of
+  12), and 3 of 12 colonies extinct by 500,000 in both arms.
+
+**Switched on, owner's choice 2026-10-23** ("On, trees live 2x longer"):
+`World::old_age_plant_time` defaults on, tree and conifer
+`life_half_life` 120,000, shrub 135,000. `PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks`
+puts the old clock back (with the new lifespans).
   Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
   the cost of more, smaller plants.
 
-**Not switched on here.** It changes every world's plants, the lab's
-included, and the lifespans that go with it (arm C: tree and conifer
-120,000, shrub 135,000, grass by the same rule) are the owner's call.

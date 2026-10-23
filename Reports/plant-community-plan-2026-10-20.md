@@ -1088,8 +1088,10 @@ the review (§12), **M1 runs in this order**:
    with the shrub's lifespan re-derived (135,000) the dark floor goes 32% ->
    5% and roles a bed 2.62 -> 3.00, but tree leaf falls to 27%; with trees
    also at 120,000 it is 18% and 2.88, keeping 70% of the trees. The shrub
-   holds 3x its leaf either way; the creeper is still absent. Turning it on
-   changes every world, so it waits for the owner.
+   holds 3x its leaf either way; the creeper is still absent. **Owner chose
+   on with trees at 2x** (tree and conifer 120,000, shrub 135,000); in the
+   lab game the ants' food on the bed is 18% smaller and the colony itself
+   unchanged (12 paired seeds).
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with

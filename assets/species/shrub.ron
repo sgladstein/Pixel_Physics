@@ -96,7 +96,15 @@
     // without, recruiting on 2 of 4 seeds. The same value for creeper
     // took the creeper out on 3 of 4 seeds, because a creeper organism is
     // its whole clone; that one is held for the owner.
-    life_half_life: 45000.0,
+    //
+    // **135,000 since 2026-10-23: the same lifespan on the plant clock.**
+    // 45,000 was measured with old age on `age_ticks * 45`, which
+    // undercounts a big plant's age by its cadence (~3x for a grown shrub).
+    // Under `World::old_age_plant_time` at 45,000 the shrub held 100+ leaf
+    // on 2 of 8 four-role beds against 7; at 135,000, on 7 (with trees at
+    // 120,000) and 3x its leaf.
+    // `Reports/plant-community-2026-10-20/m2/shade-seedling/README.md` §7.
+    life_half_life: 135000.0,
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,

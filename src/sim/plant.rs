@@ -18381,7 +18381,7 @@ they are the same world. Got {median}, which means something other than the leve
                 .is_some_and(|st| st.origin.is_some() && st.cells.len() > 3),
             "test setup: the tree did not germinate and grow"
         );
-        w.organism_mut(id).expect("alive").age_ticks = 2_000_000;
+        w.organism_mut(id).expect("alive").plant_frames = 1_000_000_000;
         run_with_fields(&mut w, 200);
         let st = w.organism(id).expect("test setup: it rotted away inside 200 frames");
         assert!(st.senescent, "a tree past any lifespan did not die of age");
@@ -18411,7 +18411,7 @@ they are the same world. Got {median}, which means something other than the leve
                 if old_plant_frames {
                     st.plant_frames = 1_000_000_000;
                 } else {
-                    st.age_ticks = 2_000_000;
+                    st.age_ticks = 20_000_000;
                 }
             }
             run_with_fields(&mut w, 200);
