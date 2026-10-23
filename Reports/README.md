@@ -5903,9 +5903,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Recommends more full-job islands (e.g. on GitHub Actions) swapping whole ants, and a slot-mask merge rule for lessons.
 
 - [brain-training/parallel-training-guide.md](brain-training/parallel-training-guide.md) —
-  **living guide: which kind of parallel training fits a new ant task.** Five methods (full-job islands, world-variant
-  islands, lesson lanes merged by slot union, specialist islands with merged weights (never), co-evolving opponents),
-  five questions that pick one, the check that says whether it is working, and the method for each current task
+  **living guide: which kind of parallel training fits a new ant task.** Six methods (full-job islands, world-variant
+  islands, lesson lanes merged by slot union, specialist islands with merged weights (never), co-evolving opponents,
+  a weaned body scaffold), six questions that pick one, the check that says whether it is working, and the method for each current task
   (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
