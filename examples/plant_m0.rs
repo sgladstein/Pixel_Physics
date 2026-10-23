@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -291,6 +291,8 @@ fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
     w.seedling_reserves = get(m, "reserves", u8::from(w.seedling_reserves)) != 0;
     // `settle=1`: `World::seed_settles`.
     w.seed_settles = get(m, "settle", u8::from(w.seed_settles)) != 0;
+    // `oldage=1`: `World::old_age_plant_time`.
+    w.old_age_plant_time = get(m, "oldage", u8::from(w.old_age_plant_time)) != 0;
     if let Some(spec) = m.get("genes") {
         for item in spec.split(',') {
             let parts: Vec<&str> = item.split(':').collect();
@@ -331,6 +333,7 @@ fn community(m: &BTreeMap<String, String>) {
     // frames (rows 100 above the soil to 20 below, 2 px a cell) into `out=`.
     let shots: Vec<u64> = m.get("shots").map_or(vec![], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
     let out: String = get(m, "out", "plant_m0".to_string());
+    let gaps = get(m, "gaps", 0u64);
     let mut renderer = pixel_physics::render::Renderer::new();
     // Soil-moisture writes a tick, per sample window: the churn
     // `World::soil_capillary_levels` was held off for (`examples/waterstand`).
@@ -343,6 +346,37 @@ fn community(m: &BTreeMap<String, String>) {
             let row = census(&w, &bed, &species, &mut established, f, sample);
             println!("{row} | sw={:.1}", sw_changed as f64 / sw_ticks.max(1) as f64);
             (sw_changed, sw_ticks) = (0, 0);
+        }
+        // `gaps=N`: canopy gaps, every N frames -- the floor's light per
+        // column (two rows above the ground, as a digit 0-9 for 0-9% of open
+        // light and `+` above), and every tree: `TREE id span x0-x1 cells
+        // senescent`. Built 2026-10-22 for the owner's "gaps from tree
+        // death": how wide a dead tree's gap is, and how fast the crowns
+        // around it close it again.
+        if gaps > 0 && f % gaps == 0 {
+            let row: String = (0..bed.width)
+                .map(|x| {
+                    let pct = pixel_physics::sim::plant::ambient_light_above(&w, x, bed.ground_y - 2) / w.open_light * 100.0;
+                    if pct >= 10.0 { '+' } else { char::from(b'0' + pct as u8) }
+                })
+                .collect();
+            println!("GAPS f={f} {row}");
+            let tree = w.species.id_of("tree");
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                if Some(st.species) != tree || st.shoot_cells < 20 {
+                    continue;
+                }
+                let (x0, x1) = st.cells.keys().fold((i32::MAX, i32::MIN), |(a, b), &(x, _)| (a.min(x), b.max(x)));
+                println!(
+                    "TREE f={f} id={id} span={x0}-{x1} cells={} senescent={} age wall={} ticks={} plant={}",
+                    st.cells.len(),
+                    st.senescent,
+                    w.frame - st.born_frame,
+                    st.age_ticks as u64 * pixel_physics::sim::plant::ORGANISM_TICK_INTERVAL,
+                    st.plant_frames
+                );
+            }
         }
         if shots.contains(&f) {
             println!("{}", screen_mix(&w, &bed, f));
