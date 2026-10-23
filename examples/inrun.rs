@@ -123,7 +123,7 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
 /// grew round on round. So here only the open cells joined to the door below the datum are carved, and of those only
 /// roofed ones (ground at or below the datum above them) or under a mouth no wider than the stamped one: the crater is
 /// sky-open and stays behind, and everything else is the fresh world's.
-fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>) -> usize {
+fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>, link: Option<usize>) -> usize {
     let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
     let mut lines = t.lines();
     let head: Vec<&str> = lines.next().expect("nestmap header").split(' ').collect();
@@ -172,12 +172,121 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
             wide[dx..k].fill(k - dx > 5);
             dx = k;
         }
-        seen.into_iter().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect()
+        let mut seen: Vec<(usize, usize)> = seen.into_iter().collect();
+        seen.sort_unstable();
+        let mut kept: std::collections::HashSet<(usize, usize)> = seen.iter().copied().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect();
+        // `inherit_link=MIN`: join every kept room of at least MIN cells to the door, and drop the smaller pockets
+        // (MIN 0 or 1 links them all). The crater filter above leaves a room whose way to the door ran through the
+        // crater as a sealed pocket in the fresh world (192 maps of nestmaps-1022, 2026-10-23: median 115 cells
+        // carved, 30 joined to the door -- the stamp and little else), and a sealed pocket is no nest to an ant. So
+        // each pocket also keeps the cheapest run of last round's open cells to what the fresh world already joins to
+        // the door, two cells wide like the stamped shaft, crater or not. Only the run is carried: the crater round it
+        // stays behind. 20 is the tuned MIN (same 192 maps): linking every pocket gave 49 maps runs longer than the
+        // pockets they served -- a crater bowl's edge scraps turned into a tunnel tree no ant dug (cs3lexles c20, 105
+        // cells) -- against 4 at MIN 10, 2 at 15, 0 at 20 and 30; 20 keeps 86% of the pocket cells and 50 starts
+        // dropping real rooms.
+        if let Some(min) = link {
+            let wg: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
+            let rows = grid.len();
+            let fresh_open = |dx: usize, dy: usize| dx < width && dy < rows && below(dx, dy) && !wg.contains(&w.get(x0 + dx as i32, y0 + dy as i32).material);
+            let nbrs = |(dx, dy): (usize, usize)| [(dx.wrapping_sub(1), dy), (dx + 1, dy), (dx, dy.wrapping_sub(1)), (dx, dy + 1)];
+            // What the new world joins to the door: kept cells and the fresh world's own open ground (the stamp), flooded
+            // from the mouth only -- the first passable cell down the door column. Seeding from every open cell in that
+            // column (as the flood above does) counts a buried pocket that happens to cross it as joined.
+            let mut joined = std::collections::HashSet::new();
+            let pass = |p: (usize, usize)| kept.contains(&p) || fresh_open(p.0, p.1);
+            let mut stack: Vec<(usize, usize)> = (top(door)..rows).map(|dy| (door, dy)).find(|&p| pass(p)).into_iter().collect();
+            while let Some(p) = stack.pop() {
+                if !joined.insert(p) {
+                    continue;
+                }
+                stack.extend(nbrs(p).into_iter().filter(|&q| !joined.contains(&q) && pass(q)));
+            }
+            // Cheapest runs from all of it through last round's open cells; `from` leads each cell back toward the door.
+            // Never the surface row itself (an unroofed scrape is the crater over again), and a cell in the top six
+            // rows costs four, so a run goes under rather than along the surface where it can (first draft, 2026-10-23:
+            // plain shortest runs skimmed the top row across 30 columns on cs3lexles c20).
+            let old: std::collections::HashSet<(usize, usize)> = seen.iter().copied().filter(|&(dx, dy)| dy > top(dx)).collect();
+            let cost = |(dx, dy): (usize, usize)| if dy < top(dx) + 6 { 4 } else { 1 };
+            let mut from: std::collections::HashMap<(usize, usize), (usize, usize)> = std::collections::HashMap::new();
+            let mut dist: std::collections::HashMap<(usize, usize), u32> = joined.iter().map(|&p| (p, 0)).collect();
+            let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u32, (usize, usize))>> = joined.iter().map(|&p| std::cmp::Reverse((0, p))).collect();
+            while let Some(std::cmp::Reverse((d, p))) = heap.pop() {
+                if d > dist[&p] {
+                    continue;
+                }
+                for r in nbrs(p) {
+                    let nd = d + cost(r);
+                    if old.contains(&r) && dist.get(&r).is_none_or(|&o| nd < o) {
+                        dist.insert(r, nd);
+                        from.insert(r, p);
+                        heap.push(std::cmp::Reverse((nd, r)));
+                    }
+                }
+            }
+            // One run per pocket, from its cell nearest the door.
+            let mut done = std::collections::HashSet::new();
+            let mut pockets: Vec<(usize, usize)> = kept.iter().copied().filter(|p| !joined.contains(p)).collect();
+            pockets.sort_unstable();
+            let mut runs = Vec::new();
+            let mut dropped = Vec::new();
+            let mut joins = Vec::new();
+            for &p0 in &pockets {
+                if done.contains(&p0) {
+                    continue;
+                }
+                let mut comp = vec![p0];
+                let mut i = 0;
+                done.insert(p0);
+                while i < comp.len() {
+                    for r in nbrs(comp[i]) {
+                        if kept.contains(&r) && !joined.contains(&r) && done.insert(r) {
+                            comp.push(r);
+                        }
+                    }
+                    i += 1;
+                }
+                // A pocket smaller than `min` is not a room: it is a scrap of the crater's edge left under an overhang
+                // (cs3lexles c20, 2026-10-23: one sky-open bowl kept as 5-8 such scraps, and linking each drew 103 cells
+                // of branching tunnel no ant dug). It is dropped, not linked.
+                if comp.len() < min {
+                    dropped.extend(comp);
+                    continue;
+                }
+                if let Some(&best) = comp.iter().filter(|p| dist.contains_key(p)).min_by_key(|p| (dist[p], **p)) {
+                    joins.push(comp.len());
+                    let mut p = best;
+                    while let Some(&prev) = from.get(&p) {
+                        runs.push(p);
+                        p = prev;
+                    }
+                }
+            }
+            let before = kept.len();
+            for p in &dropped {
+                kept.remove(p);
+            }
+            for (dx, dy) in runs {
+                kept.insert((dx, dy));
+                if old.contains(&(dx + 1, dy)) {
+                    kept.insert((dx + 1, dy));
+                } else if dx > 0 && old.contains(&(dx - 1, dy)) {
+                    kept.insert((dx - 1, dy));
+                }
+            }
+            eprintln!("inherit_link={min}: dropped {} cells in small pockets, linked {} cells, pockets joined {joins:?}", dropped.len(), kept.len() + dropped.len() - before);
+        }
+        kept
     });
     let mut n = 0;
     for (dy, row) in grid.iter().enumerate() {
         for (dx, &ch) in row.iter().enumerate() {
-            if ch == b'?' || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
+            // `?` (an animal, food, an organism's cell) is left to the fresh world -- except, in nest-only mode, a kept
+            // one: the flood passed it because it is not ground, so it stood in an open nest cell (an ant in a tunnel,
+            // stored food in a room), and leaving it the fresh world's loose soil plugged the nest at every one of them.
+            // `INHERIT_PLUG=1` puts the plugs back, for the before/after.
+            let plug = std::env::var("INHERIT_PLUG").as_deref() == Ok("1");
+            if (ch == b'?' && (keep.is_none() || plug)) || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
@@ -192,6 +301,23 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
             }
             w.set(x, y, pixel_physics::sim::Cell::new(m, 0));
             n += 1;
+        }
+    }
+    // Line the carved nest, as the ants that dug it did and as the stamp's founding shaft is lined. Carved into the fresh
+    // world's loose soil with nothing tamped, every kept hole was a void under a powder: the old map's lining is no use
+    // here, because the crater rule above keeps only the roofed edges of a crater-topped room, and their inner wall is
+    // the crater's place in the fresh world -- loose soil. Measured 2026-10-23 (cs3lexlesinh c5, one old ant): 172 kept
+    // cells filled from above inside 400 frames and the voids came out at the surface, two rows lost across 80 columns.
+    // One pass after the carve, the founding shaft's order (sorted: `keep` is a HashSet). Kept cells holding an
+    // organism are left alone. `INHERIT_LINE=0` turns it off, for the before/after.
+    if let Some(k) = keep.as_ref().filter(|_| std::env::var("INHERIT_LINE").as_deref() != Ok("0")) {
+        let mut cells: Vec<_> = k.iter().copied().collect();
+        cells.sort_unstable();
+        for (dx, dy) in cells {
+            let (x, y) = (x0 + dx as i32, y0 + dy as i32);
+            if w.get(x, y).material == pixel_physics::sim::material::EMPTY {
+                w.line_dug_cell(x, y);
+            }
         }
     }
     n
@@ -304,7 +430,7 @@ fn main() {
     // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
     if let Some(p) = arg(&a, "inherit") {
         let surf: Vec<i32> = (0..256).map(|x| inrun::surface(&w, &sc, x)).collect();
-        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]));
+        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]), arg(&a, "inherit_link").map(|v| v.parse().expect("inherit_link=MIN cells")));
         eprintln!("inherit: {n} cells set from {p}");
     }
     // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the

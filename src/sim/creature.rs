@@ -7098,6 +7098,26 @@ impl World {
         cut.len()
     }
 
+    /// **Line the walls of a hole a harness opened by hand**, by the same rule
+    /// the founding shaft and every ant cut use ([`pack_neighbours`]), and
+    /// only where tunnel lining is on at all. Returns how many cells it packed.
+    ///
+    /// For a setup that carves a whole burrow into fresh ground at once --
+    /// `examples/inrun.rs`'s `inherit_nest=1`, which carries last round's nest
+    /// into a new world. A hole carved into loose soil with no lining is not a
+    /// nest, it is a void under a powder: measured 2026-10-23 on the
+    /// cs3lexlesinh c5 map, 172 carved cells filled from above inside 400
+    /// frames and the hole came out as a sinkhole two rows deep across 80
+    /// columns of surface. The ants that dug it had tamped every wall as they
+    /// cut; carving the hole without the tamping is a different hole.
+    /// Not counted in `CreatureStats::packed`, which is wall an *ant* tamped.
+    pub fn line_dug_cell(&mut self, x: i32, y: i32) -> u64 {
+        if !lining_enabled() {
+            return 0;
+        }
+        pack_neighbours(self, x, y)
+    }
+
     /// **The hardest ground a founding shaft may cut when nobody says whose
     /// founding it is**: the strongest authored `dig_force` among the species
     /// whose `nest` is the material [`World::paint_nest_patch`] lays -- the
