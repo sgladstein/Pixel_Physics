@@ -424,7 +424,40 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 /// the mind passes its Dig switch, and its picks are the same either way.
 pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>) {
     build_remembering(world, organism, def, roof, out, true);
+    home_eat_crutch(world, organism, def, out);
 }
+
+/// SCRATCH (brood lane, 2026-10-23; not for merging): `PP_HOMEEAT=H` -- a weaned crutch, the crater's pattern. An ant at
+/// home below `H` grants (`start_energy`) with a pick-up in reach is offered only its pick-ups, so it eats what it is
+/// standing beside. Why: with the training bed's real laying on (`inrun brood=lay`), colsel20's evolved colonies die
+/// with 106-188 kJ of crumbs in the nest, and starving ants at home touching crumbs, crop empty, jaws free, chose Walk
+/// 200 of 214 times (`PP_HUNGRYPROBE`): nothing in the bed had ever let an ant go hungry. `PP_HOMEEAT_P=p` (default 1)
+/// applies it per ant per 1,000-frame window with probability p (a pure hash), so colsel's `wean` can take it away.
+fn home_eat_crutch(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
+    static H: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let Some(h) = *H.get_or_init(|| std::env::var("PP_HOMEEAT").ok().and_then(|v| v.parse().ok())) else { return };
+    let p = *P.get_or_init(|| std::env::var("PP_HOMEEAT_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
+    if !out.iter().any(|o| o.verb == Verb::PickUp) {
+        return;
+    }
+    let Some(st) = world.organism(organism) else { return };
+    let Some(&(x, y)) = st.chain.first() else { return };
+    // "At home" is inside the nest's bowl -- within 12 columns of a nest site, at or below its door -- not the body's
+    // `food_at_home`, which is the door's ring only: the crumbs lie in the bowl (first run: the crutch never fired).
+    let in_nest = world.nest_sites.iter().any(|n| (x - n.x).abs() <= 12 && y >= n.surface);
+    if st.energy >= h * def.start_energy || !in_nest {
+        return;
+    }
+    if p < 1.0 && super::rng::stream(world.seed, organism as u64, world.frame / 1000, 0xB00D_0001).unit_f32() >= p {
+        return;
+    }
+    out.retain(|o| o.verb == Verb::PickUp);
+    HOME_EAT_FORCED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How many decisions [`home_eat_crutch`] narrowed (brood lane scratch; read by `inrun`).
+pub static HOME_EAT_FORCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// [`build_with`], with its cell window ([`MEMO_SIDE`]) or, `remember`
 /// false, with none -- every read straight from the world, as before the

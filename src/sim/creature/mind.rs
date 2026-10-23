@@ -1527,6 +1527,16 @@ pub fn has(world: &World, organism: OrganismId) -> bool {
     world.minds.as_ref().is_some_and(|m| m.ants.contains_key(&organism))
 }
 
+/// The genome `organism` decides by, if it has a mind (brood included: an egg carries its layer's).
+pub fn genome_of(world: &World, organism: OrganismId) -> Option<Arc<MindGenome>> {
+    world.minds.as_ref().and_then(|m| m.ants.get(&organism)).map(|m| m.genome.clone())
+}
+
+/// The verb this ant's mind chose at its last decision (a harness probe's read).
+pub fn last_verb_of(world: &World, organism: OrganismId) -> Option<Verb> {
+    world.minds.as_ref().and_then(|m| m.ants.get(&organism)).and_then(|m| m.state.last_verb)
+}
+
 /// **A newborn inherits its parent's mind, blank in memory**; mutation is
 /// frozen, so the genome is the parent's own.
 pub fn inherit(world: &mut World, parent: OrganismId, child: OrganismId) {

@@ -1,0 +1,70 @@
+J: n=12  collapsed(alive<12)=2
+   home          6263.6 (  4183.5)   vs J: higher  0 lower  0
+   died             6.2 (     3.0)   vs J: higher  0 lower  0
+   starved          6.2 (     3.0)   vs J: higher  0 lower  0
+   alive           17.8 (    21.0)   vs J: higher  0 lower  0
+   nest            28.2 (    29.0)   vs J: higher  0 lower  0
+   crater          41.2 (     3.5)   vs J: higher  0 lower  0
+   nestcuts        11.8 (     3.5)   vs J: higher  0 lower  0
+   nest_food       29.1 (    24.0)   vs J: higher  0 lower  0
+   tank           362.9 (   334.5)   vs J: higher  0 lower  0
+F: n=12  collapsed(alive<12)=0
+   home          5539.7 (  5400.5)   vs J: higher  7 lower  5
+   died             1.8 (     1.0)   vs J: higher  2 lower  7
+   starved          1.8 (     1.0)   vs J: higher  2 lower  7
+   alive           22.2 (    23.0)   vs J: higher  7 lower  2
+   nest            23.6 (    29.0)   vs J: higher  4 lower  7
+   crater          27.4 (    19.5)   vs J: higher  6 lower  5
+   nestcuts         5.3 (     1.0)   vs J: higher  5 lower  6
+   nest_food       23.2 (    22.0)   vs J: higher  5 lower  6
+   tank           351.3 (   321.5)   vs J: higher  7 lower  5
+D: n=12  collapsed(alive<12)=3
+   home          1026.8 (   794.5)   vs J: higher  3 lower  9
+   died             8.2 (     8.5)   vs J: higher  8 lower  4
+   starved          8.2 (     8.5)   vs J: higher  8 lower  4
+   alive           15.8 (    15.5)   vs J: higher  4 lower  8
+   nest            15.2 (    16.0)   vs J: higher  3 lower  7
+   crater          23.0 (    19.0)   vs J: higher  5 lower  5
+   nestcuts         0.5 (     0.0)   vs J: higher  2 lower  7
+   nest_food       11.2 (    10.0)   vs J: higher  1 lower 11
+   tank           580.9 (   547.9)   vs J: higher  8 lower  4
+MIX: n=12  collapsed(alive<12)=0
+   home          3630.2 (  2399.5)   vs J: higher  5 lower  7
+   died             2.1 (     1.0)   vs J: higher  3 lower  8
+   starved          2.1 (     1.0)   vs J: higher  3 lower  8
+   alive           21.9 (    23.0)   vs J: higher  8 lower  3
+   nest            22.4 (    23.0)   vs J: higher  5 lower  7
+   crater          34.8 (    38.5)   vs J: higher  8 lower  4
+   nestcuts         8.2 (     6.0)   vs J: higher  7 lower  5
+   nest_food       28.6 (    29.5)   vs J: higher  6 lower  6
+   tank           452.6 (   496.4)   vs J: higher  9 lower  3
+XOVER: n=12  collapsed(alive<12)=0
+   home          1655.5 (   994.5)   vs J: higher  4 lower  8
+   died             4.2 (     3.5)   vs J: higher  4 lower  6
+   starved          4.2 (     3.5)   vs J: higher  4 lower  6
+   alive           19.8 (    20.5)   vs J: higher  6 lower  4
+   nest            12.1 (     5.5)   vs J: higher  2 lower 10
+   crater          34.2 (    38.0)   vs J: higher  8 lower  4
+   nestcuts         3.4 (     0.5)   vs J: higher  3 lower  7
+   nest_food       21.2 (    15.0)   vs J: higher  3 lower  8
+   tank           669.6 (   526.9)   vs J: higher  9 lower  3
+AVG: n=12  collapsed(alive<12)=2
+   home          2758.9 (  1206.0)   vs J: higher  4 lower  8
+   died             8.6 (     8.0)   vs J: higher  7 lower  4
+   starved          8.6 (     8.0)   vs J: higher  7 lower  4
+   alive           15.4 (    16.0)   vs J: higher  4 lower  7
+   nest            17.0 (    13.5)   vs J: higher  3 lower  8
+   crater          37.8 (    27.5)   vs J: higher  6 lower  5
+   nestcuts         3.7 (     1.5)   vs J: higher  4 lower  7
+   nest_food       24.5 (    26.0)   vs J: higher  6 lower  6
+   tank           245.5 (   262.9)   vs J: higher  3 lower  9
+TASKSUM: n=12  collapsed(alive<12)=12
+   home           575.9 (   508.5)   vs J: higher  1 lower 11
+   died            18.8 (    20.5)   vs J: higher 11 lower  1
+   starved         18.8 (    20.5)   vs J: higher 11 lower  1
+   alive            5.2 (     3.5)   vs J: higher  1 lower 11
+   nest            17.8 (    24.0)   vs J: higher  3 lower  7
+   crater          19.8 (    11.0)   vs J: higher  5 lower  5
+   nestcuts         1.6 (     0.0)   vs J: higher  2 lower  8
+   nest_food       17.6 (    16.0)   vs J: higher  3 lower  9
+   tank           329.8 (   233.7)   vs J: higher  4 lower  8
