@@ -123,7 +123,7 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
 /// grew round on round. So here only the open cells joined to the door below the datum are carved, and of those only
 /// roofed ones (ground at or below the datum above them) or under a mouth no wider than the stamped one: the crater is
 /// sky-open and stays behind, and everything else is the fresh world's.
-fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>, link: bool) -> usize {
+fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>, link: Option<usize>) -> usize {
     let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
     let mut lines = t.lines();
     let head: Vec<&str> = lines.next().expect("nestmap header").split(' ').collect();
@@ -175,13 +175,17 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
         let mut seen: Vec<(usize, usize)> = seen.into_iter().collect();
         seen.sort_unstable();
         let mut kept: std::collections::HashSet<(usize, usize)> = seen.iter().copied().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect();
-        // `inherit_link=1`: join every kept room to the door. The crater filter above leaves a room whose way to the
-        // door ran through the crater as a sealed pocket in the fresh world (192 maps of nestmaps-1022, 2026-10-23:
-        // median 115 cells carved, 30 joined to the door -- the stamp and little else), and a sealed pocket is no nest
-        // to an ant. So each pocket also keeps the shortest run of last round's open cells to what the fresh world
-        // already joins to the door, two cells wide like the stamped shaft, crater or not. Only the run is carried:
-        // the crater round it stays behind.
-        if link {
+        // `inherit_link=MIN`: join every kept room of at least MIN cells to the door, and drop the smaller pockets
+        // (MIN 0 or 1 links them all). The crater filter above leaves a room whose way to the door ran through the
+        // crater as a sealed pocket in the fresh world (192 maps of nestmaps-1022, 2026-10-23: median 115 cells
+        // carved, 30 joined to the door -- the stamp and little else), and a sealed pocket is no nest to an ant. So
+        // each pocket also keeps the cheapest run of last round's open cells to what the fresh world already joins to
+        // the door, two cells wide like the stamped shaft, crater or not. Only the run is carried: the crater round it
+        // stays behind. 20 is the tuned MIN (same 192 maps): linking every pocket gave 49 maps runs longer than the
+        // pockets they served -- a crater bowl's edge scraps turned into a tunnel tree no ant dug (cs3lexles c20, 105
+        // cells) -- against 4 at MIN 10, 2 at 15, 0 at 20 and 30; 20 keeps 86% of the pocket cells and 50 starts
+        // dropping real rooms.
+        if let Some(min) = link {
             let wg: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
             let rows = grid.len();
             let fresh_open = |dx: usize, dy: usize| dx < width && dy < rows && below(dx, dy) && !wg.contains(&w.get(x0 + dx as i32, y0 + dy as i32).material);
@@ -225,6 +229,8 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
             let mut pockets: Vec<(usize, usize)> = kept.iter().copied().filter(|p| !joined.contains(p)).collect();
             pockets.sort_unstable();
             let mut runs = Vec::new();
+            let mut dropped = Vec::new();
+            let mut joins = Vec::new();
             for &p0 in &pockets {
                 if done.contains(&p0) {
                     continue;
@@ -240,13 +246,25 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
                     }
                     i += 1;
                 }
+                // A pocket smaller than `min` is not a room: it is a scrap of the crater's edge left under an overhang
+                // (cs3lexles c20, 2026-10-23: one sky-open bowl kept as 5-8 such scraps, and linking each drew 103 cells
+                // of branching tunnel no ant dug). It is dropped, not linked.
+                if comp.len() < min {
+                    dropped.extend(comp);
+                    continue;
+                }
                 if let Some(&best) = comp.iter().filter(|p| dist.contains_key(p)).min_by_key(|p| (dist[p], **p)) {
+                    joins.push(comp.len());
                     let mut p = best;
                     while let Some(&prev) = from.get(&p) {
                         runs.push(p);
                         p = prev;
                     }
                 }
+            }
+            let before = kept.len();
+            for p in &dropped {
+                kept.remove(p);
             }
             for (dx, dy) in runs {
                 kept.insert((dx, dy));
@@ -256,6 +274,7 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
                     kept.insert((dx - 1, dy));
                 }
             }
+            eprintln!("inherit_link={min}: dropped {} cells in small pockets, linked {} cells, pockets joined {joins:?}", dropped.len(), kept.len() + dropped.len() - before);
         }
         kept
     });
@@ -411,7 +430,7 @@ fn main() {
     // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
     if let Some(p) = arg(&a, "inherit") {
         let surf: Vec<i32> = (0..256).map(|x| inrun::surface(&w, &sc, x)).collect();
-        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]), arg(&a, "inherit_link") == Some("1"));
+        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]), arg(&a, "inherit_link").map(|v| v.parse().expect("inherit_link=MIN cells")));
         eprintln!("inherit: {n} cells set from {p}");
     }
     // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the
