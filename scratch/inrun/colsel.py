@@ -34,6 +34,15 @@ DISTS = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('dist
 EXTRA = [x for x in EXTRA if not x.startswith('dists=')]
 BASE_DIST = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('dist=')), DISTS[0] if DISTS else '25')
 EXTRA = [x for x in EXTRA if not x.startswith('dist=')]
+# wean=R0:R1 (owner, 2026-10-23: "No permanent body rule from the old ant!"): the body rules (setenv PP_BODYRULES) are a
+# scaffold. Each round's setenv gets PP_BODYRULES_P=p, p = 1 up to round R0, falling linearly to 0 at round R1 and 0
+# after; the common garden always runs at p = 0, so the colony is judged with the scaffold off.
+WEAN = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('wean=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('wean=')]
+def wean_p(r):
+    return 1.0 if r <= WEAN[0] else max(0.0, 1.0 - (r - WEAN[0]) / max(1, WEAN[1] - WEAN[0]))
+def with_p(args, p):
+    return [f'{x},PP_BODYRULES_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
@@ -64,6 +73,7 @@ while '+' in MODE:
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
+CGC = with_p(CGC, 0.0) if WEAN else CGC
 os.makedirs(OUT, exist_ok=True)
 
 
@@ -201,6 +211,7 @@ for r in range(R):
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
+        cr = with_p(cr, wean_p(r)) if WEAN else cr
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))

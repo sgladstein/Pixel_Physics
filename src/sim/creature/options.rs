@@ -1258,6 +1258,14 @@ fn review_body_rules_refuse(world: &World, t: (i32, i32)) -> bool {
         Ok("both") => (true, true),
         _ => (false, false),
     });
+    // PP_BODYRULES_P=p (Teacher lane, 2026-10-23; owner: "No permanent body rule from the old ant!"): a scaffold that
+    // is weaned. Each ground cell is protected with probability p, drawn once per cell and world (a pure hash), so at
+    // p < 1 a fraction of the roof and room cells are free to cut and the brain has to spare the rest itself. Unset = 1.
+    static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let p = *P.get_or_init(|| std::env::var("PP_BODYRULES_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
+    if (roof || rooms) && p < 1.0 && super::rng::stream(world.seed, t.0 as u64, t.1 as u64, 0xB0D7_0001).unit_f32() >= p {
+        return false;
+    }
     (roof && super::dig_roof_of(world).is_some_and(|rows| super::under_roof(world, t, rows)))
         || (rooms && super::shaft_room_refuses(world, t).is_some())
 }

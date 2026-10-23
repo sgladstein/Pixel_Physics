@@ -2712,7 +2712,12 @@ pub mod colony_bed {
 
     /// The slots a child's mutation may move: the scarce-dig trainer's.
     pub fn slots() -> Vec<usize> {
-        creature::mind::trainable(SOIL_VERBS, emits())
+        let mut v = creature::mind::trainable(SOIL_VERBS, emits());
+        // SCRATCH (dig-scoring thread): an evolvable dig head's slots, past GENOME_LEN (`PP_DIGHEAD_EVOLVE`)
+        if let Some(hl) = creature::mind::scratch_log::head_evolve() {
+            v.extend(creature::mind::GENOME_LEN..creature::mind::GENOME_LEN + hl);
+        }
+        v
     }
 
     /// The suite a founder genome enters by ([`super::super::start_mind`]):

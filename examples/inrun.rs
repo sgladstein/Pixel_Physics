@@ -37,12 +37,33 @@ use std::sync::Arc;
 /// at prune 0 / grow 1 added ~60 links a child (a one-way ratchet), and prune .3 / grow .1 pulled toward ~700.
 /// `prot`: per-slot "this slot is a lesson" flags and the factor its weight-step chance is scaled by (review lane,
 /// 2026-10-22, `lesson=`); protected slots never take a structural event.
+/// SCRATCH (dig-scoring thread): a founder's `.raw.txt`, at its saved length -- GENOME_LEN, or GENOME_LEN plus an
+/// evolved dig head's slots under `PP_DIGHEAD_EVOLVE` (a later round's founders keep their heads).
+fn load_founder(p: &str) -> Vec<f32> {
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
+    let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
+    let len = if creature::mind::scratch_log::head_evolve().is_some() { len } else { creature::mind::GENOME_LEN };
+    train::parse_genome(&text, len, p)
+}
+
+/// SCRATCH (dig-scoring thread): under `PP_DIGHEAD_EVOLVE`, a genome without its own dig head gets the side file's
+/// (`PP_DIGHEAD`) appended; otherwise unchanged.
+fn with_head(mut g: Vec<f32>) -> Vec<f32> {
+    if let Some(hl) = creature::mind::scratch_log::head_evolve() {
+        if g.len() == creature::mind::GENOME_LEN {
+            g.extend(creature::mind::scratch_log::dighead().expect("PP_DIGHEAD").flat());
+        }
+        assert_eq!(g.len(), creature::mind::GENOME_LEN + hl, "a founder with a dig head of another shape");
+    }
+    g
+}
+
 fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, prot: Option<(&[bool], f32)>, rng: &mut train::Rng) -> Vec<f32> {
     let first = creature::mind::FIRST_LINK;
     let mut c = g.to_vec();
     for &i in slots {
         let p = match prot {
-            Some((m, f)) if m[i] => pm * f,
+            Some((m, f)) if m.get(i).copied().unwrap_or(false) => pm * f,
             _ => pm,
         };
         if (c[i] != 0.0 || i < first) && rng.unit() < p {
@@ -51,7 +72,7 @@ fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize
     }
     for _ in 0..events {
         let add = rng.unit() < 0.5;
-        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m[i])).collect();
+        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m.get(i).copied().unwrap_or(false))).collect();
         if pool.is_empty() {
             continue;
         }
@@ -233,7 +254,8 @@ fn main() {
             raw.push(Vec::new());
         } else {
             // A `.raw.txt` genome is taken as saved (a harness's own output), not through the suite's rung entry.
-            let g = if p.ends_with(".raw.txt") { train::load_genome(std::path::Path::new(p), creature::mind::GENOME_LEN) } else { train::start_mind(&suite, p) };
+            let g = if p.ends_with(".raw.txt") { load_founder(p) } else { train::start_mind(&suite, p) };
+            let g = with_head(g);
             raw.push(g.clone());
             glen = g.len();
             let tag = tag_over.unwrap_or_else(|| std::path::Path::new(p).file_stem().unwrap().to_string_lossy().to_string());
@@ -245,8 +267,9 @@ fn main() {
     if let Some(spec) = arg(&a, "mutants") {
         let v: Vec<&str> = spec.split(':').collect();
         let (n, pm, sigma, ms): (usize, f32, f32, u64) = (v[0].parse().unwrap(), v[1].parse().unwrap(), v[2].parse().unwrap(), v[3].parse().unwrap());
-        let base = train::start_mind(&suite, arg(&a, "founders").unwrap().split(',').next().unwrap().rsplit_once(':').unwrap().0);
-        let slots = inrun::slots();
+        let base = with_head(train::start_mind(&suite, arg(&a, "founders").unwrap().split(',').next().unwrap().rsplit_once(':').unwrap().0));
+        // SCRATCH (dig-scoring thread): founders' mutants leave an evolvable dig head as the side file has it
+        let slots: Vec<usize> = inrun::slots().into_iter().filter(|&i| i < creature::mind::GENOME_LEN).collect();
         let mut rng = train::Rng(ms);
         mix.clear();
         raw.clear();
@@ -473,6 +496,21 @@ fn main() {
         eprintln!("lesson={p}: {} protected slots at {f} of the mutation rate", flags.iter().filter(|&&b| b).count());
         (flags, f.parse().unwrap())
     });
+    // SCRATCH (dig-scoring thread): an evolvable dig head's slots (`PP_DIGHEAD_EVOLVE`) mutate at
+    // `PP_DIGHEAD_EVOLVE_F` (default 0.25) of the rate and take no structural event, through the lesson protection.
+    // **Why**: every head slot is live and its "when" read-out drives the Dig job straight, so at the full rate a
+    // 100k selection run (seed 3099) kept 5 adults of 24 against 18 without it.
+    let lesson = match (lesson, creature::mind::scratch_log::head_evolve()) {
+        (l, None) => l,
+        (l, Some(hl)) => {
+            let f: f32 = std::env::var("PP_DIGHEAD_EVOLVE_F").ok().map_or(0.25, |v| v.parse().expect("PP_DIGHEAD_EVOLVE_F"));
+            let (mut flags, lf) = l.unwrap_or_else(|| (vec![false; creature::mind::GENOME_LEN], f));
+            flags.resize(creature::mind::GENOME_LEN, false);
+            flags.extend(std::iter::repeat_n(true, hl));
+            eprintln!("dig head evolves: {hl} slots at {lf} of the mutation rate");
+            Some((flags, lf))
+        }
+    };
     let prot = lesson.as_ref().map(|(m, f)| (m.as_slice(), *f));
     let kid_cap = num("kid_cap", 1000) as u32;
     // retire=1: a parent leaves once it has had `kid_cap` children (its last child takes its place). Without it the

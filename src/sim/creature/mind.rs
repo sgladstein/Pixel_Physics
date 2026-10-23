@@ -289,10 +289,22 @@ pub struct MindGenome {
     /// The scorer's per-option part with its zero weights left out
     /// ([`ScorerPlan`]), built once per genome and shared by its clones.
     plan: ScorerPlan,
+    /// SCRATCH (dig-scoring thread): this genome's own dig head, under `PP_DIGHEAD_EVOLVE=1`, from the slots past
+    /// [`GENOME_LEN`] ([`scratch_log::head_evolve`]); otherwise none and the side file's head is everyone's.
+    pub head: Option<Arc<scratch_log::DigHead>>,
 }
 
 impl MindGenome {
-    pub fn new(w: Vec<f32>) -> MindGenome {
+    pub fn new(mut w: Vec<f32>) -> MindGenome {
+        // SCRATCH (dig-scoring thread): an evolvable dig head rides past GENOME_LEN (`PP_DIGHEAD_EVOLVE=1`).
+        let head = match scratch_log::head_evolve() {
+            Some(hl) if w.len() == GENOME_LEN + hl => {
+                let h = scratch_log::dighead().expect("PP_DIGHEAD_EVOLVE needs PP_DIGHEAD").from_flat(&w[GENOME_LEN..]);
+                w.truncate(GENOME_LEN);
+                Some(Arc::new(h))
+            }
+            _ => None,
+        };
         assert_eq!(
             w.len(),
             GENOME_LEN,
@@ -300,7 +312,7 @@ impl MindGenome {
         );
         let live = w[S_CTX..].iter().filter(|v| v.abs() >= W_EPS).count() as u32;
         let plan = ScorerPlan::new(&w);
-        MindGenome { w, live, plan }
+        MindGenome { w, live, plan, head }
     }
 }
 
@@ -1265,6 +1277,8 @@ pub fn crossover_group(slot: usize) -> usize {
         s if s < EMIT => UNIT_BASE + 100 + (s - MEM) / M_IN,
         s if s < HID => UNIT_BASE + 400 + (s - EMIT) / E_IN,
         s if s < HID_OUT => UNIT_BASE + 500 + (s - HID) / H_IN,
+        // SCRATCH (dig-scoring thread): an evolvable dig head (`PP_DIGHEAD_EVOLVE`) crosses whole, from one parent
+        s if s >= GENOME_LEN => UNIT_BASE + 900,
         s => UNIT_BASE + 500 + (s - HID_OUT) % HIDDEN,
     }
 }
@@ -1997,7 +2011,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 }
             }
             if scratch_log::digfeat_on() {
-                scratch_log::dig_prepare(world, organism, (x, y), &opts);
+                scratch_log::dig_prepare(world, organism, (x, y), &opts, mind.genome.head.as_deref().or(scratch_log::dighead()));
             }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
@@ -5039,6 +5053,7 @@ pub mod scratch_log {
     // output is added to each Dig option's raw score before the sharpness squash. Nothing set: nothing computed,
     // byte-identical. The weights live in a side file, not the genome, so a mutant cannot move them.
     pub const DIG_ND: usize = 12;
+    #[derive(Debug)]
     pub struct DigHead {
         pub h: usize,
         pub w: Vec<f32>,
@@ -5053,6 +5068,22 @@ pub mod scratch_log {
         pub c2: f32,
     }
     impl DigHead {
+        /// Its weights in the side file's order: W, b, a, c, then e, c2 with a "when" read-out.
+        pub fn flat(&self) -> Vec<f32> {
+            let mut v = [self.w.as_slice(), &self.b, &self.a, &[self.c]].concat();
+            if !self.e.is_empty() {
+                v.extend_from_slice(&self.e);
+                v.push(self.c2);
+            }
+            v
+        }
+        /// A head of this one's shape with weights `v` ([`Self::flat`]'s order).
+        pub fn from_flat(&self, v: &[f32]) -> DigHead {
+            let (h, n) = (self.h, FEATURES + DIG_ND);
+            assert_eq!(v.len(), self.flat().len(), "dig head: {} weights, this shape has {}", v.len(), self.flat().len());
+            let (e, c2) = if self.e.is_empty() { (Vec::new(), 0.0) } else { (v[h * n + 2 * h + 1..h * n + 3 * h + 1].to_vec(), v[h * n + 3 * h + 1]) };
+            DigHead { h, w: v[..h * n].to_vec(), b: v[h * n..h * n + h].to_vec(), a: v[h * n + h..h * n + 2 * h].to_vec(), c: v[h * n + 2 * h], e, c2 }
+        }
         /// (rank, when) for one Dig option.
         pub fn eval2(&self, feats: &[f32; FEATURES], d: &[f32; DIG_ND]) -> (f32, f32) {
             let n = FEATURES + DIG_ND;
@@ -5114,6 +5145,15 @@ pub mod scratch_log {
         })
         .as_ref()
     }
+    /// `PP_DIGHEAD_EVOLVE=1` (with `PP_DIGHEAD`): the head's weights ride each genome past [`GENOME_LEN`], so they
+    /// mutate, cross and are inherited like the rest; the side file is the founders' start. The length they add.
+    /// **Why** (Teacher lane, 2026-10-23): dh7 is one fixed head for every ant, so selection could not improve on it.
+    pub fn head_evolve() -> Option<usize> {
+        static ON: OnceLock<Option<usize>> = OnceLock::new();
+        *ON.get_or_init(|| {
+            std::env::var("PP_DIGHEAD_EVOLVE").is_ok_and(|v| v == "1").then(|| dighead().expect("PP_DIGHEAD_EVOLVE needs PP_DIGHEAD").flat().len())
+        })
+    }
     pub fn dig_gate_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_DIGHEAD_GATE").is_ok_and(|v| v == "1"))
@@ -5142,7 +5182,7 @@ pub mod scratch_log {
         DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
     }
     /// Fill [`DIG_OPTS`] for this decision (cleared first).
-    pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) {
+    pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], head: Option<&DigHead>) {
         DIG_OPTS.with(|d| {
             let mut d = d.borrow_mut();
             d.clear();
@@ -5151,7 +5191,7 @@ pub mod scratch_log {
             for o in opts.iter().filter(|o| o.verb == Verb::Dig) {
                 let c = *ctxf.get_or_insert_with(|| dig_ctx(world, organism, at));
                 let fe = dig_feats(world, organism, at, o.target, c);
-                let (bonus, w) = dighead().map_or((0.0, 0.0), |h| h.eval2(&o.feats, &fe));
+                let (bonus, w) = head.map_or((0.0, 0.0), |h| h.eval2(&o.feats, &fe));
                 when = when.max(w);
                 d.push((o.target, fe, bonus));
             }
@@ -5166,7 +5206,7 @@ pub mod scratch_log {
                         && (at.0 - 128).abs() <= 40
                         && world.room_surface_at(at.0).is_some_and(|top| at.1 > top)
                 });
-            let add = match dighead() {
+            let add = match head {
                 Some(h) if !h.e.is_empty() && when.is_finite() && !gated => h.c2 + when,
                 _ => 0.0,
             };
