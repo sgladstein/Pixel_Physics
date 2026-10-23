@@ -43,6 +43,16 @@ def wean_p(r):
     return 1.0 if r <= WEAN[0] else max(0.0, 1.0 - (r - WEAN[0]) / max(1, WEAN[1] - WEAN[0]))
 def with_p(args, p):
     return [f'{x},PP_BODYRULES_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
+# pilecap=START:STEP:ALIVE (plant-food lane, 2026-10-23; owner chose the weaning bed): the pile's cap (inrun `cap=`) starts
+# at START and falls by STEP after any round whose colonies' median alive at the end is ALIVE or more, else holds; floor
+# 0 (plants only). Run with the garden's args (`plants=... weed=30 fjoule=1`, setenv PP_MIND_GRAZE=1). Measured on hcs
+# x30, sel=off, 4 seeds: cap 30 kept 18 of 24 alive at 200k, cap 15 1.5, plants only 0, so a colony is weaned a step at a
+# time as selection makes it able, never faster. The cap used is logged per round (colsel.csv, cg.csv `pilecap`).
+PILECAP = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('pilecap=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('pilecap=')]
+cap_now = PILECAP[0] if PILECAP else None
+def with_cap(args):
+    return args if cap_now is None else [x for x in args if not x.startswith('cap=')] + [f'cap={cap_now}']
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
@@ -184,7 +194,7 @@ def garden(r, carry):
     """Common garden of every live colony's carry: fresh world c*1000+99, 200k frames, selection off."""
     live = [c for c in carry if carry[c] is not None]
     def one(c):
-        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + CGC, f'{OUT}/cg/r{r}/c{c}')
+        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + with_cap(CGC), f'{OUT}/cg/r{r}/c{c}')
         v = result(d, 200000)
         shutil.rmtree(d, ignore_errors=True)
         return c, v
@@ -193,16 +203,16 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,pilecap\n')
         for c in sorted(got):
-            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + '\n')
+            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now}\n')
 
 
 rng = random.Random(12345)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,passed_gate,rank,refounded_from\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,passed_gate,rank,refounded_from,pilecap\n')
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
@@ -212,6 +222,7 @@ for r in range(R):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = with_p(cr, wean_p(r)) if WEAN else cr
+        cr = with_cap(cr)
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
@@ -247,10 +258,16 @@ for r in range(R):
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
         v = res[c] or (0,) * 15
-        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]}\n')
+        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
+    if PILECAP:
+        alive = sorted(res[c][4] if res[c] else 0 for c in cols)
+        med = alive[len(alive) // 2]
+        if med >= PILECAP[2] and cap_now > 0:
+            cap_now = max(0, cap_now - PILECAP[1])
+        print(f'round {r}: median alive {med}, pile cap next round {cap_now}', flush=True)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
