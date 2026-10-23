@@ -4940,7 +4940,7 @@ pub mod scratch_log {
     pub fn oldlab_take(world: &World, organism: OrganismId) -> bool {
         static K: OnceLock<u64> = OnceLock::new();
         let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
-        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64() % k == 0
+        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64().is_multiple_of(k)
     }
     /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
     pub fn oldlab_label_empty() -> bool {
@@ -4991,7 +4991,7 @@ pub mod scratch_log {
         }
         let key = |w: &World, p: (i32, i32)| {
             let c = w.get(p.0, p.1);
-            (c.material.0 as u16, c.organism_id())
+            (c.material.0, c.organism_id())
         };
         let Some(st0) = world.organism(organism) else { return };
         let (tail0, spoil0, crop0) = (st0.chain.last().copied(), st0.spoil.is_some(), st0.crop.map_or(0, |c| c.cells));
@@ -5166,9 +5166,11 @@ pub mod scratch_log {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_DIGFEAT").is_ok_and(|v| v == "1") || dighead_on())
     }
+    /// One Dig option of this decision: target, its dig features, the head's addition to its raw score.
+    pub type DigOpt = ((i32, i32), [f32; DIG_ND], f32);
     thread_local! {
         /// This decision's Dig options: target, its dig features, the head's addition to its raw score.
-        pub static DIG_OPTS: std::cell::RefCell<Vec<((i32, i32), [f32; DIG_ND], f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+        pub static DIG_OPTS: std::cell::RefCell<Vec<DigOpt>> = const { std::cell::RefCell::new(Vec::new()) };
     }
     thread_local! {
         /// This decision's "when": the head's addition to the Dig job's sum (0 without a when read-out).

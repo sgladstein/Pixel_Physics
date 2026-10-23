@@ -425,7 +425,7 @@ fn main() {
     // is flooded from the door every N frames, and a paying cut joins its own cell at once, so a tunnel dug outward
     // from the nest keeps paying cell by cell while a swimmer, whose way back is packed shut behind it, stops paying at
     // the next flood. An unjoined cut is logged as `unjoined`. 0 = off (every cut pays, the old rule).
-    let cut_join = num("cut_join", 0) as u64;
+    let cut_join = num("cut_join", 0);
     // cut_roof=1 (owner, 2026-10-22: "not digging the top layer near the nest (which turns the nest into a crater)"):
     // a cut pays only when its cell is still nest under the colony rule (scratch/inrun/nestcount.py) once it is cut --
     // some ground (soil, packed soil, spoil, stone) left above it in its column between the datum and the cell, or the
@@ -715,7 +715,7 @@ fn main() {
             }
         }
         let frame = w.frame;
-        let cuts: Vec<_> = w.cut_log.as_mut().unwrap().drain(..).collect();
+        let cuts = std::mem::take(w.cut_log.as_mut().unwrap());
         for (x, y, _, who) in cuts {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
