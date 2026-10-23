@@ -30,6 +30,7 @@ def count(d, frames=None):
     # the crater review: a larder of stored food cut the chamber behind it off, so a roofed room scored as crater --
     # 16-22 of 64 colonies a round off by >20 cells, the old ant's nest 302 where it is ~390). Same as cut_join's flood.
     gnd = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')}
+    gnd.add('%')  # a plant's own cell (inrun `plants=`): roots are ground, not nest
     opn = lambda dx, dy: 0 <= dy < H and 0 <= dx < W and grid[dy][dx] not in gnd
     below = lambda dx, dy: 0 <= x0 + dx < len(surf) and y0 + dy >= surf[x0 + dx]
     door = NEST - x0
@@ -50,7 +51,7 @@ def count(d, frames=None):
     # counted all the way down a crater (cyan stripes through every selected crater in the colsel6 picture). A first fix
     # that kept only a walled shaft turned the old ant's own 3-wide mouth, and the chamber under it, into crater.
     MOUTH = 5  # the stamped mouth: door markers + its 2-3 open cells (old ant: NN..N)
-    ground = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')}
+    ground = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')} | {'%'}
     top = lambda dx: max(0, surf[x0 + dx] - y0) if 0 <= x0 + dx < len(surf) else 0
     roofed = lambda dx, dy: any(grid[yy][dx] in ground for yy in range(top(dx), dy))
     gap = [0 <= top(dx) < H and grid[top(dx)][dx] not in ground for dx in range(W)]  # door markers, crumbs: open

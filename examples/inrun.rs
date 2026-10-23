@@ -98,6 +98,12 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
         let mut row = String::new();
         for x in inrun::NEST - hw..=inrun::NEST + hw {
             let c = w.get(x, y);
+            // `%`: a plant's own cell (a root, a stem, a seed), kept apart from `?` so a garden's roots read as the
+            // ground they stand in (nestcount.py) instead of as open nest; inherited like `?` (left to the fresh world).
+            if c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| w.species.get(s.species).creature.is_none()) {
+                row.push('%');
+                continue;
+            }
             if c.organism_id() != 0 || Some(c.material) == food || w.materials.kind(c.material) == material::MaterialKind::Creature {
                 row.push('?');
                 continue;
@@ -135,7 +141,7 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
         // Passes anything that is not ground (stored food, crumbs, markers, bodies), as nestcount.py does since the
         // crater review (2026-10-23): a larder of stored food used to cut its room off, so the room was not inherited.
         let gnd: Vec<u8> = ids.iter().enumerate().filter(|(_, &m)| ["soil", "packedsoil", "spoil", "stone"].iter().any(|n| w.materials.id_of(n) == Some(m))).map(|(k, _)| b'A' + k as u8).collect();
-        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|c| !gnd.contains(c));
+        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|c| !gnd.contains(c) && *c != b'%');
         let below = |dx: usize, dy: usize| { let x = x0 + dx as i32; x >= 0 && (x as usize) < surf.len() && y0 + dy as i32 >= surf[x as usize] };
         let door = (inrun::NEST - x0) as usize;
         let mut seen = std::collections::HashSet::new();
@@ -284,9 +290,10 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
             // `?` (an animal, food, an organism's cell) is left to the fresh world -- except, in nest-only mode, a kept
             // one: the flood passed it because it is not ground, so it stood in an open nest cell (an ant in a tunnel,
             // stored food in a room), and leaving it the fresh world's loose soil plugged the nest at every one of them.
-            // `INHERIT_PLUG=1` puts the plugs back, for the before/after.
+            // `INHERIT_PLUG=1` puts the plugs back, for the before/after. `%` (a plant's own cell, `plants=`) is always
+            // left: a root is ground to the flood, never a nest cell to carve.
             let plug = std::env::var("INHERIT_PLUG").as_deref() == Ok("1");
-            if (ch == b'?' && (keep.is_none() || plug)) || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
+            if ch == b'%' || (ch == b'?' && (keep.is_none() || plug)) || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
@@ -425,7 +432,19 @@ fn main() {
         }
     }
     let slot = |k: usize| order[k.min(ants - 1)];
-    let (mut w, sc, sp) = inrun::colony(seed, ants, dist, drip, every, &|k| mix[slot(k)].1.clone());
+    // plants=MIX[:SPACING[:BAND]] (SCRATCH, plant-food lane, 2026-10-23): a planted bed, the colony landing on it after
+    // grow=F frames (default 6,000, the played bed's), the mister at rain=R (default 2). Pair with cap=0 for no pile.
+    // Off by default: no `plants=` is the bare bed, bit for bit.
+    let garden = arg(&a, "plants").map_or_else(inrun::Garden::default, |m| {
+        inrun::Garden::parse(m, num("grow", 6000), Some(arg(&a, "rain").map_or(2.0, |v| v.parse().unwrap())))
+    });
+    let (mut w, sc, sp) = inrun::colony_in(seed, ants, &garden, &|k| mix[slot(k)].1.clone());
+    // The world's clock at the colony's landing: every frame below is counted from it, so a garden's growing frames
+    // do not age the founders (`b.born`) or shift a window.
+    let f0 = w.frame;
+    if !garden.plants.is_empty() {
+        eprintln!("garden: {} plants ({}), grown {} frames", garden.plants.len(), garden.plants.iter().map(|p| format!("{}@{}", p.0, p.1)).collect::<Vec<_>>().join(" "), garden.grow);
+    }
     // inherit=PATH: start in the nest a previous round dug (see `read_nestmap`). Before the datum and the original
     // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
     if let Some(p) = arg(&a, "inherit") {
@@ -697,6 +716,16 @@ fn main() {
     writeln!(stock_log, "frame,alive,nest_food,door_food,field_food,crop_cells,tank_mean,tank_min,tank_max,nest_corpse").unwrap();
     // The general nest score (lab::nestscore, PR #770, HARVESTER profile) every 25,000 frames, printed beside food
     // home: printed only, never paid (owner, 2026-10-21). A read of the grid; it changes nothing in the run.
+    // garden.csv (plants= only): the standing plant food every 1,000 frames, by kind, across the whole bed. `live_*`
+    // is on a living plant (leaf and blade, flower, fruit still on the stem), `loose_*` lies free (fallen fruit,
+    // litter, dead leaf, crumbs, provisions); `seeds` and `plants` count organisms (a waiting seed, a growing plant).
+    const GARDEN_KINDS: [&str; 9] = ["leaf", "grassblade", "flower", "fruit", "windfall", "litter", "deadleaf", "crumbs", "provisions"];
+    let mut garden_log = (!garden.plants.is_empty()).then(|| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("garden.csv")).unwrap());
+        writeln!(f, "frame,plants,seeds,{},{}", GARDEN_KINDS.map(|k| format!("live_{k}")).join(","), GARDEN_KINDS.map(|k| format!("loose_{k}")).join(",")).unwrap();
+        f
+    });
+    let garden_ids: Vec<Option<pixel_physics::sim::material::MaterialId>> = GARDEN_KINDS.iter().map(|k| w.materials.id_of(k)).collect();
     let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
     writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open,zone,zone_reach").unwrap();
     let mut food_home = 0u64;
@@ -840,7 +869,7 @@ fn main() {
                 inrun::top_up(&mut w, &sc, x, cap, drip as usize, spread);
             }
         }
-        let frame = w.frame;
+        let frame = w.frame - f0;
         let cuts = std::mem::take(w.cut_log.as_mut().unwrap());
         for (x, y, _, who) in cuts {
             let i = (y * bw + x) as usize;
@@ -1598,6 +1627,27 @@ fn main() {
             writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open},{},{}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell(), zone.iter().filter(|&&z| z).count(), (0..zone.len()).filter(|&i| zone[i]).map(|i| (i as i32 % bw - inrun::NEST).abs()).max().unwrap_or(0)).unwrap();
         }
         if fr % 1000 == 0 {
+            if let Some(gl) = garden_log.as_mut() {
+                let (mut live, mut loose) = ([0u32; GARDEN_KINDS.len()], [0u32; GARDEN_KINDS.len()]);
+                for y in 0..bh {
+                    for x in 0..bw {
+                        let c = w.get(x, y);
+                        if let Some(k) = garden_ids.iter().position(|&m| m == Some(c.material)) {
+                            if c.organism_id() != 0 { live[k] += 1 } else { loose[k] += 1 }
+                        }
+                    }
+                }
+                let (mut plants, mut seeds) = (0u32, 0u32);
+                for id in w.live_organism_ids() {
+                    let Some(st) = w.organism(id) else { continue };
+                    if w.species.get(st.species).creature.is_some() {
+                        continue;
+                    }
+                    if pixel_physics::lab::census::is_waiting_seed(&w, id, st) { seeds += 1 } else { plants += 1 }
+                }
+                let j = |v: &[u32]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+                writeln!(gl, "{fr},{plants},{seeds},{},{}", j(&live), j(&loose)).unwrap();
+            }
             let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);
             let corpse_m = w.materials.id_of("corpse");
             for x in (inrun::NEST - 45).max(0)..=(inrun::NEST + 45).min(bw - 1) {
@@ -1667,8 +1717,10 @@ fn main() {
                 std::fs::create_dir_all(out.join("film")).unwrap();
             }
             film_r.draw(&w, &film_p, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut film_buf, (fw, fh), true);
-            let (x0, y0) = ((inrun::NEST - 80).max(0) as u32, 30u32);
-            let (cw, ch) = (161u32.min(fw - x0), (bh as u32).saturating_sub(y0).min(fh - y0));
+            // film_hw=H: the crop's half-width about the door (default 80; 128 is the whole bed, a garden's plants included).
+            let hw = num("film_hw", 80) as i32;
+            let (x0, y0) = ((inrun::NEST - hw).max(0) as u32, 30u32);
+            let (cw, ch) = ((2 * hw as u32 + 1).min(fw - x0).min(bw as u32 - x0), (bh as u32).saturating_sub(y0).min(fh - y0));
             let mut img = image::RgbaImage::new(cw, ch);
             for y in 0..ch {
                 for x in 0..cw {
@@ -1728,6 +1780,9 @@ fn main() {
     if let Some(sl) = scent_log.as_mut() {
         sl.flush().unwrap();
     }
+    if let Some(gl) = garden_log.as_mut() {
+        gl.flush().unwrap();
+    }
     if sel != "off" {
         sel_log.flush().unwrap();
         births.flush().unwrap();
@@ -1735,7 +1790,7 @@ fn main() {
         std::fs::create_dir_all(&dir).unwrap();
         let mut f = std::fs::File::create(dir.join("index.csv")).unwrap();
         writeln!(f, "id,family,gen,born,kids,score").unwrap();
-        let frame = w.frame;
+        let frame = w.frame - f0;
         for (id, b) in &book {
             train::save_genome(&dir.join(format!("{id}.raw.txt")), &b.genome).unwrap();
             writeln!(f, "{id},{},{},{},{},{:.3}", b.family, b.gen, b.born, b.kids, b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1)).unwrap();

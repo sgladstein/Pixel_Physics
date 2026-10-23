@@ -570,7 +570,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
-        let food = world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0;
+        let food = world.materials.get(cell.material).food_energy > 0.0 && (cell.organism_id() == 0 || super::mind::scratch_log::grazeable(world, cell));
         if (jaws_free || pack) && diggable(world, def, organism, cell) && !review_body_rules_refuse(world, t) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
