@@ -8,13 +8,21 @@ each), not a 64-colony batch. Handed to the Teacher lane, which owns the one ant
 
 ## The answer
 
-**Only in one narrow form.** Two lanes can each teach the ant something in parallel and the two can be merged into one
-brain, **if each lane changes only its own weights**. The merged brain then keeps both lessons (Test 1: the home sense
-and the crater refusal, merged, brought home 431 food against 309 for the better parent, 22 of 24 worlds, with the
-same low starvation).
+**What decides whether merging weights works is how much each parallel run is allowed to change, not what it
+trains.** (The owner's question was general; dig versus forage was only an example in the brief, used in Test 3.)
 
-**Splitting the job itself into a dig island and a forage island, then averaging or crossing their brains, does not
-work here, and is not worth building.** Three reasons, all measured below:
+- **Runs that each change only a small, separate set of weights merge well.** Two lanes can each teach the ant
+  something in parallel and the two can be merged into one brain, **if each lane changes only its own weights**. The
+  merged brain then keeps both lessons (Test 1: the home sense and the crater refusal, merged, brought home 431 food
+  against 309 for the better parent, 22 of 24 worlds, with the same low starvation).
+- **Runs of ordinary selection change nearly every weight, and merge to a compromise at best.** Test 2 answers the
+  general question: two colonies of the *same* run under the *same* score drifted into a digger and a forager, and every
+  way of merging their weights gave an ant halfway between them, never one with both strengths.
+- **Parallel training that does not merge weights works**: colonies train side by side and swap whole ants, each
+  keeping its own brain. Colony selection already does this (section 5, point 2).
+
+**The example case, a dig island and a forage island merged afterwards, is the worst case of the same problem.**
+Three reasons, all measured below:
 
 1. **A one-job island does not produce a specialist; it produces a broken ant.** A colony scored only on digging still
    has to eat, so 6 of 8 dig-only colonies died out in 8 rounds, and the survivors did not dig more than the joint
