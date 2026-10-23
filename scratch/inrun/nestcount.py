@@ -26,7 +26,11 @@ def count(d, frames=None):
     e = chr(65 + legend.index('empty')) if 'empty' in legend else None
     sp = chr(65 + legend.index('spoil')) if 'spoil' in legend else None
     H, W = len(grid), len(grid[0])
-    opn = lambda dx, dy: 0 <= dy < H and 0 <= dx < W and grid[dy][dx] in (e, '?')
+    # The flood passes anything that is not ground: stored food, crumbs, door markers and bodies (fixed 2026-10-23 by
+    # the crater review: a larder of stored food cut the chamber behind it off, so a roofed room scored as crater --
+    # 16-22 of 64 colonies a round off by >20 cells, the old ant's nest 302 where it is ~390). Same as cut_join's flood.
+    gnd = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')}
+    opn = lambda dx, dy: 0 <= dy < H and 0 <= dx < W and grid[dy][dx] not in gnd
     below = lambda dx, dy: 0 <= x0 + dx < len(surf) and y0 + dy >= surf[x0 + dx]
     door = NEST - x0
     seen, stack = set(), [(door, dy) for dy in range(H) if opn(door, dy) and below(door, dy)]

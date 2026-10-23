@@ -37,12 +37,33 @@ use std::sync::Arc;
 /// at prune 0 / grow 1 added ~60 links a child (a one-way ratchet), and prune .3 / grow .1 pulled toward ~700.
 /// `prot`: per-slot "this slot is a lesson" flags and the factor its weight-step chance is scaled by (review lane,
 /// 2026-10-22, `lesson=`); protected slots never take a structural event.
+/// SCRATCH (dig-scoring thread): a founder's `.raw.txt`, at its saved length -- GENOME_LEN, or GENOME_LEN plus an
+/// evolved dig head's slots under `PP_DIGHEAD_EVOLVE` (a later round's founders keep their heads).
+fn load_founder(p: &str) -> Vec<f32> {
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
+    let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
+    let len = if creature::mind::scratch_log::head_evolve().is_some() { len } else { creature::mind::GENOME_LEN };
+    train::parse_genome(&text, len, p)
+}
+
+/// SCRATCH (dig-scoring thread): under `PP_DIGHEAD_EVOLVE`, a genome without its own dig head gets the side file's
+/// (`PP_DIGHEAD`) appended; otherwise unchanged.
+fn with_head(mut g: Vec<f32>) -> Vec<f32> {
+    if let Some(hl) = creature::mind::scratch_log::head_evolve() {
+        if g.len() == creature::mind::GENOME_LEN {
+            g.extend(creature::mind::scratch_log::dighead().expect("PP_DIGHEAD").flat());
+        }
+        assert_eq!(g.len(), creature::mind::GENOME_LEN + hl, "a founder with a dig head of another shape");
+    }
+    g
+}
+
 fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, prot: Option<(&[bool], f32)>, rng: &mut train::Rng) -> Vec<f32> {
     let first = creature::mind::FIRST_LINK;
     let mut c = g.to_vec();
     for &i in slots {
         let p = match prot {
-            Some((m, f)) if m[i] => pm * f,
+            Some((m, f)) if m.get(i).copied().unwrap_or(false) => pm * f,
             _ => pm,
         };
         if (c[i] != 0.0 || i < first) && rng.unit() < p {
@@ -51,7 +72,7 @@ fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize
     }
     for _ in 0..events {
         let add = rng.unit() < 0.5;
-        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m[i])).collect();
+        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m.get(i).copied().unwrap_or(false))).collect();
         if pool.is_empty() {
             continue;
         }
@@ -109,10 +130,12 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
     let (x0, y0): (i32, i32) = (head[0].parse().unwrap(), head[1].parse().unwrap());
     let ids: Vec<_> = head.get(2).map_or(vec![], |l| l.split(',').map(|n| w.materials.id_of(n).unwrap_or_else(|| panic!("nestmap material {n}"))).collect());
     let grid: Vec<&[u8]> = lines.map(|l| l.as_bytes()).filter(|l| !l.is_empty()).collect();
-    let empty = ids.iter().position(|&m| m == pixel_physics::sim::material::EMPTY).map(|k| b'A' + k as u8);
     // nest_only: flood the open cells below the datum from the door, keep the roofed ones and the shaft.
     let keep: Option<std::collections::HashSet<(usize, usize)>> = nest_only.map(|surf| {
-        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|&c| Some(c) == empty || c == b'?');
+        // Passes anything that is not ground (stored food, crumbs, markers, bodies), as nestcount.py does since the
+        // crater review (2026-10-23): a larder of stored food used to cut its room off, so the room was not inherited.
+        let gnd: Vec<u8> = ids.iter().enumerate().filter(|(_, &m)| ["soil", "packedsoil", "spoil", "stone"].iter().any(|n| w.materials.id_of(n) == Some(m))).map(|(k, _)| b'A' + k as u8).collect();
+        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|c| !gnd.contains(c));
         let below = |dx: usize, dy: usize| { let x = x0 + dx as i32; x >= 0 && (x as usize) < surf.len() && y0 + dy as i32 >= surf[x as usize] };
         let door = (inrun::NEST - x0) as usize;
         let mut seen = std::collections::HashSet::new();
@@ -158,7 +181,11 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
-            let m = ids[(ch - b'A') as usize];
+            // Nest-only inheritance carves the kept cells open and copies nothing into them. Since the flood passes
+            // stored food (2026-10-23), kept cells include the larder, and copying their material carried every
+            // round's stored food into the next: colsel14's colonies came to "deliver" 10-13k a garden (control
+            // 11,143 at round 47 against colsel10's 2,016) by re-dropping it, and their nests and craters with it.
+            let m = if keep.is_some() { pixel_physics::sim::material::EMPTY } else { ids[(ch - b'A') as usize] };
             let c = w.get(x, y);
             if c.organism_id() != 0 || c.material == m {
                 continue;
@@ -227,7 +254,8 @@ fn main() {
             raw.push(Vec::new());
         } else {
             // A `.raw.txt` genome is taken as saved (a harness's own output), not through the suite's rung entry.
-            let g = if p.ends_with(".raw.txt") { train::load_genome(std::path::Path::new(p), creature::mind::GENOME_LEN) } else { train::start_mind(&suite, p) };
+            let g = if p.ends_with(".raw.txt") { load_founder(p) } else { train::start_mind(&suite, p) };
+            let g = with_head(g);
             raw.push(g.clone());
             glen = g.len();
             let tag = tag_over.unwrap_or_else(|| std::path::Path::new(p).file_stem().unwrap().to_string_lossy().to_string());
@@ -239,8 +267,9 @@ fn main() {
     if let Some(spec) = arg(&a, "mutants") {
         let v: Vec<&str> = spec.split(':').collect();
         let (n, pm, sigma, ms): (usize, f32, f32, u64) = (v[0].parse().unwrap(), v[1].parse().unwrap(), v[2].parse().unwrap(), v[3].parse().unwrap());
-        let base = train::start_mind(&suite, arg(&a, "founders").unwrap().split(',').next().unwrap().rsplit_once(':').unwrap().0);
-        let slots = inrun::slots();
+        let base = with_head(train::start_mind(&suite, arg(&a, "founders").unwrap().split(',').next().unwrap().rsplit_once(':').unwrap().0));
+        // SCRATCH (dig-scoring thread): founders' mutants leave an evolvable dig head as the side file has it
+        let slots: Vec<usize> = inrun::slots().into_iter().filter(|&i| i < creature::mind::GENOME_LEN).collect();
         let mut rng = train::Rng(ms);
         mix.clear();
         raw.clear();
@@ -390,6 +419,26 @@ fn main() {
     let rim_rows = fnum("rim_rows", 0.0) as i32;
     let rim_debit = fnum("rim_debit", 0.0);
     let rim_share = fnum("rim_share", 0.0);
+    // cut_join=N (owner, 2026-10-22: a stuck ant that swims through the ground under the nest must not be paid as a
+    // nest digger -- "I don't want it to be counted as improved nest digging and be selected for"): a cut of original
+    // ground pays only when one of its four neighbours is open space joined to the door below the datum. The joined set
+    // is flooded from the door every N frames, and a paying cut joins its own cell at once, so a tunnel dug outward
+    // from the nest keeps paying cell by cell while a swimmer, whose way back is packed shut behind it, stops paying at
+    // the next flood. An unjoined cut is logged as `unjoined`. 0 = off (every cut pays, the old rule).
+    let cut_join = num("cut_join", 0) as u64;
+    // cut_roof=1 (owner, 2026-10-22: "not digging the top layer near the nest (which turns the nest into a crater)"):
+    // a cut pays only when its cell is still nest under the colony rule (scratch/inrun/nestcount.py) once it is cut --
+    // some ground (soil, packed soil, spoil, stone) left above it in its column between the datum and the cell, or the
+    // open run along the datum row through its column no wider than the 5-cell door mouth. Taking the roof off a column
+    // and deepening a column already open to the sky pay nothing, and are logged as `unroofed`; cutting the walls and
+    // floor of a chamber under its roof pays as before. Unlike rim_rows (depth only, which starved round-1 colonies)
+    // it does not care how deep the cut is. colsel10 (hcs, 48 rounds, food 25): crater 207 against nest 111 at r47,
+    // a wide open shaft with the nest along its sides; the crater case alone did not move it. 0 = off.
+    let cut_roof = num("cut_roof", 0) > 0;
+    // roof_debit=F (owner, 2026-10-23: "should we make that even more expensive"): an `unroofed` cut also charges F
+    // times the cut half, as rim_debit does. rim_debit on the top 3 rows took round-1 extinctions 20 -> 34 of 64 with
+    // the h1 founders; hcs starves far less. 0 = off.
+    let roof_debit = fnum("roof_debit", 0.0);
     let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
@@ -447,6 +496,21 @@ fn main() {
         eprintln!("lesson={p}: {} protected slots at {f} of the mutation rate", flags.iter().filter(|&&b| b).count());
         (flags, f.parse().unwrap())
     });
+    // SCRATCH (dig-scoring thread): an evolvable dig head's slots (`PP_DIGHEAD_EVOLVE`) mutate at
+    // `PP_DIGHEAD_EVOLVE_F` (default 0.25) of the rate and take no structural event, through the lesson protection.
+    // **Why**: every head slot is live and its "when" read-out drives the Dig job straight, so at the full rate a
+    // 100k selection run (seed 3099) kept 5 adults of 24 against 18 without it.
+    let lesson = match (lesson, creature::mind::scratch_log::head_evolve()) {
+        (l, None) => l,
+        (l, Some(hl)) => {
+            let f: f32 = std::env::var("PP_DIGHEAD_EVOLVE_F").ok().map_or(0.25, |v| v.parse().expect("PP_DIGHEAD_EVOLVE_F"));
+            let (mut flags, lf) = l.unwrap_or_else(|| (vec![false; creature::mind::GENOME_LEN], f));
+            flags.resize(creature::mind::GENOME_LEN, false);
+            flags.extend(std::iter::repeat_n(true, hl));
+            eprintln!("dig head evolves: {hl} slots at {lf} of the mutation rate");
+            Some((flags, lf))
+        }
+    };
     let prot = lesson.as_ref().map(|(m, f)| (m.as_slice(), *f));
     let kid_cap = num("kid_cap", 1000) as u32;
     // retire=1: a parent leaves once it has had `kid_cap` children (its last child takes its place). Without it the
@@ -532,6 +596,13 @@ fn main() {
     let (tank_full, ktank) = (fnum("tank", 3.0), fnum("ktank", 4.0));
     let start_e = w.species.get(sp).creature.as_ref().map_or(1.0, |d| d.start_energy) as f64;
     let mut tank_p = 1.0;
+    // store=S: food is also priced by the larder (owner, 2026-10-23: "I don't love that the nest is 100% full of
+    // food"). Delivery and progress pay are scaled by 1 - nest_food / (S * living ants), floored at 0, refreshed with
+    // the stock census every 1,000 frames: a delivery pays in full into an empty store and nothing once it holds S
+    // cells an ant. colsel20's rules-off gardens held a median 389 stored cells for 24 ants, each on ~87 full grants:
+    // tank_p sat at 1 the whole game because the tanks were never short, so nothing ever said "enough".
+    let store_cap = fnum("store", 0.0);
+    let mut store_p = 1.0f64;
     // w_hungry=W: pay W when an ant leaves home (head from within 12 columns of the nest to 15+ out) while its own bank
     // is below `hungry` full grants, at most once per `hungry_gap` frames (owner, 2026-10-21). Rewards the habit at the
     // moment it is needed; the delivery it leads to comes far later and, at ~1 per 30k-frame life, too rarely to select on.
@@ -614,7 +685,29 @@ fn main() {
     let mut film_r = pixel_physics::render::Renderer::new();
     let film_p = pixel_physics::sim::ParticleSystem::new();
     let mut film_buf: Vec<u8> = Vec::new();
+    let mut joined = vec![false; (bw * bh) as usize];
+    let join_ground: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
     for fr in 1..=frames {
+        if cut_join > 0 && (fr - 1) % cut_join == 0 {
+            joined.iter_mut().for_each(|j| *j = false);
+            // Passable = anything but ground (soil, packed soil, spoil, stone): food stored on a chamber floor, bodies and
+            // the door markers do not cut a chamber off. First built on inrun::open (empty or a body), which left every
+            // floor cut under stored food unpaid -- the old ant lost 62 of 232 near-door cuts, nearly all in its larder.
+            let open_below = |x: i32, y: i32| (0..bw).contains(&x) && (0..bh).contains(&y) && y >= surf[x as usize] && !join_ground.contains(&w.get(x, y).material);
+            let mut stack: Vec<(i32, i32)> = (0..bh).filter(|&y| open_below(inrun::NEST, y)).map(|y| (inrun::NEST, y)).collect();
+            while let Some((x, y)) = stack.pop() {
+                let i = (y * bw + x) as usize;
+                if joined[i] {
+                    continue;
+                }
+                joined[i] = true;
+                for (ex, ey) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                    if open_below(ex, ey) && !joined[(ey * bw + ex) as usize] {
+                        stack.push((ex, ey));
+                    }
+                }
+            }
+        }
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
             for x in [inrun::NEST + dist, inrun::NEST - dist] {
@@ -622,7 +715,8 @@ fn main() {
             }
         }
         let frame = w.frame;
-        for (x, y, _, who) in w.cut_log.as_mut().unwrap().drain(..) {
+        let cuts: Vec<_> = w.cut_log.as_mut().unwrap().drain(..).collect();
+        for (x, y, _, who) in cuts {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
                 orig[i] = false;
@@ -648,6 +742,39 @@ fn main() {
                 } else {
                     0.0
                 };
+                if cut_join > 0 {
+                    let nb = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
+                    if nb.iter().any(|&(ex, ey)| (0..bw).contains(&ex) && (0..bh).contains(&ey) && joined[(ey * bw + ex) as usize]) {
+                        joined[i] = true;
+                    } else {
+                        writeln!(ev, "{frame},{who},unjoined,{x},{y},{depth},{who}").unwrap();
+                        worth = 0.0;
+                    }
+                }
+                if worth > 0.0 && cut_roof && y >= surf[x as usize] {
+                    let ground = |ex: i32, ey: i32| join_ground.contains(&w.get(ex, ey).material);
+                    let roofed = (surf[x as usize]..y).any(|ey| ground(x, ey));
+                    let gap_open = |ex: i32| (0..bw).contains(&ex) && !ground(ex, surf[ex as usize]);
+                    let (mut l, mut r) = (x, x);
+                    while l - x > -8 && gap_open(l - 1) {
+                        l -= 1;
+                    }
+                    while r - x < 8 && gap_open(r + 1) {
+                        r += 1;
+                    }
+                    // Unroofed means the datum cell of this column is open too, so the run below contains x.
+                    if !roofed && r - l + 1 > 5 {
+                        writeln!(ev, "{frame},{who},unroofed,{x},{y},{depth},{who}").unwrap();
+                        worth = 0.0;
+                        if roof_debit > 0.0 {
+                            if let Some(b) = book.get_mut(&who) {
+                                let g = -roof_debit * 0.5 * w_dig * dig_price;
+                                b.credit += g;
+                                b.g2 += g * g;
+                            }
+                        }
+                    }
+                }
                 if worth > 0.0 && rim_rows > 0 {
                     if depth < rim_rows {
                         worth = rim_share;
@@ -743,7 +870,7 @@ fn main() {
                         let ate: f64 = eaten.iter().map(|d| d.1).sum();
                         let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
                         let fpr = if tank_price { tank_p } else { 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0) };
-                        let g = deep * w_del * fpr * if progress { 0.5 } else { 1.0 };
+                        let g = deep * w_del * fpr * store_p * if progress { 0.5 } else { 1.0 };
                         if let Some(c) = carry.get_mut(&r.who) {
                             c.3 += 1;
                         }
@@ -818,7 +945,7 @@ fn main() {
             }
         }
         if progress && fr % 100 == 0 {
-            let fpr_now = if tank_price { tank_p } else { 1.0 + kprice };
+            let fpr_now = store_p * if tank_price { tank_p } else { 1.0 + kprice };
             let mut ids: Vec<u32> = book.keys().copied().collect();
             ids.sort_unstable();
             for id in ids {
@@ -1378,6 +1505,9 @@ fn main() {
             let n = tanks.len().max(1) as f64;
             let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
             writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
+            if store_cap > 0.0 {
+                store_p = (1.0 - nest_f as f64 / (store_cap * tanks.len().max(1) as f64)).clamp(0.0, 1.0);
+            }
         }
         // `trace=N` (read only): every N frames, one row per living ant, for tracing individuals through a die-off.
         if let Some(tl) = trace_log.as_mut().filter(|_| fr % trace == 0) {
@@ -1492,5 +1622,8 @@ fn main() {
     write_nestmap(&w, &out.join("nestmap.txt"));
     creature::mind::scratch_log::copy_flush();
     println!("{}", creature::mind::scratch_log::carry_report());
+    if creature::mind::scratch_log::oldlab_on() {
+        eprintln!("{}", creature::mind::scratch_log::oldlab_report());
+    }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }
