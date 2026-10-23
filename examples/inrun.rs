@@ -397,6 +397,15 @@ fn main() {
     // from the nest keeps paying cell by cell while a swimmer, whose way back is packed shut behind it, stops paying at
     // the next flood. An unjoined cut is logged as `unjoined`. 0 = off (every cut pays, the old rule).
     let cut_join = num("cut_join", 0) as u64;
+    // cut_roof=1 (owner, 2026-10-22: "not digging the top layer near the nest (which turns the nest into a crater)"):
+    // a cut pays only when its cell is still nest under the colony rule (scratch/inrun/nestcount.py) once it is cut --
+    // some ground (soil, packed soil, spoil, stone) left above it in its column between the datum and the cell, or the
+    // open run along the datum row through its column no wider than the 5-cell door mouth. Taking the roof off a column
+    // and deepening a column already open to the sky pay nothing, and are logged as `unroofed`; cutting the walls and
+    // floor of a chamber under its roof pays as before. Unlike rim_rows (depth only, which starved round-1 colonies)
+    // it does not care how deep the cut is. colsel10 (hcs, 48 rounds, food 25): crater 207 against nest 111 at r47,
+    // a wide open shaft with the nest along its sides; the crater case alone did not move it. 0 = off.
+    let cut_roof = num("cut_roof", 0) > 0;
     let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
@@ -651,7 +660,8 @@ fn main() {
             }
         }
         let frame = w.frame;
-        for (x, y, _, who) in w.cut_log.as_mut().unwrap().drain(..) {
+        let cuts: Vec<_> = w.cut_log.as_mut().unwrap().drain(..).collect();
+        for (x, y, _, who) in cuts {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
                 orig[i] = false;
@@ -683,6 +693,23 @@ fn main() {
                         joined[i] = true;
                     } else {
                         writeln!(ev, "{frame},{who},unjoined,{x},{y},{depth},{who}").unwrap();
+                        worth = 0.0;
+                    }
+                }
+                if worth > 0.0 && cut_roof && y >= surf[x as usize] {
+                    let ground = |ex: i32, ey: i32| join_ground.contains(&w.get(ex, ey).material);
+                    let roofed = (surf[x as usize]..y).any(|ey| ground(x, ey));
+                    let gap_open = |ex: i32| (0..bw).contains(&ex) && !ground(ex, surf[ex as usize]);
+                    let (mut l, mut r) = (x, x);
+                    while l - x > -8 && gap_open(l - 1) {
+                        l -= 1;
+                    }
+                    while r - x < 8 && gap_open(r + 1) {
+                        r += 1;
+                    }
+                    // Unroofed means the datum cell of this column is open too, so the run below contains x.
+                    if !roofed && r - l + 1 > 5 {
+                        writeln!(ev, "{frame},{who},unroofed,{x},{y},{depth},{who}").unwrap();
                         worth = 0.0;
                     }
                 }
