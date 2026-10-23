@@ -114,6 +114,33 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
         writeln!(f, "{r}").unwrap();
     }
 }
+/// What `nestmap.txt` writes as `?`, told apart (brood lane, 2026-10-23), over the same window: `f` stored food, `e` `l`
+/// `p` an egg, larva or pupa, `a` an animal, `.` anything else. Read only.
+fn write_occupants(w: &pixel_physics::sim::World, path: &std::path::Path) {
+    use pixel_physics::sim::material;
+    let (hw, y0, y1) = NESTMAP;
+    let food = w.materials.id_of("provisions");
+    let mut f = std::fs::File::create(path).unwrap();
+    writeln!(f, "{} {y0}", inrun::NEST - hw).unwrap();
+    for y in y0..y1 {
+        let row: String = (inrun::NEST - hw..=inrun::NEST + hw)
+            .map(|x| {
+                let c = w.get(x, y);
+                let id = c.organism_id();
+                if let Some(b) = (id != 0).then(|| w.organism(id).and_then(|s| s.brood)).flatten() {
+                    ['e', 'l', 'p'][b.stage as usize]
+                } else if id != 0 || w.materials.kind(c.material) == material::MaterialKind::Creature {
+                    'a'
+                } else if Some(c.material) == food {
+                    'f'
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        writeln!(f, "{row}").unwrap();
+    }
+}
 /// Write a `nestmap.txt` into a fresh world: every cell whose recorded material differs is set to it, except cells
 /// that hold an organism now (the founders, plants) and `?` cells. Returns how many cells changed.
 ///
@@ -1579,6 +1606,10 @@ fn main() {
             let ghosts = inrun::ants(&w, sp).iter().filter(|i| !book.contains_key(i)).count();
             writeln!(sel_log, "{frame},{},{},{births_n},{removals_n},{bias:.2},{med:.3},{fp:.2},{dig_price:.2},{cp:.2},{ghosts}", book.len(), adults.len()).unwrap();
         }
+        if brood_lay && fr % 25_000 == 0 {
+            write_nestmap(&w, &out.join(format!("nestmap_f{fr:07}.txt")));
+            write_occupants(&w, &out.join(format!("occupants_f{fr:07}.txt")));
+        }
         if fr % 25_000 == 0 {
             let door = w.nest_sites.first().map_or(inrun::NEST, |s| s.x);
             let (ns, _) = pixel_physics::lab::nestscore::of_world(&w, &sc.bed, door, &pixel_physics::lab::nestscore::HARVESTER);
@@ -1760,6 +1791,7 @@ fn main() {
         age30.flush().unwrap();
     }
     write_nestmap(&w, &out.join("nestmap.txt"));
+    write_occupants(&w, &out.join("occupants.txt"));
     creature::mind::scratch_log::copy_flush();
     println!("{}", creature::mind::scratch_log::carry_report());
     if creature::mind::scratch_log::oldlab_on() {
