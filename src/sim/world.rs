@@ -6667,6 +6667,23 @@ pub struct World {
     pub seedling_reserves: bool,
     /// Allocations funded that way: its did-it-fire count.
     pub seedling_reserves_drawn: u64,
+    /// **Only roots drink, and a plant keeps the roots it drinks through**
+    /// (`plant::roots_required_default`, `PIXEL_PHYSICS_ROOTS_REQUIRED=1`).
+    /// The owner's "plants with no roots that still survive", 2026-10-23:
+    /// a starving plant's die-back could take only bare wood, so it ate its
+    /// own roots first; its stems on the ground then drank in their place,
+    /// it read full nutrient with no roots at all, and nothing could grow it
+    /// a root again. On: `Absorb` runs on root tissue only, die-back keeps a
+    /// plant's last `DIEBACK_ROOT_FLOOR` root cells, and a thirsty plant
+    /// with no root to branch from sprouts one from a stem cell touching
+    /// moist ground (an adventitious root). Off by default until measured.
+    pub roots_required: bool,
+    /// Adventitious roots sprouted under `roots_required`: its did-it-fire
+    /// count.
+    pub adventitious_roots: u64,
+    /// Root cells die-back passed over under `roots_required` because they
+    /// were the plant's last: its did-it-fire count.
+    pub dieback_roots_kept: u64,
     /// **A waiting seed sinks through dead matter, and a sprout lifts it**
     /// (`plant::dead_matter`, `plant::heave_loose_column`): a seed on litter,
     /// a dead leaf or deadwood trades places with it now and then, and a
@@ -7673,6 +7690,9 @@ impl World {
             seedling_waits_held: 0,
             seedling_reserves: false,
             seedling_reserves_drawn: 0,
+            roots_required: super::plant::roots_required_default(),
+            adventitious_roots: 0,
+            dieback_roots_kept: 0,
             seed_settles: false,
             old_age_plant_time: false,
             seeds_settled: 0,
