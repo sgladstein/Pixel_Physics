@@ -406,6 +406,10 @@ fn main() {
     // it does not care how deep the cut is. colsel10 (hcs, 48 rounds, food 25): crater 207 against nest 111 at r47,
     // a wide open shaft with the nest along its sides; the crater case alone did not move it. 0 = off.
     let cut_roof = num("cut_roof", 0) > 0;
+    // roof_debit=F (owner, 2026-10-23: "should we make that even more expensive"): an `unroofed` cut also charges F
+    // times the cut half, as rim_debit does. rim_debit on the top 3 rows took round-1 extinctions 20 -> 34 of 64 with
+    // the h1 founders; hcs starves far less. 0 = off.
+    let roof_debit = fnum("roof_debit", 0.0);
     let deep_bonus = fnum("deep_bonus", 0.0);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
@@ -711,6 +715,13 @@ fn main() {
                     if !roofed && r - l + 1 > 5 {
                         writeln!(ev, "{frame},{who},unroofed,{x},{y},{depth},{who}").unwrap();
                         worth = 0.0;
+                        if roof_debit > 0.0 {
+                            if let Some(b) = book.get_mut(&who) {
+                                let g = -roof_debit * 0.5 * w_dig * dig_price;
+                                b.credit += g;
+                                b.g2 += g * g;
+                            }
+                        }
                     }
                 }
                 if worth > 0.0 && rim_rows > 0 {
