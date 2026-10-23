@@ -1007,7 +1007,7 @@ fn main() {
                 }
             }
         }
-        let food_rows: Vec<_> = w.food_log.as_mut().unwrap().drain(..).collect();
+        let food_rows = std::mem::take(w.food_log.as_mut().unwrap());
         for r in food_rows {
             let (x, y) = r.at;
             let home = if zone_on {
