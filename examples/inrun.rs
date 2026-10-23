@@ -1568,5 +1568,8 @@ fn main() {
     write_nestmap(&w, &out.join("nestmap.txt"));
     creature::mind::scratch_log::copy_flush();
     println!("{}", creature::mind::scratch_log::carry_report());
+    if creature::mind::scratch_log::oldlab_on() {
+        eprintln!("{}", creature::mind::scratch_log::oldlab_report());
+    }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }

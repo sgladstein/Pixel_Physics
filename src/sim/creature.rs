@@ -7956,6 +7956,27 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.minds.is_some() && mind::has(world, organism) {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
         if !mind::scratch_log::shadow_on() {
+            // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
+            // (`mind::scratch_log::oldlab_label`). Dig states only: holding spoil (unless `PP_OLDLAB_EMPTY=1`), or
+            // empty, not hungry, below the datum within 40 columns of the door.
+            if mind::scratch_log::oldlab_on()
+                && (mind::scratch_log::oldlab_act() || (mind::scratch_log::copy_on() && mind::scratch_log::oldlab_take(world, organism)))
+            {
+                let dig_state = world.organism(organism).is_some_and(|s| {
+                    (s.spoil.is_some() && !mind::scratch_log::oldlab_label_empty())
+                        || (s.spoil.is_none()
+                            && s.crop.is_none_or(|c| c.cells == 0)
+                            && (x - 128).abs() <= 40
+                            && world.room_surface_at(x).is_some_and(|top| y > top)
+                            && !needs_hungry(world, s, def, (x, y)))
+                });
+                if dig_state {
+                    let mut wc = world.clone();
+                    mind::scratch_log::strip_mind(&mut wc, organism);
+                    creature_tick(&mut wc, x, y, organism, def, &SpecWindow::default());
+                    mind::scratch_log::OLDLAB.with(|o| *o.borrow_mut() = Some((organism, Box::new(wc))));
+                }
+            }
             return mind::tick(world, x, y, organism, def);
         }
         mind::scratch_log::shadow_pre(world, x, y, organism, def);

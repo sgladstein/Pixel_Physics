@@ -2793,7 +2793,8 @@ pub mod inrun {
             }
         }
         // `PP_SHADOW=1` (mind.rs): minds watch the old ant, so the world builds the old ant's ways as it does with none.
-        if creature::mind::scratch_log::shadow_on() {
+        // `PP_OLDLAB=1` ticks the old ant in clones of this world, so the same.
+        if creature::mind::scratch_log::shadow_on() || creature::mind::scratch_log::oldlab_on() {
             if let Some(m) = w.minds.as_mut() {
                 m.build_ways = true;
             }
