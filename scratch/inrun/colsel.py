@@ -41,8 +41,10 @@ WEAN = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA
 EXTRA = [x for x in EXTRA if not x.startswith('wean=')]
 def wean_p(r):
     return 1.0 if r <= WEAN[0] else max(0.0, 1.0 - (r - WEAN[0]) / max(1, WEAN[1] - WEAN[0]))
+# The same schedule weans the brood lane's home-eat crutch (setenv PP_HOMEEAT, 2026-10-23): PP_HOMEEAT_P rides along,
+# and is read only when PP_HOMEEAT is set.
 def with_p(args, p):
-    return [f'{x},PP_BODYRULES_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
+    return [f'{x},PP_BODYRULES_P={p:.3f},PP_HOMEEAT_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 P = int(os.environ.get('P', '4'))
 GATE = int(os.environ.get('GATE', '20'))
