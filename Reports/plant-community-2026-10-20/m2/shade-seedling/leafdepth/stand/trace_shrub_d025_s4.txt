@@ -1,0 +1,64 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=60000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=shrub mix=stand-shrub ["tree", "herb", "creeper"] seed=4 width=192 grow=60000 window=40000 sample=10000 sow=4 gap=0 gapat=0 arms=shipped plants_placed=9
+grown f=60000 | tree 10/55/2534/5662 | herb 14/22/569/1628 | creeper 8/1/203/370 | shrub 0/0/0/0  (plants/bank/leaf/shoot)
+grown f=60000 | floor light % of open: p10 3.6 p25 4.6 p50 9.9 p75 14.7 p90 16.4
+    TRACE f=1000 sown0 cells 2 leaves 0 light 0.00 tips 0 buds 0 roots 1 | income 0.00 bill 0.00 unpaid 0.00 starving 5 | carbon 0.9 endow 0.25 water 1.00 nut 0.75 senescent true
+    TRACE f=1000 sown2 seed at (68,157) seed type Some(Seed) light 0.09 | below deadwood holds 0 available 0.00 owned false
+    TRACE f=1000 sown2 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 0 | carbon 0.0 endow 0.25 water 1.00 nut 1.00 senescent false
+    TRACE f=2000 sown0 cells 2 leaves 0 light 0.00 tips 0 buds 0 roots 1 | income 0.00 bill 0.00 unpaid 0.00 starving 16 | carbon 0.6 endow 0.25 water 1.00 nut 0.73 senescent true
+    TRACE f=3000 sown0 cells 2 leaves 0 light 0.00 tips 0 buds 0 roots 1 | income 0.00 bill 0.00 unpaid 0.00 starving 28 | carbon 0.5 endow 0.25 water 1.00 nut 0.73 senescent true
+    TRACE f=4000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.32 | below soil holds 1000 available 0.98 owned false
+    TRACE f=4000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 39 | carbon 0.3 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=5000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.32 | below soil holds 1000 available 1.00 owned false
+    TRACE f=5000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 50 | carbon 0.3 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=6000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.32 | below soil holds 1000 available 1.00 owned false
+    TRACE f=6000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 61 | carbon 0.3 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=7000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.32 | below soil holds 1000 available 1.00 owned false
+    TRACE f=7000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 72 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=8000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.32 | below soil holds 1000 available 1.00 owned false
+    TRACE f=8000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 83 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=9000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.33 | below soil holds 1000 available 1.00 owned false
+    TRACE f=9000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 94 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=10000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.33 | below soil holds 1000 available 1.00 owned false
+    TRACE f=10000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 105 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=11000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.33 | below soil holds 1000 available 1.00 owned false
+    TRACE f=11000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 116 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=12000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.33 | below soil holds 1000 available 1.00 owned false
+    TRACE f=12000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 128 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=13000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.31 | below soil holds 1000 available 1.00 owned false
+    TRACE f=13000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 139 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=14000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.26 | below soil holds 1000 available 1.00 owned false
+    TRACE f=14000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 150 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=15000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.21 | below soil holds 1000 available 0.91 owned false
+    TRACE f=15000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 161 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=16000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.18 | below soil holds 1000 available 0.64 owned false
+    TRACE f=16000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 172 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=17000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.15 | below soil holds 1000 available 0.58 owned false
+    TRACE f=17000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 183 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=18000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.15 | below soil holds 1000 available 0.88 owned false
+    TRACE f=18000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 194 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=19000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.15 | below soil holds 1000 available 0.96 owned false
+    TRACE f=19000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 205 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=20000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.15 | below soil holds 1000 available 0.87 owned false
+    TRACE f=20000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 216 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=21000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.14 | below soil holds 1000 available 0.86 owned false
+    TRACE f=21000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 228 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=22000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.11 | below soil holds 1000 available 0.75 owned false
+    TRACE f=22000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 239 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+    TRACE f=23000 sown0 seed at (22,160) wood type Some(MatureBody) light 0.09 | below soil holds 1000 available 0.52 owned false
+    TRACE f=23000 sown0 cells 1 leaves 0 light 0.00 tips 0 buds 0 roots 0 | income 0.00 bill 0.00 unpaid 0.00 starving 250 | carbon 0.2 endow 0.25 water 1.00 nut 1.00 senescent true
+arm=shipped sown 3 of 4 endow 0.25
+arm=shipped f=10000 | tree 16/29/2646/6032 | herb 13/24/408/1181 | creeper 5/4/111/218 | shrub 1/0/0/1
+arm=shipped f=20000 | tree 19/26/2732/6440 | herb 15/24/366/1228 | creeper 5/5/73/142 | shrub 1/0/0/1
+arm=shipped f=30000 | tree 14/36/2830/6922 | herb 15/18/379/1377 | creeper 4/5/19/36 | shrub 0/0/0/0
+arm=shipped f=40000 | tree 16/32/2835/6854 | herb 11/12/309/1201 | creeper 1/7/1/1 | shrub 0/0/0/0
+arm=shipped end | floor light % of open: p10 2.8 p25 4.4 p50 6.9 p75 9.5 p90 18.4
+arm=shipped SWITCHES reserves_drawn 0 settled 0 heaved 0 germinations 215
+arm=shipped DEATH sown1 at f=60916 age 916 cause Spread declared false dormant_seed true at (0, 0)
+arm=shipped DEATH sown2 at f=61752 age 1752 cause Spread declared false dormant_seed true at (0, 0)
+arm=shipped DEATH sown0 at f=83961 age 23961 cause LostVitalTissue declared true dormant_seed false at (22, 160)
+plant_m0 done: 27.4 s

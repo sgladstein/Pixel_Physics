@@ -1,0 +1,10 @@
+base       seeds 32 starved/colony  4.31 (past 60 cols 2.69)  collapsed  2  home/colony    269  new cuts/colony   320  time past 60 cols 15.9%   vs base: fewer deaths 0, more 0
+ctl        seeds 32 starved/colony  3.66 (past 60 cols 2.62)  collapsed  0  home/colony    253  new cuts/colony   307  time past 60 cols 13.6%   vs base: fewer deaths 15, more 13
+ceil       seeds 32 starved/colony  2.28 (past 60 cols 0.75)  collapsed  1  home/colony    283  new cuts/colony   271  time past 60 cols 2.3%   vs base: fewer deaths 16, more 7
+hc1        seeds 32 starved/colony  2.50 (past 60 cols 0.75)  collapsed  0  home/colony    268  new cuts/colony   315  time past 60 cols 3.4%   vs base: fewer deaths 19, more 8
+sup        seeds 32 starved/colony  2.88 (past 60 cols 2.03)  collapsed  0  home/colony    283  new cuts/colony   341  time past 60 cols 16.7%   vs base: fewer deaths 14, more 11
+supOut     seeds 32 starved/colony  2.47 (past 60 cols 2.06)  collapsed  0  home/colony    391  new cuts/colony   342  time past 60 cols 20.4%   vs base: fewer deaths 19, more 7
+hcs        seeds 32 starved/colony  1.22 (past 60 cols 0.44)  collapsed  0  home/colony    305  new cuts/colony   346  time past 60 cols 4.9%   vs base: fewer deaths 24, more 3
+hcsOut     seeds 32 starved/colony  0.69 (past 60 cols 0.38)  collapsed  0  home/colony    383  new cuts/colony   345  time past 60 cols 7.1%   vs base: fewer deaths 23, more 1
+hcsd       seeds 32 starved/colony  1.88 (past 60 cols 0.50)  collapsed  0  home/colony    309  new cuts/colony   328  time past 60 cols 3.8%   vs base: fewer deaths 21, more 7
+tb         seeds 32 starved/colony  3.12 (past 60 cols 0.91)  collapsed  3  home/colony    218  new cuts/colony   353  time past 60 cols 6.3%   vs base: fewer deaths 18, more 8

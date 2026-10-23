@@ -158,3 +158,50 @@ they do not grow there is the next trace and was not run.
 - `plant_m0 genes=ROLE:germ:X` sets `Germinate.light_threshold`.
 - `PIXEL_PHYSICS_TRACE_CELLS=1` (plastic mode): every cell's carbon, and
   each growth visit with its price and why it stopped.
+
+## 6. Leaves that let more light through (`leafdepth/`), owner's choice
+
+Owner, 2026-10-22, on the card that followed: give the floor light by
+letting leaves pass more of it, **with no change to how trees look**. In the
+light field every `Plant` cell counted one cell of column depth (16 cells
+pass 20%); `PIXEL_PHYSICS_LEAF_DEPTH=D` (`field::leaf_depth`, default 1.0)
+counts a `leaf` cell as D of one. Wood, grass blades and reed are unchanged.
+
+**The floor brightens at first** (`floor/`, 4 beds, stand grown 60,000
+frames, light two rows above the ground):
+
+| leaf depth | floor median, % of open (4 beds) | darkest tenth |
+|---|---|---|
+| 1.0 (shipped) | 0.6-6.4 | 0.3-1.1 |
+| 0.5 | 2.1-10.7 | 1.3-3.9 |
+| 0.25 | 5.1-14.6 | 3.6-4.3 |
+| 0.1 | 5.0-14.6 | 3.3-6.2 |
+
+**Sown seeds still do not get in** (`stand/`, 12 seeds, 4 sown at
+`endow=0.25`, alive at 80,000): shrub 1 / 0 / 1 of 12 at depth 1.0 / 0.5 /
+0.25, creeper 1 / 0 / 1; at 0.25 with `waits`, `reserves` and `settle` on,
+shrub 0 and creeper 5 (tiny). Traced at 0.25 (`stand/trace_*`): the seeds
+now read 3-15% of open, and die of other things -- landing on a seed heap
+and leaving the slice (`Spread`, A6) within the first 1,000 frames, lying on
+litter or deadwood, or sprouting a root and losing the shoot tip.
+
+**And over a long run the trees take the light back** (`community/`, the
+four-role bed, 8 seeds, 450,000 frames, one binary):
+
+| | tree leaf | shrub beds (of 8, 100+ leaf) | herb beds | creeper beds | roles a bed | light under cover |
+|---|---|---|---|---|---|---|
+| depth 1.0 | 36,429 | 7 | 6 | 0 | 2.62 | 0.155 |
+| depth 0.25 | 43,901 (+21%) | 4 | 8 | 1 | 2.62 | 0.152 |
+| 0.25 + seedling switches | 50,961 (+40%) | 6 | 7 | 0 | 2.62 | 0.135 |
+
+At 150,000 frames the floor under cover is brighter with thin leaves (0.25
+against 0.20), and by 450,000 it is back where it was: **the trees grow
+more leaf until the floor is as dark as before**. That is how a real canopy
+behaves (leaf area grows to use the light), and it means leaf optics alone
+cannot make room for an understory here. The roles that survive a bed do
+not change (2.62 in every arm).
+
+**Not shipped.** `leaf_depth` stays at 1.0 as an instrument. What the long
+run points at instead is a limit on the tree itself -- a canopy that opens
+as trees age and die, or a crown that stops growing -- rather than at how
+much light one leaf passes.

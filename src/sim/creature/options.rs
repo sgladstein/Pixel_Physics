@@ -879,6 +879,32 @@ pub fn shadow(world: &mut World, organism: OrganismId, def: &CreatureDef) {
     });
 }
 
+/// SCRATCH (crater review, 2026-10-23; off unless set): `PP_BODYRULES=roof|rooms|both` offers a mind ant only
+/// the cuts the shipped ant's own dig refusals allow: `roof` = `dig_roof_of` / `under_roof` (no cut within 6 rows
+/// under the founding surface outside the door's columns), `rooms` = `shaft_room_refuses` (the room geometry stopgap).
+/// No waiver for a shut-in ant (the shipped ant waives all but Floor when escaping).
+/// **Never a default and never permanent** (owner, 2026-10-23: "No permanent body rule from the old ant!"): a training
+/// scaffold only, weaned to nothing by `scratch/inrun/colsel.py wean=R0:R1`, and every ant is judged with it off.
+fn review_body_rules_refuse(world: &World, t: (i32, i32)) -> bool {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    let (roof, rooms) = *V.get_or_init(|| match std::env::var("PP_BODYRULES").as_deref() {
+        Ok("roof") => (true, false),
+        Ok("rooms") => (false, true),
+        Ok("both") => (true, true),
+        _ => (false, false),
+    });
+    // PP_BODYRULES_P=p (Teacher lane, 2026-10-23; owner: "No permanent body rule from the old ant!"): a scaffold that
+    // is weaned. Each ground cell is protected with probability p, drawn once per cell and world (a pure hash), so at
+    // p < 1 a fraction of the roof and room cells are free to cut and the brain has to spare the rest itself. Unset = 1.
+    static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let p = *P.get_or_init(|| std::env::var("PP_BODYRULES_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
+    if (roof || rooms) && p < 1.0 && super::rng::stream(world.seed, t.0 as u64, t.1 as u64, 0xB0D7_0001).unit_f32() >= p {
+        return false;
+    }
+    (roof && super::dig_roof_of(world).is_some_and(|rows| super::under_roof(world, t, rows)))
+        || (rooms && super::shaft_room_refuses(world, t).is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,29 +1269,4 @@ mod tests {
             );
         }
     }
-}
-
-
-/// REVIEW SCRATCH (crater review, 2026-10-23; not for merging): `PP_BODYRULES=roof|rooms|both` offers a mind ant only
-/// the cuts the shipped ant's own dig refusals allow: `roof` = `dig_roof_of` / `under_roof` (no cut within 6 rows
-/// under the founding surface outside the door's columns), `rooms` = `shaft_room_refuses` (the room geometry stopgap).
-/// No waiver for a shut-in ant (the shipped ant waives all but Floor when escaping).
-fn review_body_rules_refuse(world: &World, t: (i32, i32)) -> bool {
-    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
-    let (roof, rooms) = *V.get_or_init(|| match std::env::var("PP_BODYRULES").as_deref() {
-        Ok("roof") => (true, false),
-        Ok("rooms") => (false, true),
-        Ok("both") => (true, true),
-        _ => (false, false),
-    });
-    // PP_BODYRULES_P=p (Teacher lane, 2026-10-23; owner: "No permanent body rule from the old ant!"): a scaffold that
-    // is weaned. Each ground cell is protected with probability p, drawn once per cell and world (a pure hash), so at
-    // p < 1 a fraction of the roof and room cells are free to cut and the brain has to spare the rest itself. Unset = 1.
-    static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    let p = *P.get_or_init(|| std::env::var("PP_BODYRULES_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
-    if (roof || rooms) && p < 1.0 && super::rng::stream(world.seed, t.0 as u64, t.1 as u64, 0xB0D7_0001).unit_f32() >= p {
-        return false;
-    }
-    (roof && super::dig_roof_of(world).is_some_and(|rows| super::under_roof(world, t, rows)))
-        || (rooms && super::shaft_room_refuses(world, t).is_some())
 }

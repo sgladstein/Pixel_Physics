@@ -1,0 +1,59 @@
+{
+ "start": "/home/user/hvs/g/hcs-d.raw.txt",
+ "soil_logs": [
+  "/home/user/hvs/logs/tr-41.s.log",
+  "/home/user/hvs/logs/tr-42.s.log",
+  "/home/user/hvs/logs/tr-43.s.log",
+  "/home/user/hvs/logs/tr-44.s.log",
+  "/home/user/hvs/logs/tr-45.s.log",
+  "/home/user/hvs/logs/tr-46.s.log",
+  "/home/user/hvs/logs/tr-47.s.log",
+  "/home/user/hvs/logs/tr-48.s.log"
+ ],
+ "keep_logs": [],
+ "caps": {
+  "carry": 60000,
+  "none": 60000
+ },
+ "steps": 2500,
+ "every": 100,
+ "batch": 512,
+ "lr": 0.02,
+ "seed": 1,
+ "patience": 800,
+ "arm": "teacher",
+ "group_weights": {
+  "carry": 4,
+  "none": 12
+ },
+ "freeze": [
+  "roof_drop"
+ ],
+ "quiet_unread": false,
+ "depth_into_live_units": false,
+ "target_only": true,
+ "mempath": false,
+ "hold_logs": [
+  7
+ ],
+ "out": "/home/user/hvs/cp/ta.txt",
+ "only_allow": true,
+ "allow": [
+  601,
+  646,
+  691,
+  736,
+  781,
+  826,
+  871,
+  916,
+  961,
+  1006,
+  1051,
+  1096,
+  1141,
+  1186,
+  1231,
+  1276
+ ]
+}
