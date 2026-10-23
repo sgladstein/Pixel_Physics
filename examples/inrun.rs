@@ -596,6 +596,13 @@ fn main() {
     let (tank_full, ktank) = (fnum("tank", 3.0), fnum("ktank", 4.0));
     let start_e = w.species.get(sp).creature.as_ref().map_or(1.0, |d| d.start_energy) as f64;
     let mut tank_p = 1.0;
+    // store=S: food is also priced by the larder (owner, 2026-10-23: "I don't love that the nest is 100% full of
+    // food"). Delivery and progress pay are scaled by 1 - nest_food / (S * living ants), floored at 0, refreshed with
+    // the stock census every 1,000 frames: a delivery pays in full into an empty store and nothing once it holds S
+    // cells an ant. colsel20's rules-off gardens held a median 389 stored cells for 24 ants, each on ~87 full grants:
+    // tank_p sat at 1 the whole game because the tanks were never short, so nothing ever said "enough".
+    let store_cap = fnum("store", 0.0);
+    let mut store_p = 1.0f64;
     // w_hungry=W: pay W when an ant leaves home (head from within 12 columns of the nest to 15+ out) while its own bank
     // is below `hungry` full grants, at most once per `hungry_gap` frames (owner, 2026-10-21). Rewards the habit at the
     // moment it is needed; the delivery it leads to comes far later and, at ~1 per 30k-frame life, too rarely to select on.
@@ -863,7 +870,7 @@ fn main() {
                         let ate: f64 = eaten.iter().map(|d| d.1).sum();
                         let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
                         let fpr = if tank_price { tank_p } else { 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0) };
-                        let g = deep * w_del * fpr * if progress { 0.5 } else { 1.0 };
+                        let g = deep * w_del * fpr * store_p * if progress { 0.5 } else { 1.0 };
                         if let Some(c) = carry.get_mut(&r.who) {
                             c.3 += 1;
                         }
@@ -938,7 +945,7 @@ fn main() {
             }
         }
         if progress && fr % 100 == 0 {
-            let fpr_now = if tank_price { tank_p } else { 1.0 + kprice };
+            let fpr_now = store_p * if tank_price { tank_p } else { 1.0 + kprice };
             let mut ids: Vec<u32> = book.keys().copied().collect();
             ids.sort_unstable();
             for id in ids {
@@ -1498,6 +1505,9 @@ fn main() {
             let n = tanks.len().max(1) as f64;
             let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
             writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
+            if store_cap > 0.0 {
+                store_p = (1.0 - nest_f as f64 / (store_cap * tanks.len().max(1) as f64)).clamp(0.0, 1.0);
+            }
         }
         // `trace=N` (read only): every N frames, one row per living ant, for tracing individuals through a die-off.
         if let Some(tl) = trace_log.as_mut().filter(|_| fr % trace == 0) {
