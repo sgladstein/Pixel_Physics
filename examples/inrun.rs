@@ -720,6 +720,24 @@ fn main() {
     // is on a living plant (leaf and blade, flower, fruit still on the stem), `loose_*` lies free (fallen fruit,
     // litter, dead leaf, crumbs, provisions); `seeds` and `plants` count organisms (a waiting seed, a growing plant).
     const GARDEN_KINDS: [&str; 9] = ["leaf", "grassblade", "flower", "fruit", "windfall", "litter", "deadleaf", "crumbs", "provisions"];
+    // SCRATCH (plant-food lane, 2026-10-23), the weaning bed's three levers, all off by default:
+    // fjoule=1: delivery and progress pay scale by the food's face worth over `joule_ref` (default 960, a provisions
+    //   cell), so pay follows energy: a leaf (40) pays 1/24 of a provisions cell and a crop holds 24 times as many.
+    //   Per-cell pay (the default) paid a leaf cell like a provisions cell.
+    // weed=B: every 500 frames every cell a plant owns within B columns of the door is pulled (above the datum to air,
+    //   below it to soil), a scaffold like the pile's top-up: a stand seeds itself over the door within ~20k frames
+    //   and an ant cannot cut a root (`jaw_can_cut`: plant tissue is not ground), so digging fell 246 -> 46 cuts.
+    // cap_to=C:F: the pile's cap falls linearly from `cap` to C by frame F (then holds), so a colony is weaned off the
+    //   pile onto the garden within a round.
+    let fjoule = num("fjoule", 0) > 0;
+    let joule_ref = fnum("joule_ref", 960.0);
+    let weed = num("weed", 0) as i32;
+    let cap_to: Option<(usize, u64)> = arg(&a, "cap_to").map(|v| {
+        let (c, f) = v.split_once(':').expect("cap_to=C:F");
+        (c.parse().unwrap(), f.parse().unwrap())
+    });
+    let soil_m = w.materials.id_of("soil").expect("soil");
+    let mut weeded = 0u64;
     let mut garden_log = (!garden.plants.is_empty()).then(|| {
         let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("garden.csv")).unwrap());
         writeln!(f, "frame,plants,seeds,{},{}", GARDEN_KINDS.map(|k| format!("live_{k}")).join(","), GARDEN_KINDS.map(|k| format!("loose_{k}")).join(",")).unwrap();
@@ -865,8 +883,24 @@ fn main() {
         }
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
+            let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
             for x in [inrun::NEST + dist, inrun::NEST - dist] {
-                inrun::top_up(&mut w, &sc, x, cap, drip as usize, spread);
+                inrun::top_up(&mut w, &sc, x, cap_now, drip as usize, spread);
+            }
+        }
+        if weed > 0 && fr % 500 == 0 {
+            for x in (inrun::NEST - weed).max(0)..=(inrun::NEST + weed).min(bw - 1) {
+                for y in 0..bh {
+                    let c = w.get(x, y);
+                    let o = c.organism_id();
+                    if o == 0 || !w.organism(o).is_some_and(|s| w.species.get(s.species).creature.is_none()) {
+                        continue;
+                    }
+                    w.loss_context = Some(organism::DeathCause::Culled);
+                    w.set(x, y, if y >= surf[x as usize] { pixel_physics::sim::Cell::new(soil_m, c.shade) } else { pixel_physics::sim::Cell::EMPTY });
+                    w.loss_context = None;
+                    weeded += 1;
+                }
             }
         }
         let frame = w.frame - f0;
@@ -973,7 +1007,8 @@ fn main() {
                 }
             }
         }
-        for r in w.food_log.as_mut().unwrap().drain(..) {
+        let food_rows: Vec<_> = w.food_log.as_mut().unwrap().drain(..).collect();
+        for r in food_rows {
             let (x, y) = r.at;
             let home = if zone_on {
                 (0..bw).contains(&x) && (0..bh).contains(&y) && zone[(y * bw + x) as usize]
@@ -1025,7 +1060,14 @@ fn main() {
                         let ate: f64 = eaten.iter().map(|d| d.1).sum();
                         let deep = 1.0 + w_depth * ((y - surf[x.clamp(0, bw - 1) as usize]).clamp(0, 10) as f64 / 10.0);
                         let fpr = if tank_price { tank_p } else { 1.0 + kprice * (1.0 - if ate > 0.0 { got / ate } else { 1.0 }).max(0.0) };
-                        let g = deep * w_del * fpr * store_p * if progress { 0.5 } else { 1.0 };
+                        // fjoule: the cell just put down, by its face worth (the field mean if it is already gone).
+                        let jf = if fjoule {
+                            let v = creature::food_value(&w, w.get(x, y)) as f64;
+                            (if v > 0.0 { v } else { cell_worth.max(1.0) }) / joule_ref
+                        } else {
+                            1.0
+                        };
+                        let g = jf * deep * w_del * fpr * store_p * if progress { 0.5 } else { 1.0 };
                         if let Some(c) = carry.get_mut(&r.who) {
                             c.3 += 1;
                         }
@@ -1104,15 +1146,16 @@ fn main() {
             let mut ids: Vec<u32> = book.keys().copied().collect();
             ids.sort_unstable();
             for id in ids {
-                let st = w.organism(id).map(|s| (s.chain.first().copied(), s.trip_cells, s.crop.map_or(0, |c| c.cells)));
-                let Some((Some((x, _)), trip, cells)) = st else { continue };
+                let st = w.organism(id).map(|s| (s.chain.first().copied(), s.trip_cells, s.crop.map_or(0, |c| c.cells), s.crop.map_or(0.0, |c| c.unit)));
+                let Some((Some((x, _)), trip, cells, unit)) = st else { continue };
+                let jf = if fjoule { unit as f64 / joule_ref } else { 1.0 };
                 if trip > 0 && cells > 0 {
                     let d = (x - inrun::NEST).abs() as f64;
                     let c = carry.entry(id).or_insert((d.max(1.0), d, 0.0, 0));
                     let most = carried.entry(id).or_insert(0);
                     *most = (*most).max(cells as u32);
                     if d < c.1 {
-                        let g = 0.5 * w_del * fpr_now * cells as f64 * (c.1 - d) / c.0;
+                        let g = jf * 0.5 * w_del * fpr_now * cells as f64 * (c.1 - d) / c.0;
                         c.1 = d;
                         c.2 += g;
                         let b = book.get_mut(&id).unwrap();
@@ -1805,6 +1848,9 @@ fn main() {
     println!("{}", creature::mind::scratch_log::carry_report());
     if creature::mind::scratch_log::oldlab_on() {
         eprintln!("{}", creature::mind::scratch_log::oldlab_report());
+    }
+    if weed > 0 {
+        println!("weed: {weeded} plant cells pulled within {weed} columns of the door");
     }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
 }
