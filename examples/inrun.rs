@@ -992,27 +992,42 @@ fn main() {
                     hatched_since += 1;
                     continue;
                 }
-                // The queue's next parent still alive and under its cap, else the best living adult by rate, else the
-                // best of the hall; with nobody, the founder line.
+                // The queue's next parent still alive and under its cap, cycling the queue again when it runs out
+                // (the judgement's ranking stands until the next one); with no queued parent alive, the egg's own
+                // layer, as in the lab; then the best of the hall; with nobody, the founder line. Review (2026-10-23):
+                // a first build fell back to the best living adult by rate, which skips min_age, cooldown, the bars
+                // and the family cap -- 25-42% of hatchlings took a mind that way, mostly from ants a few hundred
+                // frames old, and it ran under sel=random too.
                 let mut pid = None;
-                while sire_at < sires.len() {
-                    let s = sires[sire_at];
-                    sire_at += 1;
-                    if book.get(&s).is_some_and(|b| b.kids < kid_cap) {
-                        pid = Some(s);
+                let mut how = "hatch";
+                for _ in 0..2 {
+                    while sire_at < sires.len() {
+                        let s = sires[sire_at];
+                        sire_at += 1;
+                        if book.get(&s).is_some_and(|b| b.kids < kid_cap) {
+                            pid = Some(s);
+                            break;
+                        }
+                    }
+                    if pid.is_some() || sires.is_empty() {
                         break;
                     }
+                    sire_at = 0;
+                    how = "hatch-cycle";
                 }
                 if pid.is_none() {
-                    let rate = |b: &Who| b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1);
-                    pid = book.iter().filter(|(_, b)| b.kids < kid_cap).max_by(|x, y| rate(x.1).partial_cmp(&rate(y.1)).unwrap().then(y.0.cmp(x.0))).map(|(i, _)| *i);
+                    pid = w.organism(cid).map(|s| s.parent).filter(|p| book.contains_key(p));
+                    how = "hatch-layer";
                 }
                 let (base, family, gen) = match pid {
                     Some(i) => (book[&i].genome.clone(), book[&i].family.clone(), book[&i].gen),
-                    None => match hall.iter().max_by(|x, y| x.1.partial_cmp(&y.1).unwrap()) {
-                        Some(h) => (h.2.genome.clone(), h.2.family.clone(), h.2.gen),
-                        None => (raw[slot(0)].clone(), mix[slot(0)].0.clone(), 0),
-                    },
+                    None => {
+                        how = "hatch-hall";
+                        match hall.iter().max_by(|x, y| x.1.partial_cmp(&y.1).unwrap()) {
+                            Some(h) => (h.2.genome.clone(), h.2.family.clone(), h.2.gen),
+                            None => (raw[slot(0)].clone(), mix[slot(0)].0.clone(), 0),
+                        }
+                    }
                 };
                 let child = if neutral {
                     neutral_mutate(&base, &kslots, kpm, ksigma, kevents, prot, &mut srng)
@@ -1028,7 +1043,7 @@ fn main() {
                         retiring.push(pid.unwrap());
                     }
                 }
-                writeln!(births, "{frame},{cid},{},{family},{},hatch,{}", pid.unwrap_or(0), gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                writeln!(births, "{frame},{cid},{},{family},{},{how},{}", pid.unwrap_or(0), gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
                 writeln!(csv_ants, "{cid},{family}").unwrap();
                 book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
                 hatched_since += 1;
