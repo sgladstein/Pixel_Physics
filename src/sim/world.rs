@@ -6691,6 +6691,15 @@ pub struct World {
     /// `PIXEL_PHYSICS_SEED_SETTLE` (2026-10-17), narrowed and re-tested under
     /// a closed stand. Off by default until measured.
     pub seed_settles: bool,
+    /// **Old age reads plant time** (`plant::step_organisms`' old-age roll):
+    /// the hazard's age is `OrganismState::plant_frames` and each roll covers
+    /// the tick's real span, as the annual hazard already does, instead of
+    /// `age_ticks * ORGANISM_TICK_INTERVAL` rolled over 45 frames -- which
+    /// undercounts a big, slow-ticking plant's age about 3.5x and its hazard
+    /// more, so a lab tree lived ~7x its authored median. Off by default
+    /// until the community is re-measured: every `life_half_life` was tuned
+    /// against the old clock.
+    pub old_age_plant_time: bool,
     /// Swaps made by `seed_settles`' settle half: its did-it-fire count.
     pub seeds_settled: u64,
     /// Columns lifted by its heave half.
@@ -7685,6 +7694,7 @@ impl World {
             adventitious_roots: 0,
             dieback_roots_kept: 0,
             seed_settles: false,
+            old_age_plant_time: false,
             seeds_settled: 0,
             seeds_heaved: 0,
             open_light: crate::sim::field::MAX_LIGHT,

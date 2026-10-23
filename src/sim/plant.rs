@@ -12966,12 +12966,36 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // Gated on `has_economy` exactly as the two rules below it are, and for
     // the same reason each of them gives: `moss` does not earn, is not
     // modelled by any of this, and a retired moss cell is not a corpse.
+    // **This tick's span in plant time** -- what `plant_frames` advances by
+    // below, and the interval the annual hazard is rolled over. Plant time
+    // rather than wall frames or ticks: `age_ticks * ORGANISM_TICK_INTERVAL`
+    // undercounts a big herb's age 3-6x (it ticks every `45 * size_cadence`
+    // frames, and the lab runs at half pace), which is the trap
+    // `review-3-2026-10-10.md` §1 measured before this was built.
+    let tick_plant_frames = ORGANISM_TICK_INTERVAL
+        * size_cadence(world, world.organism(organism_id).map_or(0, |s| s.cells.len()));
     let dies_of_age = has_economy && !resting_seed && {
         let life = world.species.get(species_id).life_half_life;
         // `age_ticks` before the increment below, so a plant's first tick
         // rolls at age zero -- a hazard of exactly nothing, which is right.
-        let age_frames = world.organism(organism_id).map_or(0, |s| s.age_ticks) as f32 * ORGANISM_TICK_INTERVAL as f32;
-        let chance = old_age_chance(age_frames, life);
+        //
+        // **Under `World::old_age_plant_time` the clock is `plant_frames`,
+        // rolled over this tick's real span** -- the same clock the annual
+        // hazard below reads. `age_ticks * ORGANISM_TICK_INTERVAL` is the
+        // trap the paragraph above names, and it reaches old age too: in the
+        // four-role lab bed (2026-10-23, plant community lane, `plant_m0
+        // gaps=`) a tree 200,000 frames old reads 28,935 here against
+        // 100,035 plant frames, and each roll covers 45 frames of a ~155-frame
+        // tick. Both errors shorten the hazard, so a tree authored to a
+        // 60,000 median lived to roughly 415,000 frames in the lab, and a
+        // 450,000-frame bed lost 0-4 big trees -- the canopy never opened.
+        let chance = if world.old_age_plant_time {
+            let age = world.organism(organism_id).map_or(0, |s| s.plant_frames) as f32;
+            old_age_chance_over(age, life, tick_plant_frames)
+        } else {
+            let age_frames = world.organism(organism_id).map_or(0, |s| s.age_ticks) as f32 * ORGANISM_TICK_INTERVAL as f32;
+            old_age_chance(age_frames, life)
+        };
         if chance > 0.0 {
             // Keyed on the organism and the frame rather than drawn from a
             // shared stream: `CLAUDE.md` records that the sweep's draws are
@@ -12983,14 +13007,6 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             false
         }
     };
-    // **This tick's span in plant time** -- what `plant_frames` advances by
-    // below, and the interval the annual hazard is rolled over. Plant time
-    // rather than wall frames or ticks: `age_ticks * ORGANISM_TICK_INTERVAL`
-    // undercounts a big herb's age 3-6x (it ticks every `45 * size_cadence`
-    // frames, and the lab runs at half pace), which is the trap
-    // `review-3-2026-10-10.md` §1 measured before this was built.
-    let tick_plant_frames = ORGANISM_TICK_INTERVAL
-        * size_cadence(world, world.organism(organism_id).map_or(0, |s| s.cells.len()));
     // **An annual dies after it has set seed** -- `SpeciesDef::annual_half_life`,
     // under `World::annual` only. Keyed on its own salt for the reason
     // `ANNUAL_HAZARD_SALT` gives.
@@ -18374,6 +18390,37 @@ they are the same world. Got {median}, which means something other than the leve
             organism::DeathCause::OldAge,
             "old age wrote no cause, or the wrong one"
         );
+    }
+
+    /// **`World::old_age_plant_time` swaps which clock old age reads.** Each
+    /// arm sets one clock past certain death and leaves the other young: the
+    /// switch on must die on `plant_frames` and ignore `age_ticks`, the
+    /// switch off the reverse. A tree 1,700 frames old cannot die of age by
+    /// chance in 200 frames on either clock.
+    #[test]
+    fn old_age_reads_plant_time_only_under_the_switch() {
+        let dies = |plant_time: bool, old_plant_frames: bool| {
+            let mut w = test_world();
+            w.old_age_plant_time = plant_time;
+            plant_tree_on_ground(&mut w, 100, 20);
+            let id = w.get(100, 20).organism_id();
+            run_with_fields(&mut w, 1_500);
+            assert!(w.organism(id).is_some_and(|st| st.cells.len() > 3), "test setup: the tree did not grow");
+            {
+                let st = w.organism_mut(id).expect("alive");
+                if old_plant_frames {
+                    st.plant_frames = 1_000_000_000;
+                } else {
+                    st.age_ticks = 2_000_000;
+                }
+            }
+            run_with_fields(&mut w, 200);
+            w.organism(id).is_none_or(|st| st.senescent && st.senescence_cause == organism::DeathCause::OldAge)
+        };
+        assert!(dies(true, true), "switch on: old in plant time, did not die of age");
+        assert!(!dies(true, false), "switch on: old only in ticks, died anyway -- still reading age_ticks");
+        assert!(dies(false, false), "switch off: old in ticks, did not die of age");
+        assert!(!dies(false, true), "switch off: old only in plant time, died -- the shipped clock moved");
     }
 
     /// **A starved plant whose leaves rot before its roots stays STARVED.**

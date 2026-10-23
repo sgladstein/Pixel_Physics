@@ -1081,6 +1081,16 @@ the review (§12), **M1 runs in this order**:
    cover 0.155 -> 0.152), and roles alive a bed stay at 2.62. Not shipped:
    the lever has to limit the tree, not the leaf.
 
+   **A canopy that opens, 2026-10-23** (same folder, §7). Old age read the
+   wrong clock (`age_ticks * 45` rather than plant time), so a lab tree
+   authored to a 60,000 median lived ~415,000 frames and a bed lost 0-3 big
+   trees in 450,000. `World::old_age_plant_time` (off) fixes the clock;
+   with the shrub's lifespan re-derived (135,000) the dark floor goes 32% ->
+   5% and roles a bed 2.62 -> 3.00, but tree leaf falls to 27%; with trees
+   also at 120,000 it is 18% and 2.88, keeping 70% of the trees. The shrub
+   holds 3x its leaf either way; the creeper is still absent. Turning it on
+   changes every world, so it waits for the owner.
+
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
    some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`
