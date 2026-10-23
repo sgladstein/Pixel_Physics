@@ -19,7 +19,43 @@ plainly which pressure is missing.
 ./target/release/examples/selection_arena arm=<same|lethal|early|nobranch|norootbranch> seeds=18
 ```
 
-## 0. A caveat on every number below, found after they were taken
+## 0. The caveat, and its resolution: the numbers held
+
+**Raised, then checked.** §1's arms ran 20,000 frames and the share does not
+settle until around frame 50,000-75,000, so they were mid-transient readings
+presented as equilibria — `CLAUDE.md`'s censused-before-it-settles trap, whose
+remedy is that *the tell that works is the quantity holding still*, never a
+frame budget that looks generous.
+
+**Re-measured at 90,000 frames, the load-bearing number moves 0.5 points:**
+
+| | 20,000 frames | 90,000 frames |
+|---|---|---|
+| `nobranch` median | 38.9% | **39.4%** |
+| seeds where B lost | 18 of 18 | **12 of 12** |
+| `nobranch` p | 0.0002 | 0.0025 |
+| control median | 55.4% | 57.4% |
+| control p | 0.19 | 0.13 |
+
+A 4.5x change in run length moves the headline by half a point and leaves
+every seed pointing the same way. **§1 stands as written.** The caveat was
+correct to raise and did not bite — recorded because a check that clears is
+evidence, and deleting it would leave the next reader to re-run it.
+
+**One thing the re-run did expose: the settle detector is too strict.** It
+flagged 6 of 12 control runs and 7 of 12 `nobranch` runs as still moving at
+90,000 frames, while the answer barely changed. Its rule — under one
+percentage point of drift across a quarter of the run — is tighter than the
+share's own wobble around equilibrium, so it reports "unsettled" for runs that
+are settled to any precision this harness can use. Treat a flag as *read the
+trajectory*, not as *discard the number*; and note it fails in the safe
+direction, which is why it was left as it is.
+
+*(90,000-frame figures: 12 seeds apiece, against 18 at 20,000. The narrower n
+is why `nobranch`'s p rises from 0.0002 to 0.0025 while its median is flat — signed-rank saturates at n, so fewer seeds cannot reach
+as small a floor. It is not a weaker effect.)*
+
+## 0a. The original caveat, as written before it was checked
 
 **The arms in §1 ran 20,000 frames, and the system does not settle until
 around frame 50,000-75,000.** They are therefore mid-transient readings, not
