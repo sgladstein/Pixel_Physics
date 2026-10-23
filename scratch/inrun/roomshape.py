@@ -49,6 +49,7 @@ def nest_cells(d):
     # the crater review: a larder of stored food cut the chamber behind it off, so a roofed room scored as crater --
     # 16-22 of 64 colonies a round off by >20 cells, the old ant's nest 302 where it is ~390). Same as cut_join's flood.
     gnd = {chr(65 + k) for k, m in enumerate(legend) if m in ('soil', 'packedsoil', 'spoil', 'stone')}
+    gnd.add('%')  # a plant's own cell (inrun `plants=`): roots are ground, not nest
     opn = lambda dx, dy: 0 <= dy < H and 0 <= dx < W and grid[dy][dx] not in gnd
     below = lambda dx, dy: 0 <= x0 + dx < len(surf) and y0 + dy >= surf[x0 + dx]
     door = NEST - x0

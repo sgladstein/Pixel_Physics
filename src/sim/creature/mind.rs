@@ -2354,7 +2354,7 @@ fn pick_up(
     if jaws
         || world.materials.get(food).food_energy <= 0.0
         || world.materials.known(Known::Corpse) == Some(food)
-        || bite.organism_id() != 0
+        || (bite.organism_id() != 0 && !scratch_log::grazeable(world, bite))
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
         return false;
@@ -2366,6 +2366,10 @@ fn pick_up(
         _ => food_value(world, bite),
     };
     if !seed.survived() {
+        // As the game's bite books it (`act`): a living plant cell leaving the world by a mouth.
+        if bite.organism_id() != 0 && world.materials.kind(food) == crate::sim::material::MaterialKind::Plant {
+            world.creature_stats.eaten_plant_cells += 1;
+        }
         world.loss_context = Some(DeathCause::Eaten);
         world.set(fx, fy, Cell::EMPTY);
         world.loss_context = None;
@@ -4380,6 +4384,22 @@ pub mod scratch_log {
     // tick the old ant's move is read back off the body -- the cut, put-down, pick-up or step it made -- as the option
     // indices that match it. That row (the 16th copy-log field) is the label. Hand-written rules failed five times
     // (report-2026-10-22.md, "Correction"); this asks the bar itself.
+    /// SCRATCH (plant-food lane, 2026-10-23): `PP_MIND_GRAZE=1` lets a mind's Pick up take food a plant still owns
+    /// -- a leaf, blade, flower or fruit on the stem, and a seed lying on the floor (a waiting seed is a one-cell
+    /// plant) -- as the game's ant already bites them (`act`'s bite: the seed asks `seed_survives_bite`, a spared one
+    /// rides home as the crop's passenger, the rest leaves the world as `Eaten`). Off: loose food only, as before.
+    /// Measured on the planted training bed (inrun `plants=`, seed 1, hcs founder): with it off the mind took 5 bites
+    /// in 2,500 frames and all 24 starved beside a stand holding ~940 leaf cells, ~90 fruit and ~180 seeds, while the
+    /// game's own ant on the same bed took 712 bites (430 leaf, 109 flower) and all 24 lived to 20,000.
+    pub fn graze_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_MIND_GRAZE").is_ok_and(|v| v == "1"))
+    }
+    /// Under [`graze_on`]: a cell a plant owns (its owner has no creature body). Off: never.
+    pub fn grazeable(world: &World, cell: Cell) -> bool {
+        let owner = cell.organism_id();
+        graze_on() && owner != 0 && world.organism(owner).is_some_and(|s| world.species.get(s.species).creature.is_none())
+    }
     pub fn shadow_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_SHADOW").is_ok_and(|v| v == "1"))
