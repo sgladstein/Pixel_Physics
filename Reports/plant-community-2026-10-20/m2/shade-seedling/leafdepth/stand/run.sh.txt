@@ -1,0 +1,11 @@
+#!/bin/bash
+role=$1; seed=$2; arm=$3
+out=/tmp/claude-0/sh/lt/${role}_s${seed}_${arm}.txt
+grep -q "plant_m0 done" $out 2>/dev/null && exit 0
+case $arm in
+  d1) d=1.0; sw="";;
+  d05) d=0.5; sw="";;
+  d025) d=0.25; sw="";;
+  d025on) d=0.25; sw="waits=1 reserves=1 settle=1";;
+esac
+PIXEL_PHYSICS_LEAF_DEPTH=$d /tmp/claude-0/sh/plant_m0_h mode=stand role=$role mix=stand-$role width=192 loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed grow=60000 window=80000 sample=10000 sow=4 endow=0.25 $sw arms=none,shipped > $out 2>&1

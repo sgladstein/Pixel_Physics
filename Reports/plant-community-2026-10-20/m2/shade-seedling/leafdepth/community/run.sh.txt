@@ -1,0 +1,10 @@
+#!/bin/bash
+seed=$1; arm=$2
+out=/tmp/claude-0/sh/c450/${arm}_s${seed}.txt
+grep -q "plant_m0 done" $out 2>/dev/null && exit 0
+case $arm in
+  d1) d=1.0; sw="";;
+  d025) d=0.25; sw="";;
+  d025on) d=0.25; sw="waits=1 reserves=1 settle=1";;
+esac
+PIXEL_PHYSICS_LEAF_DEPTH=$d /tmp/claude-0/sh/plant_m0_h mode=community mix=roles loadfail=0 rain=steady spells=20000,40000 ground=patchy seed=$seed frames=450000 sample=50000 $sw > $out 2>&1

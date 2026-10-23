@@ -2783,6 +2783,21 @@ fn water_opacity() -> f32 {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_OPACITY").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0))
 }
 
+/// **How much light a `leaf` cell stops, as a fraction of a whole opaque
+/// cell's column depth.** 1.0 (the shipped value, and what every `Plant`
+/// cell has counted since the field learned depth) unless
+/// `PIXEL_PHYSICS_LEAF_DEPTH` is set. Owner, 2026-10-22: the understory
+/// should get light by **leaves letting more light through, with no change
+/// to how trees look**. Measured that day (plant community lane,
+/// `Reports/plant-community-2026-10-20/m2/shade-seedling/`): under a grown
+/// stand the ground reads 0.4-1.7% of open light, below what any shade gene
+/// in range can grow in. Only the material named `leaf` -- the leaf of
+/// tree, shrub, herb and creeper -- not grass blades, reed or wood.
+fn leaf_depth() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LEAF_DEPTH").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0))
+}
+
 /// [`COLUMN_TRANSMISSION`] read at a **fractional** depth.
 ///
 /// The table is per whole opaque cell because, before water, every occluder
@@ -3357,6 +3372,9 @@ fn seed_tile_light_from_glow(tile: &mut FieldTile) {
 struct ScanTraits {
     /// `Solid` or `Plant`: the cell blocks the field and deepens its column.
     opaque: bool,
+    /// How much column depth an `opaque` cell adds: 1.0, or [`leaf_depth`]
+    /// for `leaf`.
+    depth: f32,
     liquid: bool,
     water_capacity: u16,
     glow: f32,
@@ -3393,7 +3411,10 @@ pub(crate) fn changes_block_shape(
         let m = materials.get(id);
         let opaque = matches!(m.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant);
         let deepens = m.kind == super::material::MaterialKind::Liquid && water_opacity() != 0.0;
-        (opaque, deepens, m.glow.to_bits(), m.beam.to_bits())
+        // A leaf is lighter than wood only when `leaf_depth` is set; at the
+        // default the two agree and a leaf turning to wood rescans nothing.
+        let thin_leaf = opaque && leaf_depth() != 1.0 && m.name == "leaf";
+        (opaque, deepens, thin_leaf, m.glow.to_bits(), m.beam.to_bits())
     };
     shape(old) != shape(new)
 }
@@ -3402,8 +3423,16 @@ fn scan_traits(materials: &super::material::MaterialRegistry) -> Vec<ScanTraits>
     (0..materials.len())
         .map(|i| {
             let mat = materials.get(super::material::MaterialId(i as u16));
+            let opaque = matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant);
             ScanTraits {
-                opaque: matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant),
+                opaque,
+                depth: if !opaque {
+                    0.0
+                } else if mat.name == "leaf" {
+                    leaf_depth()
+                } else {
+                    1.0
+                },
                 liquid: mat.kind == super::material::MaterialKind::Liquid,
                 water_capacity: mat.water_capacity,
                 glow: mat.glow,
@@ -3661,7 +3690,7 @@ fn rebuild_blocked(
                         let mat = traits[cell.material.0 as usize];
                         if mat.opaque {
                             blocked = true;
-                            column_depth[dx as usize] += 1.0;
+                            column_depth[dx as usize] += mat.depth;
                         }
                         if mat.liquid {
                             // **Water dims the column without `blocked`, and that

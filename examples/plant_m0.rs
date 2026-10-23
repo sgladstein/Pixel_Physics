@@ -1548,11 +1548,22 @@ fn stand(m: &BTreeMap<String, String>) {
         names.iter().map(|n| { let r = per[n]; format!("{n} {}/{}/{}/{}", r[0], r[1], r[2], r[3]) }).collect::<Vec<_>>().join(" | ")
     };
     println!("grown f={grow} | {}  (plants/bank/leaf/shoot)", row(&w));
+    // The floor's light: every column, two rows above the ground, as a share
+    // of open light -- what a seedling there gets (`PIXEL_PHYSICS_LEAF_DEPTH`
+    // is the lever this was added for, 2026-10-22).
+    let floor = |w: &World| -> String {
+        let mut v: Vec<f32> =
+            (0..bed.width).map(|x| pixel_physics::sim::plant::ambient_light_above(w, x, bed.ground_y - 2) / w.open_light).collect();
+        v.sort_by(f32::total_cmp);
+        let q = |p: f32| v[((v.len() - 1) as f32 * p) as usize] * 100.0;
+        format!("floor light % of open: p10 {:.1} p25 {:.1} p50 {:.1} p75 {:.1} p90 {:.1}", q(0.1), q(0.25), q(0.5), q(0.75), q(0.9))
+    };
+    println!("grown f={grow} | {}", floor(&w));
     let results: Vec<(String, Vec<String>)> = std::thread::scope(|sc| {
         let handles: Vec<_> = arms
             .iter()
             .map(|arm| {
-                let (mut c, bed, scenario, role, row) = (w.clone(), &bed, &scenario, role.as_str(), &row);
+                let (mut c, bed, scenario, role, row, floor) = (w.clone(), &bed, &scenario, role.as_str(), &row, &floor);
                 sc.spawn(move || {
                     let mut out = Vec::new();
                     if arm != "none" && arm != "shipped" {
@@ -1641,6 +1652,7 @@ fn stand(m: &BTreeMap<String, String>) {
                             out.push(format!("f={f} | {}", row(&c)));
                         }
                     }
+                    out.push(format!("end | {}", floor(&c)));
                     out.push(format!(
                         "SWITCHES reserves_drawn {} settled {} heaved {} germinations {}",
                         c.seedling_reserves_drawn, c.seeds_settled, c.seeds_heaved, c.germinations
