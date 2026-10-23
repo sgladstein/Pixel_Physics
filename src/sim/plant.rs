@@ -613,6 +613,54 @@ pub fn rootless_dries_default() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTLESS_DRIES").as_deref(), Ok("off")))
 }
 
+/// **`PIXEL_PHYSICS_ROOTS_REQUIRED=1` -- only roots drink, and a plant keeps
+/// the roots it drinks through.** Off by default; the live switch is
+/// `World::roots_required`, initialised from this.
+///
+/// The owner, 2026-10-23, on the four-role lab bed: *"I still often see
+/// plants like this one which seem to have no roots but are still
+/// surviving... roots seem more just a visual but they should actually be
+/// functional."* Counted (`plant_m0 rootcensus=1`, seed 5): at 150,000
+/// frames **7 of 27** plants with five or more leaves had no root touching
+/// soil, 14 of 44 on seed 3, nearly all herbs, most of them earning at full
+/// water status. Traced, the rootless plant is made in three steps and kept
+/// by a fourth:
+///
+/// 1. **Die-back eats the roots first.** A plant whose upkeep outruns its
+///    income sheds tissue (`organism_upkeep`'s die-back), and die-back may
+///    take neither foliage nor anything beside a leaf or a tip -- so in a
+///    small leafy plant the only cells it is allowed are bare root cells.
+///    Of 173 root cells shed from small plants by frame 50,000, **171 were
+///    die-back's** (`DeathCause::Starved`), shed with the plant at water
+///    status 1.00: it was not dry, it was short of sugar, and it cut off its
+///    water to pay for it.
+/// 2. **Stems drink.** `Absorb` sits on every `MatureBody`, shoot as well
+///    as root (`absorb_water`'s own doc: "a collar cell half-buried in damp
+///    ground drinking a little is right"), so the one to three stem cells
+///    that lie against the ground kept a small herb's demand met.
+/// 3. **No roots reads as full nutrient**: `nutrient_status` defers to 1.0
+///    when a plant has no root cells, for the seedling's sake.
+/// 4. **Nothing can grow it a root again.** `break_root_tips` only turns an
+///    existing root cell into a tip, and a rootless plant has none.
+///
+/// On, `absorb_water` runs on root tissue only, die-back passes over a
+/// plant's last `DIEBACK_ROOT_FLOOR` root cells, a rootless plant reads no
+/// nutrient, and a thirsty plant with no root left to branch from sprouts
+/// one from a stem cell lying against moist ground -- an adventitious root,
+/// the way a buried stem roots in real ground. So a rootless plant now
+/// either roots again (and the roots show) or dries out leaf by leaf through
+/// `drought_death`: a graded outcome, never a plant living on its stem.
+pub fn roots_required_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_ROOTS_REQUIRED").as_deref(), Ok("1") | Ok("on")))
+}
+
+/// Root cells die-back leaves a plant under `World::roots_required`. Two
+/// rather than one so a plant keeps a root and the tip it grows from; not
+/// tuned.
+const DIEBACK_ROOT_FLOOR: u32 = 2;
+
 /// **The seed bank through a drought: switch `PIXEL_PHYSICS_SEED_BANK`**,
 /// two named parts, both on by default; `off` restores the old engine
 /// exactly, `dry` or `dormant` turns on one part alone. The live switches
@@ -1318,6 +1366,15 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
             // substrate-v2-design.md` §10 step 8 called this out as the
             // step where "water becomes a real second currency with a
             // real source"; it was the half that never landed.
+    // **Under `World::roots_required` only root tissue drinks**: a stem lying
+    // on the ground no longer stands in for the roots it lost
+    // (`roots_required_default`).
+    if world.roots_required {
+        let c = world.get(x, y);
+        if !(world.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip)) {
+            return;
+        }
+    }
     let organism_id = world.get(x, y).organism_id();
     let (stock, _) = world.water_at(x, y);
     let capacity = world.organism(organism_id).map_or(0.0, |st| water_capacity_of(st.contact_root_cells));
@@ -11102,7 +11159,11 @@ fn break_root_tips(world: &mut World, organism_id: OrganismId) {
     // shipped state once soil gave roots income everywhere — one process is
     // one arm, so both come off one binary and neither can be a stale build.
     // `Reports/plant-soil-nutrient-plan-2026-09-05.md` §2b-ii.
-    let status = if root_gate_is_local() { state.root_zone_water } else { state.water_status };
+    // A plant with no drinking root reads `root_zone_water`'s "nothing to
+    // say" 1.0, so under `World::roots_required` it is asked the plant's own
+    // water status instead -- the thirst that sends it looking for soil.
+    let rootless = world.roots_required && state.contact_root_cells == 0;
+    let status = if root_gate_is_local() && !rootless { state.root_zone_water } else { state.water_status };
     if status >= ROOT_REINITIATION_STATUS {
         note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
@@ -11132,6 +11193,9 @@ fn break_root_tips(world: &mut World, organism_id: OrganismId) {
     let mut tips = 0usize;
     let mut richest: Option<(i32, i32, f32)> = None;
     let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
+    // Stem cells against moist ground: where an adventitious root may start
+    // when there is no root cell to branch from (`World::roots_required`).
+    let mut stem_sites: Vec<(i32, i32, f32)> = Vec::new();
     for &(x, y) in &cells {
         let cell = world.get(x, y);
         if cell.organism_id() != organism_id {
@@ -11165,8 +11229,27 @@ fn break_root_tips(world: &mut World, organism_id: OrganismId) {
                     candidates.push((x, y, wet));
                 }
             }
+            // Ground only, never free water: no species roots into a pond
+            // (`germinate`'s companion root), and a stem in a puddle on a
+            // crown is not in the ground.
+            Some(CellType::MatureBody) if world.roots_required => {
+                let mut wet = 0.0f32;
+                for (dx, dy) in NEIGHBOURS_4 {
+                    let n = world.get(x + dx, y + dy);
+                    if n.organism_id() == 0 && world.materials.kind(n.material) == MaterialKind::Powder && world.materials.get(n.material).water_capacity > 0 {
+                        wet += face_available(world, n);
+                    }
+                }
+                if wet > 0.0 {
+                    stem_sites.push((x, y, wet));
+                }
+            }
             _ => {}
         }
+    }
+    let adventitious = candidates.is_empty() && tips == 0 && !stem_sites.is_empty();
+    if adventitious {
+        candidates = stem_sites;
     }
     if tips >= max_active_tips as usize {
         note_root_tip_exit(ROOT_TIP_AT_CAP);
@@ -11221,6 +11304,18 @@ fn break_root_tips(world: &mut World, organism_id: OrganismId) {
     candidates.sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then((a.1, a.0).cmp(&(b.1, b.0))));
     let (bx, by, _) = candidates[0];
     let cell = world.get(bx, by);
+    // An adventitious root is root tissue from its first cell, so it drinks
+    // under `roots_required` and everything it grows copies `rootwood`.
+    let cell = if adventitious {
+        let species_id = state.species;
+        world.adventitious_roots += 1;
+        let m = world.materials.id_of(&world.species.get(species_id).root_material).unwrap_or(cell.material);
+        let mut rng = growth_stream(world, organism_id, bx, by);
+        let shade = banded_shade(world, organism_id, m, Band::Bark, &mut rng);
+        Cell::new(m, shade).with_organism_id(organism_id).with_aux(cell.aux())
+    } else {
+        cell
+    };
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::RootTip)));
     write_carbon(world, rx, ry, held - cost);
     // Stake the new tip so its first `Grow` check is not guaranteed to fail
@@ -13253,6 +13348,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         at.sort_unstable_by_key(|&(x, y)| (y, x));
         at.iter().map(|&(x, y)| world.carbon_at(x, y)).sum::<f32>()
     });
+    let roots_required = world.roots_required;
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
@@ -13292,9 +13388,13 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // The seedling case still defers, which is why this is not a bare
         // 0.0: before a plant has put down any root at all there is nothing
         // to be short of, and taxing it would price the founder grant.
+        // Under `World::roots_required` a plant past its seed with no root at
+        // all reads none either: the seedling this default protects starts
+        // with a root (`germinate`'s companion root), so a rootless plant
+        // with a shoot has lost its roots, not yet to grow them.
         state.nutrient_status = if nutrient_faces > 0 {
             nutrient_available / nutrient_faces as f32
-        } else if root_cells > 0 {
+        } else if root_cells > 0 || (roots_required && shoot_cells > 1) {
             0.0
         } else {
             1.0
@@ -13955,11 +14055,20 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((a.3, a.2).cmp(&(b.3, b.2))));
         let cap = (((cells.len() as f32) * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
         let mut recovered = 0.0f32;
+        // Root cells left after this batch, for `World::roots_required`'s
+        // floor: die-back passes over a plant's last roots rather than paying
+        // for a sugar shortfall with the plant's water.
+        let mut roots_left = root_cells;
         for &(_, _, cx, cy, bill) in candidates.iter().take(cap) {
             if recovered >= deficit {
                 break;
             }
             if world.get(cx, cy).organism_id() != organism_id {
+                continue;
+            }
+            let is_root = world.materials.get(world.get(cx, cy).material).reinforces_powder;
+            if world.roots_required && is_root && roots_left <= DIEBACK_ROOT_FLOOR {
+                world.dieback_roots_kept += 1;
                 continue;
             }
             // **The simple-point test again, against the plant as it now
@@ -13979,6 +14088,9 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             shed_stranded_leaves(world, cx, cy, organism_id);
             recovered += bill;
             starved_cells += 1;
+            if is_root {
+                roots_left = roots_left.saturating_sub(1);
+            }
         }
     }
 
@@ -24988,6 +25100,69 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
         run_with_fields(&mut w, frames);
         w.organism(id).map_or(0, |s| s.shoot_cells)
+    }
+
+    /// **A plant that loses its roots lives on its stem with
+    /// `World::roots_required` off, and roots again with it on** -- the
+    /// owner's "plants with no roots that still survive", 2026-10-23
+    /// (`roots_required_default`).
+    ///
+    /// A herb is grown from seed on wet soil until it is rooted and leafy,
+    /// then every root cell is put back to soil -- the state die-back leaves
+    /// a small plant in. Off is the positive control for the hole: the plant
+    /// stays rootless and its stock is kept topped up through the stem cells
+    /// on the ground. On, it must sprout an adventitious root and be rooted
+    /// in the ground again.
+    #[test]
+    fn a_herb_that_loses_its_roots_lives_on_its_stem_only_with_roots_required_off() {
+        // (alive, root cells at the end, adventitious roots, water drunk while rootless)
+        fn arm(on: bool) -> (bool, u32, u64, f32) {
+            let mut w = test_world();
+            w.roots_required = on;
+            w.plant_load_failure = false;
+            w.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let (x, y) = (100, 120);
+            for fx in 60..=140 {
+                w.set(fx, y + 31, Cell::new(material::STONE, 0));
+                for dy in 1..=30 {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(900));
+                }
+            }
+            assert!(w.plant_tree_species(x, y, "herb"), "test setup: herb should plant");
+            let id = w.get(x, y).organism_id();
+            run_with_fields(&mut w, 6_000);
+            let st = w.organism(id).expect("test setup: the herb should be alive at 6,000");
+            assert!(st.root_cells > 0 && st.shoot_cells > 10, "test setup: the herb should be rooted and grown, {} roots {} shoot", st.root_cells, st.shoot_cells);
+            let roots: Vec<(i32, i32)> = st
+                .cells
+                .keys()
+                .copied()
+                .filter(|&(cx, cy)| w.materials.get(w.get(cx, cy).material).reinforces_powder || organism::cell_type(w.get(cx, cy).aux()) == Some(CellType::RootTip))
+                .collect();
+            for (cx, cy) in roots {
+                w.set(cx, cy, Cell::new(soil, 0).with_aux(900));
+            }
+            let mut drunk_rootless = 0.0f32;
+            for _ in 0..40 {
+                run_with_fields(&mut w, 100);
+                if let Some(st) = w.organism(id) {
+                    if st.root_cells == 0 {
+                        drunk_rootless += st.water_uptake;
+                    }
+                }
+            }
+            let st = w.organism(id);
+            (st.is_some_and(|s| !s.senescent), st.map_or(0, |s| s.root_cells), w.adventitious_roots, drunk_rootless)
+        }
+        let (off_alive, off_roots, off_adv, off_drunk) = arm(false);
+        let (on_alive, on_roots, on_adv, on_drunk) = arm(true);
+        eprintln!("off: alive {off_alive} roots {off_roots} adventitious {off_adv} drunk rootless {off_drunk:.2}");
+        eprintln!("on: alive {on_alive} roots {on_roots} adventitious {on_adv} drunk rootless {on_drunk:.2}");
+        assert!(off_alive && off_roots == 0 && off_drunk > 0.0, "off is the hole: a rootless herb drinking through its stem");
+        assert_eq!(off_adv, 0, "off never sprouts an adventitious root");
+        assert!(on_adv > 0, "on: a thirsty rootless herb sprouts a root from its stem");
+        assert!(on_alive && on_roots > 0, "on: the herb is rooted again");
     }
 
     /// **Hard ground is expensive ground** -- the bill that makes
