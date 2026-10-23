@@ -662,7 +662,7 @@ fn main() {
     writeln!(stock_log, "frame,alive,nest_food,door_food,field_food,crop_cells,tank_mean,tank_min,tank_max,nest_corpse").unwrap();
     let mut hungry_probe = std::env::var("PP_HUNGRYPROBE").is_ok_and(|v| v == "1").then(|| {
         let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("hungry.csv")).unwrap());
-        writeln!(f, "frame,id,x,y,tank,home,crop,crumbs8,prov8,best_j,jaws,verb").unwrap();
+        writeln!(f, "frame,id,x,y,tank,home,crop,crumbs8,prov8,best_j,jaws,verb,gut,crumb_q,picks").unwrap();
         f
     });
     let mut larder_log = std::io::BufWriter::new(std::fs::File::create(out.join("larder.csv")).unwrap());
@@ -1715,6 +1715,7 @@ fn main() {
         // PP_HUNGRYPROBE=1: every 250 frames, each ant below a quarter grant -- where it is, what its crop holds, what
         // food touches its head, and the verb it last chose. Asks why colonies starve beside a nest full of crumbs.
         if let Some(hp) = hungry_probe.as_mut().filter(|_| fr % 250 == 0) {
+            let probe_def = w.species.get(sp).creature.clone().expect("creature");
             let (prov_m, crumb_m) = (w.materials.id_of("provisions"), w.materials.id_of("crumbs"));
             for id in inrun::ants(&w, sp) {
                 let Some(s) = w.organism(id) else { continue };
@@ -1733,8 +1734,13 @@ fn main() {
                     }
                 }
                 let jaws = s.spoil.map_or("-", |p| if p.store { "store" } else { "pellet" });
+                let gut = s.traits[organism::TRAIT_GUT_BIAS];
+                let q = crumb_m.map_or(0.0, |m| creature::diet_quality(&w, m, gut));
+                let mut offered = Vec::new();
+                creature::options::build(&w, id, &probe_def, &mut offered);
+                let picks = offered.iter().filter(|o| o.verb == creature::options::Verb::PickUp).count();
                 let verb = creature::mind::last_verb_of(&w, id).map_or("-".to_string(), |v| format!("{v:?}"));
-                writeln!(hp, "{fr},{id},{x},{y},{tank:.2},{},{crop},{crumbs},{prov},{best:.0},{jaws},{verb}", home as u8).unwrap();
+                writeln!(hp, "{fr},{id},{x},{y},{tank:.2},{},{crop},{crumbs},{prov},{best:.0},{jaws},{verb},{gut:.2},{q:.3},{picks}", home as u8).unwrap();
             }
         }
         if fr % 1000 == 0 {
@@ -1902,4 +1908,5 @@ fn main() {
         eprintln!("{}", creature::mind::scratch_log::oldlab_report());
     }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
+    println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
 }
