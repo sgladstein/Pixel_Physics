@@ -261,9 +261,16 @@ tree's first senescent line and the floor every 50,000 frames.
   `tree-gaps-seed{1,4,7}-f450000.png` in the project files.
 - **The creeper is still absent** (1 bed in B and C). It has no lifespan to
   re-derive; its trouble is §1-5's, not the canopy's.
-- **Not judged:** conifer (60,000) and grass (30,000) were tuned on the
-  same clock and are not in this mix; the lab, which runs these species at
-  half pace, would see its trees die about 7x sooner than it does now.
+- **The seven-species bed** (`treegaps/mix7/`, `mix=mix7`, same flags, 8
+  paired seeds; arm on = clock fixed, tree and conifer 120,000, shrub
+  135,000, grass unchanged): dark floor 41% -> 25%, herb beds 3 -> 7 and
+  its leaf 1,763 -> 3,497, grass leaf +35%, conifer leaf -37% (25,518 ->
+  16,142), tree -22%; species a bed 3.75 -> 3.88, inside the spread.
+  Nothing collapses. Grass needs no re-derivation: the error is the
+  plant's cadence, and a plant small enough to tick every 45 frames reads
+  the same age on both clocks.
+- **Not judged:** the lab game itself, with its colony eating plants;
+  there, trees would die about 7x sooner than they do now.
   Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
   the cost of more, smaller plants.
 
