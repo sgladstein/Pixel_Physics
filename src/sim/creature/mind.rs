@@ -5263,8 +5263,24 @@ pub mod scratch_log {
     /// 5 its open 8-neighbours / 8; 6 its distance from the door / 16; 7 the ant's depth / 8; 8 the ant stands
     /// sky-open; 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
     /// row within 3 of the head / 4 (the Teacher lane's bottom sense).
+    /// **Light** (owner, 2026-10-23: replace the exact soil count with "a more general light sense that ants actually
+    /// have"): daylight at (x, y), halved by every non-open cell between it and the surface (2 rows above the datum),
+    /// so 1 under open sky, 0.5 under one cell of roof, ~0.016 under the 6-row crust. Day and night are not modelled.
+    fn light_at(world: &World, organism: OrganismId, x: i32, y: i32) -> f32 {
+        let top = world.room_surface_at(x).map_or(0, |s| s - 2).max(0);
+        let shade = (top..y).filter(|&yy| !open_cell(world, organism, x, yy)).count().min(12);
+        0.5f32.powi(shade as i32)
+    }
+    fn light_on() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGLIGHT").is_ok_and(|v| v == "1"))
+    }
     pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: (i32, f32, f32, f32)) -> [f32; DIG_ND] {
         let (nx, adepth, asky, aopen) = c;
+        // PP_DIGLIGHT=1: slots 3, 4 and 8 read light instead of the sky test and the exact soil count (up to 8): light
+        // at the cut where the sky test was, darkness (1 - light) where the count was, so dh7's weights keep their
+        // sign, and the ant's own light where its own sky test was.
+        let asky = if light_on() { light_at(world, organism, at.0, at.1) } else { asky };
         let out = ((t.0 - nx).abs() - (at.0 - nx).abs()).signum() as f32;
         let down = (t.1 - at.1).signum() as f32;
         let tdepth = world.room_surface_at(t.0).map_or(0.0, |s| ((t.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
@@ -5282,8 +5298,8 @@ pub mod scratch_log {
             out,
             down,
             tdepth,
-            f32::from(u8::from(sky)),
-            roof as f32 / 8.0,
+            if light_on() { light_at(world, organism, t.0, t.1) } else { f32::from(u8::from(sky)) },
+            if light_on() { 1.0 - light_at(world, organism, t.0, t.1) } else { roof as f32 / 8.0 },
             nb as f32 / 8.0,
             ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
             adepth,
