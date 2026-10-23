@@ -5902,6 +5902,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   hcs: a dig-only island dies out, 6 of 8, without learning to dig; task arithmetic collapsed 12 of 12 colonies).
   Recommends more full-job islands (e.g. on GitHub Actions) swapping whole ants, and a slot-mask merge rule for lessons.
 
+- [brain-training/parallel-training-guide.md](brain-training/parallel-training-guide.md) —
+  **living guide: which kind of parallel training fits a new ant task.** Five methods (full-job islands, world-variant
+  islands, lesson lanes merged by slot union, specialist islands with merged weights (never), co-evolving opponents),
+  five questions that pick one, the check that says whether it is working, and the method for each current task
+  (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
