@@ -2885,6 +2885,15 @@ pub mod inrun {
         creature::cull_organism(w, id)
     }
 
+    /// Set body trait `k` to `v` on every living ant (brood lane's `hatch_grant=`: the founders' birth-grant allele).
+    pub fn set_trait(w: &mut World, sp: SpeciesId, k: usize, v: f32) {
+        for id in ants_of(w, sp) {
+            if let Some(s) = w.organism_mut(id) {
+                s.traits[k] = v;
+            }
+        }
+    }
+
     /// Every founder on `grants` full grants (the founding deals staggered reserves).
     pub fn flat_reserves(w: &mut World, sp: SpeciesId, grants: f32) {
         let full = grants * w.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);

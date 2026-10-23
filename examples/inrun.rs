@@ -371,6 +371,24 @@ fn main() {
         let (t, d) = v.split_once(':').expect("lay_cap=T:D");
         (t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0))
     });
+    // lay_reserve=R (with brood=lay; brood lane, 2026-10-23, a trial before any game rule): laying answers the
+    // colony's FREE reserve -- every adult's bank plus the nest's stored food, less what the brood already laid still
+    // needs to reach an adult's price -- per head (adults and brood), in full grants. At or above R the bar is the
+    // game's; below it the bar grows as (R / free)^2. Why: every brake in the pilot answered today's wealth, and a
+    // brood laid today needs 500+ frames and ~920 J each before it works, so the food and store brakes (adults only)
+    // overshot and swung 40 <-> 200 ants. Counting the brood's debt is the delay put into the signal.
+    let lay_reserve: Option<f64> = arg(&a, "lay_reserve").map(|v| v.parse().unwrap());
+    // nocull=1 (with brood=lay): selection removes nobody -- no hard culls, no quota culls, no retiring -- so food and
+    // starvation alone set the colony's size; the control for any regulation arm (review, 2026-10-23: culls were the
+    // largest death source, 929 against 651 starved in one run, and every culled ant is food that pays for eggs).
+    let nocull = num("nocull", 0) > 0;
+    // hatch_grant=T: every founder's TRAIT_BIRTH_GRANT is set to T (-1..1; the shipped founding draws it), so each
+    // hatchling's price -- and the bank it hatches with -- is grant_fraction(T) of a full grant. Paid by the larva's
+    // feeders like the rest of its price: nothing is made. Review: 51-61% of starved adults died before judging, on
+    // a ~0.5-grant hatch bank against kid_grants=3 today.
+    if let Some(t) = arg(&a, "hatch_grant").map(|v| v.parse::<f32>().unwrap()) {
+        inrun::set_trait(&mut w, sp, organism::TRAIT_BIRTH_GRANT, t);
+    }
     let base_lay_at = w.species.get(sp).creature.as_ref().and_then(|d| d.brood.as_ref()).map_or(0.0, |b| b.lay_at);
     if brood_lay {
         assert!(base_lay_at > 0.0, "brood=lay: the ant has no brood block");
@@ -642,6 +660,13 @@ fn main() {
     // full grants; crop is cells carried in crops.
     let mut stock_log = std::io::BufWriter::new(std::fs::File::create(out.join("stock.csv")).unwrap());
     writeln!(stock_log, "frame,alive,nest_food,door_food,field_food,crop_cells,tank_mean,tank_min,tank_max,nest_corpse").unwrap();
+    let mut hungry_probe = std::env::var("PP_HUNGRYPROBE").is_ok_and(|v| v == "1").then(|| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("hungry.csv")).unwrap());
+        writeln!(f, "frame,id,x,y,tank,home,crop,crumbs8,prov8,best_j,jaws,verb").unwrap();
+        f
+    });
+    let mut larder_log = std::io::BufWriter::new(std::fs::File::create(out.join("larder.csv")).unwrap());
+    writeln!(larder_log, "frame,prov_cells,prov_kj,crumb_cells,crumb_kj,other_cells,other_kj").unwrap();
     // The general nest score (lab::nestscore, PR #770, HARVESTER profile) every 25,000 frames, printed beside food
     // home: printed only, never paid (owner, 2026-10-21). A read of the grid; it changes nothing in the run.
     let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
@@ -1462,6 +1487,11 @@ fn main() {
                     }
                     parents.clear();
                 }
+                if nocull {
+                    cut.clear();
+                    quota_cut.clear();
+                    retiring.clear();
+                }
                 for &id in &cut {
                     if inrun::cull(&mut w, id) {
                         culled_pending.insert(id);
@@ -1635,16 +1665,41 @@ fn main() {
         // brood=lay: the size brake (`lay_cap`) every 250 frames, and the brood's census every 1,000.
         if brood_lay && fr % 250 == 0 {
             let mut stages = [0u32; 3];
+            let mut debt = 0.0f64;
             for id in w.live_brood_ids() {
-                if let Some(b) = w.organism(id).and_then(|s| s.brood) {
-                    stages[b.stage as usize] += 1;
+                if let Some(s) = w.organism(id) {
+                    if let Some(b) = s.brood {
+                        stages[b.stage as usize] += 1;
+                        if b.stage != organism::BroodStage::Pupa {
+                            debt += (b.target - s.energy).max(0.0) as f64;
+                        }
+                    }
                 }
             }
-            let adults_n = inrun::ants(&w, sp).len();
-            let lay_at = match lay_cap {
-                Some((t, d)) => base_lay_at as f64 * 2f64.powf(((adults_n + stages.iter().sum::<u32>() as usize) as f64 - t).max(0.0) / d),
+            let ant_ids = inrun::ants(&w, sp);
+            let adults_n = ant_ids.len();
+            let heads = (adults_n + stages.iter().sum::<u32>() as usize) as f64;
+            let mut lay_at = match lay_cap {
+                Some((t, d)) => base_lay_at as f64 * 2f64.powf((heads - t).max(0.0) / d),
                 None => base_lay_at as f64,
             };
+            if let Some(r) = lay_reserve {
+                let banks: f64 = ant_ids.iter().filter_map(|&i| w.organism(i)).map(|s| s.energy as f64).sum();
+                let food = w.materials.id_of("provisions");
+                let mut store = 0.0f64;
+                for x in (inrun::NEST - 12).max(0)..=(inrun::NEST + 12).min(bw - 1) {
+                    for y in surf[x as usize]..bh {
+                        let c = w.get(x, y);
+                        if c.organism_id() == 0 && Some(c.material) == food {
+                            store += w.materials.get(c.material).food_energy as f64;
+                        }
+                    }
+                }
+                let free = (banks + store - debt) / heads.max(1.0) / start_e;
+                if free < r {
+                    lay_at *= (r / free.max(r / 64.0)).powi(2);
+                }
+            }
             let mut def = w.species.get(sp).creature.clone().expect("creature");
             if let Some(b) = def.brood.as_mut() {
                 if (b.lay_at as f64 - lay_at).abs() > 0.5 {
@@ -1657,9 +1712,39 @@ fn main() {
                 writeln!(bl, "{fr},{adults_n},{},{},{},{},{},{},{},{},{:.1},{:.1},{lay_at:.0}", stages[0], stages[1], stages[2], cs.eggs_laid, cs.births, cs.larvae_starved, cs.brood_lost, cs.hatches_denied, (cs.brood_nursed_j + cs.brood_crop_fed_j + cs.brood_shared_j) / 1000.0, cs.brood_ate_j / 1000.0).unwrap();
             }
         }
+        // PP_HUNGRYPROBE=1: every 250 frames, each ant below a quarter grant -- where it is, what its crop holds, what
+        // food touches its head, and the verb it last chose. Asks why colonies starve beside a nest full of crumbs.
+        if let Some(hp) = hungry_probe.as_mut().filter(|_| fr % 250 == 0) {
+            let (prov_m, crumb_m) = (w.materials.id_of("provisions"), w.materials.id_of("crumbs"));
+            for id in inrun::ants(&w, sp) {
+                let Some(s) = w.organism(id) else { continue };
+                let tank = s.energy as f64 / start_e;
+                let Some(&(x, y)) = s.chain.first().filter(|_| tank < 0.25) else { continue };
+                let home = (x - inrun::NEST).abs() <= 12 && y >= surf[x as usize];
+                let crop = s.crop.map_or("-".to_string(), |c| format!("{}:{:.0}", w.materials.get(c.material).name, c.worth()));
+                let (mut crumbs, mut prov, mut best) = (0, 0, 0f32);
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let c = w.get(x + dx, y + dy);
+                    let m = Some(c.material);
+                    crumbs += (m == crumb_m) as u32;
+                    prov += (m == prov_m) as u32;
+                    if m == crumb_m || m == prov_m {
+                        best = best.max(creature::food_value(&w, c));
+                    }
+                }
+                let jaws = s.spoil.map_or("-", |p| if p.store { "store" } else { "pellet" });
+                let verb = creature::mind::last_verb_of(&w, id).map_or("-".to_string(), |v| format!("{v:?}"));
+                writeln!(hp, "{fr},{id},{x},{y},{tank:.2},{},{crop},{crumbs},{prov},{best:.0},{jaws},{verb}", home as u8).unwrap();
+            }
+        }
         if fr % 1000 == 0 {
             let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);
             let corpse_m = w.materials.id_of("corpse");
+            // larder.csv: the nest's stored food split by what it is and what it is worth (kJ). Most of a packed
+            // garden nest's "food" cells are crumbs -- part-eaten provisions put back, each worth only what is left
+            // of it -- so a cell count is not a larder.
+            let (prov_m, crumb_m) = (w.materials.id_of("provisions"), w.materials.id_of("crumbs"));
+            let mut larder = [(0u32, 0f64); 3];
             for x in (inrun::NEST - 45).max(0)..=(inrun::NEST + 45).min(bw - 1) {
                 let dx = (x - inrun::NEST).abs();
                 let sy = surf[x as usize];
@@ -1678,6 +1763,9 @@ fn main() {
                     }
                     if y >= sy && dx <= 12 {
                         nest_f += 1;
+                        let k = if Some(c.material) == prov_m { 0 } else if Some(c.material) == crumb_m { 1 } else { 2 };
+                        larder[k].0 += 1;
+                        larder[k].1 += creature::food_value(&w, c) as f64 / 1000.0;
                     } else if y < sy && dx <= 12 && sy - y <= 4 {
                         door_f += 1;
                     } else {
@@ -1691,6 +1779,7 @@ fn main() {
             let n = tanks.len().max(1) as f64;
             let (mn, mx) = tanks.iter().fold((f64::MAX, 0.0f64), |a, &t| (a.0.min(t), a.1.max(t)));
             writeln!(stock_log, "{fr},{},{nest_f},{door_f},{field_f},{crop},{:.2},{:.2},{:.2},{nest_c}", tanks.len(), tanks.iter().sum::<f64>() / n, if tanks.is_empty() { 0.0 } else { mn }, mx).unwrap();
+            writeln!(larder_log, "{fr},{},{:.1},{},{:.1},{},{:.1}", larder[0].0, larder[0].1, larder[1].0, larder[1].1, larder[2].0, larder[2].1).unwrap();
             if store_cap > 0.0 {
                 store_p = (1.0 - nest_f as f64 / (store_cap * tanks.len().max(1) as f64)).clamp(0.0, 1.0);
             }
