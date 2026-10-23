@@ -5271,6 +5271,10 @@ pub mod scratch_log {
         let shade = (top..y).filter(|&yy| !open_cell(world, organism, x, yy)).count().min(12);
         0.5f32.powi(shade as i32)
     }
+    fn nosky_on() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGNOSKY").is_ok_and(|v| v == "1"))
+    }
     fn light_on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_DIGLIGHT").is_ok_and(|v| v == "1"))
@@ -5281,6 +5285,9 @@ pub mod scratch_log {
         // at the cut where the sky test was, darkness (1 - light) where the count was, so dh7's weights keep their
         // sign, and the ant's own light where its own sky test was.
         let asky = if light_on() { light_at(world, organism, at.0, at.1) } else { asky };
+        // PP_DIGNOSKY=1 (owner, 2026-10-23: "depth should be the only thing they need"): slots 3, 4 and 8 -- the sky
+        // test, the soil count or light -- read 0, so the head keeps depth, door distance, direction and surroundings.
+        let blank = nosky_on();
         let out = ((t.0 - nx).abs() - (at.0 - nx).abs()).signum() as f32;
         let down = (t.1 - at.1).signum() as f32;
         let tdepth = world.room_surface_at(t.0).map_or(0.0, |s| ((t.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
@@ -5298,12 +5305,12 @@ pub mod scratch_log {
             out,
             down,
             tdepth,
-            if light_on() { light_at(world, organism, t.0, t.1) } else { f32::from(u8::from(sky)) },
-            if light_on() { 1.0 - light_at(world, organism, t.0, t.1) } else { roof as f32 / 8.0 },
+            if blank { 0.0 } else if light_on() { light_at(world, organism, t.0, t.1) } else { f32::from(u8::from(sky)) },
+            if blank { 0.0 } else if light_on() { 1.0 - light_at(world, organism, t.0, t.1) } else { roof as f32 / 8.0 },
             nb as f32 / 8.0,
             ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
             adepth,
-            asky,
+            if blank { 0.0 } else { asky },
             aopen,
             f32::from(u8::from(t.1 == at.1)),
             ((t.1 - low) as f32 / 4.0).clamp(-2.0, 2.0),
