@@ -43,12 +43,20 @@ def wean_p(r):
     return 1.0 if r <= WEAN[0] else max(0.0, 1.0 - (r - WEAN[0]) / max(1, WEAN[1] - WEAN[0]))
 def with_p(args, p):
     return [f'{x},PP_BODYRULES_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
-# pilecap=START:STEP:ALIVE (plant-food lane, 2026-10-23; owner chose the weaning bed): the pile's cap (inrun `cap=`) starts
-# at START and falls by STEP after any round whose colonies' median alive at the end is ALIVE or more, else holds; floor
-# 0 (plants only). Run with the garden's args (`plants=... weed=30 fjoule=1`, setenv PP_MIND_GRAZE=1). Measured on hcs
-# x30, sel=off, 4 seeds: cap 30 kept 18 of 24 alive at 200k, cap 15 1.5, plants only 0, so a colony is weaned a step at a
-# time as selection makes it able, never faster. The cap used is logged per round (colsel.csv, cg.csv `pilecap`).
+# pilecap=START:STEP:STARVED[:FLOOR] (plant-food lane, 2026-10-23; owner chose the weaning bed): the pile's cap (inrun
+# `cap=`) starts at START. After a round whose colonies' median starved is STARVED or fewer it falls by STEP, never below
+# FLOOR (default 10); after one with more than 3 x STARVED it rises by STEP, never above START; otherwise it holds. Run
+# with the garden's args (`plants=... weed=30 fjoule=1`, setenv PP_MIND_GRAZE=1). The cap used is logged per round
+# (colsel.csv, cg.csv `pilecap`).
+# Why starved and not alive: plantwean1-1023 stepped on median end-alive, which in-run births hold at 24 whatever
+# happens, so the cap fell every round (30 -> 0 by round 6) while starved per round ran 47, 9, 3, 6.5, 52, 195; at cap 0
+# 6 of 64 colonies lived and all were extinct by round 23. Why a floor: no common garden has yet shown a colony living on
+# plants alone (cap 0: median alive 0 in every garden), while cap 15 after three rounds held 19 of 24 (hcs at round 0,
+# sel=off: 1.5 of 24). Lower FLOOR to 0 only once a garden at cap 0 holds.
 PILECAP = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('pilecap=')), None)
+if PILECAP:
+    assert len(PILECAP) in (3, 4), 'pilecap=START:STEP:STARVED[:FLOOR]'
+    PILECAP = PILECAP + (10,) if len(PILECAP) == 3 else PILECAP
 EXTRA = [x for x in EXTRA if not x.startswith('pilecap=')]
 cap_now = PILECAP[0] if PILECAP else None
 def with_cap(args):
@@ -263,11 +271,14 @@ for r in range(R):
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
     if PILECAP:
-        alive = sorted(res[c][4] if res[c] else 0 for c in cols)
-        med = alive[len(alive) // 2]
-        if med >= PILECAP[2] and cap_now > 0:
-            cap_now = max(0, cap_now - PILECAP[1])
-        print(f'round {r}: median alive {med}, pile cap next round {cap_now}', flush=True)
+        # A colony with no run this round (extinct, not refounded) counts as starving, never as a colony that starved none.
+        st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
+        med = st[len(st) // 2]
+        if med <= PILECAP[2]:
+            cap_now = max(PILECAP[3], cap_now - PILECAP[1])
+        elif med > 3 * PILECAP[2]:
+            cap_now = min(PILECAP[0], cap_now + PILECAP[1])
+        print(f'round {r}: median starved {med}, pile cap next round {cap_now}', flush=True)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
