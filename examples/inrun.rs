@@ -177,7 +177,12 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
     let mut n = 0;
     for (dy, row) in grid.iter().enumerate() {
         for (dx, &ch) in row.iter().enumerate() {
-            if ch == b'?' || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
+            // `?` (an animal, food, an organism's cell) is left to the fresh world -- except, in nest-only mode, a kept
+            // one: the flood passed it because it is not ground, so it stood in an open nest cell (an ant in a tunnel,
+            // stored food in a room), and leaving it the fresh world's loose soil plugged the nest at every one of them.
+            // `INHERIT_PLUG=1` puts the plugs back, for the before/after.
+            let plug = std::env::var("INHERIT_PLUG").as_deref() == Ok("1");
+            if (ch == b'?' && (keep.is_none() || plug)) || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
@@ -192,6 +197,23 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
             }
             w.set(x, y, pixel_physics::sim::Cell::new(m, 0));
             n += 1;
+        }
+    }
+    // Line the carved nest, as the ants that dug it did and as the stamp's founding shaft is lined. Carved into the fresh
+    // world's loose soil with nothing tamped, every kept hole was a void under a powder: the old map's lining is no use
+    // here, because the crater rule above keeps only the roofed edges of a crater-topped room, and their inner wall is
+    // the crater's place in the fresh world -- loose soil. Measured 2026-10-23 (cs3lexlesinh c5, one old ant): 172 kept
+    // cells filled from above inside 400 frames and the voids came out at the surface, two rows lost across 80 columns.
+    // One pass after the carve, the founding shaft's order (sorted: `keep` is a HashSet). Kept cells holding an
+    // organism are left alone. `INHERIT_LINE=0` turns it off, for the before/after.
+    if let Some(k) = keep.as_ref().filter(|_| std::env::var("INHERIT_LINE").as_deref() != Ok("0")) {
+        let mut cells: Vec<_> = k.iter().copied().collect();
+        cells.sort_unstable();
+        for (dx, dy) in cells {
+            let (x, y) = (x0 + dx as i32, y0 + dy as i32);
+            if w.get(x, y).material == pixel_physics::sim::material::EMPTY {
+                w.line_dug_cell(x, y);
+            }
         }
     }
     n
