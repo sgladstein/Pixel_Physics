@@ -1,0 +1,50 @@
+P3: n=16  collapsed(alive<12)=0
+   home          4564.0 (  4619.5)   vs P3: higher  0 lower  0
+   died             0.4 (     0.0)   vs P3: higher  0 lower  0
+   starved          0.4 (     0.0)   vs P3: higher  0 lower  0
+   alive           23.6 (    24.0)   vs P3: higher  0 lower  0
+   nest           445.4 (   424.5)   vs P3: higher  0 lower  0
+   crater          10.3 (     7.0)   vs P3: higher  0 lower  0
+   nestcuts       432.1 (   420.0)   vs P3: higher  0 lower  0
+   nest_food      511.4 (   504.5)   vs P3: higher  0 lower  0
+   tank            74.9 (    74.5)   vs P3: higher  0 lower  0
+P27: n=16  collapsed(alive<12)=0
+   home          9340.2 (  9329.5)   vs P3: higher 16 lower  0
+   died             4.1 (     4.0)   vs P3: higher 16 lower  0
+   starved          4.1 (     4.0)   vs P3: higher 16 lower  0
+   alive           19.9 (    20.0)   vs P3: higher  0 lower 16
+   nest           183.0 (   195.0)   vs P3: higher  0 lower 15
+   crater           4.2 (     4.0)   vs P3: higher  5 lower 11
+   nestcuts       178.1 (   192.0)   vs P3: higher  0 lower 16
+   nest_food      289.4 (   286.0)   vs P3: higher  0 lower 16
+   tank           177.7 (   178.2)   vs P3: higher 16 lower  0
+MIX: n=16  collapsed(alive<12)=0
+   home          5863.4 (  5842.5)   vs P3: higher 16 lower  0
+   died             1.9 (     2.0)   vs P3: higher 11 lower  2
+   starved          1.9 (     2.0)   vs P3: higher 11 lower  2
+   alive           22.1 (    22.0)   vs P3: higher  2 lower 11
+   nest           343.4 (   342.5)   vs P3: higher  4 lower 12
+   crater           3.8 (     3.0)   vs P3: higher  4 lower 12
+   nestcuts       336.1 (   338.5)   vs P3: higher  4 lower 12
+   nest_food      472.2 (   474.5)   vs P3: higher  1 lower 15
+   tank           128.1 (   132.6)   vs P3: higher 15 lower  1
+XOVER: n=16  collapsed(alive<12)=0
+   home          6043.1 (  6073.5)   vs P3: higher 16 lower  0
+   died             3.0 (     3.0)   vs P3: higher 15 lower  0
+   starved          3.0 (     3.0)   vs P3: higher 15 lower  0
+   alive           21.0 (    21.0)   vs P3: higher  0 lower 15
+   nest           331.2 (   330.5)   vs P3: higher  2 lower 14
+   crater           5.2 (     5.0)   vs P3: higher  8 lower  8
+   nestcuts       324.3 (   328.5)   vs P3: higher  2 lower 14
+   nest_food      439.3 (   442.0)   vs P3: higher  0 lower 16
+   tank           113.5 (   117.6)   vs P3: higher 14 lower  2
+AVG: n=16  collapsed(alive<12)=1
+   home          6408.9 (  6472.5)   vs P3: higher 15 lower  1
+   died             2.5 (     1.0)   vs P3: higher 10 lower  1
+   starved          2.5 (     1.0)   vs P3: higher 10 lower  1
+   alive           21.5 (    23.0)   vs P3: higher  1 lower 10
+   nest           372.3 (   379.0)   vs P3: higher  3 lower 13
+   crater           7.1 (     6.5)   vs P3: higher  6 lower  9
+   nestcuts       361.9 (   359.5)   vs P3: higher  2 lower 14
+   nest_food      431.8 (   438.0)   vs P3: higher  0 lower 16
+   tank           115.2 (   122.0)   vs P3: higher 14 lower  2

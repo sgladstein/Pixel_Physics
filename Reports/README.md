@@ -5894,6 +5894,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
   win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
 
+- [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
+  **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
+  lessons made in parallel onto hA1 (home sense, crater refusal) merged by slot union kept both: food 309 -> 431, 22 of
+  24 worlds, starvation unchanged. Selection-trained lines merge to a compromise at best (two colsel20 colonies, a
+  digger and a forager: every merge lands between them) and a wreck at worst (dig-only and forage-only islands from
+  hcs: a dig-only island dies out, 6 of 8, without learning to dig; task arithmetic collapsed 12 of 12 colonies).
+  Recommends more full-job islands (e.g. on GitHub Actions) swapping whole ants, and a slot-mask merge rule for lessons.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
