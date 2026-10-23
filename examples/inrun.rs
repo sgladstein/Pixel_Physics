@@ -160,7 +160,11 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
                 continue;
             }
             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
-            let m = ids[(ch - b'A') as usize];
+            // Nest-only inheritance carves the kept cells open and copies nothing into them. Since the flood passes
+            // stored food (2026-10-23), kept cells include the larder, and copying their material carried every
+            // round's stored food into the next: colsel14's colonies came to "deliver" 10-13k a garden (control
+            // 11,143 at round 47 against colsel10's 2,016) by re-dropping it, and their nests and craters with it.
+            let m = if keep.is_some() { pixel_physics::sim::material::EMPTY } else { ids[(ch - b'A') as usize] };
             let c = w.get(x, y);
             if c.organism_id() != 0 || c.material == m {
                 continue;
