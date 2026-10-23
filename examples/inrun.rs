@@ -109,10 +109,12 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
     let (x0, y0): (i32, i32) = (head[0].parse().unwrap(), head[1].parse().unwrap());
     let ids: Vec<_> = head.get(2).map_or(vec![], |l| l.split(',').map(|n| w.materials.id_of(n).unwrap_or_else(|| panic!("nestmap material {n}"))).collect());
     let grid: Vec<&[u8]> = lines.map(|l| l.as_bytes()).filter(|l| !l.is_empty()).collect();
-    let empty = ids.iter().position(|&m| m == pixel_physics::sim::material::EMPTY).map(|k| b'A' + k as u8);
     // nest_only: flood the open cells below the datum from the door, keep the roofed ones and the shaft.
     let keep: Option<std::collections::HashSet<(usize, usize)>> = nest_only.map(|surf| {
-        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|&c| Some(c) == empty || c == b'?');
+        // Passes anything that is not ground (stored food, crumbs, markers, bodies), as nestcount.py does since the
+        // crater review (2026-10-23): a larder of stored food used to cut its room off, so the room was not inherited.
+        let gnd: Vec<u8> = ids.iter().enumerate().filter(|(_, &m)| ["soil", "packedsoil", "spoil", "stone"].iter().any(|n| w.materials.id_of(n) == Some(m))).map(|(k, _)| b'A' + k as u8).collect();
+        let open = |dx: usize, dy: usize| grid.get(dy).and_then(|r| r.get(dx)).is_some_and(|c| !gnd.contains(c));
         let below = |dx: usize, dy: usize| { let x = x0 + dx as i32; x >= 0 && (x as usize) < surf.len() && y0 + dy as i32 >= surf[x as usize] };
         let door = (inrun::NEST - x0) as usize;
         let mut seen = std::collections::HashSet::new();
