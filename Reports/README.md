@@ -702,6 +702,16 @@ by somebody about to try it on creatures.
   62–86% of shoot tips touch another plant. A grown bed copies exactly, and a
   small arena costs about 0.1 core-seconds.
 
+- [rootless-plants-2026-10-23.md](rootless-plants-2026-10-23.md)
+  — **Plants living with no roots, traced and fixed behind a switch (off).**
+  At 450,000 frames a third of the lab bed's leafy plants had no root in the
+  ground. Die-back sheds a starving plant's roots first, stem cells on the
+  soil drink in their place, and nothing can root the plant again.
+  `World::roots_required` lets only roots drink, keeps a plant's last roots,
+  and sprouts a root from a thirsty stem. Over 8 paired beds, rootless leafy
+  plants went 78 -> 9, shrub leaf 1,925 -> 5,353, and roles a bed
+  2.62 -> 2.88.
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
   handoff carrying the state and the queue -- read that first.** Revision 4
@@ -5816,6 +5826,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   cannot put down. The rule `PP_HOMEFAR` cuts roamer deaths 70% when the teacher acts, but the DAgger copies hm1,
   hm2 and hm3 (hm3 with a sharp `PP_FAR_CTX` sense) all starve more than hA1. No genome recommended; owner: "neither
   yet". Patches (scratch, env-gated), tools and genomes are in `starve-trace-2026-10-22/`.
+
+- [brain-training/teacher-training/far-home-sense-2026-10-22.md](brain-training/teacher-training/far-home-sense-2026-10-22.md) —
+  **a home sense that stays sharp far out, and the come-home lesson it makes copyable.** `PP_HOMEVEC=R:W` puts
+  "how far past R from home" on a borrowed context slot, and that times the step's cosine to home on an unwritten
+  option feature. Both read exactly 0 near home. A copy that trains only those 48 weights (hc1) cuts roamer deaths
+  as much as the teacher driving (2.69 -> 0.75 per colony) with food and digging unchanged. Stacked with the maze
+  thread's "lay B only while carrying" edit (hcs): 4.31 -> 1.22 starved per 24, food home +13%; handed to the
+  Teacher lane. Trail rule 2 still does not copy (its blocker is "on the trail", a comparison across options, not
+  the home sense). Patch, genomes, copiers and scripts in `far-home-sense-2026-10-22/`.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their

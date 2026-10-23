@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -291,6 +291,8 @@ fn apply_shade(m: &BTreeMap<String, String>, w: &mut World) {
     w.seedling_reserves = get(m, "reserves", u8::from(w.seedling_reserves)) != 0;
     // `settle=1`: `World::seed_settles`.
     w.seed_settles = get(m, "settle", u8::from(w.seed_settles)) != 0;
+    // `oldage=1`: `World::old_age_plant_time`.
+    w.old_age_plant_time = get(m, "oldage", u8::from(w.old_age_plant_time)) != 0;
     if let Some(spec) = m.get("genes") {
         for item in spec.split(',') {
             let parts: Vec<&str> = item.split(':').collect();
@@ -331,12 +333,81 @@ fn community(m: &BTreeMap<String, String>) {
     // frames (rows 100 above the soil to 20 below, 2 px a cell) into `out=`.
     let shots: Vec<u64> = m.get("shots").map_or(vec![], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
     let out: String = get(m, "out", "plant_m0".to_string());
+    let gaps = get(m, "gaps", 0u64);
     let mut renderer = pixel_physics::render::Renderer::new();
     // Soil-moisture writes a tick, per sample window: the churn
     // `World::soil_capillary_levels` was held off for (`examples/waterstand`).
     let (mut sw_changed, mut sw_ticks) = (0u64, 0u64);
+    // `rootcensus=1`'s history: every 1,000 frames, each plant's root cells,
+    // drinking roots, shoot cells and how many of its non-root cells touch
+    // soil or water (the stem cells `Absorb` also drinks through). Printed
+    // as `ROOTLOG` rows at each shot for the plants with no drinking root.
+    let rootlog_on = get(m, "rootcensus", 0u8) != 0;
+    // (frame, root cells, drinking roots, shoot cells, stem cells on the ground)
+    type RootRow = (u64, u32, u32, u32, u32);
+    let mut rootlog: HashMap<OrganismId, Vec<RootRow>> = HashMap::new();
+    let mut root_seen: HashMap<OrganismId, Vec<(i32, i32)>> = HashMap::new();
+    let mut root_loss: BTreeMap<(String, bool), u64> = BTreeMap::new();
     for f in 1..=frames {
         pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
+        // What a small plant's root cell became when the plant lost it --
+        // the "how does a plant end up rootless" half of the probe. Every
+        // 200 frames, plants with 1-12 root cells; a vanished root's cell is
+        // tallied by what now stands there (another plant, litter, soil...).
+        if rootlog_on && f % 200 == 0 {
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let now: Vec<(i32, i32)> = st
+                    .cells
+                    .keys()
+                    .copied()
+                    .filter(|&(x, y)| {
+                        let c = w.get(x, y);
+                        w.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip)
+                    })
+                    .collect();
+                if let Some(prev) = root_seen.get(&id) {
+                    for &(x, y) in prev {
+                        if !now.contains(&(x, y)) {
+                            let c = w.get(x, y);
+                            let what = if c.organism_id() == id {
+                                "own-shoot(retargeted)".to_string()
+                            } else if c.organism_id() != 0 {
+                                format!("other-plant:{}", w.materials.get(c.material).name)
+                            } else {
+                                w.materials.get(c.material).name.to_string()
+                            };
+                            let lost_all = now.is_empty();
+                            *root_loss.entry((what, lost_all)).or_default() += 1;
+                        }
+                    }
+                }
+                if !now.is_empty() && now.len() <= 12 {
+                    root_seen.insert(id, now);
+                } else {
+                    root_seen.remove(&id);
+                }
+            }
+        }
+        if rootlog_on && f % 1000 == 0 {
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let mut wet_stem = 0u32;
+                for &(x, y) in st.cells.keys() {
+                    let c = w.get(x, y);
+                    if w.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip) {
+                        continue;
+                    }
+                    if [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
+                        let n = w.get(x + dx, y + dy);
+                        n.organism_id() == 0 && (w.materials.get(n.material).water_capacity > 0 || w.materials.get(n.material).kind == pixel_physics::sim::material::MaterialKind::Liquid)
+                    }) {
+                        wet_stem += 1;
+                    }
+                }
+                rootlog.entry(id).or_default().push((f, st.root_cells, st.contact_root_cells, st.shoot_cells, wet_stem));
+            }
+        }
         sw_changed += w.soil_water_stats.changed;
         sw_ticks += 1;
         if f % sample == 0 || f == frames {
@@ -344,12 +415,63 @@ fn community(m: &BTreeMap<String, String>) {
             println!("{row} | sw={:.1}", sw_changed as f64 / sw_ticks.max(1) as f64);
             (sw_changed, sw_ticks) = (0, 0);
         }
+        // `gaps=N`: canopy gaps, every N frames -- the floor's light per
+        // column (two rows above the ground, as a digit 0-9 for 0-9% of open
+        // light and `+` above), and every tree: `TREE id span x0-x1 cells
+        // senescent`. Built 2026-10-22 for the owner's "gaps from tree
+        // death": how wide a dead tree's gap is, and how fast the crowns
+        // around it close it again.
+        if gaps > 0 && f % gaps == 0 {
+            let row: String = (0..bed.width)
+                .map(|x| {
+                    let pct = pixel_physics::sim::plant::ambient_light_above(&w, x, bed.ground_y - 2) / w.open_light * 100.0;
+                    if pct >= 10.0 { '+' } else { char::from(b'0' + pct as u8) }
+                })
+                .collect();
+            println!("GAPS f={f} {row}");
+            let tree = w.species.id_of("tree");
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                if Some(st.species) != tree || st.shoot_cells < 20 {
+                    continue;
+                }
+                let (x0, x1) = st.cells.keys().fold((i32::MAX, i32::MIN), |(a, b), &(x, _)| (a.min(x), b.max(x)));
+                println!(
+                    "TREE f={f} id={id} span={x0}-{x1} cells={} senescent={} age wall={} ticks={} plant={}",
+                    st.cells.len(),
+                    st.senescent,
+                    w.frame - st.born_frame,
+                    st.age_ticks as u64 * pixel_physics::sim::plant::ORGANISM_TICK_INTERVAL,
+                    st.plant_frames
+                );
+            }
+        }
         if shots.contains(&f) {
             println!("{}", screen_mix(&w, &bed, f));
             println!("{}", water_why(&w, &bed, f));
             let below: usize = get(m, "below", 20usize);
             let path = format!("{out}_f{f}.png");
             shot(&mut w, &particles, &mut renderer, &bed, below, &path);
+            // `rootcensus=1`: where every plant's roots are, one row a plant,
+            // and the same crop redrawn by owner (`owner_shot`) -- the probe
+            // behind "plants that seem to have no roots but survive".
+            if get(m, "rootcensus", 0u8) != 0 {
+                root_census(&w, &bed, below, f);
+                println!("ROOTLOSS f={f} (became, plant left rootless) {:?} roots_required={} adventitious={} dieback_kept={}", root_loss, w.roots_required, w.adventitious_roots, w.dieback_roots_kept);
+                for id in w.live_organism_ids() {
+                    let Some(st) = w.organism(id) else { continue };
+                    if st.contact_root_cells != 0 || st.shoot_cells < 5 {
+                        continue;
+                    }
+                    let h = rootlog.get(&id).map_or(&[][..], |v| v.as_slice());
+                    let max_roots = h.iter().map(|e| e.1).max().unwrap_or(0);
+                    let last_rooted = h.iter().rev().find(|e| e.2 > 0).map_or(0, |e| e.0);
+                    let first = h.first().map_or(0, |e| e.0);
+                    let tail: Vec<String> = h.iter().rev().step_by(5).take(12).map(|e| format!("{}:{}/{}/{}/{}", e.0 / 1000, e.1, e.2, e.3, e.4)).collect();
+                    println!("ROOTLOG f={f} id={id} first={first} max_roots={max_roots} last_drinking_root={last_rooted} recent(kframe:roots/contact/shoot/wetstem)={}", tail.join(" "));
+                }
+                owner_shot(&w, &bed, below, &format!("{out}_f{f}_owners.png"));
+            }
             // `altpal=1`: the same world, the same frame, drawn again with
             // brighter foliage and seeds and litter toned toward the soil --
             // a colour A/B with nothing else different (`alt_palette`).
@@ -367,6 +489,127 @@ fn community(m: &BTreeMap<String, String>) {
         }
     }
     println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
+}
+
+/// One `ROOTS` row a living plant: where its shoot meets the ground, how
+/// much root it has and where, what the shot's `below` rows can show of it,
+/// and its water and nutrient terms. `hidden` is root tissue deeper than the
+/// picture; `visible` is root tissue inside it.
+fn root_census(w: &World, bed: &LabBox, below: usize, frame: u64) {
+    let ground = bed.ground_y;
+    let floor = ground + below as i32;
+    for id in w.live_organism_ids() {
+        let Some(st) = w.organism(id) else { continue };
+        if !st.cells.keys().any(|&(x, y)| organism::cell_type(w.get(x, y).aux()) != Some(CellType::Seed)) {
+            continue;
+        }
+        let name = w.species.get(st.species).name.clone();
+        let (mut roots, mut visible, mut hidden, mut leaf, mut shoot) = (0u32, 0u32, 0u32, 0u32, 0u32);
+        let (mut deepest, mut root_x0, mut root_x1) = (i32::MIN, i32::MAX, i32::MIN);
+        let (mut lowest_shoot, mut lowest_shoot_x) = (i32::MIN, 0i32);
+        let (mut shoot_x0, mut shoot_x1) = (i32::MAX, i32::MIN);
+        let mut roots_above = 0u32;
+        for &(x, y) in st.cells.keys() {
+            let c = w.get(x, y);
+            let ty = organism::cell_type(c.aux());
+            let root = w.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip);
+            if root {
+                roots += 1;
+                deepest = deepest.max(y);
+                root_x0 = root_x0.min(x);
+                root_x1 = root_x1.max(x);
+                if y < ground {
+                    roots_above += 1;
+                } else if y < floor {
+                    visible += 1;
+                } else {
+                    hidden += 1;
+                }
+            } else {
+                shoot += 1;
+                if ty == Some(CellType::Leaf) {
+                    leaf += 1;
+                }
+                if y > lowest_shoot {
+                    (lowest_shoot, lowest_shoot_x) = (y, x);
+                }
+                shoot_x0 = shoot_x0.min(x);
+                shoot_x1 = shoot_x1.max(x);
+            }
+        }
+        println!(
+            "ROOTS f={frame} id={id} sp={name} shoot={shoot} leaf={leaf} shootx={shoot_x0}..{shoot_x1} base=({lowest_shoot_x},{}) roots={roots} visible={visible} hidden={hidden} above={roots_above} rootx={} deepest={} contact={} ws={:.3} desic={:.3} rzw={:.3} nut={:.3} stock={:.2} uptake={:.4} demand={:.4}",
+            lowest_shoot - ground,
+            if roots > 0 { format!("{root_x0}..{root_x1}") } else { "-".into() },
+            if roots > 0 { (deepest - ground).to_string() } else { "-".into() },
+            st.contact_root_cells,
+            st.water_status,
+            st.water_desiccation,
+            st.root_zone_water,
+            st.nutrient_status,
+            st.water,
+            st.water_uptake,
+            st.water_demand,
+        );
+    }
+}
+
+/// The `shot` crop redrawn by owner, a full replace on fixed colours (no
+/// blend into the cell's own palette): each plant one hue from its id, its
+/// root tissue at half brightness, soil dark grey, water dark blue, the rest
+/// black. A root and the shoot it feeds share a hue, so a shoot with no
+/// root in the picture is a hue with no dim twin below the line.
+fn owner_shot(w: &World, bed: &LabBox, below: usize, path: &str) {
+    let (top, rows, sc) = ((bed.ground_y - 100).max(0), 100 + below as i32, 2usize);
+    let (tw, th) = (bed.width as usize * sc, rows as usize * sc);
+    let mut img = vec![0u8; tw * th * 4];
+    for cy in 0..rows {
+        for cx in 0..bed.width {
+            let (x, y) = (cx, top + cy);
+            let c = w.get(x, y);
+            let mat = w.materials.get(c.material);
+            let id = c.organism_id();
+            let rgb: [u8; 3] = if id != 0 && w.organism(id).is_some_and(|st| st.cells.contains_key(&(x, y))) {
+                let h = (id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+                let hue = (h % 360) as f32;
+                let (r, g, b) = hsv(hue, 0.85, 1.0);
+                let root = mat.reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip);
+                let k = if root { 0.5 } else { 1.0 };
+                [(r * k * 255.0) as u8, (g * k * 255.0) as u8, (b * k * 255.0) as u8]
+            } else if c.material == pixel_physics::sim::material::EMPTY {
+                [0, 0, 0]
+            } else if mat.kind == pixel_physics::sim::material::MaterialKind::Liquid {
+                [20, 30, 90]
+            } else if mat.water_capacity > 0 {
+                [45, 45, 45]
+            } else {
+                [25, 25, 25]
+            };
+            for py in 0..sc {
+                for px in 0..sc {
+                    let o = ((cy as usize * sc + py) * tw + cx as usize * sc + px) * 4;
+                    img[o..o + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+                }
+            }
+        }
+    }
+    image::save_buffer(path, &img, tw as u32, th as u32, image::ColorType::Rgba8).expect("write png");
+    println!("plant_m0: wrote {path}");
+}
+
+fn hsv(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = match (h / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    (r + m, g + m, b + m)
 }
 
 /// Draw the bed through the shipped renderer and save rows 100 above the
@@ -1548,11 +1791,22 @@ fn stand(m: &BTreeMap<String, String>) {
         names.iter().map(|n| { let r = per[n]; format!("{n} {}/{}/{}/{}", r[0], r[1], r[2], r[3]) }).collect::<Vec<_>>().join(" | ")
     };
     println!("grown f={grow} | {}  (plants/bank/leaf/shoot)", row(&w));
+    // The floor's light: every column, two rows above the ground, as a share
+    // of open light -- what a seedling there gets (`PIXEL_PHYSICS_LEAF_DEPTH`
+    // is the lever this was added for, 2026-10-22).
+    let floor = |w: &World| -> String {
+        let mut v: Vec<f32> =
+            (0..bed.width).map(|x| pixel_physics::sim::plant::ambient_light_above(w, x, bed.ground_y - 2) / w.open_light).collect();
+        v.sort_by(f32::total_cmp);
+        let q = |p: f32| v[((v.len() - 1) as f32 * p) as usize] * 100.0;
+        format!("floor light % of open: p10 {:.1} p25 {:.1} p50 {:.1} p75 {:.1} p90 {:.1}", q(0.1), q(0.25), q(0.5), q(0.75), q(0.9))
+    };
+    println!("grown f={grow} | {}", floor(&w));
     let results: Vec<(String, Vec<String>)> = std::thread::scope(|sc| {
         let handles: Vec<_> = arms
             .iter()
             .map(|arm| {
-                let (mut c, bed, scenario, role, row) = (w.clone(), &bed, &scenario, role.as_str(), &row);
+                let (mut c, bed, scenario, role, row, floor) = (w.clone(), &bed, &scenario, role.as_str(), &row, &floor);
                 sc.spawn(move || {
                     let mut out = Vec::new();
                     if arm != "none" && arm != "shipped" {
@@ -1641,6 +1895,7 @@ fn stand(m: &BTreeMap<String, String>) {
                             out.push(format!("f={f} | {}", row(&c)));
                         }
                     }
+                    out.push(format!("end | {}", floor(&c)));
                     out.push(format!(
                         "SWITCHES reserves_drawn {} settled {} heaved {} germinations {}",
                         c.seedling_reserves_drawn, c.seeds_settled, c.seeds_heaved, c.germinations

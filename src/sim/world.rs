@@ -6667,6 +6667,23 @@ pub struct World {
     pub seedling_reserves: bool,
     /// Allocations funded that way: its did-it-fire count.
     pub seedling_reserves_drawn: u64,
+    /// **Only roots drink, and a plant keeps the roots it drinks through**
+    /// (`plant::roots_required_default`, `PIXEL_PHYSICS_ROOTS_REQUIRED=1`).
+    /// The owner's "plants with no roots that still survive", 2026-10-23:
+    /// a starving plant's die-back could take only bare wood, so it ate its
+    /// own roots first; its stems on the ground then drank in their place,
+    /// it read full nutrient with no roots at all, and nothing could grow it
+    /// a root again. On: `Absorb` runs on root tissue only, die-back keeps a
+    /// plant's last `DIEBACK_ROOT_FLOOR` root cells, and a thirsty plant
+    /// with no root to branch from sprouts one from a stem cell touching
+    /// moist ground (an adventitious root). Off by default until measured.
+    pub roots_required: bool,
+    /// Adventitious roots sprouted under `roots_required`: its did-it-fire
+    /// count.
+    pub adventitious_roots: u64,
+    /// Root cells die-back passed over under `roots_required` because they
+    /// were the plant's last: its did-it-fire count.
+    pub dieback_roots_kept: u64,
     /// **A waiting seed sinks through dead matter, and a sprout lifts it**
     /// (`plant::dead_matter`, `plant::heave_loose_column`): a seed on litter,
     /// a dead leaf or deadwood trades places with it now and then, and a
@@ -6674,6 +6691,15 @@ pub struct World {
     /// `PIXEL_PHYSICS_SEED_SETTLE` (2026-10-17), narrowed and re-tested under
     /// a closed stand. Off by default until measured.
     pub seed_settles: bool,
+    /// **Old age reads plant time** (`plant::step_organisms`' old-age roll):
+    /// the hazard's age is `OrganismState::plant_frames` and each roll covers
+    /// the tick's real span, as the annual hazard already does, instead of
+    /// `age_ticks * ORGANISM_TICK_INTERVAL` rolled over 45 frames -- which
+    /// undercounts a big, slow-ticking plant's age about 3.5x and its hazard
+    /// more, so a lab tree lived ~7x its authored median. Off by default
+    /// until the community is re-measured: every `life_half_life` was tuned
+    /// against the old clock.
+    pub old_age_plant_time: bool,
     /// Swaps made by `seed_settles`' settle half: its did-it-fire count.
     pub seeds_settled: u64,
     /// Columns lifted by its heave half.
@@ -7664,7 +7690,11 @@ impl World {
             seedling_waits_held: 0,
             seedling_reserves: false,
             seedling_reserves_drawn: 0,
+            roots_required: super::plant::roots_required_default(),
+            adventitious_roots: 0,
+            dieback_roots_kept: 0,
             seed_settles: false,
+            old_age_plant_time: false,
             seeds_settled: 0,
             seeds_heaved: 0,
             open_light: crate::sim::field::MAX_LIGHT,

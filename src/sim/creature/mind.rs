@@ -2364,7 +2364,7 @@ fn pick_up(
     if jaws
         || world.materials.get(food).food_energy <= 0.0
         || world.materials.known(Known::Corpse) == Some(food)
-        || bite.organism_id() != 0
+        || (bite.organism_id() != 0 && !scratch_log::grazeable(world, bite))
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
         return false;
@@ -2376,6 +2376,10 @@ fn pick_up(
         _ => food_value(world, bite),
     };
     if !seed.survived() {
+        // As the game's bite books it (`act`): a living plant cell leaving the world by a mouth.
+        if bite.organism_id() != 0 && world.materials.kind(food) == crate::sim::material::MaterialKind::Plant {
+            world.creature_stats.eaten_plant_cells += 1;
+        }
         world.loss_context = Some(DeathCause::Eaten);
         world.set(fx, fy, Cell::EMPTY);
         world.loss_context = None;
@@ -4390,6 +4394,22 @@ pub mod scratch_log {
     // tick the old ant's move is read back off the body -- the cut, put-down, pick-up or step it made -- as the option
     // indices that match it. That row (the 16th copy-log field) is the label. Hand-written rules failed five times
     // (report-2026-10-22.md, "Correction"); this asks the bar itself.
+    /// SCRATCH (plant-food lane, 2026-10-23): `PP_MIND_GRAZE=1` lets a mind's Pick up take food a plant still owns
+    /// -- a leaf, blade, flower or fruit on the stem, and a seed lying on the floor (a waiting seed is a one-cell
+    /// plant) -- as the game's ant already bites them (`act`'s bite: the seed asks `seed_survives_bite`, a spared one
+    /// rides home as the crop's passenger, the rest leaves the world as `Eaten`). Off: loose food only, as before.
+    /// Measured on the planted training bed (inrun `plants=`, seed 1, hcs founder): with it off the mind took 5 bites
+    /// in 2,500 frames and all 24 starved beside a stand holding ~940 leaf cells, ~90 fruit and ~180 seeds, while the
+    /// game's own ant on the same bed took 712 bites (430 leaf, 109 flower) and all 24 lived to 20,000.
+    pub fn graze_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_MIND_GRAZE").is_ok_and(|v| v == "1"))
+    }
+    /// Under [`graze_on`]: a cell a plant owns (its owner has no creature body). Off: never.
+    pub fn grazeable(world: &World, cell: Cell) -> bool {
+        let owner = cell.organism_id();
+        graze_on() && owner != 0 && world.organism(owner).is_some_and(|s| world.species.get(s.species).creature.is_none())
+    }
     pub fn shadow_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_SHADOW").is_ok_and(|v| v == "1"))
@@ -4950,7 +4970,7 @@ pub mod scratch_log {
     pub fn oldlab_take(world: &World, organism: OrganismId) -> bool {
         static K: OnceLock<u64> = OnceLock::new();
         let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
-        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64() % k == 0
+        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64().is_multiple_of(k)
     }
     /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
     pub fn oldlab_label_empty() -> bool {
@@ -5001,7 +5021,7 @@ pub mod scratch_log {
         }
         let key = |w: &World, p: (i32, i32)| {
             let c = w.get(p.0, p.1);
-            (c.material.0 as u16, c.organism_id())
+            (c.material.0, c.organism_id())
         };
         let Some(st0) = world.organism(organism) else { return };
         let (tail0, spoil0, crop0) = (st0.chain.last().copied(), st0.spoil.is_some(), st0.crop.map_or(0, |c| c.cells));
@@ -5176,9 +5196,11 @@ pub mod scratch_log {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_DIGFEAT").is_ok_and(|v| v == "1") || dighead_on())
     }
+    /// One Dig option of this decision: target, its dig features, the head's addition to its raw score.
+    pub type DigOpt = ((i32, i32), [f32; DIG_ND], f32);
     thread_local! {
         /// This decision's Dig options: target, its dig features, the head's addition to its raw score.
-        pub static DIG_OPTS: std::cell::RefCell<Vec<((i32, i32), [f32; DIG_ND], f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+        pub static DIG_OPTS: std::cell::RefCell<Vec<DigOpt>> = const { std::cell::RefCell::new(Vec::new()) };
     }
     thread_local! {
         /// This decision's "when": the head's addition to the Dig job's sum (0 without a when read-out).

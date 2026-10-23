@@ -1,0 +1,20 @@
+trainable slots: 16 (live 0, allow-list 16, frozen 16, of them live 2)
+group none : train  22034  held out   3264  target ref
+group carry: train  43626  held out   6440  target teacher
+step 0: held-out KL none -0.0000 carry 1.8969
+step 100: held-out KL none 0.0025 carry 1.8843  sum 1.8868  (5 s)
+step 200: held-out KL none 0.0030 carry 1.8840  sum 1.8870  (10 s)
+step 300: held-out KL none 0.0031 carry 1.8833  sum 1.8864  (15 s)
+step 400: held-out KL none 0.0026 carry 1.8830  sum 1.8856  (19 s)
+step 500: held-out KL none 0.0030 carry 1.8830  sum 1.8860  (24 s)
+step 600: held-out KL none 0.0055 carry 1.8852  sum 1.8908  (28 s)
+step 700: held-out KL none 0.0045 carry 1.8818  sum 1.8863  (33 s)
+step 800: held-out KL none 0.0027 carry 1.8829  sum 1.8857  (37 s)
+step 900: held-out KL none 0.0033 carry 1.8845  sum 1.8878  (41 s)
+step 1000: held-out KL none 0.0027 carry 1.8833  sum 1.8860  (46 s)
+step 1100: held-out KL none 0.0040 carry 1.8846  sum 1.8886  (50 s)
+step 1200: held-out KL none 0.0021 carry 1.8870  sum 1.8891  (55 s)
+early stop at 1200; best step 400
+wrote /home/user/hvs/cp/ta.txt: best step 400, live links 1455 (start 1439), moved 16, revived 16 [np.int64(601), np.int64(646), np.int64(691), np.int64(736), np.int64(781), np.int64(826), np.int64(871), np.int64(916), np.int64(961), np.int64(1006), np.int64(1051), np.int64(1096)]
+  none  start: overlap with target 1.000 | copy: overlap with target 0.993
+  carry start: overlap with target 0.409 P(label verb) 0.784 | copy: overlap with target 0.410 P(label verb) 0.784

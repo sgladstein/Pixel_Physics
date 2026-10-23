@@ -1,0 +1,30 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=60000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 stand: role=shrub mix=stand-shrub ["tree", "herb", "creeper"] seed=5 width=192 grow=60000 window=80000 sample=10000 sow=4 gap=0 gapat=0 arms=none,shipped plants_placed=9
+grown f=60000 | tree 6/44/1528/4210 | herb 20/46/866/2242 | creeper 7/0/168/355 | shrub 0/0/0/0  (plants/bank/leaf/shoot)
+grown f=60000 | floor light % of open: p10 2.5 p25 5.2 p50 7.8 p75 11.2 p90 24.0
+arm=none f=10000 | tree 15/34/1619/4483 | herb 19/54/706/1744 | creeper 6/1/109/205 | shrub 0/0/0/0
+arm=none f=20000 | tree 19/28/1658/4658 | herb 20/41/391/1111 | creeper 4/3/56/90 | shrub 0/0/0/0
+arm=none f=30000 | tree 19/26/1853/5240 | herb 17/27/421/1428 | creeper 3/4/9/25 | shrub 0/0/0/0
+arm=none f=40000 | tree 20/33/1804/5286 | herb 17/26/344/1393 | creeper 1/6/0/1 | shrub 0/0/0/0
+arm=none f=50000 | tree 21/37/1737/5261 | herb 11/33/263/978 | creeper 0/6/0/0 | shrub 0/0/0/0
+arm=none f=60000 | tree 13/39/1717/5304 | herb 8/40/275/952 | creeper 0/6/0/0 | shrub 0/0/0/0
+arm=none f=70000 | tree 23/21/1629/5076 | herb 16/24/247/974 | creeper 0/5/0/0 | shrub 0/0/0/0
+arm=none f=80000 | tree 20/30/1927/5487 | herb 18/23/250/1092 | creeper 0/2/0/0 | shrub 0/0/0/0
+arm=none end | floor light % of open: p10 3.0 p25 3.4 p50 6.1 p75 11.0 p90 35.2
+arm=none SWITCHES reserves_drawn 0 settled 0 heaved 0 germinations 267
+arm=shipped sown 4 of 4 endow 0.25
+arm=shipped f=10000 | tree 14/36/1619/4481 | herb 16/49/707/1756 | creeper 6/2/117/229 | shrub 0/1/0/0
+arm=shipped f=20000 | tree 17/35/1646/4634 | herb 20/36/390/1187 | creeper 4/3/56/90 | shrub 0/1/0/0
+arm=shipped f=30000 | tree 14/35/1812/5176 | herb 18/27/412/1458 | creeper 3/4/9/25 | shrub 0/1/0/0
+arm=shipped f=40000 | tree 15/38/1784/5224 | herb 16/32/402/1422 | creeper 1/6/0/1 | shrub 0/1/0/0
+arm=shipped f=50000 | tree 14/40/1799/5414 | herb 9/41/285/976 | creeper 0/6/0/0 | shrub 0/1/0/0
+arm=shipped f=60000 | tree 12/52/1786/5428 | herb 9/33/246/913 | creeper 0/6/0/0 | shrub 0/1/0/0
+arm=shipped f=70000 | tree 32/31/1656/5068 | herb 16/17/212/812 | creeper 0/5/0/0 | shrub 0/0/0/0
+arm=shipped f=80000 | tree 25/31/1855/5447 | herb 16/10/195/741 | creeper 0/2/0/0 | shrub 0/0/0/0
+arm=shipped end | floor light % of open: p10 3.5 p25 3.7 p50 7.7 p75 13.7 p90 20.2
+arm=shipped SWITCHES reserves_drawn 0 settled 0 heaved 0 germinations 284
+plant_m0 done: 60.9 s

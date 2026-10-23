@@ -158,3 +158,115 @@ they do not grow there is the next trace and was not run.
 - `plant_m0 genes=ROLE:germ:X` sets `Germinate.light_threshold`.
 - `PIXEL_PHYSICS_TRACE_CELLS=1` (plastic mode): every cell's carbon, and
   each growth visit with its price and why it stopped.
+
+## 6. Leaves that let more light through (`leafdepth/`), owner's choice
+
+Owner, 2026-10-22, on the card that followed: give the floor light by
+letting leaves pass more of it, **with no change to how trees look**. In the
+light field every `Plant` cell counted one cell of column depth (16 cells
+pass 20%); `PIXEL_PHYSICS_LEAF_DEPTH=D` (`field::leaf_depth`, default 1.0)
+counts a `leaf` cell as D of one. Wood, grass blades and reed are unchanged.
+
+**The floor brightens at first** (`floor/`, 4 beds, stand grown 60,000
+frames, light two rows above the ground):
+
+| leaf depth | floor median, % of open (4 beds) | darkest tenth |
+|---|---|---|
+| 1.0 (shipped) | 0.6-6.4 | 0.3-1.1 |
+| 0.5 | 2.1-10.7 | 1.3-3.9 |
+| 0.25 | 5.1-14.6 | 3.6-4.3 |
+| 0.1 | 5.0-14.6 | 3.3-6.2 |
+
+**Sown seeds still do not get in** (`stand/`, 12 seeds, 4 sown at
+`endow=0.25`, alive at 80,000): shrub 1 / 0 / 1 of 12 at depth 1.0 / 0.5 /
+0.25, creeper 1 / 0 / 1; at 0.25 with `waits`, `reserves` and `settle` on,
+shrub 0 and creeper 5 (tiny). Traced at 0.25 (`stand/trace_*`): the seeds
+now read 3-15% of open, and die of other things -- landing on a seed heap
+and leaving the slice (`Spread`, A6) within the first 1,000 frames, lying on
+litter or deadwood, or sprouting a root and losing the shoot tip.
+
+**And over a long run the trees take the light back** (`community/`, the
+four-role bed, 8 seeds, 450,000 frames, one binary):
+
+| | tree leaf | shrub beds (of 8, 100+ leaf) | herb beds | creeper beds | roles a bed | light under cover |
+|---|---|---|---|---|---|---|
+| depth 1.0 | 36,429 | 7 | 6 | 0 | 2.62 | 0.155 |
+| depth 0.25 | 43,901 (+21%) | 4 | 8 | 1 | 2.62 | 0.152 |
+| 0.25 + seedling switches | 50,961 (+40%) | 6 | 7 | 0 | 2.62 | 0.135 |
+
+At 150,000 frames the floor under cover is brighter with thin leaves (0.25
+against 0.20), and by 450,000 it is back where it was: **the trees grow
+more leaf until the floor is as dark as before**. That is how a real canopy
+behaves (leaf area grows to use the light), and it means leaf optics alone
+cannot make room for an understory here. The roles that survive a bed do
+not change (2.62 in every arm).
+
+**Not shipped.** `leaf_depth` stays at 1.0 as an instrument. What the long
+run points at instead is a limit on the tree itself -- a canopy that opens
+as trees age and die, or a crown that stops growing -- rather than at how
+much light one leaf passes.
+
+## 7. A canopy that opens: trees aged on the wrong clock (`treegaps/`)
+
+Owner, 2026-10-23, on the next card ("either suggestion or both"): the
+lever is the tree. Chosen here: **gaps from tree death**, because §6 found
+the trees fill any extra light, and a dead tree is the one thing that
+takes leaf away for good.
+
+**First, a census of what a death does.** `plant_m0 mode=community
+gaps=N` prints, every N frames, one character per column for the light two
+rows above the ground (digit = % of open light, `+` = 10% or more) and a
+`TREE` line for every tree of 20+ shoot cells: span, cells, senescent, and
+its age on three clocks. On today's engine (8 seeds, 450,000 frames) a big
+tree (1,000+ cells) dies 0-3 times a bed. When one does, the floor under
+its span goes from ~3% to 7-10% within 20-40k frames and stays open for
+40-80k. So gaps work -- there are just almost none.
+
+**Why there are almost none: old age reads the wrong clock.** The old-age
+roll's age was `age_ticks * ORGANISM_TICK_INTERVAL`, rolled over 45 frames.
+A big plant ticks every `45 * size_cadence` frames and the lab bed runs at
+half pace, so both undercount: a tree 200,000 wall frames old read
+**28,935** on that clock against **100,035** plant frames, and each roll
+covered 45 frames of a ~155-frame tick. A tree authored to a 60,000 median
+lived to roughly 415,000 frames. The annual hazard beside it already
+reads `plant_frames` over the tick's real span (`review-3-2026-10-10.md`
+§1 found the same trap for herbs). **`World::old_age_plant_time`** (off)
+makes old age read the same clock. Guard:
+`old_age_reads_plant_time_only_under_the_switch`.
+
+**Every lifespan was tuned on the broken clock**, so the fix alone also
+shortens the shrub (45,000) and the shrub loses. Re-derived: the shrub's
+old real lifespan is ~45,000 × its cadence ≈ 135,000. Four arms, 8 paired
+seeds, four-role bed (`mode=community mix=roles loadfail=0 rain=steady
+spells=20000,40000 ground=patchy frames=450000 gaps=2000`), one binary:
+
+| arm | trees died (all, big) | tree leaf | shrub leaf | herb leaf | shrub beds | herb beds | creeper beds | roles a bed | dark floor (under 2%) | floor mean | light under cover |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A: today | 77, 16 | 36,429 | 1,925 | 5,104 | 7 | 6 | 0 | 2.62 | 32% | 5.5% | 0.155 |
+| clock fixed only | 200, 70 | 17,061 | 693 | 13,627 | 2 | 8 | 0 | 2.12 | 9% | 8.0% | 0.237 |
+| B: clock fixed, shrub 135k | 126, 54 | 9,789 | 5,612 | 10,681 | 8 | 8 | 1 | **3.00** | 5% | 8.6% | 0.273 |
+| C: B + tree 120k | 109, 34 | 25,531 | 6,447 | 3,504 | 7 | 7 | 1 | 2.88 | 18% | 6.8% | 0.214 |
+
+(Beds of 8 holding 100+ leaf of the role; "big" = a tree that had reached
+1,000 cells, counted from the full runs; the committed files keep each
+tree's first senescent line and the floor every 50,000 frames.
+`treegaps/summary.py` rebuilds the rest of the table.)
+
+- **The canopy opens and the shrub comes back.** B and C both double the
+  big-tree deaths and halve the dark floor, and the shrub, the role a
+  closed stand was squeezing, holds 3x its leaf on 7-8 beds.
+- **B is the most mixed bed and the thinnest forest**: tree leaf falls to
+  27% of today's and the herb takes the open ground. **C keeps 70% of the
+  trees** and gives the extra ground to the shrub. Pictures:
+  `tree-gaps-seed{1,4,7}-f450000.png` in the project files.
+- **The creeper is still absent** (1 bed in B and C). It has no lifespan to
+  re-derive; its trouble is §1-5's, not the canopy's.
+- **Not judged:** conifer (60,000) and grass (30,000) were tuned on the
+  same clock and are not in this mix; the lab, which runs these species at
+  half pace, would see its trees die about 7x sooner than it does now.
+  Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
+  the cost of more, smaller plants.
+
+**Not switched on here.** It changes every world's plants, the lab's
+included, and the lifespans that go with it (arm C: tree and conifer
+120,000, shrub 135,000, grass by the same rule) are the owner's call.

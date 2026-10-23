@@ -248,7 +248,7 @@ impl Sample {
     }
 }
 
-fn is_waiting_seed(world: &World, id: OrganismId, state: &organism::OrganismState) -> bool {
+pub fn is_waiting_seed(world: &World, id: OrganismId, state: &organism::OrganismState) -> bool {
     // **A seed riding in an ant's crop is still bank, and owns no cell at
     // all while it rides** -- round 29, Brief 1. `plant::take_seed_passenger`
     // lifts the seed's one cell out of the world and keeps the organism live

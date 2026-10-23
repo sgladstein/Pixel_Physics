@@ -2775,8 +2775,72 @@ pub mod inrun {
         // thousand frames), and one-sided food starved the founders standing
         // on the other side (60 founders, food east: 27 of 60 by frame 1,500).
         let _ = (dist, drip, every);
-        let sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
-        let (mut w, _, _) = sc.build();
+        colony_in(seed, ants, &Garden::default(), genome_of)
+    }
+
+    /// SCRATCH (plant-food lane, 2026-10-23): **a planted bed** -- the colony eats what living plants make (seed,
+    /// fruit, litter, leaf) instead of the harness's pile. Off by default: `plants` empty is the bare bed exactly.
+    ///
+    /// `plants`: `(species, column)` founders, placed as the lab's `Plant` placement places them. `grow`: frames the
+    /// bed runs with no colony on it, so the colony lands on a grown stand, as the played bed's does at 6,000 (a colony
+    /// on seedlings is a colony on nothing). `rain`: the mister's setting (`lab::rain::Rain` index); the bare bed runs
+    /// it at 0, and a garden with no water is a garden that dies.
+    #[derive(Clone, Default)]
+    pub struct Garden {
+        pub plants: Vec<(String, i32)>,
+        pub grow: u64,
+        pub rain: Option<f32>,
+    }
+
+    impl Garden {
+        /// `MIX[:SPACING[:BAND]]`, e.g. `grass,herb,shrub,scrambler:12:40`: the species in turn every `SPACING`
+        /// columns (default 12) across the bed, none within `BAND` columns of the nest (default 40, the colony's
+        /// footing and its first chambers: a grown bed has no bare ground left to found on, `played_bed.ron`).
+        pub fn parse(spec: &str, grow: u64, rain: Option<f32>) -> Garden {
+            let mut it = spec.split(':');
+            let mix: Vec<&str> = it.next().unwrap_or("").split(',').filter(|s| !s.is_empty()).collect();
+            let spacing: i32 = it.next().map_or(12, |v| v.parse().expect("plants=MIX:SPACING"));
+            let band: i32 = it.next().map_or(40, |v| v.parse().expect("plants=MIX:SPACING:BAND"));
+            let mut plants = Vec::new();
+            if !mix.is_empty() {
+                let mut k = 0;
+                let mut x = spacing / 2 + 2;
+                while x < BED_W - 2 {
+                    if (x - NEST).abs() > band {
+                        plants.push((mix[k % mix.len()].to_string(), x));
+                        k += 1;
+                    }
+                    x += spacing;
+                }
+            }
+            Garden { plants, grow, rain }
+        }
+    }
+
+    /// [`colony`] on a [`Garden`]: the plants placed and grown for `grow` frames first, then the colony founded on
+    /// the grown bed. The datum is the bare bed's (frozen at build, before anything grew).
+    pub fn colony_in(seed: u64, ants: usize, garden: &Garden, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
+        let mut sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        let w = if garden.plants.is_empty() {
+            sc.build().0
+        } else {
+            if let Some(r) = garden.rain {
+                sc.settings.retain(|s| s.field != "rain");
+                sc.settings.push(crate::lab::scenario::Setting { subject: "the bed".into(), field: "rain".into(), value: r });
+            }
+            let colony: Vec<_> = sc.placements.iter().filter(|p| matches!(p, crate::lab::scenario::Placement::Colony { .. })).cloned().collect();
+            sc.placements.retain(|p| !matches!(p, crate::lab::scenario::Placement::Colony { .. }));
+            for (sp, x) in &garden.plants {
+                sc.placements.push(crate::lab::scenario::Placement::Plant { species: sp.clone(), x: *x });
+            }
+            let (mut w, _, _) = sc.build();
+            for _ in 0..garden.grow {
+                frame_timed(&mut w, &sc, true);
+            }
+            crate::lab::scenario::apply_placements(&mut w, &colony, &sc.bed);
+            w
+        };
+        let mut w = w;
         w.births_paused = true;
         let sp = w.species.id_of("ant").expect("ant");
         let mut def = w.species.get(sp).creature.clone().expect("creature");
