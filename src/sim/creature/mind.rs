@@ -1802,6 +1802,10 @@ fn decide_planned(
                 sum += w * x;
             }
         }
+        // SCRATCH (dig-scoring thread): the dig head's "when" read-out (`scratch_log::DigHead::e`), Dig's job only.
+        if v == Verb::Dig as usize && scratch_log::dighead_on() {
+            sum += scratch_log::dig_when();
+        }
         if state.last_verb == Some(Verb::ALL[v]) {
             sum += pulled;
         }
@@ -1836,8 +1840,11 @@ fn decide_planned(
     // first two trainings did exactly that (every output weight ~4.4, P 0.485 -> 0.489).
     let head = verb == Verb::Dig && scratch_log::dighead_on();
     for o in (0..opts.len()).filter(|&o| opts[o].verb == verb) {
-        let s = if head { squash(scratch_log::dig_bonus(opts[o].target)) } else { scores[o] };
-        (targets[n], shifted[n]) = (o, (s + 1.0) / 2.0);
+        // The head re-ranks the cuts the shared scorer accepts (its weight times the scorer's), never overrides it:
+        // a head that alone picked the cell (dh3) cut the hanging bites hcs avoids -- the old ant takes one in a
+        // quarter of its cuts -- and buried its diggers, who sank to the floor and starved (8.5 of 24 against 1).
+        let w = if head { (scores[o] + 1.0) / 2.0 * (squash(scratch_log::dig_bonus(opts[o].target)) + 1.0) / 2.0 } else { (scores[o] + 1.0) / 2.0 };
+        (targets[n], shifted[n]) = (o, w);
         n += 1;
     }
     let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
@@ -5038,8 +5045,34 @@ pub mod scratch_log {
         pub b: Vec<f32>,
         pub a: Vec<f32>,
         pub c: f32,
+        /// **When**: a second read-out of the same units, `c2 + max over the Dig options of e . units`, added to the
+        /// Dig job's sum. The ceiling for a head that picks only the cell (`PP_OLDLAB_ACT=4`: the old ant's cell
+        /// whenever hcs digs) moved nest 13 -> 16 (15 up / 16 down): the old ant's cut calls (ACT=1, nest 38.5) work
+        /// through *when*, 782 of hcs's digs a run replaced by its move against 166 cuts added. Empty: rank only.
+        pub e: Vec<f32>,
+        pub c2: f32,
     }
     impl DigHead {
+        /// (rank, when) for one Dig option.
+        pub fn eval2(&self, feats: &[f32; FEATURES], d: &[f32; DIG_ND]) -> (f32, f32) {
+            let n = FEATURES + DIG_ND;
+            let (mut out, mut when) = (self.c, 0.0);
+            for u in 0..self.h {
+                let row = &self.w[u * n..(u + 1) * n];
+                let mut z = self.b[u];
+                for (w, x) in row[..FEATURES].iter().zip(feats) {
+                    z += w * x;
+                }
+                for (w, x) in row[FEATURES..].iter().zip(d) {
+                    z += w * x;
+                }
+                out += self.a[u] * squash(z);
+                if let Some(e) = self.e.get(u) {
+                    when += e * squash(z);
+                }
+            }
+            (out, when)
+        }
         pub fn eval(&self, feats: &[f32; FEATURES], d: &[f32; DIG_ND]) -> f32 {
             let n = FEATURES + DIG_ND;
             let mut out = self.c;
@@ -5057,23 +5090,33 @@ pub mod scratch_log {
             out
         }
     }
-    /// `PP_DIGHEAD=path`: "H ND" then W (H rows of 45 + ND), b (H), a (H), c, whitespace-separated.
+    /// `PP_DIGHEAD=path`: "H ND" then W (H rows of 45 + ND), b (H), a (H), c, whitespace-separated; with a "when"
+    /// read-out, "H ND 1" and then also e (H), c2.
     pub fn dighead() -> Option<&'static DigHead> {
         static H: OnceLock<Option<DigHead>> = OnceLock::new();
         H.get_or_init(|| {
             let p = std::env::var("PP_DIGHEAD").ok()?;
             let txt = std::fs::read_to_string(&p).expect("PP_DIGHEAD file");
-            let v: Vec<f32> = txt.split_whitespace().map(|x| x.parse().expect("PP_DIGHEAD number")).collect();
-            let (h, nd) = (v[0] as usize, v[1] as usize);
+            let first = txt.lines().next().expect("PP_DIGHEAD header");
+            let when = first.split_whitespace().count() == 3 && first.split_whitespace().nth(2) == Some("1");
+            let v: Vec<f32> = txt.lines().skip(1).flat_map(|l| l.split_whitespace()).map(|x| x.parse().expect("PP_DIGHEAD number")).collect();
+            let hv: Vec<usize> = first.split_whitespace().map(|x| x.parse().expect("PP_DIGHEAD header")).collect();
+            let (h, nd) = (hv[0], hv[1]);
             assert_eq!(nd, DIG_ND, "PP_DIGHEAD: {nd} dig features, this build has {DIG_ND}");
             let n = FEATURES + DIG_ND;
-            assert_eq!(v.len(), 2 + h * n + 2 * h + 1, "PP_DIGHEAD: wrong length");
-            let w = v[2..2 + h * n].to_vec();
-            let b = v[2 + h * n..2 + h * n + h].to_vec();
-            let a = v[2 + h * n + h..2 + h * n + 2 * h].to_vec();
-            Some(DigHead { h, w, b, a, c: v[2 + h * n + 2 * h] })
+            assert_eq!(v.len(), h * n + 2 * h + 1 + if when { h + 1 } else { 0 }, "PP_DIGHEAD: wrong length");
+            let w = v[..h * n].to_vec();
+            let b = v[h * n..h * n + h].to_vec();
+            let a = v[h * n + h..h * n + 2 * h].to_vec();
+            let c = v[h * n + 2 * h];
+            let (e, c2) = if when { (v[h * n + 2 * h + 1..h * n + 3 * h + 1].to_vec(), v[h * n + 3 * h + 1]) } else { (Vec::new(), 0.0) };
+            Some(DigHead { h, w, b, a, c, e, c2 })
         })
         .as_ref()
+    }
+    pub fn dig_gate_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGHEAD_GATE").is_ok_and(|v| v == "1"))
     }
     pub fn dighead_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
@@ -5087,6 +5130,13 @@ pub mod scratch_log {
         /// This decision's Dig options: target, its dig features, the head's addition to its raw score.
         pub static DIG_OPTS: std::cell::RefCell<Vec<((i32, i32), [f32; DIG_ND], f32)>> = const { std::cell::RefCell::new(Vec::new()) };
     }
+    thread_local! {
+        /// This decision's "when": the head's addition to the Dig job's sum (0 without a when read-out).
+        pub static DIG_WHEN: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+    }
+    pub fn dig_when() -> f32 {
+        DIG_WHEN.with(|w| w.get())
+    }
     /// The head's addition for the Dig option aimed at `t`, 0 when none.
     pub fn dig_bonus(t: (i32, i32)) -> f32 {
         DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
@@ -5097,12 +5147,30 @@ pub mod scratch_log {
             let mut d = d.borrow_mut();
             d.clear();
             let mut ctxf: Option<(i32, f32, f32, f32)> = None;
+            let mut when = f32::NEG_INFINITY;
             for o in opts.iter().filter(|o| o.verb == Verb::Dig) {
                 let c = *ctxf.get_or_insert_with(|| dig_ctx(world, organism, at));
                 let fe = dig_feats(world, organism, at, o.target, c);
-                let bonus = dighead().map_or(0.0, |h| h.eval(&o.feats, &fe));
+                let (bonus, w) = dighead().map_or((0.0, 0.0), |h| h.eval2(&o.feats, &fe));
+                when = when.max(w);
                 d.push((o.target, fe, bonus));
             }
+            // `PP_DIGHEAD_GATE=1`: the "when" read-out only in the empty-jaw dig states the old ant was asked about
+            // (no spoil, crop empty, below the datum, within 40 columns of the door; hunger not read, so the copier
+            // can apply the same gate from the log). Head v3/v4 ungated: P(Dig) on unlabelled decisions 0.008 ->
+            // 0.018 and home food 318 -> 248-275.
+            let gated = dig_gate_on()
+                && !world.organism(organism).is_some_and(|s| {
+                    s.spoil.is_none()
+                        && s.crop.is_none_or(|c| c.cells == 0)
+                        && (at.0 - 128).abs() <= 40
+                        && world.room_surface_at(at.0).is_some_and(|top| at.1 > top)
+                });
+            let add = match dighead() {
+                Some(h) if !h.e.is_empty() && when.is_finite() && !gated => h.c2 + when,
+                _ => 0.0,
+            };
+            DIG_WHEN.with(|w| w.set(add));
         });
     }
     fn open_cell(world: &World, organism: OrganismId, x: i32, y: i32) -> bool {
