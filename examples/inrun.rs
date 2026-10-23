@@ -322,6 +322,33 @@ fn main() {
         def.digest_hunger_weight = v.parse().unwrap();
         w.species.set_creature(sp, def);
     }
+    // brood=lay (brood lane, 2026-10-23; the owner: "when an ant is ready to be born then its genome should be
+    // selected from the selection step"): the game's own life cycle runs in the bed. A fed ant lays when its bank
+    // reaches the brood block's bar (`try_bud`, exactly as in the lab: egg 120 J, a larva fed the rest of an adult's
+    // price by nestmates and food beside it, a pupa, then the adult), and **selection writes the child's mind at the
+    // moment the adult hatches** -- the hatch is the birth, so there is no lag between the pick and the ant. The egg
+    // carries its layer's mind until then; with no selection (sel=off) the hatchling keeps it, as in the lab.
+    // Selection's own births (quota, refill, hall) are not made: food decides how many are born, selection who.
+    // Why: with births made from nothing (kid_grants x 200 J each, ~150-220 a round) and the headcount held at lo..hi,
+    // food had no use beyond upkeep, so the nest filled: colsel20's light-head gardens held a median 389 stored cells
+    // (~370 kJ, one cell is about one ant's price) and ~87 full grants in each ant's bank. Off by default.
+    let brood_lay = match arg(&a, "brood") {
+        None | Some("off") => false,
+        Some("lay") => true,
+        Some(v) => panic!("brood={v}: use lay or off"),
+    };
+    // lay_cap=T:D (with brood=lay): the laying bar doubles for every D ants (adults plus brood) above T, so the colony
+    // grows on its surplus to around T and then lays only as fast as its banks outrun the raised bar -- a graded brake,
+    // never a stop. The bed's frame cost grows with its ants. Unset: the game's bar at any size.
+    let lay_cap: Option<(f64, f64)> = arg(&a, "lay_cap").map(|v| {
+        let (t, d) = v.split_once(':').expect("lay_cap=T:D");
+        (t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0))
+    });
+    let base_lay_at = w.species.get(sp).creature.as_ref().and_then(|d| d.brood.as_ref()).map_or(0.0, |b| b.lay_at);
+    if brood_lay {
+        assert!(base_lay_at > 0.0, "brood=lay: the ant has no brood block");
+        w.births_paused = false;
+    }
     w.cut_log = Some(Vec::new());
     w.food_log = Some(Vec::new());
     w.digest_log = Some(Vec::new());
@@ -349,6 +376,13 @@ fn main() {
     let (min_age, judge_every, cooldown) = (num("min_age", 15_000), num("judge", 500), num("cooldown", 5_000));
     let (zb0, zc0, kprice) = (fnum("zbirth", 2.0), fnum("zcut", 2.0), fnum("k", 2.0));
     let (mut lo, mut hi) = (num("lo", 24) as usize, num("hi", 36) as usize);
+    // The family cap's band top under brood=lay, where `hi` no longer bounds the colony: a quarter of this or of the
+    // colony now, whichever is larger.
+    let hi_band = hi;
+    // With brood=lay the colony's size is food's to set (and `lay_cap`'s), so the band's top cull is off unless asked.
+    if brood_lay && arg(&a, "hi").is_none() {
+        hi = 100_000;
+    }
     // grow_band=F:HI (review lane, 2026-10-22): every F frames the headcount band moves up by 4 until `hi` reaches HI, so
     // the colony grows through the round and the nest has to grow with it (the dig price otherwise hits its floor once
     // 25 open cells per ant exist, and late generations are bred on bailing spoil). Off by default.
@@ -552,6 +586,18 @@ fn main() {
         m: [f64; 5],
     }
     let mut book: HashMap<u32, Who> = HashMap::new();
+    // brood=lay: who the next hatchlings' minds come from, best first (each judgement's parents, a parent once per
+    // child the judgement gave it, round by round: every parent once, then those given two, then three), and how many
+    // hatched since the last judgement (that judgement's births, which its quota's culls wait for).
+    let mut sires: Vec<u32> = Vec::new();
+    let mut sire_at = 0usize;
+    let mut hatched_since = 0usize;
+    let mut seen_births = 0u64;
+    let mut brood_log = brood_lay.then(|| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("brood.csv")).unwrap());
+        writeln!(f, "frame,adults,eggs,larvae,pupae,laid,hatched,larvae_starved,brood_lost,hatch_denied,nursed_kj,ate_kj,lay_at").unwrap();
+        f
+    });
     // The recently starved adults: (death frame, score at death, record).
     let mut hall: Vec<(u64, f64, Who)> = Vec::new();
     let (home_colony, home_anchor) = founders.first().and_then(|&i| w.organism(i)).map(|s| (s.colony, s.forage_anchor)).unwrap();
@@ -903,6 +949,65 @@ fn main() {
                 }
             }
         }
+        // brood=lay: an adult just hatched is born now, and selection writes its mind (see `brood_lay`). Read after
+        // the death log, so an id a death freed this frame is out of the book before a hatchling can take it.
+        if brood_lay && w.creature_stats.births != seen_births {
+            seen_births = w.creature_stats.births;
+            let mut fresh: Vec<u32> = inrun::ants(&w, sp).into_iter().filter(|i| !book.contains_key(i)).collect();
+            fresh.sort_unstable();
+            for cid in fresh {
+                // No selection: the hatchling keeps the mind its egg took from its layer, as in the lab.
+                if sel == "off" {
+                    let g = creature::mind::genome_of(&w, cid).map(|g| g.w.clone()).unwrap_or_default();
+                    writeln!(births, "{frame},{cid},0,layer,0,hatch,{}", g.iter().filter(|v| **v != 0.0).count()).unwrap();
+                    writeln!(csv_ants, "{cid},layer").unwrap();
+                    book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: "layer".into(), gen: 1, genome: g, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
+                    hatched_since += 1;
+                    continue;
+                }
+                // The queue's next parent still alive and under its cap, else the best living adult by rate, else the
+                // best of the hall; with nobody, the founder line.
+                let mut pid = None;
+                while sire_at < sires.len() {
+                    let s = sires[sire_at];
+                    sire_at += 1;
+                    if book.get(&s).is_some_and(|b| b.kids < kid_cap) {
+                        pid = Some(s);
+                        break;
+                    }
+                }
+                if pid.is_none() {
+                    let rate = |b: &Who| b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1);
+                    pid = book.iter().filter(|(_, b)| b.kids < kid_cap).max_by(|x, y| rate(x.1).partial_cmp(&rate(y.1)).unwrap().then(y.0.cmp(x.0))).map(|(i, _)| *i);
+                }
+                let (base, family, gen) = match pid {
+                    Some(i) => (book[&i].genome.clone(), book[&i].family.clone(), book[&i].gen),
+                    None => match hall.iter().max_by(|x, y| x.1.partial_cmp(&y.1).unwrap()) {
+                        Some(h) => (h.2.genome.clone(), h.2.family.clone(), h.2.gen),
+                        None => (raw[slot(0)].clone(), mix[slot(0)].0.clone(), 0),
+                    },
+                };
+                let child = if neutral {
+                    neutral_mutate(&base, &kslots, kpm, ksigma, kevents, prot, &mut srng)
+                } else {
+                    train::mutate(&base, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
+                };
+                creature::mind::give(&mut w, cid, inrun::mind(&child));
+                if let Some(pb) = pid.and_then(|i| book.get_mut(&i)) {
+                    pb.last_kid = frame;
+                    pb.kids += 1;
+                    pb.at_kid = (pb.credit, pb.g2);
+                    if retire && pb.kids >= kid_cap {
+                        retiring.push(pid.unwrap());
+                    }
+                }
+                writeln!(births, "{frame},{cid},{},{family},{},hatch,{}", pid.unwrap_or(0), gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                writeln!(csv_ants, "{cid},{family}").unwrap();
+                book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), m: [0.0; 5] });
+                hatched_since += 1;
+                last_birth = frame;
+            }
+        }
         // A pellet let go: where the head is now.
         // Sorted: `held` is a HashMap, and the order pellets are handled in moves `loose_n` (an out-pellet's clear price
         // reads it) and the order credits are summed. Unsorted, 2 of 64 seeds diverged between two runs of one build.
@@ -1065,7 +1170,7 @@ fn main() {
             let (sg2, st): (f64, f64) = ids.iter().map(|i| { let b = &book[i]; (b.g2, (frame - b.born) as f64 / 1000.0) }).fold((0.0, 0.0), |a, c| (a.0 + c.0, a.1 + c.1));
             let rate_g2 = sg2 / st.max(1e-9);
             let adults: Vec<u32> = ids.iter().copied().filter(|i| frame - book[i].born >= min_age).collect();
-            let mut births_n = 0;
+            let mut births_n = std::mem::take(&mut hatched_since);
             let (mut q_now, mut hard_n) = (0usize, 0usize);
             let mut removals_n = 0;
             let mut med = f64::NAN;
@@ -1093,7 +1198,7 @@ fn main() {
                 }
                 // A quarter of the band's top, not of the colony now: as a quarter of `n` it shut every family out
                 // once a colony was small (n 7: cap 2), so a starving colony could not refill (p7, 2026-10-21).
-                let cap_f = (hi / 4).max(2);
+                let cap_f = if brood_lay { (hi_band.max(n) / 4).max(2) } else { (hi / 4).max(2) };
                 // Who the score picks: parents with their kid counts, and removals.
                 let mut parents: Vec<(u32, u32)> = Vec::new();
                 // Every eligible parent this judgement, for `cross=`'s second parent.
@@ -1174,6 +1279,8 @@ fn main() {
                     // With the hall on, refilling below `lo` is its job (below), not the living-only quota's.
                     let short = if hall_keep > 0 { 0 } else { lo.saturating_sub(n) };
                     let want = (hard + quota_cut.len() + short) as u32;
+                    // brood=lay: as many picks as there are adults, the next judgement's hatchlings' parents.
+                    let want = if brood_lay { want.max(adults.len() as u32) } else { want };
                     // Breeding z: lifetime, or with fresh_kid the record since the last child.
                     let zb_of = |i: u32| -> Option<f64> {
                         let b = &book[&i];
@@ -1305,6 +1412,14 @@ fn main() {
                     }
                     quota_cut = qc;
                 }
+                if brood_lay {
+                    sires.clear();
+                    sire_at = 0;
+                    for round in 1..=parents.iter().map(|p| p.1).max().unwrap_or(0) {
+                        sires.extend(parents.iter().filter(|p| p.1 >= round).map(|p| p.0));
+                    }
+                    parents.clear();
+                }
                 for &id in &cut {
                     if inrun::cull(&mut w, id) {
                         culled_pending.insert(id);
@@ -1386,7 +1501,7 @@ fn main() {
             if hall_keep > 0 {
                 hall.retain(|h| frame - h.0 <= hall_keep);
                 let n_now = book.len();
-                if n_now < lo {
+                if n_now < lo && !brood_lay {
                     // Plain score per 1k frames for both; a dead ant's is cut by `dead_w` (a loss grows by 1/dead_w).
                     let pen = |v: f64| if v > 0.0 { v * dead_w } else { v / dead_w.max(1e-6) };
                     let mut ids: Vec<u32> = book.keys().copied().collect();
@@ -1470,6 +1585,31 @@ fn main() {
             // door_open (dig thread, PR #780): the nest's largest piece joins the air; -1 before there is a nest.
             let door_open = pixel_physics::lab::nestscore::door_open(&w, &sc.bed, door, 3, 20).map_or(-1, |o| o as i32);
             writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open},{},{}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell(), zone.iter().filter(|&&z| z).count(), (0..zone.len()).filter(|&i| zone[i]).map(|i| (i as i32 % bw - inrun::NEST).abs()).max().unwrap_or(0)).unwrap();
+        }
+        // brood=lay: the size brake (`lay_cap`) every 250 frames, and the brood's census every 1,000.
+        if brood_lay && fr % 250 == 0 {
+            let mut stages = [0u32; 3];
+            for id in w.live_brood_ids() {
+                if let Some(b) = w.organism(id).and_then(|s| s.brood) {
+                    stages[b.stage as usize] += 1;
+                }
+            }
+            let adults_n = inrun::ants(&w, sp).len();
+            let lay_at = match lay_cap {
+                Some((t, d)) => base_lay_at as f64 * 2f64.powf(((adults_n + stages.iter().sum::<u32>() as usize) as f64 - t).max(0.0) / d),
+                None => base_lay_at as f64,
+            };
+            let mut def = w.species.get(sp).creature.clone().expect("creature");
+            if let Some(b) = def.brood.as_mut() {
+                if (b.lay_at as f64 - lay_at).abs() > 0.5 {
+                    b.lay_at = lay_at as f32;
+                    w.species.set_creature(sp, def);
+                }
+            }
+            if let Some(bl) = brood_log.as_mut().filter(|_| fr % 1000 == 0) {
+                let cs = &w.creature_stats;
+                writeln!(bl, "{fr},{adults_n},{},{},{},{},{},{},{},{},{:.1},{:.1},{lay_at:.0}", stages[0], stages[1], stages[2], cs.eggs_laid, cs.births, cs.larvae_starved, cs.brood_lost, cs.hatches_denied, (cs.brood_nursed_j + cs.brood_crop_fed_j + cs.brood_shared_j) / 1000.0, cs.brood_ate_j / 1000.0).unwrap();
+            }
         }
         if fr % 1000 == 0 {
             let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);
