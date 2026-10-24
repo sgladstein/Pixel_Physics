@@ -409,12 +409,27 @@ pub fn switch_on_value(v: &str) -> bool {
 /// **On by default at `40:30`** (owner, 2026-10-24: "if we have decided these are the correct path forward they should
 /// be default on"): every colony-selection batch since colsel18 ran with it, and the standard line's founder `hcs` and
 /// everything selected from it was trained with it. `PP_HOMEVEC=off` (or `0`) is the old mind, byte-identical.
+///
+/// **`PP_HOMEVEC=log:S`** (teacher lane, 2026-10-24; owner: "why does the sense need to be binarized at all"): the same
+/// two slots read `ln(1 + d / S)` instead of the ramp -- graded from the door, never capped (S = 40: 0.49 at 25
+/// columns, 1.25 at 100, 2.14 at 300), so a mind can tell 70 columns from 150. **Why**: the ramp saturates at `R + W`
+/// (70 at the default), and every pool selected with food 25-45 columns out learned "far reads 1 -> turn for home":
+/// traced on farfood1's best colony with food 60 out, empty ants stepped homeward 29-31% of the time within 60
+/// columns and 60-75% past 70. In a lab box with food 100 columns out it lived only with the ramp moved out
+/// (80:60, 100:100 or off: 28-134 alive against 0-2). The dead zone within `R` was a guard for copying the come-home
+/// lesson onto a forager without it leaking into foraging near home; colony selection does not copy. Encoded as `R` =
+/// NaN, read by [`far_ramp`].
 pub fn home_vec() -> Option<(f32, f32)> {
     static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "40:30".to_string());
         if !switch_on_value(&v) {
             return None;
+        }
+        if let Some(s) = v.strip_prefix("log:") {
+            let s: f32 = s.parse().expect("PP_HOMEVEC=log:S");
+            assert!(s > 0.0, "PP_HOMEVEC=log:S, S > 0");
+            return Some((f32::NAN, s));
         }
         let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HOMEVEC=R:W")).collect();
         assert!(p.len() == 2 && p[1] > 0.0, "PP_HOMEVEC=R:W, W > 0");
@@ -443,8 +458,12 @@ fn hungry_graded() -> bool {
     *ON.get_or_init(|| std::env::var("PP_HUNGRY_GRADED").is_ok_and(|v| switch_on_value(&v)))
 }
 
-/// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond.
+/// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond; or, for `log:S` (`r` NaN),
+/// `ln(1 + d / w)`, graded and uncapped.
 pub fn far_ramp(d: f32, r: f32, w: f32) -> f32 {
+    if r.is_nan() {
+        return (1.0 + d.max(0.0) / w).ln();
+    }
     ((d - r) / w).clamp(0.0, 1.0)
 }
 
@@ -1003,6 +1022,17 @@ mod tests {
     use super::*;
     use crate::sim::creature::{targets, usable_headings};
     use crate::sim::Cell;
+
+    /// `PP_HOMEVEC=log:S` is graded from the door and never caps, where the ramp reads 1 at every distance past
+    /// `R + W` -- the property the log form exists for (70 and 150 columns must read differently).
+    #[test]
+    fn the_log_far_sense_keeps_rising_where_the_ramp_caps() {
+        assert_eq!(far_ramp(70.0, 40.0, 30.0), far_ramp(150.0, 40.0, 30.0));
+        assert_eq!(far_ramp(0.0, f32::NAN, 40.0), 0.0);
+        let (a, b, c) = (far_ramp(25.0, f32::NAN, 40.0), far_ramp(70.0, f32::NAN, 40.0), far_ramp(150.0, f32::NAN, 40.0));
+        assert!(0.0 < a && a < b && b < c, "{a} {b} {c}");
+        assert!((far_ramp(100.0, f32::NAN, 40.0) - 3.5f32.ln()).abs() < 1e-6);
+    }
 
     fn colony_box() -> World {
         crate::lab::scene::LabBox {
