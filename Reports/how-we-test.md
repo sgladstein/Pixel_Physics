@@ -82,7 +82,7 @@ Owner rulings, 2026-10-05:
      and in the switch's doc and its `how-the-ant-works.md` row, so the
      reason it is off can be re-checked later.
    - A change that failed its own target is not "off", it is a dead end:
-     a [`dead-ends.md`](dead-ends.md) entry, its branch kept (§7).
+     a [`dead-ends.md`](dead-ends.md) entry, its branch kept (§8).
    - **"Lands switched off" was never a project rule** (the owner caught it
      presented as one, 2026-10-12). It was a habit of the build-and-measure
      process, and it left fixes forgotten behind switches. The audit of
@@ -226,7 +226,33 @@ Before building anything new, grep [`instruments.md`](instruments.md).
   footnote. Per-seed numbers, not only means.
 - Judge-by-eye questions go to the owner as a card (`review` skill).
 
-## 7. Before you push
+## 7. Training batches on the VM
+
+For colony-selection (`colsel.py`) and in-run batches. The evidence is the
+[training compute audit](brain-training/research/training-compute-audit-2026-10-24.md)
+(2026-10-24, all 52 batches in the bucket); the owner asked for it to become
+the rule, and the Teacher lane adopted it the same day.
+
+- **Every idea needs a comparison, but rarely a fresh one.** Judging an idea
+  arm against its own first garden matched the real call on only 9 of 18
+  measures, and 3 came out backwards: selection alone improves a colony.
+  Seeds are deterministic per build (§1), so an arm with the same build,
+  founder pool, settings and seeds is already a control. Look for it in the
+  bucket before running one; never rerun it (7% of all colony-rounds were
+  byte-identical reruns). Resume a shared prefix rather than replaying it.
+- **One control per ratchet turn**, shared by every idea tested in that turn.
+- **Garden every 8 rounds** (`CG_EVERY=8`; 4 for short runs). At the old
+  default of 2 the garden was 30% of colony-selection CPU.
+- **Screen at 32 colonies × 16 rounds, confirm at 64 × 48.** 32 colonies keep
+  99% of large-effect calls and 85% of medium ones; no smaller sample ever
+  reversed a call. Rule changes show at the first garden. Learned behaviour
+  settles by round 23–31, and erosion only shows in long runs.
+- **Name the deciding measure before launch.** Five measures at p < 0.05 give
+  an idea that does nothing a "significant" change about one time in five.
+- **Count extinct colonies in the garden** as alive 0, nest 0; the garden
+  drops them, so its medians otherwise describe survivors only.
+
+## 8. Before you push
 
 - `rustfmt` the files you touched (never a whole-project `cargo fmt` riding
   along), then

@@ -5921,6 +5921,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   a weaned body scaffold), six questions that pick one, the check that says whether it is working, and the method for each current task
   (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
 
+- [brain-training/research/training-compute-audit-2026-10-24.md](brain-training/research/training-compute-audit-2026-10-24.md) —
+  **what the VM's training CPU bought, from all 52 batches in the bucket (analysis only).** The common garden is 30% of
+  colony-selection CPU and 7% of colony-rounds were byte-identical reruns. A comparison is needed (judging an idea
+  against its own start matched the control call on 9 of 18 measures, 3 backwards) but a fresh control rarely added
+  information: reuse cached controls, garden every 8 rounds (together ~28%), 32 colonies catch every large effect.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
