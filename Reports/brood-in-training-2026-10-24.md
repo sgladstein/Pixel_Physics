@@ -117,3 +117,15 @@ and ruled that the brake may read only what the layer itself can sense, not the 
   24/47/94/145/194/198; crowd-keyed exponential bars boomed and crashed (208 then 90). The open question is whether
   selection finds a brake that hand-setting did not. Jobs: `scratch/inrun/jobs/laygene1.txt` (gate, bias only, and no
   gate, all with `capwean=4:16` and the lab case). Dead end recorded: `Reports/dead-ends.md`, `lay_gate`.
+
+**Result, laygene2-1024 (Teacher lane, 2026-10-24 evening): selection found no brake.** Founder ls12, 32 colonies x 24
+rounds, `capwean=4:16`, common garden at `lay_cap_p=0`. Round 23: gene on (lg) 175 ants in the garden, ~960 starved
+per round, nest 144, lab case 1,244; no gene (lgctl) 182, ~1,030, 114, 1,289; cap kept (lgkeep) 80, 63, 317, 1,210.
+Paired lg against lgctl, lg ahead on the lab case in 13 colonies of 32 and on garden alive in 14: no win. The gate
+slots did drift (medians bias -0.03, crop 0.03, food -1.36, crowd 0.08, brood 0.65, fed 0.86, spread about +-2), so
+the genes were moving, but nothing selected them toward restraint. Uncapped colonies settle at 160-200 ants with
+constant starvation churn and do not die out (0 of 32 in lg), so **the bed never presents the lab box's failure**
+(a boom to ~710 and a crash with food left): a colony that starves a thousand a round and refills is not ranked down
+by any case, and the lab case moved little. The Teacher lane keeps `lay_cap` in training; the gate stays on by
+default, neutral at zeros. *Next, if retried:* a colony case that pays for low starvation per birth, or a bed where
+overshoot kills (food far, as in the lab box), so restraint has something to buy.
