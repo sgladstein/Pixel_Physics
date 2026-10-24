@@ -25,7 +25,7 @@
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
 //! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
-//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR]` keeps N spiders
+//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=life|total]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -649,14 +649,22 @@ impl Spiders {
     /// Score: credit per thousand frames alive, as predtrain's, but over at least 20,000 frames -- per frame alive
     /// alone, the first smoke run's best spider was one that gorged for 1,330 frames and was killed (124.8, against
     /// 14.6 for one that hunted for 9,670), and a spider that eats and dies is not the hunter to breed from.
-    fn save(&self, dir: &std::path::Path, end: u64) {
+    ///
+    /// `spider_score=total` (co-evolution's second batch, 2026-10-24): the food it ate over the time it could have had,
+    /// placement to the run's end -- dying early forfeits the rest, and a spider placed late is not marked down for
+    /// having less run left. **Why**: under the per-frame-alive score, elitism worked on its own terms (lives 6k -> 22-33k
+    /// frames, credit 310 -> 520 a placement) and bred careful hunters that kept away from the colony: judged on the
+    /// gardens, they killed fewer ants than the pool they came from in 38 of 48 pairs and were killed half as often.
+    /// Dividing by the time alive paid a spider for surviving, not for eating.
+    fn save(&self, dir: &std::path::Path, end: u64, total: bool) {
         std::fs::create_dir_all(dir).unwrap();
         let mut f = std::fs::File::create(dir.join("scores.csv")).unwrap();
         writeln!(f, "k,parent,born,died,credit,score,mutant").unwrap();
         for (k, (_, parent, g, born, died, credit, mutant)) in self.log.iter().enumerate() {
             train::save_genome(&dir.join(format!("k{k:03}.raw.txt")), g).unwrap();
             let life = (died.unwrap_or(end) - born) as f64 / 1000.0;
-            writeln!(f, "{k},{parent},{born},{},{credit:.3},{:.4},{}", died.map_or(String::new(), |d| d.to_string()), credit / life.max(20.0), u8::from(*mutant)).unwrap();
+            let score = if total { credit / ((end - born) as f64 / 1000.0).max(1.0) } else { credit / life.max(20.0) };
+            writeln!(f, "{k},{parent},{born},{},{credit:.3},{score:.4},{}", died.map_or(String::new(), |d| d.to_string()), u8::from(*mutant)).unwrap();
         }
     }
 
@@ -2511,7 +2519,12 @@ fn main() {
         println!("weed: {weeded} plant cells pulled within {weed} columns of the door");
     }
     if let (Some(s), Some(d)) = (spiders.as_ref(), arg(&a, "spider_out")) {
-        s.save(std::path::Path::new(d), w.frame - f0);
+        let total = match arg(&a, "spider_score") {
+            None | Some("life") => false,
+            Some("total") => true,
+            Some(o) => panic!("spider_score={o}: life or total"),
+        };
+        s.save(std::path::Path::new(d), w.frame - f0, total);
     }
     if let Some(s) = spiders.as_ref() {
         let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
