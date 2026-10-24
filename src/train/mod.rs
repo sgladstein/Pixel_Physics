@@ -47,6 +47,7 @@
 //! brain trained the same way.
 
 pub mod challenges;
+pub mod predator;
 
 use crate::sim::brain::{self, BrainInput, BrainOutput};
 use crate::sim::creature::mind;

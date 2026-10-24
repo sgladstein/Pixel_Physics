@@ -1,0 +1,84 @@
+// **The lone predator** (lone predator thread, 2026-10-23; owner: "train a
+// new lone predator creature using the same in colony training scheme the
+// ants use"). A six-cell hunter that lives alone, has no nest, cannot dig,
+// and eats ants. Its behaviour is a mind (`creature::mind`, the ant's brain
+// design) trained by births and culls among predators inside a living world
+// (`examples/predtrain.rs`); the instincts below are only the fallback for a
+// spider placed with no mind, and are the beetle's.
+//
+// **Every rule it lives by is the world's**: the bite is the game's bite
+// (`contest::bite_progress`, jaw against plate), flesh goes into the crop as
+// the ingest takes it, the crop digests as every crop does. What it kills
+// and when is the mind's (`options::attack_on`).
+//
+// **Why these numbers.** Each is set against the ant it hunts, not measured
+// yet, and labelled as such:
+//
+// - **3 wide, 2 tall, rigid.** The ant's stamped shaft is two cells wide, so
+//   a spider cannot follow an ant home: the nest is a refuge by geometry and
+//   the surface is the hunting ground, which is what the colony's defence
+//   is to be trained on. The head is the bottom-front corner, where it meets
+//   the ground (the beetle's reason).
+// - **`tick_interval: 4` against the ant's 6**: half again as fast, so a
+//   hunter can close on a forager, and a forager near home can still reach
+//   the door.
+// - **`dig_force: 0.5`**: below soil's 0.8, so it cannot dig; it is also the
+//   bite (`bite_force` defaults to `dig_force`), above the ant's flesh at
+//   0.25, so one bite takes a cell of ant.
+// - **`start_energy: 2000`, idle 0.03 and move 0.08 a cell**: about 6,000
+//   frames of steady walking on a full tank and 45,000 standing still. An ant
+//   is two cells of 480, about half a tank, so a spider must catch an ant
+//   every 3,000 frames or so while it hunts.
+// - **`synapse_fraction`: a link costs a thousandth of the idle bill**
+//   (0.18 / 1000 / 2000 = 9e-8), so a 300-link mind costs about a third of
+//   standing still. The ant's 2.2e-6 was judged too high by the colony
+//   training lane (700 links billed 0.31 a tick against 0.10 idle).
+(
+    name: "spider",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+    creature: Some((
+        body: Rigid([(-1, 0), (-2, 0), (0, -1), (-1, -1), (-2, -1)]),
+        tick_interval: 4,
+        life_half_life: 40000,
+        start_energy: 2000.0,
+        idle_cost_per_cell: 0.03,
+        move_cost_per_cell: 0.08,
+        // A bite is jaw work, priced as a cut (`mind::attack`'s bill).
+        dig_cost_in_moves: 6.0,
+        synapse_fraction: 0.00000009,
+        // Equal to `materials/spider.ron`'s `food_energy` (the ledger's
+        // equality).
+        body_energy: 300.0,
+        // The beetle's stomach: three cells of ant.
+        crop_capacity: 1440.0,
+        armour_fraction: 5.859e-06,
+        digest_fraction: 0.01515,
+        digest_rate: 3.3,
+        // A carnivore gut (`traits[0]`, `food_class: 1.0` foods only), and a
+        // scent of its own, far from the ant's and the beetle's.
+        traits: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.8, 0.8, -0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        // The beetle's ratio to its tank (2550 / 1600). Unused in training,
+        // where births are the selection's.
+        reproduce_threshold: 3200.0,
+        mutation_rate: 0.0031548,
+        force_fraction: 0.000015625,
+        dig_force: 0.5,
+        // The fallback brain's eyes (the beetle's), for a spider with no
+        // mind. A mind casts no rays and pays no sight.
+        sight_range: 64,
+        sight_fraction: 0.0000000079047218,
+        sensor_offset: 6,
+        instincts: [
+            (Bias, Move, 2.0),
+            (Stillness, Move, 1.5),
+            (FoodAdjacent, Move, -2.0),
+            (FoodAdjacent, Feed, 2.0),
+            (TempAboveAmb, Turn, -0.8),
+            (PreyBearing, Turn, -2.5),
+        ],
+    )),
+)
