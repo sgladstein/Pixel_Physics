@@ -295,6 +295,13 @@ fn main() {
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
     );
+    // The arm, and whether it fired: founders given a genome from the lab's
+    // plant pool (`LabBox::plant_pool`; PIXEL_PHYSICS_PLANT_POOL=0 is off).
+    println!(
+        "  plant pool: {} (founders from it {})",
+        if world.plant_pool.is_some() { "on" } else { "off" },
+        world.plant_pool_founded
+    );
     // **`census::nest_columns`, not a copy of half of it.** This block read
     // only the scenario's own placements and timeline; the shared function
     // adds the bed's `colonies` and -- the half that was missing everywhere

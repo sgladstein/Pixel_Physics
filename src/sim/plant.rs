@@ -15710,6 +15710,23 @@ impl World {
             // A seed until `germinate` says otherwise (`OrganismState::dormant_seed`).
             state.dormant_seed = true;
         }
+        // **A pooled species founds from its pool** (`World::plant_pool`):
+        // the next genome in planting order, written exactly as `plant_m0
+        // mode=bedsel` wrote the founders the pool was judged on. Marks the
+        // founder inherited, so `seed_genotype` does not redraw it.
+        let pooled = self.plant_pool.as_ref().and_then(|pool| {
+            let name = &self.species.get(tree_species).name;
+            pool.by_species.get(name).filter(|g| !g.is_empty()).map(|g| {
+                let k = self.plant_pool_next.get(&tree_species.0).copied().unwrap_or(0);
+                (g[k % g.len()], k)
+            })
+        });
+        if let Some((g, k)) = pooled {
+            self.plant_pool_next.insert(tree_species.0, k + 1);
+            self.set_organism_genotype(organism_id, g.draws, g.alleles, g.params, g.lineage);
+            self.set_organism_fates(organism_id, g.fates);
+            self.plant_pool_founded += 1;
+        }
         let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Checked often while it is still falling -- see SEED_TICK_INTERVAL.

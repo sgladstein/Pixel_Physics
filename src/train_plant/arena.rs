@@ -397,7 +397,10 @@ pub fn dry_soil(w: &mut World, fraction: f32, width: i32, height: i32) {
 /// station's light. The founder is the one organism the bed holds once it is
 /// built (no colony, no predator, one founder).
 pub fn build(bed: &LabBox, spec: &BedSpec) -> (World, OrganismId) {
-    let mut w = bed.build();
+    // Founded from the species file, never the lab's plant pool
+    // (`LabBox::plant_pool`): a pool genome would overwrite the very
+    // candidate this bed exists to score.
+    let mut w = LabBox { plant_pool: false, ..bed.clone() }.build();
     dim_lamps(&mut w, spec.station.lamp, bed.width, bed.height);
     if spec.station.soil < 1.0 {
         dry_soil(&mut w, spec.station.soil, bed.width, bed.height);
@@ -611,5 +614,7 @@ mod tests {
         assert!(w.organism(founder).is_some());
         assert_eq!(w.founder_variant_chance, 0.0);
         assert_eq!(w.fate_mutation_chance, 0.0);
+        assert!(bed.plant_pool, "test setup: the box would have pooled the herb");
+        assert_eq!(w.plant_pool_founded, 0, "the founder is the species file, not a pool genome");
     }
 }

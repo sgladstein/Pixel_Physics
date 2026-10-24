@@ -225,6 +225,19 @@ pub struct LabBox {
     /// species. `None` is today's bed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub species_ron: Option<String>,
+    /// **Found pooled species from `World::plant_pool`** (the shipped
+    /// bed-selected pool). `true`, the default, is the engine's; `false`
+    /// founds from species files, the arm a pool is judged against
+    /// (`plant_m0 pool=0`, `mode=bedsel`'s shipped garden).
+    /// `PIXEL_PHYSICS_PLANT_POOL=0` turns it off for every box.
+    ///
+    /// **The lab's, not the engine's**: the pool was selected in this box
+    /// (four roles, grow lights, half-speed plants), and nobody has
+    /// measured what it does to the outdoor world's forests, so
+    /// `World::new` leaves `plant_pool` empty and this sets it -- the same
+    /// split as `plant_size_cadence` below.
+    #[serde(default = "plant_pool_default")]
+    pub plant_pool: bool,
     /// **The bed drains through its floor**, as a pot does through its hole
     /// (`super::rain::drain`; M1 step 2 of
     /// `Reports/plant-community-plan-2026-10-20.md`, bug Z38). **On by
@@ -404,6 +417,10 @@ fn is_drain_default(drain: &bool) -> bool {
 
 /// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
 /// and a fresh `World` agree, `PIXEL_PHYSICS_WINDFALL_ROT=off` included.
+fn plant_pool_default() -> bool {
+    true
+}
+
 fn windfall_rots_default() -> bool {
     crate::sim::decay::windfall_rots_default()
 }
@@ -521,6 +538,7 @@ impl Default for LabBox {
             windfall_rots: windfall_rots_default(),
             founder_at: None,
             species_ron: None,
+            plant_pool: true,
             drain: drain_default(),
             spells: None,
             ground: Ground::Uniform,
@@ -1077,6 +1095,9 @@ impl LabBox {
     pub fn build_counted(&self) -> (World, Planted) {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, self.width - 1, self.height - 1));
         w.seed = self.seed;
+        if self.plant_pool {
+            w.plant_pool = crate::sim::plant_pool::default_pool();
+        }
         // Before anything is planted -- see the field's doc for why the
         // order is the whole point.
         if let Some(source) = &self.species_ron {
@@ -1647,6 +1668,31 @@ mod tests {
                 "a founder's body traits, against ant.ron's with the evolved ant's six"
             );
         }
+    }
+
+    /// **The box founds a pooled species from the shipped plant pool**, in
+    /// list order, and `plant_pool: false` founds from the species file.
+    /// Scoped to the lab: a plain world holds no pool, and the plant
+    /// trainer's arena -- which scores a species file -- never reads one.
+    #[test]
+    fn the_box_founds_pooled_species_from_the_plant_pool() {
+        let pool = crate::sim::plant_pool::default_pool().expect("the shipped pool is on");
+        let herbs = &pool.by_species["herb"];
+        let bed = LabBox { colonies: 0, founders: 3, species: "herb".into(), ..LabBox::default() };
+        let (w, planted) = bed.build_counted();
+        assert_eq!(planted.planted, 3, "test setup: the bed planted {} of 3", planted.planted);
+        assert_eq!(w.plant_pool_founded, 3, "every herb founder takes a pool genome");
+        let mut got: Vec<[f32; crate::sim::organism::GENOTYPE_TRAITS]> =
+            w.live_organism_ids().into_iter().filter_map(|id| w.organism(id)).map(|st| st.genotype_draws).collect();
+        let mut want: Vec<_> = herbs[..3].iter().map(|g| g.draws).collect();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(got, want, "the founders carry the pool's first three herbs");
+
+        let off = LabBox { plant_pool: false, ..bed.clone() }.build();
+        assert_eq!(off.plant_pool_founded, 0, "plant_pool: false founds from the file");
+        let outdoor = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        assert!(outdoor.plant_pool.is_none(), "a plain world holds no pool");
     }
 
     /// **What each name of `PIXEL_PHYSICS_LAB_ANT` founds.** The evolved

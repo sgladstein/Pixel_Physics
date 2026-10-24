@@ -97,6 +97,7 @@ pub mod parallel;
 pub mod particle;
 pub mod pheromone;
 pub mod plant;
+pub mod plant_pool;
 pub mod player;
 pub mod rigid;
 pub mod rng;
