@@ -1,0 +1,223 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 52adc119..742491cb 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -1530,5 +1530,8 @@ fn main() {
+     write_nestmap(&w, &out.join("nestmap.txt"));
+     creature::mind::scratch_log::copy_flush();
+     println!("{}", creature::mind::scratch_log::carry_report());
++    if creature::mind::scratch_log::oldlab_on() {
++        eprintln!("{}", creature::mind::scratch_log::oldlab_report());
++    }
+     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
+ }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 19881311..4e9e350d 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -7956,6 +7956,27 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
+     if world.minds.is_some() && mind::has(world, organism) {
+         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
+         if !mind::scratch_log::shadow_on() {
++            // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
++            // (`mind::scratch_log::oldlab_label`). Dig states only: holding spoil (unless `PP_OLDLAB_EMPTY=1`), or
++            // empty, not hungry, below the datum within 40 columns of the door.
++            if mind::scratch_log::oldlab_on()
++                && (mind::scratch_log::oldlab_act() || (mind::scratch_log::copy_on() && mind::scratch_log::oldlab_take(world, organism)))
++            {
++                let dig_state = world.organism(organism).is_some_and(|s| {
++                    (s.spoil.is_some() && !mind::scratch_log::oldlab_label_empty())
++                        || (s.spoil.is_none()
++                            && s.crop.is_none_or(|c| c.cells == 0)
++                            && (x - 128).abs() <= 40
++                            && world.room_surface_at(x).is_some_and(|top| y > top)
++                            && !needs_hungry(world, s, def, (x, y)))
++                });
++                if dig_state {
++                    let mut wc = world.clone();
++                    mind::scratch_log::strip_mind(&mut wc, organism);
++                    creature_tick(&mut wc, x, y, organism, def, &SpecWindow::default());
++                    mind::scratch_log::OLDLAB.with(|o| *o.borrow_mut() = Some((organism, Box::new(wc))));
++                }
++            }
+             return mind::tick(world, x, y, organism, def);
+         }
+         mind::scratch_log::shadow_pre(world, x, y, organism, def);
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 0641af76..3c934ad1 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1992,8 +1992,40 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                     let lab = scratch_log::carry_label(world, organism, def, (x, y), &ctx, &opts);
+                     scratch_log::CARRY_LAB.with(|c| *c.borrow_mut() = if lab.is_empty() { "-".into() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) });
+                 }
++                if scratch_log::oldlab_on() {
++                    scratch_log::oldlab_label(world, organism, (x, y), &opts);
++                }
+                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+             }
++            // SCRATCH (dig-scoring thread): `PP_OLDLAB_ACT`, the old ant's calls acting (`scratch_log::oldlab_act`).
++            if scratch_log::oldlab_act() {
++                if let Some((cut, lab)) = scratch_log::OLDLAB_LAST.with(|o| o.borrow_mut().take()) {
++                    let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++                    if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
++                        let choose = if cut == 1 && !lab.is_empty() {
++                            Some((0, lab[0]))
++                        } else if !carrying && opts[pick].verb == Verb::Dig && !lab.is_empty() {
++                            Some((1, lab[0]))
++                        } else if scratch_log::oldlab_act_all()
++                            && !(carrying && scratch_log::oldlab_empty_only())
++                            && !lab.is_empty()
++                            && !matches!(opts[lab[0]].verb, Verb::PickUp | Verb::Eat | Verb::Feed)
++                        {
++                            Some((2, lab[0]))
++                        } else {
++                            None
++                        };
++                        if let Some((k, i)) = choose.filter(|&(_, i)| i != pick) {
++                            scratch_log::OLDLAB_ACTS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                            if let Some(d) = d.as_mut() {
++                                d.pick = i;
++                            }
++                            mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
++                            mind.state.last_verb = Some(opts[i].verb);
++                        }
++                    }
++                }
++            }
+             // SCRATCH (maze thread, 2026-10-22; ported by the far-from-home sense thread): `PP_TRAIL_ACT=1` (with
+             // `PP_TRAIL_LABEL`) lets the recruitment-trail teacher act: when the brain chose to walk and the label
+             // applies, the step is the teacher's instead. The verb is the brain's, so memory stays consistent.
+@@ -4859,6 +4891,118 @@ pub mod scratch_log {
+             && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
+             && Some(world.get(tx, ty).material) != world.materials.id_of("spoil")
+     }
++    // ---- SCRATCH (dig-scoring thread, 2026-10-22; Teacher lane's proposal): `PP_OLDLAB=1`, the old ant labels the
++    // mind's OWN states (DAgger), for a dig lesson. Before a mind ant's tick in a dig state (holding spoil, or empty,
++    // not hungry, below the datum within 40 columns of the door), the world is cloned, the clone's ant loses its mind
++    // and takes one tick as the game's own ant (chooser + act), and what it did -- the cut, put-down, pick-up or step,
++    // read off its body as PP_SHADOW does -- becomes the option indices of the mind's decision in the real world, the
++    // copy log's 16th field ("1|i;j"). The real world is untouched (events.csv byte-identical, hA1 20k frames).
++    // First copies onto hA1 (all dig-state labels, or cut / no-cut only) starved 21-23 of 24: Reports in
++    // /mnt/project-files/nest-score/dig-lesson/README.md.
++    pub fn oldlab_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB").is_ok_and(|v| v == "1"))
++    }
++    /// `PP_OLDLAB_K=k`: label one in k dig-state ticks (default 4).
++    pub fn oldlab_take(world: &World, organism: OrganismId) -> bool {
++        static K: OnceLock<u64> = OnceLock::new();
++        let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
++        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64() % k == 0
++    }
++    /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
++    pub fn oldlab_label_empty() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_EMPTY").is_ok_and(|v| v == "1"))
++    }
++    thread_local! {
++        pub static OLDLAB: std::cell::RefCell<Option<(OrganismId, Box<World>)>> = const { std::cell::RefCell::new(None) };
++        pub static OLDLAB_LAST: std::cell::RefCell<Option<(u8, Vec<usize>)>> = const { std::cell::RefCell::new(None) };
++    }
++    pub static OLDLAB_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++    pub static OLDLAB_ACTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
++    /// Take a mind off one ant (the clone's, so it ticks as the game's ant).
++    pub fn strip_mind(world: &mut World, organism: OrganismId) {
++        if let Some(m) = world.minds.as_mut() {
++            m.ants.remove(&organism);
++        }
++    }
++    /// `PP_OLDLAB_ACT=1`: the old ant's cut calls act on the mind's own states; `=2` its whole underground program
++    /// (steps, turns, rests, cuts, spoil put-downs; not food calls); `=3` as 2 but only while the jaws are empty.
++    pub fn oldlab_act() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "1" || v == "2" || v == "3"))
++    }
++    pub fn oldlab_act_all() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "2" || v == "3"))
++    }
++    /// Under `=2`, ants held spoil on the surface within 12 columns of the door for 61-65% of all ant-time (hA1
++    /// 17-18%), in spells 3x as long, and home food fell 279 -> 101: the old ant's carry in a mind's body never lets
++    /// go (traced, seeds 1-2, 2026-10-22). `=3` leaves the carry to the mind.
++    pub fn oldlab_empty_only() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "3"))
++    }
++    /// The label for this decision from the clone the old ant ticked in, if one is waiting for this ant.
++    pub fn oldlab_label(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) {
++        let Some((id, wc)) = OLDLAB.with(|o| o.borrow_mut().take()) else { return };
++        if id != organism {
++            return;
++        }
++        let key = |w: &World, p: (i32, i32)| {
++            let c = w.get(p.0, p.1);
++            (c.material.0 as u16, c.organism_id())
++        };
++        let Some(st0) = world.organism(organism) else { return };
++        let (tail0, spoil0, crop0) = (st0.chain.last().copied(), st0.spoil.is_some(), st0.crop.map_or(0, |c| c.cells));
++        let mut cut = false;
++        let lab: Vec<usize> = match wc.organism(organism) {
++            None => Vec::new(),
++            Some(st) => {
++                let head = st.chain.first().copied().unwrap_or(at);
++                let (spoil, crop) = (st.spoil.is_some(), st.crop.map_or(0, |c| c.cells));
++                let changed = |i: usize| key(&wc, opts[i].target) != key(world, opts[i].target);
++                let with = |v: Verb, need: bool| -> Vec<usize> { (0..opts.len()).filter(|&i| opts[i].verb == v && (!need || changed(i))).collect() };
++                let (k, v) = if !spoil0 && spoil {
++                    cut = true;
++                    (1, with(Verb::Dig, true))
++                } else if spoil0 && !spoil {
++                    let mut v = with(Verb::Drop, true);
++                    v.extend(with(Verb::Dig, true));
++                    (2, v)
++                } else if crop > crop0 {
++                    (3, with(Verb::PickUp, true))
++                } else if crop < crop0 {
++                    (4, with(Verb::Drop, true))
++                } else if head != at {
++                    if Some(head) == tail0 {
++                        (5, with(Verb::TurnAround, false))
++                    } else {
++                        (5, (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && opts[i].target == head).collect())
++                    }
++                } else {
++                    (6, with(Verb::Rest, false))
++                };
++                OLDLAB_COUNTS[k].fetch_add(1, Ordering::Relaxed);
++                if v.is_empty() {
++                    OLDLAB_COUNTS[7].fetch_add(1, Ordering::Relaxed);
++                }
++                v
++            }
++        };
++        OLDLAB_COUNTS[0].fetch_add(1, Ordering::Relaxed);
++        if oldlab_act() {
++            OLDLAB_LAST.with(|o| *o.borrow_mut() = Some((u8::from(cut), lab.clone())));
++        }
++        if !lab.is_empty() {
++            CARRY_LAB.with(|c| *c.borrow_mut() = format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")));
++        }
++    }
++    pub fn oldlab_report() -> String {
++        let c: Vec<u64> = OLDLAB_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        let x: Vec<u64> = OLDLAB_ACTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!("oldlab acts: cut as the old ant {} | did the old ant's move instead of a cut {} | other old-ant moves {} || oldlab: labelled {} | cut {} | let go {} | took food {} | put food {} | step {} | rest {} | no option matched {}", x[0], x[1], x[2], c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7])
++    }
+     pub fn copy_on() -> bool {
+         copy_out().is_some()
+     }
+diff --git a/src/train/challenges.rs b/src/train/challenges.rs
+index 241fbb23..25b7c4b4 100644
+--- a/src/train/challenges.rs
++++ b/src/train/challenges.rs
+@@ -2793,7 +2793,8 @@ pub mod inrun {
+             }
+         }
+         // `PP_SHADOW=1` (mind.rs): minds watch the old ant, so the world builds the old ant's ways as it does with none.
+-        if creature::mind::scratch_log::shadow_on() {
++        // `PP_OLDLAB=1` ticks the old ant in clones of this world, so the same.
++        if creature::mind::scratch_log::shadow_on() || creature::mind::scratch_log::oldlab_on() {
+             if let Some(m) = w.minds.as_mut() {
+                 m.build_ways = true;
+             }

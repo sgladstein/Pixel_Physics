@@ -1,0 +1,121 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 55548beb..65821ff0 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -229,6 +229,21 @@ fn main() {
+     // 30-39) while digs were spread evenly over 0-120. 0 = off (pay everywhere, the old rule).
+     let nest_r = fnum("nest_r", 20.0) as i32;
+     let in_nest = |x: i32| nest_r <= 0 || (x - inrun::NEST).abs() <= nest_r;
++    // nest=zone (owner, 2026-10-22, on the Teacher lane's replay page; built by the dig-scoring thread): the nest is the
++    // stamped mouth plus `nest_pad` cells of the soil around it, and any original cell dug inside that zone joins it,
++    // bringing its own `nest_pad` cells of soil. It never shrinks. Digging in the zone is the only dig that pays
++    // (replacing the `nest_r` column band), and a trip cell counts as delivered only when put down in it (replacing the
++    // 12-column home band, strict or not). Off by default. Open questions put to the owner (Teacher lane, 2026-10-22):
++    // food put down in a part that has since filled in still counts; a tunnel toward the food heap carries the nest
++    // out with it; the crater under the mouth stays nest.
++    let zone_on = arg(&a, "nest") == Some("zone");
++    let nest_pad = num("nest_pad", 2) as i32;
++    // nest_top=N (owner, 2026-10-22: "we don't want to dig into a crater"): a cut fewer than N rows below the datum
++    // never pays and never grows the zone. 0 = off. The zone itself still takes in the top rows over its cells, as pad:
++    // first built as "no top-row cell is ever zone", that also moved delivery out from under the ants -- home food
++    // fell 89 -> 9 per colony-round (13 of 13 lower, 8 seeds x 2 rounds), every pellet put down on the crater floor
++    // booked as a 'tdrop', while the pit did not shrink (94 -> 98).
++    let nest_top = num("nest_top", 0) as i32;
+     // Rim quarrying (dig-scoring thread, 2026-10-21): a lone ant learns to come down from the surface, cut the first wall
+     // cell and go straight back out, and the nest becomes a crater (44 of 49 cuts in the top 4 rows after 12k; 70-80% of
+     // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
+@@ -332,7 +347,7 @@ fn main() {
+     // The general nest score (lab::nestscore, PR #770, HARVESTER profile) every 25,000 frames, printed beside food
+     // home: printed only, never paid (owner, 2026-10-21). A read of the grid; it changes nothing in the run.
+     let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
+-    writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open").unwrap();
++    writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open,zone,zone_reach").unwrap();
+     let mut food_home = 0u64;
+     writeln!(sel_log, "frame,alive,adults,births,removals,bias,median,food_price,dig_price,clear_price,ghosts").unwrap();
+     let mut bias = 0.0f64;
+@@ -391,11 +406,32 @@ fn main() {
+         writeln!(f, "{s}").unwrap();
+     }
+     let mut orig = vec![false; (bw * bh) as usize];
++    let mut zone = vec![false; (bw * bh) as usize];
++    let grow = |zone: &mut Vec<bool>, x: i32, y: i32| {
++        for yy in (y - nest_pad).max(0)..=(y + nest_pad).min(bh - 1) {
++            for xx in (x - nest_pad).max(0)..=(x + nest_pad).min(bw - 1) {
++                zone[(yy * bw + xx) as usize] = true;
++            }
++        }
++    };
+     for x in 0..bw {
+         for y in surf[x as usize]..bh {
+             orig[(y * bw + x) as usize] = inrun::ground(&w, x, y);
+         }
+     }
++    // The stamp: the door's own surface cell and every open cell at or below the datum within 6 columns of it at
++    // frame 0 (the bed's founding cut), each with its pad.
++    if zone_on {
++        grow(&mut zone, inrun::NEST, surf[inrun::NEST as usize]);
++        for x in inrun::NEST - 6..=inrun::NEST + 6 {
++            for y in surf[x as usize]..bh {
++                if !inrun::ground(&w, x, y) {
++                    grow(&mut zone, x, y);
++                }
++            }
++        }
++        eprintln!("nest=zone pad {nest_pad}: {} cells at frame 0", zone.iter().filter(|&&z| z).count());
++    }
+     let mut ev = std::io::BufWriter::new(std::fs::File::create(out.join("events.csv")).unwrap());
+     writeln!(ev, "frame,id,kind,x,y,v,cutter").unwrap();
+     // Who cut the pellet each ant holds; pellets let go inside, by spot; field food each ant holds.
+@@ -430,7 +466,20 @@ fn main() {
+             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
+                 orig[i] = false;
+                 let depth = y - surf[x as usize];
+-                let mut worth = if in_nest(x) { 1.0 } else { 0.0 };
++                let mut worth = if zone_on {
++                    if zone[i] && depth >= nest_top {
++                        grow(&mut zone, x, y);
++                        // A paid zone cut, for judging the zone (which cuts pay is otherwise not in the log).
++                        writeln!(ev, "{frame},{who},zpay,{x},{y},{depth},{who}").unwrap();
++                        1.0
++                    } else {
++                        0.0
++                    }
++                } else if in_nest(x) {
++                    1.0
++                } else {
++                    0.0
++                };
+                 if worth > 0.0 && rim_rows > 0 {
+                     if depth < rim_rows {
+                         worth = rim_share;
+@@ -475,7 +524,11 @@ fn main() {
+         }
+         for r in w.food_log.as_mut().unwrap().drain(..) {
+             let (x, y) = r.at;
+-            let home = (x - inrun::NEST).abs() <= 12;
++            let home = if zone_on {
++                (0..bw).contains(&x) && (0..bh).contains(&y) && zone[(y * bw + x) as usize]
++            } else {
++                (x - inrun::NEST).abs() <= 12
++            };
+             match r.kind {
+                 creature::FOOD_SWALLOW if r.flag => {
+                     if let Some(b) = book.get_mut(&r.who) {
+@@ -508,7 +561,7 @@ fn main() {
+                     }
+                     writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
+                 }
+-                creature::FOOD_DROP if r.flag && strict && !home => writeln!(ev, "{frame},{},tdrop,{x},{y},0,0", r.who).unwrap(),
++                creature::FOOD_DROP if r.flag && (strict || zone_on) && !home => writeln!(ev, "{frame},{},tdrop,{x},{y},0,0", r.who).unwrap(),
+                 creature::FOOD_DROP if r.flag => {
+                     food_home += 1;
+                     delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
+@@ -1053,7 +1106,7 @@ fn main() {
+             let (ns, _) = pixel_physics::lab::nestscore::of_world(&w, &sc.bed, door, &pixel_physics::lab::nestscore::HARVESTER);
+             // door_open (dig thread, PR #780): the nest's largest piece joins the air; -1 before there is a nest.
+             let door_open = pixel_physics::lab::nestscore::door_open(&w, &sc.bed, door, 3, 20).map_or(-1, |o| o as i32);
+-            writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell()).unwrap();
++            writeln!(nest_log, "{fr},{},{food_home},{:.2},{},{},{},{},{},{:.3},{door_open},{},{}", inrun::ants(&w, sp).len(), ns.score, ns.dug, ns.chambers.len(), ns.niches.len(), ns.tunnel_cells, ns.pit, ns.per_cell(), zone.iter().filter(|&&z| z).count(), (0..zone.len()).filter(|&i| zone[i]).map(|i| (i as i32 % bw - inrun::NEST).abs()).max().unwrap_or(0)).unwrap();
+         }
+         if fr % 1000 == 0 {
+             let (mut nest_f, mut door_f, mut field_f, mut nest_c) = (0u32, 0u32, 0u32, 0u32);

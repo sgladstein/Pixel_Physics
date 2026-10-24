@@ -1,0 +1,606 @@
+From a4a599724e15ed4730ded8b14be8e107f5f0d8b0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 13:50:54 +0000
+Subject: [PATCH 2/4] inrun (scratch): body=LIST -- bed births inherit and
+ mutate the body genes
+
+Off by default (byte-identical). With body=, a child takes its parent's open
+genes and mutates them by creature::inherit_body (the game's birth rule);
+closed genes stay the founding body's and take no draw. body=default opens
+appetite, digest_rate, crop_capacity, gut_bias, pace. Bodies carry between
+rounds as final/ID.body.txt beside ID.raw.txt; body.csv logs every ant's
+open genes at founding and birth.
+
+Checks (hA1, sel=score, ha1next args):
+- 17 genes opened at width 0.5 (birth_grant, reproduce_at, sight_range,
+  curvature_radius, the 11 walk/trail genes, the 2 door genes) moved by up
+  to 0.58 and changed nothing: events/births/sel byte-identical to body off
+  at 200k frames on seeds 1 and 2 (229 and 308 births). A mind ant never
+  reads them.
+- Each of appetite (with digest_bar=3), digest_rate, crop_capacity,
+  gut_bias, pace, armour, dig_force opened alone changes events.csv within
+  40k frames (positive control).
+- rounds.sh carries bodies: all 24 round-1 founders match a round-0 final
+  body.
+
+Jobs body1022: hA1 64 seeds x 6 rounds, five arms (control, body=default,
+body=appetite, hungergate=1, hungergate=1 + body=default).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DWLmVnMuZT7iPWY73DvPhf
+---
+ examples/inrun.rs               | 135 +++++++++++++-
+ scratch/inrun/jobs/body1022.txt | 320 ++++++++++++++++++++++++++++++++
+ 2 files changed, 449 insertions(+), 6 deletions(-)
+ create mode 100644 scratch/inrun/jobs/body1022.txt
+
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 3d07dbd3..09a90b15 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -55,6 +55,51 @@ fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize
+     c
+ }
+ 
++/// One ant's body genes (`state.traits`), every slot.
++type Body = [f32; organism::CREATURE_TRAITS];
++
++/// `body=default`: the slots a mind ant in this bed both reads and pays for in both directions (body-genes thread,
++/// 2026-10-22). Left out, and why: birth_grant and reproduce_at (this bed does not breed by the body: the harness
++/// places children and sets their grants); sight_range and curvature_radius (a mind casts no rays, so neither is read
++/// nor billed); the walk, trail-plane, door and forage-memory genes (read only by the game ant's own walk and `act`,
++/// which a mind replaces); armour (billed every tick and never bitten here, so it could only fall); dig_force (one
++/// step down from 1.0 below packed soil's 0.95 leaves an ant that cannot cut spoil -- a cheap jaw selection would take
++/// while digging is already being bred out).
++const BODY_DEFAULT: [&str; 5] = ["appetite", "digest_rate", "crop_capacity", "gut_bias", "pace"];
++
++/// A child's body under `body=`: the parent's open genes on the child's placed body, mutated by the game's own birth
++/// rule on the child's own stream, logged; without `body=`, the placed body untouched.
++#[allow(clippy::too_many_arguments)]
++fn child_body(w: &mut pixel_physics::sim::World, cid: u32, def: &organism::CreatureDef, open: &[(usize, f32)], parent: Body, frame: u64, pid: u32, log: &mut Option<std::io::BufWriter<std::fs::File>>) -> Body {
++    let mut b = w.organism(cid).map_or(parent, |st| st.traits);
++    if open.is_empty() {
++        return b;
++    }
++    for &(s, _) in open {
++        b[s] = parent[s];
++    }
++    let b = creature::inherit_body(w, cid, def, b, true);
++    if let Some(f) = log.as_mut() {
++        writeln!(f, "{frame},{cid},{pid},{}", open.iter().map(|o| format!("{:.4}", b[o.0])).collect::<Vec<_>>().join(",")).unwrap();
++    }
++    b
++}
++
++fn save_body(path: &std::path::Path, b: &Body) {
++    let s: Vec<String> = b.iter().map(|v| format!("{v}")).collect();
++    std::fs::write(path, format!("body {}\n{}\n", b.len(), s.join(" "))).unwrap();
++}
++
++fn load_body(path: &std::path::Path) -> Option<Body> {
++    let text = std::fs::read_to_string(path).ok()?;
++    let v: Vec<f32> = text.lines().nth(1)?.split_whitespace().map(|x| x.parse().unwrap()).collect();
++    let mut b = [0.0; organism::CREATURE_TRAITS];
++    for (slot, x) in b.iter_mut().zip(v) {
++        *slot = x;
++    }
++    Some(b)
++}
++
+ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
+     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
+ }
+@@ -110,6 +155,8 @@ fn main() {
+     let mut mix: Vec<(String, Arc<creature::mind::MindGenome>, usize)> = Vec::new();
+     // The raw genome behind each mix entry, for the selection loop's children.
+     let mut raw: Vec<Vec<f32>> = Vec::new();
++    // The body saved beside each `.raw.txt` founder (`ID.body.txt`, written by a `body=` run's `final/`), if any.
++    let mut fbody: Vec<Option<Body>> = Vec::new();
+     let mut glen = 0;
+     for part in arg(&a, "founders").expect("founders=path:count,...").split(',') {
+         let (p, n) = part.rsplit_once(':').expect("path:count");
+@@ -119,10 +166,12 @@ fn main() {
+         if p == "zero" {
+             mix.push((p.to_string(), Arc::new(creature::mind::MindGenome::new(vec![0.0; creature::mind::GENOME_LEN])), n));
+             raw.push(Vec::new());
++            fbody.push(None);
+         } else {
+             // A `.raw.txt` genome is taken as saved (a harness's own output), not through the suite's rung entry.
+             let g = if p.ends_with(".raw.txt") { train::load_genome(std::path::Path::new(p), creature::mind::GENOME_LEN) } else { train::start_mind(&suite, p) };
+             raw.push(g.clone());
++            fbody.push(p.strip_suffix(".raw.txt").and_then(|stem| load_body(std::path::Path::new(&format!("{stem}.body.txt")))));
+             glen = g.len();
+             let tag = tag_over.unwrap_or_else(|| std::path::Path::new(p).file_stem().unwrap().to_string_lossy().to_string());
+             mix.push((tag, inrun::mind(&g), n));
+@@ -138,6 +187,7 @@ fn main() {
+         let mut rng = train::Rng(ms);
+         mix.clear();
+         raw.clear();
++        fbody.clear();
+         let mut f = std::fs::File::create(out.join("mutants.txt")).unwrap();
+         for k in 0..n {
+             let g = if k == 0 { base.clone() } else { train::mutate(&base, &slots, pm, sigma, 0.0, 1.0, &[], &mut rng) };
+@@ -145,6 +195,7 @@ fn main() {
+             writeln!(f, "m{k:02} changed {} L1 {d:.2}", g.iter().zip(&base).filter(|(x, y)| x != y).count()).unwrap();
+             mix.push((format!("m{k:02}"), inrun::mind(&g), 1));
+             raw.push(g);
++            fbody.push(None);
+         }
+     }
+     for (m, r) in mix.iter_mut().zip(raw.iter_mut()).filter(|(m, _)| m.0 == "zero") {
+@@ -180,11 +231,61 @@ fn main() {
+         def.digest_hunger_weight = v.parse().unwrap();
+         w.species.set_creature(sp, def);
+     }
++    // body=LIST (owner, 2026-10-22: "the body should be able to mutate too"): a bed birth inherits its parent's body
++    // genes and mutates the listed ones by the game's own rule (`creature::inherit_body` -> `mutate_traits`, what
++    // `try_bud` and an egg use). Off by default: without it every bed ant has the species' default body, as before.
++    // LIST is slot names as the lab's parameters page calls them (`lab::batch::trait_name`), each optionally
++    // `name:width`; the width defaults to the species' own `trait_variance`, or 0.15 (the body slots' shipped width)
++    // where the species ships it at 0. `body=default` is the set judged live and two-sided in this bed (see
++    // `BODY_DEFAULT`); the slots not listed are copied from the founding body unchanged and take no draw.
++    let body_open: Vec<(usize, f32)> = arg(&a, "body").map_or_else(Vec::new, |spec| {
++        let def = w.species.get(sp).creature.clone().expect("creature");
++        let spec = if spec == "default" { BODY_DEFAULT.join(",") } else { spec.to_string() };
++        spec.split(',')
++            .map(|part| {
++                let (name, width) = part.split_once(':').map_or((part, None), |(n, v)| (n, Some(v.parse::<f32>().unwrap())));
++                let slot = (0..organism::CREATURE_TRAITS)
++                    .find(|&k| pixel_physics::lab::batch::trait_name(k) == name)
++                    .unwrap_or_else(|| panic!("body={name}: not a trait slot name"));
++                assert!(!organism::SCENT_SIDE_SLOTS.contains(&slot), "body={name}: the scent slots drift at scent_drift, not opened here");
++                let shipped = def.trait_variance[slot];
++                (slot, width.unwrap_or(if shipped > 0.0 { shipped } else { 0.15 }))
++            })
++            .collect()
++    });
++    // The def `inherit_body` mutates by: the species' own, with every width zeroed but the open slots'.
++    let body_def = {
++        let mut d = w.species.get(sp).creature.clone().expect("creature");
++        d.trait_variance = [0.0; organism::CREATURE_TRAITS];
++        d.scent_drift = 0.0;
++        for &(slot, width) in &body_open {
++            d.trait_variance[slot] = width;
++        }
++        d
++    };
++    let body_on = !body_open.is_empty();
++    if body_open.iter().any(|o| o.0 == organism::TRAIT_APPETITE) && arg(&a, "digest_bar").is_none() {
++        eprintln!("body: appetite is open but digest_bar= is not set; this bed's breeding bar is 1e30, so the gate reads every ant as hungry and does nothing");
++    }
++    if body_on {
++        println!("body: {}", body_open.iter().map(|o| format!("{}:{}", pixel_physics::lab::batch::trait_name(o.0), o.1)).collect::<Vec<_>>().join(","));
++    }
+     w.cut_log = Some(Vec::new());
+     w.food_log = Some(Vec::new());
+     w.digest_log = Some(Vec::new());
+     w.death_log = Some(Vec::new());
+     let founders = inrun::ants(&w, sp);
++    // A founder from a `body=` run's `final/` takes back its open genes; the rest stay as the founding placed them.
++    if body_on {
++        for (k, &id) in founders.iter().enumerate() {
++            if let (Some(saved), Some(mut b)) = (fbody[slot(k)], w.organism(id).map(|st| st.traits)) {
++                for &(s, _) in &body_open {
++                    b[s] = saved[s];
++                }
++                creature::inherit_body(&mut w, id, &body_def, b, false);
++            }
++        }
++    }
+     // flat=1: every founder starts on one full grant (the founding deals staggered reserves).
+     // grants=G: every founder starts on G full grants (default: the founding's staggered reserves).
+     if let Some(g) = arg(&a, "grants") {
+@@ -338,14 +439,28 @@ fn main() {
+         // The record at its last child (credit, sum of squares): with `fresh_kid`, the next child is earned on the
+         // record since then.
+         at_kid: (f64, f64),
++        // Its body genes (the genotype, `state.traits`) as born, for its children under `body=`.
++        body: Body,
+     }
+     let mut book: HashMap<u32, Who> = HashMap::new();
+     // The recently starved adults: (death frame, score at death, record).
+     let mut hall: Vec<(u64, f64, Who)> = Vec::new();
+     let (home_colony, home_anchor) = founders.first().and_then(|&i| w.organism(i)).map(|s| (s.colony, s.forage_anchor)).unwrap();
+     for (k, id) in founders.iter().enumerate() {
+-        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++        let body = w.organism(*id).map_or([0.0; organism::CREATURE_TRAITS], |st| st.traits);
++        book.insert(*id, Who { born: 0, credit: 0.0, g2: 0.0, family: mix[slot(k)].0.clone(), gen: 0, genome: raw[slot(k)].clone(), last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), body });
+     }
++    // body.csv: every ant's open body genes, founders at frame 0 then each child as born (parent 0 for a founder).
++    let mut body_log = body_on.then(|| {
++        let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("body.csv")).unwrap());
++        writeln!(f, "frame,id,parent,{}", body_open.iter().map(|o| pixel_physics::lab::batch::trait_name(o.0)).collect::<Vec<_>>().join(",")).unwrap();
++        let mut ids: Vec<u32> = book.keys().copied().collect();
++        ids.sort_unstable();
++        for id in ids {
++            writeln!(f, "0,{id},0,{}", body_open.iter().map(|o| format!("{:.4}", book[&id].body[o.0])).collect::<Vec<_>>().join(",")).unwrap();
++        }
++        f
++    });
+     let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
+     let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
+     writeln!(births, "frame,id,parent,family,gen,kind,links").unwrap();
+@@ -1016,7 +1131,8 @@ fn main() {
+                             }
+                             writeln!(births, "{frame},{cid},{pid},{f},{gen},birth,{}", child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{f}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++                            let body = child_body(&mut w, cid, &body_def, &body_open, book[&pid].body, frame, pid, &mut body_log);
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family: f, gen, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), body });
+                         }
+                     }
+                 }
+@@ -1078,11 +1194,11 @@ fn main() {
+                     }
+                     for (c, k) in cand.iter().zip(kids) {
+                         for _ in 0..k {
+-                            let (genome, family, gen, pid) = match c.1 {
+-                                Some(i) => (book[&i].genome.clone(), book[&i].family.clone(), book[&i].gen, i),
++                            let (genome, family, gen, pid, pbody) = match c.1 {
++                                Some(i) => (book[&i].genome.clone(), book[&i].family.clone(), book[&i].gen, i, book[&i].body),
+                                 None => {
+                                     let h = &hall[c.2];
+-                                    (h.2.genome.clone(), h.2.family.clone(), h.2.gen, 0)
++                                    (h.2.genome.clone(), h.2.family.clone(), h.2.gen, 0, h.2.body)
+                                 }
+                             };
+                             let child = if neutral {
+@@ -1108,7 +1224,8 @@ fn main() {
+                             let kind = if c.1.is_some() { "refill" } else { "hall" };
+                             writeln!(births, "{frame},{cid},{pid},{family},{},{kind},{}", gen + 1, child.iter().filter(|v| **v != 0.0).count()).unwrap();
+                             writeln!(csv_ants, "{cid},{family}").unwrap();
+-                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0) });
++                            let body = child_body(&mut w, cid, &body_def, &body_open, pbody, frame, pid, &mut body_log);
++                            book.insert(cid, Who { born: frame, credit: 0.0, g2: 0.0, family, gen: gen + 1, genome: child, last_kid: 0, kids: 0, tripped: false, at_kid: (0.0, 0.0), body });
+                         }
+                     }
+                 }
+@@ -1259,6 +1376,9 @@ fn main() {
+     if sel != "off" {
+         sel_log.flush().unwrap();
+         births.flush().unwrap();
++        if let Some(bl) = body_log.as_mut() {
++            bl.flush().unwrap();
++        }
+         let dir = out.join("final");
+         std::fs::create_dir_all(&dir).unwrap();
+         let mut f = std::fs::File::create(dir.join("index.csv")).unwrap();
+@@ -1266,6 +1386,9 @@ fn main() {
+         let frame = w.frame;
+         for (id, b) in &book {
+             train::save_genome(&dir.join(format!("{id}.raw.txt")), &b.genome).unwrap();
++            if body_on {
++                save_body(&dir.join(format!("{id}.body.txt")), &b.body);
++            }
+             writeln!(f, "{id},{},{},{},{},{:.3}", b.family, b.gen, b.born, b.kids, b.credit / ((frame - b.born) as f64 / 1000.0).max(0.1)).unwrap();
+         }
+     }
+diff --git a/scratch/inrun/jobs/body1022.txt b/scratch/inrun/jobs/body1022.txt
+new file mode 100644
+index 00000000..70234581
+--- /dev/null
++++ b/scratch/inrun/jobs/body1022.txt
+@@ -0,0 +1,320 @@
++hA1c_1 1 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_2 2 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_3 3 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_4 4 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_5 5 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_6 6 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_7 7 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_8 8 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_9 9 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_10 10 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_11 11 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_12 12 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_13 13 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_14 14 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_15 15 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_16 16 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_17 17 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_18 18 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_19 19 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_20 20 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_21 21 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_22 22 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_23 23 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_24 24 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_25 25 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_26 26 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_27 27 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_28 28 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_29 29 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_30 30 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_31 31 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_32 32 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_33 33 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_34 34 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_35 35 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_36 36 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_37 37 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_38 38 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_39 39 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_40 40 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_41 41 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_42 42 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_43 43 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_44 44 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_45 45 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_46 46 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_47 47 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_48 48 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_49 49 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_50 50 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_51 51 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_52 52 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_53 53 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_54 54 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_55 55 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_56 56 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_57 57 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_58 58 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_59 59 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_60 60 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_61 61 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_62 62 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_63 63 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++hA1c_64 64 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3
++bodyD_1 1 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_2 2 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_3 3 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_4 4 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_5 5 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_6 6 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_7 7 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_8 8 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_9 9 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_10 10 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_11 11 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_12 12 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_13 13 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_14 14 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_15 15 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_16 16 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_17 17 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_18 18 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_19 19 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_20 20 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_21 21 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_22 22 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_23 23 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_24 24 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_25 25 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_26 26 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_27 27 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_28 28 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_29 29 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_30 30 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_31 31 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_32 32 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_33 33 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_34 34 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_35 35 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_36 36 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_37 37 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_38 38 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_39 39 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_40 40 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_41 41 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_42 42 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_43 43 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_44 44 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_45 45 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_46 46 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_47 47 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_48 48 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_49 49 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_50 50 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_51 51 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_52 52 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_53 53 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_54 54 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_55 55 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_56 56 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_57 57 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_58 58 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_59 59 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_60 60 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_61 61 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_62 62 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_63 63 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyD_64 64 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=default digest_bar=3
++bodyG_1 1 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_2 2 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_3 3 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_4 4 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_5 5 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_6 6 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_7 7 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_8 8 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_9 9 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_10 10 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_11 11 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_12 12 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_13 13 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_14 14 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_15 15 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_16 16 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_17 17 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_18 18 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_19 19 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_20 20 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_21 21 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_22 22 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_23 23 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_24 24 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_25 25 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_26 26 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_27 27 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_28 28 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_29 29 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_30 30 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_31 31 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_32 32 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_33 33 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_34 34 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_35 35 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_36 36 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_37 37 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_38 38 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_39 39 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_40 40 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_41 41 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_42 42 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_43 43 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_44 44 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_45 45 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_46 46 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_47 47 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_48 48 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_49 49 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_50 50 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_51 51 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_52 52 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_53 53 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_54 54 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_55 55 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_56 56 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_57 57 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_58 58 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_59 59 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_60 60 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_61 61 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_62 62 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_63 63 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++bodyG_64 64 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 body=appetite digest_bar=3
++hg_1 1 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_2 2 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_3 3 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_4 4 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_5 5 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_6 6 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_7 7 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_8 8 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_9 9 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_10 10 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_11 11 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_12 12 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_13 13 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_14 14 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_15 15 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_16 16 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_17 17 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_18 18 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_19 19 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_20 20 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_21 21 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_22 22 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_23 23 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_24 24 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_25 25 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_26 26 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_27 27 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_28 28 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_29 29 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_30 30 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_31 31 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_32 32 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_33 33 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_34 34 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_35 35 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_36 36 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_37 37 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_38 38 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_39 39 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_40 40 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_41 41 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_42 42 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_43 43 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_44 44 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_45 45 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_46 46 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_47 47 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_48 48 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_49 49 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_50 50 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_51 51 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_52 52 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_53 53 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_54 54 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_55 55 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_56 56 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_57 57 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_58 58 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_59 59 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_60 60 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_61 61 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_62 62 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_63 63 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hg_64 64 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3
++hgbodyD_1 1 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_2 2 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_3 3 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_4 4 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_5 5 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_6 6 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_7 7 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_8 8 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_9 9 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_10 10 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_11 11 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_12 12 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_13 13 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_14 14 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_15 15 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_16 16 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_17 17 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_18 18 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_19 19 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_20 20 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_21 21 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_22 22 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_23 23 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_24 24 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_25 25 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_26 26 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_27 27 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_28 28 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_29 29 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_30 30 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_31 31 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_32 32 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_33 33 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_34 34 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_35 35 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_36 36 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_37 37 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_38 38 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_39 39 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_40 40 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_41 41 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_42 42 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_43 43 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_44 44 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_45 45 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_46 46 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_47 47 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_48 48 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_49 49 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_50 50 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_51 51 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_52 52 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_53 53 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_54 54 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_55 55 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_56 56 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_57 57 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_58 58 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_59 59 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_60 60 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_61 61 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_62 62 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_63 63 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
++hgbodyD_64 64 6 200000 score scratch/inrun/genomes/hA1.raw.txt min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 hungergate=1 digest_bar=3 body=default
+-- 
+2.43.0
+

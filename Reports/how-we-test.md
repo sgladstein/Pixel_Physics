@@ -191,6 +191,38 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   is usually mutation, not the rule — see §1.
 - **labforage `aloft`** is food held off the ground, not ants.
 
+Added 2026-10-24 from the colony-selection threads of 2026-10-21 to 2026-10-24
+(the report sweep; evidence in
+[`brain-training/dig-scoring-2026-10-22/`](brain-training/dig-scoring-2026-10-22/README.md),
+[`brain-training/inrun-selection/batches-2026-10-22-to-24.md`](brain-training/inrun-selection/batches-2026-10-22-to-24.md)
+and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-training/teacher-training/inherited-nest-2026-10-23.md)):
+
+- **Digging counted inside a selection run.** In-run totals are confounded by
+  which colonies survived and by cutting falling through the round. Judge
+  digging in the **common garden** (selection off, fixed fresh worlds), and
+  count kept nest cuts (`nestcount.py`), not raw cuts near the door.
+- **Two groups of ants compared over a round without matching time.** Cutting
+  falls through a round, so "the survivors cut 40% less" was an artefact;
+  matched to the same 10k-frame bins they cut the same (0.96 vs 1.01).
+- **Short rounds look safer because of the clock**: ants rarely starve inside
+  a 50k-frame round, so fewer extinctions there say nothing about the brain.
+- **Home food once nests hold food.** Colonies re-drop stored food at home and
+  each drop books as a delivery (colsel17: about 11k of 13k). Judge feeding by
+  mean tank, stored nest food and starved.
+- **Nest numbers from before 2026-10-22 20:55Z (d3392d97)** counted door
+  markers as roof and the door's column as nest, so colsel3-7's nests are
+  inflated. Re-judge before quoting.
+- **A change to what the nest map keeps changes what is inherited.** colsel14
+  was void because a meter fix also carried stored food round to round. Check
+  the new world's first frames, not only the meter.
+- **A pay rule cannot change which cell an ant cuts** (colsel11, colsel12:
+  same crater shape under every charge); it only changes whether it digs.
+- **`examples/labshot` never runs the lab mister**: any plant or water number
+  from it is a box with no rain.
+- **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare
+  sorted. A new loop over a HashMap that touches credit or counters must sort
+  first (2 of 64 seeds diverged between runs once).
+
 ## 5. Tools, by question
 
 | Question | Tool |
