@@ -1676,7 +1676,8 @@ fn context_at(
     static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
-    let home = (!world.home_blind).then_some(st.forage_anchor);
+    // A sighted mind's home is the prey it sees (`options::sight_on`); every other mind's, its anchor.
+    let home = options::sensed_home(world, organism, def, st).0;
     let dist = home.map_or(0.0, |(ax, ay)| {
         let (dx, dy) = ((ax - hx) as f32, (ay - hy) as f32);
         (dx * dx + dy * dy).sqrt()
@@ -1996,11 +1997,23 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     } else {
         0.0
     };
-    let mut spent = idle + brain_tax + force_tax + armour_tax + exposure;
+    // A sighted mind's eye (`options::sight_on`), billed as `creature_tick` bills every eye: a cell read costs
+    // `sight_fraction x start_energy`. Every other mind casts nothing and pays 0.
+    let sight_tax = if options::sight_on() && def.sight_range > 0 {
+        let (seen, reads) = world.organism(organism).map_or((None, 0), |st| options::sensed_home(world, organism, def, st));
+        if reads > 0 {
+            options::SIGHT_CASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            options::SIGHT_SEEN.fetch_add(u64::from(seen.is_some()), std::sync::atomic::Ordering::Relaxed);
+        }
+        def.sight_fraction * def.start_energy * reads as f32
+    } else {
+        0.0
+    };
+    let mut spent = idle + brain_tax + sight_tax + force_tax + armour_tax + exposure;
     world.book(
         colony,
         Account::Metabolized,
-        (idle + force_tax + armour_tax + exposure) as f64,
+        (idle + sight_tax + force_tax + armour_tax + exposure) as f64,
     );
     world.book(colony, Account::SynapseTax, brain_tax as f64);
     world.creature_stats.armour_energy += armour_tax as f64;
