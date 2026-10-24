@@ -1,0 +1,77 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 65821ff0..a50d5a89 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -244,6 +244,11 @@ fn main() {
+     // fell 89 -> 9 per colony-round (13 of 13 lower, 8 seeds x 2 rounds), every pellet put down on the crater floor
+     // booked as a 'tdrop', while the pit did not shrink (94 -> 98).
+     let nest_top = num("nest_top", 0) as i32;
++    // zone_debit=F (owner, 2026-10-22: "we could even add a cost for digging outside the nest... I wouldn't want that
++    // forever... but top priority is teaching them to dig in the nest and not crater"): an original-ground cut that
++    // does not pay under nest=zone -- outside the zone, or in its top `nest_top` rows -- charges F times the cut half.
++    // A training-time lever, meant to come off. 0 = off.
++    let zone_debit = fnum("zone_debit", 0.0);
+     // Rim quarrying (dig-scoring thread, 2026-10-21): a lone ant learns to come down from the surface, cut the first wall
+     // cell and go straight back out, and the nest becomes a crater (44 of 49 cuts in the top 4 rows after 12k; 70-80% of
+     // the pit is ground the ants cut themselves). `rim_rows=N` pays nothing, neither half, for an original-ground cut
+@@ -473,6 +478,13 @@ fn main() {
+                         writeln!(ev, "{frame},{who},zpay,{x},{y},{depth},{who}").unwrap();
+                         1.0
+                     } else {
++                        if zone_debit > 0.0 {
++                            if let Some(b) = book.get_mut(&who) {
++                                let g = -zone_debit * 0.5 * w_dig * dig_price;
++                                b.credit += g;
++                                b.g2 += g * g;
++                            }
++                        }
+                         0.0
+                     }
+                 } else if in_nest(x) {
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index cd440def..9df810b4 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1804,6 +1804,42 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+             }
+             // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
+             let mut redrawn: Option<Vec<Opt>> = None;
++            // SCRATCH (dig-scoring thread, 2026-10-22; owner: "refusal as a teacher makes sense"): `PP_RIMVETO=N`
++            // refuses a cut of ground (not spoil) fewer than N rows below the frozen datum within `PP_RIMVETO_R`
++            // (default 20) columns of `PP_RIMVETO_X` (default 128): when the brain picks one, every such Dig option is
++            // taken off and it redraws from the rest, deep cuts included. The crater's teacher, for copying; the
++            // 2026-10-21 version (`PP_STORE_VERB=dig`, inrun-wt) took off every Dig and is not this.
++            if let Some(n) = std::env::var("PP_RIMVETO").ok().and_then(|v| v.parse::<i32>().ok()) {
++                let nx: i32 = std::env::var("PP_RIMVETO_X").ok().and_then(|v| v.parse().ok()).unwrap_or(128);
++                let nr: i32 = std::env::var("PP_RIMVETO_R").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
++                let spoil = world.materials.id_of("spoil");
++                let rim = |o: &Opt| {
++                    let (tx, ty) = o.target;
++                    o.verb == Verb::Dig
++                        && (tx - nx).abs() <= nr
++                        && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
++                        && Some(world.get(tx, ty).material) != spoil
++                };
++                if let Some(i) = d.as_ref().map(|d| d.pick) {
++                    if rim(&opts[i]) {
++                        let allowed: Vec<Opt> = opts.iter().copied().filter(|o| !rim(o)).collect();
++                        if !allowed.is_empty() {
++                            mind.state.mem = mem0;
++                            mind.state.last_verb = last0;
++                            let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1002);
++                            if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
++                                d = Some(d2);
++                                redrawn = Some(allowed);
++                                static V: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
++                                let k = V.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
++                                if k % 1000 == 0 {
++                                    eprintln!("PP_RIMVETO refusals {k}");
++                                }
++                            }
++                        }
++                    }
++                }
++            }
+             if scratch_log::teach_on() {
+                 if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
+                     let own_verb = opts[pick].verb;

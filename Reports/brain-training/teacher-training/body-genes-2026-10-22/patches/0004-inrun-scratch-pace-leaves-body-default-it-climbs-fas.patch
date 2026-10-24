@@ -1,0 +1,37 @@
+From f8b00b7ac7ac03730361ce45a534887db917d305 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 14:36:29 +0000
+Subject: [PATCH 4/4] inrun (scratch): pace leaves body=default -- it climbs
+ fast under selection and costs frame time
+
+8-seed hA1 pilot, 6 rounds x 200k: pace +0.2 -> +0.5 (bodyD) and +0.72
+(hgbodyD) by r3-r5. hgbodyD_1's r5 founders, one 60k round with selection
+off: 8,961 frames/s with their evolved pace against 13,443 with pace held
+at the founding body, on fewer live ants (9.2 against 11.9).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DWLmVnMuZT7iPWY73DvPhf
+---
+ examples/inrun.rs | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 09a90b15..47b546fd 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -64,8 +64,10 @@ type Body = [f32; organism::CREATURE_TRAITS];
+ /// nor billed); the walk, trail-plane, door and forage-memory genes (read only by the game ant's own walk and `act`,
+ /// which a mind replaces); armour (billed every tick and never bitten here, so it could only fall); dig_force (one
+ /// step down from 1.0 below packed soil's 0.95 leaves an ant that cannot cut spoil -- a cheap jaw selection would take
+-/// while digging is already being bred out).
+-const BODY_DEFAULT: [&str; 5] = ["appetite", "digest_rate", "crop_capacity", "gut_bias", "pace"];
++/// while digging is already being bred out); pace (selection takes it up fast -- +0.2 to +0.5..0.7 in 6 rounds of an
++/// 8-seed pilot on hA1 -- and a quick ant takes more turns per frame: an evolved colony ran at 8,961 frames/s against
++/// 13,443 with pace held at the founding body, on fewer live ants (9.2 against 11.9). `pace` still opens by name).
++const BODY_DEFAULT: [&str; 4] = ["appetite", "digest_rate", "crop_capacity", "gut_bias"];
+ 
+ /// A child's body under `body=`: the parent's open genes on the child's placed body, mutated by the game's own birth
+ /// rule on the child's own stream, logged; without `body=`, the placed body untouched.
+-- 
+2.43.0
+

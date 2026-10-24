@@ -1,0 +1,514 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 52adc119..742491cb 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -1530,5 +1530,8 @@ fn main() {
+     write_nestmap(&w, &out.join("nestmap.txt"));
+     creature::mind::scratch_log::copy_flush();
+     println!("{}", creature::mind::scratch_log::carry_report());
++    if creature::mind::scratch_log::oldlab_on() {
++        eprintln!("{}", creature::mind::scratch_log::oldlab_report());
++    }
+     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
+ }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 19881311..4e9e350d 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -7956,6 +7956,27 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
+     if world.minds.is_some() && mind::has(world, organism) {
+         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
+         if !mind::scratch_log::shadow_on() {
++            // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
++            // (`mind::scratch_log::oldlab_label`). Dig states only: holding spoil (unless `PP_OLDLAB_EMPTY=1`), or
++            // empty, not hungry, below the datum within 40 columns of the door.
++            if mind::scratch_log::oldlab_on()
++                && (mind::scratch_log::oldlab_act() || (mind::scratch_log::copy_on() && mind::scratch_log::oldlab_take(world, organism)))
++            {
++                let dig_state = world.organism(organism).is_some_and(|s| {
++                    (s.spoil.is_some() && !mind::scratch_log::oldlab_label_empty())
++                        || (s.spoil.is_none()
++                            && s.crop.is_none_or(|c| c.cells == 0)
++                            && (x - 128).abs() <= 40
++                            && world.room_surface_at(x).is_some_and(|top| y > top)
++                            && !needs_hungry(world, s, def, (x, y)))
++                });
++                if dig_state {
++                    let mut wc = world.clone();
++                    mind::scratch_log::strip_mind(&mut wc, organism);
++                    creature_tick(&mut wc, x, y, organism, def, &SpecWindow::default());
++                    mind::scratch_log::OLDLAB.with(|o| *o.borrow_mut() = Some((organism, Box::new(wc))));
++                }
++            }
+             return mind::tick(world, x, y, organism, def);
+         }
+         mind::scratch_log::shadow_pre(world, x, y, organism, def);
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 0641af76..af0d4500 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1802,6 +1802,10 @@ fn decide_planned(
+                 sum += w * x;
+             }
+         }
++        // SCRATCH (dig-scoring thread): the dig head's "when" read-out (`scratch_log::DigHead::e`), Dig's job only.
++        if v == Verb::Dig as usize && scratch_log::dighead_on() {
++            sum += scratch_log::dig_when();
++        }
+         if state.last_verb == Some(Verb::ALL[v]) {
+             sum += pulled;
+         }
+@@ -1829,8 +1833,18 @@ fn decide_planned(
+         (&mut t_heap[..], &mut s_heap[..])
+     };
+     let mut n = 0;
++    // SCRATCH (dig-scoring thread): with `PP_DIGHEAD`, Dig's own feature head picks the cell, and nothing else
++    // reads it: the scores (each verb's best, the memory's best and mean) stay the shared scorer's. **Why it replaces
++    // rather than adds**: hcs scores every Dig option at 0.97-0.99, so its cell choice is at chance (P(the old ant's
++    // cell) 0.37 against 0.39 uniform), and a head added before the squash could only flatten it further -- the
++    // first two trainings did exactly that (every output weight ~4.4, P 0.485 -> 0.489).
++    let head = verb == Verb::Dig && scratch_log::dighead_on();
+     for o in (0..opts.len()).filter(|&o| opts[o].verb == verb) {
+-        (targets[n], shifted[n]) = (o, (scores[o] + 1.0) / 2.0);
++        // The head re-ranks the cuts the shared scorer accepts (its weight times the scorer's), never overrides it:
++        // a head that alone picked the cell (dh3) cut the hanging bites hcs avoids -- the old ant takes one in a
++        // quarter of its cuts -- and buried its diggers, who sank to the floor and starved (8.5 of 24 against 1).
++        let w = if head { (scores[o] + 1.0) / 2.0 * (squash(scratch_log::dig_bonus(opts[o].target)) + 1.0) / 2.0 } else { (scores[o] + 1.0) / 2.0 };
++        (targets[n], shifted[n]) = (o, w);
+         n += 1;
+     }
+     let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
+@@ -1982,6 +1996,9 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                     ctx[c::D_SCENT + 2] = f32::from(u8::from((x - nx).abs() > r));
+                 }
+             }
++            if scratch_log::digfeat_on() {
++                scratch_log::dig_prepare(world, organism, (x, y), &opts);
++            }
+             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+             let mut d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
+@@ -1992,8 +2009,42 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                     let lab = scratch_log::carry_label(world, organism, def, (x, y), &ctx, &opts);
+                     scratch_log::CARRY_LAB.with(|c| *c.borrow_mut() = if lab.is_empty() { "-".into() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) });
+                 }
++                if scratch_log::oldlab_on() {
++                    scratch_log::oldlab_label(world, organism, (x, y), &opts);
++                }
+                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+             }
++            // SCRATCH (dig-scoring thread): `PP_OLDLAB_ACT`, the old ant's calls acting (`scratch_log::oldlab_act`).
++            if scratch_log::oldlab_act() {
++                if let Some((cut, lab)) = scratch_log::OLDLAB_LAST.with(|o| o.borrow_mut().take()) {
++                    let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++                    if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
++                        let choose = if scratch_log::oldlab_cell_only() {
++                            (cut == 1 && !lab.is_empty() && opts[pick].verb == Verb::Dig && opts[lab[0]].verb == Verb::Dig).then(|| (0, lab[0]))
++                        } else if cut == 1 && !lab.is_empty() {
++                            Some((0, lab[0]))
++                        } else if !carrying && opts[pick].verb == Verb::Dig && !lab.is_empty() {
++                            Some((1, lab[0]))
++                        } else if scratch_log::oldlab_act_all()
++                            && !(carrying && scratch_log::oldlab_empty_only())
++                            && !lab.is_empty()
++                            && !matches!(opts[lab[0]].verb, Verb::PickUp | Verb::Eat | Verb::Feed)
++                        {
++                            Some((2, lab[0]))
++                        } else {
++                            None
++                        };
++                        if let Some((k, i)) = choose.filter(|&(_, i)| i != pick) {
++                            scratch_log::OLDLAB_ACTS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                            if let Some(d) = d.as_mut() {
++                                d.pick = i;
++                            }
++                            mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
++                            mind.state.last_verb = Some(opts[i].verb);
++                        }
++                    }
++                }
++            }
+             // SCRATCH (maze thread, 2026-10-22; ported by the far-from-home sense thread): `PP_TRAIL_ACT=1` (with
+             // `PP_TRAIL_LABEL`) lets the recruitment-trail teacher act: when the brain chose to walk and the label
+             // applies, the step is the teacher's instead. The verb is the brain's, so memory stays consistent.
+@@ -4859,6 +4910,349 @@ pub mod scratch_log {
+             && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
+             && Some(world.get(tx, ty).material) != world.materials.id_of("spoil")
+     }
++    // ---- SCRATCH (dig-scoring thread, 2026-10-22; Teacher lane's proposal): `PP_OLDLAB=1`, the old ant labels the
++    // mind's OWN states (DAgger), for a dig lesson. Before a mind ant's tick in a dig state (holding spoil, or empty,
++    // not hungry, below the datum within 40 columns of the door), the world is cloned, the clone's ant loses its mind
++    // and takes one tick as the game's own ant (chooser + act), and what it did -- the cut, put-down, pick-up or step,
++    // read off its body as PP_SHADOW does -- becomes the option indices of the mind's decision in the real world, the
++    // copy log's 16th field ("1|i;j"). The real world is untouched (events.csv byte-identical, hA1 20k frames).
++    // First copies onto hA1 (all dig-state labels, or cut / no-cut only) starved 21-23 of 24: Reports in
++    // /mnt/project-files/nest-score/dig-lesson/README.md.
++    pub fn oldlab_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB").is_ok_and(|v| v == "1"))
++    }
++    /// `PP_OLDLAB_K=k`: label one in k dig-state ticks (default 4).
++    pub fn oldlab_take(world: &World, organism: OrganismId) -> bool {
++        static K: OnceLock<u64> = OnceLock::new();
++        let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
++        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64() % k == 0
++    }
++    /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
++    pub fn oldlab_label_empty() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_EMPTY").is_ok_and(|v| v == "1"))
++    }
++    thread_local! {
++        pub static OLDLAB: std::cell::RefCell<Option<(OrganismId, Box<World>)>> = const { std::cell::RefCell::new(None) };
++        pub static OLDLAB_LAST: std::cell::RefCell<Option<(u8, Vec<usize>)>> = const { std::cell::RefCell::new(None) };
++    }
++    pub static OLDLAB_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++    pub static OLDLAB_ACTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
++    /// Take a mind off one ant (the clone's, so it ticks as the game's ant).
++    pub fn strip_mind(world: &mut World, organism: OrganismId) {
++        if let Some(m) = world.minds.as_mut() {
++            m.ants.remove(&organism);
++        }
++    }
++    /// `PP_OLDLAB_ACT=1`: the old ant's cut calls act on the mind's own states; `=2` its whole underground program
++    /// (steps, turns, rests, cuts, spoil put-downs; not food calls); `=3` as 2 but only while the jaws are empty.
++    pub fn oldlab_act() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "1" || v == "2" || v == "3" || v == "4"))
++    }
++    pub fn oldlab_act_all() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "2" || v == "3"))
++    }
++    /// Under `=2`, ants held spoil on the surface within 12 columns of the door for 61-65% of all ant-time (hA1
++    /// 17-18%), in spells 3x as long, and home food fell 279 -> 101: the old ant's carry in a mind's body never lets
++    /// go (traced, seeds 1-2, 2026-10-22). `=3` leaves the carry to the mind.
++    pub fn oldlab_empty_only() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "3"))
++    }
++    /// `=4`: **the dig head's ceiling** -- only when the mind picked Dig and the old ant cut too, the old ant's cell
++    /// is cut instead. Which cell, never when: all a per-option Dig head can change, since hcs's Dig job reads its
++    /// best target at -0.29.
++    pub fn oldlab_cell_only() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "4"))
++    }
++    /// The label for this decision from the clone the old ant ticked in, if one is waiting for this ant.
++    pub fn oldlab_label(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) {
++        let Some((id, wc)) = OLDLAB.with(|o| o.borrow_mut().take()) else { return };
++        if id != organism {
++            return;
++        }
++        let key = |w: &World, p: (i32, i32)| {
++            let c = w.get(p.0, p.1);
++            (c.material.0 as u16, c.organism_id())
++        };
++        let Some(st0) = world.organism(organism) else { return };
++        let (tail0, spoil0, crop0) = (st0.chain.last().copied(), st0.spoil.is_some(), st0.crop.map_or(0, |c| c.cells));
++        let mut cut = false;
++        let lab: Vec<usize> = match wc.organism(organism) {
++            None => Vec::new(),
++            Some(st) => {
++                let head = st.chain.first().copied().unwrap_or(at);
++                let (spoil, crop) = (st.spoil.is_some(), st.crop.map_or(0, |c| c.cells));
++                let changed = |i: usize| key(&wc, opts[i].target) != key(world, opts[i].target);
++                let with = |v: Verb, need: bool| -> Vec<usize> { (0..opts.len()).filter(|&i| opts[i].verb == v && (!need || changed(i))).collect() };
++                let (k, v) = if !spoil0 && spoil {
++                    cut = true;
++                    (1, with(Verb::Dig, true))
++                } else if spoil0 && !spoil {
++                    let mut v = with(Verb::Drop, true);
++                    v.extend(with(Verb::Dig, true));
++                    (2, v)
++                } else if crop > crop0 {
++                    (3, with(Verb::PickUp, true))
++                } else if crop < crop0 {
++                    (4, with(Verb::Drop, true))
++                } else if head != at {
++                    if Some(head) == tail0 {
++                        (5, with(Verb::TurnAround, false))
++                    } else {
++                        (5, (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && opts[i].target == head).collect())
++                    }
++                } else {
++                    (6, with(Verb::Rest, false))
++                };
++                OLDLAB_COUNTS[k].fetch_add(1, Ordering::Relaxed);
++                if v.is_empty() {
++                    OLDLAB_COUNTS[7].fetch_add(1, Ordering::Relaxed);
++                }
++                v
++            }
++        };
++        OLDLAB_COUNTS[0].fetch_add(1, Ordering::Relaxed);
++        if oldlab_act() {
++            OLDLAB_LAST.with(|o| *o.borrow_mut() = Some((u8::from(cut), lab.clone())));
++        }
++        if !lab.is_empty() {
++            CARRY_LAB.with(|c| *c.borrow_mut() = format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")));
++        }
++    }
++    pub fn oldlab_report() -> String {
++        let c: Vec<u64> = OLDLAB_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        let x: Vec<u64> = OLDLAB_ACTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!("oldlab acts: cut as the old ant {} | did the old ant's move instead of a cut {} | other old-ant moves {} || oldlab: labelled {} | cut {} | let go {} | took food {} | put food {} | step {} | rest {} | no option matched {}", x[0], x[1], x[2], c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7])
++    }
++    // ---- SCRATCH (dig-scoring thread, 2026-10-22; Teacher lane's pick of three): **Dig's own feature head**. Every
++    // copy of the old ant's digging into the shipped weights failed: whole-scorer copies broke foraging (hA1 d1/d2
++    // starved 21-23 of 24), and copies restricted to the Dig verb's own slots (hcs hd/hd2/hu) lost the nest (13 ->
++    // 0-1.5), because those slots set *when* the ant digs, not *which cell*; the cell is scored by the shared feature
++    // weights. So, as the far-home sense did: new inputs with weights nothing else reads. `PP_DIGFEAT=1` computes
++    // DIG_ND per-option features for every Dig option and logs them as feature indices 100+k (the copier's head
++    // reads them); `PP_DIGHEAD=path` loads a small head, H units over the option's 45 features and these, whose
++    // output is added to each Dig option's raw score before the sharpness squash. Nothing set: nothing computed,
++    // byte-identical. The weights live in a side file, not the genome, so a mutant cannot move them.
++    pub const DIG_ND: usize = 12;
++    pub struct DigHead {
++        pub h: usize,
++        pub w: Vec<f32>,
++        pub b: Vec<f32>,
++        pub a: Vec<f32>,
++        pub c: f32,
++        /// **When**: a second read-out of the same units, `c2 + max over the Dig options of e . units`, added to the
++        /// Dig job's sum. The ceiling for a head that picks only the cell (`PP_OLDLAB_ACT=4`: the old ant's cell
++        /// whenever hcs digs) moved nest 13 -> 16 (15 up / 16 down): the old ant's cut calls (ACT=1, nest 38.5) work
++        /// through *when*, 782 of hcs's digs a run replaced by its move against 166 cuts added. Empty: rank only.
++        pub e: Vec<f32>,
++        pub c2: f32,
++    }
++    impl DigHead {
++        /// (rank, when) for one Dig option.
++        pub fn eval2(&self, feats: &[f32; FEATURES], d: &[f32; DIG_ND]) -> (f32, f32) {
++            let n = FEATURES + DIG_ND;
++            let (mut out, mut when) = (self.c, 0.0);
++            for u in 0..self.h {
++                let row = &self.w[u * n..(u + 1) * n];
++                let mut z = self.b[u];
++                for (w, x) in row[..FEATURES].iter().zip(feats) {
++                    z += w * x;
++                }
++                for (w, x) in row[FEATURES..].iter().zip(d) {
++                    z += w * x;
++                }
++                out += self.a[u] * squash(z);
++                if let Some(e) = self.e.get(u) {
++                    when += e * squash(z);
++                }
++            }
++            (out, when)
++        }
++        pub fn eval(&self, feats: &[f32; FEATURES], d: &[f32; DIG_ND]) -> f32 {
++            let n = FEATURES + DIG_ND;
++            let mut out = self.c;
++            for u in 0..self.h {
++                let row = &self.w[u * n..(u + 1) * n];
++                let mut z = self.b[u];
++                for (w, x) in row[..FEATURES].iter().zip(feats) {
++                    z += w * x;
++                }
++                for (w, x) in row[FEATURES..].iter().zip(d) {
++                    z += w * x;
++                }
++                out += self.a[u] * squash(z);
++            }
++            out
++        }
++    }
++    /// `PP_DIGHEAD=path`: "H ND" then W (H rows of 45 + ND), b (H), a (H), c, whitespace-separated; with a "when"
++    /// read-out, "H ND 1" and then also e (H), c2.
++    pub fn dighead() -> Option<&'static DigHead> {
++        static H: OnceLock<Option<DigHead>> = OnceLock::new();
++        H.get_or_init(|| {
++            let p = std::env::var("PP_DIGHEAD").ok()?;
++            let txt = std::fs::read_to_string(&p).expect("PP_DIGHEAD file");
++            let first = txt.lines().next().expect("PP_DIGHEAD header");
++            let when = first.split_whitespace().count() == 3 && first.split_whitespace().nth(2) == Some("1");
++            let v: Vec<f32> = txt.lines().skip(1).flat_map(|l| l.split_whitespace()).map(|x| x.parse().expect("PP_DIGHEAD number")).collect();
++            let hv: Vec<usize> = first.split_whitespace().map(|x| x.parse().expect("PP_DIGHEAD header")).collect();
++            let (h, nd) = (hv[0], hv[1]);
++            assert_eq!(nd, DIG_ND, "PP_DIGHEAD: {nd} dig features, this build has {DIG_ND}");
++            let n = FEATURES + DIG_ND;
++            assert_eq!(v.len(), h * n + 2 * h + 1 + if when { h + 1 } else { 0 }, "PP_DIGHEAD: wrong length");
++            let w = v[..h * n].to_vec();
++            let b = v[h * n..h * n + h].to_vec();
++            let a = v[h * n + h..h * n + 2 * h].to_vec();
++            let c = v[h * n + 2 * h];
++            let (e, c2) = if when { (v[h * n + 2 * h + 1..h * n + 3 * h + 1].to_vec(), v[h * n + 3 * h + 1]) } else { (Vec::new(), 0.0) };
++            Some(DigHead { h, w, b, a, c, e, c2 })
++        })
++        .as_ref()
++    }
++    pub fn dig_gate_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_DIGHEAD_GATE").is_ok_and(|v| v == "1"))
++    }
++    pub fn dighead_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| dighead().is_some())
++    }
++    pub fn digfeat_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_DIGFEAT").is_ok_and(|v| v == "1") || dighead_on())
++    }
++    thread_local! {
++        /// This decision's Dig options: target, its dig features, the head's addition to its raw score.
++        pub static DIG_OPTS: std::cell::RefCell<Vec<((i32, i32), [f32; DIG_ND], f32)>> = const { std::cell::RefCell::new(Vec::new()) };
++    }
++    thread_local! {
++        /// This decision's "when": the head's addition to the Dig job's sum (0 without a when read-out).
++        pub static DIG_WHEN: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
++    }
++    pub fn dig_when() -> f32 {
++        DIG_WHEN.with(|w| w.get())
++    }
++    /// The head's addition for the Dig option aimed at `t`, 0 when none.
++    pub fn dig_bonus(t: (i32, i32)) -> f32 {
++        DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
++    }
++    /// Fill [`DIG_OPTS`] for this decision (cleared first).
++    pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) {
++        DIG_OPTS.with(|d| {
++            let mut d = d.borrow_mut();
++            d.clear();
++            let mut ctxf: Option<(i32, f32, f32, f32)> = None;
++            let mut when = f32::NEG_INFINITY;
++            for o in opts.iter().filter(|o| o.verb == Verb::Dig) {
++                let c = *ctxf.get_or_insert_with(|| dig_ctx(world, organism, at));
++                let fe = dig_feats(world, organism, at, o.target, c);
++                let (bonus, w) = dighead().map_or((0.0, 0.0), |h| h.eval2(&o.feats, &fe));
++                when = when.max(w);
++                d.push((o.target, fe, bonus));
++            }
++            // `PP_DIGHEAD_GATE=1`: the "when" read-out only in the empty-jaw dig states the old ant was asked about
++            // (no spoil, crop empty, below the datum, within 40 columns of the door; hunger not read, so the copier
++            // can apply the same gate from the log). Head v3/v4 ungated: P(Dig) on unlabelled decisions 0.008 ->
++            // 0.018 and home food 318 -> 248-275.
++            let gated = dig_gate_on()
++                && !world.organism(organism).is_some_and(|s| {
++                    s.spoil.is_none()
++                        && s.crop.is_none_or(|c| c.cells == 0)
++                        && (at.0 - 128).abs() <= 40
++                        && world.room_surface_at(at.0).is_some_and(|top| at.1 > top)
++                });
++            let add = match dighead() {
++                Some(h) if !h.e.is_empty() && when.is_finite() && !gated => h.c2 + when,
++                _ => 0.0,
++            };
++            DIG_WHEN.with(|w| w.set(add));
++        });
++    }
++    fn open_cell(world: &World, organism: OrganismId, x: i32, y: i32) -> bool {
++        let c = world.get(x, y);
++        let _ = organism;
++        c.material == crate::sim::material::EMPTY
++            || (c.organism_id() != 0 && world.materials.kind(c.material) == crate::sim::material::MaterialKind::Creature)
++    }
++    /// Above (x, y): (ground cells before the first open one, up to 8; whether the column is open to the sky up to
++    /// 2 rows above the datum).
++    fn column_above(world: &World, organism: OrganismId, x: i32, y: i32) -> (i32, bool) {
++        let top = world.room_surface_at(x).map_or(0, |s| s - 2);
++        let mut roof = 0;
++        let mut yy = y - 1;
++        while yy >= top.max(0) && !open_cell(world, organism, x, yy) && roof < 8 {
++            roof += 1;
++            yy -= 1;
++        }
++        let mut sky = roof == 0;
++        if sky {
++            let mut yy = y - 1;
++            while yy >= top.max(0) {
++                if !open_cell(world, organism, x, yy) {
++                    sky = false;
++                    break;
++                }
++                yy -= 1;
++            }
++        }
++        (roof, sky)
++    }
++    /// What the dig features share: the door column, the ant's own depth, whether it stands sky-open, the open
++    /// share of the 7x7 round it.
++    fn dig_ctx(world: &World, organism: OrganismId, at: (i32, i32)) -> (i32, f32, f32, f32) {
++        let nx = world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map_or(128, |s| s.x);
++        let depth = world.room_surface_at(at.0).map_or(0.0, |s| ((at.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
++        let (_, sky) = column_above(world, organism, at.0, at.1);
++        let mut open = 0;
++        for dx in -3..=3 {
++            for dy in -3..=3 {
++                if open_cell(world, organism, at.0 + dx, at.1 + dy) {
++                    open += 1;
++                }
++            }
++        }
++        (nx, depth, f32::from(u8::from(sky)), open as f32 / 49.0)
++    }
++    /// The Dig option's features ([`DIG_ND`]): 0 away from the door (+1) or toward it (-1) in columns; 1 down (+1)
++    /// or up (-1); 2 the target's depth below the datum / 8; 3 its column open to the sky; 4 ground over it / 8;
++    /// 5 its open 8-neighbours / 8; 6 its distance from the door / 16; 7 the ant's depth / 8; 8 the ant stands
++    /// sky-open; 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
++    /// row within 3 of the head / 4 (the Teacher lane's bottom sense).
++    pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: (i32, f32, f32, f32)) -> [f32; DIG_ND] {
++        let (nx, adepth, asky, aopen) = c;
++        let out = ((t.0 - nx).abs() - (at.0 - nx).abs()).signum() as f32;
++        let down = (t.1 - at.1).signum() as f32;
++        let tdepth = world.room_surface_at(t.0).map_or(0.0, |s| ((t.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
++        let (roof, sky) = column_above(world, organism, t.0, t.1);
++        let mut nb = 0;
++        for dx in -1..=1 {
++            for dy in -1..=1 {
++                if (dx, dy) != (0, 0) && open_cell(world, organism, t.0 + dx, t.1 + dy) {
++                    nb += 1;
++                }
++            }
++        }
++        let low = cavity_low(world, organism, at, 3);
++        [
++            out,
++            down,
++            tdepth,
++            f32::from(u8::from(sky)),
++            roof as f32 / 8.0,
++            nb as f32 / 8.0,
++            ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
++            adepth,
++            asky,
++            aopen,
++            f32::from(u8::from(t.1 == at.1)),
++            ((t.1 - low) as f32 / 4.0).clamp(-2.0, 2.0),
++        ]
++    }
+     pub fn copy_on() -> bool {
+         copy_out().is_some()
+     }
+@@ -4948,7 +5342,15 @@ pub mod scratch_log {
+             .iter()
+             .enumerate()
+             .map(|(k, op)| {
+-                let nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}={x}")).collect();
++                let mut nz: Vec<String> = op.feats.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{i}={x}")).collect();
++                // SCRATCH (dig-scoring thread): the dig head's own features as indices 100+k (`PP_DIGFEAT`)
++                if op.verb == Verb::Dig && digfeat_on() {
++                    DIG_OPTS.with(|dd| {
++                        if let Some(e) = dd.borrow().iter().find(|e| e.0 == op.target) {
++                            nz.extend(e.1.iter().enumerate().filter(|(_, x)| **x != 0.0).map(|(i, x)| format!("{}={x}", 100 + i)));
++                        }
++                    });
++                }
+                 format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
+             })
+             .collect();
+diff --git a/src/train/challenges.rs b/src/train/challenges.rs
+index 241fbb23..25b7c4b4 100644
+--- a/src/train/challenges.rs
++++ b/src/train/challenges.rs
+@@ -2793,7 +2793,8 @@ pub mod inrun {
+             }
+         }
+         // `PP_SHADOW=1` (mind.rs): minds watch the old ant, so the world builds the old ant's ways as it does with none.
+-        if creature::mind::scratch_log::shadow_on() {
++        // `PP_OLDLAB=1` ticks the old ant in clones of this world, so the same.
++        if creature::mind::scratch_log::shadow_on() || creature::mind::scratch_log::oldlab_on() {
+             if let Some(m) = w.minds.as_mut() {
+                 m.build_ways = true;
+             }
