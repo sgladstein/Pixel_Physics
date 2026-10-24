@@ -57,13 +57,68 @@ use std::sync::Arc;
 fn load_founder(p: &str) -> Vec<f32> {
     let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
     let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
-    let len = if creature::mind::scratch_log::head_evolve().is_some() { len } else { creature::mind::GENOME_LEN };
+    let len = if creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on() { len } else { creature::mind::GENOME_LEN };
     train::parse_genome(&text, len, p)
+}
+
+/// SCRATCH (brood lane, 2026-10-24): under `PP_LAYGENE` (on by default) every genome ends in a lay gate of
+/// [`creature::mind::LAY_LEN`] slots ([`creature::mind::lay_bar_scale`]); a founder saved without one gets
+/// `PP_LAYGENE_INIT=b,w1,...,w5` (default all 0, which lays exactly as no gate). Switch off, a saved gate is dropped.
+/// Returns the genome without its gate, and the gate to put back after the dig head is checked.
+fn split_lay(mut g: Vec<f32>) -> (Vec<f32>, Option<Vec<f32>>) {
+    let base = creature::mind::GENOME_LEN + creature::mind::scratch_log::head_evolve().unwrap_or(0);
+    let n = creature::mind::LAY_LEN;
+    let saved = (g.len() == base + n).then(|| g.split_off(base));
+    if !creature::mind::laygene_on() {
+        return (g, None);
+    }
+    let lay = saved.unwrap_or_else(|| match std::env::var("PP_LAYGENE_INIT") {
+        Ok(v) => {
+            let w: Vec<f32> = v.split(',').map(|x| x.trim().parse().expect("PP_LAYGENE_INIT=b,w1,...,w5")).collect();
+            assert_eq!(w.len(), n, "PP_LAYGENE_INIT takes {n} numbers");
+            w
+        }
+        Err(_) => vec![0.0; n],
+    });
+    (g, Some(lay))
+}
+
+/// SCRATCH (brood lane, 2026-10-24): **a child's lay gate mutates on its own schedule**, after the mind's operator
+/// (which never sees these slots: `inrun::slots` stops before them). Each slot steps with chance `PP_LAYGENE_PM`
+/// (default 0.2) by `PP_LAYGENE_SIGMA` (default 0.15) times a unit step. **Why its own**: the neutral operator steps
+/// live links and adds a link to any of ~2,800 empty slots at random, so six zero-born gate slots would wait
+/// rounds for a first event. Switch off, untouched (no draw, so the run is the run without the gate).
+fn lay_mutate(g: &mut [f32], rng: &mut train::Rng) {
+    if !creature::mind::laygene_on() {
+        return;
+    }
+    static PM: std::sync::OnceLock<(f32, f32)> = std::sync::OnceLock::new();
+    let (pm, sigma) = *PM.get_or_init(|| {
+        let f = |k: &str, d: f32| std::env::var(k).ok().map_or(d, |v| v.parse().unwrap_or_else(|_| panic!("{k}")));
+        (f("PP_LAYGENE_PM", 0.2), f("PP_LAYGENE_SIGMA", 0.15))
+    });
+    // PP_LAYGENE_SLOTS=0,3: only these gate slots mutate (default all). The bias alone (`PP_LAYGENE_SLOTS=0`) is the
+    // TRAIT_REPRODUCE_AT arm -- "wait for 2^-b times the bar", learned -- with the five local senses held at 0.
+    static MASK: std::sync::OnceLock<Vec<bool>> = std::sync::OnceLock::new();
+    let mask = MASK.get_or_init(|| match std::env::var("PP_LAYGENE_SLOTS") {
+        Ok(v) => {
+            let on: Vec<usize> = v.split(',').map(|x| x.trim().parse().expect("PP_LAYGENE_SLOTS=i,j,...")).collect();
+            (0..creature::mind::LAY_LEN).map(|i| on.contains(&i)).collect()
+        }
+        Err(_) => vec![true; creature::mind::LAY_LEN],
+    });
+    let n = g.len();
+    for (v, &on) in g[n - creature::mind::LAY_LEN..].iter_mut().zip(mask) {
+        if on && rng.unit() < pm {
+            *v += rng.step() * sigma;
+        }
+    }
 }
 
 /// SCRATCH (dig-scoring thread): under `PP_DIGHEAD_EVOLVE`, a genome without its own dig head gets the side file's
 /// (`PP_DIGHEAD`) appended; otherwise unchanged.
-fn with_head(mut g: Vec<f32>) -> Vec<f32> {
+fn with_head(g: Vec<f32>) -> Vec<f32> {
+    let (mut g, lay) = split_lay(g);
     if let Some(hl) = creature::mind::scratch_log::head_evolve() {
         if g.len() == creature::mind::GENOME_LEN {
             g.extend(creature::mind::scratch_log::dighead().expect("PP_DIGHEAD").flat());
@@ -74,6 +129,7 @@ fn with_head(mut g: Vec<f32>) -> Vec<f32> {
     // biting takes the bite at job constant `ant_bite=` (default 0, a blank verb's entry); otherwise nothing.
     let k = std::env::args().find_map(|a| a.strip_prefix("ant_bite=").map(|v| v.parse::<f32>().expect("ant_bite=K"))).unwrap_or(0.0);
     creature::mind::enter_bite(&mut g, k);
+    g.extend(lay.unwrap_or_default());
     g
 }
 
@@ -737,6 +793,11 @@ fn main() {
             Some((t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0)))
         }
     };
+    // lay_cap_p=P (brood lane, 2026-10-24; Teacher lane's ask, after far64 boomed to ~710 ants in the lab box, which
+    // has no lay_cap): the cap's strength, 0..1, scaling its exponent -- the bar is lay_at x 2^(P (heads - T) / D).
+    // 1 (default) is lay_cap as it was; 0 is no cap. colsel's `capwean=R0:R1` fades it over rounds, the way `wean=`
+    // fades the body rules, so the colony has to learn its own brake (`PP_LAYGENE`) before the scaffold is gone.
+    let lay_cap_p = arg(&a, "lay_cap_p").map_or(1.0, |v| v.parse::<f64>().expect("lay_cap_p=P")).clamp(0.0, 1.0);
     // lay_reserve=R (with brood=lay; brood lane, 2026-10-23, a trial before any game rule): laying answers the
     // colony's FREE reserve -- every adult's bank plus the nest's stored food, less what the brood already laid still
     // needs to reach an adult's price -- per head (adults and brood), in full grants. At or above R the bar is the
@@ -1491,11 +1552,12 @@ fn main() {
                         }
                     }
                 };
-                let child = if neutral {
+                let mut child = if neutral {
                     neutral_mutate(&base, &kslots, kpm, ksigma, kevents, prot, &mut srng)
                 } else {
                     train::mutate(&base, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
                 };
+                lay_mutate(&mut child, &mut srng);
                 creature::mind::give(&mut w, cid, inrun::mind(&child));
                 if let Some(pb) = pid.and_then(|i| book.get_mut(&i)) {
                     pb.last_kid = frame;
@@ -1961,11 +2023,12 @@ fn main() {
                         } else {
                             p.genome.clone()
                         };
-                        let child = if neutral {
+                        let mut child = if neutral {
                             neutral_mutate(&base, &kslots, kpm, ksigma, kevents, prot, &mut srng)
                         } else {
                             train::mutate(&base, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
                         };
+                        lay_mutate(&mut child, &mut srng);
                         let gen = p.gen + 1;
                         let placed = inrun::birth(&mut w, sp, inrun::mind(&child), kid_grants);
                         if placed.is_none() {
@@ -2053,11 +2116,12 @@ fn main() {
                                     (h.2.genome.clone(), h.2.family.clone(), h.2.gen, 0)
                                 }
                             };
-                            let child = if neutral {
+                            let mut child = if neutral {
                                 neutral_mutate(&genome, &kslots, kpm, ksigma, kevents, prot, &mut srng)
                             } else {
                                 train::mutate(&genome, &kslots, kpm, ksigma, kprune, kgrow, &[], &mut srng)
                             };
+                            lay_mutate(&mut child, &mut srng);
                             let Some(cid) = inrun::birth_in(&mut w, sp, home_colony, home_anchor, inrun::mind(&child), kid_grants) else {
                                 birth_fail += 1;
                                 continue;
@@ -2118,7 +2182,7 @@ fn main() {
             let adults_n = ant_ids.len();
             let heads = (adults_n + stages.iter().sum::<u32>() as usize) as f64;
             let mut lay_at = match lay_cap {
-                Some((t, d)) => base_lay_at as f64 * 2f64.powf((heads - t).max(0.0) / d),
+                Some((t, d)) => base_lay_at as f64 * 2f64.powf(lay_cap_p * (heads - t).max(0.0) / d),
                 None => base_lay_at as f64,
             };
             if let Some(r) = lay_reserve {

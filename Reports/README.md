@@ -2887,6 +2887,9 @@ drift that two of these documents still reflect.**
   while income exceeds upkeep; looser caps, rot, limited income and food moved
   to 45 or 65 columns all either leave the pile or kill the colony. Evolved ants
   starve beside crumbs (Walk 200 of 214 choices). The levers left are behavioural.
+  **Later the same day, learned laying**: a lay gate in the genome (`PP_LAYGENE`, on)
+  raises the ant's own bar from what it senses where it stands, and colsel's `capwean=`
+  fades `lay_cap`; a hold was only a delay, and no hand-set gate braked an uncapped bed.
 
 ## Worldgen and world  ·  `outdoor`
 

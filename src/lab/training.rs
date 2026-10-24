@@ -103,6 +103,10 @@ pub fn std_pool() -> Vec<Vec<f32>> {
 /// of another shape, and any head cut off when heads do not evolve.
 pub fn fit_head(g: &mut Vec<f32>) {
     let body = creature::mind::GENOME_LEN;
+    // SCRATCH (brood lane, 2026-10-24): a lay gate rides last ([`creature::mind::lay_bar_scale`]); off the end while
+    // the head is fitted, and back on if this build reads gates (`PP_LAYGENE`, on by default).
+    let hl = creature::mind::scratch_log::head_evolve().unwrap_or(0);
+    let lay = (g.len() == body + hl + creature::mind::LAY_LEN).then(|| g.split_off(body + hl));
     match creature::mind::scratch_log::head_evolve() {
         Some(hl) if g.len() == body + hl => {}
         Some(_) => {
@@ -110,6 +114,9 @@ pub fn fit_head(g: &mut Vec<f32>) {
             g.extend(creature::mind::scratch_log::dighead().expect("a head evolves").flat());
         }
         None => g.truncate(body),
+    }
+    if let Some(lay) = lay.filter(|_| creature::mind::laygene_on()) {
+        g.extend(lay);
     }
 }
 
