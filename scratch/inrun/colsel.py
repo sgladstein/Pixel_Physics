@@ -173,6 +173,11 @@ DIG = os.environ.get('DIG', 'nest')
 if DIG == 'nest' and 'GATE' not in os.environ:
     GATE = 5
 CG_EVERY = int(os.environ.get('CG_EVERY', '2'))
+# cg_every=N as a jobs-line arg (the cloud runner passes only P to the driver's environment). The training compute
+# audit (2026-10-24) measured the garden at 30% of a batch's CPU at every 2 rounds while decisions read one or two of
+# them: 8 saves ~22%.
+CG_EVERY = next((int(x.split('=', 1)[1]) for x in EXTRA if x.startswith('cg_every=')), CG_EVERY)
+EXTRA = [x for x in EXTRA if not x.startswith('cg_every=')]
 INHERIT = os.environ.get('INHERIT', '0') == '1' or MODE.endswith('+inherit')  # MODE 'lex+inherit' = INHERIT=1
 MODE = MODE.removesuffix('+inherit')
 # Extra lexicase cases as MODE suffixes, in any order before +inherit: +spoil (less spoil left, see SPOIL), +crater
@@ -191,7 +196,7 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay', 'lab'), k
+    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 # +lab (teacher lane, 2026-10-24): each round, every colony's carry also lands in lab boxes through the lab's own code
@@ -200,6 +205,32 @@ SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 # the pool lived with food 10-50 columns out and every ant starved at 100-240 (the hand-built ant lived at all of
 # them), because every training bed had dropped its food 25 columns from the door. The scenarios live in LAB_DIR.
 LAB = 'lab' in EXTRA_CASES
+# +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
+# end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
+# (stock.csv nest_food + door_food, wherever they lie), case = min(nest / NEED, SCALE_CAP). Why a needed size and not
+# the owner's first idea, open cells over filled ones: a ratio of open to filled scores a colony that leaves its nest
+# empty and stores nothing; here food and brood raise the need wherever they sit, so not using the nest cannot pay,
+# and a bigger colony or a bigger store needs a bigger nest. F = 2: a stored cell fills its own cell and needs an
+# aisle, so storing more must mean digging more (F = 1 would let food fill the nest without ever growing it).
+# Measured before it was built (farfood2 ramp2far r23, 64 colonies, A,B,F = 6,3,2): nest 75-396 cells for 64-93 ants
+# holding 210-483 food cells, 2.5 nest cells per ant, nest / NEED 0.08-0.32 -- every colony far under, with spread
+# for selection to act on. The cap keeps a colony from buying the case with a huge empty bowl over feeding.
+SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
+SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
+
+
+def nest_scale(rdir, nest):
+    try:
+        s = list(csv.DictReader(open(f'{rdir}/stock.csv')))[-1]
+        alive, food = int(s['alive']), int(s['nest_food']) + int(s['door_food'])
+    except (OSError, IndexError):
+        return 0.0
+    brood = 0
+    if os.path.exists(f'{rdir}/brood.csv'):
+        rows = list(csv.DictReader(open(f'{rdir}/brood.csv')))
+        brood = sum(int(rows[-1][k]) for k in ('eggs', 'larvae', 'pupae')) if rows else 0
+    need = SCALE_W[0] * alive + SCALE_W[1] * brood + SCALE_W[2] * food
+    return round(min(nest / need, SCALE_CAP), 4) if need > 0 else 0.0
 LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
 LAB_DIR = os.environ.get('LAB_DIR', 'scratch/inrun/labscen')
 LAB_SCENS = os.environ.get('LAB_SCENS', 'lab_far_mix,lab_mid_fruit').split(',')
@@ -285,7 +316,7 @@ def result(rdir, frames):
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
             n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
-            roomshape.score(rdir) if n else 0.0, killed, slay)
+            roomshape.score(rdir) if n else 0.0, killed, slay, nest_scale(rdir, n.get('nest', 0)) if n else 0.0)
 
 
 def ranks(vals, higher_better=True):
@@ -312,7 +343,8 @@ def cases(v):
     c = c + (v[14],) if 'shape' in EXTRA_CASES else c
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
     c = c + (v[16],) if 'slay' in EXTRA_CASES else c
-    return c + (v[17],) if LAB else c
+    c = c + (v[17],) if 'scale' in EXTRA_CASES else c
+    return c + (v[18],) if LAB else c
 
 
 def dig_passed(v):
@@ -350,7 +382,7 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,pilecap,spider_at,train_dist\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,pilecap,spider_at,train_dist\n')
         for c in sorted(got):
             f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
 
@@ -381,7 +413,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,' + ('lab,' if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -463,7 +495,7 @@ for r in range(R0, R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * (18 if LAB else 17)
+        v = res[c] or (0,) * (19 if LAB else 18)
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):

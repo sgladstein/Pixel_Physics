@@ -3458,9 +3458,21 @@ impl Lab {
     /// keyboard can say *that ant*.
     pub fn release(&mut self, x: i32, y: i32) {
         self.chrome_due = true;
-        if self.stroke.take().is_some() {
+        if self.stroke.is_some() {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
+            //
+            // **Closed through `finish_stroke`, not dropped.** This was
+            // `self.stroke.take()`, which threw the stroke away unwritten --
+            // and a left-button release in the window always lands here, so
+            // no `PAINTED FOOD`, `PAINTED SOIL` or `DUG` line was ever logged
+            // from play (only the right-button eraser and a release outside
+            // the window, which go through `end_stroke`). The owner's
+            // 2026-10-24 far64 playtest painted food three times and the
+            // chronicle showed only PAUSED/RESUMED pairs, the exact symptom
+            // the 10-08 fix was for; its test closed the stroke with
+            // `end_stroke` and so never took this path.
+            self.finish_stroke();
             self.ui.cancel_press();
             self.scent_origin = None;
             return;
@@ -5382,7 +5394,9 @@ mod tests {
         // this log). Row 5 is sky in the rack bed, so the brush lands.
         lab.act(ui::Action::Tool(ui::Tool::Food));
         lab.begin_stroke((60, 5), false);
-        lab.end_stroke(); // "PAINTED FOOD AT 60,5 -- <N> CELLS"
+        // Closed by `release`, the left button's own path in the binary --
+        // `end_stroke` here once hid that `release` dropped the line.
+        lab.release(0, 0); // "PAINTED FOOD AT 60,5 -- <N> CELLS"
         lab.begin_stroke((60, 5), true);
         lab.end_stroke(); // "ERASED AT 60,5 -- <N> CELLS"
         let param = lab

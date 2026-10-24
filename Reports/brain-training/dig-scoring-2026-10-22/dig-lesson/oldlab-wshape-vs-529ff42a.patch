@@ -1,0 +1,485 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index b084b705..351733c8 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -93,6 +93,188 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
+         writeln!(f, "{r}").unwrap();
+     }
+ }
++/// SCRATCH (dig-scoring thread, 2026-10-22): `roomshape.py`'s score of the live nest, for `w_shape` (pay a cut by how
++/// much it moved the nest toward multiple rooms). Same rule, same window as the end-of-round `nestmap.txt`, so the two
++/// agree on a map (checked at the end of every run with `w_shape`, `shape` line in `sel.csv`'s log): the space is every
++/// open cell joined to the door below the datum, its sky-open part (beyond the door's 3 columns) is crater and never a
++/// room; rooms are the 4-connected pieces of the 5x5 opening; each room after the biggest scores min(cells, 50) / 2,
++/// and each other piece scores its reach from the body (main room + door path + crater) minus 2, capped at 15, best 4.
++/// `shut` treats one cell as ground: the score before that cell was cut.
++fn shape_score(w: &pixel_physics::sim::World, surf: &[i32], shut: Option<(i32, i32)>) -> f64 {
++    use pixel_physics::sim::material;
++    use std::collections::VecDeque;
++    let (hw, y0, y1) = NESTMAP;
++    let (x0, wd, ht) = (inrun::NEST - hw, 2 * hw + 1, y1 - y0);
++    let idx = |x: i32, y: i32| ((y - y0) * wd + (x - x0)) as usize;
++    let inside = |x: i32, y: i32| x >= x0 && x < x0 + wd && y >= y0 && y < y1;
++    let (empty, spoil, food) = (w.materials.id_of("empty"), w.materials.id_of("spoil"), w.materials.id_of("provisions"));
++    let n = (wd * ht) as usize;
++    let (mut open, mut sp) = (vec![false; n], vec![false; n]);
++    for y in y0..y1 {
++        for x in x0..x0 + wd {
++            if shut == Some((x, y)) {
++                continue;
++            }
++            let c = w.get(x, y);
++            let o = c.organism_id() != 0 || Some(c.material) == food || Some(c.material) == empty
++                || w.materials.kind(c.material) == material::MaterialKind::Creature;
++            open[idx(x, y)] = o;
++            sp[idx(x, y)] = !o && Some(c.material) == spoil && y >= surf[x as usize];
++        }
++    }
++    let below = |x: i32, y: i32| y >= surf[x as usize];
++    const N4: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
++    // the space: open, below the datum, joined to the door's column
++    let door = inrun::NEST;
++    let mut space = vec![false; n];
++    let mut st: Vec<(i32, i32)> = (y0..y1).filter(|&y| open[idx(door, y)] && below(door, y)).map(|y| (door, y)).collect();
++    while let Some((x, y)) = st.pop() {
++        if space[idx(x, y)] {
++            continue;
++        }
++        space[idx(x, y)] = true;
++        for (a, b) in N4 {
++            let (qx, qy) = (x + a, y + b);
++            if inside(qx, qy) && open[idx(qx, qy)] && below(qx, qy) && !space[idx(qx, qy)] {
++                st.push((qx, qy));
++            }
++        }
++    }
++    let mut crater = vec![false; n];
++    let mut entry: Option<(i32, i32)> = None;
++    for x in x0..x0 + wd {
++        let mut roofed = false;
++        for y in y0..y1 {
++            let i = idx(x, y);
++            if space[i] {
++                let shaft = (x - door).abs() <= 1;
++                crater[i] = !shaft && !roofed;
++                if shaft && entry.is_none_or(|(ex, ey)| (y, x) < (ey, ex)) {
++                    entry = Some((x, y));
++                }
++            }
++            roofed |= !open[i];
++        }
++    }
++    let Some(entry) = entry else { return 0.0 };
++    // loose spoil with 3+ of 8 neighbours in the space counts as space, three rounds (`fill`)
++    for _ in 0..3 {
++        let add: Vec<usize> = (y0..y1)
++            .flat_map(|y| (x0..x0 + wd).map(move |x| (x, y)))
++            .filter(|&(x, y)| sp[idx(x, y)] && !space[idx(x, y)])
++            .filter(|&(x, y)| {
++                let mut k = 0;
++                for a in -1..=1 {
++                    for b in -1..=1 {
++                        k += ((a, b) != (0, 0) && inside(x + a, y + b) && space[idx(x + a, y + b)]) as i32;
++                    }
++                }
++                k >= 3
++            })
++            .map(|(x, y)| idx(x, y))
++            .collect();
++        if add.is_empty() {
++            break;
++        }
++        for i in add {
++            space[i] = true;
++        }
++    }
++    // the opening by a 5x5 block
++    let mut opened = vec![false; n];
++    for y in y0 + 2..y1 - 2 {
++        for x in x0 + 2..x0 + wd - 2 {
++            if (-2..=2).all(|a| (-2..=2).all(|b| space[idx(x + a, y + b)])) {
++                for a in -2..=2 {
++                    for b in -2..=2 {
++                        opened[idx(x + a, y + b)] = true;
++                    }
++                }
++            }
++        }
++    }
++    // 4-connected pieces of a mask: (cells, smallest (x, y)), biggest first
++    let pieces = |mask: &[bool]| -> Vec<Vec<usize>> {
++        let mut seen = vec![false; n];
++        let mut out: Vec<(usize, (i32, i32), Vec<usize>)> = Vec::new();
++        for x in x0..x0 + wd {
++            for y in y0..y1 {
++                let i = idx(x, y);
++                if !mask[i] || seen[i] {
++                    continue;
++                }
++                seen[i] = true;
++                let mut comp = vec![i];
++                let mut q = VecDeque::from([(x, y)]);
++                while let Some((px, py)) = q.pop_front() {
++                    for (a, b) in N4 {
++                        let (qx, qy) = (px + a, py + b);
++                        if inside(qx, qy) && mask[idx(qx, qy)] && !seen[idx(qx, qy)] {
++                            seen[idx(qx, qy)] = true;
++                            comp.push(idx(qx, qy));
++                            q.push_back((qx, qy));
++                        }
++                    }
++                }
++                out.push((comp.len(), (x, y), comp));
++            }
++        }
++        out.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
++        out.into_iter().map(|t| t.2).collect()
++    };
++    let rooms: Vec<Vec<usize>> = pieces(&opened).into_iter().filter(|r| 2 * r.iter().filter(|&&i| crater[i]).count() < r.len()).collect();
++    let xy = |i: usize| (x0 + (i as i32 % wd), y0 + (i as i32 / wd));
++    // body: the main room, the door's shortest way down to it, and the crater
++    let mut dist = vec![u32::MAX; n];
++    let mut par = vec![usize::MAX; n];
++    dist[idx(entry.0, entry.1)] = 0;
++    let mut q = VecDeque::from([entry]);
++    while let Some((px, py)) = q.pop_front() {
++        for (a, b) in N4 {
++            let (qx, qy) = (px + a, py + b);
++            if inside(qx, qy) && space[idx(qx, qy)] && dist[idx(qx, qy)] == u32::MAX {
++                dist[idx(qx, qy)] = dist[idx(px, py)] + 1;
++                par[idx(qx, qy)] = idx(px, py);
++                q.push_back((qx, qy));
++            }
++        }
++    }
++    let mut body = vec![false; n];
++    if let Some(main) = rooms.first() {
++        for &i in main {
++            body[i] = true;
++        }
++        let mut p = *main.iter().min_by_key(|&&i| (dist[i], xy(i))).unwrap();
++        while par[p] != usize::MAX {
++            p = par[p];
++            body[p] = true;
++        }
++    } else {
++        body[idx(entry.0, entry.1)] = true;
++    }
++    for i in 0..n {
++        body[i] |= crater[i];
++    }
++    let mut reach = vec![0u32; n];
++    let mut seen = body.clone();
++    let mut q: VecDeque<usize> = (0..n).filter(|&i| body[i]).collect();
++    while let Some(i) = q.pop_front() {
++        let (px, py) = xy(i);
++        for (a, b) in N4 {
++            let (qx, qy) = (px + a, py + b);
++            if inside(qx, qy) && space[idx(qx, qy)] && !seen[idx(qx, qy)] {
++                seen[idx(qx, qy)] = true;
++                reach[idx(qx, qy)] = reach[i] + 1;
++                q.push_back(idx(qx, qy));
++            }
++        }
++    }
++    let rest: Vec<bool> = (0..n).map(|i| space[i] && !body[i] && !opened[i]).collect();
++    let mut tun: Vec<u32> = pieces(&rest).iter().map(|c| c.iter().map(|&i| reach[i]).max().unwrap_or(0)).filter(|&t| t > 2).collect();
++    tun.sort_unstable_by(|a, b| b.cmp(a));
++    let t: f64 = tun.iter().take(4).map(|&t| (t - 2).min(15) as f64).sum();
++    t + rooms.iter().skip(1).map(|r| r.len().min(50) as f64 / 2.0).sum::<f64>()
++}
+ /// Write a `nestmap.txt` into a fresh world: every cell whose recorded material differs is set to it, except cells
+ /// that hold an organism now (the founders, plants) and `?` cells. Returns how many cells changed.
+ ///
+@@ -379,6 +561,12 @@ fn main() {
+     let rim_debit = fnum("rim_debit", 0.0);
+     let rim_share = fnum("rim_share", 0.0);
+     let deep_bonus = fnum("deep_bonus", 0.0);
++    // w_shape=W (dig-scoring thread, 2026-10-22; owner 18:25Z: credit the first cuts that turn into a tunnel or a second
++    // chamber, not more widening of the main room): a cut of original ground also pays W x (half a cut) per point it
++    // added to [`shape_score`] at that moment, capped at 4 points (the cut that first fits a 5x5 block in a second room
++    // adds 12.5 at once). So a side tunnel pays from its 3rd cell, a second room per cell, the main room and the crater
++    // nothing. Paid at the cut, because room credit paid later (`w_room`) reached ~nobody: the cutters were dead. Off = 0.
++    let w_shape = fnum("w_shape", 0.0);
+     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
+     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
+     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
+@@ -610,7 +798,8 @@ fn main() {
+             }
+         }
+         let frame = w.frame;
+-        for (x, y, _, who) in w.cut_log.as_mut().unwrap().drain(..) {
++        let cuts: Vec<_> = w.cut_log.as_mut().unwrap().drain(..).collect();
++        for (x, y, _, who) in cuts {
+             let i = (y * bw + x) as usize;
+             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
+                 orig[i] = false;
+@@ -650,6 +839,17 @@ fn main() {
+                 }
+                 held.insert(who, (who, worth));
+                 writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
++                if w_shape > 0.0 {
++                    let gain = (shape_score(&w, &surf, None) - shape_score(&w, &surf, Some((x, y)))).clamp(0.0, 4.0);
++                    if gain > 0.0 {
++                        writeln!(ev, "{frame},{who},shape,{x},{y},{},{who}", (gain * 10.0).round() as i32).unwrap();
++                        if let Some(b) = book.get_mut(&who) {
++                            let g = w_shape * gain * 0.5 * w_dig * dig_price;
++                            b.credit += g;
++                            b.g2 += g * g;
++                        }
++                    }
++                }
+                 if worth == 0.0 {
+                     continue;
+                 }
+@@ -1472,5 +1672,7 @@ fn main() {
+         age30.flush().unwrap();
+     }
+     write_nestmap(&w, &out.join("nestmap.txt"));
++    println!("shape {:.1}", shape_score(&w, &surf, None));
++    if creature::mind::scratch_log::oldlab_on() { eprintln!("{}", creature::mind::scratch_log::oldlab_report()); }
+     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
+ }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 8eb2facf..c163445a 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -7894,6 +7894,26 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
+     // the bill, digestion and birth inside -- stays the same. Nobody has a
+     // mind in the game, so this is one `Option` read per tick there.
+     if world.minds.is_some() && mind::has(world, organism) {
++        // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
++        // (`mind::scratch_log::oldlab_label`). Dig states only: holding spoil, or empty, not hungry, below the datum
++        // within 40 columns of the door.
++        if mind::scratch_log::oldlab_on()
++            && (mind::scratch_log::oldlab_act() || (mind::scratch_log::copy_on() && mind::scratch_log::oldlab_take(world, organism)))
++        {
++            let dig_state = world.organism(organism).is_some_and(|s| {
++                s.spoil.is_some()
++                    || (s.crop.is_none_or(|c| c.cells == 0)
++                        && (x - 128).abs() <= 40
++                        && world.room_surface_at(x).is_some_and(|top| y > top)
++                        && !needs_hungry(world, s, def, (x, y)))
++            });
++            if dig_state {
++                let mut wc = world.clone();
++                mind::scratch_log::strip_mind(&mut wc, organism);
++                creature_tick(&mut wc, x, y, organism, def, &SpecWindow::default());
++                mind::scratch_log::OLDLAB.with(|o| *o.borrow_mut() = Some((organism, Box::new(wc))));
++            }
++        }
+         return mind::tick(world, x, y, organism, def);
+     }
+ 
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 87cd2e58..61fa1936 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1803,6 +1803,9 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+             let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
+             if let Some(d) = d.as_ref() {
+                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
++                if scratch_log::oldlab_on() {
++                    scratch_log::oldlab_label(world, organism, (x, y), &opts);
++                }
+                 scratch_log::copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+             }
+             // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
+@@ -1867,6 +1870,31 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                     }
+                 }
+             }
++            // SCRATCH (dig-scoring thread): `PP_OLDLAB_ACT=1`, the old ant's dig calls acting (`scratch_log::oldlab_act`).
++            if redrawn.is_none() && scratch_log::oldlab_act() {
++                if let Some((cut, lab)) = scratch_log::OLDLAB_LAST.with(|o| o.borrow_mut().take()) {
++                    let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
++                    if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
++                        let choose = if cut == 1 && !lab.is_empty() {
++                            Some((0, lab[0]))
++                        } else if !carrying && opts[pick].verb == Verb::Dig && !lab.is_empty() {
++                            Some((1, lab[0]))
++                        } else if scratch_log::oldlab_act_all() && !lab.is_empty() && !matches!(opts[lab[0]].verb, Verb::PickUp | Verb::Eat | Verb::Feed) {
++                            Some((2, lab[0]))
++                        } else {
++                            None
++                        };
++                        if let Some((k, i)) = choose.filter(|&(_, i)| i != pick) {
++                            scratch_log::OLDLAB_ACTS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
++                            if let Some(d) = d.as_mut() {
++                                d.pick = i;
++                            }
++                            mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
++                            mind.state.last_verb = Some(opts[i].verb);
++                        }
++                    }
++                }
++            }
+             if scratch_log::teach_on() {
+                 if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
+                     let own_verb = opts[pick].verb;
+@@ -4095,6 +4123,114 @@ pub mod scratch_log {
+             && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
+             && Some(world.get(tx, ty).material) != world.materials.id_of("spoil")
+     }
++    // ---- SCRATCH (dig-scoring thread, 2026-10-22; Teacher lane's proposal): `PP_OLDLAB=1`, the old ant labels the
++    // mind's OWN states (DAgger), for a dig lesson. Before a mind ant's tick in a dig state (holding spoil, or empty,
++    // not hungry, below the datum within 40 columns of the door), the world is cloned, the clone's ant loses its mind
++    // and takes one tick as the game's own ant (chooser + act), and what it did -- the cut, put-down, pick-up or step,
++    // read off its body as the foraging lane's PP_SHADOW does -- becomes the option indices of the mind's decision in
++    // the real world, the copy log's 16th field ("1|i;j", or "-" when the old ant did nothing an option names). The
++    // real world is untouched. Copying the acting old ant (PP_SHADOW, s4) failed because its states are not the
++    // copy's; this labels the copy's states.
++    pub fn oldlab_on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB").is_ok_and(|v| v == "1"))
++    }
++    /// `PP_OLDLAB_K=k`: label one in k dig-state ticks (default 4).
++    pub fn oldlab_take(world: &World, organism: OrganismId) -> bool {
++        static K: OnceLock<u64> = OnceLock::new();
++        let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
++        rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64() % k == 0
++    }
++    thread_local! {
++        pub static CARRY_LAB: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
++        pub static OLDLAB: std::cell::RefCell<Option<(OrganismId, Box<World>)>> = const { std::cell::RefCell::new(None) };
++    }
++    pub static OLDLAB_COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++    /// Take a mind off one ant (the clone's, so it ticks as the game's ant).
++    pub fn strip_mind(world: &mut World, organism: OrganismId) {
++        if let Some(m) = world.minds.as_mut() {
++            m.ants.remove(&organism);
++        }
++    }
++    /// The label for this decision from the clone the old ant ticked in, if one is waiting for this ant.
++    pub fn oldlab_label(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt]) {
++        let Some((id, wc)) = OLDLAB.with(|o| o.borrow_mut().take()) else { return };
++        if id != organism {
++            return;
++        }
++        let key = |w: &World, p: (i32, i32)| {
++            let c = w.get(p.0, p.1);
++            (c.material.0 as u16, c.organism_id())
++        };
++        let Some(st0) = world.organism(organism) else { return };
++        let (tail0, spoil0, crop0) = (st0.chain.last().copied(), st0.spoil.is_some(), st0.crop.map_or(0, |c| c.cells));
++        let lab: Vec<usize> = match wc.organism(organism) {
++            None => Vec::new(),
++            Some(st) => {
++                let head = st.chain.first().copied().unwrap_or(at);
++                let (spoil, crop) = (st.spoil.is_some(), st.crop.map_or(0, |c| c.cells));
++                let changed = |i: usize| key(&wc, opts[i].target) != key(world, opts[i].target);
++                let with = |v: Verb, need: bool| -> Vec<usize> { (0..opts.len()).filter(|&i| opts[i].verb == v && (!need || changed(i))).collect() };
++                let (k, v) = if !spoil0 && spoil {
++                    (1, with(Verb::Dig, true))
++                } else if spoil0 && !spoil {
++                    let mut v = with(Verb::Drop, true);
++                    v.extend(with(Verb::Dig, true));
++                    (2, v)
++                } else if crop > crop0 {
++                    (3, with(Verb::PickUp, true))
++                } else if crop < crop0 {
++                    (4, with(Verb::Drop, true))
++                } else if head != at {
++                    if Some(head) == tail0 {
++                        (5, with(Verb::TurnAround, false))
++                    } else {
++                        (5, (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && opts[i].target == head).collect())
++                    }
++                } else {
++                    (6, with(Verb::Rest, false))
++                };
++                OLDLAB_COUNTS[k].fetch_add(1, Ordering::Relaxed);
++                if v.is_empty() {
++                    OLDLAB_COUNTS[7].fetch_add(1, Ordering::Relaxed);
++                }
++                v
++            }
++        };
++        OLDLAB_COUNTS[0].fetch_add(1, Ordering::Relaxed);
++        if oldlab_act() {
++            OLDLAB_LAST.with(|o| *o.borrow_mut() = Some((oldlab_kind(world, organism, &wc, at, tail0, spoil0, crop0), lab.clone())));
++        }
++        let field = if lab.is_empty() { "-".to_string() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) };
++        CARRY_LAB.with(|c| *c.borrow_mut() = Some(field));
++    }
++    /// `PP_OLDLAB_ACT=1`: the old ant's dig calls ACT on the mind's own states (the ceiling for a copy): where the old
++    /// ant would cut, the mind cuts that cell; where the mind would cut and the old ant would not, it does what the old
++    /// ant did. Every other call stays the mind's. Labels every dig-state tick (`PP_OLDLAB_K` ignored).
++    pub fn oldlab_act() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "1" || v == "2"))
++    }
++    /// `PP_OLDLAB_ACT=2`: every old-ant call in a dig state acts (its steps, turns, rests, cuts and put-downs of spoil,
++    /// not its food calls): the old ant's whole underground program on the mind's states.
++    pub fn oldlab_act_all() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ACT").is_ok_and(|v| v == "2"))
++    }
++    thread_local! {
++        pub static OLDLAB_LAST: std::cell::RefCell<Option<(u8, Vec<usize>)>> = const { std::cell::RefCell::new(None) };
++    }
++    pub static OLDLAB_ACTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
++    fn oldlab_kind(world: &World, organism: OrganismId, wc: &World, at: (i32, i32), _tail0: Option<(i32, i32)>, spoil0: bool, _crop0: u16) -> u8 {
++        let _ = (world, at);
++        let spoil = wc.organism(organism).is_some_and(|s| s.spoil.is_some());
++        u8::from(!spoil0 && spoil)
++    }
++    pub fn oldlab_report() -> String {
++        let c: Vec<u64> = OLDLAB_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        let x: Vec<u64> = OLDLAB_ACTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!("oldlab acts: cut as the old ant {} | did the old ant's move instead of a cut {} | other old-ant moves {} || oldlab: labelled {} | cut {} | let go {} | took food {} | put food {} | step {} | rest {} | no option matched {}", x[0], x[1], x[2], c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7])
++    }
+     pub fn copy_on() -> bool {
+         copy_out().is_some()
+     }
+@@ -4173,6 +4309,15 @@ pub mod scratch_log {
+         if !copy_on() {
+             return;
+         }
++        // `PP_OLDLAB`: write the labelled rows, and one in `PP_OLDLAB_NONE` (default 50) of the rest (the copier's
++        // unlabelled anchor group); a full log is ~2 KB a decision, millions of decisions a run.
++        if oldlab_on() && CARRY_LAB.with(|c| c.borrow().is_none()) {
++            static N: OnceLock<u64> = OnceLock::new();
++            let n = *N.get_or_init(|| std::env::var("PP_OLDLAB_NONE").ok().map_or(50, |v| v.parse().expect("PP_OLDLAB_NONE")));
++            if rng::stream(world.seed, organism as u64, world.frame, 4447).next_u64() % n != 0 {
++                return;
++            }
++        }
+         let f = |v: &[f32]| v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(" ");
+         let carrying = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+         let lab = if label_on() { labels(world, organism, at, opts) } else { "-|-|-|-".to_string() };
+@@ -4202,7 +4347,7 @@ pub mod scratch_log {
+             .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+             .collect();
+         cline(&format!(
+-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},-,{}",
++            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{},{}",
+             world.frame,
+             at.0,
+             at.1,
+@@ -4214,6 +4359,7 @@ pub mod scratch_log {
+             f(mem0),
+             all.join(";"),
+             bottom.join(";"),
++            CARRY_LAB.with(|c| c.borrow_mut().take()).unwrap_or_else(|| "-".to_string()),
+             refused
+         ));
+     }
+diff --git a/src/train/challenges.rs b/src/train/challenges.rs
+index a03e558b..8f9ec560 100644
+--- a/src/train/challenges.rs
++++ b/src/train/challenges.rs
+@@ -2693,6 +2693,13 @@ pub mod inrun {
+                 creature::mind::give(&mut w, id, genome_of(k));
+             }
+         }
++        // SCRATCH (dig-scoring thread): `PP_OLDLAB=1` ticks the old ant in clones of this world, so the world builds
++        // the old ant's ways as it does with none (`Minds::build_ways`).
++        if creature::mind::scratch_log::oldlab_on() {
++            if let Some(m) = w.minds.as_mut() {
++                m.build_ways = true;
++            }
++        }
+         (w, sc, sp)
+     }
+ 
