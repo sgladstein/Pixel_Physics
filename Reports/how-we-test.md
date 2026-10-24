@@ -82,7 +82,7 @@ Owner rulings, 2026-10-05:
      and in the switch's doc and its `how-the-ant-works.md` row, so the
      reason it is off can be re-checked later.
    - A change that failed its own target is not "off", it is a dead end:
-     a [`dead-ends.md`](dead-ends.md) entry, its branch kept (§7).
+     a [`dead-ends.md`](dead-ends.md) entry, its branch kept (§8).
    - **"Lands switched off" was never a project rule** (the owner caught it
      presented as one, 2026-10-12). It was a habit of the build-and-measure
      process, and it left fixes forgotten behind switches. The audit of
@@ -191,6 +191,46 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   is usually mutation, not the rule — see §1.
 - **labforage `aloft`** is food held off the ground, not ants.
 
+Added 2026-10-24 from the colony-selection threads of 2026-10-21 to 2026-10-24
+(the report sweep; evidence in
+[`brain-training/dig-scoring-2026-10-22/`](brain-training/dig-scoring-2026-10-22/README.md),
+[`brain-training/inrun-selection/batches-2026-10-22-to-24.md`](brain-training/inrun-selection/batches-2026-10-22-to-24.md)
+and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-training/teacher-training/inherited-nest-2026-10-23.md)):
+
+- **Digging counted inside a selection run.** In-run totals are confounded by
+  which colonies survived and by cutting falling through the round. Judge
+  digging in the **common garden** (selection off, fixed fresh worlds), and
+  count kept nest cuts (`nestcount.py`), not raw cuts near the door.
+- **Two groups of ants compared over a round without matching time.** Cutting
+  falls through a round, so "the survivors cut 40% less" was an artefact;
+  matched to the same 10k-frame bins they cut the same (0.96 vs 1.01).
+- **Short rounds look safer because of the clock**: ants rarely starve inside
+  a 50k-frame round, so fewer extinctions there say nothing about the brain.
+- **Home food once nests hold food.** Colonies re-drop stored food at home and
+  each drop books as a delivery (colsel17: about 11k of 13k). Judge feeding by
+  mean tank, stored nest food and starved.
+- **Nest numbers from before 2026-10-22 20:55Z (d3392d97)** counted door
+  markers as roof and the door's column as nest, so colsel3-7's nests are
+  inflated. Re-judge before quoting.
+- **A change to what the nest map keeps changes what is inherited.** colsel14
+  was void because a meter fix also carried stored food round to round. Check
+  the new world's first frames, not only the meter.
+- **A pay rule cannot change which cell an ant cuts** (colsel11, colsel12:
+  same crater shape under every charge); it only changes whether it digs.
+- **A lab chronicle from before 2026-10-24 (the far64 playtest PR) has no
+  painted-food lines.** `Lab::release` dropped the stroke unwritten, so a
+  food drop shows only as a `fruit_j` jump after a `PAUSED`/`RESUMED` pair.
+- **A pool trained in `inrun` has only met a capped colony.** `lay_cap=48:8`
+  is the harness's, not the game's; the lab colony is uncapped and booms then
+  starves (far64 playtest: 710 ants, then 817 starved in 10k frames with 2.4 MJ
+  left). Judge a pool in the lab on starvation after its peak, not only on
+  whether it is alive.
+- **`examples/labshot` never runs the lab mister**: any plant or water number
+  from it is a box with no rain.
+- **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare
+  sorted. A new loop over a HashMap that touches credit or counters must sort
+  first (2 of 64 seeds diverged between runs once).
+
 ## 5. Tools, by question
 
 | Question | Tool |
@@ -226,7 +266,33 @@ Before building anything new, grep [`instruments.md`](instruments.md).
   footnote. Per-seed numbers, not only means.
 - Judge-by-eye questions go to the owner as a card (`review` skill).
 
-## 7. Before you push
+## 7. Training batches on the VM
+
+For colony-selection (`colsel.py`) and in-run batches. The evidence is the
+[training compute audit](brain-training/research/training-compute-audit-2026-10-24.md)
+(2026-10-24, all 52 batches in the bucket); the owner asked for it to become
+the rule, and the Teacher lane adopted it the same day.
+
+- **Every idea needs a comparison, but rarely a fresh one.** Judging an idea
+  arm against its own first garden matched the real call on only 9 of 18
+  measures, and 3 came out backwards: selection alone improves a colony.
+  Seeds are deterministic per build (§1), so an arm with the same build,
+  founder pool, settings and seeds is already a control. Look for it in the
+  bucket before running one; never rerun it (7% of all colony-rounds were
+  byte-identical reruns). Resume a shared prefix rather than replaying it.
+- **One control per ratchet turn**, shared by every idea tested in that turn.
+- **Garden every 8 rounds** (`CG_EVERY=8`; 4 for short runs). At the old
+  default of 2 the garden was 30% of colony-selection CPU.
+- **Screen at 32 colonies × 16 rounds, confirm at 64 × 48.** 32 colonies keep
+  99% of large-effect calls and 85% of medium ones; no smaller sample ever
+  reversed a call. Rule changes show at the first garden. Learned behaviour
+  settles by round 23–31, and erosion only shows in long runs.
+- **Name the deciding measure before launch.** Five measures at p < 0.05 give
+  an idea that does nothing a "significant" change about one time in five.
+- **Count extinct colonies in the garden** as alive 0, nest 0; the garden
+  drops them, so its medians otherwise describe survivors only.
+
+## 8. Before you push
 
 - `rustfmt` the files you touched (never a whole-project `cargo fmt` riding
   along), then

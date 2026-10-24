@@ -351,14 +351,20 @@ pub fn pack_on() -> bool {
 /// (`mind::attack`), the game's own bite on a stranger in reach, and lets a mind pick up a cell of corpse its gut can
 /// use. **Why**: a predator that hunts by a mind needs a verb that kills and a mouth for what it killed; until now
 /// Attack was listed and never picked, and a dead ant was never picked up (no carry of one is built, and an ant
-/// eating its colony's dead was not what the rule was about). **Off by default, because it changes results**: a
+/// eating its colony's dead was not what the rule was about). **Built off, because it changes results**: a
 /// mind ant's genome can carry a live Attack switch, and in a box with two colonies or a predator it would start
 /// biting. Off, nothing is read or written: Attack is never picked and a corpse never offered, as before.
+///
+/// **On by default since 2026-10-24** (owner: "Everything should be on by default"); `=off` is the game before.
+/// What the default costs, measured: on the colony bed with no spider the bite has no stranger to act on, and the
+/// blank verb it enters as (`mind::enter_bite`) cost nothing past the mutant draw's own noise (stage two, 12 seeds);
+/// a genome that holds Attack banned -- every trained pool, the lab's new ant included -- still never bites
+/// outside `inrun`, which is the only caller of `enter_bite`.
 pub fn attack_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_ATTACK").as_deref() {
-        Ok("on") => true,
-        Ok("off") | Err(_) => false,
+        Ok("on") | Err(_) => true,
+        Ok("off") => false,
         Ok(other) => panic!("PIXEL_PHYSICS_MIND_ATTACK={other:?}: use on or off"),
     })
 }
@@ -370,6 +376,52 @@ pub fn attack_on() -> bool {
 pub fn corpse_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     attack_on() && *ON.get_or_init(|| std::env::var("PP_MIND_CORPSE").map_or(true, |v| v != "off"))
+}
+
+/// **A mind with eyes sees its prey** (lone predator thread, 2026-10-24; owner: "It seems realistic that spiders
+/// should use sight"): `PIXEL_PHYSICS_MIND_SIGHT=on` lets a mind whose body has an eye (`CreatureDef::sight_range`
+/// above 0 -- the spider's 64, never the ant's 0) cast the game's own eye (`creature::sighted`: rays all round,
+/// stopped by soil and rock) once a decision, and read the nearest prey it reached **on its home senses**: the
+/// context's home seen, distance and its change, and each option's step-toward-home, through [`sensed_home`].
+///
+/// **Why the home senses, not new ones**: a new input would move every weight after it in every genome on disk,
+/// the ants' included. A spider has no nest; its home was the cell it landed on, a point that says nothing about
+/// where the ants are. So for a sighted mind "home" becomes "the prey I can see" -- no prey in sight reads as no
+/// home -- and an eyeless mind (every ant) runs exactly as before. The eye is billed as every eye is,
+/// `sight_fraction x start_energy` a cell read (`mind::tick`).
+///
+/// **On by default** (owner, 2026-10-24: "Everything should be on by default"): measured, spiders trained with it
+/// from the hand-built hunter killed 80.6 ants a judging against 40.9 without (19 of 24 paired judgings won, 4
+/// lost; 4 seeds x 6 rounds, judged on 6 fresh beds). **The cost is to spiders trained blind**: the stage-one pools'
+/// home weights were learnt on their landing cell, and retrained with sight they killed 63 against 87 -- use a
+/// pool trained sighted (`predator/pools/sight-h2`), or `=off` for a blind one. An eyeless mind (every ant) casts
+/// nothing either way; `=off` casts no ray for anyone.
+pub fn sight_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_SIGHT").as_deref() {
+        Ok("on") | Err(_) => true,
+        Ok("off") => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_SIGHT={other:?}: use on or off"),
+    })
+}
+
+/// How many ticks a sighted mind cast its eye, and on how many it saw prey ([`sight_on`]; counted once a tick, where
+/// the eye is billed): the count that says whether the sense fired at all.
+pub static SIGHT_CASTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SIGHT_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// **Where a mind's home senses point** ([`sight_on`]): the nearest prey a sighted mind can see, or for any other
+/// mind its forage anchor (none in a home-blind world). Returns the eye's cell reads too, 0 when no eye was cast.
+pub fn sensed_home(world: &World, organism: OrganismId, def: &CreatureDef, st: &crate::sim::organism::OrganismState) -> (Option<(i32, i32)>, u64) {
+    if sight_on() && def.sight_range > 0 {
+        if let Some(&(hx, hy)) = st.chain.first() {
+            let (seen, reads) = super::sighted(world, hx, hy, organism, def);
+            if reads > 0 {
+                return (seen.prey.map(|s| (s.x, s.y)), reads);
+            }
+        }
+    }
+    ((!world.home_blind).then_some(st.forage_anchor), 0)
 }
 
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
@@ -409,12 +461,34 @@ pub fn switch_on_value(v: &str) -> bool {
 /// **On by default at `40:30`** (owner, 2026-10-24: "if we have decided these are the correct path forward they should
 /// be default on"): every colony-selection batch since colsel18 ran with it, and the standard line's founder `hcs` and
 /// everything selected from it was trained with it. `PP_HOMEVEC=off` (or `0`) is the old mind, byte-identical.
+///
+/// **`PP_HOMEVEC=log:S`** (teacher lane, 2026-10-24; owner: "why does the sense need to be binarized at all"): the same
+/// two slots read `ln(1 + d / S)` instead of the ramp -- graded from the door, never capped (S = 40: 0.49 at 25
+/// columns, 1.25 at 100, 2.14 at 300), so a mind can tell 70 columns from 150. **Why**: the ramp saturates at `R + W`
+/// (70 at the default), and every pool selected with food 25-45 columns out learned "far reads 1 -> turn for home":
+/// traced on farfood1's best colony with food 60 out, empty ants stepped homeward 29-31% of the time within 60
+/// columns and 60-75% past 70. In a lab box with food 100 columns out it lived only with the ramp moved out
+/// (80:60, 100:100 or off: 28-134 alive against 0-2). The dead zone within `R` was a guard for copying the come-home
+/// lesson onto a forager without it leaking into foraging near home; colony selection does not copy. Encoded as `R` =
+/// NaN, read by [`far_ramp`].
+///
+/// **The default since farfood3b (teacher lane, 2026-10-24 19:00Z) is `log:40`.** Owner: "I prefer the graded option
+/// unless it is significantly worse and cannot be trained to be better." Measured on one founder (far64z, its far
+/// links dropped), 32 colonies x 24 rounds each, food ramped from 80 columns: graded against no far sense at all, the
+/// lab case at round 23 was 1,183 vs 1,292 (11 of 32 colonies higher, n.s.), and the common garden starved 43.5 vs 103.
+/// In lab boxes the two arms' best colonies were level (fruit 150 columns out: 95-117 alive graded, 101-142 none;
+/// hand-built ant 127-159). `40:30` stays reachable for an old pool: `PP_HOMEVEC=40:30`.
 pub fn home_vec() -> Option<(f32, f32)> {
     static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "40:30".to_string());
+        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "log:40".to_string());
         if !switch_on_value(&v) {
             return None;
+        }
+        if let Some(s) = v.strip_prefix("log:") {
+            let s: f32 = s.parse().expect("PP_HOMEVEC=log:S");
+            assert!(s > 0.0, "PP_HOMEVEC=log:S, S > 0");
+            return Some((f32::NAN, s));
         }
         let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HOMEVEC=R:W")).collect();
         assert!(p.len() == 2 && p[1] > 0.0, "PP_HOMEVEC=R:W, W > 0");
@@ -437,8 +511,18 @@ pub fn home_dir() -> bool {
     })
 }
 
-/// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond.
+/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED=1`, [`f::HUNGRY`] graded ([`describe`]). Off by default.
+fn hungry_graded() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PP_HUNGRY_GRADED").is_ok_and(|v| switch_on_value(&v)))
+}
+
+/// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond; or, for `log:S` (`r` NaN),
+/// `ln(1 + d / w)`, graded and uncapped.
 pub fn far_ramp(d: f32, r: f32, w: f32) -> f32 {
+    if r.is_nan() {
+        return (1.0 + d.max(0.0) / w).ln();
+    }
     ((d - r) / w).clamp(0.0, 1.0)
 }
 
@@ -516,7 +600,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         colony: st.colony,
         scent: CHANNELS.map(|ch| scent(world, ch, head.0, head.1)),
         warmth: if warmth_on() { world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature } else { 0.0 },
-        home: (!world.home_blind).then_some(st.forage_anchor),
+        home: sensed_home(world, organism, def, st).0,
         mats: Mats {
             spoil: world.materials.known(Known::Spoil),
             packed: world.materials.known(Known::PackedSoil),
@@ -877,7 +961,17 @@ fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'
             v[f::LARVA] = 1.0;
             v[f::LARVA_HUNGER] = hunger;
         } else {
-            v[f::HUNGRY] = f32::from(u8::from(hunger > 0.5));
+            // SCRATCH (sense-cap audit, 2026-10-24; off by default): `PP_HUNGRY_GRADED=1` reads a nestmate's hunger
+            // as the ant reads its own bank -- `1 / (1 + e)`, `e` its bank in the species' sensed tanks (`c::ENERGY`
+            // is `e / (1 + e)`) -- instead of "under half a start grant", which is 1 or 0 with nothing between and 0
+            // for any nestmate above one grant. On the training bed it fired on no option at all (every nestmate
+            // banked 7-60 tanks); in a lab box on 2.3-12% of options.
+            v[f::HUNGRY] = if hungry_graded() {
+                let tank = world.species.get(o.species).creature.as_ref().map_or(1.0, |d| d.sensed_tank.unwrap_or(d.start_energy)).max(1.0);
+                1.0 / (1.0 + o.energy.max(0.0) / tank)
+            } else {
+                f32::from(u8::from(hunger > 0.5))
+            };
         }
     }
     v[f::DEAD] = f32::from(u8::from(here.mats.corpse.is_some_and(|c| cell.material == c)));
@@ -987,6 +1081,17 @@ mod tests {
     use super::*;
     use crate::sim::creature::{targets, usable_headings};
     use crate::sim::Cell;
+
+    /// `PP_HOMEVEC=log:S` is graded from the door and never caps, where the ramp reads 1 at every distance past
+    /// `R + W` -- the property the log form exists for (70 and 150 columns must read differently).
+    #[test]
+    fn the_log_far_sense_keeps_rising_where_the_ramp_caps() {
+        assert_eq!(far_ramp(70.0, 40.0, 30.0), far_ramp(150.0, 40.0, 30.0));
+        assert_eq!(far_ramp(0.0, f32::NAN, 40.0), 0.0);
+        let (a, b, c) = (far_ramp(25.0, f32::NAN, 40.0), far_ramp(70.0, f32::NAN, 40.0), far_ramp(150.0, f32::NAN, 40.0));
+        assert!(0.0 < a && a < b && b < c, "{a} {b} {c}");
+        assert!((far_ramp(100.0, f32::NAN, 40.0) - 3.5f32.ln()).abs() < 1e-6);
+    }
 
     fn colony_box() -> World {
         crate::lab::scene::LabBox {
@@ -1288,8 +1393,12 @@ mod tests {
                         o.target
                     );
                     for (k, &v) in o.feats.iter().enumerate() {
+                        // The graded far sense (`PP_HOMEVEC=log:S`, the default since farfood3b) is uncapped by
+                        // the owner's choice, so `LAST_FOOD` = cosine x ln(1 + d / S) passes 1 past ~70 columns
+                        // (1.25 at 100); 4.6 at 4,096 columns, so 6 bounds any world.
+                        let lim = if k == f::LAST_FOOD { 6.0 } else { 1.0 };
                         assert!(
-                            v.is_finite() && (-1.0..=1.0).contains(&v),
+                            v.is_finite() && (-lim..=lim).contains(&v),
                             "frame {f} ant {id}: {} = {v} on {:?}",
                             feature_names()[k],
                             o.verb

@@ -1,0 +1,478 @@
+From db1cc976571af490a0854dc51738b179527b8643 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 13:50:54 +0000
+Subject: [PATCH 1/4] Ant body: the appetite gate becomes a gene (slot 28), and
+ a birth's body mutation is one shared function
+
+What it does: an ant's crop can now inherit how hard it holds back digesting
+while the ant is fed -- the appetite gate the teacher lane found brings far
+more food home in the training bed, but which no lineage could reach because
+digestion is a body rule and the brain cannot touch it. Owner, 2026-10-22:
+"The body should be able to mutate too."
+
+- organism::TRAIT_APPETITE (slot 27, CREATURE_TRAITS 27 -> 28): the gate's
+  weight is digest_hunger_weight + allele, clamped 0..1 (creature::
+  appetite_weight_of). Additive, no species gate, per the sight-range ruling.
+  Width 0 on every species, so nothing drifts in the game.
+- creature::mutate_traits: the body half of mutate_newborn, split out
+  unchanged (same draws in the same order, width-0 slots take none), so a
+  harness that places its own children mutates a body by the game's rule.
+- creature::inherit_body: a parent's body onto a placed child, mutated on
+  the child's own birth stream (RNG_SLOT_BIRTH), for the in-run bed.
+- Every species file authors the new slot at 0.0; lab names it
+  (APPETITE GATE / appetite row).
+
+Measured: bit-identical. In-run bed, hA1 founders, 200k frames, seeds 1 and
+2, against the compute branch at 98ad9dc4: events, births, sel and stock
+files byte-identical with the gate off; with hungergate=1 digest_bar=3
+(the species gate on, read through the new function) also byte-identical.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DWLmVnMuZT7iPWY73DvPhf
+---
+ assets/species/ancestor.ron         |  4 +-
+ assets/species/ant.ron              |  6 ++-
+ assets/species/ant_block.ron        |  4 +-
+ assets/species/ant_block_shaded.ron |  4 +-
+ assets/species/ant_long.ron         |  4 +-
+ assets/species/ant_wide.ron         |  4 +-
+ assets/species/beetle.ron           |  4 +-
+ assets/species/chitin_pale.ron      |  4 +-
+ assets/species/flitter.ron          |  4 +-
+ assets/species/hopper.ron           |  4 +-
+ assets/species/longant.ron          |  4 +-
+ src/lab/params.rs                   |  2 +
+ src/lab/plainspeak.rs               |  1 +
+ src/sim/creature.rs                 | 83 ++++++++++++++++++++++-------
+ src/sim/organism.rs                 | 25 ++++++++-
+ 15 files changed, 114 insertions(+), 43 deletions(-)
+
+diff --git a/assets/species/ancestor.ron b/assets/species/ancestor.ron
+index 6b8fb5d6..a0035a46 100644
+--- a/assets/species/ancestor.ron
++++ b/assets/species/ancestor.ron
+@@ -500,7 +500,7 @@
+         // `place_creature` leaves a parent standing on one joule, which is
+         // about three ticks of upkeep, so the low allele very nearly kills
+         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The width one birth may move the gut, the grant, and the bar.
+         // Authored so it and the ancestral value it widens cannot drift apart
+         // in separate commits -- see `CreatureDef::trait_variance`. Read by
+@@ -514,7 +514,7 @@
+         // this long; a tenth of it would drift and never arrive.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **Budding: the bank an ant must reach before it makes another
+         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+diff --git a/assets/species/ant.ron b/assets/species/ant.ron
+index 1acefa09..fa03e34d 100644
+--- a/assets/species/ant.ron
++++ b/assets/species/ant.ron
+@@ -712,7 +712,7 @@
+         // `place_creature` leaves a parent standing on one joule, which is
+         // about three ticks of upkeep, so the low allele very nearly kills
+         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The width one birth may move the gut, the grant, and the bar.
+         // Authored so it and the ancestral value it widens cannot drift apart
+         // in separate commits -- see `CreatureDef::trait_variance`. Read by
+@@ -734,7 +734,9 @@
+         // Entries 24-25 are the door genes (`organism::DOOR_SLOTS`: how far
+         // round the door food is not put down, and how much the heap cue
+         // holds back re-opening the door), on the same terms.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        // Entry 27 is the appetite gate (`organism::TRAIT_APPETITE`, added to
++        // `digest_hunger_weight` above), on the same terms (2026-10-22).
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **Budding: the bank an ant must reach before it makes another
+         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+diff --git a/assets/species/ant_block.ron b/assets/species/ant_block.ron
+index 881dfe45..6aa5e50f 100644
+--- a/assets/species/ant_block.ron
++++ b/assets/species/ant_block.ron
+@@ -194,13 +194,13 @@
+         // eating fallen leaves" is about. Specialising is what pays now --
+         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+         // which is the trade S5 exists to create.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // Read by nothing until S6. Authored here so the width and the
+         // ancestral value it widens cannot drift apart in separate
+         // commits -- see `CreatureDef::trait_variance`.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A living nestmate counts as ground.** Footing only, never
+         // passability -- two ants still cannot walk through each other --
+diff --git a/assets/species/ant_block_shaded.ron b/assets/species/ant_block_shaded.ron
+index 0c10d066..4a00d439 100644
+--- a/assets/species/ant_block_shaded.ron
++++ b/assets/species/ant_block_shaded.ron
+@@ -198,13 +198,13 @@
+         // eating fallen leaves" is about. Specialising is what pays now --
+         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+         // which is the trade S5 exists to create.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // Read by nothing until S6. Authored here so the width and the
+         // ancestral value it widens cannot drift apart in separate
+         // commits -- see `CreatureDef::trait_variance`.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A living nestmate counts as ground.** Footing only, never
+         // passability -- two ants still cannot walk through each other --
+diff --git a/assets/species/ant_long.ron b/assets/species/ant_long.ron
+index 96f31dd0..9db2ff4f 100644
+--- a/assets/species/ant_long.ron
++++ b/assets/species/ant_long.ron
+@@ -194,13 +194,13 @@
+         // eating fallen leaves" is about. Specialising is what pays now --
+         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+         // which is the trade S5 exists to create.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // Read by nothing until S6. Authored here so the width and the
+         // ancestral value it widens cannot drift apart in separate
+         // commits -- see `CreatureDef::trait_variance`.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A living nestmate counts as ground.** Footing only, never
+         // passability -- two ants still cannot walk through each other --
+diff --git a/assets/species/ant_wide.ron b/assets/species/ant_wide.ron
+index 1b666a95..b4bbe098 100644
+--- a/assets/species/ant_wide.ron
++++ b/assets/species/ant_wide.ron
+@@ -194,13 +194,13 @@
+         // eating fallen leaves" is about. Specialising is what pays now --
+         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+         // which is the trade S5 exists to create.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // Read by nothing until S6. Authored here so the width and the
+         // ancestral value it widens cannot drift apart in separate
+         // commits -- see `CreatureDef::trait_variance`.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A living nestmate counts as ground.** Footing only, never
+         // passability -- two ants still cannot walk through each other --
+diff --git a/assets/species/beetle.ron b/assets/species/beetle.ron
+index b2070f3e..ee39eef8 100644
+--- a/assets/species/beetle.ron
++++ b/assets/species/beetle.ron
+@@ -128,10 +128,10 @@
+         // apart, outside an authored tolerance radius of 1.0, so a beetle is
+         // not already inside an ant's family the day `kin_crosses_kinds`
+         // is turned on.
+-        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.8, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.8, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A beetle can breed, and until 2026-09-05 it could not — the
+         // field was simply absent.** `#[serde(default)]` made it 0.0 and
+diff --git a/assets/species/chitin_pale.ron b/assets/species/chitin_pale.ron
+index 6a0cdbd8..4c4db231 100644
+--- a/assets/species/chitin_pale.ron
++++ b/assets/species/chitin_pale.ron
+@@ -194,13 +194,13 @@
+         // eating fallen leaves" is about. Specialising is what pays now --
+         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+         // which is the trade S5 exists to create.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // Read by nothing until S6. Authored here so the width and the
+         // ancestral value it widens cannot drift apart in separate
+         // commits -- see `CreatureDef::trait_variance`.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **A living nestmate counts as ground.** Footing only, never
+         // passability -- two ants still cannot walk through each other --
+diff --git a/assets/species/flitter.ron b/assets/species/flitter.ron
+index 3fac35f4..7ffa8701 100644
+--- a/assets/species/flitter.ron
++++ b/assets/species/flitter.ron
+@@ -680,7 +680,7 @@
+         // gut) is not a niche it was ever meant to hold, and what it gains
+         // is a 120 J nectar meal against the ant's 30. Re-test condition
+         // unchanged for the *ant*; this is a different animal.
+-        traits: (-1.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (-1.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The width one birth may move the gut, the grant, and the bar.
+         // Authored so it and the ancestral value it widens cannot drift apart
+         // in separate commits -- see `CreatureDef::trait_variance`. Read by
+@@ -694,7 +694,7 @@
+         // this long; a tenth of it would drift and never arrive.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **Budding: the bank an ant must reach before it makes another
+         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+diff --git a/assets/species/hopper.ron b/assets/species/hopper.ron
+index 781f45bd..1bdc881f 100644
+--- a/assets/species/hopper.ron
++++ b/assets/species/hopper.ron
+@@ -615,7 +615,7 @@
+         // `place_creature` leaves a parent standing on one joule, which is
+         // about three ticks of upkeep, so the low allele very nearly kills
+         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The width one birth may move the gut, the grant, and the bar.
+         // Authored so it and the ancestral value it widens cannot drift apart
+         // in separate commits -- see `CreatureDef::trait_variance`. Read by
+@@ -629,7 +629,7 @@
+         // this long; a tenth of it would drift and never arrive.
+         // The last four entries (the scent signature and tolerance) are not
+         // read -- their width is the `scent_drift` field, not a tuple entry.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **Budding: the bank an ant must reach before it makes another
+         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+diff --git a/assets/species/longant.ron b/assets/species/longant.ron
+index 6d7d3ca2..3baacb9f 100644
+--- a/assets/species/longant.ron
++++ b/assets/species/longant.ron
+@@ -810,7 +810,7 @@
+         // `place_creature` leaves a parent standing on one joule, which is
+         // about three ticks of upkeep, so the low allele very nearly kills
+         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
+-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+         // The width one birth may move the gut, the grant, and the bar.
+         // Authored so it and the ancestral value it widens cannot drift apart
+         // in separate commits -- see `CreatureDef::trait_variance`. Read by
+@@ -832,7 +832,7 @@
+         // Entries 24-25 are the door genes (`organism::DOOR_SLOTS`: how far
+         // round the door food is not put down, and how much the heap cue
+         // holds back re-opening the door), on the same terms.
+-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
++        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+ 
+         // **Budding: the bank an ant must reach before it makes another
+         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+diff --git a/src/lab/params.rs b/src/lab/params.rs
+index a715bff6..0854397f 100644
+--- a/src/lab/params.rs
++++ b/src/lab/params.rs
+@@ -961,6 +961,8 @@ pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
+         "HOW FAR FROM THE NEST'S DOOR AN ANT WILL NOT PUT FOOD DOWN, SO THE WAY IN STAYS OPEN: 0 IS THE SHIPPED 6 CELLS, +1 IS TWICE THAT AND -1 HALF. FOOD IS NEVER PUT DOWN IN THE SHAFT OR THE ROOM AT ITS FOOT EITHER WAY."),
+     (organism::TRAIT_DOOR_CUE, "door_cue",
+         "HOW MUCH AN ANT STILL NEEDS A HEAP OF DUG SOIL BESIDE IT BEFORE IT RE-OPENS ITS OWN DOOR. 0, THE SHIPPED ANT, RE-DIGS A FILLED DOOR FREELY; 1 TREATS IT LIKE BARE GROUND, WHERE A NEW HOLE IS STARTED ONLY BESIDE A HEAP."),
++    (organism::TRAIT_APPETITE, "appetite",
++        "HOW MUCH A FED ANT'S CROP HOLDS BACK FROM DIGESTING, SO A FORAGER THAT IS ALREADY FULL CARRIES ITS LOAD HOME INSTEAD OF EATING IT ON THE WAY. ADDED TO DIGEST HUNGER WEIGHT: 0 IS THE SPECIES' OWN GATE (THE SHIPPED ANT HAS NONE), +1 IS THE FULL GATE. A HUNGRY ANT ALWAYS DIGESTS AT FULL SPEED."),
+ ];
+ 
+ /// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
+diff --git a/src/lab/plainspeak.rs b/src/lab/plainspeak.rs
+index 0570b952..52f510c9 100644
+--- a/src/lab/plainspeak.rs
++++ b/src/lab/plainspeak.rs
+@@ -641,6 +641,7 @@ fn trait_word(slot: usize) -> &'static str {
+         organism::TRAIT_DOOR_CLEAR => "DOOR CLEARING",
+         organism::TRAIT_DOOR_CUE => "DOOR HEAP NEED",
+         organism::TRAIT_RETURN_MEMORY => "FORAGE MEMORY",
++        organism::TRAIT_APPETITE => "APPETITE GATE",
+         _ => "A TRAIT",
+     }
+ }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 8eb2facf..29049407 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -64,7 +64,7 @@ use super::chunk::Rect;
+ use super::contest;
+ use super::field;
+ use super::material::{self, MaterialKind};
+-use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
++use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_APPETITE, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+ use super::pheromone::{self, Channel};
+ use super::plant;
+ use super::rng;
+@@ -5360,6 +5360,14 @@ pub fn digest_rate_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32
+     def.digest_rate / ratio_factor(traits[TRAIT_DIGEST_RATE]).max(f32::EPSILON)
+ }
+ 
++/// **How hard this particular animal's crop holds back while it is fed**
++/// (`TRAIT_APPETITE`): the species' `digest_hunger_weight` plus the allele,
++/// on the `0..=1` the gate reads. Additive, so a species authored at 0 can
++/// evolve a gate, and exactly the authored weight at allele 0.
++pub fn appetite_weight_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
++    (def.digest_hunger_weight + traits[TRAIT_APPETITE]).clamp(0.0, 1.0)
++}
++
+ /// **How much this particular animal's crop holds.**
+ ///
+ /// The reciprocal axis again; a capacity is a scale rather than an offset.
+@@ -6166,22 +6174,8 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
+             silence_emit_b(&mut genome);
+         }
+         state.genome = genome;
+-        for (slot, t) in state.traits.iter_mut().enumerate() {
+-            let width = trait_width(def, slot);
+-            if mutates && width > 0.0 {
+-                // `gut_bias` is a position on a `-1..=1` axis and every
+-                // other slot in `CREATURE_TRAITS` is defined the same way,
+-                // so the clamp is the axis rather than a tuning choice.
+-                //
+-                // **The two arms-race slots are the exception, and this line
+-                // is what makes the reach dial mean anything at all.**
+-                // Widening only the resolvers would have been *vacuous*:
+-                // a birth clamps here, so no lineage could ever hold the
+-                // allele the widened resolver was waiting to read. It is
+-                // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
+-                let bound = allele_bound(slot, reach);
+-                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
+-            }
++        if mutates {
++            mutate_traits(&mut state.traits, def, reach, &mut draw);
+         }
+         child_traits = state.traits;
+         child_generation = state.generation;
+@@ -6210,6 +6204,50 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
+     (child_traits, child_generation, child_born_frame)
+ }
+ 
++/// **The body's half of a birth**: every trait slot takes one uniform step
++/// of up to its [`trait_width`] from `draw`, in slot order, held inside its
++/// own bound. Split out of [`mutate_newborn`] (2026-10-22) so the in-run
++/// training bed, whose births are placed by the harness rather than by
++/// `try_bud`, mutates a body by the game's own rule and not a copy of it. A
++/// slot of width 0 takes no draw, so the game's streams are unchanged.
++pub fn mutate_traits(traits: &mut [f32; CREATURE_TRAITS], def: &CreatureDef, reach: f32, draw: &mut rng::Rng) {
++    for (slot, t) in traits.iter_mut().enumerate() {
++        let width = trait_width(def, slot);
++        if width > 0.0 {
++            // `gut_bias` is a position on a `-1..=1` axis and every
++            // other slot in `CREATURE_TRAITS` is defined the same way,
++            // so the clamp is the axis rather than a tuning choice.
++            //
++            // **The two arms-race slots are the exception, and this line
++            // is what makes the reach dial mean anything at all.**
++            // Widening only the resolvers would have been *vacuous*:
++            // a birth clamps here, so no lineage could ever hold the
++            // allele the widened resolver was waiting to read. It is
++            // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
++            let bound = allele_bound(slot, reach);
++            *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
++        }
++    }
++}
++
++/// **Give a placed animal its parent's body, mutated by [`mutate_traits`]**,
++/// on the same per-child stream a bud or an egg uses (`RNG_SLOT_BIRTH`), and
++/// return it. For a harness that places its own children (the in-run
++/// training bed's `inrun::birth`): `try_bud` and `brood::lay_egg` already do
++/// this through [`mutate_newborn`]. `mutate` false copies the body exactly.
++/// Leaves the brain genome, the generation and `born_with` alone.
++pub fn inherit_body(world: &mut World, child: OrganismId, def: &CreatureDef, parent_traits: [f32; CREATURE_TRAITS], mutate: bool) -> [f32; CREATURE_TRAITS] {
++    let mut traits = parent_traits;
++    if mutate {
++        let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
++        mutate_traits(&mut traits, def, world.trait_reach, &mut draw);
++    }
++    if let Some(state) = world.organism_mut(child) {
++        state.traits = traits;
++    }
++    traits
++}
++
+ /// How wide a founded colony's nest patch is, in cells, and how far apart
+ /// its ants stand.
+ ///
+@@ -8764,7 +8802,12 @@ fn settle(
+     // has to land in the same breath as the animal receives it. Crediting at
+     // intake would open it by every stomach in the world; crediting at the
+     // drop would credit food the animal never absorbed.
+-    let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
++    let gut_traits = traits_of(world, organism, def);
++    let digest_rate = digest_rate_of(def, &gut_traits);
++    // **The gate's weight is this animal's own** (`TRAIT_APPETITE`, 2026-10-22):
++    // the species' authored `digest_hunger_weight` plus the allele, which is
++    // the authored weight exactly at allele 0.
++    let appetite = appetite_weight_of(def, &gut_traits);
+     // **Appetite, not a clock** -- `CreatureDef::digest_hunger_weight`, which
+     // is 0.0 for every species that has not authored it and then takes the
+     // `1.0 - w + w * hunger` factor to exactly 1.0. Multiplying by a literal
+@@ -8786,8 +8829,8 @@ fn settle(
+     let digest_rate = {
+         let carrying = world.organism(organism).is_some_and(|s| s.crop.is_some());
+         let bar = scratch_digest_bar().map_or(def.reproduce_threshold, |n| n * def.start_energy);
+-        if carrying && def.digest_hunger_weight > 0.0 && bar > 0.0 {
+-            let w = def.digest_hunger_weight.clamp(0.0, 1.0);
++        if carrying && appetite > 0.0 && bar > 0.0 {
++            let w = appetite;
+             let energy = world.organism(organism).map_or(0.0, |s| s.energy);
+             // **Flat at full rate up to `start_energy`, then falling to the
+             // breeding bar** -- not a straight line from zero, which is what
+diff --git a/src/sim/organism.rs b/src/sim/organism.rs
+index 1df8391e..664646a3 100644
+--- a/src/sim/organism.rs
++++ b/src/sim/organism.rs
+@@ -7392,7 +7392,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
+ /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
+ /// same number, check what each one trades*: this one trades nothing the
+ /// weight does not already trade.
+-pub const CREATURE_TRAITS: usize = 27;
++pub const CREATURE_TRAITS: usize = 28;
+ 
+ /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
+ /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
+@@ -7811,6 +7811,29 @@ pub const TRAIL_PLANE_SLOTS: [usize; 4] = [TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_E
+ /// ant keeps its own memory (`OrganismState::return_met`) in place of the
+ /// nest-wide clock. Width 0, as the walk genes.
+ pub const TRAIT_RETURN_MEMORY: usize = 26;
++/// Slot 27: **the appetite gate, as a gene** -- how much this ant's crop
++/// holds back digesting while the ant is already fed, read through
++/// `creature::appetite_weight_of` as `digest_hunger_weight + allele`,
++/// clamped to `0..=1`.
++///
++/// **Additive on the species' authored weight, with no species gate**, for
++/// `TRAIT_SIGHT_RANGE`'s ruling ("anything should be able to evolve"): the
++/// ant authors 0.0, so a multiplier would make the gate unreachable at any
++/// allele. At 0 the weight is the authored one exactly (`x + 0.0 == x`), so
++/// an unevolved ant digests bit-for-bit as it did before the slot existed.
++/// A negative allele on a species authored at 0 reads as no gate at all.
++///
++/// **Why it is a gene and not a brain output** (owner, 2026-10-22: "the body
++/// should be able to mutate too"): digestion is something a body does, not
++/// something an animal decides -- the same line `creature_tick`'s digestion
++/// comment draws -- so no link in a mind reaches it. The nearest a brain gets
++/// is shorter trips, which digest less on the way. Measured as a species
++/// switch in the in-run training bed (teacher lane, 2026-10-22, hA1, 64
++/// seeds): food home 8,269 against 1,700 per colony-round, higher in 62 of
++/// 64, with die-outs 16 against 8 -- a strong trade nobody could tune per
++/// lineage. Width 0 on every species, so nothing drifts until a measurement
++/// says letting it is safe.
++pub const TRAIT_APPETITE: usize = 27;
+ /// **Every walk slot**, gains, planes and the forage memory -- what ships
+ /// at width 0 and has its own page in the lab.
+ pub const WALK_SLOTS: [usize; 11] = [
+-- 
+2.43.0
+

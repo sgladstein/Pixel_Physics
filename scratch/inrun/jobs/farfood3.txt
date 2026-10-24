@@ -1,0 +1,2 @@
+logsense colsel 30 lex+spoil+crater+shape+lab 64 24 200000 scratch/inrun/genomes/far64z_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=80:5:10 food=mix setenv=PP_HOMEVEC=log:40
+nosense colsel 30 lex+spoil+crater+shape+lab 64 24 200000 scratch/inrun/genomes/far64z_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=80:5:10 food=mix setenv=PP_HOMEVEC=off

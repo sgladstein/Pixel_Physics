@@ -466,6 +466,13 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
         if pool.is_empty() { 0.0 } else { pool.iter().map(|p| p.0).sum::<f64>() / pool.len() as f64 },
         m.bites,
     );
+    // The eye's count (`options::sight_on`), cumulative over the run: whether the sense fired at all.
+    let line = if creature::options::sight_on() {
+        let ld = |a: &std::sync::atomic::AtomicU64| a.load(std::sync::atomic::Ordering::Relaxed);
+        format!("{line} | sight saw prey {} of {} casts", ld(&creature::options::SIGHT_SEEN), ld(&creature::options::SIGHT_CASTS))
+    } else {
+        line
+    };
     RoundOut { pool: out, line }
 }
 

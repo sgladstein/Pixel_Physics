@@ -70,7 +70,10 @@ pub const H1: &str = include_str!("../../assets/minds/h1.raw.txt");
 /// its best colony's carry replaces it. History: brood1ctl colony 7 round 31
 /// (from hcs, rules weaned; garden nest 377, crater 3, starved 3, rooms 14) ->
 /// stdcheck stdoff colony 27 round 15 (from that pool, rules off from round 0;
-/// garden nest 530, crater 3, starved 6, rooms 44).
+/// garden nest 530, crater 3, starved 6, rooms 44) -> farfood2 ramp2far colony 64 round 23 (food ramped 45 -> 80
+/// columns, far sense 100:100) with its far-sense links dropped -> farfood3b logsense colony 12 round 23 (food ramped
+/// 80 -> 100 columns, graded far sense `log:40`, now the default; garden nest 409, crater 0, starved 53; lab box with
+/// fruit 150 columns out 95-110 alive, where this pool's first version starved to 0 beyond 100).
 pub const STD_POOL: &str = include_str!("../../assets/minds/std_pool.txt");
 
 /// [`STD_POOL`]'s members as genomes this build runs: each one whole, its own
@@ -103,6 +106,10 @@ pub fn std_pool() -> Vec<Vec<f32>> {
 /// of another shape, and any head cut off when heads do not evolve.
 pub fn fit_head(g: &mut Vec<f32>) {
     let body = creature::mind::GENOME_LEN;
+    // SCRATCH (brood lane, 2026-10-24): a lay gate rides last ([`creature::mind::lay_bar_scale`]); off the end while
+    // the head is fitted, and back on if this build reads gates (`PP_LAYGENE`, on by default).
+    let hl = creature::mind::scratch_log::head_evolve().unwrap_or(0);
+    let lay = (g.len() == body + hl + creature::mind::LAY_LEN).then(|| g.split_off(body + hl));
     match creature::mind::scratch_log::head_evolve() {
         Some(hl) if g.len() == body + hl => {}
         Some(_) => {
@@ -110,6 +117,9 @@ pub fn fit_head(g: &mut Vec<f32>) {
             g.extend(creature::mind::scratch_log::dighead().expect("a head evolves").flat());
         }
         None => g.truncate(body),
+    }
+    if let Some(lay) = lay.filter(|_| creature::mind::laygene_on()) {
+        g.extend(lay);
     }
 }
 

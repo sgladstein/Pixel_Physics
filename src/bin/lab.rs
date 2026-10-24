@@ -87,10 +87,11 @@
 //!
 //! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
 //!
-//! Two words on the command line open it otherwise:
-//! `cargo run --release --bin lab -- newant` puts every ant on the trained
-//! mind (MENU's ANT BRAIN row), and `-- training` opens the COLONY TRAINING
-//! page with round 0 founded on the training bed (`lab::training`).
+//! Every ant in it decides by the trained pool (MENU's ANT BRAIN row: NEW)
+//! from the first frame, since 2026-10-24. Two words on the command line
+//! open it otherwise: `cargo run --release --bin lab -- oldant` starts on the
+//! hand-built brain, and `-- training` opens the COLONY TRAINING page with
+//! round 0 founded on the training bed (`lab::training`).
 
 #[path = "lab/layer.rs"]
 mod layer;
@@ -293,13 +294,17 @@ impl Handler {
                 Err(e) => eprintln!("scenario {name}: {e}"),
             }
         }
-        // `-- newant`: every ant decides by the trained mind from the first
-        // frame (the ANT BRAIN row). `-- training`: open on the COLONY
-        // TRAINING page with round 0 founded, paused.
+        // **The trained ant by default** (owner, 2026-10-24): every ant
+        // decides by the trained pool from the first frame (the ANT BRAIN
+        // row); `-- oldant` opens on the hand-built brain. `-- newant` is
+        // still accepted and changes nothing. `-- training`: open on the
+        // COLONY TRAINING page with round 0 founded, paused. The switch is
+        // set here, not in `Lab::new`, so the harnesses that build a `Lab`
+        // keep measuring what they measured.
         let args: Vec<String> = std::env::args().skip(1).collect();
-        if args.iter().any(|a| a == "newant") {
-            let msg = lab.set_new_ant(true);
-            lab.ui.say(msg);
+        if !args.iter().any(|a| a == "oldant") {
+            lab.set_new_ant(true);
+            lab.ui.say("ANTS THINK WITH THE TRAINED BRAIN -- MENU > ANT BRAIN SWITCHES TO THE HAND-BUILT ONE".to_string());
         }
         if args.iter().any(|a| a == "training") {
             lab.show_help = false;

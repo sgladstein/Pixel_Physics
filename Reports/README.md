@@ -662,6 +662,22 @@ by somebody about to try it on creatures.
   220 → 180 s. Carries the drying-schedule coupling any rule change needs
   (a cell that drinks a drop and passes it all on in one visit was never
   armed for drying) and the switch gap found at the root-mat pull site.
+- [soil-water-stress-2026-10-21.md](soil-water-stress-2026-10-21.md) —
+  **shipped on by default (PR #777); landed as a write-up by the 2026-10-24 report sweep.** Drier soil now grows a
+  smaller plant gradually: stomata close linearly below root-zone available water 0.5 (FAO-56), herb p50 at the dry
+  station 108 -> 29 from soil 1.0 to 0.15 (was flat ~106), lab box ~-5%, outdoor stands ~-17%.
+  `PIXEL_PHYSICS_SOIL_STRESS=0` is the ablation. Scaling stem height too collapsed establishment (dead end). Trap:
+  `examples/labshot` never runs the lab mister.
+- [fast-drainage-growth-check-2026-10-22.md](fast-drainage-growth-check-2026-10-22.md) —
+  **gate passed, rule shipped (PR #782); landed by the 2026-10-24 report sweep.** The owner asked whether fast soil
+  drainage (0.25 -> 1.0 plus scheduling on infiltration) changes how plants grow: no effect beyond a noise-control
+  arm on rungs x4 species, the community bed and dry spells; top soil slightly wetter, moisture writes ~1,000 -> 70 a
+  tick, rung beds 40-45% faster. Trap: a dry station at 12 layouts has only ~9 established plants, so its p50 jumps.
+- [moisture-settle-gate-2026-10-22.md](moisture-settle-gate-2026-10-22.md) —
+  **shipped (PR #812, `SETTLE_EPSILON_MOISTURE` 0.005 -> 0.05); landed by the 2026-10-24 report sweep.** The field
+  re-solved ~37 of 40 lab tiles a frame because soil moisture drifts; the looser threshold cuts the lab box -8.7% and
+  the community bed -6.0% of instructions. Gates: ants 12 seeds inside noise, plant rungs identical germination,
+  community 4 seeds both ways. A near-zero control did not re-roll the rung beds: use a second layout set as noise.
 - [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
   — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
   trainer that breeds species files could train, as a ladder: one dial with a
@@ -703,14 +719,18 @@ by somebody about to try it on creatures.
   small arena costs about 0.1 core-seconds.
 
 - [rootless-plants-2026-10-23.md](rootless-plants-2026-10-23.md)
-  — **Plants living with no roots, traced and fixed behind a switch (off).**
+  — **Plants living with no roots, traced and fixed; both switches on since
+  2026-10-24 (#841, #847).**
   At 450,000 frames a third of the lab bed's leafy plants had no root in the
   ground. Die-back sheds a starving plant's roots first, stem cells on the
   soil drink in their place, and nothing can root the plant again.
   `World::roots_required` lets only roots drink, keeps a plant's last roots,
   and sprouts a root from a thirsty stem. Over 8 paired beds, rootless leafy
   plants went 78 -> 9, shrub leaf 1,925 -> 5,353, and roles a bed
-  2.62 -> 2.88.
+  2.62 -> 2.88. `World::nutrient_by_root` then caps a plant's nutrient by
+  how much root reaches soil against its foliage. The report ends with how
+  realistic the nutrient model is against real plants, and six ranked
+  ideas (pale hungry leaves first).
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
@@ -1338,6 +1358,10 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-cost-review-2026-10-22/rule-trials/README.md](ant-cost-review-2026-10-22/rule-trials/README.md) —
+  **what became of the cost review's rule changes (landed by the 2026-10-24 report sweep).** The egg-walk wait
+  shipped on (PR #810, `PIXEL_PHYSICS_EGG_RETRY=off` restores); dropping the mind's warmth reads lost colonies (17 vs
+  9 of 64) and stayed off. Both switch patches kept.
 - [ant-cost-review-2026-10-22/README.md](ant-cost-review-2026-10-22/README.md)
   — **review, 2026-10-22, delivered; its bit-identical items are with the
   Creature performance lane and its rule changes with the owner. `engine`,
@@ -2844,8 +2868,8 @@ drift that two of these documents still reflect.**
 - [lone-predator-2026-10-24.md](lone-predator-2026-10-24.md) — **stage one of the
   owner's predator, 2026-10-24: a spider trained by in-run selection against
   the (not evolving) ant.** A six-cell hunter that cannot dig and kills an ant
-  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK=on`
-  (off by default); `examples/predtrain.rs` breeds and culls spiders inside
+  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK`
+  (on by default since stage three); `examples/predtrain.rs` breeds and culls spiders inside
   the living bed. From a blank mind selection held the hunt but did not
   improve it (79 against 74 kills on fresh beds); from the hand-built
   `hunter` preset it did (145 against 116, 6 of 8 lines), and random parents
@@ -2853,7 +2877,27 @@ drift that two of these documents still reflect.**
   fixed spider on the colony bed and offers the ant the bite; ants kill about
   one spider a round from a blank entry, none when it is held off. Neither
   colsel defence case (`+guard`, `+slay`) beat plain selection on 16 colonies,
-  and both cost food; garden replicates swing more than arms.
+  and both cost food; garden replicates swing more than arms. **Stage three,
+  same day**: spiders see (`PIXEL_PHYSICS_MIND_SIGHT`, the game's eye read on
+  the mind's home senses): trained from the hunter, 80.6 against 40.9 kills,
+  19 of 24 paired judgings; a blind-trained pool loses from it. The bite and
+  sight go on by default (owner); with no spider the bite never fires and food
+  and starving show no harm on 4 seeds. **Co-evolution** (`spiderevo=`, 3 arms x
+  16 colonies x 12 rounds): the spider pool evolved *backwards* (kills less in 49
+  of 77 paired judgings; selection on one noisy life per placement, no elitism),
+  and no clear defence learning in the colonies.
+- [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
+  the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
+  now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's
+  child written into each hatchling. The packed nest is crumbs, and they are the
+  colony's working larder (75-83% of digestion is in the nest; making them rot
+  killed 4 of 4 colonies). Breeding halves the store but the size cap stops laying
+  while income exceeds upkeep; looser caps, rot, limited income and food moved
+  to 45 or 65 columns all either leave the pile or kill the colony. Evolved ants
+  starve beside crumbs (Walk 200 of 214 choices). The levers left are behavioural.
+  **Later the same day, learned laying**: a lay gate in the genome (`PP_LAYGENE`, on)
+  raises the ant's own bar from what it senses where it stands, and colsel's `capwean=`
+  fades `lay_cap`; a hold was only a delay, and no hand-set gate braked an uncapped bed.
 
 ## Worldgen and world  ·  `outdoor`
 
@@ -5840,6 +5884,46 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   hm2 and hm3 (hm3 with a sharp `PP_FAR_CTX` sense) all starve more than hA1. No genome recommended; owner: "neither
   yet". Patches (scratch, env-gated), tools and genomes are in `starve-trace-2026-10-22/`.
 
+- [brain-training/inrun-selection/batches-2026-10-22-to-24.md](brain-training/inrun-selection/batches-2026-10-22-to-24.md) —
+  **the Teacher lane's colony-selection batch log from colsel-1022 to farfood3 (compiled from its dated notes by the
+  2026-10-24 report sweep, not re-measured).** What each batch overturned: lexicase over colonies is the method;
+  +spoil is standard; pay rules never change which cell is cut; the crater was the old ant's missing body rules;
+  training without inheritance beat inheritance until the sinkhole fix; breeding on; the ratchet; the lab die-off
+  traced to food distance and a saturating far sense. Ends with the traps that voided batches.
+- [brain-training/inrun-selection/design-doc-adversarial-review-2026-10-22.md](brain-training/inrun-selection/design-doc-adversarial-review-2026-10-22.md) —
+  **adversarial review of the in-run selection design doc (landed by the 2026-10-24 sweep).** The food log books
+  every trip-cell put-down as a delivery; home-meal and hungry-departure pay need no field bite; ~220 free-tank
+  newborns a colony-round prop up "survival"; many arm calls sat inside seed noise. `strict=1` closed the first holes.
+- [brain-training/inrun-selection/state-2026-10-21.md](brain-training/inrun-selection/state-2026-10-21.md) —
+  **historical: in-run selection on its first evening** (2026-10-21 19:30Z), superseded by the README and the batch
+  log above.
+- [brain-training/dig-scoring-2026-10-22/README.md](brain-training/dig-scoring-2026-10-22/README.md) —
+  **the Dig and nest scoring thread's findings (landed by the 2026-10-24 sweep), with its three write-ups**: why
+  selection breeds digging out (the crater is a treadmill of re-dug spoil; round length was refuted), the old ant as
+  a dig labeller and the dig head, and `roomshape.py`. Also: the crater is rim cuts, rim and spoil refusals, room
+  credit and nest zone not adopted, the feeding gate, and the scoring ladder the owner agreed.
+- [brain-training/teacher-training/crater-review-2026-10-23.md](brain-training/teacher-training/crater-review-2026-10-23.md) —
+  **independent review (landed by the 2026-10-24 sweep): the crater is not learned, it is what digging looks like
+  with nothing protecting the roof.** The old ant's body refuses roof and room-breaking cuts; a mind ant's Dig skips
+  both. With the refusals on and no retraining the crater fell to 0 in every group. Owner ruling that followed: no
+  permanent body rule from the old ant.
+- [brain-training/teacher-training/inherited-nest-2026-10-23.md](brain-training/teacher-training/inherited-nest-2026-10-23.md) —
+  **cause and fix of inherited nests sinking (PR #834, landed as a write-up by the 2026-10-24 sweep).** Kept cells
+  were carved into loose soil and refilled in 10 frames; now lined, and joined to the door with `inherit_link=20`.
+  Refilled cells 74 -> 0 over 192 maps; 191/192 joined.
+- [brain-training/teacher-training/body-genes-2026-10-22.md](brain-training/teacher-training/body-genes-2026-10-22.md) —
+  **body genes in the training bed (landed by the 2026-10-24 sweep; engine gene on main, PR #827).** 17 of the 27
+  old genes are dead for a mind ant; the appetite gate as a gene climbs only to 0.21 in 6 rounds; opening gut, crop
+  and diet on top of a fixed gate costs food (5,434 vs 8,342, p=.002). Keep them closed for training. Bed switch
+  patches kept.
+- [brain-training/teacher-training/dig-on-copy-v2-2026-10-21.md](brain-training/teacher-training/dig-on-copy-v2-2026-10-21.md) —
+  **teaching "dig at the foot" into copy v2 (2026-10-21, landed by the 2026-10-24 sweep).** The copy collapses unless
+  the ant has a body-level "bottom of my hole is in reach" sense the job stage reads directly; depth as
+  squash(rows/16) separates row 7 from 8 by 0.03.
+- [brain-training/training-speed-2026-10-22.md](brain-training/training-speed-2026-10-22.md) —
+  **where training time goes and what made it faster (landed by the 2026-10-24 sweep).** ~98% world tick; the
+  pheromone speed-up (PR #775) and an x86-64-v3 training build (PR #793), all bit-identical; in-run output row order
+  is HashMap-ordered.
 - [brain-training/teacher-training/far-home-sense-2026-10-22.md](brain-training/teacher-training/far-home-sense-2026-10-22.md) —
   **a home sense that stays sharp far out, and the come-home lesson it makes copyable.** `PP_HOMEVEC=R:W` puts
   "how far past R from home" on a borrowed context slot, and that times the step's cosine to home on an unwritten
@@ -5848,6 +5932,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   thread's "lay B only while carrying" edit (hcs): 4.31 -> 1.22 starved per 24, food home +13%; handed to the
   Teacher lane. Trail rule 2 still does not copy (its blocker is "on the trail", a comparison across options, not
   the home sense). Patch, genomes, copiers and scripts in `far-home-sense-2026-10-22/`.
+
+- [brain-training/teacher-training/colony-selection-log-2026-10-24.md](brain-training/teacher-training/colony-selection-log-2026-10-24.md) —
+  **colony selection, 2026-10-22 to 10-24: what each of about 30 batches overturned.** The crater was never a pay
+  problem (no-pay and charge rules only stop digging); body roof/room rules, weaned off, leave colonies roofing
+  rules-off (stdcheck: crater 2.5-4, nest 325 -> 504). Inherited nests lost their crust until PR #834; breeding is
+  stable but the food-packed bowl is the working larder. Trained colonies died in the owner's lab because training
+  food sat 25 columns out and the 40:30 far sense turns ants home past 70; a distance ramp plus a softer far sense
+  brings 100 columns level with the old ant (150-200 still short). Ratchet rule, standing defaults, farfood3's named
+  deciding measure. Pictures in `colony-selection-log-2026-10-24/`.
+
+- [brain-training/teacher-training/sense-caps-audit-2026-10-24.md](brain-training/teacher-training/sense-caps-audit-2026-10-24.md) —
+  **which of the ant mind's senses are capped, flattened or on/off (owner's ask, 2026-10-24).** Every context slot,
+  option feature and dig-head feature, with its formula and the range measured on the training bed and in three lab
+  boxes. Three real findings, each an opt-in switch: scent A is pinned at its 16-bit ceiling for 30-33% of bed
+  decisions near home, where 41-43% of walk choices read flat (`PP_SCENT_SOFTCAP`, ceiling share to 0%, needs a
+  trained arm); the dig head's "when" gate is hard-wired to column 128, so no lab colony has had it
+  (`PP_DIGGATE_DOOR`, default-on: bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
+  (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
@@ -5921,12 +6023,34 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   a weaned body scaffold), six questions that pick one, the check that says whether it is working, and the method for each current task
   (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
 
+- [brain-training/plant-food/plant-food-weaning-2026-10-24.md](brain-training/plant-food/plant-food-weaning-2026-10-24.md) —
+  **plant-food lane: ants on a planted bed, and the weaning bed the owner chose.** The trained mind could not bite a
+  living plant (Pick up took loose food only) until `PP_MIND_GRAZE`; the planted bed (`plants=`, `weed=`, `fjoule=`) is
+  in `inrun`. Without breeding, colony selection with a shrinking pile (plantwean3) made colonies that live on plants plus
+  a 10-cell pile: 21 of 24 alive and nest 184 against the founder's 0 and 33 in the same 64 worlds, but none at no pile
+  (they eat plants and carry almost none home). With breeding, the pile stepped on starvation bounced 25 <-> 20 and the
+  selection lost two thirds of the nest against the untrained pool; `colsel pilegate=` steps on colonies dying out instead.
+
+- [brain-training/research/training-compute-audit-2026-10-24.md](brain-training/research/training-compute-audit-2026-10-24.md) —
+  **what the VM's training CPU bought, from all 52 batches in the bucket (analysis only).** The common garden is 30% of
+  colony-selection CPU and 7% of colony-rounds were byte-identical reruns. A comparison is needed (judging an idea
+  against its own start matched the control call on 9 of 18 measures, 3 backwards) but a fresh control rarely added
+  information: reuse cached controls, garden every 8 rounds (together ~28%), 32 colonies catch every large effect.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
   a paired 6-seed rerun at 3 tanks cut starvations 828 to 671 and lifted the nest score in 6 of 6. Also: the same genome
   ends up as a heap resident or a stay-at-home, collapses are sudden, a mistyped harness key is silently ignored, and the
   film is too small to see ants (an overlay tool is included).
+
+- [brain-training/playtest/far64-lab-2026-10-24/README.md](brain-training/playtest/far64-lab-2026-10-24/README.md) —
+  **the owner's lab playtest of the far64 pool (PR #865 build), read from its chronicle.** The colonies die by boom and
+  bust: each food drop breeds them to 710 / 313 / 224 ants, then they crash, 91% of deaths starvation and mostly afield,
+  the first crash with 2.4 MJ still in the box. Training's size brake (`lay_cap=48:8`) is only in `inrun`, so the lab
+  colony is uncapped; `lays_declined` is 0 all run. 56% of landed founders starve in ~1,500 frames (1 tank). Nests:
+  about one dig per ant per 10k frames, ~900 open cells in 220k frames, brood in a pocket by the door. 2-27% of ants are
+  under ground, 30-60% sit fed on the spoil mound. Also fixes `Lab::release` dropping painted-food lines from the log.
 
 ## Licensing and distribution
 

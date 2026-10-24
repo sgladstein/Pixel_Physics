@@ -292,10 +292,23 @@ pub struct MindGenome {
     /// SCRATCH (dig-scoring thread): this genome's own dig head, under `PP_DIGHEAD_EVOLVE=1`, from the slots past
     /// [`GENOME_LEN`] ([`scratch_log::head_evolve`]); otherwise none and the side file's head is everyone's.
     pub head: Option<Arc<scratch_log::DigHead>>,
+    /// SCRATCH (brood lane, 2026-10-24): this genome's lay gate ([`lay_bar_scale`]), under `PP_LAYGENE` (on by default), from the last
+    /// [`LAY_LEN`] slots (past the dig head when that rides too); otherwise none, and the body lays as before.
+    pub lay: Option<[f32; LAY_LEN]>,
 }
 
 impl MindGenome {
     pub fn new(mut w: Vec<f32>) -> MindGenome {
+        // SCRATCH (brood lane): an evolvable lay gate rides last (`PP_LAYGENE`), so it comes off before the head.
+        let hl = scratch_log::head_evolve().unwrap_or(0);
+        let lay = if laygene_on() && w.len() == GENOME_LEN + hl + LAY_LEN {
+            let mut g = [0.0; LAY_LEN];
+            g.copy_from_slice(&w[GENOME_LEN + hl..]);
+            w.truncate(GENOME_LEN + hl);
+            Some(g)
+        } else {
+            None
+        };
         // SCRATCH (dig-scoring thread): an evolvable dig head rides past GENOME_LEN (`PP_DIGHEAD_EVOLVE=1`).
         let head = match scratch_log::head_evolve() {
             Some(hl) if w.len() == GENOME_LEN + hl => {
@@ -312,7 +325,7 @@ impl MindGenome {
         );
         let live = w[S_CTX..].iter().filter(|v| v.abs() >= W_EPS).count() as u32;
         let plan = ScorerPlan::new(&w);
-        MindGenome { w, live, plan, head }
+        MindGenome { w, live, plan, head, lay }
     }
 }
 
@@ -664,7 +677,7 @@ pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
 /// constant is set to `offset`; returns whether it changed anything. `offset` 0 is a blank verb's entry, as
 /// [`enter_rung`] opens one: offered beside the others with no weight of its own, so mutation decides what it is
 /// for. A genome that already has the verb on is left alone, so a later round's founders keep what they evolved.
-/// Only under `PIXEL_PHYSICS_MIND_ATTACK=on` ([`options::attack_on`]); off, nothing changes.
+/// Only under [`options::attack_on`] (on by default; `PIXEL_PHYSICS_MIND_ATTACK=off`, nothing changes).
 pub fn enter_bite(g: &mut [f32], offset: f32) -> bool {
     let s = SWITCH + Verb::Attack as usize;
     if !options::attack_on() || g[s] != -1.0 {
@@ -1419,6 +1432,9 @@ pub struct MindState {
     /// Scent A, B, alarm, energy and home distance at the last decision,
     /// for the change senses. `None` before the first.
     pub last: Option<[f32; 5]>,
+    /// SCRATCH (brood lane, 2026-10-24): joules nestmates have fed this ant lately and the frame that sum was last
+    /// brought up to date, for the lay gate's "fed" sense ([`lay_bar_scale`]; written only under `PP_LAYGENE`).
+    pub fed: (f32, u64),
 }
 
 impl Default for MindState {
@@ -1427,6 +1443,7 @@ impl Default for MindState {
             mem: [0.0; MEMORY],
             last_verb: None,
             last: None,
+            fed: (0.0, 0),
         }
     }
 }
@@ -1597,6 +1614,121 @@ pub fn inherit(world: &mut World, parent: OrganismId, child: OrganismId) {
     }
 }
 
+/// SCRATCH (brood lane, 2026-10-24): **how many slots the lay gate takes** -- a bias and one weight for each of
+/// [`lay_bar_scale`]'s five senses.
+pub const LAY_LEN: usize = 6;
+/// How long the "fed" sense remembers: the sum halves every this many frames (a step, not `exp`, so a cloud run and a
+/// local one agree to the bit).
+const FED_HALF: u64 = 2000;
+
+/// The joules `fed` holds at `frame`, halved once per [`FED_HALF`] frames since it was last brought up to date.
+fn fed_now((j, at): (f32, u64), frame: u64) -> f32 {
+    let k = (frame.saturating_sub(at) / FED_HALF).min(40) as i32;
+    (0..k).fold(j, |v, _| v * 0.5)
+}
+
+/// SCRATCH (brood lane, 2026-10-24): a nestmate fed `organism` `amount` joules mouth to mouth (`feed`); kept only
+/// under `PP_LAYGENE`, for the lay gate.
+fn note_fed(world: &mut World, organism: OrganismId, amount: f32) {
+    let frame = world.frame;
+    if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
+        let now = fed_now(m.state.fed, frame);
+        // Bring the stamp forward only by whole half-lives, so the remainder keeps counting toward the next halving.
+        let at = m.state.fed.1 + (frame.saturating_sub(m.state.fed.1) / FED_HALF) * FED_HALF;
+        m.state.fed = (now + amount, at);
+    }
+}
+/// How far the lay gate's senses reach from the head, in cells (a 13 x 13 square).
+const LAY_REACH: i32 = 6;
+
+/// SCRATCH (brood lane, 2026-10-24): `PP_LAYGENE` -- a mind ant's genome carries a lay gate ([`lay_bar_scale`]).
+/// **On by default** (owner, 2026-10-24: "The default should be on unless there is uncertainty"); `=0` or `=off`
+/// for none. Neutral as it starts: a genome saved without a gate has none (the body's bar), and the training bed
+/// gives its founders a gate of zeros, which is the body's bar exactly -- only the bed's mutation draws differ.
+pub fn laygene_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| options::switch_on("PP_LAYGENE"))
+}
+
+/// SCRATCH (brood lane, 2026-10-24): **how far a mind ant raises its own laying bar**, learned rather than fixed.
+/// `Some(scale)` multiplies the bar `creature::try_bud` was about to let it lay at; `None` -- no switch, no mind, or
+/// no gate in its genome -- leaves the body's bar alone.
+///
+/// **Why**: a mind ant's laying was the body's alone (the mind passes `Lay` 0.0), and the only brake was the
+/// training bed's `lay_cap`, which the lab does not have: far64 in the owner's lab box boomed to ~710 ants and
+/// then starved 817 in 10k frames with 2.4 MJ still in the box (Teacher lane, 2026-10-24). The owner asked that
+/// laying balance through training.
+///
+/// **A bar, not a hold.** The first build held the egg while `squash(x) < -0.1`, as the game ant's
+/// `BrainOutput::Lay` does. On the uncapped bed (`lay_cap_p=0`, std_pool, seed 1, 60k frames) no hand-set gate
+/// braked anything: adults at 20k-60k were 192-161 with no gate, 185-161 holding when crowded, 195-172 holding
+/// unless rich, 178-160 holding unless fed. Traced (crowd gate, 388k reads in 40k frames): 43% passed, from the
+/// same nest cells as the holds -- the crowd round a ready ant changes tick to tick, so a hold is a few ticks'
+/// delay, never a slower rate. `lay_cap` brakes by raising the bar, so the ant must earn more before each egg; the
+/// gate does the same, by about `2^-x` for a gate sum `x` below 0 (held to 64x; never below the body's bar).
+/// Exponential, as `lay_cap` is: a linear `1 - x` (first try) at bias -3 (4x the bar) only slowed the boom, adults at
+/// 10k-60k 24/47/94/145/194/198 against 73/192/164/179/160/161 ungated -- the bed's food carries ~170-200 ants,
+/// and any bar a rich ant can reach only delays it there.
+///
+/// `x = g . [1, crop, food, crowd, brood, fed]`, read only once the ant could afford an egg at the body's bar,
+/// over what the ant itself can sense -- **never a colony-wide count** (owner, 2026-10-24: seeing the store is an
+/// unrealistic sense):
+/// - **bias**: alone, this is the `TRAIT_REPRODUCE_AT` gene, learned ("wait for 2^-b times the bar");
+/// - **crop**: food in its own crop, / the bar;
+/// - **food**: food cells free in reach, / 40 -- the store it stands in;
+/// - **crowd**: cells of other animals in reach (brood excluded), / 40 -- how packed the nest is;
+/// - **brood**: brood cells in reach, / 10 -- how much is already being raised;
+/// - **fed**: joules nestmates fed it mouth to mouth lately (halving every [`FED_HALF`] frames), / 4 x its species'
+///   `start_energy` -- the real queen's signal: she lays as fast as the workers feed her.
+///
+/// **The scales are measured, so each sense reads about 0..2 where laying is decided** (std_pool, bed seed 1, 30k
+/// frames, sel=off, 216k reads): food cells p10/p50/p90 2/25/78, crowd cells 7/31/48, brood 0/0/0 (max 11), fed
+/// 0.9/2.1/4.6 start grants. **Not rare**: a ready ant held by the nest's own gates asks again every tick, so the
+/// 13 x 13 read ran ~7 times a frame there.
+///
+/// A genome of zeros reads `x = 0`, scale 1, so it lays exactly as without the gate. Draws nothing.
+pub fn lay_bar_scale(world: &World, organism: OrganismId, def: &CreatureDef, (hx, hy): (i32, i32), bar: f32) -> Option<f32> {
+    if !laygene_on() {
+        return None;
+    }
+    let mind = world.minds.as_ref()?.ants.get(&organism)?;
+    let g = mind.genome.lay?;
+    if g.iter().all(|v| *v == 0.0) {
+        return Some(1.0);
+    }
+    let corpse = world.materials.known(Known::Corpse);
+    let (mut food, mut crowd, mut brood) = (0u32, 0u32, 0u32);
+    for dy in -LAY_REACH..=LAY_REACH {
+        for dx in -LAY_REACH..=LAY_REACH {
+            let cell = world.get(hx + dx, hy + dy);
+            let id = cell.organism_id();
+            if id == 0 {
+                if world.materials.get(cell.material).food_energy > 0.0 && Some(cell.material) != corpse {
+                    food += 1;
+                }
+            } else if id != organism {
+                match world.organism(id) {
+                    Some(s) if s.brood.is_some() => brood += 1,
+                    Some(_) => crowd += 1,
+                    None => {}
+                }
+            }
+        }
+    }
+    let crop = world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| c.worth()) / bar.max(1.0);
+    let fed = fed_now(mind.state.fed, world.frame) / (4.0 * def.start_energy).max(1.0);
+    let x = g[0] + g[1] * crop.min(4.0) + g[2] * food as f32 / 40.0 + g[3] * crowd as f32 / 40.0 + g[4] * brood as f32 / 10.0 + g[5] * fed;
+    Some(bar_scale(x))
+}
+
+/// About `2^-x` for a gate sum `x` below 0, 1 at or above it, held to 64: a whole power of two times a straight
+/// line across the fraction, so no `exp2` (libm's last bit) and still exact at every whole step.
+fn bar_scale(x: f32) -> f32 {
+    let up = (-x).clamp(0.0, 6.0);
+    let n = up.floor();
+    2f32.powi(n as i32) * (1.0 + (up - n))
+}
+
 const PRUNE_EVERY: u64 = 600;
 
 /// Let go of the minds of ants no longer alive.
@@ -1676,7 +1808,8 @@ fn context_at(
     static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
     v[c::SCENT..c::SCENT + 3].copy_from_slice(&scents);
-    let home = (!world.home_blind).then_some(st.forage_anchor);
+    // A sighted mind's home is the prey it sees (`options::sight_on`); every other mind's, its anchor.
+    let home = options::sensed_home(world, organism, def, st).0;
     let dist = home.map_or(0.0, |(ax, ay)| {
         let (dx, dy) = ((ax - hx) as f32, (ay - hy) as f32);
         (dx * dx + dy * dy).sqrt()
@@ -1996,11 +2129,23 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     } else {
         0.0
     };
-    let mut spent = idle + brain_tax + force_tax + armour_tax + exposure;
+    // A sighted mind's eye (`options::sight_on`), billed as `creature_tick` bills every eye: a cell read costs
+    // `sight_fraction x start_energy`. Every other mind casts nothing and pays 0.
+    let sight_tax = if options::sight_on() && def.sight_range > 0 {
+        let (seen, reads) = world.organism(organism).map_or((None, 0), |st| options::sensed_home(world, organism, def, st));
+        if reads > 0 {
+            options::SIGHT_CASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            options::SIGHT_SEEN.fetch_add(u64::from(seen.is_some()), std::sync::atomic::Ordering::Relaxed);
+        }
+        def.sight_fraction * def.start_energy * reads as f32
+    } else {
+        0.0
+    };
+    let mut spent = idle + brain_tax + sight_tax + force_tax + armour_tax + exposure;
     world.book(
         colony,
         Account::Metabolized,
-        (idle + force_tax + armour_tax + exposure) as f64,
+        (idle + sight_tax + force_tax + armour_tax + exposure) as f64,
     );
     world.book(colony, Account::SynapseTax, brain_tax as f64);
     world.creature_stats.armour_energy += armour_tax as f64;
@@ -2794,6 +2939,9 @@ fn feed(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i
     } else {
         blend_with_kin(world, organism, other, world.nest_blend);
         world.creature_stats.share_blends += 1;
+        if laygene_on() {
+            note_fed(world, other, amount);
+        }
         if let Some(m) = world.minds.as_mut() {
             m.counts.fed_adult += 1;
         }
@@ -2917,6 +3065,19 @@ fn lay(
 
 #[cfg(test)]
 mod tests {
+
+    /// SCRATCH (brood lane, 2026-10-24): the lay gate's bar never drops below the body's, doubles per whole step
+    /// below 0 and stops at 64; the "fed" sense halves once per `FED_HALF` and never between.
+    #[test]
+    fn the_lay_gate_only_raises_the_bar_and_fed_halves_by_steps() {
+        assert_eq!(bar_scale(0.0), 1.0);
+        assert_eq!(bar_scale(3.0), 1.0);
+        assert_eq!(bar_scale(-1.0), 2.0);
+        assert_eq!(bar_scale(-2.5), 6.0);
+        assert_eq!(bar_scale(-40.0), 64.0);
+        assert_eq!(fed_now((800.0, 100), 100 + FED_HALF - 1), 800.0);
+        assert_eq!(fed_now((800.0, 100), 100 + 2 * FED_HALF), 200.0);
+    }
     use super::super::jaw_can_cut;
     use super::*;
 
@@ -3967,7 +4128,14 @@ mod tests {
         assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "soil was picked up");
         let corpse = w.materials.id_of("corpse").expect("corpse");
         w.set(t.0, t.1, Cell::new(corpse, 0));
-        assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "a dead ant was picked up");
+        // A corpse is the bite's mouth (`options::corpse_on`, on with the bite since 2026-10-24): taken under it,
+        // refused with it off, as before.
+        assert_eq!(
+            act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw),
+            options::corpse_on(),
+            "a dead ant's pick-up did not follow the corpse switch"
+        );
+        w.organism_mut(id).expect("ant").crop = None;
         // Soil in the jaws: no food goes into the crop.
         w.set(t.0, t.1, Cell::new(food, 0));
         w.organism_mut(id).expect("ant").spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: false });
@@ -5414,6 +5582,13 @@ pub mod scratch_log {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| options::switch_on("PP_DIGHEAD_GATE"))
     }
+    /// `PP_DIGGATE_DOOR`: the dig head's gate measures "within 40 columns of the door" from the nearest nest site,
+    /// not from column 128 ([`dig_prepare`]). On by default (Teacher lane, 2026-10-24: a fix that is bit-identical on
+    /// the bed ships on); `=0` or `=off` is the old gate.
+    fn door_gate_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| options::switch_on("PP_DIGGATE_DOOR"))
+    }
     pub fn dighead_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| dighead().is_some())
@@ -5457,11 +5632,17 @@ pub mod scratch_log {
             // (no spoil, crop empty, below the datum, within 40 columns of the door; hunger not read, so the copier
             // can apply the same gate from the log). Head v3/v4 ungated: P(Dig) on unlabelled decisions 0.008 ->
             // 0.018 and home food 318 -> 248-275.
+            // `PP_DIGGATE_DOOR` (sense-cap audit, 2026-10-24; **on by default**, `=0`/`off` for the old gate): "the
+            // door" is the nearest nest site's column ([`dig_ctx`]'s own `nx`) instead of column 128. 128 is the
+            // training bed's door, so with the old gate a lab colony landing anywhere else (the lab boxes land at 256;
+            // the owner's 1024-wide box at four columns) never got the head's "when" read-out at all. Bit-identical on
+            // the bed (events.csv hash, 10k frames); lab, food 25 out, 2 seeds: alive 159/144 -> 199/200.
+            let door = if door_gate_on() { ctxf.map_or(128, |c| c.0) } else { 128 };
             let gated = dig_gate_on()
                 && !world.organism(organism).is_some_and(|s| {
                     s.spoil.is_none()
                         && s.crop.is_none_or(|c| c.cells == 0)
-                        && (at.0 - 128).abs() <= 40
+                        && (at.0 - door).abs() <= 40
                         && world.room_surface_at(at.0).is_some_and(|top| at.1 > top)
                 });
             let add = match head {

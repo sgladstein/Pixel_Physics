@@ -1,0 +1,82 @@
+diff --git a/src/sim/brood.rs b/src/sim/brood.rs
+index cca325bf..763ac299 100644
+--- a/src/sim/brood.rs
++++ b/src/sim/brood.rs
+@@ -203,6 +203,22 @@ pub fn egg_pile_reach() -> i32 {
+     *V.get_or_init(|| parse_egg_pile(&std::env::var("PIXEL_PHYSICS_EGG_PILE").unwrap_or_default()))
+ }
+ 
++/// **How long an ant whose egg walk found no site waits before walking
++/// again**, in frames: `PIXEL_PHYSICS_EGG_RETRY`, 0 (off: it walks every
++/// tick it could lay) when unset. A rule change under trial, not a
++/// speed-up: the ant cost review (2026-10-22) found 65-89% of ant ticks
++/// above the egg bar and 70-80% of those walks finding nothing, and at 24
++/// frames the walks fell 78% while births moved inside a 4.5x seed spread.
++/// What the ant gives up: a site that opens inside its wait goes to
++/// another ant. Unknown values panic.
++pub fn egg_retry_frames() -> u64 {
++    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
++    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_EGG_RETRY").as_deref() {
++        Ok("") | Ok("off") | Err(_) => 0,
++        Ok(v) => v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_EGG_RETRY={v:?}: use off or a number of frames")),
++    })
++}
++
+ fn parse_egg_pile(raw: &str) -> i32 {
+     match raw.trim() {
+         "" | "on" => EGG_PILE_REACH,
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 863913ef..1160a862 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -5733,10 +5733,23 @@ pub(super) fn try_bud(
+     // samples), so nothing laid. Budding and a reach of 0 keep the head read.
+     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
+     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
++    // **After a walk that found no site, the layer waits** before walking
++    // again ([`egg_retry_frames`], a rule change under trial, off by default).
++    let retry = super::brood::egg_retry_frames();
++    if retry > 0 && laying.is_some() && nest_gate && pile_reach > 0 && world.organism(organism).is_some_and(|s| world.frame < s.egg_walk_after) {
++        world.creature_stats.buds_held_for_nest += 1;
++        return None;
++    }
+     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
+         Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
+             Some(cell) => Some(cell),
+             None => {
++                if retry > 0 {
++                    let frame = world.frame;
++                    if let Some(s) = world.organism_mut(organism) {
++                        s.egg_walk_after = frame + retry;
++                    }
++                }
+                 world.creature_stats.buds_held_for_nest += 1;
+                 return None;
+             }
+diff --git a/src/sim/organism.rs b/src/sim/organism.rs
+index 61647406..bbd1d6fe 100644
+--- a/src/sim/organism.rs
++++ b/src/sim/organism.rs
+@@ -6230,6 +6230,10 @@ pub struct OrganismState {
+     /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
+     /// readout rule asks for.
+     pub last_share_frame: u64,
++    /// The frame before which this animal does not walk for an egg site
++    /// again, after a walk that found none (`brood::egg_retry_frames`, a
++    /// trial switch, off by default); `0` for never held.
++    pub egg_walk_after: u64,
+     /// Ticks since this creature last touched nest material.
+     ///
+     /// **This is how an ant finds its way home without ever asking where
+diff --git a/src/sim/world.rs b/src/sim/world.rs
+index ea231d7f..0fe61ac2 100644
+--- a/src/sim/world.rs
++++ b/src/sim/world.rs
+@@ -8460,6 +8460,7 @@ impl World {
+             // a whole cell in.
+             gnawed: 0.0,
+             last_share_frame: 0,
++            egg_walk_after: 0,
+             made: 0.0,
+             lineage_seed: 0,
+             dev_seed: 0,

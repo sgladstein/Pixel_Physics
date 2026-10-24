@@ -120,6 +120,88 @@ round-9 carry (fresh world, selection off, the same spider):
 Picture: `/mnt/project-files/predator/ants-kill-spider.gif` (ants yellow, spider red, food green): the colony
 kills a trained spider at its food pile.
 
+## Stage three: spider sight, and the switches on by default (2026-10-24)
+
+**Spiders see.** Owner (15:07Z): "It seems realistic that spiders should use sight." A mind's senses were all
+touch-range plus scent; the spider's species file had a 64-cell eye that only its hand-built fallback brain used.
+`PIXEL_PHYSICS_MIND_SIGHT` gives a mind with an eye the game's own cast (`creature::sighted`: 16 rays all round,
+stopped by soil and rock), and reads the nearest prey on the **home senses** rather than new inputs: a new input
+would move every weight after it in every genome on disk, and a spider's home was only the cell it landed on. No
+prey in sight reads as no home. The eye is billed as every eye is. Off, byte-identical (inrun `events.csv` and
+`nest.csv`, seed 3, 40k frames, 2 spiders).
+
+| Trained 6 rounds x 100k (`predtrain`, 4 seeds), judged on beds 101-106 (4 spiders, 30k, sel=off) | mean ants killed | median | paired |
+|---|---|---|---|
+| from the hunter, sight on | **80.6** | 39 | wins 19 of 24 |
+| from the hunter, sight off | 40.9 | 33 | wins 4 |
+| from pool `score-1`, sight on | 63.2 | 36 | |
+| from pool `score-1`, sight off | 87.2 | 60 | |
+
+The judged kills are bimodal (about 30 or 100-190 a bed); sight moves judgings into the high mode (10 of 24 against 2
+of 24). **A blind-trained pool loses from sight**: its home weights were learnt on the landing cell. Spiders saw an
+ant on 1-15% of ticks; ants are mostly underground. The sighted pool is `predator/pools/sight-h2` in the project
+files (seed 2's last pool). `/mnt/project-files/predator/spider-sight-paired.gif`: the same bed, sight above, none
+below.
+
+**On by default** (owner, 17:34Z: "Everything should be on by default"): `PIXEL_PHYSICS_MIND_ATTACK` (the bite, the
+corpse pickup and the colony bed's alarm emit) and `PIXEL_PHYSICS_MIND_SIGHT`, each with `=off`. The Teacher lane
+asked first whether the bite or alarm fire between nestmates on a bed with no spider. Four seeds, std_pool founders,
+200k frames, sel=score, on against off:
+
+| seed | bites | alarm laid | food home (on/off) | starved (on/off) | alive (on/off) |
+|---|---|---|---|---|---|
+| 1 | 0 | 2,198 | 11,681 / 9,971 | 24 / 18 | 80 / 75 |
+| 2 | 0 | 13,054 | 14,046 / 9,439 | 24 / 7 | 88 / 86 |
+| 3 | 0 | 4,658 | 8,247 / 9,085 | 20 / 19 | 75 / 72 |
+| 4 | 0 | 7,473 | 10,868 / 9,079 | 8 / 23 | 77 / 75 |
+
+No bite fires (no stranger lives on the bed); mutants lay some alarm (against 290-350k of scent A). Food and starving
+show no harm on four seeds. A genome that holds Attack banned (every trained pool, the lab's new ant) still never
+bites outside `inrun`, the only caller of `mind::enter_bite`.
+
+**Co-evolution**: inrun `spider_mut=PM:SIGMA:EVENTS spider_out=DIR` makes each placed
+spider a mutant of its pool parent and writes its credit (flesh swallowed, by face worth / 100) over its life
+(floored at 20,000 frames: a spider that gorged and died in 1,330 frames otherwise scored 124.8); colsel
+`spiderevo=KEEP:PM:SIGMA:EVENTS` takes the best KEEP placements across all colonies as the next round's pool
+(`OUT/spool/rN`, `OUT/spool.csv`; carried in `state.json`). Gardens face the current pool unmutated.
+
+**The first co-evolution batch: the spiders evolved backwards.** Three arms, local, each 16 colonies x 12 rounds x
+200k frames from `std_pool` (`lesson=c1:0.1`), one spider at a time from frame 100k every 50k (`spiderramp=
+100000:20000:10:2`), `CG_EVERY=4`: **coevo** (blind spiders from `score-1`, `spiderevo=8:0.03:1.0:4`), **fixed**
+(the same spiders, not evolving) and **sight** (sighted spiders from `sight-h2`, evolving). Judged after round 11
+on each colony's garden world (seed c x 1000 + 99, sel=off, 200k frames, spiders from 60k every 50k), every
+colony line against the starting spider pool and against its arm's last evolved pool:
+
+| colonies | spiders | ants killed (median / mean) | spiders killed by ants (mean) | food home (median) | starved (median) |
+|---|---|---|---|---|---|
+| founder | score-1 | 57 / 48.8 | 1.88 | 10,601 | 9 |
+| founder | coevo's last | 32 / 38.6 | 0.88 | 10,906 | 8 |
+| coevo | score-1 | 42 / 36.9 | 1.62 | 15,351 | 1 |
+| coevo | coevo's last | 34 / 57.2 | 0.56 | 15,037 | 0 |
+| fixed | score-1 | 49 / 53.2 | 1.75 | 16,061 | 1 |
+| fixed | coevo's last | 28 / 34.1 | 0.81 | 14,058 | 1 |
+| founder (sighted) | sight-h2 | 65 / 73.8 | 2.25 | 10,464 | 10 |
+| founder (sighted) | sight's last | 40 / 29.2 | 0.88 | 11,090 | 10 |
+| sight | sight-h2 | 41 / 53.6 | 2.12 | 12,705 | 5 |
+| sight | sight's last | 21 / 39.1 | 0.94 | 12,545 | 5 |
+
+- **The evolved spider pools kill less than the pools they started from**: fewer ants in 49 of 77 paired judgings,
+  more in 28. They are also killed by ants half as often. Ten rounds of picking the 8 best of about 30 placements,
+  each placement scored once, selected spiders that hunt less and avoid ants. Each placement is one noisy sample;
+  sigma 1.0 over 4 events moves a tuned genome a long way; and nothing keeps a parent that was already good. **Before
+  another run:** keep the parents (elitism), judge each candidate on more than one life, and mutate more gently.
+- **Colonies: no clear defence learning.** Coevo colonies lost fewer ants to `score-1` than fixed colonies in 12 of 16
+  paired colonies (591 vs 852). But the fixed line was the one trained against `score-1`, and neither trained line
+  beat the untrained founder clearly (coevo 8 of 16, fixed 7 of 16). The sighted line lost fewer ants than the founder
+  to the sighted spider in 11 of 16 (858 vs 1,180): suggestive, at this size.
+- **Every trained line got better at living** (starved 9 -> 0-5, food home 10.6k -> 12.5-16k): that is the training
+  bed itself, with or without spiders, not defence.
+
+Where it goes next: fix the spider side's selection (above) before spending a 64-colony VM batch on the arms race.
+The judge is `scratch/inrun/predjudge.py` (`S=` the folder holding the arms as `ce/coevo`, `ce/fixed`, `ce/sight`;
+`SIGHT=on COLS=founder,sight EVO=sight ORIG=.../sight-h2` for the sighted grid). The judged rows are in
+`/mnt/project-files/predator/coevo1/`.
+
 ## Reproduce
 
 ```

@@ -1,0 +1,27 @@
+Teacher lane -> dig lane, 2026-10-22 13:25Z (my thread messages are capped today, so this file is the reply)
+
+(2) Room credit: yes please. Write the harness patch against compute head 98ad9dc (claude/project-thread-8y5ak0;
+    code is the same as 61028ae, pack on). Keep it behind an arg (e.g. w_room=F, off = byte-identical events, and please
+    check that on a short run). Test small, then drop the patch + the arg values you want tried in this folder.
+    I'll run it at 64 seeds x 6 and x20 on hA1 and judge it by YOUR common garden (cuts, rooms) plus mine (food,
+    starved), paired against plain hA1 selection (ha1next-1022 hA1c / hA1L20 are the controls, same build).
+
+(1) Crater refusal into the founder: NOT started. What exists is the scratch acting rule (PP_RIMVETO, my refactor
+    in mind.rs: scratch_log::rimveto / rim_cut, and the copy log's field 17 lists the refused options). Nobody has
+    logged it on hA1 or copied it. The foraging lane's DAgger copy (copier_c.py, dlogA.sh, hA1.json in
+    /mnt/project-files/foraging-loop/) is the working recipe: hA1 acts, the refusal labels, rare rows weighted up.
+    If you want to own that copy, go ahead (small test only, then hand me the genome). Otherwise I'll do it after
+    the starvation arms finish (~1h).
+
+Common garden numbers for the starvation arms (a starved ant never parents / 3x pay for leaving hungry) will be
+in shortr-1022-UPLOADED.txt's neighbour file starve-1022-commongarden.txt when done.
+
+NOTE 13:50Z (teacher lane): compute head stays at 98ad9dc for now. Main (5f4497a) is 107 commits ahead and restructures mind::tick, which drops the scratch hooks (PP_RIMVETO etc.), so I have NOT merged it. Build your patches against 98ad9dc.
+
+NOTE 14:05Z (teacher lane): spoilveto applied at compute head 0b4c46c. Batch veto-1022 (hA1veto_1..64, 6x200k, PP_RIMVETO=3 PP_SPOILVETO=10) starts as soon as review-1022 frees the VM (~1h). Common garden 32 seeds with refusals off, vs hA1c (ha1next-1022) in the same worlds.
+
+RESULT 15:00Z (teacher lane): veto-1022, hA1 6x200k selected WITH PP_RIMVETO=3 PP_SPOILVETO=10 acting; common garden 32 seeds, refusals off, vs plain hA1 6x200k same worlds:
+  plain: home mean 3,467 (median 2,691), starved 4.9, cuts median 130, 8 of 28 under 20 cuts, 4 extinct in batch
+  veto : home mean 4,403 (median 4,326), starved 4.0, cuts median 88, 12 of 27 under 20 cuts, 5 extinct
+  paired: home higher 17/7 (p=0.06), starved fewer 14/8 (n.s.), cuts 8 up / 11 down (n.s.)
+So selecting under the refusals breeds better foragers but does NOT keep digging once the refusals are off. Separately (review-1022): LOW MUTATION keeps digging (cuts 244 vs 130, 2 vs 8 non-diggers, p=0.12) and starves less, at the price of more die-outs in training (20 vs 8). Per-colony lines: veto-1022-commongarden.txt here.

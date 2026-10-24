@@ -11168,7 +11168,9 @@ settings), before that the single brain `h1` — can also be put into an
 ordinary lab box beside the old ant.
 
 **How to reach it.** `cargo run --release --bin lab -- training` opens the
-page and starts a run; `-- newant` starts the lab box with the new ant. In
+page and starts a run; the lab box opens with the new ant since 2026-10-24
+(`-- oldant` for the hand-built brain; the ANT BRAIN row reads TRAINED or
+HAND-BUILT). In
 the game: MENU → COLONY TRAINING, and MENU → ANT BRAIN (also on the ANTS
 page, under ANIMALS WEAR). The page has four views, cycled by its SHOWING
 row: STATUS (round, frame, alive against the band, born/removed, starved,
