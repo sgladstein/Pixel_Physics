@@ -659,6 +659,7 @@ impl PheromonePlane {
         let Some(i) = self.index(x, y) else {
             return false;
         };
+        let amount = if soft_ceiling() { soft_amount(self.front[i], amount) } else { amount };
         self.front[i] = self.front[i].saturating_add(amount);
         let (tx, ty) = ((x - self.origin.0) as usize / TILE, (y - self.origin.1) as usize / TILE);
         self.deposited[ty * self.tw + tx] = true;
@@ -1333,8 +1334,48 @@ impl Pheromones {
     }
 }
 
+/// SCRATCH (sense-cap audit, 2026-10-24; off by default): `PP_SCENT_SOFTCAP=1` scales every deposit by the room left
+/// under the ceiling, `amount * (MAX - here) / MAX`, so a busy cell approaches [`Scent::MAX`] instead of sitting on
+/// it. **Why**: a deposit saturates (`saturating_add`), and on the training bed scent A stood at the ceiling for
+/// 32.5% of mind decisions (19.1% in a lab colony that lived), all within a few cells of home; there 43% (35%) of
+/// walk options read an A difference of exactly 0, so the trail says nothing about which way is in or out. A
+/// reading of the stored value cannot recover a gradient the clamp threw away; only the deposit can keep one. One
+/// rule for every world and every species that lays scent (owner, 2026-10-21), so it is a world switch, not a mind's.
+fn soft_ceiling() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PP_SCENT_SOFTCAP").is_ok_and(|v| !matches!(v.trim(), "0" | "off")))
+}
+
+/// [`soft_ceiling`]'s deposit: `amount` scaled by `(MAX - here) / MAX`, rounded up so a deposit below the ceiling is
+/// never lost entirely, and never more than the room left.
+fn soft_amount(here: Scent, amount: Scent) -> Scent {
+    let room = u32::from(Scent::MAX - here);
+    let scaled = (u32::from(amount) * room).div_ceil(u32::from(Scent::MAX));
+    scaled.min(room) as Scent
+}
+
 #[cfg(test)]
 mod tests {
+    /// **`PP_SCENT_SOFTCAP`'s deposit keeps a slope under the ceiling** (sense-cap audit, 2026-10-24): a full deposit
+    /// on an empty cell, nothing on a full one, never past the room left, and strictly more on a cell with more room,
+    /// so two neighbours that a saturating add would both pin at `MAX` stay ordered by their traffic.
+    #[test]
+    fn the_soft_ceiling_deposit_is_graded_and_never_overflows() {
+        use super::{soft_amount, Scent};
+        for amount in [1, 7, 300, 4096, Scent::MAX] {
+            assert_eq!(soft_amount(0, amount), amount, "an empty cell takes the whole deposit");
+            assert_eq!(soft_amount(Scent::MAX, amount), 0, "a full cell takes none");
+            let mut last = amount;
+            for here in (0..=Scent::MAX).step_by(997) {
+                let got = soft_amount(here, amount);
+                assert!(u32::from(got) <= u32::from(Scent::MAX - here), "{here}+{got} passes the ceiling");
+                assert!(got <= last, "{amount} at {here}: {got} after {last}");
+                last = got;
+            }
+        }
+        assert!(soft_amount(60_000, 4096) > soft_amount(64_000, 4096), "more room, more scent");
+    }
+
     /// **`round_to_scent` is `round().clamp().as` on every input the
     /// blend can make, and on the edges either side of it.** Swept per
     /// integer `n` over the whole `Scent` range: the half-integer itself and
