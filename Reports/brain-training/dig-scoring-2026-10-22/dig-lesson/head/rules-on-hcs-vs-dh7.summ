@@ -1,0 +1,11 @@
+n per arm [32, 32]
+                     hcs           dh7   paired (2nd vs 1st): up/down
+shape                0.0           0.0   5/10
+rooms2               0.0           0.0   0/0
+nest               171.5         191.5   28/4
+crater               8.5           8.0   12/19
+kept_late           23.0          35.0   23/9
+spoil_in            80.0          92.0   22/9
+cuts               144.0         163.5   29/2
+food               569.5         518.0   11/21
+starved              1.0           1.0   15/8

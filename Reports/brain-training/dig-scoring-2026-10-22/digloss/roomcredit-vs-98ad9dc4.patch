@@ -1,0 +1,360 @@
+From 279ba2a81b09b64c220d591f90c450d406aecd9e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 05:01:39 +0000
+Subject: [PATCH 1/2] nestscore: per-cell worth for room credit, and who a shut
+ door shuts in
+
+Prep for the colony score's dig ladder, before the feeding gate opens it.
+
+cell_values(&score, &class): each part's credit spread over its cells
+(chamber, niche, half the tunnel credit), crack/stray -0.5, pit -1, so the
+values sum to the score and a harness can pay each cell to its cutter
+(rung 4). Measured on the 28 controls: shelf cells of a comb 0.05-0.07,
+worst blueprint chamber cell 0.42, a 7-row room 1.0; tunnel cells ~0.5 in
+every nest. A first test comparing each nest's best cell failed because a
+comb's best cell is a tunnel cell; the test now compares shelf to chamber.
+
+nest_piece(...) -> Option<NestPiece> with .open, .cells, .holds(x, y)
+(rung 3): the owner wants a closed door charged only when it shuts out
+foraging or eating, so the harness must ask who is inside. door_open now
+wraps it. An offline proxy for costly closures (pellet-holders above
+ground) read 6.0 door-open vs 7.0 shut on the sealed colony: not specific,
+because only the harness knows food from soil.
+
+Faults put back: tunnel at full weight, niche spread over chamber cells,
+every nest piece instead of the largest -- each turns a test red.
+9 nestscore tests pass; clippy clean.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LjnRPrsX6kkGk2yGiB2Hyo
+---
+ src/lab/nestscore.rs | 156 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 154 insertions(+), 2 deletions(-)
+
+diff --git a/src/lab/nestscore.rs b/src/lab/nestscore.rs
+index 6a788037..36c5922f 100644
+--- a/src/lab/nestscore.rs
++++ b/src/lab/nestscore.rs
+@@ -713,6 +713,40 @@ pub fn of_world(world: &World, spec: &LabBox, door_x: i32, p: &Profile) -> (Nest
+ /// was cut off from the air on up to 41% of checks. Open is [`of_world`]'s
+ /// open, so an ant standing in the shaft is not a plug.
+ pub fn door_open(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i32) -> Option<bool> {
++    nest_piece(world, spec, door_x, rows, reach).map(|n| n.open)
++}
++
++/// The nest's largest piece, as [`door_open`] finds it, and whether it joins
++/// the air -- so a harness can ask **whom a closed door shuts in**.
++///
++/// The owner's ruling on the door rung (2026-10-22): a door closed part of
++/// the time is welcome -- against a storm, against a predator -- as long as
++/// it does not shut out foraging and eating. So a closure is charged only
++/// when it costs something: a laden forager standing outside with nowhere to
++/// put its load, or a hungry ant [`NestPiece::holds`] while the colony's
++/// store is low. Who is laden, hungry or short is the harness's to say; this
++/// says only where the nest is and whether it is shut.
++pub struct NestPiece {
++    /// The piece joins the air (the grid's top row) through open cells.
++    pub open: bool,
++    /// Open cells in the piece.
++    pub cells: usize,
++    x0: i32,
++    y0: i32,
++    w: usize,
++    inside: Vec<bool>,
++}
++
++impl NestPiece {
++    /// Whether world cell (x, y) is in the nest's largest piece.
++    pub fn holds(&self, x: i32, y: i32) -> bool {
++        let (i, j) = (x - self.x0, y - self.y0);
++        i >= 0 && j >= 0 && (i as usize) < self.w && self.inside.get(j as usize * self.w + i as usize) == Some(&true)
++    }
++}
++
++/// [`door_open`]'s nest, kept: `None` when there is no nest yet.
++pub fn nest_piece(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i32) -> Option<NestPiece> {
+     let g = Grid::of(world, spec);
+     let (w, h) = (g.w, g.h);
+     let nest: Vec<usize> = (0..w)
+@@ -780,7 +814,53 @@ pub fn door_open(world: &World, spec: &LabBox, door_x: i32, rows: i32, reach: i3
+             (best, best_len) = (start, len);
+         }
+     }
+-    Some(nest.iter().any(|&i| piece[i] == best && seen[i]))
++    let inside: Vec<bool> = piece.iter().map(|&p| p == best).collect();
++    Some(NestPiece {
++        open: nest.iter().any(|&i| inside[i] && seen[i]),
++        cells: best_len,
++        x0: g.x0,
++        y0: g.y0,
++        w,
++        inside,
++    })
++}
++
++/// **What each cell is worth to the score**, for paying the ants that cut it
++/// (the colony score's room rung, `A ladder of dig metrics for the colony
++/// score`, 2026-10-21): each part's credit spread evenly over its cells --
++/// a chamber cell is worth `chamber_credit` over the chamber cells, a niche
++/// cell `niche_credit` over the niche cells, a tunnel cell half the tunnel
++/// credit over the tunnel cells -- and each bad cell its charge: a crack and
++/// a stray cell -0.5, a pit cell -1. `class` is [`score`]'s or
++/// [`of_world`]'s, in the same order, so the values sum to `s.score`
++/// exactly and a harness pays them out through its own record of who cut
++/// each cell.
++///
++/// Spread, not per-cell grades, because the caps are on the parts: a comb of
++/// shelves fills its niche allowance and every further shelf cell dilutes
++/// the same capped credit, so a shelf cell is worth 0.05-0.07 against 0.42
++/// for the worst blueprint's chamber cell and 1.0 for a 7-row room's (the
++/// comb control in this function's test). Tunnel cells pay about 0.5 each in
++/// every nest, comb or room, up to the tunnel allowance. A cutter whose cell
++/// ends as pit is charged for it -- the crater, priced per ant.
++pub fn cell_values(s: &NestScore, class: &[Class]) -> Vec<f64> {
++    let n = |k: Class| class.iter().filter(|c| **c == k).count().max(1) as f64;
++    let (chamber, niche, tunnel) = (
++        s.chamber_credit / n(Class::Chamber),
++        s.niche_credit / n(Class::Niche),
++        0.5 * s.tunnel_credit / n(Class::Tunnel),
++    );
++    class
++        .iter()
++        .map(|c| match c {
++            Class::Not => 0.0,
++            Class::Chamber => chamber,
++            Class::Niche => niche,
++            Class::Tunnel => tunnel,
++            Class::Crack | Class::Stray => -0.5,
++            Class::Pit => -1.0,
++        })
++        .collect()
+ }
+ 
+ /// A lab world read as the score's grid over its extents: [`of_world`]'s
+@@ -791,6 +871,7 @@ struct Grid {
+     h: usize,
+     ground: Vec<i32>,
+     x0: i32,
++    y0: i32,
+ }
+ 
+ impl Grid {
+@@ -817,7 +898,14 @@ impl Grid {
+             }
+         }
+         let ground: Vec<i32> = datum.iter().map(|g| g - y0).collect();
+-        Grid { open, w, h, ground, x0 }
++        Grid {
++            open,
++            w,
++            h,
++            ground,
++            x0,
++            y0,
++        }
+     }
+ }
+ 
+@@ -1143,6 +1231,52 @@ mod tests {
+         );
+     }
+ 
++    /// Cell values sum to the score on every control shape, both profiles;
++    /// and a comb's cells are each worth less than one real chamber's.
++    #[test]
++    fn cell_values_add_up_to_the_score_and_a_comb_pays_less_a_cell() {
++        let cases = cases();
++        for c in &cases {
++            for p in [&PROTOTYPE, &HARVESTER] {
++                let (s, class) = score(&c.open, W, H, &[GROUND; W], DOOR, p);
++                let sum: f64 = cell_values(&s, &class).iter().sum();
++                assert!(
++                    (sum - s.score).abs() < 1e-6,
++                    "{}: cells sum to {sum}, score {}",
++                    c.name,
++                    s.score
++                );
++            }
++        }
++        // A comb's shelf cells against a real room's: the niche cap spreads
++        // over every shelf, so the cell an ant cuts to add one more shelf is
++        // worth a fraction of a chamber cell (shelves 0.05-0.07 a cell, the
++        // worst blueprint's chamber 0.42, a 7-row room 1.0). Tunnel cells are
++        // left out: every nest's shaft pays about 0.5 a cell, comb or room.
++        let worth = |c: &Case, k: Class| {
++            let (s, class) = score(&c.open, W, H, &[GROUND; W], DOOR, &HARVESTER);
++            let v = cell_values(&s, &class);
++            (0..class.len())
++                .filter(|&i| class[i] == k)
++                .map(|i| v[i])
++                .fold(f64::NAN, f64::max)
++        };
++        let room = cases
++            .iter()
++            .filter(|c| c.name.starts_with("blueprint"))
++            .map(|c| worth(c, Class::Chamber))
++            .fold(f64::INFINITY, f64::min);
++        assert!(room > 0.4, "the worst blueprint's chamber cell: {room}");
++        for c in cases.iter().filter(|c| c.name.starts_with("comb:")) {
++            let shelf = worth(c, Class::Niche);
++            assert!(
++                shelf < room / 4.0,
++                "{}: a shelf cell worth {shelf} against a room's {room}",
++                c.name
++            );
++        }
++    }
++
+     /// A wall column whose datum froze just under the lid must not drag the
+     /// whole grid's sky up to the lid: the crater still reads as pit.
+     #[test]
+@@ -1179,6 +1313,13 @@ mod tests {
+             class.len(),
+             ((xs.end() - xs.start() + 1) * (ys.end() - ys.start() + 1)) as usize
+         );
++        // In a lab bed too, the cells add up to the score, and each crater
++        // cell charges its cutter -1.
++        let v = cell_values(&crater, &class);
++        assert!((v.iter().sum::<f64>() - crater.score).abs() < 1e-6);
++        let w = (xs.end() - xs.start() + 1) as usize;
++        let at = |x: i32, y: i32| ((y - ys.start()) as usize) * w + (x - xs.start()) as usize;
++        assert_eq!((class[at(35, g + 2)], v[at(35, g + 2)]), (Class::Pit, -1.0));
+     }
+ 
+     /// The door rung: no nest reads None, a dug nest reaches the air, a plug
+@@ -1217,6 +1358,17 @@ mod tests {
+             Some(false),
+             "plugged two rows down"
+         );
++        // Who it shuts in: the room and the shaft below the plug, not the stub
++        // above it, the surface, or a cell beyond the room.
++        let piece = nest_piece(&world, &spec, door, 3, 20).expect("a nest");
++        let g = spec.ground_y;
++        assert!(piece.holds(door + 10, g + 10), "in the room");
++        assert!(piece.holds(door, g + 7), "in the shaft below the plug");
++        assert!(!piece.holds(door, g + 3), "the stub above the plug is outside");
++        assert!(!piece.holds(door - 30, g - 2), "the open air is outside");
++        assert!(!piece.holds(door + 21, g + 10), "solid soil past the room");
++        assert!(!piece.holds(-5, -5), "off the grid");
++        assert_eq!(piece.cells, 2 * 7 + 20 * 4, "shaft rows 6-12 and the room");
+         fill(&mut world, door - 1, door, 5, 5, Cell::EMPTY);
+         assert_eq!(
+             door_open(&world, &spec, door, 3, 20),
+-- 
+2.43.0
+
+
+From 86b8ce1155c150a37d4b460cf7f37c1cffd7b6ce Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 13:35:24 +0000
+Subject: [PATCH 2/2] inrun: w_room room credit (scratch, dig-scoring thread):
+ pays nestscore::cell_values of chamber/niche cells to their first cutter
+
+One round, hA1, 8 seeds: no effect (rooms worth ~0.07/cell; most cutters dead before their cell is a room).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LjnRPrsX6kkGk2yGiB2Hyo
+---
+ examples/inrun.rs    | 45 ++++++++++++++++++++++++++++++++++++++++++++
+ src/lab/nestscore.rs |  8 ++++++++
+ 2 files changed, 53 insertions(+)
+
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 3d07dbd3..f606fd3b 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -252,6 +252,14 @@ fn main() {
+     // fell 89 -> 9 per colony-round (13 of 13 lower, 8 seeds x 2 rounds), every pellet put down on the crater floor
+     // booked as a 'tdrop', while the pit did not shrink (94 -> 98).
+     let nest_top = num("nest_top", 0) as i32;
++    // w_room=F (dig-scoring thread, 2026-10-22): room credit. Late in a 200k round the ants stop cutting new ground and
++    // bail their own spoil out of the crater instead (hA1L20 r0, per 50k: new cuts 146 -> 49, recuts 254 -> 461, spoil
++    // let go inside 43 -> 206, pit 43 -> 109), so the generations bred there are paid for carrying the same soil again
++    // and digging erodes (common garden: gone by round 10 in 7 of 13 colonies). Every `room_every` frames each original
++    // cell that the nest score now calls a chamber or niche pays F times its `nestscore::cell_values` worth to the ant
++    // that first cut it, as the change since its last payment (a room cell later filled in takes its pay back). A shelf
++    // cell is worth 0.05-0.07, a 7-row room's cell 1.0, so rooms pay and combs do not. 0 = off.
++    let (w_room, room_every) = (fnum("w_room", 0.0), num("room_every", 5000).max(1));
+     // zone_debit=F (owner, 2026-10-22: "we could even add a cost for digging outside the nest... I wouldn't want that
+     // forever... but top priority is teaching them to dig in the nest and not crater"): an original-ground cut that
+     // does not pay under nest=zone -- outside the zone, or in its top `nest_top` rows -- charges F times the cut half.
+@@ -419,6 +427,9 @@ fn main() {
+         writeln!(f, "{s}").unwrap();
+     }
+     let mut orig = vec![false; (bw * bh) as usize];
++    // Room credit: who first cut each original cell, and what its room worth has paid so far.
++    let mut cutter = vec![0u32; (bw * bh) as usize];
++    let mut room_paid = vec![0f64; (bw * bh) as usize];
+     let mut zone = vec![false; (bw * bh) as usize];
+     let grow = |zone: &mut Vec<bool>, x: i32, y: i32| {
+         for yy in (y - nest_pad).max(0)..=(y + nest_pad).min(bh - 1) {
+@@ -478,6 +489,7 @@ fn main() {
+             let i = (y * bw + x) as usize;
+             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
+                 orig[i] = false;
++                cutter[i] = who;
+                 let depth = y - surf[x as usize];
+                 let mut worth = if zone_on {
+                     if zone[i] && depth >= nest_top {
+@@ -1121,6 +1133,39 @@ fn main() {
+             let ghosts = inrun::ants(&w, sp).iter().filter(|i| !book.contains_key(i)).count();
+             writeln!(sel_log, "{frame},{},{},{births_n},{removals_n},{bias:.2},{med:.3},{fp:.2},{dig_price:.2},{cp:.2},{ghosts}", book.len(), adults.len()).unwrap();
+         }
++        if w_room > 0.0 && fr % room_every == 0 {
++            use pixel_physics::lab::nestscore as nsc;
++            let door = w.nest_sites.first().map_or(inrun::NEST, |s| s.x);
++            let (ns, class) = nsc::of_world(&w, &sc.bed, door, &nsc::HARVESTER);
++            let vals = nsc::cell_values(&ns, &class);
++            let (gx0, gy0, gw) = nsc::grid_origin(&w, &sc.bed);
++            let (mut cells, mut total) = (0u32, 0.0f64);
++            // Index order, so credits are summed in a fixed order (determinism; see the sorted `gone` below).
++            for (j, c) in class.iter().enumerate() {
++                let (x, y) = (gx0 + (j % gw) as i32, gy0 + (j / gw) as i32);
++                if !(0..bw).contains(&x) || !(0..bh).contains(&y) {
++                    continue;
++                }
++                let i = (y * bw + x) as usize;
++                if cutter[i] == 0 {
++                    continue;
++                }
++                let v = if matches!(c, nsc::Class::Chamber | nsc::Class::Niche) { vals[j] } else { 0.0 };
++                let d = v - room_paid[i];
++                if d == 0.0 {
++                    continue;
++                }
++                room_paid[i] = v;
++                if let Some(b) = book.get_mut(&cutter[i]) {
++                    let g = w_room * d;
++                    b.credit += g;
++                    b.g2 += g * g;
++                    cells += 1;
++                    total += g;
++                }
++            }
++            writeln!(ev, "{frame},0,roompay,{cells},0,{total:.3},0").unwrap();
++        }
+         if fr % 25_000 == 0 {
+             let door = w.nest_sites.first().map_or(inrun::NEST, |s| s.x);
+             let (ns, _) = pixel_physics::lab::nestscore::of_world(&w, &sc.bed, door, &pixel_physics::lab::nestscore::HARVESTER);
+diff --git a/src/lab/nestscore.rs b/src/lab/nestscore.rs
+index 36c5922f..c13b6766 100644
+--- a/src/lab/nestscore.rs
++++ b/src/lab/nestscore.rs
+@@ -863,6 +863,14 @@ pub fn cell_values(s: &NestScore, class: &[Class]) -> Vec<f64> {
+         .collect()
+ }
+ 
++/// Where [`of_world`]'s grid sits in the world: `(x0, y0, w)`, so a harness can map a class or a
++/// [`cell_values`] entry at index `i` to the world cell `(x0 + i % w, y0 + i / w)` -- the room credit
++/// pays each value to whoever first cut that cell, from the harness's own cut log.
++pub fn grid_origin(world: &World, spec: &LabBox) -> (i32, i32, usize) {
++    let (xs, ys) = extents(world, spec);
++    (*xs.start(), *ys.start(), (xs.end() - xs.start() + 1).max(0) as usize)
++}
++
+ /// A lab world read as the score's grid over its extents: [`of_world`]'s
+ /// open cells, with the air above each column's reach, and the datum.
+ struct Grid {
+-- 
+2.43.0
+

@@ -1,0 +1,17 @@
+From the teacher lane, 2026-10-22 12:05Z (I hit the daily cap on thread messages, so this is a file):
+shortr-1022 is uploaded: all 192 archives at runs/shortr-1022/jobs/hA1r{200,100,50}_SEED.tgz, built at 4924e44.
+Over to you for the common garden. I'm doing paired food and extinction.
+I can't message lanes again until tomorrow; you can still message me.
+
+UPDATE 12:55Z, my own common garden of shortr-1022 (each arm's last-round top 30, seeds 1-16, world seed*1000+99,
+200k frames, sel off, pack on, build 61028ae = 4924e44 code). Columns: home8, starved of 24, cuts within 20 cols, field bites.
+  base (hA1 mutants, unselected): home 256, starved 4.4, cuts median 201, 0 of 16 colonies under 20 cuts
+  6x200k : home 3,948 (median 3,200), starved 4.7, cuts median 131, 3 of 13 under 20 (3 extinct in the batch)
+  12x100k: home 3,812 (median 1,355), starved 4.9, cuts median 190, 3 of 15 under 20
+  24x50k : home 3,941 (median 2,989), starved 5.0, cuts median 116, 6 of 16 under 20
+  old ant, same worlds: home 729, starved 0, cuts median 305
+So at 64 seeds on hA1, shorter rounds do NOT keep digging (24x50k has the most non-diggers), and food is the same.
+The batch's apparent short-round win (0 vs 8 extinct, half the starvation) is the clock: ants rarely starve inside 50k frames.
+Raw: /tmp scratch, ask me. Per-colony lines are in this folder: shortr-1022-commongarden.txt
+
+NOTE 13:15Z from the teacher lane: hA1 x20 archives are at runs/ha1next-1022/jobs/hA1L20_SEED.tgz (seeds 1-64, 20 rounds x 200k, build a5dc129 = same code as 61028ae, pack on).
