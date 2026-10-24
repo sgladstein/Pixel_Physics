@@ -688,6 +688,29 @@ pub fn enter_bite(g: &mut [f32], offset: f32) -> bool {
     true
 }
 
+/// **The bite's two genes as a genome holds them**: its switch (-1 banned) and its job's constant, the slot
+/// [`enter_bite`] writes. SCRATCH (colony-vs-colony thread, 2026-10-24): `examples/rivalbed.rs` reports them per pool,
+/// so a run that never bites can be told from a pool that never could.
+pub fn bite_genes(g: &[f32]) -> (f32, f32) {
+    (g[SWITCH + Verb::Attack as usize], g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1])
+}
+
+/// **Set the bite as a harness wants it, whatever the genome evolved**: `Some(k)` switches it on at job constant `k`
+/// (a blank verb at 0, held off at -100 as the predator lane's `ant_bite=-100`), `None` bans it (switch -1, the
+/// option never listed). SCRATCH (colony-vs-colony thread, 2026-10-24): the arms of `examples/rivalbed.rs`, where one
+/// colony bites and its neighbour cannot. [`enter_bite`] leaves an evolved bite alone, which is right for a line and
+/// wrong for an arm.
+pub fn set_bite(g: &mut [f32], k: Option<f32>) {
+    let s = SWITCH + Verb::Attack as usize;
+    match k {
+        Some(k) => {
+            g[s] = 1.0;
+            g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1] = k;
+        }
+        None => g[s] = -1.0,
+    }
+}
+
 /// **A rung's entry into a genome an earlier rung trained**: each verb
 /// this rung offers that the earlier one banned is switched on (a banned
 /// switch is held at exactly -1, [`trainable`]), at no weight, so it enters
@@ -2529,7 +2552,7 @@ fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): 
         return false;
     }
     let gut = super::gut_of(world, organism, def);
-    let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell));
+    let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell)) * bite_scale();
     world.creature_stats.contests += 1;
     if damage <= 0.0 {
         return false;
@@ -2868,6 +2891,16 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         m.counts.delivered += u64::from(at_nest);
     }
     true
+}
+
+/// SCRATCH (colony-vs-colony thread, 2026-10-24): `PP_MIND_BITE_SCALE=f` scales what one mind bite takes off its
+/// victim (`OrganismState::gnawed`, banked on the victim, so several mouths add up). Ant on ant the ratio is 1, so
+/// one bite is one cell and the head is a death: on `examples/rivalbed.rs` 274 of 397 bites killed, and one ant
+/// that could not be bitten back killed 25 in a nest in 700 frames. Below 1 a kill takes several bites, from one
+/// mouth or many -- the swarm the game's own fight banks damage for. Unset: 1, the bite as it was.
+fn bite_scale() -> f32 {
+    static K: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *K.get_or_init(|| std::env::var("PP_MIND_BITE_SCALE").map_or(1.0, |v| v.parse().expect("PP_MIND_BITE_SCALE=f")))
 }
 
 /// **Feed the nestmate or larva at `target`.** A nestmate poorer than the
