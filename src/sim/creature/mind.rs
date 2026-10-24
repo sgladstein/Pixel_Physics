@@ -664,7 +664,7 @@ pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
 /// constant is set to `offset`; returns whether it changed anything. `offset` 0 is a blank verb's entry, as
 /// [`enter_rung`] opens one: offered beside the others with no weight of its own, so mutation decides what it is
 /// for. A genome that already has the verb on is left alone, so a later round's founders keep what they evolved.
-/// Only under `PIXEL_PHYSICS_MIND_ATTACK=on` ([`options::attack_on`]); off, nothing changes.
+/// Only under [`options::attack_on`] (on by default; `PIXEL_PHYSICS_MIND_ATTACK=off`, nothing changes).
 pub fn enter_bite(g: &mut [f32], offset: f32) -> bool {
     let s = SWITCH + Verb::Attack as usize;
     if !options::attack_on() || g[s] != -1.0 {
@@ -3980,7 +3980,14 @@ mod tests {
         assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "soil was picked up");
         let corpse = w.materials.id_of("corpse").expect("corpse");
         w.set(t.0, t.1, Cell::new(corpse, 0));
-        assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "a dead ant was picked up");
+        // A corpse is the bite's mouth (`options::corpse_on`, on with the bite since 2026-10-24): taken under it,
+        // refused with it off, as before.
+        assert_eq!(
+            act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw),
+            options::corpse_on(),
+            "a dead ant's pick-up did not follow the corpse switch"
+        );
+        w.organism_mut(id).expect("ant").crop = None;
         // Soil in the jaws: no food goes into the crop.
         w.set(t.0, t.1, Cell::new(food, 0));
         w.organism_mut(id).expect("ant").spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: false });

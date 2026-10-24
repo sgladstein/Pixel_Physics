@@ -425,6 +425,9 @@ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
 
+/// One spider placement in [`Spiders::log`]: (organism id, pool index, genome, born, died, flesh credit).
+type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64);
+
 /// SCRATCH (lone predator thread, stage two, 2026-10-24): **a pool of spiders on the bed** (`spiders=POOL:N`), the
 /// predator the colony learns to survive. Each place is refilled `gap` frames after its spider dies, by the pool's
 /// next mind in turn, at a random column at least `far` from the door. The pool does not evolve inside a run; under
@@ -438,7 +441,7 @@ struct Spiders {
     /// `spider_mut=PM:SIGMA:EVENTS`, and the slots a spider's mutation moves.
     mutate: Option<(f32, f32, usize, Vec<usize>)>,
     /// Every placement: (organism id, pool index, genome, born, died, flesh credit).
-    log: Vec<(u32, usize, Vec<f32>, u64, Option<u64>, f64)>,
+    log: Vec<Placement>,
     n: usize,
     gap: u64,
     far: i32,
@@ -2440,6 +2443,10 @@ fn main() {
             s.placed, s.deaths, s.killed, s.starved, s.wounds, s.ants_killed, k.bites, k.flesh
         );
     }
+    // The bite and the alarm with or without spiders (`options::attack_on`, on by default since 2026-10-24): whether
+    // either fired at all on a bed where no stranger lives (Teacher lane's question before the default landed).
+    let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
+    println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
 }
