@@ -6012,6 +6012,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   a weaned body scaffold), six questions that pick one, the check that says whether it is working, and the method for each current task
   (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
 
+- [brain-training/plant-food/plant-food-weaning-2026-10-24.md](brain-training/plant-food/plant-food-weaning-2026-10-24.md) —
+  **plant-food lane: ants on a planted bed, and the weaning bed the owner chose.** The trained mind could not bite a
+  living plant (Pick up took loose food only) until `PP_MIND_GRAZE`; the planted bed (`plants=`, `weed=`, `fjoule=`) is
+  in `inrun`. Without breeding, colony selection with a shrinking pile (plantwean3) made colonies that live on plants plus
+  a 10-cell pile: 21 of 24 alive and nest 184 against the founder's 0 and 33 in the same 64 worlds, but none at no pile
+  (they eat plants and carry almost none home). With breeding, the pile stepped on starvation bounced 25 <-> 20 and the
+  selection lost two thirds of the nest against the untrained pool; `colsel pilegate=` steps on colonies dying out instead.
+
 - [brain-training/research/training-compute-audit-2026-10-24.md](brain-training/research/training-compute-audit-2026-10-24.md) —
   **what the VM's training CPU bought, from all 52 batches in the bucket (analysis only).** The common garden is 30% of
   colony-selection CPU and 7% of colony-rounds were byte-identical reruns. A comparison is needed (judging an idea
