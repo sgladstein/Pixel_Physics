@@ -89,3 +89,31 @@ touches food. Separation cannot be judged, or selected for, until the food is li
 - Review cautions still standing: a cap hides surplus in gut banks, so judge reserve as store plus banks in kJ; 51-61%
   of starved adults die before `min_age` (newborns carry about half a grant); culls outnumber starvation; 14x more
   births per round raises the mutation load, a confound when comparing against `brood=off` arms.
+
+## Learned laying: a brake the colony can evolve (2026-10-24, later)
+
+Asked for by the Teacher lane after the far64 pool boomed to ~710 ants in the owner's lab box and then starved 817 in
+10k frames with 2.4 MJ of food still in the box. The lab has no `lay_cap`, and a mind ant's laying was the body's
+alone. The owner asked whether the brood rules are in the genome and said they should balance through training,
+and ruled that the brake may read only what the layer itself can sense, not the colony's store.
+
+- **`PP_LAYGENE` (on by default, `=0` for none)**: six genome slots after the dig head (`mind::LAY_LEN`) that raise
+  the ant's own laying bar by about `2^-x`, up to 64 times, where `x` is a bias plus weights on the layer's own crop,
+  free food cells, nestmates and brood within 6 cells, and how much nestmates have fed it lately (the real queen's
+  signal). The bias alone is the `TRAIT_REPRODUCE_AT` arm (`PP_LAYGENE_SLOTS=0`). The gate slots mutate on their own
+  schedule (`PP_LAYGENE_PM`, `PP_LAYGENE_SIGMA`); a founder without them gets zeros (`PP_LAYGENE_INIT`).
+- **Neutral as it starts**: with selection off, a zero gate is byte-identical to main, and so is `PP_LAYGENE=0` with
+  selection on. With selection on, the gate's mutation draws change which children are picked, and nothing else.
+  Pools saved now carry the gate (genome 3285); the lab keeps it (`training::fit_head`).
+- **`lay_cap_p=P`** in inrun scales the cap's exponent, from 1 (as before) down to 0 (no cap). **colsel
+  `capwean=R0:R1`** fades it over rounds the way `wean=` fades the body rules, and runs the common garden at 0, so
+  colonies are judged on their own brake. It stays opt-in: an uncapped bed booms to ~170-200 ants at about 5x frame
+  cost.
+- **A hold does not brake, and neither does a hand-set bar.** The first gate held the egg, as the game ant's `Lay`
+  output does. A ready ant just lays a few ticks later, once its surroundings change. Uncapped bed, std_pool, seed 1,
+  adults at 20k-60k frames: 192-161 with no gate, and 178-195 at their peaks with holds keyed on crowd, wealth or
+  being fed. A crowd trace found 43% of gate reads passing, from the same nest cells as the holds. A bar a rich ant
+  can reach only slows the climb to the ~150-230 ants the bed's food carries. With bias -3 the colony went
+  24/47/94/145/194/198; crowd-keyed exponential bars boomed and crashed (208 then 90). The open question is whether
+  selection finds a brake that hand-setting did not. Jobs: `scratch/inrun/jobs/laygene1.txt` (gate, bias only, and no
+  gate, all with `capwean=4:16` and the lab case). Dead end recorded: `Reports/dead-ends.md`, `lay_gate`.

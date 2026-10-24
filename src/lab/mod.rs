@@ -2892,6 +2892,7 @@ impl Lab {
     /// provoke the recruit-or-flee response the plane exists to drive.
     fn alarm_at(&mut self, x: i32, y: i32) {
         self.world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
+        self.world.log_player_action(format!("ALARM CALLED AT {x},{y}"));
         self.ui.say(format!("ALARM CALLED AT {x},{y}"));
     }
 
@@ -2930,6 +2931,7 @@ impl Lab {
             std::cmp::Ordering::Equal => 2,   // no side to speak of: straight up
         };
         if crate::sim::creature::launch(&mut self.world, id, heading) {
+            self.world.log_player_action(format!("FLUNG {name} {id} AT {x},{y}"));
             self.ui.say(format!("{name} FLUNG"));
         } else {
             self.ui.say(format!("{name} CANNOT PUSH OFF -- ALREADY IN THE AIR"));
@@ -2951,11 +2953,13 @@ impl Lab {
             Some(from) => {
                 if spec.lamp_near(&self.world, x) == Some(from) {
                     if spec.remove_lamp(&mut self.world, from) {
+                        self.world.log_player_action(format!("LAMP AT {from} REMOVED"));
                         self.ui.say(format!("LAMP AT {from} REMOVED"));
                     } else {
                         self.ui.say("COULD NOT REMOVE THAT LAMP");
                     }
                 } else if spec.move_lamp(&mut self.world, from, x) {
+                    self.world.log_player_action(format!("LAMP MOVED {from} -> {x}"));
                     self.ui.say(format!("LAMP MOVED {from} -> {x}"));
                 } else {
                     self.ui.say("NO ROOM TO MOVE THE LAMP THERE");
@@ -2963,6 +2967,7 @@ impl Lab {
             }
             None => {
                 if spec.place_lamp(&mut self.world, x) {
+                    self.world.log_player_action(format!("LAMP PLACED AT {x}"));
                     self.ui.say(format!("LAMP PLACED AT {x}"));
                 } else {
                     self.ui.say("NO ROOM FOR A LAMP THERE");
@@ -3944,6 +3949,7 @@ impl Lab {
                     return;
                 };
                 if self.world.mark_organism_senescent(who.id) {
+                    self.world.log_player_action(format!("CULLED {} FROM THE ROSTER", who.id));
                     self.ui.say(format!("CULLED {}", who.id));
                 } else {
                     self.ui.say("ALREADY GONE".to_string());
@@ -3964,6 +3970,9 @@ impl Lab {
                 // vanishing -- so a verb that said nothing would read as a
                 // button that did nothing, which is exactly how the graded
                 // cull was misread the first time it shipped.
+                if took > 0 {
+                    self.world.log_player_action(format!("CULLED {took} FROM THE ROSTER, KEPT {kept}"));
+                }
                 self.ui.say(format!("CULLED {took}, KEPT {kept}"));
             }
             ui::Action::RosterCompare => {
@@ -4057,6 +4066,7 @@ impl Lab {
             // routes to the one field, not two fields to keep in step.
             ui::Action::CycleRain => {
                 self.spec.rain = self.spec.rain.next();
+                self.world.log_player_action(format!("RAIN -- {}", self.spec.rain.label()));
                 self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
             }
             // **On the spec and on the live world at once**: the spec so a
@@ -4066,6 +4076,7 @@ impl Lab {
             ui::Action::CyclePlantPace => {
                 self.spec.plant_pace = self.spec.plant_pace.next();
                 self.spec.plant_pace.apply(&mut self.world);
+                self.world.log_player_action(format!("PLANTS GROW AT {}", self.spec.plant_pace.label()));
                 self.ui.say(format!("PLANTS GROW AT {}", self.spec.plant_pace.label()));
             }
             ui::Action::ToggleBattle => {
@@ -4078,7 +4089,9 @@ impl Lab {
             ui::Action::ToggleWindfallRot => {
                 self.spec.windfall_rots = !self.spec.windfall_rots;
                 self.world.windfall_rots = self.spec.windfall_rots;
-                self.ui.say(if self.spec.windfall_rots { "FALLEN FRUIT ROTS" } else { "FALLEN FRUIT STAYS UNTIL EATEN" });
+                let said = if self.spec.windfall_rots { "FALLEN FRUIT ROTS" } else { "FALLEN FRUIT STAYS UNTIL EATEN" };
+                self.world.log_player_action(said);
+                self.ui.say(said);
             }
             // **`F`'s own verb, routed through `Lab::act` now that the MENU
             // page gives it a second route in.** `Lab::act` exists to
@@ -5406,6 +5419,12 @@ mod tests {
             .position(|p| p.writable())
             .expect("at least one parameter is writable -- params::tests::every_writable_parameter_actually_moves already assumes this");
         lab.adjust_param(param, 1); // "<NAME> = <VALUE>"
+        // The box-changing verbs that only spoke to the status line until
+        // 2026-10-24 (owner: "player actions should all be in the data").
+        lab.act(ui::Action::CycleRain); // "RAIN -- <LEVEL>"
+        lab.act(ui::Action::CyclePlantPace); // "PLANTS GROW AT <PACE>"
+        lab.act(ui::Action::ToggleWindfallRot); // "FALLEN FRUIT ..."
+        lab.alarm_at(60, 5); // "ALARM CALLED AT 60,5"
 
         // One `write_chronicle` call, one file, no `reset()` in between --
         // `reset()` starts a *second* run whose own autosave can land on the
@@ -5418,6 +5437,10 @@ mod tests {
         assert!(text.contains("WALL AT 40 REMOVED"), "wall_at's removal line is missing:\n{text}");
         assert!(text.contains("SPEED"), "the speed-dial line is missing:\n{text}");
         assert!(text.contains("POURED WATER"), "the water-pour line is missing:\n{text}");
+        assert!(text.contains("RAIN -- "), "the rain dial's line is missing:\n{text}");
+        assert!(text.contains("PLANTS GROW AT "), "the plant-pace line is missing:\n{text}");
+        assert!(text.contains("FALLEN FRUIT "), "the windfall-rot line is missing:\n{text}");
+        assert!(text.contains("ALARM CALLED AT 60,5"), "the alarm line is missing:\n{text}");
         // Exactly one line per gesture, and a count that says something went in.
         let cells_in = |prefix: &str| -> Vec<u32> {
             text.lines()

@@ -214,7 +214,11 @@ pub trait Challenge: Sync {
 /// **Whether a genome is a stage 2 mind** (`creature::mind`), by its length.
 pub fn is_mind(len: usize) -> bool {
     // SCRATCH (dig-scoring thread): or a mind carrying its own dig head (`PP_DIGHEAD_EVOLVE`)
-    len == mind::GENOME_LEN || mind::scratch_log::head_evolve().is_some_and(|hl| len == mind::GENOME_LEN + hl)
+    let hl = mind::scratch_log::head_evolve();
+    len == mind::GENOME_LEN
+        || hl.is_some_and(|hl| len == mind::GENOME_LEN + hl)
+        // SCRATCH (brood lane, 2026-10-24): or carrying a lay gate after those (`PP_LAYGENE`)
+        || (mind::laygene_on() && len == mind::GENOME_LEN + hl.unwrap_or(0) + mind::LAY_LEN)
 }
 
 /// **A mind's start genome**: a preset by name (`mind::preset`: `blank` or
