@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus", "beds", "round", "rounds", "pick", "keep", "pmut", "fmut", "garden", "gframes", "save", "load"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -2077,6 +2077,264 @@ fn drain_cost(m: &BTreeMap<String, String>) {
     }
 }
 
+/// One plant's heritable state, as `World::organism_genotype` and the fate
+/// table hold it: what `mode=bedsel` carries from a selected bed into the
+/// founders of the next round's fresh beds.
+#[derive(Clone, Copy)]
+struct PlantGenome {
+    draws: [f32; organism::GENOTYPE_TRAITS],
+    alleles: [u8; organism::DISCRETE_LOCI],
+    params: organism::ParamGenome,
+    lineage: u64,
+    fates: organism::FateGenome,
+}
+
+/// A [`PlantGenome`] in a form `ron` can write and read back: the pool
+/// `mode=bedsel save=` keeps, and `load=` judges again without re-running
+/// the rounds -- the product of a selection run, not only its log.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedGenome {
+    role: String,
+    draws: Vec<f32>,
+    alleles: Vec<u8>,
+    params: Vec<(CellType, ParamId, u8, f32)>,
+    fates: Vec<(CellType, Vec<organism::Fate>)>,
+    lineage: u64,
+}
+
+fn save_pool(path: &str, pool: &BTreeMap<String, Vec<PlantGenome>>) {
+    let list: Vec<SavedGenome> = pool
+        .iter()
+        .flat_map(|(role, gs)| {
+            gs.iter().map(move |g| SavedGenome {
+                role: role.clone(),
+                draws: g.draws.to_vec(),
+                alleles: g.alleles.to_vec(),
+                params: g.params.overrides().iter().map(|o| (o.cell_type, o.param, o.tier, o.value)).collect(),
+                fates: g.fates.to_table(),
+                lineage: g.lineage,
+            })
+        })
+        .collect();
+    let text = ron::ser::to_string_pretty(&list, ron::ser::PrettyConfig::default()).expect("the pool serialises");
+    std::fs::write(path, text).expect("the pool file writes");
+    println!("plant_m0 bedsel: saved {} genomes to {path}", list.len());
+}
+
+fn load_pool(path: &str) -> BTreeMap<String, Vec<PlantGenome>> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("load={path}: {e}"));
+    let list: Vec<SavedGenome> = ron::from_str(&text).unwrap_or_else(|e| panic!("load={path}: {e}"));
+    let mut pool: BTreeMap<String, Vec<PlantGenome>> = BTreeMap::new();
+    for g in list {
+        let mut params = organism::ParamGenome::default();
+        for (c, p, t, v) in g.params {
+            assert!(params.set(c, p, t, v), "load: a param override did not fit");
+        }
+        pool.entry(g.role).or_default().push(PlantGenome {
+            draws: g.draws.try_into().expect("load: draws length"),
+            alleles: g.alleles.try_into().expect("load: alleles length"),
+            params,
+            lineage: g.lineage,
+            fates: organism::FateGenome::from_table(&g.fates),
+        });
+    }
+    println!("plant_m0 bedsel: loaded {} genomes from {path}", pool.values().map(Vec::len).sum::<usize>());
+    pool
+}
+
+/// What one bed of `mode=bedsel` ends a round with: leaf cells per role (in
+/// the mix's order), the genomes it offers the next round per role, and how
+/// many founders it was given from the pool.
+struct BedEnd {
+    leaf: Vec<u64>,
+    harvest: BTreeMap<String, Vec<PlantGenome>>,
+    transplanted: usize,
+}
+
+/// One bed of `mode=bedsel`: the community bed at `seed`, its founders
+/// given genomes from `pool` (role -> genomes, cycled; a role with none
+/// keeps its species file), run `frames` with the heredity `heredity` sets.
+fn bedsel_bed(m: &BTreeMap<String, String>, seed: u64, frames: u64, pool: &BTreeMap<String, Vec<PlantGenome>>, heredity: bool, salt: usize, shot_path: Option<String>) -> BedEnd {
+    let mut mm = m.clone();
+    mm.insert("seed".into(), seed.to_string());
+    mm.insert("heredity".into(), if heredity { "on" } else { "off" }.into());
+    let (mut w, bed, scenario, species, _, _) = community_bed(&mm);
+    if heredity {
+        // `community_bed` zeroes the two coarse dials for a census of
+        // today's species; selection needs a lineage to be able to leave
+        // its species file, so the rule-level dial goes back to the game's
+        // and the number-level one to `pmut=`.
+        w.fate_mutation_chance = get(m, "fmut", pixel_physics::sim::plant::fate_mutation_chance_seed());
+        w.param_mutation_chance = get(m, "pmut", 0.1f32);
+    }
+    let mut transplanted = 0;
+    let mut next: BTreeMap<String, usize> = BTreeMap::new();
+    for id in w.live_organism_ids() {
+        let Some(st) = w.organism(id) else { continue };
+        let name = w.species.get(st.species).name.clone();
+        let Some(gs) = pool.get(&name).filter(|g| !g.is_empty()) else { continue };
+        let k = next.entry(name).or_insert(salt);
+        let g = gs[*k % gs.len()];
+        *k += 1;
+        w.set_organism_genotype(id, g.draws, g.alleles, g.params, g.lineage);
+        w.set_organism_fates(id, g.fates);
+        transplanted += 1;
+    }
+    let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
+    for _ in 0..frames {
+        pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
+    }
+    if let Some(path) = shot_path {
+        shot(&mut w, &particles, &mut pixel_physics::render::Renderer::new(), &bed, get(m, "below", 20usize), &path);
+    }
+    let leaf_mat = w.materials.id_of("leaf");
+    let keep: usize = get(m, "keep", 8);
+    let mut leaf = vec![0u64; species.len()];
+    let mut by_role: Vec<Vec<(u64, u32, OrganismId)>> = vec![vec![]; species.len()];
+    for id in w.live_organism_ids() {
+        let Some(st) = w.organism(id) else { continue };
+        let name = &w.species.get(st.species).name;
+        let Some(i) = species.iter().position(|s| s == name) else { continue };
+        let l = st.cells.keys().filter(|&&(x, y)| Some(w.get(x, y).material) == leaf_mat).count() as u64;
+        leaf[i] += l;
+        by_role[i].push((l, st.shoot_cells, id));
+    }
+    let mut harvest = BTreeMap::new();
+    for (i, mut list) in by_role.into_iter().enumerate() {
+        // The leafiest plants first, then the biggest, then the waiting
+        // seed bank -- a role whose adults all died still offers its seeds.
+        list.sort_by_key(|&(l, sh, id)| (std::cmp::Reverse(l), std::cmp::Reverse(sh), id));
+        let gs: Vec<PlantGenome> = list
+            .iter()
+            .take(keep)
+            .filter_map(|&(_, _, id)| {
+                let (draws, alleles, params, lineage) = w.organism_genotype(id)?;
+                Some(PlantGenome { draws, alleles, params, lineage, fates: w.organism(id)?.fates })
+            })
+            .collect();
+        harvest.insert(species[i].to_string(), gs);
+    }
+    BedEnd { leaf, harvest, transplanted }
+}
+
+/// A bed's rank in `mode=bedsel`: roles holding 100+ leaf first, then the
+/// weakest role's leaf -- a bed is only as mixed as its scarcest member, so
+/// one huge tree cannot buy the rank (the ant line's summed colony score
+/// was won by not digging; `Reports/` scoring review, 2026-10-22).
+fn bedsel_rank(leaf: &[u64]) -> (usize, u64) {
+    (leaf.iter().filter(|&&l| l >= 100).count(), leaf.iter().copied().min().unwrap_or(0))
+}
+
+/// **`mode=bedsel` -- plants trained the way the ants are: whole beds
+/// selected** (owner, 2026-10-24, from the ant line's colony selection).
+/// Each round runs `beds` fresh community beds for `round` frames with
+/// in-bed heredity on (`pmut=` param mutation, `fmut=` fate mutation, the
+/// genotype jitter); each bed's founders are given genomes from its parent
+/// pool. At the round's end every bed offers its `keep` leafiest plants per
+/// role, the beds are ranked (`bedsel_rank`), and the top half's offerings
+/// become every bed's pool for the next round. Fresh beds every round, so
+/// what is selected is the plants, not a lucky bed's soil.
+///
+/// `pick=random` ranks the beds by a seeded shuffle instead: the control
+/// for "selection did it" against "heredity and time did it".
+///
+/// **The judge** is a common garden after the last round: `garden` fresh
+/// beds per arm (seeds 9001..), heredity off, `gframes` frames, shipped
+/// species files against founders drawn from the final pool, paired by
+/// seed. Selection that only rearranged luck shows no gain there.
+fn bedsel(m: &BTreeMap<String, String>) {
+    let started = std::time::Instant::now();
+    let beds: usize = get(m, "beds", 8);
+    let round: u64 = get(m, "round", 100_000);
+    let rounds: usize = get(m, "rounds", 6);
+    let pick: String = get(m, "pick", "types".to_string());
+    let base: u64 = get(m, "seed", 1);
+    let garden: usize = get(m, "garden", 8);
+    let gframes: u64 = get(m, "gframes", 300_000);
+    assert!(pick == "types" || pick == "random", "pick={pick} is not types|random");
+    let species = mix(&get(m, "mix", "roles4".to_string()));
+    println!(
+        "plant_m0 bedsel: beds={beds} round={round} rounds={rounds} pick={pick} seed={base} keep={} pmut={} fmut={} garden={garden} gframes={gframes} roles={species:?}",
+        get(m, "keep", 8usize),
+        get(m, "pmut", 0.1f32),
+        get(m, "fmut", pixel_physics::sim::plant::fate_mutation_chance_seed())
+    );
+    // `out=PATH`: each garden bed's last frame is drawn to PATH_ARM_sSEED.png.
+    let out: Option<String> = m.get("out").cloned();
+    let run_all = |seeds: &[u64], frames: u64, pool: &BTreeMap<String, Vec<PlantGenome>>, heredity: bool, arm: Option<&str>| -> Vec<BedEnd> {
+        std::thread::scope(|sc| {
+            let hs: Vec<_> = seeds
+                .iter()
+                .enumerate()
+                .map(|(i, &sd)| {
+                    let path = arm.zip(out.as_ref()).map(|(a, o)| format!("{o}_{a}_s{sd}.png"));
+                    sc.spawn(move || bedsel_bed(m, sd, frames, pool, heredity, i * 7, path))
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().expect("a bed panicked")).collect()
+        })
+    };
+    // `load=FILE` starts from a saved pool (with `rounds=0`, only the
+    // garden runs); `save=FILE` writes the final pool.
+    let mut pool: BTreeMap<String, Vec<PlantGenome>> = m.get("load").map_or_else(BTreeMap::new, |p| load_pool(p));
+    for r in 0..rounds {
+        let seeds: Vec<u64> = (0..beds).map(|i| base * 1000 + (r * beds + i) as u64).collect();
+        let ends = run_all(&seeds, round, &pool, true, None);
+        let mut order: Vec<usize> = (0..beds).collect();
+        if pick == "types" {
+            order.sort_by_key(|&i| (std::cmp::Reverse(bedsel_rank(&ends[i].leaf)), i));
+        } else {
+            let mut rng = pixel_physics::sim::rng::stream(base, r as u64, 0x5e1, 0);
+            for i in (1..order.len()).rev() {
+                order.swap(i, rng.below(i as u32 + 1) as usize);
+            }
+        }
+        let parents: Vec<usize> = order[..beds.div_ceil(2)].to_vec();
+        for (i, e) in ends.iter().enumerate() {
+            let (t, lo) = bedsel_rank(&e.leaf);
+            println!(
+                "BED r={r} bed={i} seed={} types={t} weakest={lo} leaf={} given={} parent={}",
+                seeds[i],
+                species.iter().zip(&e.leaf).map(|(n, l)| format!("{n}:{l}")).collect::<Vec<_>>().join(","),
+                e.transplanted,
+                parents.contains(&i)
+            );
+        }
+        let mean_types = ends.iter().map(|e| bedsel_rank(&e.leaf).0).sum::<usize>() as f64 / beds as f64;
+        let mut next: BTreeMap<String, Vec<PlantGenome>> = BTreeMap::new();
+        for &p in &parents {
+            for (role, gs) in &ends[p].harvest {
+                next.entry(role.clone()).or_default().extend(gs.iter().copied());
+            }
+        }
+        println!(
+            "ROUND r={r} mean_types={mean_types:.2} pool={} elapsed={:.0}s",
+            next.iter().map(|(k, v)| format!("{k}:{}", v.len())).collect::<Vec<_>>().join(","),
+            started.elapsed().as_secs_f64()
+        );
+        pool = next;
+    }
+    if let Some(path) = m.get("save") {
+        save_pool(path, &pool);
+    }
+    // The judge: paired fresh beds, heredity off, shipped vs pool.
+    let gseeds: Vec<u64> = (0..garden).map(|i| 9001 + i as u64).collect();
+    let empty = BTreeMap::new();
+    for (arm, p) in [("shipped", &empty), ("pool", &pool)] {
+        let ends = run_all(&gseeds, gframes, p, false, Some(arm));
+        for (i, e) in ends.iter().enumerate() {
+            let (t, lo) = bedsel_rank(&e.leaf);
+            println!(
+                "GARDEN arm={arm} seed={} types={t} weakest={lo} leaf={} given={}",
+                gseeds[i],
+                species.iter().zip(&e.leaf).map(|(n, l)| format!("{n}:{l}")).collect::<Vec<_>>().join(","),
+                e.transplanted
+            );
+        }
+    }
+    println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
+}
+
 fn main() {
     let m = args();
     match m.get("mode").map(String::as_str).unwrap_or("community") {
@@ -2088,8 +2346,9 @@ fn main() {
         "stand" => stand(&m),
         "nudge" => nudge(&m),
         "draincost" => drain_cost(&m),
+        "bedsel" => bedsel(&m),
         other => {
-            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|stand|nudge|draincost");
+            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|stand|nudge|draincost|bedsel");
             std::process::exit(2);
         }
     }

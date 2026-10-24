@@ -8161,6 +8161,8 @@ PIXEL_PHYSICS_BURIED_REMAINS=litter        # buried tissue sheds to litter again
 PIXEL_PHYSICS_BURIED_REMAINS=any           # buried shoot repays the bed as well as root (the rule before 2026-10-17)
 PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0        # grass never dies of old age (the rule before 2026-10-19); name:frames, any plant species, frames of organism age; a malformed entry or unknown name panics
 PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks          # old age counts turns taken, not plant time (the rule before 2026-10-23, when a big tree lived ~7x its lifespan); World::old_age_plant_time
+PIXEL_PHYSICS_SHADE_SCALD=0                # a shade-tolerant leaf is not scalded in bright light (the rule before 2026-10-24); World::shade_scald
+PIXEL_PHYSICS_SEED_SETTLE=0                # a waiting seed stays on litter and deadwood, and a sprout lifts nothing (before 2026-10-24); World::seed_settles
 ```
 
 ## Chronicle status — the box tells you who did what, at any population

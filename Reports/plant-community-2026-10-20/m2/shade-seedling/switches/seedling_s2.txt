@@ -1,0 +1,133 @@
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 community: mix=roles ["tree", "shrub", "herb", "creeper"] seed=2 frames=450000 sample=50000 ants=false rain=Steady cripple=none plants_placed=12 load_failure=false
+f=50000 | creeper plants=9 bank=2 leaf=189 est=5 rootwet=0.357 rootdepth=8.3 leaflight=0.077 | herb plants=42 bank=98 leaf=861 est=23 rootwet=0.426 rootdepth=9.0 leaflight=0.344 | shrub plants=22 bank=95 leaf=1701 est=15 rootwet=0.550 rootdepth=9.7 leaflight=0.254 | tree plants=15 bank=63 leaf=2971 est=5 rootwet=0.496 rootdepth=12.0 leaflight=0.304 | water=0.421,0.552,0.611,0.626,0.627,0.629,0.615,0.607 topsd=0.170 bandsd=0.170,0.123,0.109,0.114,0.087,0.097,0.094,0.092 nut=0.716 nutsd=0.215 | standing=0 standingmax=0 rained=2949 drained=5368 vapour=3283 spell=dry on= | seed=199 seedlive=199 seedmax=4 spread=99 litter=278 littermax=11 | gaps100=0.20 | tips=35 contact_other=26 touch_seed=11 touch_kin=20 touch_foreign=6 up_blocked_other=16 boxed_own=3 boxed_other=13 | light_cov=0.231 n=489 light_open=0.260 n=7 | window=50000 | sw=779.5
+GAPS f=50000 1111111111111111444444444444444477777777777777774444444444444444++++++++++++++++9999999999999999++++++++++++++++++++++++++++++++22222222222222228888888888888888++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++6666666666666666++++++++++++++++888888888888888833333333333333335555555555555555++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+TREE f=50000 id=1 span=4-68 cells=1982 senescent=false age wall=50000 ticks=8325 plant=25020
+TREE f=50000 id=5 span=84-189 cells=2662 senescent=false age wall=50000 ticks=7605 plant=24975
+TREE f=50000 id=9 span=341-454 cells=3031 senescent=false age wall=50000 ticks=7380 plant=24930
+TREE f=50000 id=78 span=339-398 cells=461 senescent=false age wall=41369 ticks=8190 plant=20745
+TREE f=50000 id=80 span=129-149 cells=111 senescent=true age wall=41365 ticks=11790 plant=20655
+f=100000 | creeper plants=7 bank=2 leaf=24 est=0 rootwet=0.357 rootdepth=6.0 leaflight=0.158 | herb plants=72 bank=98 leaf=771 est=7 rootwet=0.411 rootdepth=5.5 leaflight=0.353 | shrub plants=24 bank=61 leaf=1264 est=0 rootwet=0.579 rootdepth=8.8 leaflight=0.279 | tree plants=38 bank=73 leaf=3779 est=0 rootwet=0.519 rootdepth=6.4 leaflight=0.295 | water=0.439,0.553,0.615,0.631,0.629,0.629,0.615,0.607 topsd=0.188 bandsd=0.188,0.130,0.111,0.117,0.088,0.097,0.094,0.092 nut=0.719 nutsd=0.197 | standing=5 standingmax=1 rained=5906 drained=8971 vapour=2991 spell=dry on=wood(plant):3,leaf(plant):1,log:1 | seed=178 seedlive=178 seedmax=3 spread=334 litter=115 littermax=5 | gaps100=0.20 | tips=62 contact_other=43 touch_seed=23 touch_kin=34 touch_foreign=15 up_blocked_other=21 boxed_own=5 boxed_other=18 | light_cov=0.182 n=493 light_open=0.242 n=3 | window=50000 | sw=468.6
+GAPS f=100000 1111111111111111111111111111111133333333333333334444444444444444++++++++++++++++999999999999999977777777777777775555555555555555111111111111111155555555555555554444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++33333333333333339999999999999999000000000000000011111111111111117777777777777777++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+TREE f=100000 id=1 span=4-76 cells=2847 senescent=false age wall=100000 ticks=14580 plant=50040
+TREE f=100000 id=5 span=83-196 cells=3609 senescent=false age wall=100000 ticks=13140 plant=50040
+TREE f=100000 id=9 span=339-454 cells=3909 senescent=false age wall=100000 ticks=12510 plant=50040
+TREE f=100000 id=78 span=327-400 cells=937 senescent=false age wall=91369 ticks=15750 plant=45720
+f=150000 | creeper plants=2 bank=3 leaf=2 est=0 rootwet=0.241 rootdepth=1.0 leaflight=0.161 | herb plants=86 bank=74 leaf=671 est=15 rootwet=0.515 rootdepth=4.7 leaflight=0.340 | shrub plants=33 bank=39 leaf=825 est=1 rootwet=0.597 rootdepth=5.8 leaflight=0.356 | tree plants=58 bank=48 leaf=3425 est=5 rootwet=0.520 rootdepth=5.9 leaflight=0.300 | water=0.491,0.564,0.611,0.632,0.629,0.629,0.615,0.607 topsd=0.153 bandsd=0.153,0.114,0.115,0.117,0.088,0.097,0.094,0.092 nut=0.712 nutsd=0.192 | standing=3 standingmax=1 rained=8857 drained=11986 vapour=2823 spell=dry on=log:2,soil(full):1,wood(plant):1 | seed=107 seedlive=107 seedmax=3 spread=538 litter=340 littermax=6 | gaps100=0.00 | tips=73 contact_other=48 touch_seed=8 touch_kin=43 touch_foreign=7 up_blocked_other=20 boxed_own=5 boxed_other=16 | light_cov=0.231 n=489 light_open=0.260 n=2 | window=50000 | sw=369.6
+GAPS f=150000 1111111111111111111111111111111122222222222222223333333333333333++++++++++++++++++++++++++++++++88888888888888884444444444444444000000000000000055555555555555554444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++777777777777777700000000000000004444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+TREE f=150000 id=1 span=4-79 cells=3384 senescent=false age wall=150000 ticks=20115 plant=75195
+TREE f=150000 id=5 span=83-196 cells=3955 senescent=false age wall=150000 ticks=18135 plant=75015
+TREE f=150000 id=9 span=348-448 cells=3062 senescent=true age wall=150000 ticks=17685 plant=74970
+TREE f=150000 id=5242946 span=423-428 cells=27 senescent=false age wall=32559 ticks=14895 plant=14895
+TREE f=150000 id=78 span=317-400 cells=532 senescent=true age wall=141369 ticks=22095 plant=70875
+TREE f=150000 id=5243016 span=334-339 cells=36 senescent=false age wall=14358 ticks=7020 plant=7020
+TREE f=150000 id=1048862 span=102-109 cells=24 senescent=false age wall=112205 ticks=52290 plant=52290
+TREE f=150000 id=8388927 span=427-441 cells=98 senescent=false age wall=51459 ticks=12780 plant=14805
+TREE f=150000 id=4194628 span=410-427 cells=111 senescent=false age wall=44259 ticks=20250 plant=22095
+f=200000 | creeper plants=2 bank=0 leaf=2 est=0 rootwet=0.552 rootdepth=2.0 leaflight=0.189 | herb plants=80 bank=18 leaf=408 est=11 rootwet=0.570 rootdepth=3.6 leaflight=0.281 | shrub plants=29 bank=61 leaf=796 est=4 rootwet=0.673 rootdepth=6.4 leaflight=0.366 | tree plants=66 bank=43 leaf=3740 est=10 rootwet=0.543 rootdepth=6.0 leaflight=0.321 | water=0.575,0.575,0.590,0.619,0.628,0.628,0.616,0.608 topsd=0.119 bandsd=0.119,0.106,0.123,0.118,0.092,0.099,0.095,0.092 nut=0.711 nutsd=0.192 | standing=123 standingmax=4 rained=11810 drained=14502 vapour=2590 spell=dry on=wood(plant):42,empty:36,leaf(plant):23,soil(full):9,log:5 | seed=70 seedlive=70 seedmax=3 spread=658 litter=319 littermax=8 | gaps100=0.00 | tips=80 contact_other=41 touch_seed=7 touch_kin=35 touch_foreign=7 up_blocked_other=12 boxed_own=1 boxed_other=12 | light_cov=0.198 n=489 light_open=0.262 n=2 | window=50000 | sw=374.3
+GAPS f=200000 00000000000000002222222222222222++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++66666666666666664444444444444444000000000000000033333333333333334444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++44444444444444445555555555555555++++++++++++++++++++++++++++++++++++++++++++++++3333333333333333999999999999999922222222222222228888888888888888++++++++++++++++++++++++++++++++++++++++++++++++
+TREE f=200000 id=1 span=4-81 cells=2851 senescent=true age wall=200000 ticks=25200 plant=100215
+TREE f=200000 id=5 span=64-196 cells=4501 senescent=false age wall=200000 ticks=23130 plant=99990
+TREE f=200000 id=9 span=371-425 cells=342 senescent=true age wall=200000 ticks=24480 plant=99990
+TREE f=200000 id=11534378 span=452-458 cells=23 senescent=false age wall=26327 ticks=9810 plant=9810
+TREE f=200000 id=7340129 span=408-424 cells=116 senescent=false age wall=66359 ticks=23805 plant=27135
+TREE f=200000 id=8388725 span=402-416 cells=125 senescent=false age wall=63209 ticks=23670 plant=27045
+TREE f=200000 id=9437336 span=362-414 cells=832 senescent=false age wall=57089 ticks=23895 plant=28035
+TREE f=200000 id=13631682 span=54-64 cells=33 senescent=false age wall=8751 ticks=4320 plant=4320
+TREE f=200000 id=9437397 span=387-407 cells=101 senescent=false age wall=74459 ticks=24885 plant=28035
+TREE f=200000 id=3145987 span=304-372 cells=1793 senescent=false age wall=60038 ticks=16425 plant=28710
+TREE f=200000 id=5243182 span=54-85 cells=92 senescent=false age wall=15955 ticks=4725 plant=5445
+TREE f=200000 id=8388927 span=399-473 cells=1612 senescent=false age wall=101459 ticks=19935 plant=40005
+TREE f=200000 id=7340370 span=355-374 cells=115 senescent=false age wall=54569 ticks=24525 plant=27180
+TREE f=200000 id=7340419 span=382-406 cells=83 senescent=false age wall=17687 ticks=6750 plant=8775
+f=250000 | creeper plants=2 bank=0 leaf=2 est=0 rootwet=0.546 rootdepth=2.0 leaflight=0.081 | herb plants=66 bank=23 leaf=353 est=3 rootwet=0.568 rootdepth=3.9 leaflight=0.310 | shrub plants=32 bank=43 leaf=777 est=2 rootwet=0.662 rootdepth=6.5 leaflight=0.379 | tree plants=83 bank=47 leaf=2656 est=7 rootwet=0.560 rootdepth=6.3 leaflight=0.348 | water=0.573,0.566,0.595,0.622,0.625,0.626,0.615,0.608 topsd=0.113 bandsd=0.113,0.104,0.114,0.115,0.092,0.098,0.096,0.095 nut=0.712 nutsd=0.175 | standing=209 standingmax=8 rained=13293 drained=16042 vapour=2589 spell=wet on=wood(plant):69,empty:45,leaf(plant):34,log:12,soil(full):10 | seed=62 seedlive=62 seedmax=3 spread=741 litter=478 littermax=9 | gaps100=0.00 | tips=80 contact_other=44 touch_seed=5 touch_kin=39 touch_foreign=7 up_blocked_other=13 boxed_own=3 boxed_other=11 | light_cov=0.238 n=487 light_open=0.413 n=4 | window=50000 | sw=219.3
+GAPS f=250000 3333333333333333++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++4444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++77777777777777779999999999999999++++++++++++++++22222222222222221111111111111111000000000000000033333333333333331111111111111111++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+TREE f=250000 id=1 span=4-85 cells=1348 senescent=true age wall=250000 ticks=31455 plant=125235
+TREE f=250000 id=5 span=119-197 cells=1650 senescent=true age wall=250000 ticks=28440 plant=125010
+TREE f=250000 id=2097202 span=98-127 cells=138 senescent=false age wall=42555 ticks=19620 plant=21285
+TREE f=250000 id=23068745 span=152-156 cells=44 senescent=false age wall=14205 ticks=5310 plant=5310
+TREE f=250000 id=9437336 span=344-433 cells=2413 senescent=false age wall=107089 ticks=30150 plant=53055
+TREE f=250000 id=3145893 span=418-436 cells=67 senescent=true age wall=64447 ticks=23535 plant=32130
+TREE f=250000 id=13631682 span=22-76 cells=481 senescent=false age wall=58751 ticks=14355 plant=29430
+TREE f=250000 id=3145987 span=303-381 cells=1493 senescent=true age wall=110038 ticks=22680 plant=53730
+TREE f=250000 id=10486028 span=92-102 cells=58 senescent=false age wall=18255 ticks=3555 plant=4770
+TREE f=250000 id=8388927 span=386-478 cells=2298 senescent=false age wall=151459 ticks=26190 plant=65025
+TREE f=250000 id=11534663 span=82-123 cells=335 senescent=false age wall=21405 ticks=8775 plant=10665
+TREE f=250000 id=7340370 span=352-383 cells=284 senescent=true age wall=104569 ticks=34200 plant=52380
+TREE f=250000 id=26214745 span=31-54 cells=117 senescent=true age wall=44441 ticks=13680 plant=22185
+TREE f=250000 id=8388976 span=32-79 cells=491 senescent=false age wall=70001 ticks=13860 plant=26325
+f=300000 | creeper plants=2 bank=0 leaf=2 est=0 rootwet=0.290 rootdepth=2.5 leaflight=0.054 | herb plants=50 bank=43 leaf=185 est=1 rootwet=0.411 rootdepth=2.8 leaflight=0.252 | shrub plants=34 bank=34 leaf=729 est=2 rootwet=0.495 rootdepth=6.8 leaflight=0.364 | tree plants=50 bank=124 leaf=4532 est=5 rootwet=0.494 rootdepth=9.2 leaflight=0.294 | water=0.346,0.489,0.573,0.614,0.617,0.620,0.615,0.606 topsd=0.130 bandsd=0.130,0.110,0.119,0.121,0.104,0.101,0.094,0.092 nut=0.720 nutsd=0.156 | standing=7 standingmax=1 rained=14773 drained=17977 vapour=3329 spell=wet on=empty:6,leaf(plant):1 | seed=137 seedlive=137 seedmax=3 spread=814 litter=167 littermax=5 | gaps100=0.20 | tips=59 contact_other=37 touch_seed=8 touch_kin=30 touch_foreign=6 up_blocked_other=15 boxed_own=4 boxed_other=14 | light_cov=0.169 n=479 light_open=0.369 n=10 | window=50000 | sw=230.1
+GAPS f=300000 5555555555555555++++++++++++++++111111111111111155555555555555557777777777777777888888888888888811111111111111112222222222222222++++++++++++++++++++++++++++++++66666666666666665555555555555555++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++7777777777777777++++++++++++++++11111111111111110000000000000000000000000000000000000000000000001111111111111111111111111111111133333333333333335555555555555555++++++++++++++++++++++++++++++++
+TREE f=300000 id=1 span=4-85 cells=483 senescent=true age wall=300000 ticks=37845 plant=150300
+TREE f=300000 id=2097202 span=98-129 cells=312 senescent=false age wall=92555 ticks=28260 plant=46260
+TREE f=300000 id=2097211 span=317-340 cells=204 senescent=true age wall=62707 ticks=18945 plant=28845
+TREE f=300000 id=23068745 span=142-193 cells=1058 senescent=false age wall=64205 ticks=14400 plant=30420
+TREE f=300000 id=9437336 span=341-433 cells=3136 senescent=false age wall=157089 ticks=36405 plant=78075
+TREE f=300000 id=1048833 span=333-349 cells=115 senescent=true age wall=58027 ticks=19620 plant=28665
+TREE f=300000 id=13631777 span=448-481 cells=161 senescent=false age wall=71967 ticks=20925 plant=28710
+TREE f=300000 id=8388927 span=386-493 cells=3006 senescent=false age wall=201459 ticks=32400 plant=89865
+TREE f=300000 id=11534663 span=52-153 cells=2644 senescent=false age wall=71405 ticks=15210 plant=35820
+TREE f=300000 id=8388955 span=304-375 cells=1072 senescent=false age wall=108427 ticks=38970 plant=52695
+TREE f=300000 id=8388976 span=4-79 cells=2030 senescent=false age wall=120001 ticks=20700 plant=51435
+TREE f=300000 id=15729025 span=380-406 cells=127 senescent=false age wall=96896 ticks=21645 plant=29790
+f=350000 | creeper plants=1 bank=1 leaf=0 est=0 rootwet=0.257 rootdepth=1.0 leaflight=-1.000 | herb plants=53 bank=38 leaf=281 est=6 rootwet=0.468 rootdepth=4.0 leaflight=0.338 | shrub plants=21 bank=27 leaf=539 est=1 rootwet=0.513 rootdepth=10.7 leaflight=0.351 | tree plants=94 bank=88 leaf=4388 est=8 rootwet=0.488 rootdepth=4.8 leaflight=0.302 | water=0.382,0.515,0.582,0.607,0.617,0.622,0.614,0.606 topsd=0.121 bandsd=0.121,0.105,0.114,0.128,0.103,0.098,0.094,0.092 nut=0.705 nutsd=0.145 | standing=2 standingmax=1 rained=17713 drained=21045 vapour=3246 spell=dry on=log:1,soil(full):1 | seed=89 seedlive=89 seedmax=2 spread=892 litter=313 littermax=10 | gaps100=0.20 | tips=99 contact_other=65 touch_seed=14 touch_kin=62 touch_foreign=7 up_blocked_other=22 boxed_own=6 boxed_other=15 | light_cov=0.136 n=486 light_open=0.849 n=9 | window=50000 | sw=366.2
+GAPS f=350000 5555555555555555++++++++++++++++0000000000000000333333333333333344444444444444443333333333333333111111111111111122222222222222228888888888888888444444444444444422222222222222224444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++11111111111111118888888888888888444444444444444433333333333333331111111111111111555555555555555522222222222222223333333333333333++++++++++++++++5555555555555555++++++++++++++++7777777777777777
+TREE f=350000 id=8388631 span=460-487 cells=145 senescent=false age wall=83447 ticks=35550 plant=40860
+TREE f=350000 id=23068745 span=136-193 cells=1826 senescent=false age wall=114205 ticks=20655 plant=55440
+TREE f=350000 id=19923079 span=437-480 cells=483 senescent=false age wall=90287 ticks=38250 plant=45135
+TREE f=350000 id=15728782 span=415-433 cells=154 senescent=false age wall=161927 ticks=77715 plant=80595
+TREE f=350000 id=11534485 span=438-483 cells=390 senescent=false age wall=114767 ticks=41535 plant=47610
+TREE f=350000 id=9437336 span=355-424 cells=2168 senescent=true age wall=207089 ticks=42165 plant=103185
+TREE f=350000 id=9437445 span=405-444 cells=463 senescent=false age wall=64727 ticks=9810 plant=13050
+TREE f=350000 id=11534641 span=334-339 cells=23 senescent=false age wall=48195 ticks=18450 plant=18450
+TREE f=350000 id=11534663 span=52-164 cells=3275 senescent=false age wall=121405 ticks=20970 plant=60885
+TREE f=350000 id=13631827 span=415-453 cells=578 senescent=false age wall=33227 ticks=9090 plant=13635
+TREE f=350000 id=8388955 span=302-375 cells=2300 senescent=false age wall=158427 ticks=45225 plant=77715
+TREE f=350000 id=8388976 span=4-80 cells=2856 senescent=false age wall=170001 ticks=26910 plant=76275
+TREE f=350000 id=6291831 span=416-428 cells=145 senescent=false age wall=118456 ticks=52020 plant=54900
+TREE f=350000 id=15729025 span=380-406 cells=130 senescent=false age wall=146896 ticks=34110 plant=54720
+f=400000 | creeper plants=0 bank=0 leaf=0 est=0 rootwet=-1.000 rootdepth=-1.0 leaflight=-1.000 | herb plants=39 bank=6 leaf=195 est=5 rootwet=0.434 rootdepth=3.8 leaflight=0.133 | shrub plants=22 bank=30 leaf=538 est=2 rootwet=0.519 rootdepth=6.0 leaflight=0.418 | tree plants=95 bank=104 leaf=5116 est=4 rootwet=0.529 rootdepth=5.7 leaflight=0.298 | water=0.426,0.539,0.582,0.611,0.621,0.621,0.615,0.607 topsd=0.110 bandsd=0.110,0.097,0.113,0.128,0.105,0.101,0.096,0.093 nut=0.724 nutsd=0.130 | standing=15 standingmax=3 rained=20657 drained=23577 vapour=3168 spell=dry on=soil(full):7,wood(plant):4,leaf(plant):2,log:1 | seed=82 seedlive=82 seedmax=2 spread=952 litter=137 littermax=4 | gaps100=0.00 | tips=82 contact_other=44 touch_seed=11 touch_kin=41 touch_foreign=2 up_blocked_other=11 boxed_own=3 boxed_other=6 | light_cov=0.124 n=495 light_open=0.102 n=1 | window=50000 | sw=301.3
+GAPS f=400000 3333333333333333++++++++++++++++0000000000000000111111111111111111111111111111112222222222222222000000000000000022222222222222225555555555555555333333333333333311111111111111115555555555555555++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++77777777777777773333333333333333000000000000000077777777777777774444444444444444++++++++++++++++77777777777777777777777777777777111111111111111100000000000000001111111111111111111111111111111122222222222222224444444444444444
+TREE f=400000 id=20971528 span=126-131 cells=25 senescent=true age wall=73023 ticks=36495 plant=36495
+TREE f=400000 id=23068745 span=136-194 cells=2268 senescent=false age wall=164205 ticks=26865 plant=80280
+TREE f=400000 id=19923079 span=437-483 cells=1112 senescent=false age wall=140287 ticks=45045 plant=69975
+TREE f=400000 id=15728782 span=414-434 cells=286 senescent=false age wall=211927 ticks=86220 plant=105615
+TREE f=400000 id=11534485 span=438-501 cells=1103 senescent=false age wall=164767 ticks=48510 plant=72675
+TREE f=400000 id=9437336 span=358-416 cells=1040 senescent=true age wall=257089 ticks=48375 plant=128025
+TREE f=400000 id=6291626 span=300-319 cells=135 senescent=false age wall=27275 ticks=9990 plant=13680
+TREE f=400000 id=9437445 span=418-444 cells=527 senescent=false age wall=114727 ticks=18135 plant=38025
+TREE f=400000 id=16777501 span=400-413 cells=161 senescent=false age wall=50016 ticks=21600 plant=24975
+TREE f=400000 id=14680367 span=13-31 cells=117 senescent=true age wall=78416 ticks=11520 plant=19890
+TREE f=400000 id=11534663 span=52-182 cells=3667 senescent=false age wall=171405 ticks=25965 plant=85860
+TREE f=400000 id=13631827 span=401-453 cells=1189 senescent=false age wall=83227 ticks=15930 plant=38700
+TREE f=400000 id=8388955 span=285-375 cells=2972 senescent=false age wall=208427 ticks=51480 plant=102735
+TREE f=400000 id=8388976 span=4-80 cells=3282 senescent=false age wall=220001 ticks=32355 plant=101340
+TREE f=400000 id=15729025 span=384-406 cells=96 senescent=true age wall=196896 ticks=46620 plant=79740
+f=450000 | creeper plants=0 bank=0 leaf=0 est=0 rootwet=-1.000 rootdepth=-1.0 leaflight=-1.000 | herb plants=30 bank=8 leaf=140 est=6 rootwet=0.565 rootdepth=2.4 leaflight=0.281 | shrub plants=29 bank=23 leaf=507 est=5 rootwet=0.592 rootdepth=6.0 leaflight=0.383 | tree plants=99 bank=71 leaf=4845 est=10 rootwet=0.530 rootdepth=6.5 leaflight=0.304 | water=0.491,0.554,0.592,0.607,0.613,0.616,0.611,0.603 topsd=0.095 bandsd=0.095,0.081,0.106,0.129,0.110,0.106,0.095,0.094 nut=0.721 nutsd=0.110 | standing=33 standingmax=3 rained=23607 drained=26265 vapour=2894 spell=dry on=wood(plant):12,leaf(plant):10,soil(full):6,log:2 | seed=66 seedlive=66 seedmax=2 spread=998 litter=226 littermax=5 | gaps100=0.00 | tips=85 contact_other=48 touch_seed=9 touch_kin=42 touch_foreign=3 up_blocked_other=8 boxed_own=4 boxed_other=6 | light_cov=0.133 n=496 light_open=-1.000 n=0 | window=50000 | sw=299.9
+GAPS f=450000 111111111111111144444444444444440000000000000000222222222222222211111111111111111111111111111111000000000000000022222222222222224444444444444444222222222222222200000000000000004444444444444444++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++22222222222222220000000000000000333333333333333333333333333333337777777777777777++++++++++++++++++++++++++++++++33333333333333330000000000000000++++++++++++++++999999999999999933333333333333333333333333333333
+TREE f=450000 id=23068744 span=356-376 cells=156 senescent=false age wall=135235 ticks=38745 plant=44820
+TREE f=450000 id=23068745 span=136-192 cells=2482 senescent=false age wall=214205 ticks=33120 plant=105300
+TREE f=450000 id=10485840 span=29-35 cells=37 senescent=false age wall=146776 ticks=73395 plant=73395
+TREE f=450000 id=26214505 span=347-388 cells=417 senescent=false age wall=56035 ticks=21555 plant=27945
+TREE f=450000 id=11534442 span=404-409 cells=47 senescent=false age wall=9787 ticks=4860 plant=4860
+TREE f=450000 id=25165950 span=139-142 cells=24 senescent=false age wall=88013 ticks=43920 plant=43920
+TREE f=450000 id=15728782 span=414-434 cells=296 senescent=false age wall=261927 ticks=94545 plant=130590
+TREE f=450000 id=11534485 span=438-507 cells=1487 senescent=false age wall=214767 ticks=54765 plant=97695
+TREE f=450000 id=9437336 span=377-416 cells=501 senescent=true age wall=307089 ticks=55575 plant=153135
+TREE f=450000 id=4194530 span=407-416 cells=67 senescent=false age wall=16267 ticks=7110 plant=8100
+TREE f=450000 id=4194563 span=4-19 cells=250 senescent=false age wall=63976 ticks=8685 plant=15030
+TREE f=450000 id=9437504 span=362-391 cells=210 senescent=false age wall=41995 ticks=8775 plant=14850
+TREE f=450000 id=11534663 span=52-187 cells=3867 senescent=false age wall=221405 ticks=30960 plant=110835
+TREE f=450000 id=13631827 span=401-454 cells=1675 senescent=false age wall=133227 ticks=22185 plant=63720
+TREE f=450000 id=8388955 span=284-374 cells=3197 senescent=true age wall=258427 ticks=57060 plant=127755
+TREE f=450000 id=17826141 span=390-403 cells=54 senescent=false age wall=32696 ticks=15705 plant=16380
+TREE f=450000 id=8388976 span=4-79 cells=3259 senescent=false age wall=270001 ticks=37710 plant=126450
+TREE f=450000 id=29360501 span=404-416 cells=120 senescent=false age wall=30667 ticks=9630 plant=14805
+SCREEN f=450000 soilcells=36029 rotted=76988 above[n=19585 wood:MatureBody:55.1% leaf:27.4% wood:DormantBud:4.6% stone:4.1% heaped-soil:3.7% rootwood:MatureBody:1.3% litter:0.9% deadwood:0.9% wood:GrowingTip:0.4% log:0.4% seed(live):0.3% root-tip:0.2% deadleaf:0.2% flower/fruit:0.2% water:0.2%] || ground-top20[n=10240 soil:71.9% rootwood:MatureBody:23.7% stone:1.6% root-tip:1.2% hole:0.9% wood:MatureBody:0.5% seed(live):0.1% litter:0.1% leaf:0.0% deadwood:0.0% log:0.0% wood:GrowingTip:0.0%]
+WATER f=450000 standing=42   satsoil-under:plant/plant/plant:9 on-plant:held-by-saturated-soil:9 on-plant:held-by-full-water:6 on-saturated-soil:6 on-water:3 on-log:2 on-plant:can-drip:2 on-plant:held-by-deadwood:2 on-plant:held-by-litter:1 on-plant:held-by-log:1 on-plant:too-deep:1
+plant_m0: wrote /tmp/claude-0/sh/sw/seedling_s2_f450000.png
+plant_m0 done: 816.3 s

@@ -299,3 +299,37 @@ Roles a bed falls because one bed's tree and two beds' herb were under
   Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
   the cost of more, smaller plants.
 
+
+## 8. Which switches ship on (`switches/`), owner's rule 2026-10-24
+
+Owner, 2026-10-24: *"The default should be on unless there is
+uncertainty."* Four of this lane's plant switches were still off. Each was
+run on today's engine (roots required, nutrient by root, old age on the
+plant clock) in the four-role bed, 8 paired seeds x 450,000 frames
+(`mode=community mix=roles loadfail=0 rain=steady spells=20000,40000
+ground=patchy`), the switch alone against none:
+
+| arm | roles a bed | better / worse beds | tree leaf | shrub leaf | herb leaf | floor under 2% light |
+|---|---|---|---|---|---|---|
+| none | 2.62 | | 22,248 | 7,011 | 7,548 | 17% |
+| `shade_scald` | 2.62 | identical | 22,248 | 7,011 | 7,548 | 17% |
+| `seed_settles` | 2.88 | 3 / 1 | 26,229 | 4,481 | 6,526 | 17% |
+| `seedling_waits` | 2.75 | 2 / 1 | 32,569 | 4,339 | 6,875 | 26% |
+| `seedling_reserves` | 2.75 | 2 / 1 | 26,438 | 4,304 | 7,155 | 25% |
+| the three seedling rules | 2.38 | 2 / 3 | 38,848 | 2,882 | 4,877 | 28% |
+
+- **`shade_scald` on.** Bit-identical: no shipped species carries shade
+  tolerance, so it never fires. It ships on because it is the price that
+  stops tolerance coming free once tolerance can evolve (bed selection,
+  `../bedsel/`).
+- **`seed_settles` on.** The best roles count and the floor's light
+  unchanged. It does move leaf from shrub to tree, as every seedling rule
+  does.
+- **`seedling_waits` and `seedling_reserves` stay off, for a measured
+  harm.** Each alone is inside the spread on roles but darkens the floor by
+  a half (17% -> 25-26% of columns under 2% light) and hands the trees
+  leaf. Together with settling they cost the bed a quarter of a role.
+  The trees' own seedlings use the help more than the understory's do,
+  which is §2's "the residents move too" at 450,000 frames.
+
+Opt-outs: `PIXEL_PHYSICS_SHADE_SCALD=0`, `PIXEL_PHYSICS_SEED_SETTLE=0`.
