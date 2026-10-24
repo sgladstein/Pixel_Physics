@@ -116,6 +116,42 @@ fn load_pool(spec: &str) -> Vec<Vec<f32>> {
     pool
 }
 
+/// inrun's size-neutral mutation (`examples/inrun.rs` `neutral_mutate`, without its lesson protection): each live
+/// link or setting steps with chance `pm` by `sigma`, then `events` structural changes, each a fair coin between a
+/// new link and a removed one.
+fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, rng: &mut train::Rng) -> Vec<f32> {
+    let first = creature::mind::FIRST_LINK;
+    let mut c = g.to_vec();
+    for &i in slots {
+        if (c[i] != 0.0 || i < first) && rng.unit() < pm {
+            c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+        }
+    }
+    for _ in 0..events {
+        let add = rng.unit() < 0.5;
+        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add).collect();
+        if pool.is_empty() {
+            continue;
+        }
+        let i = pool[rng.below(pool.len())];
+        c[i] = if add { (sigma * rng.step()).clamp(-40.0, 40.0) } else { 0.0 };
+    }
+    c
+}
+
+/// A mind's whole genome as a `.raw.txt` holds it: the body's slots, then its own dig head and lay gate when they
+/// ride (`MindGenome::new` takes them off the end).
+fn full_genome(g: &creature::mind::MindGenome) -> Vec<f32> {
+    let mut v = g.w.clone();
+    if let Some(h) = g.head.as_ref() {
+        v.extend(h.flat());
+    }
+    if let Some(l) = g.lay {
+        v.extend(l);
+    }
+    v
+}
+
 /// `bite=` for one colony: `Some(Some(k))` on at k, `Some(None)` banned, `None` as the pool holds it.
 fn bite_of(s: &str) -> Option<Option<f32>> {
     match s {
@@ -133,6 +169,26 @@ fn main() {
     let (seed, frames, gap) = (num("seed", 1.0) as u64, num("frames", 100_000.0) as u64, num("gap", 80.0) as i32);
     let (dist, spread, cap, drip, every) = (num("dist", 25.0) as i32, num("spread", 10.0) as i32, num("cap", 60.0) as usize, num("drip", 20.0) as usize, num("every", 500.0) as u64);
     let grants = num("grants", 3.0) as f32;
+    // mutate=PM:SIGMA:EVENTS: every hatchling's mind is a size-neutral mutant of its layer's (inrun's standard line is
+    // 0.013:1:4), so a run is natural selection inside each colony -- whoever eats and lays leaves more -- and a
+    // tournament over runs (`scratch/inrun/rivaltour.py`) selects between colonies. Off: the hatchling keeps its
+    // layer's mind exactly, as in the lab.
+    let mutate: Option<(f32, f32, usize)> = arg(&a, "mutate").map(|v| {
+        let p: Vec<&str> = v.split(':').collect();
+        assert_eq!(p.len(), 3, "mutate=PM:SIGMA:EVENTS");
+        (p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap())
+    });
+    let mut mrng = train::Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5151);
+    let mslots = colony_bed::slots();
+    // food=sides (default): each colony's own two heaps, `dist` either side of its nest. food=split: each colony's
+    // outer heap only, and one shared heap at the bed's centre holding up to `mid_cap` cells (default 2 x cap) -- the
+    // ground between the nests is where the food is.
+    let split = match arg(&a, "food").unwrap_or("sides") {
+        "sides" => false,
+        "split" => true,
+        f => panic!("food={f}: sides or split"),
+    };
+    let mid_cap = num("mid_cap", 2.0 * cap as f64) as usize;
     let solo = arg(&a, "solo").unwrap_or("none");
     // `pool=A,B` for short specs; `pool_a=`/`pool_b=` take any one spec, a colsel carry's comma list included.
     let short: Vec<&str> = arg(&a, "pool").unwrap_or("std,std").split(',').collect();
@@ -268,9 +324,15 @@ fn main() {
     for f in 0..frames {
         if f % every == 0 {
             // Both nests' food, solo or not: the bed is the same bed with or without a neighbour.
-            for x in xs {
-                inrun::top_up(&mut w, &sc, x - dist, cap, drip, spread);
-                inrun::top_up(&mut w, &sc, x + dist, cap, drip, spread);
+            if split {
+                inrun::top_up(&mut w, &sc, xs[0] - dist, cap, drip, spread);
+                inrun::top_up(&mut w, &sc, xs[1] + dist, cap, drip, spread);
+                inrun::top_up(&mut w, &sc, colony_bed::NEST, mid_cap, 2 * drip, spread);
+            } else {
+                for x in xs {
+                    inrun::top_up(&mut w, &sc, x - dist, cap, drip, spread);
+                    inrun::top_up(&mut w, &sc, x + dist, cap, drip, spread);
+                }
             }
         }
         if f % 250 == 0 {
@@ -289,7 +351,23 @@ fn main() {
         inrun::step(&mut w, &sc);
         if w.creature_stats.births != seen_births {
             seen_births = w.creature_stats.births;
+            let before: std::collections::HashSet<u32> = who.keys().copied().collect();
             refresh(&w, &mut who, &sides);
+            if let Some((pm, sigma, events)) = mutate {
+                let mut fresh: Vec<(u32, usize)> = who.iter().filter(|(i, _)| !before.contains(i)).map(|(&i, &s)| (i, s)).collect();
+                fresh.sort_unstable();
+                for (id, s) in fresh {
+                    let Some(g) = creature::mind::genome_of(&w, id) else { continue };
+                    let mut c = neutral_mutate(&full_genome(&g), &mslots, pm, sigma, events, &mut mrng);
+                    // A side held off the bite stays held off whatever the mutation drew.
+                    if let Some(b) = bite_of(bites[s]) {
+                        if b.is_none() {
+                            creature::mind::set_bite(&mut c, None);
+                        }
+                    }
+                    creature::mind::give(&mut w, id, colony_bed::mind(&c));
+                }
+            }
         }
         for (x, y, _, id) in w.cut_log.as_mut().unwrap().drain(..) {
             let Some(&s) = who.get(&id) else { continue };
@@ -386,6 +464,24 @@ fn main() {
                 let touched = w.take_touched_chunks();
                 r.draw(&w, &particles, &touched, &mut buf, (vw, vh), true);
                 image::RgbaImage::from_raw(vw, vh, buf).unwrap().save(format!("{dir}/f{fr:07}.png")).unwrap();
+            }
+        }
+    }
+    // save=DIR: each colony's living adults' minds at the end (up to `save_n`, spread evenly over the id-sorted
+    // list), DIR/west and DIR/east, as `.raw.txt` -- the carry a tournament founds the next round from.
+    if let Some(dir) = arg(&a, "save") {
+        let n = num("save_n", 30.0) as usize;
+        for s in (0..2).filter(|&s| present[s]) {
+            let d = std::path::Path::new(dir).join(["west", "east"][s]);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut ids: Vec<u32> = inrun::ants(&w, sp).into_iter().filter(|&i| w.organism(i).is_some_and(|st| side_of_colony(st.colony, &sides) == Some(s))).collect();
+            ids.sort_unstable();
+            let take = n.min(ids.len());
+            for j in 0..take {
+                let id = ids[j * ids.len() / take];
+                if let Some(g) = creature::mind::genome_of(&w, id) {
+                    train::save_genome(&d.join(format!("a{j:02}.raw.txt")), &full_genome(&g)).unwrap();
+                }
             }
         }
     }
