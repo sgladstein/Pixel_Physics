@@ -1,0 +1,279 @@
+From fa8fcc8f37569899fd62eb23cddbedd19478cbaa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 16:55:06 +0000
+Subject: [PATCH 1/2] inrun: inherit_nest lines the carved nest (the inherited
+ sinkhole)
+
+What it fixes: a round that inherits last round's nest (inherit_nest=1) lost
+a band of soil under the surface within 10 frames, with no ant digging. The
+kept nest cells were carved EMPTY into the fresh world's loose soil, and loose
+soil is a powder: every carved hole filled from above and the voids rose to
+the surface. Only packed soil spans a hole, and the ants that dug the nest had
+tamped every wall as they cut it; the carve had not. Copying the old map's
+lining could not help, because the crater rule keeps only the roofed edges of
+a crater-topped room, and their inner wall is loose soil in the fresh world.
+
+Fix (setup only, no physics change): after the carve, every kept cell is
+lined by the same rule as an ant cut and the founding shaft
+(pack_neighbours, via a new World::line_dug_cell). Also, in nest-only mode a
+kept '?' cell (an ant or stored food standing in an open nest cell) is now
+carved too; it used to be left as fresh loose soil, a plug in the tunnel.
+
+Measured (192 end-of-round maps, nestmaps-1022 cs3lex/cs3lexles/cs3lexlesinh,
+one old ant, no digs, 3000 frames; within 60 columns of the door):
+  carved holes refilled:   median 74, p90 187  ->  median 0, p90 6
+  ground emptied:          median 59, p90 143  ->  median 6, p90 10
+  open cells, top 6 rows within 20 cols of the door: 22 -> 66 (today)
+                                                     22 -> 22 (fixed)
+cs3lexlesinh c5: 138 ground cells emptied and 190 carved cells refilled by
+frame 10 today; 0 and 0 through frame 400 with the lining.
+
+Changes results only for inherit_nest=1 runs. INHERIT_LINE=0 and
+INHERIT_PLUG=1 restore the old carve for before/after.
+
+Still open, not fixed here: in most maps the carved nest is not joined to the
+door (median 115 open cells carved, 30 joined): the room's link to the door
+ran through the crater, which is deliberately not inherited.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QoZheBsv94QtqS9fSdo1hV
+---
+ examples/inrun.rs   | 24 +++++++++++++++++++++++-
+ src/sim/creature.rs | 20 ++++++++++++++++++++
+ 2 files changed, 43 insertions(+), 1 deletion(-)
+
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 4f2f3f63..6d74bda8 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -177,7 +177,12 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
+     let mut n = 0;
+     for (dy, row) in grid.iter().enumerate() {
+         for (dx, &ch) in row.iter().enumerate() {
+-            if ch == b'?' || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
++            // `?` (an animal, food, an organism's cell) is left to the fresh world -- except, in nest-only mode, a kept
++            // one: the flood passed it because it is not ground, so it stood in an open nest cell (an ant in a tunnel,
++            // stored food in a room), and leaving it the fresh world's loose soil plugged the nest at every one of them.
++            // `INHERIT_PLUG=1` puts the plugs back, for the before/after.
++            let plug = std::env::var("INHERIT_PLUG").as_deref() == Ok("1");
++            if (ch == b'?' && (keep.is_none() || plug)) || keep.as_ref().is_some_and(|k| !k.contains(&(dx, dy))) {
+                 continue;
+             }
+             let (x, y) = (x0 + dx as i32, y0 + dy as i32);
+@@ -194,6 +199,23 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
+             n += 1;
+         }
+     }
++    // Line the carved nest, as the ants that dug it did and as the stamp's founding shaft is lined. Carved into the fresh
++    // world's loose soil with nothing tamped, every kept hole was a void under a powder: the old map's lining is no use
++    // here, because the crater rule above keeps only the roofed edges of a crater-topped room, and their inner wall is
++    // the crater's place in the fresh world -- loose soil. Measured 2026-10-23 (cs3lexlesinh c5, one old ant): 172 kept
++    // cells filled from above inside 400 frames and the voids came out at the surface, two rows lost across 80 columns.
++    // One pass after the carve, the founding shaft's order (sorted: `keep` is a HashSet). Kept cells holding an
++    // organism are left alone. `INHERIT_LINE=0` turns it off, for the before/after.
++    if let Some(k) = keep.as_ref().filter(|_| std::env::var("INHERIT_LINE").as_deref() != Ok("0")) {
++        let mut cells: Vec<_> = k.iter().copied().collect();
++        cells.sort_unstable();
++        for (dx, dy) in cells {
++            let (x, y) = (x0 + dx as i32, y0 + dy as i32);
++            if w.get(x, y).material == pixel_physics::sim::material::EMPTY {
++                w.line_dug_cell(x, y);
++            }
++        }
++    }
+     n
+ }
+ 
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 4e9e350d..f75fd7f3 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -7098,6 +7098,26 @@ impl World {
+         cut.len()
+     }
+ 
++    /// **Line the walls of a hole a harness opened by hand**, by the same rule
++    /// the founding shaft and every ant cut use ([`pack_neighbours`]), and
++    /// only where tunnel lining is on at all. Returns how many cells it packed.
++    ///
++    /// For a setup that carves a whole burrow into fresh ground at once --
++    /// `examples/inrun.rs`'s `inherit_nest=1`, which carries last round's nest
++    /// into a new world. A hole carved into loose soil with no lining is not a
++    /// nest, it is a void under a powder: measured 2026-10-23 on the
++    /// cs3lexlesinh c5 map, 172 carved cells filled from above inside 400
++    /// frames and the hole came out as a sinkhole two rows deep across 80
++    /// columns of surface. The ants that dug it had tamped every wall as they
++    /// cut; carving the hole without the tamping is a different hole.
++    /// Not counted in `CreatureStats::packed`, which is wall an *ant* tamped.
++    pub fn line_dug_cell(&mut self, x: i32, y: i32) -> u64 {
++        if !lining_enabled() {
++            return 0;
++        }
++        pack_neighbours(self, x, y)
++    }
++
+     /// **The hardest ground a founding shaft may cut when nobody says whose
+     /// founding it is**: the strongest authored `dig_force` among the species
+     /// whose `nest` is the material [`World::paint_nest_patch`] lays -- the
+-- 
+2.43.0
+
+
+From 1cbfbba590202a4de0c627e49aaa8968e3042ff3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 17:05:10 +0000
+Subject: [PATCH 2/2] inrun: inherit_link=1 joins every inherited room to the
+ door (off by default)
+
+What it is for: with inherit_nest=1 most inherited rooms arrive sealed. The
+crater filter drops the crater, and the room's way to the door ran through
+it, so the fresh world got a pocket no ant can reach. The Teacher lane asked
+to keep the link cells rather than drop the pockets (dropping throws away the
+rooms selection is meant to grow).
+
+inherit_link=1: each kept pocket not joined to the door keeps the cheapest run
+of last round's open cells to what the fresh world already joins to the door
+(the stamp and joined kept cells), two cells wide like the stamped shaft,
+crater or not, lined like the rest. Runs never use the surface row (an
+unroofed scrape is the crater again) and a cell in the top six rows costs 4,
+so runs go under the surface rather than along it. The first draft, plain
+shortest runs, skimmed the top row across 30 columns on cs3lexles c20. The
+joined flood seeds from the mouth only: seeding from every open cell in the
+door column, as the keep flood and nestcount.py both do, counts a buried
+pocket that happens to cross the column as joined (cs3lexlesinh c5).
+
+Measured on the same 192 nestmaps-1022 maps, one old ant, 3000 frames, both
+arms lined:
+  joined / carved:    median 0.31 (p10 0.13)  ->  1.00 (p10 0.97)
+  maps fully joined (within 2 cells):  2/192  ->  166/192
+  link cells added:   median 34, p90 75, max 139
+  open cells in the top 6 rows within 20 cols of the door:
+    added by the links at frame 0: median 0 (122/192 maps add none), p90 12
+    drift frame 0 -> 3000: median 0, p90 4 (link off: 0, p90 3)
+  carved cells refilled by 3000: median 0 -> 2, p90 6 -> 13
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QoZheBsv94QtqS9fSdo1hV
+---
+ examples/inrun.rs | 91 +++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 88 insertions(+), 3 deletions(-)
+
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 6d74bda8..87c31925 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -123,7 +123,7 @@ fn write_nestmap(w: &pixel_physics::sim::World, path: &std::path::Path) {
+ /// grew round on round. So here only the open cells joined to the door below the datum are carved, and of those only
+ /// roofed ones (ground at or below the datum above them) or under a mouth no wider than the stamped one: the crater is
+ /// sky-open and stays behind, and everything else is the fresh world's.
+-fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>) -> usize {
++fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option<&[i32]>, link: bool) -> usize {
+     let t = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("inherit={path}: {e}"));
+     let mut lines = t.lines();
+     let head: Vec<&str> = lines.next().expect("nestmap header").split(' ').collect();
+@@ -172,7 +172,92 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
+             wide[dx..k].fill(k - dx > 5);
+             dx = k;
+         }
+-        seen.into_iter().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect()
++        let mut seen: Vec<(usize, usize)> = seen.into_iter().collect();
++        seen.sort_unstable();
++        let mut kept: std::collections::HashSet<(usize, usize)> = seen.iter().copied().filter(|&(dx, dy)| roofed(dx, dy) || !wide[dx]).collect();
++        // `inherit_link=1`: join every kept room to the door. The crater filter above leaves a room whose way to the
++        // door ran through the crater as a sealed pocket in the fresh world (192 maps of nestmaps-1022, 2026-10-23:
++        // median 115 cells carved, 30 joined to the door -- the stamp and little else), and a sealed pocket is no nest
++        // to an ant. So each pocket also keeps the shortest run of last round's open cells to what the fresh world
++        // already joins to the door, two cells wide like the stamped shaft, crater or not. Only the run is carried:
++        // the crater round it stays behind.
++        if link {
++            let wg: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
++            let rows = grid.len();
++            let fresh_open = |dx: usize, dy: usize| dx < width && dy < rows && below(dx, dy) && !wg.contains(&w.get(x0 + dx as i32, y0 + dy as i32).material);
++            let nbrs = |(dx, dy): (usize, usize)| [(dx.wrapping_sub(1), dy), (dx + 1, dy), (dx, dy.wrapping_sub(1)), (dx, dy + 1)];
++            // What the new world joins to the door: kept cells and the fresh world's own open ground (the stamp), flooded
++            // from the mouth only -- the first passable cell down the door column. Seeding from every open cell in that
++            // column (as the flood above does) counts a buried pocket that happens to cross it as joined.
++            let mut joined = std::collections::HashSet::new();
++            let pass = |p: (usize, usize)| kept.contains(&p) || fresh_open(p.0, p.1);
++            let mut stack: Vec<(usize, usize)> = (top(door)..rows).map(|dy| (door, dy)).find(|&p| pass(p)).into_iter().collect();
++            while let Some(p) = stack.pop() {
++                if !joined.insert(p) {
++                    continue;
++                }
++                stack.extend(nbrs(p).into_iter().filter(|&q| !joined.contains(&q) && pass(q)));
++            }
++            // Cheapest runs from all of it through last round's open cells; `from` leads each cell back toward the door.
++            // Never the surface row itself (an unroofed scrape is the crater over again), and a cell in the top six
++            // rows costs four, so a run goes under rather than along the surface where it can (first draft, 2026-10-23:
++            // plain shortest runs skimmed the top row across 30 columns on cs3lexles c20).
++            let old: std::collections::HashSet<(usize, usize)> = seen.iter().copied().filter(|&(dx, dy)| dy > top(dx)).collect();
++            let cost = |(dx, dy): (usize, usize)| if dy < top(dx) + 6 { 4 } else { 1 };
++            let mut from: std::collections::HashMap<(usize, usize), (usize, usize)> = std::collections::HashMap::new();
++            let mut dist: std::collections::HashMap<(usize, usize), u32> = joined.iter().map(|&p| (p, 0)).collect();
++            let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u32, (usize, usize))>> = joined.iter().map(|&p| std::cmp::Reverse((0, p))).collect();
++            while let Some(std::cmp::Reverse((d, p))) = heap.pop() {
++                if d > dist[&p] {
++                    continue;
++                }
++                for r in nbrs(p) {
++                    let nd = d + cost(r);
++                    if old.contains(&r) && dist.get(&r).is_none_or(|&o| nd < o) {
++                        dist.insert(r, nd);
++                        from.insert(r, p);
++                        heap.push(std::cmp::Reverse((nd, r)));
++                    }
++                }
++            }
++            // One run per pocket, from its cell nearest the door.
++            let mut done = std::collections::HashSet::new();
++            let mut pockets: Vec<(usize, usize)> = kept.iter().copied().filter(|p| !joined.contains(p)).collect();
++            pockets.sort_unstable();
++            let mut runs = Vec::new();
++            for &p0 in &pockets {
++                if done.contains(&p0) {
++                    continue;
++                }
++                let mut comp = vec![p0];
++                let mut i = 0;
++                done.insert(p0);
++                while i < comp.len() {
++                    for r in nbrs(comp[i]) {
++                        if kept.contains(&r) && !joined.contains(&r) && done.insert(r) {
++                            comp.push(r);
++                        }
++                    }
++                    i += 1;
++                }
++                if let Some(&best) = comp.iter().filter(|p| dist.contains_key(p)).min_by_key(|p| (dist[p], **p)) {
++                    let mut p = best;
++                    while let Some(&prev) = from.get(&p) {
++                        runs.push(p);
++                        p = prev;
++                    }
++                }
++            }
++            for (dx, dy) in runs {
++                kept.insert((dx, dy));
++                if old.contains(&(dx + 1, dy)) {
++                    kept.insert((dx + 1, dy));
++                } else if dx > 0 && old.contains(&(dx - 1, dy)) {
++                    kept.insert((dx - 1, dy));
++                }
++            }
++        }
++        kept
+     });
+     let mut n = 0;
+     for (dy, row) in grid.iter().enumerate() {
+@@ -326,7 +411,7 @@ fn main() {
+     // ground are read below, so the inherited nest is not "original ground" and extending it counts as new cuts.
+     if let Some(p) = arg(&a, "inherit") {
+         let surf: Vec<i32> = (0..256).map(|x| inrun::surface(&w, &sc, x)).collect();
+-        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]));
++        let n = read_nestmap(&mut w, p, (arg(&a, "inherit_nest") == Some("1")).then_some(&surf[..]), arg(&a, "inherit_link") == Some("1"));
+         eprintln!("inherit: {n} cells set from {p}");
+     }
+     // synapse=F: the ant's synapse_fraction for this run (a trial of the link price before it is proposed for the
+-- 
+2.43.0
+

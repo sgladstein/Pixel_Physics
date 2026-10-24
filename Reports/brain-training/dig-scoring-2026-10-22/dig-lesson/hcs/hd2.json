@@ -1,0 +1,72 @@
+{
+ "start": "/home/user/hcs/scratch/inrun/genomes/hcs.raw.txt",
+ "soil_logs": [
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-41.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-42.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-43.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-44.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-45.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/f-46.log"
+ ],
+ "keep_logs": [
+  [
+   "fetch",
+   "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/fetch.log"
+  ],
+  [
+   "trail",
+   "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs/trail.log"
+  ]
+ ],
+ "caps": {
+  "dig": 10000,
+  "nodig": 0,
+  "spoil": 0,
+  "none": 30000,
+  "keep": 30000,
+  "keepL": 24000,
+  "under": 0
+ },
+ "steps": 4000,
+ "every": 100,
+ "batch": 512,
+ "lr": 0.02,
+ "seed": 1,
+ "patience": 800,
+ "arm": "teacher",
+ "out": "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/hd2.raw.txt",
+ "group_weights": {
+  "dig": 8,
+  "nodig": 4,
+  "spoil": 2,
+  "none": 6,
+  "keep": 10,
+  "keepL": 20
+ },
+ "freeze": [
+  "roof_drop"
+ ],
+ "keep_lookalike": "below",
+ "revive_units": 4,
+ "revive_hidden": 3,
+ "unfreeze": [
+  4,
+  6
+ ],
+ "ctx_inputs": [
+  0,
+  1,
+  2,
+  3,
+  12,
+  13,
+  18
+ ],
+ "hold_logs": [
+  5
+ ],
+ "mempath": false,
+ "only_verbs": [
+  3
+ ]
+}

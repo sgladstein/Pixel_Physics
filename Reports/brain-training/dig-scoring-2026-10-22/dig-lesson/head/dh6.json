@@ -1,0 +1,68 @@
+{
+ "start": "/home/user/hcs/scratch/inrun/genomes/hcs.raw.txt",
+ "soil_logs": [
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-41.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-42.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-43.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-44.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-45.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-hcs-46.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-47.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-48.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-49.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-50.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-51.log",
+  "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/logs2/f-a3-52.log"
+ ],
+ "keep_logs": [],
+ "caps": {
+  "dig": 20000,
+  "nodig": 20000,
+  "under": 0,
+  "none": 30000,
+  "spoil": 0
+ },
+ "steps": 6000,
+ "every": 100,
+ "batch": 512,
+ "lr": 0.01,
+ "seed": 1,
+ "patience": 1500,
+ "arm": "teacher",
+ "out": "/tmp/claude-0/-home-user-Pixel-Physics/d8079a03-3861-5d88-a8a6-9ab879927dc0/scratchpad/ol/h/dh6.raw.txt",
+ "group_weights": {
+  "dig": 8,
+  "nodig": 12,
+  "none": 8
+ },
+ "freeze": [
+  "roof_drop"
+ ],
+ "keep_lookalike": "below",
+ "revive_units": 0,
+ "revive_hidden": 0,
+ "unfreeze": [
+  4,
+  6
+ ],
+ "ctx_inputs": [
+  0,
+  1,
+  2,
+  3,
+  12,
+  13,
+  18
+ ],
+ "hold_logs": [
+  5,
+  11
+ ],
+ "mempath": false,
+ "dighead": 8,
+ "quiet_unread": false,
+ "head_sigma": 0.3,
+ "no_hanging": true,
+ "when": true,
+ "target_only": false
+}
