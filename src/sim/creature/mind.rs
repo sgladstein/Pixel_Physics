@@ -659,6 +659,22 @@ pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
     did
 }
 
+/// **The bite's entry into a colony mind** (lone predator thread, stage two, 2026-10-24): where a genome holds
+/// Attack banned (its switch at exactly -1, as every rung so far has held it), the switch comes on and its job's
+/// constant is set to `offset`; returns whether it changed anything. `offset` 0 is a blank verb's entry, as
+/// [`enter_rung`] opens one: offered beside the others with no weight of its own, so mutation decides what it is
+/// for. A genome that already has the verb on is left alone, so a later round's founders keep what they evolved.
+/// Only under `PIXEL_PHYSICS_MIND_ATTACK=on` ([`options::attack_on`]); off, nothing changes.
+pub fn enter_bite(g: &mut [f32], offset: f32) -> bool {
+    let s = SWITCH + Verb::Attack as usize;
+    if !options::attack_on() || g[s] != -1.0 {
+        return false;
+    }
+    g[s] = 1.0;
+    g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1] = offset;
+    true
+}
+
 /// **A rung's entry into a genome an earlier rung trained**: each verb
 /// this rung offers that the earlier one banned is switched on (a banned
 /// switch is held at exactly -1, [`trainable`]), at no weight, so it enters
@@ -2487,7 +2503,7 @@ fn pick_up(
     let food = bite.material;
     if jaws
         || world.materials.get(food).food_energy <= 0.0
-        || (world.materials.known(Known::Corpse) == Some(food) && !options::attack_on())
+        || (world.materials.known(Known::Corpse) == Some(food) && !options::corpse_on())
         || (bite.organism_id() != 0 && !scratch_log::grazeable(world, bite))
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
@@ -4005,6 +4021,27 @@ mod tests {
     /// act is reachable from a pick only while `options::attack_on` is set,
     /// which nothing in the test process sets, so the game's minds are
     /// untouched (`Verb::acts`).
+    /// **The bite's entry opens a banned Attack and nothing else**, only with its switch on: a banned genome takes
+    /// the switch and the job constant, one that already bites is left alone, and with the switch off neither moves.
+    #[test]
+    fn the_bite_enters_a_banned_genome_only_under_its_switch() {
+        let s = SWITCH + Verb::Attack as usize;
+        let k = JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1;
+        let mut g = vec![0.0; GENOME_LEN];
+        g[s] = -1.0;
+        let before = g.clone();
+        let did = enter_bite(&mut g, 2.5);
+        assert_eq!(did, options::attack_on());
+        if did {
+            assert_eq!((g[s], g[k]), (1.0, 2.5));
+            assert_eq!(g.iter().zip(&before).filter(|(a, b)| a != b).count(), 2, "the entry moved another slot");
+            assert!(!enter_bite(&mut g, -7.0), "a genome that bites was entered again");
+            assert_eq!(g[k], 2.5);
+        } else {
+            assert_eq!(g, before);
+        }
+    }
+
     #[test]
     fn the_bite_takes_a_strangers_cell_and_the_mouth_keeps_it() {
         assert_eq!(Verb::Attack.acts(), options::attack_on(), "the Attack act is reachable with its switch off");

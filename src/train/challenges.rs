@@ -2699,20 +2699,46 @@ pub mod colony_bed {
     /// The bed's width and height.
     pub const SIZE: (i32, i32) = (BED_W, 128);
 
-    /// The scarce-dig arena's emits: what its minds may signal.
+    /// The scarce-dig arena's emits: what its minds may signal. Under
+    /// `PIXEL_PHYSICS_MIND_ATTACK=on` the alarm scent too ([`verbs`]).
     pub fn emits() -> [bool; creature::mind::EMITS] {
-        Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits()
+        let mut e = Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits();
+        // SCRATCH (lone predator thread): `PP_MIND_ALARM=off` keeps the alarm emit shut with the bite on.
+        e[2] |= creature::options::attack_on() && std::env::var("PP_MIND_ALARM").map_or(true, |v| v != "off");
+        e
     }
 
-    /// A founder's or a child's mind: `genome` cut to the dig rung's verbs
-    /// ([`SOIL_VERBS`]) and the scarce-dig emits, as the harness runs it.
+    /// The colony's verbs: the dig rung's ([`SOIL_VERBS`]), and under
+    /// `PIXEL_PHYSICS_MIND_ATTACK=on` the bite (lone predator thread, stage
+    /// two, 2026-10-24): **a colony with a predator on its bed may fight
+    /// back**, and may call for help with the alarm scent ([`emits`]). Off,
+    /// exactly the dig rung's. A founder banned from biting by an earlier rung
+    /// takes the verb by [`creature::mind::enter_bite`], which the harness
+    /// calls on the genome it breeds from; one that skips it keeps the bite
+    /// switched off.
+    pub fn verbs() -> &'static [creature::options::Verb] {
+        if creature::options::attack_on() {
+            BITE_VERBS
+        } else {
+            SOIL_VERBS
+        }
+    }
+
+    const BITE_VERBS: &[creature::options::Verb] = {
+        use creature::options::Verb as V;
+        &[V::Walk, V::TurnAround, V::Rest, V::PickUp, V::Eat, V::Drop, V::Feed, V::Dig, V::Attack]
+    };
+
+    /// A founder's or a child's mind: `genome` cut to the colony's verbs
+    /// ([`verbs`]) and emits, as the harness runs it.
     pub fn mind(genome: &[f32]) -> std::sync::Arc<creature::mind::MindGenome> {
-        arena_mind(genome, SOIL_VERBS, emits())
+        arena_mind(genome, verbs(), emits())
     }
 
-    /// The slots a child's mutation may move: the scarce-dig trainer's.
+    /// The slots a child's mutation may move: the scarce-dig trainer's, and
+    /// the bite's and the alarm's under the switch.
     pub fn slots() -> Vec<usize> {
-        let mut v = creature::mind::trainable(SOIL_VERBS, emits());
+        let mut v = creature::mind::trainable(verbs(), emits());
         // SCRATCH (dig-scoring thread): an evolvable dig head's slots, past GENOME_LEN (`PP_DIGHEAD_EVOLVE`)
         if let Some(hl) = creature::mind::scratch_log::head_evolve() {
             v.extend(creature::mind::GENOME_LEN..creature::mind::GENOME_LEN + hl);
@@ -2764,7 +2790,7 @@ pub mod inrun {
 
     // The mind, its emits and a child's slots are the game's training page's own ([`colony_bed`]), which main took
     // from this module when the in-run loop moved into the lab (`lab::training`).
-    pub use super::colony_bed::{emits, mind, slots};
+    pub use super::colony_bed::{emits, mind, slots, verbs};
 
     /// The bed and its colony. `genome_of(k)` is the k-th founder's mind
     /// (founders in id order).
