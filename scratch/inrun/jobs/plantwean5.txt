@@ -1,0 +1,1 @@
+pw5 colsel 46 lex+spoil+crater+shape 64 32 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 plants=grass,herb,shrub,scrambler weed=30 fjoule=1 pilecap=30:5:10:5 pilegate=extinct:10:25
