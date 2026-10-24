@@ -118,4 +118,6 @@ The cliff is between 20 and 10, and plantwean4 never trained there.
 - If it stalls at the cliff again, the lever is *carrying plant food home*: a CG case for plant loads home, or plants nearer the door. `events.csv`'s deliver rows carry no food kind (`v` is 0), so that case needs inrun to log one first.
 - Breeding on the planted bed (broodplant1c, Teacher lane): all 64 colonies alive, nests still food-packed.
 
+The lane's dated working notes, as written during the runs (some numbers there were later corrected here, e.g. plantwean4's CG medians counted survivors only): [notes/findings-2026-10-23.md](notes/findings-2026-10-23.md), [notes/findings-2026-10-24-plantwean3.md](notes/findings-2026-10-24-plantwean3.md).
+
 Tools: [tools/](tools/) (common-garden controls and the local runner). Data: [data/](data/) (colsel and CG csvs, job lines, `controls.csv` with every paired control run per world).
