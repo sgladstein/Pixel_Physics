@@ -2788,6 +2788,18 @@ pub mod inrun {
 
     pub const NEST: i32 = colony_bed::NEST;
 
+    /// SCRATCH (teacher lane, 2026-10-24): `PP_BED_W=W` widens the in-run bed to `W` columns, eastward only -- the
+    /// door stays at [`NEST`], 128 from the west wall, so every reader of the door's column is unchanged. Default
+    /// [`BED_W`] (256), the bed exactly. **Why**: the lab box's food sits 100-240 columns from a colony, and the food
+    /// ramp (colsel `distramp=`) stopped at 110 because a 256-wide bed has no room past it: laygene2's ramp reached
+    /// 110 at round 15 and held, its pool lived 110-130 ants with fruit 150 columns out and 9-37 at 200, where the
+    /// hand-built ant lived 114-132. Training never asked for a walk the box needs. A heap that would fall past the
+    /// west wall is dropped beside the east one (`examples/inrun.rs`), so far food is one-sided.
+    pub fn bed_w() -> i32 {
+        static W: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+        *W.get_or_init(|| std::env::var("PP_BED_W").ok().and_then(|v| v.trim().parse().ok()).filter(|&w: &i32| w >= BED_W).unwrap_or(BED_W))
+    }
+
     // The mind, its emits and a child's slots are the game's training page's own ([`colony_bed`]), which main took
     // from this module when the in-run loop moved into the lab (`lab::training`).
     pub use super::colony_bed::{emits, mind, slots, verbs};
@@ -2831,7 +2843,7 @@ pub mod inrun {
             if !mix.is_empty() {
                 let mut k = 0;
                 let mut x = spacing / 2 + 2;
-                while x < BED_W - 2 {
+                while x < bed_w() - 2 {
                     if (x - NEST).abs() > band {
                         plants.push((mix[k % mix.len()].to_string(), x));
                         k += 1;
@@ -2846,7 +2858,7 @@ pub mod inrun {
     /// [`colony`] on a [`Garden`]: the plants placed and grown for `grow` frames first, then the colony founded on
     /// the grown bed. The datum is the bare bed's (frozen at build, before anything grew).
     pub fn colony_in(seed: u64, ants: usize, garden: &Garden, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
-        let mut sc = bed_timed(seed, ants, "", 40, 33, BED_W, NEST_X, "");
+        let mut sc = bed_timed(seed, ants, "", 40, 33, bed_w(), NEST_X, "");
         let w = if garden.plants.is_empty() {
             sc.build().0
         } else {

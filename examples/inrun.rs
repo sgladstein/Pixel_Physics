@@ -583,7 +583,7 @@ impl Spiders {
 
     /// Every empty place that is due, refilled.
     fn fill(&mut self, w: &mut pixel_physics::sim::World, frame: u64, ev: &mut impl Write) {
-        let bw = pixel_physics::train::challenges::colony_bed::SIZE.0;
+        let bw = inrun::bed_w();
         while self.ids.len() < self.n {
             let Some(k) = self.due.iter().position(|&d| d <= frame) else { break };
             let x = loop {
@@ -1255,7 +1255,7 @@ fn main() {
     });
     let mut base_open: Option<i64> = None;
     // The datum and the ground below it at frame 0.
-    let (bw, bh) = (256i32, 128i32); // the training bed (`bed_timed`)
+    let (bw, bh) = (inrun::bed_w(), 128i32); // the training bed (`bed_timed`; `PP_BED_W` widens it eastward)
     let surf: Vec<i32> = (0..bw).map(|x| inrun::surface(&w, &sc, x)).collect();
     let mut f = std::fs::File::create(out.join("surface.txt")).unwrap();
     for s in &surf {
@@ -1339,7 +1339,10 @@ fn main() {
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
             let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
-            for (x, mat) in [(inrun::NEST + dist, food_mats.0), (inrun::NEST - dist, food_mats.1)] {
+            // On a bed widened by PP_BED_W the west wall is still 128 out: a west heap that would fall past it is
+            // dropped 6 columns beyond the east one instead, so food farther than the wall allows is one-sided.
+            let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+            for (x, mat) in [(inrun::NEST + dist, food_mats.0), (west, food_mats.1)] {
                 inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
             }
         }
