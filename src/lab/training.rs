@@ -60,11 +60,17 @@ pub const H1: &str = include_str!("../../assets/minds/h1.raw.txt");
 /// **The new ant** (owner, 2026-10-24: the standard training path is default
 /// on, in the lab too): the standard line's carried pool -- the 30 best ants
 /// of the best-balanced colony at the last round of a colony-selection batch
-/// on the standard settings (brood1ctl colony 7, round 31; its common garden,
-/// judged with the old-ant body rules off: nest 377, crater 3, starved 3,
-/// rooms 14). A pool rather than one brain (owner, 2026-10-22: the colony's
-/// surviving mixture is the product). Each member carries its own evolved dig
-/// head past [`creature::mind::GENOME_LEN`]. Format in the file's header.
+/// on the standard settings. A pool rather than one brain (owner, 2026-10-22:
+/// the colony's surviving mixture is the product). Each member carries its
+/// own evolved dig head past [`creature::mind::GENOME_LEN`]. Format, source
+/// and its common-garden numbers in the file's header.
+///
+/// **A ratchet** (owner, 2026-10-24: "every next test should be using the best
+/// ant from the previous training"): each batch is founded from this pool, and
+/// its best colony's carry replaces it. History: brood1ctl colony 7 round 31
+/// (from hcs, rules weaned; garden nest 377, crater 3, starved 3, rooms 14) ->
+/// stdcheck stdoff colony 27 round 15 (from that pool, rules off from round 0;
+/// garden nest 530, crater 3, starved 6, rooms 44).
 pub const STD_POOL: &str = include_str!("../../assets/minds/std_pool.txt");
 
 /// [`STD_POOL`]'s members as genomes this build runs: each one whole, its own
