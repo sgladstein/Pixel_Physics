@@ -77,6 +77,18 @@ if PILECAP:
     PILECAP = PILECAP + (10,) if len(PILECAP) == 3 else PILECAP
 EXTRA = [x for x in EXTRA if not x.startswith('pilecap=')]
 cap_now = PILECAP[0] if PILECAP else None
+# pilegate=extinct:LOW:HIGH (plant-food lane, 2026-10-24): on a breeding bed, step pilecap on the share of colonies that
+# died out in the round (no ant left to carry, as the common garden skips), in percent: at most LOW% -> the cap falls by STEP, more than
+# HIGH% -> it rises by STEP, otherwise it holds. pilecap's STARVED is then unused. Why: with breeding a colony grows to what
+# its food feeds, so any cut to the pile starves its surplus and starved counts the cut, not the foraging. plantwean4-1024
+# (std_pool, breeding on, pilecap=45:5:10:5) went 45 -> 25 by round 8 and then bounced 25 <-> 20 for 23 rounds: at 25
+# median starved 6-17 (step down), at 20 43-65 (> 3 x 10, step straight back up), so no round ran twice at 20 and the
+# common garden at 20 stood still (median alive, extinct as 0: r9 62, r31 65.5). Extinctions at 20 were 10-16 of 64
+# colonies a round: pressure selection can act on, which a starved rule threw away after one round.
+PILEGATE = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')[1:]) for x in EXTRA if x.startswith('pilegate=')), None)
+if PILEGATE:
+    assert PILECAP and len(PILEGATE) == 2, 'pilegate=extinct:LOW:HIGH needs pilecap='
+EXTRA = [x for x in EXTRA if not x.startswith('pilegate=')]
 # spiderramp=START:STEP:K[:FROM[:FLOOR]] (lone predator thread, 2026-10-24, at the teacher lane's ask: "a predator a
 # decent colony can just beat"): with inrun's `spiders=POOL:N` in the args, the spiders arrive at frame START of each
 # round (inrun `spider_start=`). After a round whose colonies' median killed (ants a spider took) is K or fewer they
@@ -418,11 +430,16 @@ for r in range(R0, R):
         # A colony with no run this round (extinct, not refounded) counts as starving, never as a colony that starved none.
         st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
         med = st[len(st) // 2]
-        if med <= PILECAP[2]:
+        if PILEGATE:
+            ext = 100 * sum(1 for c in cols if carry[c] is None) / len(cols)  # no ant left to carry: the colony died out
+            down, up = ext <= PILEGATE[0], ext > PILEGATE[1]
+        else:
+            down, up = med <= PILECAP[2], med > 3 * PILECAP[2]
+        if down:
             cap_now = max(PILECAP[3], cap_now - PILECAP[1])
-        elif med > 3 * PILECAP[2]:
+        elif up:
             cap_now = min(PILECAP[0], cap_now + PILECAP[1])
-        print(f'round {r}: median starved {med}, pile cap next round {cap_now}', flush=True)
+        print(f'round {r}: median starved {med}' + (f', {ext:.0f}% of colonies extinct' if PILEGATE else '') + f', pile cap next round {cap_now}', flush=True)
     if SPIDERRAMP and r >= SPIDERRAMP[3]:
         # An extinct colony counts as one that lost everything, never as one that lost none.
         kl = sorted(res[c][15] if res[c] else 10**9 for c in cols)
