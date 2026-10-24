@@ -256,7 +256,7 @@ const ANTS_TABS: [&str; 2] = ["SUMMARY", "GROUPS"];
 const TRAINING_TABS: [&str; 4] = ["STATUS", "SETTINGS", "BEST ANTS", "WHAT HAPPENED"];
 
 /// What the ANT BRAIN row says on hover, on both pages it appears on.
-const ANT_BRAIN_NOTE: &str = "OLD: EVERY ANT DECIDES BY THE HAND-BUILT BRAIN, THE SHIPPED GAME. NEW: EVERY ANT IN THE BOX DECIDES BY A TRAINED MIND FROM THE STANDARD POOL -- THE 30 BEST ANTS OF THE BEST COLONY OF THE TEACHER LANE'S COLONY SELECTION (DIG A NEST, GO OUT WHEN HUNGRY, CARRY FOOD HOME). A NEWBORN TAKES ITS PARENT'S MIND UNCHANGED -- MINDS ONLY EVOLVE ON THE COLONY TRAINING PAGE. CLICK TO SWITCH; SWITCHING BACK TAKES EVERY MIND AWAY.";
+const ANT_BRAIN_NOTE: &str = "HAND-BUILT: EVERY ANT DECIDES BY THE HAND-BUILT BRAIN, THE OLD SHIPPED GAME. TRAINED: EVERY ANT IN THE BOX DECIDES BY A TRAINED MIND FROM THE STANDARD POOL -- THE 30 BEST ANTS OF THE BEST COLONY OF THE TEACHER LANE'S COLONY SELECTION (DIG A NEST, GO OUT WHEN HUNGRY, CARRY FOOD HOME). A NEWBORN TAKES ITS PARENT'S MIND UNCHANGED -- MINDS ONLY EVOLVE ON THE COLONY TRAINING PAGE. CLICK TO SWITCH; SWITCHING BACK TAKES EVERY MIND AWAY.";
 /// The ring under the cursor that says what the active tool will cover.
 /// Bright and cool, so it reads against soil, water and the lit sky alike.
 const TOOL_RING: [u8; 4] = [150, 226, 255, 255];
@@ -5138,7 +5138,7 @@ impl Ui {
                 "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
             Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
                 "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
-            Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
+            Row::choice("ANT BRAIN", if self.new_ant { "TRAINED" } else { "HAND-BUILT" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
             Row::choice("REBUILD", "R", Action::Reset,
                 "THROW THIS BOX AWAY AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. ASKS FOR A SECOND PRESS FIRST. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
@@ -6175,7 +6175,7 @@ impl Ui {
                         Action::CycleCreatureColour,
                         "WHAT COLOUR EVERY ANIMAL WEARS IN THE BOX, AND WHAT THE CHART AND LEGEND BELOW GROUP AND COLOUR BY. CLICK TO CYCLE: OWN COLOUR, BY SPECIES, BY COLONY. THE CHART GROUPS BY COLONY ONLY IN THAT LAST MODE -- OTHERWISE IT SUMS EVERY COLONY OF A SPECIES INTO ONE LINE.",
                     ),
-                    Row::choice("ANT BRAIN", if self.new_ant { "NEW" } else { "OLD" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
+                    Row::choice("ANT BRAIN", if self.new_ant { "TRAINED" } else { "HAND-BUILT" }, Action::ToggleNewAnt, ANT_BRAIN_NOTE),
                     // **The selector for the marker, beside the selector for
                     // the colour it uses.** Movement is what makes an animal
                     // legible in play, so this is a pause-time aid rather

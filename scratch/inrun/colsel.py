@@ -38,6 +38,21 @@ EXTRA = [x for x in EXTRA if not x.startswith('dist=')]
 # wean=R0:R1 (owner, 2026-10-23: "No permanent body rule from the old ant!"): the body rules (setenv PP_BODYRULES) are a
 # scaffold. Each round's setenv gets PP_BODYRULES_P=p, p = 1 up to round R0, falling linearly to 0 at round R1 and 0
 # after; the common garden always runs at p = 0, so the colony is judged with the scaffold off.
+# distramp=START:STEP:STARVED[:MAX] (teacher lane, 2026-10-24; owner: "the ants are just so specialized to a box that is
+# just slightly different"): the food heaps' distance from the door starts at START and, like pilecap, moves on the
+# colonies' median starved: STARVED or fewer -> STEP farther (never past MAX, default 110: the bed is 256 wide with the
+# door at 128), more than 3 x STARVED -> STEP back (never nearer than START), otherwise it holds. Replaces dist= and
+# dists= for the rounds; the common garden keeps BASE_DIST. Logged per round (colsel.csv's last field).
+# Why: the shipped pool (std_pool, 2026-10-24) was only ever fed 25 columns out. In the training bed itself, fruit,
+# seed 1-2, 20k frames, sel=off: food at 25 -> 58-65 alive; at 60 -> 0, even on 3 tanks. Traced: an empty ant steps
+# outward 41% and homeward 35% at every distance from the door (a near-random walk); none got past 49 columns, median
+# 30. Food at 25 is found by wandering, so nothing ever selected for going farther, and the lab box (food 100+ out,
+# one tank) kills every ant. A ramp keeps the bed survivable while it asks for a little more range each round.
+DISTRAMP = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('distramp=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('distramp=')]
+if DISTRAMP and len(DISTRAMP) == 3:
+    DISTRAMP = DISTRAMP + (110,)
+dist_now = DISTRAMP[0] if DISTRAMP else None
 WEAN = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('wean=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('wean=')]
 def wean_p(r):
@@ -123,9 +138,28 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay'), k
+    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay', 'lab'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
+# +lab (teacher lane, 2026-10-24): each round, every colony's carry also lands in lab boxes through the lab's own code
+# (examples/labsurvive.rs), and its mean headcount over the LAB_AFTER frames after landing (labsurvive `lived`, in tenths), summed over LAB_SCENS, is a case. **Why**: the
+# owner's playtest found trained colonies starving in the lab within ~5k frames; labsurvive put it on food distance --
+# the pool lived with food 10-50 columns out and every ant starved at 100-240 (the hand-built ant lived at all of
+# them), because every training bed had dropped its food 25 columns from the door. The scenarios live in LAB_DIR.
+LAB = 'lab' in EXTRA_CASES
+LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
+LAB_DIR = os.environ.get('LAB_DIR', 'scratch/inrun/labscen')
+LAB_SCENS = os.environ.get('LAB_SCENS', 'lab_far_mix,lab_mid_fruit').split(',')
+LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+def lab_alive(c, r, carry_c):
+    import re
+    tot = 0
+    for k, sc in enumerate(LAB_SCENS):
+        out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={c * 1000 + r * 10 + k}', f'after={LAB_AFTER}'],
+                             capture_output=True, text=True, env={**os.environ, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
+        m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
+        tot += round(10 * float(m.group(1))) if m else 0  # tenths: whole ants rounded every early-dying colony to one value
+    return tot
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 CGC = with_p(CGC, 0.0) if WEAN else CGC
@@ -218,7 +252,8 @@ def cases(v):
     c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
     c = c + (v[14],) if 'shape' in EXTRA_CASES else c
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
-    return c + (v[16],) if 'slay' in EXTRA_CASES else c
+    c = c + (v[16],) if 'slay' in EXTRA_CASES else c
+    return c + (v[17],) if LAB else c
 
 
 def dig_passed(v):
@@ -256,9 +291,9 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,pilecap,spider_at\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,pilecap,spider_at,train_dist\n')
         for c in sorted(got):
-            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)}\n')
+            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
 
 
 # LEXSEED (default 12345): the lexicase draws' seed, for a replicate of an arm on the same colony seeds.
@@ -287,7 +322,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,passed_gate,rank,refounded_from,pilecap,spider_at\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,' + ('lab,' if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -321,11 +356,13 @@ if R0:
     rng.setstate((st0['rng'][0], tuple(st0['rng'][1]), st0['rng'][2]))
     cap_now = st0['cap_now']
     spider_at = st0.get('spider_at', spider_at)
+    dist_now = st0.get('dist_now', dist_now)
 for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
+        cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_spiders(with_cap(cr), r)
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
@@ -335,6 +372,10 @@ for r in range(R0, R):
     res = {c: result(dirs[c], F) if c in dirs else None for c in cols}
     carry = {c: carried(dirs[c]) if c in dirs else None for c in cols}
     ok = [c for c in cols if carry[c] is not None]
+    if LAB:
+        with ThreadPoolExecutor(P) as ex:
+            labv = dict(zip(ok, ex.map(lambda c: lab_alive(c, r, carry[c]), ok)))
+        res = {c: (v + (labv.get(c, 0),) if v else v) for c, v in res.items()}
     # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
@@ -362,8 +403,8 @@ for r in range(R0, R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * 17
-        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)}\n')
+        v = res[c] or (0,) * (18 if LAB else 17)
+        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
@@ -385,6 +426,14 @@ for r in range(R0, R):
         elif med > 3 * SPIDERRAMP[2]:
             spider_at = min(SPIDERRAMP[0], spider_at + SPIDERRAMP[1])
         print(f'round {r}: median killed {med}, spiders arrive at frame {spider_at} next round', flush=True)
+    if DISTRAMP:
+        st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
+        med = st[len(st) // 2]
+        if med <= DISTRAMP[2]:
+            dist_now = min(DISTRAMP[3], dist_now + DISTRAMP[1])
+        elif med > 3 * DISTRAMP[2]:
+            dist_now = max(DISTRAMP[0], dist_now - DISTRAMP[1])
+        print(f'round {r}: median starved {med}, food distance next round {dist_now}', flush=True)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
@@ -396,7 +445,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)

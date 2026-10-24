@@ -93,19 +93,24 @@ pub fn std_pool() -> Vec<Vec<f32>> {
         let g = pool.last_mut().expect("std_pool: a slot before the first member");
         g[i.parse::<usize>().expect("std_pool slot")] = w.parse().expect("std_pool value");
     }
-    let body = creature::mind::GENOME_LEN;
-    let side = creature::mind::scratch_log::head_evolve();
-    for g in &mut pool {
-        match side {
-            Some(hl) if g.len() == body + hl => {}
-            Some(_) => {
-                g.truncate(body);
-                g.extend(creature::mind::scratch_log::dighead().expect("a head evolves").flat());
-            }
-            None => g.truncate(body),
-        }
-    }
+    pool.iter_mut().for_each(fit_head);
     pool
+}
+
+/// A saved genome made fit for this build's dig head: its own head kept when
+/// heads evolve (`PP_DIGHEAD_EVOLVE`, on by default) and it carries one of
+/// the side head's shape, the side head's added when it carries none or one
+/// of another shape, and any head cut off when heads do not evolve.
+pub fn fit_head(g: &mut Vec<f32>) {
+    let body = creature::mind::GENOME_LEN;
+    match creature::mind::scratch_log::head_evolve() {
+        Some(hl) if g.len() == body + hl => {}
+        Some(_) => {
+            g.truncate(body);
+            g.extend(creature::mind::scratch_log::dighead().expect("a head evolves").flat());
+        }
+        None => g.truncate(body),
+    }
 }
 
 /// **Which ants have children.**
