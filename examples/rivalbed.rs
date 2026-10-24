@@ -22,8 +22,10 @@
 //!
 //! `bite=A,B`, one per colony (west, east): a number is the bite's job constant with the switch on (0 is the blank
 //! verb `enter_bite` gives inrun's founders; -100 holds it off as the predator lane's `ant_bite=-100` did), `off`
-//! bans it (the option is never listed), `keep` leaves each genome as the pool holds it. `pool=A,B`: `std`, or a
-//! directory of `.raw.txt`. `lay_cap=T:D` is per colony (default inrun's 48:8); the game's laying bar is one per
+//! bans it (the option is never listed), `keep` leaves each genome as the pool holds it (the shipped pool already
+//! holds it on at 0, from inrun's `enter_bite`). `pool=A,B` or `pool_a=`/`pool_b=`: `std`, a `*pool.txt`, a
+//! directory of `.raw.txt`, or a colsel carry (`path[@tag]:count,...`); founders per colony are `ants=` (default
+//! the first pool's size), member k % size. `lay_cap=T:D` is per colony (default inrun's 48:8); the game's laying bar is one per
 //! species, so the cap is applied to the bed's total at `T x colonies : D x colonies` -- a colony that wins the bed
 //! may grow into its loser's share, which is part of what winning means here.
 //!
@@ -67,24 +69,51 @@ struct Side {
     touches: u64,
 }
 
-/// `std`: the shipped pool; anything else, a directory of `.raw.txt` (sorted by name).
+/// One `.raw.txt` as this build runs it (its dig head and lay gate fitted, `training::fit_head`).
+fn load_raw(p: &str) -> Vec<f32> {
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome {p}: {e}"));
+    let mut g = train::parse_genome(&text, train::genome_text_len(&text, p), p);
+    training::fit_head(&mut g);
+    g
+}
+
+/// A pool: `std` (the shipped pool), a `*pool.txt` in its format (member 0 whole, later members as differences),
+/// a directory of `.raw.txt` (sorted by name), or inrun's founders list `path[@tag]:count,...` (a colsel carry; each
+/// genome taken `count` times).
 fn load_pool(spec: &str) -> Vec<Vec<f32>> {
     if spec == "std" {
         return training::std_pool();
     }
-    let mut paths: Vec<_> = std::fs::read_dir(spec).unwrap_or_else(|e| panic!("pool={spec}: {e}")).filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.to_string_lossy().ends_with(".raw.txt")).collect();
-    paths.sort();
-    assert!(!paths.is_empty(), "pool={spec}: no .raw.txt in it");
-    paths
-        .iter()
-        .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap();
-            let ps = p.to_string_lossy();
-            let mut g = train::parse_genome(&text, train::genome_text_len(&text, &ps), &ps);
-            training::fit_head(&mut g);
-            g
-        })
-        .collect()
+    if spec.ends_with("pool.txt") {
+        let text = std::fs::read_to_string(spec).unwrap_or_else(|e| panic!("pool {spec}: {e}"));
+        let mut lines = text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty());
+        let len: usize = lines.next().and_then(|h| h.split_whitespace().nth(3)).and_then(|n| n.parse().ok()).expect("pool header: pool N genome LEN");
+        let mut pool: Vec<Vec<f32>> = Vec::new();
+        for l in lines {
+            if l.starts_with("member ") {
+                pool.push(pool.first().cloned().unwrap_or_else(|| vec![0.0; len]));
+                continue;
+            }
+            let (i, w) = l.split_once(' ').expect("slot value");
+            pool.last_mut().expect("a member first")[i.parse::<usize>().unwrap()] = w.parse().unwrap();
+        }
+        pool.iter_mut().for_each(training::fit_head);
+        return pool;
+    }
+    if std::path::Path::new(spec).is_dir() {
+        let mut paths: Vec<String> = std::fs::read_dir(spec).unwrap().filter_map(|e| e.ok().map(|e| e.path().to_string_lossy().to_string())).filter(|p| p.ends_with(".raw.txt")).collect();
+        paths.sort();
+        assert!(!paths.is_empty(), "pool {spec}: no .raw.txt in it");
+        return paths.iter().map(|p| load_raw(p)).collect();
+    }
+    let mut pool = Vec::new();
+    for part in spec.split(',') {
+        let (p, n) = part.rsplit_once(':').map_or((part, 1), |(p, n)| (p, n.parse().expect("path[@tag]:count")));
+        let p = p.split_once('@').map_or(p, |(p, _)| p);
+        let g = load_raw(p);
+        pool.extend(std::iter::repeat_n(g, n));
+    }
+    pool
 }
 
 /// `bite=` for one colony: `Some(Some(k))` on at k, `Some(None)` banned, `None` as the pool holds it.
@@ -105,9 +134,12 @@ fn main() {
     let (dist, spread, cap, drip, every) = (num("dist", 25.0) as i32, num("spread", 10.0) as i32, num("cap", 60.0) as usize, num("drip", 20.0) as usize, num("every", 500.0) as u64);
     let grants = num("grants", 3.0) as f32;
     let solo = arg(&a, "solo").unwrap_or("none");
-    let pools: Vec<&str> = arg(&a, "pool").unwrap_or("std,std").split(',').collect();
+    // `pool=A,B` for short specs; `pool_a=`/`pool_b=` take any one spec, a colsel carry's comma list included.
+    let short: Vec<&str> = arg(&a, "pool").unwrap_or("std,std").split(',').collect();
+    assert_eq!(short.len(), 2, "pool=A,B takes one per colony (pool_a=/pool_b= for a list)");
+    let pools: Vec<&str> = vec![arg(&a, "pool_a").unwrap_or(short[0]), arg(&a, "pool_b").unwrap_or(short[1])];
     let bites: Vec<&str> = arg(&a, "bite").unwrap_or("0,0").split(',').collect();
-    assert!(pools.len() == 2 && bites.len() == 2, "pool=A,B and bite=A,B take one per colony");
+    assert!(bites.len() == 2, "bite=A,B takes one per colony");
     let (lay_t, lay_d) = arg(&a, "lay_cap").unwrap_or("48:8").split_once(':').map(|(t, d)| (t.parse::<f64>().unwrap(), d.parse::<f64>().unwrap().max(1.0))).expect("lay_cap=T:D");
     let xs = [colony_bed::NEST - gap / 2, colony_bed::NEST + gap / 2];
     let present = [solo != "b", solo != "a"];
