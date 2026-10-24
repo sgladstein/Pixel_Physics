@@ -217,6 +217,14 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   the new world's first frames, not only the meter.
 - **A pay rule cannot change which cell an ant cuts** (colsel11, colsel12:
   same crater shape under every charge); it only changes whether it digs.
+- **A lab chronicle from before 2026-10-24 (the far64 playtest PR) has no
+  painted-food lines.** `Lab::release` dropped the stroke unwritten, so a
+  food drop shows only as a `fruit_j` jump after a `PAUSED`/`RESUMED` pair.
+- **A pool trained in `inrun` has only met a capped colony.** `lay_cap=48:8`
+  is the harness's, not the game's; the lab colony is uncapped and booms then
+  starves (far64 playtest: 710 ants, then 817 starved in 10k frames with 2.4 MJ
+  left). Judge a pool in the lab on starvation after its peak, not only on
+  whether it is alive.
 - **`examples/labshot` never runs the lab mister**: any plant or water number
   from it is a box with no rain.
 - **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare

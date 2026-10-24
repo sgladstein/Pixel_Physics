@@ -6033,6 +6033,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ends up as a heap resident or a stay-at-home, collapses are sudden, a mistyped harness key is silently ignored, and the
   film is too small to see ants (an overlay tool is included).
 
+- [brain-training/playtest/far64-lab-2026-10-24/README.md](brain-training/playtest/far64-lab-2026-10-24/README.md) —
+  **the owner's lab playtest of the far64 pool (PR #865 build), read from its chronicle.** The colonies die by boom and
+  bust: each food drop breeds them to 710 / 313 / 224 ants, then they crash, 91% of deaths starvation and mostly afield,
+  the first crash with 2.4 MJ still in the box. Training's size brake (`lay_cap=48:8`) is only in `inrun`, so the lab
+  colony is uncapped; `lays_declined` is 0 all run. 56% of landed founders starve in ~1,500 frames (1 tank). Nests:
+  about one dig per ant per 10k frames, ~900 open cells in 220k frames, brood in a pocket by the door. 2-27% of ants are
+  under ground, 30-60% sit fed on the spoil mound. Also fixes `Lab::release` dropping painted-food lines from the log.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
