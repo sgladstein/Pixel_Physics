@@ -25,7 +25,7 @@
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
 //! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
-//! [spider_mut=PM:SIGMA:EVENTS] [spider_out=DIR]` keeps N spiders
+//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -481,8 +481,8 @@ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
 
-/// One spider placement in [`Spiders::log`]: (organism id, pool index, genome, born, died, flesh credit).
-type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64);
+/// One spider placement in [`Spiders::log`]: (organism id, pool index, genome, born, died, flesh credit, mutant).
+type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64, bool);
 
 /// SCRATCH (lone predator thread, stage two, 2026-10-24): **a pool of spiders on the bed** (`spiders=POOL:N`), the
 /// predator the colony learns to survive. Each place is refilled `gap` frames after its spider dies, by the pool's
@@ -494,8 +494,12 @@ struct Spiders {
     pool: Vec<Arc<creature::mind::MindGenome>>,
     /// The pool's genomes as read, the parents of `spider_mut`'s placements.
     raw: Vec<Vec<f32>>,
-    /// `spider_mut=PM:SIGMA:EVENTS`, and the slots a spider's mutation moves.
+    /// `spider_mut=PM:SIGMA:EVENTS[:ELITE]`, and the slots a spider's mutation moves.
     mutate: Option<(f32, f32, usize, Vec<usize>)>,
+    /// `spider_mut`'s ELITE: the share of placements that are their pool mind unmutated, so a parent is judged again
+    /// (co-evolution's first batch, 2026-10-24: every placement a mutant, each scored on one life, and ten rounds of
+    /// keeping the luckiest made the pool hunt worse -- fewer ants in 49 of 77 paired judgings).
+    elite: f32,
     /// Every placement: (organism id, pool index, genome, born, died, flesh credit).
     log: Vec<Placement>,
     n: usize,
@@ -550,10 +554,11 @@ impl Spiders {
             raw: genomes.clone(),
             mutate: arg(a, "spider_mut").map(|v| {
                 let p: Vec<&str> = v.split(':').collect();
-                assert_eq!(p.len(), 3, "spider_mut=PM:SIGMA:EVENTS");
+                assert!(p.len() == 3 || p.len() == 4, "spider_mut=PM:SIGMA:EVENTS[:ELITE]");
                 let slots = creature::mind::trainable(pixel_physics::train::predator::VERBS, pixel_physics::train::predator::EMITS);
                 (p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap(), slots)
             }),
+            elite: arg(a, "spider_mut").and_then(|v| v.split(':').nth(3)).map_or(0.0, |e| e.parse().expect("spider_mut ELITE")),
             log: Vec::new(),
             n,
             gap: num("spider_gap", 2000.0) as u64,
@@ -588,19 +593,21 @@ impl Spiders {
                 }
             };
             let g = self.next % self.pool.len();
-            let (genome, mind) = match &self.mutate {
-                Some((pm, sigma, events, slots)) => {
+            // The draw for ELITE is taken only when ELITE is set, so a run without it is the run before it.
+            let elite = self.elite > 0.0 && self.rng.unit() < self.elite;
+            let (genome, mind, mutant) = match &self.mutate {
+                Some((pm, sigma, events, slots)) if !elite => {
                     let child = neutral_mutate(&self.raw[g], slots, *pm, *sigma, *events, None, &mut self.rng);
                     let m = pixel_physics::train::predator::spider_mind(&child);
-                    (child, m)
+                    (child, m, true)
                 }
-                None => (self.raw[g].clone(), self.pool[g].clone()),
+                _ => (self.raw[g].clone(), self.pool[g].clone(), false),
             };
             let Some(id) = pixel_physics::train::predator::place_spider(w, x, self.colony, mind, self.grants) else {
                 self.due[k] = frame + 100; // no footing there: try another column shortly
                 continue;
             };
-            self.log.push((id, g, genome, frame, None, 0.0));
+            self.log.push((id, g, genome, frame, None, 0.0, mutant));
             self.next += 1;
             self.colony = self.colony.or_else(|| w.organism(id).map(|s| s.colony));
             self.ids.insert(id);
@@ -637,18 +644,19 @@ impl Spiders {
         }
     }
 
-    /// `spider_out=DIR`: every placement's genome (`kNNN.raw.txt`) and `scores.csv` (k,parent,born,died,credit,score).
+    /// `spider_out=DIR`: every placement's genome (`kNNN.raw.txt`) and `scores.csv`
+    /// (k,parent,born,died,credit,score,mutant).
     /// Score: credit per thousand frames alive, as predtrain's, but over at least 20,000 frames -- per frame alive
     /// alone, the first smoke run's best spider was one that gorged for 1,330 frames and was killed (124.8, against
     /// 14.6 for one that hunted for 9,670), and a spider that eats and dies is not the hunter to breed from.
     fn save(&self, dir: &std::path::Path, end: u64) {
         std::fs::create_dir_all(dir).unwrap();
         let mut f = std::fs::File::create(dir.join("scores.csv")).unwrap();
-        writeln!(f, "k,parent,born,died,credit,score").unwrap();
-        for (k, (_, parent, g, born, died, credit)) in self.log.iter().enumerate() {
+        writeln!(f, "k,parent,born,died,credit,score,mutant").unwrap();
+        for (k, (_, parent, g, born, died, credit, mutant)) in self.log.iter().enumerate() {
             train::save_genome(&dir.join(format!("k{k:03}.raw.txt")), g).unwrap();
             let life = (died.unwrap_or(end) - born) as f64 / 1000.0;
-            writeln!(f, "{k},{parent},{born},{},{credit:.3},{:.4}", died.map_or(String::new(), |d| d.to_string()), credit / life.max(20.0)).unwrap();
+            writeln!(f, "{k},{parent},{born},{},{credit:.3},{:.4},{}", died.map_or(String::new(), |d| d.to_string()), credit / life.max(20.0), u8::from(*mutant)).unwrap();
         }
     }
 
