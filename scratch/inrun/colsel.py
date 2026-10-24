@@ -130,41 +130,66 @@ spider_at = SPIDERRAMP[0] if SPIDERRAMP else None
 # scored on the flesh it ate per thousand frames alive over at least 20,000; after the round the KEEP best placements
 # over every colony are the next round's pool (OUT/spool/rN, logged in OUT/spool.csv). The garden faces the current
 # pool unmutated. Needs inrun `spiders=POOL:N` in the args (POOL a directory of .raw.txt, the round-0 pool).
+# spiderevo=KEEP:PM:SIGMA:EVENTS:ELITE (the fix, same day): the first batch made the pool hunt WORSE (fewer ants in 49
+# of 77 paired judgings) -- each placement scored on one life, every placement a mutant, and the luckiest kept. With
+# ELITE that share of placements is its pool mind unmutated (inrun `spider_mut`'s 4th field), every pool mind keeps
+# the scores of all its lives across rounds (`spool_hist`, in state.json), and candidates -- the pool and the round's
+# mutants -- rank on a mean shrunk toward the round's median (PRIOR lives' worth), so one lucky life cannot outrank
+# a parent with five good ones.
 SPIDEREVO = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('spiderevo=')), None)
+PRIOR = 2.0
+spool_hist = {}
 EXTRA = [x for x in EXTRA if not x.startswith('spiderevo=')]
 spool = next((x.split('=', 1)[1].rsplit(':', 1)[0] for x in EXTRA if x.startswith('spiders=')), None)
 if SPIDEREVO:
-    assert len(SPIDEREVO) == 4 and spool, 'spiderevo=KEEP:PM:SIGMA:EVENTS with spiders=POOL:N'
+    assert len(SPIDEREVO) in (4, 5) and spool, 'spiderevo=KEEP:PM:SIGMA:EVENTS[:ELITE] with spiders=POOL:N'
 def spider_args(args, out=None):
     """The current pool in `spiders=`; with `out`, the round's mutation and the placements' log there too."""
     if not SPIDEREVO or not any(x.startswith('spiders=') for x in args):
         return args
     a = [f"spiders={spool}:{x.rsplit(':', 1)[1]}" if x.startswith('spiders=') else x for x in args]
-    return a + ([f'spider_mut={SPIDEREVO[1]}:{SPIDEREVO[2]}:{SPIDEREVO[3]}', f'spider_out={out}'] if out else [])
+    return a + ([f"spider_mut={':'.join(SPIDEREVO[1:])}", f'spider_out={out}'] if out else [])
 def evolve_spiders(r, dirs):
-    """The KEEP best spider placements of round r over every colony, as round r+1's pool."""
-    global spool
+    """Round r+1's pool from round r's placements over every colony. Without ELITE: the KEEP best placements, each on
+    its one life. With it: the pool minds (every life they have had, this round's unmutated placements added) and the
+    round's mutants (one life each) rank together on a mean shrunk PRIOR lives toward the round's median."""
+    global spool, spool_hist
     rows = []
     for c, d in sorted(dirs.items()):
         f = f'{d}/spiders/scores.csv'
         if os.path.exists(f):
-            rows += [(float(x['score']), c, int(x['k']), f"{d}/spiders/k{int(x['k']):03}.raw.txt") for x in csv.DictReader(open(f))]
+            rows += [(float(x['score']), c, int(x['k']), f"{d}/spiders/k{int(x['k']):03}.raw.txt", int(x['parent']), x.get('mutant', '1') == '1')
+                     for x in csv.DictReader(open(f))]
     if not rows:
         return
-    rows.sort(key=lambda x: (-x[0], x[1], x[2]))
-    keep = rows[:int(SPIDEREVO[0])]
+    med = sorted(x[0] for x in rows)[len(rows) // 2]
+    if len(SPIDEREVO) == 5:
+        members = sorted(fn for fn in os.listdir(spool) if fn.endswith('.raw.txt'))
+        hist = {m: list(spool_hist.get(f'{spool}/{m}', [])) for m in members}
+        for sc, c, k, fp, p, mutant in rows:
+            if not mutant:
+                hist[members[p]].append(sc)
+        shrunk = lambda v: (sum(v) + PRIOR * med) / (len(v) + PRIOR)
+        cands = [(shrunk(v), -1, i, f'{spool}/{m}', v) for i, (m, v) in enumerate(sorted(hist.items()))]
+        cands += [(shrunk([sc]), c, k, fp, [sc]) for sc, c, k, fp, p, mutant in rows if mutant]
+    else:
+        cands = [(sc, c, k, fp, [sc]) for sc, c, k, fp, p, mutant in rows]
+    cands.sort(key=lambda x: (-x[0], x[1], x[2]))
+    keep = cands[:int(SPIDEREVO[0])]
     nd = f'{OUT}/spool/r{r + 1}'
     os.makedirs(nd, exist_ok=True)
     new = not os.path.exists(f'{OUT}/spool.csv')
+    new_hist = {}
     with open(f'{OUT}/spool.csv', 'a') as f:
         if new:
-            f.write('round,rank,score,colony,k,placements,median_score\n')
-        med = sorted(x[0] for x in rows)[len(rows) // 2]
-        for i, (sc, c, k, fp) in enumerate(keep):
+            f.write('round,rank,score,colony,k,placements,median_score,lives\n')
+        for i, (sc, c, k, fp, v) in enumerate(keep):
             shutil.copy(fp, f'{nd}/{i:02}.raw.txt')
-            f.write(f'{r},{i},{sc:.4f},{c},{k},{len(rows)},{med:.4f}\n')
-    spool = nd
-    print(f'round {r}: {len(rows)} spiders placed, median score {med:.2f}, best {keep[0][0]:.2f}; pool -> {nd}', flush=True)
+            new_hist[f'{nd}/{i:02}.raw.txt'] = v
+            f.write(f'{r},{i},{sc:.4f},{c},{k},{len(rows)},{med:.4f},{len(v)}\n')
+    spool, spool_hist = nd, new_hist
+    kept_parents = sum(1 for x in keep if x[1] == -1)
+    print(f'round {r}: {len(rows)} spiders placed, median score {med:.2f}, best {keep[0][0]:.2f}; {kept_parents} parents kept; pool -> {nd}', flush=True)
 def with_spiders(args, r):
     """The round's spider args: none before FROM, otherwise `spider_start=` the ramp's current arrival."""
     if not SPIDERRAMP:
@@ -467,6 +492,7 @@ if R0:
     cap_now = st0['cap_now']
     spider_at = st0.get('spider_at', spider_at)
     spool = st0.get('spool', spool)
+    spool_hist = st0.get('spool_hist', {})
     dist_now = st0.get('dist_now', dist_now)
 for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
@@ -564,7 +590,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'spool': spool},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'spool': spool, 'spool_hist': spool_hist},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)
