@@ -281,6 +281,21 @@ tree's first senescent line and the floor every 50,000 frames.
 `World::old_age_plant_time` defaults on, tree and conifer
 `life_half_life` 120,000, shrub 135,000. `PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks`
 puts the old clock back (with the new lifespans).
+
+**With roots required as well** (`treegaps/roots/`, landed first as
+#841: `PIXEL_PHYSICS_ROOTS_REQUIRED=1`, four-role bed, 8 paired seeds;
+off = old clock at tree 60,000 and shrub 45,000, on = the shipped pair).
+Roots required already brings the shrub back on its own (shrub leaf
+1,925 -> 5,353, this off arm, matching `Reports/rootless-plants-2026-10-23/`),
+so the clock no longer adds shrub; it still opens the floor:
+
+| | tree leaf | shrub leaf | herb leaf | roles a bed | dark floor | light under cover |
+|---|---|---|---|---|---|---|
+| roots required, old clock | 35,227 | 5,353 | 5,208 | 2.88 | 37% | 0.170 |
+| roots required, plant clock | 26,954 | 5,525 | 6,552 | 2.62 | 22% | 0.236 |
+
+Roles a bed falls because one bed's tree and two beds' herb were under
+100 leaf at 450,000 (2 of 8 beds, about the seed spread here).
   Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
   the cost of more, smaller plants.
 
