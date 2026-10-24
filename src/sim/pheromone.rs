@@ -1334,7 +1334,8 @@ impl Pheromones {
     }
 }
 
-/// SCRATCH (sense-cap audit, 2026-10-24; off by default): `PP_SCENT_SOFTCAP=1` scales every deposit by the room left
+/// SCRATCH (sense-cap audit, 2026-10-24; **on by default since laygene2**, teacher lane, see
+/// `creature::options::hungry_graded` for the measurement; `PP_SCENT_SOFTCAP=off` is the hard clamp): scales every deposit by the room left
 /// under the ceiling, `amount * (MAX - here) / MAX`, so a busy cell approaches [`Scent::MAX`] instead of sitting on
 /// it. **Why**: a deposit saturates (`saturating_add`), and on the training bed scent A stood at the ceiling for
 /// 32.5% of mind decisions (19.1% in a lab colony that lived), all within a few cells of home; there 43% (35%) of
@@ -1343,7 +1344,7 @@ impl Pheromones {
 /// rule for every world and every species that lays scent (owner, 2026-10-21), so it is a world switch, not a mind's.
 fn soft_ceiling() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PP_SCENT_SOFTCAP").is_ok_and(|v| !matches!(v.trim(), "0" | "off")))
+    *ON.get_or_init(|| std::env::var("PP_SCENT_SOFTCAP").map_or(true, |v| !matches!(v.trim(), "0" | "off")))
 }
 
 /// [`soft_ceiling`]'s deposit: `amount` scaled by `(MAX - here) / MAX`, rounded up so a deposit below the ceiling is
