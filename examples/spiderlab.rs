@@ -115,7 +115,7 @@ fn main() {
         let f = w.frame;
         let s = count(&lab, "spider");
         peak = peak.max(s);
-        if f % every == 0 {
+        if f.is_multiple_of(every) {
             let a = count(&lab, "ant");
             if placed > 0 {
                 samples += 1;
