@@ -5855,7 +5855,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   boxes. Three real findings, each an opt-in switch: scent A is pinned at its 16-bit ceiling for 30-33% of bed
   decisions near home, where 41-43% of walk choices read flat (`PP_SCENT_SOFTCAP`, ceiling share to 0%, needs a
   trained arm); the dig head's "when" gate is hard-wired to column 128, so no lab colony has had it
-  (`PP_DIGGATE_DOOR`, bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
+  (`PP_DIGGATE_DOOR`, default-on: bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
   (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —

@@ -16,7 +16,7 @@ option feature 40) is the Teacher lane's: it is building the graded log-distance
    `PP_SCENT_SOFTCAP=1` (new, off) does that, and takes the ceiling share to 0.0%.
 2. **The dig head's "when to dig" part only switches on within 40 columns of column 128.** That is the training
    bed's door, written in as a number. A lab colony lands at column 256 (or anywhere in the owner's 1024-wide box),
-   so it never gets that read-out. `PP_DIGGATE_DOOR=1` (new, off) measures from the nearest nest site instead. It is
+   so it never gets that read-out. `PP_DIGGATE_DOOR` (new, **on by default** at the Teacher lane's call; `=0` restores the old gate) measures from the nearest nest site instead. It is
    **bit-identical on the training bed** (events.csv hash equal, 10k frames). In a lab box with near food it gave
    alive at frame 46,000 of 144-159 → 199-200 (2 seeds, both up; too few to call).
 3. **A nestmate's hunger is on/off.** Feature 33 is 1 below half a start grant and 0 otherwise. On the training bed
@@ -171,10 +171,10 @@ there. The far-food ramp is what makes them hungry.
 
 ## What goes to the Teacher lane
 
-All three switches are off by default and change nothing unset. Ranked by what they could buy:
+`PP_SCENT_SOFTCAP` and `PP_HUNGRY_GRADED` are off by default; `PP_DIGGATE_DOOR` is on (bit-identical on the bed). Ranked by what they could buy:
 
-1. **`PP_DIGGATE_DOOR=1`.** A bug fix more than a sense. It is bit-identical on the bed, so it can go default-on
-   for the lab without retraining. Recommend: on.
+1. **`PP_DIGGATE_DOOR`.** A bug fix more than a sense. It is bit-identical on the bed, so it went default-on
+   (Teacher lane, 2026-10-24; owner rule: a gain or neutral switch ships on). `=0` is the old gate.
 2. **`PP_SCENT_SOFTCAP=1`.** The one real cap left after the far sense. It moves every trail level, so it needs a
    trained arm (paired with the current line) before anyone judges it.
 3. **`PP_HUNGRY_GRADED=1`.** Worth stacking once nestmates go hungry in training (the far-food ramp). Cheap to carry.
