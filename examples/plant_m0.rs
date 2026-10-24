@@ -509,6 +509,26 @@ fn root_census(w: &World, bed: &LabBox, below: usize, frame: u64) {
         let (mut lowest_shoot, mut lowest_shoot_x) = (i32::MIN, 0i32);
         let (mut shoot_x0, mut shoot_x1) = (i32::MAX, i32::MIN);
         let mut roots_above = 0u32;
+        // Soil faces the roots touch (what nutrient is read over), and the
+        // plant's foliage: leaves and growing tips, as `organism_upkeep`
+        // counts them -- so a row can say how much root a leaf has behind it.
+        let (mut nfaces, mut foliage) = (0u32, 0u32);
+        for &(x, y) in st.cells.keys() {
+            let c = w.get(x, y);
+            let ty = organism::cell_type(c.aux());
+            if matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip)) {
+                foliage += 1;
+            }
+            if w.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip) {
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let n = w.get(x + dx, y + dy);
+                    let m = w.materials.get(n.material);
+                    if m.kind == pixel_physics::sim::material::MaterialKind::Powder && m.water_capacity > 0 {
+                        nfaces += 1;
+                    }
+                }
+            }
+        }
         for &(x, y) in st.cells.keys() {
             let c = w.get(x, y);
             let ty = organism::cell_type(c.aux());
@@ -538,7 +558,7 @@ fn root_census(w: &World, bed: &LabBox, below: usize, frame: u64) {
             }
         }
         println!(
-            "ROOTS f={frame} id={id} sp={name} shoot={shoot} leaf={leaf} shootx={shoot_x0}..{shoot_x1} base=({lowest_shoot_x},{}) roots={roots} visible={visible} hidden={hidden} above={roots_above} rootx={} deepest={} contact={} ws={:.3} desic={:.3} rzw={:.3} nut={:.3} stock={:.2} uptake={:.4} demand={:.4}",
+            "ROOTS f={frame} id={id} sp={name} shoot={shoot} leaf={leaf} shootx={shoot_x0}..{shoot_x1} base=({lowest_shoot_x},{}) roots={roots} visible={visible} hidden={hidden} above={roots_above} rootx={} deepest={} contact={} ws={:.3} desic={:.3} rzw={:.3} nut={:.3} stock={:.2} uptake={:.4} demand={:.4} nfaces={nfaces} foliage={foliage}",
             lowest_shoot - ground,
             if roots > 0 { format!("{root_x0}..{root_x1}") } else { "-".into() },
             if roots > 0 { (deepest - ground).to_string() } else { "-".into() },

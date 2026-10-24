@@ -638,19 +638,28 @@ fn main() {
     // Selection's own births (quota, refill, hall) are not made: food decides how many are born, selection who.
     // Why: with births made from nothing (kid_grants x 200 J each, ~150-220 a round) and the headcount held at lo..hi,
     // food had no use beyond upkeep, so the nest filled: colsel20's light-head gardens held a median 389 stored cells
-    // (~370 kJ, one cell is about one ant's price) and ~87 full grants in each ant's bank. Off by default.
+    // (~370 kJ, one cell is about one ant's price) and ~87 full grants in each ant's bank.
+    // **On by default** (owner, 2026-10-24: "Breeding should be on by default"), with `lay_cap=48:8`, after brood1-1023
+    // (64 colonies x 32 rounds from hcs, common gardens from round 15): 84-89 ants, starved 1-2 a round, 0-3 of 64
+    // extinct, food home 16.8-24.9k, crater 3-8, nest food at round 31 260 cells against 514 without breeding.
+    // `brood=off` is the bed before it: births made from nothing, the headcount held at lo..hi.
     let brood_lay = match arg(&a, "brood") {
-        None | Some("off") => false,
-        Some("lay") => true,
+        Some("off") => false,
+        None | Some("lay") => true,
         Some(v) => panic!("brood={v}: use lay or off"),
     };
     // lay_cap=T:D (with brood=lay): the laying bar doubles for every D ants (adults plus brood) above T, so the colony
     // grows on its surplus to around T and then lays only as fast as its banks outrun the raised bar -- a graded brake,
-    // never a stop. The bed's frame cost grows with its ants. Unset: the game's bar at any size.
-    let lay_cap: Option<(f64, f64)> = arg(&a, "lay_cap").map(|v| {
-        let (t, d) = v.split_once(':').expect("lay_cap=T:D");
-        (t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0))
-    });
+    // never a stop. The bed's frame cost grows with its ants (a capped 200k round ran ~2.1x a brood=off one). Default
+    // 48:8 (with breeding on by default); `lay_cap=off` is the game's bar at any size, which in the pilot boomed to
+    // 150-200 ants, starved ~650 adults a round and cost ~5x.
+    let lay_cap: Option<(f64, f64)> = match arg(&a, "lay_cap").unwrap_or("48:8") {
+        "off" => None,
+        v => {
+            let (t, d) = v.split_once(':').expect("lay_cap=T:D|off");
+            Some((t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0)))
+        }
+    };
     // lay_reserve=R (with brood=lay; brood lane, 2026-10-23, a trial before any game rule): laying answers the
     // colony's FREE reserve -- every adult's bank plus the nest's stored food, less what the brood already laid still
     // needs to reach an adult's price -- per head (adults and brood), in full grants. At or above R the bar is the
