@@ -1,0 +1,3 @@
+lg colsel 21 lex+spoil+crater+shape+lab 32 24 200000 scratch/inrun/genomes/ls12_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=100:5:10 food=mix cg_every=8 capwean=4:16 setenv=PP_HOMEVEC=log:40,PP_SCENT_SOFTCAP=1,PP_HUNGRY_GRADED=1
+lgctl colsel 21 lex+spoil+crater+shape+lab 32 24 200000 scratch/inrun/genomes/ls12_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=100:5:10 food=mix cg_every=8 capwean=4:16 setenv=PP_HOMEVEC=log:40,PP_SCENT_SOFTCAP=1,PP_HUNGRY_GRADED=1,PP_LAYGENE=0
+lgkeep colsel 21 lex+spoil+crater+shape+lab 32 24 200000 scratch/inrun/genomes/ls12_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=100:5:10 food=mix cg_every=8 setenv=PP_HOMEVEC=log:40,PP_SCENT_SOFTCAP=1,PP_HUNGRY_GRADED=1

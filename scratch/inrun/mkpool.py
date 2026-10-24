@@ -13,7 +13,6 @@ rdir, out, notes = sys.argv[1], sys.argv[2], sys.argv[3:]
 r = list(csv.DictReader(open(f'{rdir}/final/index.csv')))
 r.sort(key=lambda x: int(x['id']))
 r.sort(key=lambda x: (-float(x['score']), int(x['id'])))
-r = r[:30]
 
 
 def load(i):
@@ -28,6 +27,16 @@ def load(i):
     return head, g
 
 
+# Distinct genomes only, best score first: a child copied with no mutation is a second ant with its parent's genome,
+# and a pool member twice is a member wasted (farfood3b logsense c12 r23 had one such pair in its top 30; the lab's
+# `the_first_founders_are_the_standard_pool` asserts the members differ).
+seen, keep = set(), []
+for x in r:
+    key = tuple(sorted((i, float(w)) for i, w in load(x['id'])[1].items()))
+    if key not in seen:
+        seen.add(key)
+        keep.append(x)
+r = keep[:30]
 head0, g0 = load(r[0]['id'])
 with open(out, 'w') as f:
     for n in notes:
