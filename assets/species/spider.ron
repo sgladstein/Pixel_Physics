@@ -68,7 +68,10 @@
         force_fraction: 0.000015625,
         dig_force: 0.5,
         // The fallback brain's eyes (the beetle's), for a spider with no
-        // mind. A mind casts no rays and pays no sight.
+        // mind -- and, under `PIXEL_PHYSICS_MIND_SIGHT` (on by default since
+        // 2026-10-24), a mind's too: the nearest prey this eye reaches is read
+        // on the mind's home senses, and billed at `sight_fraction`
+        // (`options::sight_on`).
         sight_range: 64,
         sight_fraction: 0.0000000079047218,
         sensor_offset: 6,

@@ -116,6 +116,47 @@ if SPIDERRAMP:
     assert any(x.startswith('spiders=') for x in EXTRA), 'spiderramp= needs inrun spiders=POOL:N in the args'
 EXTRA = [x for x in EXTRA if not x.startswith('spiderramp=')]
 spider_at = SPIDERRAMP[0] if SPIDERRAMP else None
+# spiderevo=KEEP:PM:SIGMA:EVENTS (lone predator thread, stage three, 2026-10-24: the owner's co-evolution, "train the
+# ant colony to survive and defend while training the predator to eat the ants"): the spider pool evolves beside the
+# colonies. Every spider placed in a round's colony runs is a size-neutral mutant of a pool mind (inrun `spider_mut=`),
+# scored on the flesh it ate per thousand frames alive over at least 20,000; after the round the KEEP best placements
+# over every colony are the next round's pool (OUT/spool/rN, logged in OUT/spool.csv). The garden faces the current
+# pool unmutated. Needs inrun `spiders=POOL:N` in the args (POOL a directory of .raw.txt, the round-0 pool).
+SPIDEREVO = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('spiderevo=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('spiderevo=')]
+spool = next((x.split('=', 1)[1].rsplit(':', 1)[0] for x in EXTRA if x.startswith('spiders=')), None)
+if SPIDEREVO:
+    assert len(SPIDEREVO) == 4 and spool, 'spiderevo=KEEP:PM:SIGMA:EVENTS with spiders=POOL:N'
+def spider_args(args, out=None):
+    """The current pool in `spiders=`; with `out`, the round's mutation and the placements' log there too."""
+    if not SPIDEREVO or not any(x.startswith('spiders=') for x in args):
+        return args
+    a = [f"spiders={spool}:{x.rsplit(':', 1)[1]}" if x.startswith('spiders=') else x for x in args]
+    return a + ([f'spider_mut={SPIDEREVO[1]}:{SPIDEREVO[2]}:{SPIDEREVO[3]}', f'spider_out={out}'] if out else [])
+def evolve_spiders(r, dirs):
+    """The KEEP best spider placements of round r over every colony, as round r+1's pool."""
+    global spool
+    rows = []
+    for c, d in sorted(dirs.items()):
+        f = f'{d}/spiders/scores.csv'
+        if os.path.exists(f):
+            rows += [(float(x['score']), c, int(x['k']), f"{d}/spiders/k{int(x['k']):03}.raw.txt") for x in csv.DictReader(open(f))]
+    if not rows:
+        return
+    rows.sort(key=lambda x: (-x[0], x[1], x[2]))
+    keep = rows[:int(SPIDEREVO[0])]
+    nd = f'{OUT}/spool/r{r + 1}'
+    os.makedirs(nd, exist_ok=True)
+    new = not os.path.exists(f'{OUT}/spool.csv')
+    with open(f'{OUT}/spool.csv', 'a') as f:
+        if new:
+            f.write('round,rank,score,colony,k,placements,median_score\n')
+        med = sorted(x[0] for x in rows)[len(rows) // 2]
+        for i, (sc, c, k, fp) in enumerate(keep):
+            shutil.copy(fp, f'{nd}/{i:02}.raw.txt')
+            f.write(f'{r},{i},{sc:.4f},{c},{k},{len(rows)},{med:.4f}\n')
+    spool = nd
+    print(f'round {r}: {len(rows)} spiders placed, median score {med:.2f}, best {keep[0][0]:.2f}; pool -> {nd}', flush=True)
 def with_spiders(args, r):
     """The round's spider args: none before FROM, otherwise `spider_start=` the ramp's current arrival."""
     if not SPIDERRAMP:
@@ -343,7 +384,7 @@ def garden(r, carry):
     """Common garden of every live colony's carry: fresh world c*1000+99, 200k frames, selection off."""
     live = [c for c in carry if carry[c] is not None]
     def one(c):
-        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + with_spiders(with_cap(CGC), r), f'{OUT}/cg/r{r}/c{c}')
+        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + spider_args(with_spiders(with_cap(CGC), r)), f'{OUT}/cg/r{r}/c{c}')
         v = result(d, 200000)
         shutil.rmtree(d, ignore_errors=True)
         return c, v
@@ -417,6 +458,7 @@ if R0:
     rng.setstate((st0['rng'][0], tuple(st0['rng'][1]), st0['rng'][2]))
     cap_now = st0['cap_now']
     spider_at = st0.get('spider_at', spider_at)
+    spool = st0.get('spool', spool)
     dist_now = st0.get('dist_now', dist_now)
 for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
@@ -426,7 +468,7 @@ for r in range(R0, R):
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
-        cr = with_spiders(with_cap(cr), r)
+        cr = spider_args(with_spiders(with_cap(cr), r), f'{OUT}/c{c}/r{r}/spiders')
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
@@ -470,6 +512,8 @@ for r in range(R0, R):
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
+    if SPIDEREVO and (not SPIDERRAMP or r >= SPIDERRAMP[3]):
+        evolve_spiders(r, dirs)  # after the garden, which faces the pool this round's colonies faced
     if PILECAP:
         # A colony with no run this round (extinct, not refounded) counts as starving, never as a colony that starved none.
         st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
@@ -512,7 +556,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'spool': spool},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)

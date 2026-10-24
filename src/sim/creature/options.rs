@@ -351,14 +351,20 @@ pub fn pack_on() -> bool {
 /// (`mind::attack`), the game's own bite on a stranger in reach, and lets a mind pick up a cell of corpse its gut can
 /// use. **Why**: a predator that hunts by a mind needs a verb that kills and a mouth for what it killed; until now
 /// Attack was listed and never picked, and a dead ant was never picked up (no carry of one is built, and an ant
-/// eating its colony's dead was not what the rule was about). **Off by default, because it changes results**: a
+/// eating its colony's dead was not what the rule was about). **Built off, because it changes results**: a
 /// mind ant's genome can carry a live Attack switch, and in a box with two colonies or a predator it would start
 /// biting. Off, nothing is read or written: Attack is never picked and a corpse never offered, as before.
+///
+/// **On by default since 2026-10-24** (owner: "Everything should be on by default"); `=off` is the game before.
+/// What the default costs, measured: on the colony bed with no spider the bite has no stranger to act on, and the
+/// blank verb it enters as (`mind::enter_bite`) cost nothing past the mutant draw's own noise (stage two, 12 seeds);
+/// a genome that holds Attack banned -- every trained pool, the lab's new ant included -- still never bites
+/// outside `inrun`, which is the only caller of `enter_bite`.
 pub fn attack_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_ATTACK").as_deref() {
-        Ok("on") => true,
-        Ok("off") | Err(_) => false,
+        Ok("on") | Err(_) => true,
+        Ok("off") => false,
         Ok(other) => panic!("PIXEL_PHYSICS_MIND_ATTACK={other:?}: use on or off"),
     })
 }
@@ -370,6 +376,52 @@ pub fn attack_on() -> bool {
 pub fn corpse_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     attack_on() && *ON.get_or_init(|| std::env::var("PP_MIND_CORPSE").map_or(true, |v| v != "off"))
+}
+
+/// **A mind with eyes sees its prey** (lone predator thread, 2026-10-24; owner: "It seems realistic that spiders
+/// should use sight"): `PIXEL_PHYSICS_MIND_SIGHT=on` lets a mind whose body has an eye (`CreatureDef::sight_range`
+/// above 0 -- the spider's 64, never the ant's 0) cast the game's own eye (`creature::sighted`: rays all round,
+/// stopped by soil and rock) once a decision, and read the nearest prey it reached **on its home senses**: the
+/// context's home seen, distance and its change, and each option's step-toward-home, through [`sensed_home`].
+///
+/// **Why the home senses, not new ones**: a new input would move every weight after it in every genome on disk,
+/// the ants' included. A spider has no nest; its home was the cell it landed on, a point that says nothing about
+/// where the ants are. So for a sighted mind "home" becomes "the prey I can see" -- no prey in sight reads as no
+/// home -- and an eyeless mind (every ant) runs exactly as before. The eye is billed as every eye is,
+/// `sight_fraction x start_energy` a cell read (`mind::tick`).
+///
+/// **On by default** (owner, 2026-10-24: "Everything should be on by default"): measured, spiders trained with it
+/// from the hand-built hunter killed 80.6 ants a judging against 40.9 without (19 of 24 paired judgings won, 4
+/// lost; 4 seeds x 6 rounds, judged on 6 fresh beds). **The cost is to spiders trained blind**: the stage-one pools'
+/// home weights were learnt on their landing cell, and retrained with sight they killed 63 against 87 -- use a
+/// pool trained sighted (`predator/pools/sight-h2`), or `=off` for a blind one. An eyeless mind (every ant) casts
+/// nothing either way; `=off` casts no ray for anyone.
+pub fn sight_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_SIGHT").as_deref() {
+        Ok("on") | Err(_) => true,
+        Ok("off") => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_SIGHT={other:?}: use on or off"),
+    })
+}
+
+/// How many ticks a sighted mind cast its eye, and on how many it saw prey ([`sight_on`]; counted once a tick, where
+/// the eye is billed): the count that says whether the sense fired at all.
+pub static SIGHT_CASTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SIGHT_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// **Where a mind's home senses point** ([`sight_on`]): the nearest prey a sighted mind can see, or for any other
+/// mind its forage anchor (none in a home-blind world). Returns the eye's cell reads too, 0 when no eye was cast.
+pub fn sensed_home(world: &World, organism: OrganismId, def: &CreatureDef, st: &crate::sim::organism::OrganismState) -> (Option<(i32, i32)>, u64) {
+    if sight_on() && def.sight_range > 0 {
+        if let Some(&(hx, hy)) = st.chain.first() {
+            let (seen, reads) = super::sighted(world, hx, hy, organism, def);
+            if reads > 0 {
+                return (seen.prey.map(|s| (s.x, s.y)), reads);
+            }
+        }
+    }
+    ((!world.home_blind).then_some(st.forage_anchor), 0)
 }
 
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
@@ -541,7 +593,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         colony: st.colony,
         scent: CHANNELS.map(|ch| scent(world, ch, head.0, head.1)),
         warmth: if warmth_on() { world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature } else { 0.0 },
-        home: (!world.home_blind).then_some(st.forage_anchor),
+        home: sensed_home(world, organism, def, st).0,
         mats: Mats {
             spoil: world.materials.known(Known::Spoil),
             packed: world.materials.known(Known::PackedSoil),

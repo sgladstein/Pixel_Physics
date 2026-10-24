@@ -24,7 +24,8 @@
 //! out/surface.txt       the datum, one row per column
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
-//! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]` keeps N spiders
+//! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
+//! [spider_mut=PM:SIGMA:EVENTS] [spider_out=DIR]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -480,11 +481,23 @@ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
 
-/// SCRATCH (lone predator thread, stage two, 2026-10-24): **a fixed pool of spiders on the bed** (`spiders=POOL:N`),
-/// the predator the colony learns to survive. The pool does not evolve: each place is refilled `gap` frames after
-/// its spider dies, by the pool's next mind in turn, at a random column at least `far` from the door.
+/// One spider placement in [`Spiders::log`]: (organism id, pool index, genome, born, died, flesh credit).
+type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64);
+
+/// SCRATCH (lone predator thread, stage two, 2026-10-24): **a pool of spiders on the bed** (`spiders=POOL:N`), the
+/// predator the colony learns to survive. Each place is refilled `gap` frames after its spider dies, by the pool's
+/// next mind in turn, at a random column at least `far` from the door. The pool does not evolve inside a run; under
+/// `spider_mut=PM:SIGMA:EVENTS` (stage three, co-evolution) each placement is a size-neutral mutant of its pool mind,
+/// and `spider_out=DIR` writes every placement's genome and score, from which colsel's `spiderevo=` picks the next
+/// round's pool.
 struct Spiders {
     pool: Vec<Arc<creature::mind::MindGenome>>,
+    /// The pool's genomes as read, the parents of `spider_mut`'s placements.
+    raw: Vec<Vec<f32>>,
+    /// `spider_mut=PM:SIGMA:EVENTS`, and the slots a spider's mutation moves.
+    mutate: Option<(f32, f32, usize, Vec<usize>)>,
+    /// Every placement: (organism id, pool index, genome, born, died, flesh credit).
+    log: Vec<Placement>,
     n: usize,
     gap: u64,
     far: i32,
@@ -534,6 +547,14 @@ impl Spiders {
         let num = |k: &str, d: f64| arg(a, k).map_or(d, |v| v.parse().unwrap());
         Some(Spiders {
             pool: genomes.iter().map(|g| pixel_physics::train::predator::spider_mind(g)).collect(),
+            raw: genomes.clone(),
+            mutate: arg(a, "spider_mut").map(|v| {
+                let p: Vec<&str> = v.split(':').collect();
+                assert_eq!(p.len(), 3, "spider_mut=PM:SIGMA:EVENTS");
+                let slots = creature::mind::trainable(pixel_physics::train::predator::VERBS, pixel_physics::train::predator::EMITS);
+                (p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap(), slots)
+            }),
+            log: Vec::new(),
             n,
             gap: num("spider_gap", 2000.0) as u64,
             far: num("spider_far", 30.0) as i32,
@@ -567,10 +588,19 @@ impl Spiders {
                 }
             };
             let g = self.next % self.pool.len();
-            let Some(id) = pixel_physics::train::predator::place_spider(w, x, self.colony, self.pool[g].clone(), self.grants) else {
+            let (genome, mind) = match &self.mutate {
+                Some((pm, sigma, events, slots)) => {
+                    let child = neutral_mutate(&self.raw[g], slots, *pm, *sigma, *events, None, &mut self.rng);
+                    let m = pixel_physics::train::predator::spider_mind(&child);
+                    (child, m)
+                }
+                None => (self.raw[g].clone(), self.pool[g].clone()),
+            };
+            let Some(id) = pixel_physics::train::predator::place_spider(w, x, self.colony, mind, self.grants) else {
                 self.due[k] = frame + 100; // no footing there: try another column shortly
                 continue;
             };
+            self.log.push((id, g, genome, frame, None, 0.0));
             self.next += 1;
             self.colony = self.colony.or_else(|| w.organism(id).map(|s| s.colony));
             self.ids.insert(id);
@@ -597,6 +627,31 @@ impl Spiders {
         }
     }
 
+    /// The bed's food rows before the ants' book reads them: a living spider's swallow is its credit (face worth /
+    /// 100, as `examples/predtrain.rs` scores it).
+    fn ate(&mut self, rows: &[creature::FoodRow]) {
+        for r in rows.iter().filter(|r| r.kind == creature::FOOD_SWALLOW && self.ids.contains(&r.who)) {
+            if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == r.who && e.4.is_none()) {
+                e.5 += r.worth as f64 / 100.0;
+            }
+        }
+    }
+
+    /// `spider_out=DIR`: every placement's genome (`kNNN.raw.txt`) and `scores.csv` (k,parent,born,died,credit,score).
+    /// Score: credit per thousand frames alive, as predtrain's, but over at least 20,000 frames -- per frame alive
+    /// alone, the first smoke run's best spider was one that gorged for 1,330 frames and was killed (124.8, against
+    /// 14.6 for one that hunted for 9,670), and a spider that eats and dies is not the hunter to breed from.
+    fn save(&self, dir: &std::path::Path, end: u64) {
+        std::fs::create_dir_all(dir).unwrap();
+        let mut f = std::fs::File::create(dir.join("scores.csv")).unwrap();
+        writeln!(f, "k,parent,born,died,credit,score").unwrap();
+        for (k, (_, parent, g, born, died, credit)) in self.log.iter().enumerate() {
+            train::save_genome(&dir.join(format!("k{k:03}.raw.txt")), g).unwrap();
+            let life = (died.unwrap_or(end) - born) as f64 / 1000.0;
+            writeln!(f, "{k},{parent},{born},{},{credit:.3},{:.4}", died.map_or(String::new(), |d| d.to_string()), credit / life.max(20.0)).unwrap();
+        }
+    }
+
     /// A death from the bed's log: a spider's frees its place, an ant's killed is counted.
     fn died(&mut self, r: &pixel_physics::sim::world::DeathRow, frame: u64, ev: &mut impl Write) {
         if r.species == self.ant && r.cause == organism::DeathCause::Killed {
@@ -606,6 +661,9 @@ impl Spiders {
             return;
         }
         self.size.remove(&r.id);
+        if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == r.id && e.4.is_none()) {
+            e.4 = Some(frame);
+        }
         self.deaths += 1;
         self.killed += u64::from(r.cause == organism::DeathCause::Killed);
         self.starved += u64::from(r.cause == organism::DeathCause::Starved);
@@ -1392,7 +1450,8 @@ fn main() {
             }
         }
         let mut food_rows = std::mem::take(w.food_log.as_mut().unwrap());
-        if let Some(s) = spiders.as_ref() {
+        if let Some(s) = spiders.as_mut() {
+            s.ate(&food_rows);
             food_rows.retain(|r| !s.ids.contains(&r.who));
         }
         for r in food_rows {
@@ -2438,6 +2497,9 @@ fn main() {
     if weed > 0 {
         println!("weed: {weeded} plant cells pulled within {weed} columns of the door");
     }
+    if let (Some(s), Some(d)) = (spiders.as_ref(), arg(&a, "spider_out")) {
+        s.save(std::path::Path::new(d), w.frame - f0);
+    }
     if let Some(s) = spiders.as_ref() {
         let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
         println!(
@@ -2445,6 +2507,10 @@ fn main() {
             s.placed, s.deaths, s.killed, s.starved, s.wounds, s.ants_killed, k.bites, k.flesh
         );
     }
+    // The bite and the alarm with or without spiders (`options::attack_on`, on by default since 2026-10-24): whether
+    // either fired at all on a bed where no stranger lives (Teacher lane's question before the default landed).
+    let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
+    println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
 }
