@@ -1,0 +1,2 @@
+stdoff colsel 30 lex+spoil+crater+shape 64 16 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1
+stdwean colsel 30 lex+spoil+crater+shape 64 16 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 setenv=PP_BODYRULES=both wean=4:12

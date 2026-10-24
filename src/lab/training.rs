@@ -51,10 +51,56 @@ use crate::sim::World;
 use crate::train::challenges::colony_bed;
 use crate::train::{self, Rng};
 
-/// **The founder genome**: `h1`, the "go out when hungry" lesson's mind
-/// (teacher lane, 2026-10-21), the in-run control's founder
-/// (`scratch/inrun/genomes/h1.raw.txt` on the compute branch).
+/// **The old founder genome**: `h1`, the "go out when hungry" lesson's mind
+/// (teacher lane, 2026-10-21), the in-run control's founder until the
+/// standard line replaced it. Kept so its rows can be re-run; it was trained
+/// with the home sense off, and has live links on the slots that sense writes.
 pub const H1: &str = include_str!("../../assets/minds/h1.raw.txt");
+
+/// **The new ant** (owner, 2026-10-24: the standard training path is default
+/// on, in the lab too): the standard line's carried pool -- the 30 best ants
+/// of the best-balanced colony at the last round of a colony-selection batch
+/// on the standard settings (brood1ctl colony 7, round 31; its common garden,
+/// judged with the old-ant body rules off: nest 377, crater 3, starved 3,
+/// rooms 14). A pool rather than one brain (owner, 2026-10-22: the colony's
+/// surviving mixture is the product). Each member carries its own evolved dig
+/// head past [`creature::mind::GENOME_LEN`]. Format in the file's header.
+pub const STD_POOL: &str = include_str!("../../assets/minds/std_pool.txt");
+
+/// [`STD_POOL`]'s members as genomes this build runs: each one whole, its own
+/// dig head kept when heads evolve (`PP_DIGHEAD_EVOLVE`, on by default) and
+/// cut off otherwise; a side head of another shape (`PP_DIGHEAD=path`)
+/// replaces it.
+pub fn std_pool() -> Vec<Vec<f32>> {
+    let mut lines = STD_POOL.lines().filter(|l| !l.starts_with('#'));
+    let head = lines.next().expect("std_pool: header");
+    let mut h = head.split_whitespace();
+    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "std_pool: {head:?}");
+    let len: usize = h.next().and_then(|n| n.parse().ok()).expect("std_pool: genome length");
+    let mut pool: Vec<Vec<f32>> = Vec::new();
+    for l in lines {
+        if l.starts_with("member ") {
+            pool.push(pool.first().cloned().unwrap_or_else(|| vec![0.0; len]));
+            continue;
+        }
+        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("std_pool: {l:?} is not `slot value`"));
+        let g = pool.last_mut().expect("std_pool: a slot before the first member");
+        g[i.parse::<usize>().expect("std_pool slot")] = w.parse().expect("std_pool value");
+    }
+    let body = creature::mind::GENOME_LEN;
+    let side = creature::mind::scratch_log::head_evolve();
+    for g in &mut pool {
+        match side {
+            Some(hl) if g.len() == body + hl => {}
+            Some(_) => {
+                g.truncate(body);
+                g.extend(creature::mind::scratch_log::dighead().expect("a head evolves").flat());
+            }
+            None => g.truncate(body),
+        }
+    }
+    pool
+}
 
 /// **Which ants have children.**
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,25 +272,35 @@ pub struct Founder {
     pub genome: Vec<f32>,
 }
 
-/// **Round 0's founders**: `h1` entered into the dig rung, and 29 mutants of
-/// it (`m00` is `h1` itself), as rounds.sh's `mutants=30:0.03:1.0:7` makes them.
+/// **Round 0's founders**: the standard pool ([`std_pool`]), member `k` as
+/// founder `m{k}`, as colony selection carries a colony into its next round;
+/// past the pool's size, mutants of its members (rounds.sh's
+/// `mutants=30:0.03:1.0:7`). Until 2026-10-24 this was `h1` and 29 mutants.
 pub fn first_founders(s: &Settings) -> Vec<Founder> {
-    let base = train::start_mind_text(&colony_bed::suite(), "h1", H1);
+    let pool = std_pool();
     let slots = colony_bed::slots();
     let mut rng = Rng(s.start_seed);
     (0..s.founders)
         .map(|k| {
-            let genome = if k == 0 { base.clone() } else { train::mutate(&base, &slots, s.start_pm, s.start_sigma, 0.0, 1.0, &[], &mut rng) };
+            let base = &pool[k % pool.len()];
+            let genome = if k < pool.len() { base.clone() } else { train::mutate(base, &slots, s.start_pm, s.start_sigma, 0.0, 1.0, &[], &mut rng) };
             Founder { tag: format!("m{k:02}"), genome }
         })
         .collect()
 }
 
-/// **The new ant, for any box**: `h1` as a mind for an ant that is not on the
-/// training bed (the lab box's ANT BRAIN switch). The same genome and the same
-/// cut to the dig rung's verbs the training bed's founders get.
-pub fn h1_mind() -> Arc<MindGenome> {
-    colony_bed::mind(&train::start_mind_text(&colony_bed::suite(), "h1", H1))
+/// **The new ant, for any box**: the standard pool as minds for ants that are
+/// not on the training bed (the lab box's ANT BRAIN switch), each cut to the
+/// dig rung's verbs as the training bed's founders are. An ant gets the
+/// member its id picks ([`new_ant_mind_for`]), so a box holds the mixture.
+pub fn new_ant_minds() -> Vec<Arc<MindGenome>> {
+    std_pool().iter().map(|g| colony_bed::mind(g)).collect()
+}
+
+/// Which of [`new_ant_minds`] ant `id` gets: fixed by the id, so a reload or
+/// a sweep never reshuffles who thinks with what.
+pub fn new_ant_mind_for(minds: &[Arc<MindGenome>], id: OrganismId) -> Arc<MindGenome> {
+    minds[id as usize % minds.len()].clone()
 }
 
 /// Size-neutral mutation (owner, 2026-10-21: brain size should be set by the
@@ -1597,21 +1653,28 @@ impl Training {
 mod tests {
     use super::*;
 
-    /// **The founder genome loads and enters the rung as a mind**: thirty
-    /// founders, `m00` exactly the entered `h1`, the others differing from
-    /// it, every one a mind with live links.
+    /// **The founder pool loads as minds**: thirty founders, each the pool
+    /// member of its index, all different, every one a mind with live links
+    /// and (heads evolving by default) its own dig head; past the pool's size
+    /// the founders are mutants.
     #[test]
-    fn the_first_founders_are_h1_and_its_mutants() {
+    fn the_first_founders_are_the_standard_pool() {
         let s = Settings::default();
         let f = first_founders(&s);
-        assert_eq!(f.len(), 30);
+        let pool = std_pool();
+        assert_eq!((f.len(), pool.len()), (30, 30));
         assert_eq!(f[0].tag, "m00");
-        assert!(train::is_mind(f[0].genome.len()));
-        let base = train::start_mind_text(&colony_bed::suite(), "h1", H1);
-        assert_eq!(f[0].genome, base);
-        let differ = f.iter().skip(1).filter(|g| g.genome != base).count();
-        assert!(differ >= 25, "only {differ} of 29 mutants differ from h1");
-        assert!(colony_bed::mind(&base).live > 100, "h1 has {} live links", colony_bed::mind(&base).live);
+        assert!(f.iter().zip(&pool).all(|(f, g)| &f.genome == g));
+        let distinct: HashSet<Vec<u32>> = pool.iter().map(|g| g.iter().map(|w| w.to_bits()).collect()).collect();
+        assert_eq!(distinct.len(), 30, "the pool's members differ");
+        for g in &pool {
+            assert!(train::is_mind(g.len()));
+            let m = colony_bed::mind(g);
+            assert!(m.live > 100, "a member has {} live links", m.live);
+            assert_eq!(m.head.is_some(), creature::mind::scratch_log::head_evolve().is_some());
+        }
+        let more = first_founders(&Settings { founders: 40, ..Settings::default() });
+        assert!(more[30..].iter().zip(&pool).filter(|(f, g)| &f.genome != *g).count() >= 8, "founders past the pool are mutants");
     }
 
     /// **A round founds a colony of minds and judges it**: every founder in
