@@ -41,7 +41,8 @@ about 0 by 100k frames and killed 4 of 4 colonies, against 2 of 4 alive with it 
 
 Breeding is stable under colony selection and roughly halves the store (colsel `brood1`, 64 colonies: store at round
 31 was 260 cells against 514 without breeding; gut reserve 28-39 grants against 107; food home and digging held, 0-3
-of 64 extinct). But the nest is still packed, because **the size cap stops laying while income is far above upkeep**:
+of 64 extinct; the common-garden figures are over surviving colonies only, since `cg.csv` skips a colony that died out, but
+with 0-3 of 64 lost the bias is small). But the nest is still packed, because **the size cap stops laying while income is far above upkeep**:
 at about 87 ants the laying bar is 32 times its base, so surplus food has nowhere to go but the pile.
 
 Everything tried on the supply side either leaves the pile or kills the colony:
