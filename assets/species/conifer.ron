@@ -76,7 +76,17 @@
     // supports is "somewhere around 30,000-60,000 is the useful band for this
     // species, and under ~20,000 it dies out"; it does not support an
     // optimum. Resolving one wants an order statistic over a dozen seeds.
-    life_half_life: 60000.0,
+    //
+    // **Re-derived for the plant clock, 2026-10-23 (owner's choice: trees
+    // live twice as long).** The ladder above was read with old age on
+    // `age_ticks * 45`, which undercounts a big plant's age by its cadence
+    // (~3.5x for a lab tree), so its 60,000 lived like ~415,000 in the lab.
+    // With `World::old_age_plant_time` on, 120,000 on the four-role bed
+    // and the seven-species bed
+    // (8 seeds, 450,000 frames): conifer leaf -37%, the dark floor 41% ->
+    // 25% of columns, herb on 7 beds against 3.
+    // `Reports/plant-community-2026-10-20/m2/shade-seedling/README.md` §7.
+    life_half_life: 120000.0,
     stomatal_reserve: 0.2,
     // **The production rule: what a cell becomes, and what it creates.**
     //

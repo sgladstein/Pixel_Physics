@@ -6697,9 +6697,11 @@ pub struct World {
     /// the tick's real span, as the annual hazard already does, instead of
     /// `age_ticks * ORGANISM_TICK_INTERVAL` rolled over 45 frames -- which
     /// undercounts a big, slow-ticking plant's age about 3.5x and its hazard
-    /// more, so a lab tree lived ~7x its authored median. Off by default
-    /// until the community is re-measured: every `life_half_life` was tuned
-    /// against the old clock.
+    /// more, so a lab tree lived ~7x its authored median. **On by default
+    /// since 2026-10-23** (owner's choice), with the lifespans re-derived for
+    /// it: tree and conifer 120,000, shrub 135,000 (`Reports/plant-community-
+    /// 2026-10-20/m2/shade-seedling/README.md` §7). Off reads the old clock
+    /// with those new lifespans, which is no shipped state.
     pub old_age_plant_time: bool,
     /// Swaps made by `seed_settles`' settle half: its did-it-fire count.
     pub seeds_settled: u64,
@@ -7695,7 +7697,9 @@ impl World {
             adventitious_roots: 0,
             dieback_roots_kept: 0,
             seed_settles: false,
-            old_age_plant_time: false,
+            // `PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks` is the way back to the
+            // clock before 2026-10-23 (with the new lifespans).
+            old_age_plant_time: std::env::var("PIXEL_PHYSICS_OLD_AGE_CLOCK").as_deref() != Ok("ticks"),
             seeds_settled: 0,
             seeds_heaved: 0,
             open_light: crate::sim::field::MAX_LIGHT,
