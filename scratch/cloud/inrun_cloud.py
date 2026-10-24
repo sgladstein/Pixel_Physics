@@ -66,7 +66,7 @@ git fetch -q --depth 1 origin "$REF" > $W/git.log 2>&1 || log "git fetch of $REF
 git checkout -q FETCH_HEAD >> $W/git.log 2>&1 || log "checkout failed"
 log "building at $(git rev-parse --short HEAD)"
 T0=$(date +%s)
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --example inrun > $W/build.log 2>&1
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --example inrun --example labsurvive > $W/build.log 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
   log "BUILD FAILED rc=$rc"; tail -n 60 $W/build.log > $W/build-tail.log; put $W/build-tail.log build-tail.log

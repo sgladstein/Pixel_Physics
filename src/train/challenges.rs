@@ -2900,7 +2900,12 @@ pub mod inrun {
     /// Provisions within `reach` columns of `x`, at or above the datum's
     /// lowest row there plus `below` (the heap and what rolled off it).
     pub fn food_near(w: &World, x: i32, reach: i32) -> usize {
-        let Some(p) = w.materials.id_of("provisions") else { return 0 };
+        food_near_of(w, x, reach, "provisions")
+    }
+
+    /// [`food_near`] for any food material (`inrun food=`).
+    pub fn food_near_of(w: &World, x: i32, reach: i32, material: &str) -> usize {
+        let Some(p) = w.materials.id_of(material) else { return 0 };
         let mut n = 0;
         for cx in (x - reach)..=(x + reach) {
             for y in 0..128 {
@@ -2914,7 +2919,15 @@ pub mod inrun {
 
     /// Top the heap at `x` up towards `cap` cells, at most `drip` at a time.
     pub fn top_up(w: &mut World, sc: &Scenario, x: i32, cap: usize, drip: usize, spread: i32) -> usize {
-        let have = food_near(w, x, 8 + spread);
+        top_up_with(w, sc, x, cap, drip, spread, "provisions")
+    }
+
+    /// [`top_up`] with another food material (`inrun food=`): the lab's
+    /// boxes feed on fruit as much as provisions, and a colony trained only
+    /// on provisions reached ~60 ants on fruit against ~200 on provisions
+    /// (`examples/labsurvive.rs`, food 25 columns out, 2026-10-24).
+    pub fn top_up_with(w: &mut World, sc: &Scenario, x: i32, cap: usize, drip: usize, spread: i32, material: &str) -> usize {
+        let have = food_near_of(w, x, 8 + spread, material);
         if have >= cap {
             return 0;
         }
@@ -2922,9 +2935,9 @@ pub mod inrun {
         // spread>0 scatters the food over x±spread instead of one heap (a 90-ant
         // colony jammed in two clumps a few columns short of single heaps).
         let heap = if spread > 0 {
-            crate::lab::scenario::Placement::Scatter { material: "provisions".into(), x0: x - spread, x1: x + spread, cells: add }
+            crate::lab::scenario::Placement::Scatter { material: material.into(), x0: x - spread, x1: x + spread, cells: add }
         } else {
-            crate::lab::scenario::Placement::Heap { material: "provisions".into(), x, cells: add }
+            crate::lab::scenario::Placement::Heap { material: material.into(), x, cells: add }
         };
         crate::lab::scenario::apply_placements(w, &[heap], &sc.bed);
         add as usize

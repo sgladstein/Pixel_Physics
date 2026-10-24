@@ -1,0 +1,2 @@
+farramp colsel 30 lex+spoil+crater+shape+lab 64 24 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 distramp=25:10:10 food=mix
+farctl colsel 30 lex+spoil+crater+shape 64 24 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1

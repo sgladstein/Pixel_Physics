@@ -1031,12 +1031,40 @@ impl Lab {
         if on {
             let n = self.give_new_ant_minds();
             self.world.log_player_action("ANT BRAIN: NEW".to_string());
-            format!("ANT BRAIN: NEW -- {n} ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL)")
+            format!("ANT BRAIN: TRAINED -- {n} ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL)")
         } else {
             self.world.minds = None;
             self.world.log_player_action("ANT BRAIN: OLD".to_string());
-            "ANT BRAIN: OLD -- THE HAND-BUILT BRAIN".to_string()
+            "ANT BRAIN: HAND-BUILT -- THE OLD BRAIN".to_string()
         }
+    }
+
+    /// **ANT BRAIN: NEW with another pool**: the minds every ant without one
+    /// gets from now on, in place of the standard pool -- for a harness that
+    /// asks how a training batch's own carry lives in a lab box
+    /// (`examples/labsurvive.rs`). Turns the switch on.
+    pub fn set_new_ant_pool(&mut self, minds: Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>) -> String {
+        assert!(!minds.is_empty(), "an empty pool");
+        self.new_ant_mind = Some(minds);
+        self.set_new_ant(true)
+    }
+
+    /// **Fill every ant to `tanks` full tanks** (`start_energy` each), never
+    /// lowering one: the training bed's founding grant (`grants=3`), for a
+    /// harness that asks whether a lab colony dies of its thin start
+    /// (`examples/labsurvive.rs grant=`). Returns how many it filled.
+    pub fn grant_ants(&mut self, tanks: f32) -> usize {
+        let Some(sp) = self.world.species.id_of("ant") else { return 0 };
+        let full = tanks * self.world.species.get(sp).creature.as_ref().map_or(0.0, |d| d.start_energy);
+        let ids: Vec<_> = self.world.live_organism_ids();
+        let mut n = 0;
+        for id in ids {
+            if let Some(s) = self.world.organism_mut(id).filter(|s| s.species == sp && s.energy < full) {
+                s.energy = full;
+                n += 1;
+            }
+        }
+        n
     }
 
     /// Give every `ant` in the box that has no mind the new one; returns how

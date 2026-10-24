@@ -599,6 +599,14 @@ fn main() {
     let maps = num("maps", 1) == 1;
     let cap = num("cap", 60) as usize;
     let spread = num("spread", 0) as i32;
+    // `food=provisions|fruit|mix` (teacher lane, 2026-10-24): what the drip drops; `mix` is provisions east, fruit
+    // west. The lab's boxes feed on fruit too, and a colony trained on provisions alone did a third as well on it.
+    let food_mats: (&str, &str) = match arg(&a, "food").unwrap_or("provisions") {
+        "provisions" => ("provisions", "provisions"),
+        "fruit" => ("fruit", "fruit"),
+        "mix" => ("provisions", "fruit"),
+        f => panic!("food={f}: provisions, fruit or mix"),
+    };
     let out = std::path::PathBuf::from(arg(&a, "out").expect("out=DIR"));
     std::fs::create_dir_all(&out).unwrap();
     // The suite a founder enters by is the game training page's own (`colony_bed::suite`): soil + scarce + trail.
@@ -1199,8 +1207,8 @@ fn main() {
         inrun::step(&mut w, &sc);
         if fr % every == 1 || every == 1 {
             let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
-            for x in [inrun::NEST + dist, inrun::NEST - dist] {
-                inrun::top_up(&mut w, &sc, x, cap_now, drip as usize, spread);
+            for (x, mat) in [(inrun::NEST + dist, food_mats.0), (inrun::NEST - dist, food_mats.1)] {
+                inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
             }
         }
         if weed > 0 && fr % 500 == 0 {
