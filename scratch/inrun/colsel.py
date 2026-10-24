@@ -260,7 +260,8 @@ def garden(r, carry):
             f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)}\n')
 
 
-rng = random.Random(12345)
+# LEXSEED (default 12345): the lexicase draws' seed, for a replicate of an arm on the same colony seeds.
+rng = random.Random(int(os.environ.get('LEXSEED', '12345')))
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
