@@ -17,7 +17,7 @@ Abbreviations used throughout:
 
 - **The trained ant digs a real nest now.** It is a roofed chamber with side galleries and almost no crater. The
   crater was never a pay problem. Selected brains had no rule protecting the roof, and the old ant's *body* had one
-  ([`review-crater-2026-10-23.md`](review-crater-2026-10-23.md)). We trained with those body rules on, then weaned
+  ([`crater-review-2026-10-23.md`](crater-review-2026-10-23.md)). We trained with those body rules on, then weaned
   them off. The colonies kept roofing after the rules were gone: crater 2.5-4, nest 325 → 504 (stdcheck).
 - **Every batch now starts from the last batch's best colony** (owner's ratchet rule, 2026-10-24).
   [`assets/minds/std_pool.txt`](../../../assets/minds/std_pool.txt) is the current founder. Before this rule, every

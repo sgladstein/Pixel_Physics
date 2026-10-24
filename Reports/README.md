@@ -5858,17 +5858,6 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   brings 100 columns level with the old ant (150-200 still short). Ratchet rule, standing defaults, farfood3's named
   deciding measure. Pictures in `colony-selection-log-2026-10-24/`.
 
-- [brain-training/teacher-training/review-crater-2026-10-23.md](brain-training/teacher-training/review-crater-2026-10-23.md) —
-  **independent review: why selected colonies dig a crater.** Not learned: the shipped ant's body refuses roof cuts
-  (`PIXEL_PHYSICS_DIG_ROOF=6`) and room-breaking cuts (`SHAFT_ROOMS`), and a mind ant's Dig skipped both. Selected
-  brains with the refusals on, no retraining: crater 0 in 8/8, nest 240-490 (old ant 356). Led to `PP_BODYRULES`
-  and weaning. Patch and scripts in `review-crater-2026-10-23/`.
-
-- [brain-training/teacher-training/dig-on-copy-v2-2026-10-21.md](brain-training/teacher-training/dig-on-copy-v2-2026-10-21.md) —
-  **copying "dig at the foot" into copy v2 collapses** (5.2-7.5 vs 10.7) unless the ant has a body-level "bottom of my
-  hole is in reach" sense the job stage reads directly; with it, walls x100 copy 11.14 (n.s. gain). Depth is
-  squash(rows/16), so rows 7 and 8 differ by 0.03.
-
 - [brain-training/teacher-training/sense-caps-audit-2026-10-24.md](brain-training/teacher-training/sense-caps-audit-2026-10-24.md) —
   **which of the ant mind's senses are capped, flattened or on/off (owner's ask, 2026-10-24).** Every context slot,
   option feature and dig-head feature, with its formula and the range measured on the training bed and in three lab

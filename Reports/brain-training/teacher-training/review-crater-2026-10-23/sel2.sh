@@ -1,6 +1,0 @@
-#!/bin/bash
-cd /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review
-until grep -q DONE /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review/sel_ctl.log; do sleep 20; done
-export BIN=/tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review/build/target/release/examples/inrun P=4 PP_BODYRULES=roof
-python3 colsel_pool.py /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review/sel_roof lex+spoil+crater+inherit 16 6 200000 /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/colsel10/cs10std min_age=8000 cooldown=3000 w_deliver=7 w_field=0.05 w_depth=2 rim=15 cap=60 fresh_kid=1 drip=20 mutation=neutral kevents=10 w_home_eat=2 kid_cap=4 retire=1 hall=30000 fprice=tank w_hungry=10 progress=1 turn=30000 kid_grants=3 lesson=/home/user/cloud/scratch/inrun/genomes/c1.raw.txt:0.1 inherit_nest=1 setenv=PP_HOMEVEC=40:30 cut_join=32 > /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review/sel_roof.log 2>&1
-touch /tmp/claude-0/-home-user-Pixel-Physics/8a2e7e11-3afa-57e4-8c63-69bb9c615c96/scratchpad/review/SELDONE
