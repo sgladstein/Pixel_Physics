@@ -1,0 +1,50 @@
+hA1z: n=24  collapsed(alive<12)=16
+   home           229.2 (   223.5)   vs hA1z: higher  0 lower  0
+   died            14.9 (    18.5)   vs hA1z: higher  0 lower  0
+   starved         14.9 (    18.5)   vs hA1z: higher  0 lower  0
+   alive            9.1 (     5.5)   vs hA1z: higher  0 lower  0
+   nest            30.0 (    21.5)   vs hA1z: higher  0 lower  0
+   crater          94.7 (    94.5)   vs hA1z: higher  0 lower  0
+   nestcuts        25.4 (    19.0)   vs hA1z: higher  0 lower  0
+   nest_food       14.2 (    10.0)   vs hA1z: higher  0 lower  0
+   tank            95.7 (    73.1)   vs hA1z: higher  0 lower  0
+r4z: n=24  collapsed(alive<12)=18
+   home           250.0 (   249.5)   vs hA1z: higher 17 lower  7
+   died            17.6 (    21.0)   vs hA1z: higher 16 lower  7
+   starved         17.6 (    21.0)   vs hA1z: higher 16 lower  7
+   alive            6.4 (     3.0)   vs hA1z: higher  7 lower 16
+   nest            29.8 (    35.0)   vs hA1z: higher 13 lower 11
+   crater          90.4 (    85.0)   vs hA1z: higher  8 lower 16
+   nestcuts        24.2 (    27.0)   vs hA1z: higher 12 lower 12
+   nest_food        7.7 (     6.0)   vs hA1z: higher  9 lower 15
+   tank            88.4 (    65.3)   vs hA1z: higher 12 lower 12
+hcs: n=24  collapsed(alive<12)=0
+   home           309.2 (   296.5)   vs hA1z: higher 18 lower  6
+   died             1.4 (     1.0)   vs hA1z: higher  1 lower 23
+   starved          1.4 (     1.0)   vs hA1z: higher  1 lower 23
+   alive           22.6 (    23.0)   vs hA1z: higher 23 lower  1
+   nest            20.2 (    16.5)   vs hA1z: higher  9 lower 15
+   crater         119.5 (   118.5)   vs hA1z: higher 19 lower  5
+   nestcuts        17.4 (    13.0)   vs hA1z: higher 10 lower 14
+   nest_food       14.9 (    13.0)   vs hA1z: higher 15 lower  9
+   tank           171.9 (   159.2)   vs hA1z: higher 22 lower  2
+M_r4hcs: n=24  collapsed(alive<12)=0
+   home           430.6 (   425.5)   vs hA1z: higher 24 lower  0
+   died             1.8 (     2.0)   vs hA1z: higher  0 lower 22
+   starved          1.8 (     2.0)   vs hA1z: higher  0 lower 22
+   alive           22.2 (    22.0)   vs hA1z: higher 22 lower  0
+   nest            28.6 (    23.5)   vs hA1z: higher 10 lower 12
+   crater         116.1 (   119.5)   vs hA1z: higher 21 lower  3
+   nestcuts        22.6 (    19.0)   vs hA1z: higher 12 lower 11
+   nest_food        5.3 (     4.5)   vs hA1z: higher  6 lower 18
+   tank           136.1 (   142.3)   vs hA1z: higher 17 lower  7
+A_r4hcs: n=24  collapsed(alive<12)=0
+   home           378.6 (   370.5)   vs hA1z: higher 22 lower  2
+   died             2.7 (     2.0)   vs hA1z: higher  3 lower 21
+   starved          2.7 (     2.0)   vs hA1z: higher  3 lower 21
+   alive           21.3 (    22.0)   vs hA1z: higher 21 lower  3
+   nest            20.5 (    16.0)   vs hA1z: higher  8 lower 15
+   crater         118.2 (   114.5)   vs hA1z: higher 20 lower  4
+   nestcuts        17.0 (    13.5)   vs hA1z: higher  9 lower 15
+   nest_food       15.8 (    12.0)   vs hA1z: higher 15 lower  9
+   tank           154.5 (   151.3)   vs hA1z: higher 19 lower  5

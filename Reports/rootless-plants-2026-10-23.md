@@ -1,8 +1,8 @@
 # Plants that live with no roots (2026-10-23)
 
-**Status:** finding and fix; the fix is behind `World::roots_required`
-(`PIXEL_PHYSICS_ROOTS_REQUIRED=1`), **off by default** pending the owner's
-call. Off is bit-identical to main (the off arm below reproduces the
+**Status:** finding and fix, **on by default since 2026-10-23** (the
+owner's choice, "turn it on everywhere"); `PIXEL_PHYSICS_ROOTS_REQUIRED=0`
+restores the old engine. It landed off first (PR #837). Off is bit-identical to main (the off arm below reproduces the
 plant-community thread's `leafdepth/community/d1` numbers exactly: tree leaf
 36,429, roles a bed 2.62, light under cover 0.155).
 
@@ -94,3 +94,24 @@ terms), `ROOTLOG` (history of every rootless plant: roots/contact/shoot/stem
 cells on the ground every 1,000 frames), `ROOTLOSS` (what each lost root cell
 of a small plant became, plus the switch's two counters) and writes
 `_owners.png`. Use `below=150` to see the whole root depth.
+
+## Side finding: a growing tip hanging off a leaf
+
+Turning the switch on reddened `shedding_every_leaf_does_not_disconnect_the_stem`.
+Swept over 16 individuals of its scene (8,000 frames), shedding every leaf
+cuts one cell off the stem, a growing tip whose only neighbour is a leaf, on
+**5 of 16 trees with the switch off and 7 of 16 with it on**. The guard looks
+at only the first individual with a leaf, which was clean on the old engine
+and is not on the new one. So the defect predates this switch and the guard
+was already blind to it. The guard now runs with `roots_required` off, and
+its doc carries these numbers. Not fixed here.
+
+## Still open
+
+- **Nutrient is an average, not a sum.** `nutrient_status` is the mean
+  richness over the faces the roots touch, so one root in rich soil reads
+  full. Water scales with root (`water_capacity_of`, per-face `Absorb`);
+  nutrient does not.
+- 9 of 239 leafy plants still read rootless at 450k with the switch on. Most
+  are plants on their way out, and a few herbs read water status 1.0. Not
+  traced.

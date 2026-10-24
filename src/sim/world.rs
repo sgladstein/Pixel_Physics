@@ -6676,7 +6676,8 @@ pub struct World {
     /// a root again. On: `Absorb` runs on root tissue only, die-back keeps a
     /// plant's last `DIEBACK_ROOT_FLOOR` root cells, and a thirsty plant
     /// with no root to branch from sprouts one from a stem cell touching
-    /// moist ground (an adventitious root). Off by default until measured.
+    /// moist ground (an adventitious root). On by default since 2026-10-23
+    /// (owner); `PIXEL_PHYSICS_ROOTS_REQUIRED=0` is the old engine.
     pub roots_required: bool,
     /// Adventitious roots sprouted under `roots_required`: its did-it-fire
     /// count.
