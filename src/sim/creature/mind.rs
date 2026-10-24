@@ -1105,7 +1105,11 @@ pub fn blinded(g: &[f32]) -> Vec<f32> {
 ///   control a trail-following score must reward;
 /// * `persist` -- walks on in whatever way it faces and never turns or
 ///   rests: the walker that half its clones carry the right way by luck,
-///   which a score must not reward like a follower.
+///   which a score must not reward like a follower;
+/// * `hunter` -- the lone predator's starting mind (`train::predator`):
+///   bites any stranger in reach, picks up flesh, never rests, and walks
+///   where the ants' scent A grows, keeping off ledges -- `follower` on the
+///   ants' home trail instead of the food trail, with the bite on top.
 ///
 /// `None` for any other name.
 /// **The `forager` preset's egg bar switched off**, for an arena whose ant
@@ -1135,6 +1139,17 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             g[job(Verb::Walk, best)] = 3.0;
             g[job(Verb::TurnAround, best)] = 3.0;
             g[job(Verb::Rest, offset)] = -2.0;
+        }
+        "hunter" => {
+            g[S_FEAT + f::SCENT + 1] = 4.0; // a, stronger there
+            g[S_FEAT + f::SCENT + 2] = 4.0; // ...and two cells on
+            g[S_FEAT + f::FALL] = -4.0;
+            g[S_OUT] = 3.0;
+            g[job(Verb::Walk, best)] = 3.0;
+            g[job(Verb::TurnAround, best)] = 3.0;
+            g[job(Verb::Rest, offset)] = -3.0;
+            g[job(Verb::Attack, offset)] = 6.0;
+            g[job(Verb::PickUp, offset)] = 3.0;
         }
         "persist" => {
             g[S_FEAT + f::FALL] = -4.0;
@@ -1373,7 +1388,7 @@ impl Verb {
         matches!(
             self,
             Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::PickUp | Verb::Eat | Verb::Drop | Verb::Feed | Verb::Dig
-        )
+        ) || (self == Verb::Attack && options::attack_on())
     }
 }
 
@@ -1454,6 +1469,12 @@ pub struct MindCounts {
     /// not zero, a hungry ant may put soil down on any footed cell.
     pub starved_soil: u64,
     pub starved_soil_food: u64,
+    /// **The bite** ([`attack`], `options::attack_on`): bites that wore a
+    /// stranger, bites that killed it, and cells of flesh swallowed off a
+    /// living body (a corpse picked up is a `swallowed`, not one of these).
+    pub bites: u64,
+    pub kills: u64,
+    pub flesh: u64,
 }
 
 /// **Every mind in the world**, by ant: a side table on the world, as the
@@ -2227,6 +2248,13 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 world.book(colony, Account::Metabolized, cost as f64);
                 world.creature_stats.dig_energy += cost as f64;
             }
+            // **A bite is jaw work too**, a cut's price per bite, as the
+            // game bills a gnaw (`creature_tick`'s jaw bill).
+            if did && opt.verb == Verb::Attack && def.dig_cost_in_moves > 0.0 {
+                let work = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves;
+                spent += work;
+                world.book(colony, Account::Metabolized, work as f64);
+            }
             if did {
                 moved = matches!(opt.verb, Verb::Walk | Verb::TurnAround);
                 if opt.verb == Verb::Walk {
@@ -2292,8 +2320,104 @@ fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, dra
         Verb::Drop => put_down(world, organism, def, opt.target),
         Verb::Feed => feed(world, organism, def, opt.target),
         Verb::Dig => dig(world, organism, def, opt.target),
-        _ => false,
+        Verb::Attack => options::attack_on() && attack(world, organism, def, opt.target),
     }
+}
+
+/// **Bite the stranger at `t`**, by the game's own bite (`act`'s fight and
+/// its ingest, lone predator thread, 2026-10-23; `options::attack_on`): the
+/// jaw's force against the cell's plate (`contest::bite_progress`) wears the
+/// victim down, and when a whole cell is worn through it comes off. If this
+/// gut can use it, the jaws are free and the crop has room for it, it goes
+/// into the crop at face value, as the ingest takes a living cell; else it is
+/// left empty, as the fight verb leaves it. Either way `reconcile_chain`
+/// tells the victim: the head taken is a death (the rest is corpse), a
+/// segment is an injury. Alarm is cried where the bite lands, as every bite
+/// cries it.
+///
+/// **None of the game's fight rules**: no urge, no assessment of the odds
+/// (`contest::commitment`), no stranger hold. Whether to bite is the mind's.
+/// The caller bills the jaw work, a cut's price per bite, as the game bills
+/// a gnaw.
+fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32)) -> bool {
+    let Some((colony, jaws_free, crop, (hx, hy))) = world
+        .organism(organism)
+        .and_then(|s| s.chain.first().map(|&h| (s.colony, s.spoil.is_none(), s.crop, h)))
+    else {
+        return false;
+    };
+    let cell = world.get(tx, ty);
+    let victim = cell.organism_id();
+    if victim == 0 || victim == organism || !super::is_animal_cell(world, cell) {
+        return false;
+    }
+    let Some(their_colony) = world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| s.colony) else {
+        return false;
+    };
+    if their_colony == colony {
+        return false;
+    }
+    let gut = super::gut_of(world, organism, def);
+    let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell));
+    world.creature_stats.contests += 1;
+    if damage <= 0.0 {
+        return false;
+    }
+    world.note_encounter(crate::sim::world::ENCOUNTER_BITE, organism, victim);
+    super::cry_alarm(world, tx, ty);
+    world.creature_stats.alarm_attack += 1;
+    world.creature_stats.attacks += 1;
+    let done = world.organism(victim).is_some_and(|st| st.gnawed + damage >= 1.0);
+    if let Some(st) = world.organism_mut(victim) {
+        st.gnawed = if done { 0.0 } else { st.gnawed + damage };
+    }
+    if let Some(m) = world.minds.as_mut() {
+        m.counts.bites += 1;
+    }
+    if !done {
+        return true;
+    }
+    // Who the victim was, read before the cell comes off: `reconcile_chain`
+    // frees the slot when the cell was the deciding one.
+    let victim_group = world.organism(victim).map(|s| (s.species, s.colony, s.energy));
+    let victim_side = super::kill_side(world, victim);
+    let worth = food_value(world, cell);
+    let room = crop.is_none_or(|c| c.material == cell.material && c.worth() + c.unit <= organism_crop_capacity(world, organism, def));
+    let swallow = jaws_free && room && super::diet_yield(world, cell, gut.bias) > super::EAT_YIELD_THRESHOLD;
+    if swallow {
+        world.loss_context = Some(DeathCause::Eaten);
+    }
+    world.set(tx, ty, Cell::EMPTY);
+    world.loss_context = None;
+    world.creature_stats.attack_cells += 1;
+    if swallow {
+        world.book_raid(colony, their_colony, worth as f64);
+    }
+    if !super::reconcile_chain(world, victim) {
+        world.creature_stats.attack_kills += 1;
+        if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
+            let verb = if swallow { crate::sim::world::KILL_VERB_EAT } else { crate::sim::world::KILL_VERB_BITE };
+            let detail = super::kill_detail(world, verb, organism, victim, victim_side);
+            world.tally_kill_detailed((v.0, v.1), me, v.2, detail);
+        }
+        if let Some(m) = world.minds.as_mut() {
+            m.counts.kills += 1;
+        }
+    }
+    if swallow {
+        crop_take(world, organism, cell.material, cell.shade, worth, None);
+        let at_home = food_at_home(world, organism, def, hx, hy);
+        super::note_food(world, organism, (tx, ty), super::FOOD_SWALLOW, worth, at_home);
+        if let Some(state) = world.organism_mut(organism) {
+            state.life.bites += 1;
+        }
+        world.creature_stats.pickups += 1;
+        if let Some(m) = world.minds.as_mut() {
+            m.counts.swallowed += 1;
+            m.counts.flesh += 1;
+        }
+    }
+    true
 }
 
 /// **Eat from the crop**: finish the cell being digested this tick
@@ -2353,7 +2477,7 @@ fn pick_up(
     let food = bite.material;
     if jaws
         || world.materials.get(food).food_energy <= 0.0
-        || world.materials.known(Known::Corpse) == Some(food)
+        || (world.materials.known(Known::Corpse) == Some(food) && !options::attack_on())
         || (bite.organism_id() != 0 && !scratch_log::grazeable(world, bite))
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
@@ -3860,6 +3984,60 @@ mod tests {
             assert!(!act(&mut w, b, &def, on(Verb::Feed, cell), &mut draw), "fed uphill");
         }
         assert_eq!(w.minds.as_ref().expect("minds").counts.fed_adult, 1);
+    }
+
+    /// **The bite takes a stranger's cell, and the mouth keeps it** (lone
+    /// predator thread, 2026-10-23; [`attack`]): a spider's head beside an
+    /// ant wears through the cell it bites in one go (jaw 0.5 against ant
+    /// flesh at 0.25), the cell leaves the world, a bitten head is a death,
+    /// and the flesh is in the spider's crop at face value. Nothing is bitten
+    /// in an empty cell or in the biter's own body. **And the switch**: the
+    /// act is reachable from a pick only while `options::attack_on` is set,
+    /// which nothing in the test process sets, so the game's minds are
+    /// untouched (`Verb::acts`).
+    #[test]
+    fn the_bite_takes_a_strangers_cell_and_the_mouth_keeps_it() {
+        assert_eq!(Verb::Attack.acts(), options::attack_on(), "the Attack act is reachable with its switch off");
+        let mut w = crate::lab::scene::LabBox {
+            founders: 0,
+            colonies: 0,
+            width: 128,
+            height: 96,
+            ground_y: 60,
+            soil_depth: 30,
+            ..crate::lab::scene::LabBox::default()
+        }
+        .build();
+        let gy = (0..96).find(|&y| y > 10 && w.get(64, y).material != crate::sim::material::EMPTY).expect("ground");
+        let spider = match crate::sim::creature::plant_creature_seed(&mut w, 62, gy - 1, "spider").map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no spider placed: {other:?}"),
+        };
+        let ant = match crate::sim::creature::plant_creature_seed(&mut w, 64, gy - 1, "ant").map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no ant placed: {other:?}"),
+        };
+        let sdef = w.species.get(w.organism(spider).expect("spider").species).creature.clone().expect("creature");
+        let h = head_of(&w, spider);
+        let ant_body = w.organism(ant).expect("ant").chain.clone();
+        let t = ant_body.iter().copied().find(|&(x, y)| (x - h.0).abs() <= 1 && (y - h.1).abs() <= 1).expect("the ant beside the spider's head");
+        let flesh = w.get(t.0, t.1).material;
+        give(&mut w, spider, Arc::new(MindGenome::new(blank(&[Verb::Walk, Verb::Attack]))));
+        assert!(!attack(&mut w, spider, &sdef, (h.0, h.1 - 3)), "bit the air");
+        assert!(!attack(&mut w, spider, &sdef, h), "bit itself");
+        assert!(attack(&mut w, spider, &sdef, t), "the bite");
+        assert_ne!(w.get(t.0, t.1).material, flesh, "the bitten cell is still there");
+        let k = w.minds.as_ref().expect("minds").counts;
+        assert_eq!((k.bites, k.flesh), (1, 1));
+        let crop = w.organism(spider).and_then(|s| s.crop).expect("flesh in the crop");
+        assert_eq!(crop.material, flesh);
+        assert!((crop.worth() - w.materials.get(flesh).food_energy).abs() < 1.0, "crop worth {}", crop.worth());
+        if t == ant_body[0] {
+            assert!(w.organism(ant).is_none(), "a bitten head left the ant alive");
+            assert_eq!(k.kills, 1);
+        } else {
+            assert!(w.organism(ant).is_some_and(|s| s.chain.len() == ant_body.len() - 1), "a bitten segment");
+        }
     }
 
     /// **The soil verbs move soil by the world's rules**: a cut takes the

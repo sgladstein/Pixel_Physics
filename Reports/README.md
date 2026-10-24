@@ -2841,6 +2841,16 @@ drift that two of these documents still reflect.**
   so *why* an edible leaf unequalises the banks is open. **The report is on
   main (brought docs-only 2026-10-10); `examples/replay.rs` is only on
   `claude/epic-bell-w6za1y`.**
+- [lone-predator-2026-10-24.md](lone-predator-2026-10-24.md) — **stage one of the
+  owner's predator, 2026-10-24: a spider trained by in-run selection against
+  the (not evolving) ant.** A six-cell hunter that cannot dig and kills an ant
+  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK=on`
+  (off by default); `examples/predtrain.rs` breeds and culls spiders inside
+  the living bed. From a blank mind selection held the hunt but did not
+  improve it (79 against 74 kills on fresh beds); from the hand-built
+  `hunter` preset it did (145 against 116, 6 of 8 lines), and random parents
+  lost the hunt (57). Stage two, the ant defending, needs Attack and the alarm
+  emit in the ant's arena.
 
 ## Worldgen and world  ·  `outdoor`
 

@@ -347,6 +347,22 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// **A mind can bite** (lone predator thread, 2026-10-23): `PIXEL_PHYSICS_MIND_ATTACK=on` lands the Attack act
+/// (`mind::attack`), the game's own bite on a stranger in reach, and lets a mind pick up a cell of corpse its gut can
+/// use. **Why**: a predator that hunts by a mind needs a verb that kills and a mouth for what it killed; until now
+/// Attack was listed and never picked, and a dead ant was never picked up (no carry of one is built, and an ant
+/// eating its colony's dead was not what the rule was about). **Off by default, because it changes results**: a
+/// mind ant's genome can carry a live Attack switch, and in a box with two colonies or a predator it would start
+/// biting. Off, nothing is read or written: Attack is never picked and a corpse never offered, as before.
+pub fn attack_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_ATTACK").as_deref() {
+        Ok("on") => true,
+        Ok("off") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_ATTACK={other:?}: use on or off"),
+    })
+}
+
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
 /// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
 /// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
@@ -581,7 +597,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
         if jaws_free
             && food
-            && !corpse
+            && (!corpse || attack_on())
             && room
             && crop.is_none_or(|c| c.material == cell.material)
             && diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD
