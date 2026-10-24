@@ -703,14 +703,18 @@ by somebody about to try it on creatures.
   small arena costs about 0.1 core-seconds.
 
 - [rootless-plants-2026-10-23.md](rootless-plants-2026-10-23.md)
-  — **Plants living with no roots, traced and fixed behind a switch (off).**
+  — **Plants living with no roots, traced and fixed; both switches on since
+  2026-10-24 (#841, #847).**
   At 450,000 frames a third of the lab bed's leafy plants had no root in the
   ground. Die-back sheds a starving plant's roots first, stem cells on the
   soil drink in their place, and nothing can root the plant again.
   `World::roots_required` lets only roots drink, keeps a plant's last roots,
   and sprouts a root from a thirsty stem. Over 8 paired beds, rootless leafy
   plants went 78 -> 9, shrub leaf 1,925 -> 5,353, and roles a bed
-  2.62 -> 2.88.
+  2.62 -> 2.88. `World::nutrient_by_root` then caps a plant's nutrient by
+  how much root reaches soil against its foliage. The report ends with how
+  realistic the nutrient model is against real plants, and six ranked
+  ideas (pale hungry leaves first).
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
