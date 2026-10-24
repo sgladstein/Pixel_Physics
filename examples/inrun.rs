@@ -25,7 +25,7 @@
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
 //! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
-//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=life|total]` keeps N spiders
+//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=total|life]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -2520,8 +2520,9 @@ fn main() {
     }
     if let (Some(s), Some(d)) = (spiders.as_ref(), arg(&a, "spider_out")) {
         let total = match arg(&a, "spider_score") {
-            None | Some("life") => false,
-            Some("total") => true,
+            // total by default: the owner's pick, 2026-10-24 ("Total food eaten in its life").
+            Some("life") => false,
+            None | Some("total") => true,
             Some(o) => panic!("spider_score={o}: life or total"),
         };
         s.save(std::path::Path::new(d), w.frame - f0, total);
