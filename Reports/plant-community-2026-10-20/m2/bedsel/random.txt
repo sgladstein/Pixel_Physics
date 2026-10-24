@@ -1,0 +1,490 @@
+plant_m0 bedsel: beds=8 round=150000 rounds=8 pick=random seed=1 keep=8 pmut=0.1 fmut=0.3 garden=8 gframes=300000 roles=["tree", "shrub", "herb", "creeper"]
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=0 bed=0 seed=1000 types=3 weakest=56 leaf=tree:1293,shrub:1126,herb:836,creeper:56 given=0 parent=true
+BED r=0 bed=1 seed=1001 types=3 weakest=65 leaf=tree:5264,shrub:1678,herb:213,creeper:65 given=0 parent=true
+BED r=0 bed=2 seed=1002 types=3 weakest=76 leaf=tree:1985,shrub:834,herb:349,creeper:76 given=0 parent=false
+BED r=0 bed=3 seed=1003 types=3 weakest=53 leaf=tree:3429,shrub:1298,herb:181,creeper:53 given=0 parent=false
+BED r=0 bed=4 seed=1004 types=2 weakest=82 leaf=tree:5586,shrub:92,herb:409,creeper:82 given=0 parent=true
+BED r=0 bed=5 seed=1005 types=3 weakest=29 leaf=tree:2976,shrub:192,herb:599,creeper:29 given=0 parent=false
+BED r=0 bed=6 seed=1006 types=4 weakest=103 leaf=tree:3308,shrub:798,herb:521,creeper:103 given=0 parent=false
+BED r=0 bed=7 seed=1007 types=4 weakest=132 leaf=tree:2519,shrub:681,herb:887,creeper:132 given=0 parent=true
+ROUND r=0 mean_types=3.12 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=787s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=1 bed=0 seed=1008 types=4 weakest=113 leaf=tree:3267,shrub:967,herb:327,creeper:113 given=12 parent=true
+BED r=1 bed=1 seed=1009 types=4 weakest=161 leaf=tree:3643,shrub:1020,herb:750,creeper:161 given=12 parent=false
+BED r=1 bed=2 seed=1010 types=4 weakest=184 leaf=tree:1854,shrub:1262,herb:1036,creeper:184 given=12 parent=true
+BED r=1 bed=3 seed=1011 types=3 weakest=49 leaf=tree:3477,shrub:426,herb:583,creeper:49 given=12 parent=false
+BED r=1 bed=4 seed=1012 types=4 weakest=169 leaf=tree:2988,shrub:1399,herb:594,creeper:169 given=12 parent=false
+BED r=1 bed=5 seed=1013 types=4 weakest=183 leaf=tree:2699,shrub:564,herb:604,creeper:183 given=12 parent=false
+BED r=1 bed=6 seed=1014 types=4 weakest=221 leaf=tree:3032,shrub:827,herb:687,creeper:221 given=12 parent=true
+BED r=1 bed=7 seed=1015 types=3 weakest=28 leaf=tree:2347,shrub:803,herb:630,creeper:28 given=12 parent=true
+ROUND r=1 mean_types=3.75 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=1591s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=2 bed=0 seed=1016 types=3 weakest=27 leaf=tree:667,shrub:1296,herb:1113,creeper:27 given=12 parent=false
+BED r=2 bed=1 seed=1017 types=3 weakest=85 leaf=tree:4738,shrub:493,herb:721,creeper:85 given=12 parent=false
+BED r=2 bed=2 seed=1018 types=3 weakest=63 leaf=tree:4710,shrub:944,herb:63,creeper:107 given=12 parent=true
+BED r=2 bed=3 seed=1019 types=3 weakest=41 leaf=tree:3556,shrub:1742,herb:430,creeper:41 given=12 parent=true
+BED r=2 bed=4 seed=1020 types=4 weakest=109 leaf=tree:3351,shrub:924,herb:955,creeper:109 given=12 parent=false
+BED r=2 bed=5 seed=1021 types=3 weakest=0 leaf=tree:794,shrub:1094,herb:769,creeper:0 given=12 parent=false
+BED r=2 bed=6 seed=1022 types=3 weakest=92 leaf=tree:6087,shrub:555,herb:286,creeper:92 given=12 parent=true
+BED r=2 bed=7 seed=1023 types=4 weakest=236 leaf=tree:4143,shrub:872,herb:690,creeper:236 given=12 parent=true
+ROUND r=2 mean_types=3.25 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=2410s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=3 bed=0 seed=1024 types=4 weakest=232 leaf=tree:3742,shrub:491,herb:311,creeper:232 given=12 parent=true
+BED r=3 bed=1 seed=1025 types=3 weakest=27 leaf=tree:3647,shrub:1248,herb:332,creeper:27 given=12 parent=true
+BED r=3 bed=2 seed=1026 types=3 weakest=0 leaf=tree:4250,shrub:132,herb:887,creeper:0 given=12 parent=true
+BED r=3 bed=3 seed=1027 types=3 weakest=79 leaf=tree:3929,shrub:597,herb:393,creeper:79 given=12 parent=false
+BED r=3 bed=4 seed=1028 types=3 weakest=87 leaf=tree:2359,shrub:838,herb:762,creeper:87 given=12 parent=false
+BED r=3 bed=5 seed=1029 types=4 weakest=123 leaf=tree:3912,shrub:719,herb:731,creeper:123 given=12 parent=false
+BED r=3 bed=6 seed=1030 types=3 weakest=91 leaf=tree:5597,shrub:1141,herb:255,creeper:91 given=12 parent=true
+BED r=3 bed=7 seed=1031 types=2 weakest=0 leaf=tree:5889,shrub:593,herb:0,creeper:0 given=12 parent=false
+ROUND r=3 mean_types=3.12 pool=creeper:23,herb:32,shrub:31,tree:32 elapsed=3173s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=4 bed=0 seed=1032 types=2 weakest=61 leaf=tree:2284,shrub:1503,herb:90,creeper:61 given=12 parent=false
+BED r=4 bed=1 seed=1033 types=4 weakest=240 leaf=tree:2408,shrub:1720,herb:886,creeper:240 given=12 parent=true
+BED r=4 bed=2 seed=1034 types=4 weakest=124 leaf=tree:5686,shrub:793,herb:349,creeper:124 given=12 parent=true
+BED r=4 bed=3 seed=1035 types=3 weakest=68 leaf=tree:5753,shrub:509,herb:559,creeper:68 given=12 parent=false
+BED r=4 bed=4 seed=1036 types=3 weakest=70 leaf=tree:3807,shrub:1129,herb:507,creeper:70 given=12 parent=false
+BED r=4 bed=5 seed=1037 types=3 weakest=87 leaf=tree:2918,shrub:830,herb:630,creeper:87 given=12 parent=true
+BED r=4 bed=6 seed=1038 types=3 weakest=51 leaf=tree:2196,shrub:670,herb:1343,creeper:51 given=12 parent=true
+BED r=4 bed=7 seed=1039 types=4 weakest=175 leaf=tree:3727,shrub:1600,herb:840,creeper:175 given=12 parent=false
+ROUND r=4 mean_types=3.25 pool=creeper:30,herb:32,shrub:32,tree:32 elapsed=4001s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=5 bed=0 seed=1040 types=3 weakest=80 leaf=tree:5502,shrub:1145,herb:277,creeper:80 given=12 parent=false
+BED r=5 bed=1 seed=1041 types=4 weakest=197 leaf=tree:2261,shrub:1040,herb:515,creeper:197 given=12 parent=false
+BED r=5 bed=2 seed=1042 types=4 weakest=157 leaf=tree:3268,shrub:710,herb:249,creeper:157 given=12 parent=true
+BED r=5 bed=3 seed=1043 types=4 weakest=138 leaf=tree:4035,shrub:1765,herb:663,creeper:138 given=12 parent=false
+BED r=5 bed=4 seed=1044 types=4 weakest=205 leaf=tree:2685,shrub:554,herb:1096,creeper:205 given=12 parent=true
+BED r=5 bed=5 seed=1045 types=3 weakest=53 leaf=tree:5847,shrub:1011,herb:545,creeper:53 given=12 parent=true
+BED r=5 bed=6 seed=1046 types=4 weakest=145 leaf=tree:3215,shrub:858,herb:145,creeper:170 given=12 parent=false
+BED r=5 bed=7 seed=1047 types=3 weakest=95 leaf=tree:5053,shrub:1872,herb:408,creeper:95 given=12 parent=true
+ROUND r=5 mean_types=3.62 pool=creeper:30,herb:32,shrub:32,tree:32 elapsed=4803s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=6 bed=0 seed=1048 types=3 weakest=86 leaf=tree:4466,shrub:863,herb:599,creeper:86 given=12 parent=true
+BED r=6 bed=1 seed=1049 types=4 weakest=176 leaf=tree:3132,shrub:1363,herb:564,creeper:176 given=12 parent=true
+BED r=6 bed=2 seed=1050 types=4 weakest=221 leaf=tree:5105,shrub:224,herb:221,creeper:256 given=12 parent=true
+BED r=6 bed=3 seed=1051 types=4 weakest=289 leaf=tree:1265,shrub:772,herb:1258,creeper:289 given=12 parent=true
+BED r=6 bed=4 seed=1052 types=3 weakest=97 leaf=tree:5770,shrub:438,herb:1309,creeper:97 given=12 parent=false
+BED r=6 bed=5 seed=1053 types=2 weakest=0 leaf=tree:5780,shrub:1426,herb:80,creeper:0 given=12 parent=false
+BED r=6 bed=6 seed=1054 types=4 weakest=198 leaf=tree:1764,shrub:1586,herb:651,creeper:198 given=12 parent=false
+BED r=6 bed=7 seed=1055 types=4 weakest=254 leaf=tree:1869,shrub:1269,herb:254,creeper:357 given=12 parent=false
+ROUND r=6 mean_types=3.50 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=5613s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0.08 founder_variants=0.25
+BED r=7 bed=0 seed=1056 types=3 weakest=0 leaf=tree:3917,shrub:1303,herb:525,creeper:0 given=12 parent=false
+BED r=7 bed=1 seed=1057 types=4 weakest=356 leaf=tree:4178,shrub:509,herb:1034,creeper:356 given=12 parent=false
+BED r=7 bed=2 seed=1058 types=3 weakest=51 leaf=tree:2496,shrub:677,herb:590,creeper:51 given=12 parent=true
+BED r=7 bed=3 seed=1059 types=4 weakest=189 leaf=tree:1745,shrub:444,herb:1380,creeper:189 given=12 parent=false
+BED r=7 bed=4 seed=1060 types=4 weakest=156 leaf=tree:1022,shrub:3537,herb:362,creeper:156 given=12 parent=true
+BED r=7 bed=5 seed=1061 types=4 weakest=141 leaf=tree:3577,shrub:774,herb:455,creeper:141 given=12 parent=true
+BED r=7 bed=6 seed=1062 types=4 weakest=323 leaf=tree:2257,shrub:940,herb:820,creeper:323 given=12 parent=true
+BED r=7 bed=7 seed=1063 types=4 weakest=311 leaf=tree:1757,shrub:370,herb:1595,creeper:311 given=12 parent=false
+ROUND r=7 mean_types=3.75 pool=creeper:30,herb:32,shrub:32,tree:32 elapsed=6373s
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+GARDEN arm=shipped seed=9001 types=1 weakest=0 leaf=tree:5699,shrub:23,herb:0,creeper:0 given=0
+GARDEN arm=shipped seed=9002 types=3 weakest=0 leaf=tree:3829,shrub:1206,herb:0,creeper:157 given=0
+GARDEN arm=shipped seed=9003 types=3 weakest=59 leaf=tree:978,shrub:1678,herb:326,creeper:59 given=0
+GARDEN arm=shipped seed=9004 types=3 weakest=0 leaf=tree:2372,shrub:982,herb:780,creeper:0 given=0
+GARDEN arm=shipped seed=9005 types=3 weakest=0 leaf=tree:2545,shrub:533,herb:321,creeper:0 given=0
+GARDEN arm=shipped seed=9006 types=2 weakest=0 leaf=tree:1932,shrub:39,herb:1238,creeper:0 given=0
+GARDEN arm=shipped seed=9007 types=2 weakest=0 leaf=tree:66,shrub:814,herb:1291,creeper:0 given=0
+GARDEN arm=shipped seed=9008 types=3 weakest=0 leaf=tree:1131,shrub:1393,herb:569,creeper:0 given=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+plant_m0 seed_pile_depth=2
+plant_m0 shade_plasticity=true shade_scald=false open_light=2.40 genes=none
+plant_m0 soil_capillary_levels=false soil_through_roots=true decay_reads_ground=false rot_soil_yield=0 root_mats_repay=true soil_texture=true texture_water=true
+plant_m0 bud_break_reserve=true lifespans: tree=120000 shrub=135000 herb=0 creeper=0
+plant_m0 heredity: fate_mutation=0 param_mutation=0 mutation_sigma=0 founder_variants=0
+GARDEN arm=pool seed=9001 types=4 weakest=259 leaf=tree:2786,shrub:759,herb:731,creeper:259 given=12
+GARDEN arm=pool seed=9002 types=3 weakest=0 leaf=tree:2936,shrub:1520,herb:1051,creeper:0 given=12
+GARDEN arm=pool seed=9003 types=3 weakest=84 leaf=tree:1949,shrub:2131,herb:390,creeper:84 given=12
+GARDEN arm=pool seed=9004 types=4 weakest=440 leaf=tree:1431,shrub:503,herb:857,creeper:440 given=12
+GARDEN arm=pool seed=9005 types=3 weakest=48 leaf=tree:2354,shrub:232,herb:359,creeper:48 given=12
+GARDEN arm=pool seed=9006 types=2 weakest=0 leaf=tree:0,shrub:2171,herb:460,creeper:68 given=12
+GARDEN arm=pool seed=9007 types=3 weakest=0 leaf=tree:669,shrub:2105,herb:1503,creeper:0 given=12
+GARDEN arm=pool seed=9008 types=3 weakest=13 leaf=tree:697,shrub:2309,herb:13,creeper:281 given=12
+plant_m0 done: 9057.2 s
