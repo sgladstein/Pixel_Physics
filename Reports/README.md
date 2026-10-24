@@ -2882,7 +2882,10 @@ drift that two of these documents still reflect.**
   the mind's home senses): trained from the hunter, 80.6 against 40.9 kills,
   19 of 24 paired judgings; a blind-trained pool loses from it. The bite and
   sight go on by default (owner); with no spider the bite never fires and food
-  and starving show no harm on 4 seeds. Co-evolution (`spiderevo=`) built.
+  and starving show no harm on 4 seeds. **Co-evolution** (`spiderevo=`, 3 arms x
+  16 colonies x 12 rounds): the spider pool evolved *backwards* (kills less in 49
+  of 77 paired judgings; selection on one noisy life per placement, no elitism),
+  and no clear defence learning in the colonies.
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's

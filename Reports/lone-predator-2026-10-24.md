@@ -159,11 +159,48 @@ No bite fires (no stranger lives on the bed); mutants lay some alarm (against 29
 show no harm on four seeds. A genome that holds Attack banned (every trained pool, the lab's new ant) still never
 bites outside `inrun`, the only caller of `mind::enter_bite`.
 
-**Co-evolution** (built, results to follow): inrun `spider_mut=PM:SIGMA:EVENTS spider_out=DIR` makes each placed
+**Co-evolution**: inrun `spider_mut=PM:SIGMA:EVENTS spider_out=DIR` makes each placed
 spider a mutant of its pool parent and writes its credit (flesh swallowed, by face worth / 100) over its life
 (floored at 20,000 frames: a spider that gorged and died in 1,330 frames otherwise scored 124.8); colsel
 `spiderevo=KEEP:PM:SIGMA:EVENTS` takes the best KEEP placements across all colonies as the next round's pool
 (`OUT/spool/rN`, `OUT/spool.csv`; carried in `state.json`). Gardens face the current pool unmutated.
+
+**The first co-evolution batch: the spiders evolved backwards.** Three arms, local, each 16 colonies x 12 rounds x
+200k frames from `std_pool` (`lesson=c1:0.1`), one spider at a time from frame 100k every 50k (`spiderramp=
+100000:20000:10:2`), `CG_EVERY=4`: **coevo** (blind spiders from `score-1`, `spiderevo=8:0.03:1.0:4`), **fixed**
+(the same spiders, not evolving) and **sight** (sighted spiders from `sight-h2`, evolving). Judged after round 11
+on each colony's garden world (seed c x 1000 + 99, sel=off, 200k frames, spiders from 60k every 50k), every
+colony line against the starting spider pool and against its arm's last evolved pool:
+
+| colonies | spiders | ants killed (median / mean) | spiders killed by ants (mean) | food home (median) | starved (median) |
+|---|---|---|---|---|---|
+| founder | score-1 | 57 / 48.8 | 1.88 | 10,601 | 9 |
+| founder | coevo's last | 32 / 38.6 | 0.88 | 10,906 | 8 |
+| coevo | score-1 | 42 / 36.9 | 1.62 | 15,351 | 1 |
+| coevo | coevo's last | 34 / 57.2 | 0.56 | 15,037 | 0 |
+| fixed | score-1 | 49 / 53.2 | 1.75 | 16,061 | 1 |
+| fixed | coevo's last | 28 / 34.1 | 0.81 | 14,058 | 1 |
+| founder (sighted) | sight-h2 | 65 / 73.8 | 2.25 | 10,464 | 10 |
+| founder (sighted) | sight's last | 40 / 29.2 | 0.88 | 11,090 | 10 |
+| sight | sight-h2 | 41 / 53.6 | 2.12 | 12,705 | 5 |
+| sight | sight's last | 21 / 39.1 | 0.94 | 12,545 | 5 |
+
+- **The evolved spider pools kill less than the pools they started from**: fewer ants in 49 of 77 paired judgings,
+  more in 28. They are also killed by ants half as often. Ten rounds of picking the 8 best of about 30 placements,
+  each placement scored once, selected spiders that hunt less and avoid ants. Each placement is one noisy sample;
+  sigma 1.0 over 4 events moves a tuned genome a long way; and nothing keeps a parent that was already good. **Before
+  another run:** keep the parents (elitism), judge each candidate on more than one life, and mutate more gently.
+- **Colonies: no clear defence learning.** Coevo colonies lost fewer ants to `score-1` than fixed colonies in 12 of 16
+  paired colonies (591 vs 852). But the fixed line was the one trained against `score-1`, and neither trained line
+  beat the untrained founder clearly (coevo 8 of 16, fixed 7 of 16). The sighted line lost fewer ants than the founder
+  to the sighted spider in 11 of 16 (858 vs 1,180): suggestive, at this size.
+- **Every trained line got better at living** (starved 9 -> 0-5, food home 10.6k -> 12.5-16k): that is the training
+  bed itself, with or without spiders, not defence.
+
+Where it goes next: fix the spider side's selection (above) before spending a 64-colony VM batch on the arms race.
+The judge is `scratch/inrun/predjudge.py` (`S=` the folder holding the arms as `ce/coevo`, `ce/fixed`, `ce/sight`;
+`SIGHT=on COLS=founder,sight EVO=sight ORIG=.../sight-h2` for the sighted grid). The judged rows are in
+`/mnt/project-files/predator/coevo1/`.
 
 ## Reproduce
 
