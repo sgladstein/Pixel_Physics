@@ -4,6 +4,7 @@
 //!
 //! cargo run --release --example inrun -- founders=v2.txt:15,s171.txt:15[,zero:4] frames=200000 seed=1 out=DIR
 //!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1]
+//!     (since 2026-10-24 the standard line's settings, `STANDARD`, fill in anything not given; `std=off` for none)
 //!
 //! Genomes load through the copylog suite, as training loads them. `zero` is an all-zero mind (every option scored
 //! alike: a random chooser, the do-nothing-useful control).
@@ -375,6 +376,50 @@ fn read_nestmap(w: &mut pixel_physics::sim::World, path: &str, nest_only: Option
     n
 }
 
+/// **The standard training line, on by default** (owner, 2026-10-24: "if we have decided these are the correct path
+/// forward they should be default on"): the per-round settings every colony-selection batch has run since colsel21
+/// (Teacher lane; breeding's `kevents`/`kpm` since brood1). They go after the command line, and [`arg`] takes the
+/// first match, so anything given wins; `std=off` runs the harness's old defaults. The senses they were trained with
+/// (home sense, dig head, light sense, grazing) are default-on in the sim itself, and `founders=` and the lesson
+/// stay on the job line.
+const STANDARD: &[&str] = &[
+    "dist=25",
+    "spread=10",
+    "grants=3",
+    "window=4000",
+    "min_age=8000",
+    "cooldown=3000",
+    "w_deliver=7",
+    "w_field=0.05",
+    "w_depth=2",
+    "rim=15",
+    "cap=60",
+    "fresh_kid=1",
+    "drip=20",
+    "mutation=neutral",
+    "kevents=4",
+    "kpm=0.013",
+    "w_home_eat=2",
+    "kid_cap=4",
+    "retire=1",
+    "hall=30000",
+    "fprice=tank",
+    "w_hungry=10",
+    "progress=1",
+    "turn=30000",
+    "kid_grants=3",
+    "cut_join=32",
+];
+
+fn with_standard(mut a: Vec<String>) -> Vec<String> {
+    if arg(&a, "std") != Some("off") {
+        let given: Vec<String> = STANDARD.iter().filter(|s| arg(&a, s.split_once('=').unwrap().0).is_none()).map(|s| s.to_string()).collect();
+        println!("standard line (std=off for the old defaults), not given so taken: {}", given.join(" "));
+        a.extend(given);
+    }
+    a
+}
+
 fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
@@ -543,6 +588,7 @@ fn main() {
         std::env::set_var("PIXEL_PHYSICS_MIND_ATTACK", "on");
     }
     let a: Vec<String> = std::env::args().skip(1).collect();
+    let a = with_standard(a);
     // pile=1 (default): every founder starts at the nest door, heaped (the game's own
     // `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS=pile`), not spread along the ground (owner, 2026-10-21).
     if arg(&a, "pile") != Some("0") {

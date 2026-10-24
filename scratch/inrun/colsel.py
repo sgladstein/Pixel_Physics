@@ -5,6 +5,7 @@ colonies x 6 rounds, gave 3x the food and a third of the starvation, but zero di
 score, which is negative for every crater-digging colony and ~+1 for a colony that never digs, so it paid not digging.
 
 usage: colsel.py OUT MODE NCOL ROUNDS FRAMES GENOME [inrun args...]
+  GENOME a .raw.txt (round 0 = it and 29 mutants), or a pool file such as assets/minds/std_pool.txt (round 0 = the pool)
   MODE plain   every colony runs rounds.sh's loop on its own (the control).
   MODE gate    after each round, a colony may be in the top half only if it passed the dig gate (GATE or more cuts of
                original ground within 20 columns in the round's second half).
@@ -287,7 +288,30 @@ logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
     log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,passed_gate,rank,refounded_from,pilecap,spider_at\n')
-founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
+def expand_pool(path):
+    """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
+    out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
+    lines = [l for l in open(path).read().split('\n') if l.strip() and not l.startswith('#')]
+    head = lines[0].split()
+    assert head[0] == 'pool' and head[2] == 'genome', head
+    members = []
+    for l in lines[1:]:
+        if l.startswith('member '):
+            members.append(dict(members[0]) if members else {})
+            continue
+        i, w = l.split()
+        members[-1][int(i)] = w
+    os.makedirs(f'{OUT}/pool', exist_ok=True)
+    out = []
+    for k, m in enumerate(members):
+        fp = f'{OUT}/pool/p{k:02}.raw.txt'
+        with open(fp, 'w') as f:
+            f.write(f'genome {head[3]} {head[4]}\n')
+            f.writelines(f'{i} {w}\n' for i, w in sorted(m.items()) if float(w) != 0.0)
+        out.append(f'{fp}@p{k:02}:1')
+    return [f"founders={','.join(out)}"]
+# G a pool file (the standard pool, since 2026-10-24): round 0 is the pool itself, no mutants
+founders = {c: (expand_pool(G) if G.endswith('pool.txt') else [f'founders={G}:1', 'mutants=30:0.03:1.0:7']) for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
 if R0:

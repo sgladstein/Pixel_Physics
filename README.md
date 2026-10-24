@@ -11160,8 +11160,10 @@ ants scored as they live, the best having children and the worst culled) ran
 only as a headless harness on a scratch branch. The lab now runs the same
 loop on its own page, so the owner can start it, watch rounds, births, culls
 and scores go by, change the settings, and follow any ant it names. The new
-ant — founder brain `h1`, the copy-then-select teacher's result — can also be
-put into an ordinary lab box beside the old ant.
+ant — since 2026-10-24 the standard pool (`assets/minds/std_pool.txt`: the 30
+best ants of colony selection's best-balanced colony on the standard
+settings), before that the single brain `h1` — can also be put into an
+ordinary lab box beside the old ant.
 
 **How to reach it.** `cargo run --release --bin lab -- training` opens the
 page and starts a run; `-- newant` starts the lab box with the new ant. In
@@ -11177,10 +11179,22 @@ HAPPENED (the newest births, refills, hall children, culls and retirements).
 `claude/project-thread-8y5ak0` in its turn mode, with `scratch/inrun/jobs/ctl.txt`
 as the defaults and `kid_grants` 3 (teacher lane, 2026-10-22: 11,076 food
 per seed against 6,923 at 1, 64 seeds x 6). The bed is `train::challenges::colony_bed`
-(`bed_timed` at 256x128, the colony heaped at the door), round 0 is `h1`
-plus 29 neutral mutants at 0.03/1.0, and each later round reseeds at
+(`bed_timed` at 256x128, the colony heaped at the door), round 0 is the
+standard pool itself (until 2026-10-24: `h1` plus 29 neutral mutants at
+0.03/1.0), and each later round reseeds at
 `seed*1000+round` from the top 30. A newborn inherits its parent's mind,
 mutated at birth by the harness's own `neutral_mutate`.
+
+**Default-on since 2026-10-24** (owner: "if we have decided these are the
+correct path forward they should be default on"): the senses the standard
+line trains with — the home sense (`PP_HOMEVEC`, 40:30), the dig head (dh7,
+shipped as `assets/minds/dh7.head`) with its gate, its light sense and its
+evolving weights, and grazing on plants (`PP_MIND_GRAZE`) — are on in the sim
+for every mind, each with an `=off` opt-out; `examples/inrun.rs` fills in the
+standard line's settings for anything a job does not give (`std=off` for the
+old defaults). The page's own SETTINGS are still `ctl.txt`'s (no breeding,
+`kevents` 10), so the file-for-file comparison below needs `std=off` on the
+harness side.
 
 **Measured: the loop is the harness's, file for file.** With the harness's
 own subset of the tick (`examples/labtrain.rs step=harness`), `births.csv`
@@ -11198,8 +11212,10 @@ run about 10k frames a second.
 - **The heap at the door holds 24 founders, not 30**, in the harness as
   much as here: the pile fills before the last six find a cell. Reported to
   the teacher lane.
-- In an ordinary lab box (ANT BRAIN: NEW) every ant is given `h1` as it
-  appears, and a child inherits its parent's mind **unmutated** — the box
+- In an ordinary lab box (ANT BRAIN: NEW) every ant is given a member of
+  the standard pool as it appears (which one is fixed by its id, so a box
+  holds the pool's mixture), and a child inherits its parent's mind
+  **unmutated** — the box
   plays the brain, it does not evolve it. Evolution is the training page's.
 - In the first 60k frames of seed 1 the new ant carried no food home — the
   known weakness of this brain, not of the port.

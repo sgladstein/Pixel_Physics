@@ -384,6 +384,18 @@ pub fn warmth_on() -> bool {
     })
 }
 
+/// **A default-on switch** (owner, 2026-10-24): on unless the variable is set to `0` or `off`. The standard training
+/// path's senses and verbs read this, so the lab, training and every harness run them without a `setenv=`; the old
+/// behaviour is one `=off` away.
+pub fn switch_on(name: &str) -> bool {
+    std::env::var(name).map_or(true, |v| switch_on_value(&v))
+}
+
+/// The value half of [`switch_on`]: anything but `0` or `off` is on.
+pub fn switch_on_value(v: &str) -> bool {
+    !matches!(v.trim(), "0" | "off")
+}
+
 /// SCRATCH (far-from-home sense thread, 2026-10-22): `PP_HOMEVEC=R:W`, a home vector that stays sharp
 /// far out. **Why**: the body's home vector reaches a mind only squashed -- `f::HOME` is `cos * squash(d / 32)` and
 /// `c::HOME_DIST` is `squash(d / 32)`, which read 0.44 at 25 columns (the food band), 0.65 at 60 and 0.76 at 100.
@@ -391,12 +403,19 @@ pub fn warmth_on() -> bool {
 /// maze thread) copied well onto hA1 and still leaked into foraging in the bed, and both write-ups name this ramp.
 /// With it on: every option gets `f::LAST_FOOD` (unwritten until now) = the step's cosine to home times
 /// [`far_ramp`], and the context's `c::D_SCENT + 2` (d_alarm, 0 on every bed decision: nothing lays alarm) reads the
-/// ramp itself. Both are exactly 0 within `R` of home. Unset: nothing is read or written, byte-identical.
+/// ramp itself. Both are exactly 0 within `R` of home. Off: nothing is read or written, byte-identical.
 /// A genome with live links on either slot must have them zeroed before the switch means anything (hA1 has 8 and 16).
+///
+/// **On by default at `40:30`** (owner, 2026-10-24: "if we have decided these are the correct path forward they should
+/// be default on"): every colony-selection batch since colsel18 ran with it, and the standard line's founder `hcs` and
+/// everything selected from it was trained with it. `PP_HOMEVEC=off` (or `0`) is the old mind, byte-identical.
 pub fn home_vec() -> Option<(f32, f32)> {
     static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        let v = std::env::var("PP_HOMEVEC").ok()?;
+        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "40:30".to_string());
+        if !switch_on_value(&v) {
+            return None;
+        }
         let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HOMEVEC=R:W")).collect();
         assert!(p.len() == 2 && p[1] > 0.0, "PP_HOMEVEC=R:W, W > 0");
         Some((p[0], p[1]))

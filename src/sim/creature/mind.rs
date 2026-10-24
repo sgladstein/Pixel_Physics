@@ -4616,9 +4616,10 @@ pub mod scratch_log {
     /// Measured on the planted training bed (inrun `plants=`, seed 1, hcs founder): with it off the mind took 5 bites
     /// in 2,500 frames and all 24 starved beside a stand holding ~940 leaf cells, ~90 fruit and ~180 seeds, while the
     /// game's own ant on the same bed took 712 bites (430 leaf, 109 flower) and all 24 lived to 20,000.
+    /// **On by default** (owner, 2026-10-24: "Yes to grazing"); `PP_MIND_GRAZE=off` (or `0`) is loose food only.
     pub fn graze_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
-        *ON.get_or_init(|| std::env::var("PP_MIND_GRAZE").is_ok_and(|v| v == "1"))
+        *ON.get_or_init(|| options::switch_on("PP_MIND_GRAZE"))
     }
     /// Under [`graze_on`]: a cell a plant owns (its owner has no creature body). Off: never.
     pub fn grazeable(world: &World, cell: Cell) -> bool {
@@ -5368,11 +5369,17 @@ pub mod scratch_log {
     }
     /// `PP_DIGHEAD=path`: "H ND" then W (H rows of 45 + ND), b (H), a (H), c, whitespace-separated; with a "when"
     /// read-out, "H ND 1" and then also e (H), c2.
+    ///
+    /// **On by default with [`DH7`]** (owner, 2026-10-24: the standard training path is default-on): unset reads the
+    /// shipped head, a path reads that file, `PP_DIGHEAD=off` (or `0`) is no head -- the mind's own Dig links alone.
     pub fn dighead() -> Option<&'static DigHead> {
         static H: OnceLock<Option<DigHead>> = OnceLock::new();
         H.get_or_init(|| {
-            let p = std::env::var("PP_DIGHEAD").ok()?;
-            let txt = std::fs::read_to_string(&p).expect("PP_DIGHEAD file");
+            let txt = match std::env::var("PP_DIGHEAD") {
+                Err(_) => DH7.to_string(),
+                Ok(p) if !options::switch_on_value(&p) => return None,
+                Ok(p) => std::fs::read_to_string(&p).expect("PP_DIGHEAD file"),
+            };
             let first = txt.lines().next().expect("PP_DIGHEAD header");
             let when = first.split_whitespace().count() == 3 && first.split_whitespace().nth(2) == Some("1");
             let v: Vec<f32> = txt.lines().skip(1).flat_map(|l| l.split_whitespace()).map(|x| x.parse().expect("PP_DIGHEAD number")).collect();
@@ -5393,15 +5400,19 @@ pub mod scratch_log {
     /// `PP_DIGHEAD_EVOLVE=1` (with `PP_DIGHEAD`): the head's weights ride each genome past [`GENOME_LEN`], so they
     /// mutate, cross and are inherited like the rest; the side file is the founders' start. The length they add.
     /// **Why** (Teacher lane, 2026-10-23): dh7 is one fixed head for every ant, so selection could not improve on it.
+    /// On by default whenever there is a head; `PP_DIGHEAD_EVOLVE=off` (or `0`) makes the side file everyone's again.
+    /// A genome of plain [`GENOME_LEN`] still runs either way, on the side file's head.
     pub fn head_evolve() -> Option<usize> {
         static ON: OnceLock<Option<usize>> = OnceLock::new();
-        *ON.get_or_init(|| {
-            std::env::var("PP_DIGHEAD_EVOLVE").is_ok_and(|v| v == "1").then(|| dighead().expect("PP_DIGHEAD_EVOLVE needs PP_DIGHEAD").flat().len())
-        })
+        *ON.get_or_init(|| if options::switch_on("PP_DIGHEAD_EVOLVE") { dighead().map(|h| h.flat().len()) } else { None })
     }
+    /// The standard line's dig head, dh7 (Teacher lane, 2026-10-23; `scratch/inrun/genomes/dh7.head` on the compute
+    /// branch): every colony-selection founder since colsel20 started from it.
+    pub const DH7: &str = include_str!("../../../assets/minds/dh7.head");
+    /// `PP_DIGHEAD_GATE`: on by default; `=off` (or `0`) for the ungated head.
     pub fn dig_gate_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
-        *ON.get_or_init(|| std::env::var("PP_DIGHEAD_GATE").is_ok_and(|v| v == "1"))
+        *ON.get_or_init(|| options::switch_on("PP_DIGHEAD_GATE"))
     }
     pub fn dighead_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
@@ -5522,9 +5533,11 @@ pub mod scratch_log {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| std::env::var("PP_DIGNOSKY").is_ok_and(|v| v == "1"))
     }
+    /// `PP_DIGLIGHT`: on by default (owner, 2026-10-24; the light sense the owner asked for on 2026-10-23 in place of
+    /// the exact soil count); `=off` (or `0`) reads the sky test and the count again.
     fn light_on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| std::env::var("PP_DIGLIGHT").is_ok_and(|v| v == "1"))
+        *ON.get_or_init(|| options::switch_on("PP_DIGLIGHT"))
     }
     pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: (i32, f32, f32, f32)) -> [f32; DIG_ND] {
         let (nx, adepth, asky, aopen) = c;
