@@ -2868,8 +2868,8 @@ drift that two of these documents still reflect.**
 - [lone-predator-2026-10-24.md](lone-predator-2026-10-24.md) — **stage one of the
   owner's predator, 2026-10-24: a spider trained by in-run selection against
   the (not evolving) ant.** A six-cell hunter that cannot dig and kills an ant
-  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK=on`
-  (off by default); `examples/predtrain.rs` breeds and culls spiders inside
+  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK`
+  (on by default since stage three); `examples/predtrain.rs` breeds and culls spiders inside
   the living bed. From a blank mind selection held the hunt but did not
   improve it (79 against 74 kills on fresh beds); from the hand-built
   `hunter` preset it did (145 against 116, 6 of 8 lines), and random parents
@@ -2877,7 +2877,12 @@ drift that two of these documents still reflect.**
   fixed spider on the colony bed and offers the ant the bite; ants kill about
   one spider a round from a blank entry, none when it is held off. Neither
   colsel defence case (`+guard`, `+slay`) beat plain selection on 16 colonies,
-  and both cost food; garden replicates swing more than arms.
+  and both cost food; garden replicates swing more than arms. **Stage three,
+  same day**: spiders see (`PIXEL_PHYSICS_MIND_SIGHT`, the game's eye read on
+  the mind's home senses): trained from the hunter, 80.6 against 40.9 kills,
+  19 of 24 paired judgings; a blind-trained pool loses from it. The bite and
+  sight go on by default (owner); with no spider the bite never fires and food
+  and starving show no harm on 4 seeds. Co-evolution (`spiderevo=`) built.
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's

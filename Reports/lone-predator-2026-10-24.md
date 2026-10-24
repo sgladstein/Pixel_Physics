@@ -120,6 +120,51 @@ round-9 carry (fresh world, selection off, the same spider):
 Picture: `/mnt/project-files/predator/ants-kill-spider.gif` (ants yellow, spider red, food green): the colony
 kills a trained spider at its food pile.
 
+## Stage three: spider sight, and the switches on by default (2026-10-24)
+
+**Spiders see.** Owner (15:07Z): "It seems realistic that spiders should use sight." A mind's senses were all
+touch-range plus scent; the spider's species file had a 64-cell eye that only its hand-built fallback brain used.
+`PIXEL_PHYSICS_MIND_SIGHT` gives a mind with an eye the game's own cast (`creature::sighted`: 16 rays all round,
+stopped by soil and rock), and reads the nearest prey on the **home senses** rather than new inputs: a new input
+would move every weight after it in every genome on disk, and a spider's home was only the cell it landed on. No
+prey in sight reads as no home. The eye is billed as every eye is. Off, byte-identical (inrun `events.csv` and
+`nest.csv`, seed 3, 40k frames, 2 spiders).
+
+| Trained 6 rounds x 100k (`predtrain`, 4 seeds), judged on beds 101-106 (4 spiders, 30k, sel=off) | mean ants killed | median | paired |
+|---|---|---|---|
+| from the hunter, sight on | **80.6** | 39 | wins 19 of 24 |
+| from the hunter, sight off | 40.9 | 33 | wins 4 |
+| from pool `score-1`, sight on | 63.2 | 36 | |
+| from pool `score-1`, sight off | 87.2 | 60 | |
+
+The judged kills are bimodal (about 30 or 100-190 a bed); sight moves judgings into the high mode (10 of 24 against 2
+of 24). **A blind-trained pool loses from sight**: its home weights were learnt on the landing cell. Spiders saw an
+ant on 1-15% of ticks; ants are mostly underground. The sighted pool is `predator/pools/sight-h2` in the project
+files (seed 2's last pool). `/mnt/project-files/predator/spider-sight-paired.gif`: the same bed, sight above, none
+below.
+
+**On by default** (owner, 17:34Z: "Everything should be on by default"): `PIXEL_PHYSICS_MIND_ATTACK` (the bite, the
+corpse pickup and the colony bed's alarm emit) and `PIXEL_PHYSICS_MIND_SIGHT`, each with `=off`. The Teacher lane
+asked first whether the bite or alarm fire between nestmates on a bed with no spider. Four seeds, std_pool founders,
+200k frames, sel=score, on against off:
+
+| seed | bites | alarm laid | food home (on/off) | starved (on/off) | alive (on/off) |
+|---|---|---|---|---|---|
+| 1 | 0 | 2,198 | 11,681 / 9,971 | 24 / 18 | 80 / 75 |
+| 2 | 0 | 13,054 | 14,046 / 9,439 | 24 / 7 | 88 / 86 |
+| 3 | 0 | 4,658 | 8,247 / 9,085 | 20 / 19 | 75 / 72 |
+| 4 | 0 | 7,473 | 10,868 / 9,079 | 8 / 23 | 77 / 75 |
+
+No bite fires (no stranger lives on the bed); mutants lay some alarm (against 290-350k of scent A). Food and starving
+show no harm on four seeds. A genome that holds Attack banned (every trained pool, the lab's new ant) still never
+bites outside `inrun`, the only caller of `mind::enter_bite`.
+
+**Co-evolution** (built, results to follow): inrun `spider_mut=PM:SIGMA:EVENTS spider_out=DIR` makes each placed
+spider a mutant of its pool parent and writes its credit (flesh swallowed, by face worth / 100) over its life
+(floored at 20,000 frames: a spider that gorged and died in 1,330 frames otherwise scored 124.8); colsel
+`spiderevo=KEEP:PM:SIGMA:EVENTS` takes the best KEEP placements across all colonies as the next round's pool
+(`OUT/spool/rN`, `OUT/spool.csv`; carried in `state.json`). Gardens face the current pool unmutated.
+
 ## Reproduce
 
 ```
