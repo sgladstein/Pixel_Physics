@@ -151,12 +151,18 @@ LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
 LAB_DIR = os.environ.get('LAB_DIR', 'scratch/inrun/labscen')
 LAB_SCENS = os.environ.get('LAB_SCENS', 'lab_far_mix,lab_mid_fruit').split(',')
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
+# setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
+LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split('=', 1) for kv in x[len('setenv='):].split(','))
+           if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT'))}
+
+
 def lab_alive(c, r, carry_c):
     import re
     tot = 0
     for k, sc in enumerate(LAB_SCENS):
         out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={c * 1000 + r * 10 + k}', f'after={LAB_AFTER}'],
-                             capture_output=True, text=True, env={**os.environ, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
+                             capture_output=True, text=True, env={**os.environ, **LAB_ENV, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
         m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
         tot += round(10 * float(m.group(1))) if m else 0  # tenths: whole ants rounded every early-dying colony to one value
     return tot
