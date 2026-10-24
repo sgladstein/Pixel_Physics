@@ -113,11 +113,16 @@ MODE = MODE.removesuffix('+inherit')
 # median 20 over 12 garden worlds, colsel3's arms 3-6). colsel3-1022's best arm: crater 114 vs the old ant's 4, rooms 0-1.
 # +guard (lone predator thread, 2026-10-24): fewer ants killed in the round (inrun's `death` rows of cause 3, killed:
 # on a bed with `spiders=POOL:N`, only a spider kills). Run it with inrun's `spiders=` in the args; on a bed without
-# spiders every colony scores 0 and the case drops nobody.
+# spiders every colony scores 0 and the case drops nobody. **Measured to pay hiding** (16 colonies x 10 rounds, one
+# spider from round 2, 2026-10-24): against the same bed without the case, ants killed per round fell (median 29.5 vs
+# 31.5 at round 9, about half in rounds 3-7) but food home fell with it (5,553 vs 9,235), ants killed per 1,000 deliveries
+# did not (5.3 vs 4.7), and the common garden of its colonies collapsed (median 16 alive vs 70, 6 of 15 extinct vs 2).
+# +slay (same day): the colony's damage to spiders, spider cells bitten off (inrun `wound`) plus six for each spider
+# killed. A colony that hides scores 0 on it: the defence case that pays the verb, not the absence.
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard'), k
+    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
@@ -155,7 +160,7 @@ def result(rdir, frames):
     """(home8, late cuts, starved, rooms, alive, cuts, dug, pit) of one run; late = original-ground cuts within 20
     columns in the second half; rooms = chambers + niches in the last nest.csv row."""
     ev = f'{rdir}/events.csv'
-    home = late = starved = cuts = killed = 0
+    home = late = starved = cuts = killed = slay = 0
     if os.path.exists(ev):
         with open(ev) as f:
             next(f)
@@ -171,6 +176,10 @@ def result(rdir, frames):
                     starved += 1
                 elif k == 'death' and p[5] == '3':
                     killed += 1
+                elif k == 'wound':
+                    slay += int(p[5])
+                elif k == 'spdeath' and p[5] == '3':
+                    slay += 6  # a spider killed: its whole six-cell body
     rooms = alive = dug = pit = 0
     nf = f'{rdir}/nest.csv'
     if os.path.exists(nf):
@@ -182,7 +191,7 @@ def result(rdir, frames):
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
             n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
-            roomshape.score(rdir) if n else 0.0, killed)
+            roomshape.score(rdir) if n else 0.0, killed, slay)
 
 
 def ranks(vals, higher_better=True):
@@ -207,7 +216,8 @@ def cases(v):
     c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
     c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
     c = c + (v[14],) if 'shape' in EXTRA_CASES else c
-    return c + (-v[15],) if 'guard' in EXTRA_CASES else c
+    c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
+    return c + (v[16],) if 'slay' in EXTRA_CASES else c
 
 
 def dig_passed(v):
@@ -245,7 +255,7 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,pilecap,spider_at\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,pilecap,spider_at\n')
         for c in sorted(got):
             f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)}\n')
 
@@ -254,7 +264,7 @@ rng = random.Random(12345)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,passed_gate,rank,refounded_from,pilecap,spider_at\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,passed_gate,rank,refounded_from,pilecap,spider_at\n')
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
@@ -299,7 +309,7 @@ for r in range(R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * 16
+        v = res[c] or (0,) * 17
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):

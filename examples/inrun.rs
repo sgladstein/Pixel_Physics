@@ -33,6 +33,7 @@
 //! ants' food rows. More events:
 //!     spider    a spider placed (v: its pool index)
 //!     spdeath   a spider died (v: the cause's index; 3 = killed, which only an ant can do here)
+//!     wound     a living spider lost cells since the frame before (v: how many): what the ants' bites took
 //!     death     an ant's, as above: v 3 (killed) is an ant a spider took
 use pixel_physics::sim::creature;
 use pixel_physics::sim::organism;
@@ -390,6 +391,8 @@ struct Spiders {
     colony: Option<u32>,
     /// The living spiders' ids: their food and digestion rows are not the ants'.
     ids: std::collections::HashSet<u32>,
+    /// Each living spider's cell count at the last look, for `wound` rows.
+    size: HashMap<u32, usize>,
     /// Frames at which an empty place may be refilled (`spider_start` at first: every place is empty).
     due: Vec<u64>,
     next: usize,
@@ -401,6 +404,7 @@ struct Spiders {
     killed: u64,
     starved: u64,
     ants_killed: u64,
+    wounds: u64,
 }
 
 impl Spiders {
@@ -435,6 +439,7 @@ impl Spiders {
             grants: num("spider_grants", 1.0) as f32,
             colony: None,
             ids: Default::default(),
+            size: HashMap::new(),
             due: vec![num("spider_start", 0.0) as u64; n],
             next: 0,
             rng: train::Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5D1D),
@@ -445,6 +450,7 @@ impl Spiders {
             killed: 0,
             starved: 0,
             ants_killed: 0,
+            wounds: 0,
         })
     }
 
@@ -467,10 +473,26 @@ impl Spiders {
             self.next += 1;
             self.colony = self.colony.or_else(|| w.organism(id).map(|s| s.colony));
             self.ids.insert(id);
+            self.size.insert(id, w.organism(id).map_or(0, |s| s.cells.len()));
             self.due[k] = u64::MAX;
             self.placed += 1;
             let (hx, hy) = w.organism(id).and_then(|s| s.chain.first().copied()).unwrap_or((x, 0));
             writeln!(ev, "{frame},{id},spider,{hx},{hy},{g},0").unwrap();
+        }
+    }
+
+    /// Every living spider that lost cells since the last look: a `wound` row, so a bite that does not kill still
+    /// shows (a colony that wears a spider down is on the way to killing one). Sorted by id: one row order a run.
+    fn watch(&mut self, w: &pixel_physics::sim::World, frame: u64, ev: &mut impl Write) {
+        let mut ids: Vec<u32> = self.ids.iter().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let Some(n) = w.organism(id).map(|s| s.cells.len()) else { continue };
+            let was = self.size.insert(id, n).unwrap_or(n);
+            if n < was {
+                self.wounds += (was - n) as u64;
+                writeln!(ev, "{frame},{id},wound,0,0,{},0", was - n).unwrap();
+            }
         }
     }
 
@@ -482,6 +504,7 @@ impl Spiders {
         if r.species != self.sp || !self.ids.remove(&r.id) {
             return;
         }
+        self.size.remove(&r.id);
         self.deaths += 1;
         self.killed += u64::from(r.cause == organism::DeathCause::Killed);
         self.starved += u64::from(r.cause == organism::DeathCause::Starved);
@@ -1337,6 +1360,9 @@ fn main() {
             }
             writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();
             eaten.push_back((frame, worth as f64));
+        }
+        if let Some(s) = spiders.as_mut() {
+            s.watch(&w, frame, &mut ev);
         }
         for r in w.death_log.as_mut().unwrap().drain(..) {
             if let Some(s) = spiders.as_mut() {
@@ -2297,8 +2323,8 @@ fn main() {
     if let Some(s) = spiders.as_ref() {
         let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
         println!(
-            "spiders: {} placed, {} died ({} killed by ants, {} starved); ants killed {}, bites {} (all minds), flesh swallowed {}",
-            s.placed, s.deaths, s.killed, s.starved, s.ants_killed, k.bites, k.flesh
+            "spiders: {} placed, {} died ({} killed by ants, {} starved), {} spider cells bitten off; ants killed {}, bites {} (all minds), flesh swallowed {}",
+            s.placed, s.deaths, s.killed, s.starved, s.wounds, s.ants_killed, k.bites, k.flesh
         );
     }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
