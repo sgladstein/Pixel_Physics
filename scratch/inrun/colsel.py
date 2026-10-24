@@ -219,6 +219,27 @@ def garden(r, carry):
 
 
 rng = random.Random(12345)
+# Resume (teacher lane, 2026-10-24): spot VMs were preempted five times on 2026-10-23, and a colsel job only reached the
+# bucket when it finished, so each preemption lost the whole batch (broodplant1b: 1 h 40 min). The driver now writes
+# state.json at the end of every round (everything the next round reads: founders, inherited nests, the last round's
+# dirs, the lexicase rng, the pile cap); started on an OUT that holds one, it drops the rows and dirs of any round it
+# had not finished and carries on from the next. inrun_cloud.py uploads OUT as partial/ while the job runs and restores
+# it with `--resume OLDNAME`. A finished run is the same as an unbroken one: rounds are seeded per colony and round.
+statep = f'{OUT}/state.json'
+R0 = 0
+if os.path.exists(statep):
+    import json
+    st0 = json.load(open(statep))
+    R0 = st0['r']
+    for fn in ('colsel.csv', 'cg.csv'):
+        fp = f'{OUT}/{fn}'
+        if os.path.exists(fp):
+            rows = open(fp).read().splitlines(True)
+            open(fp, 'w').writelines(rows[:1] + [x for x in rows[1:] if int(x.split(',', 1)[0]) < R0])
+    for c in range(1, NCOL + 1):
+        shutil.rmtree(f'{OUT}/c{c}/r{R0}', ignore_errors=True)
+    shutil.rmtree(f'{OUT}/cg/r{R0}', ignore_errors=True)
+    print(f'resuming at round {R0}', flush=True)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
@@ -226,7 +247,13 @@ if os.path.getsize(logp) == 0:
 founders = {c: [f'founders={G}:1', 'mutants=30:0.03:1.0:7'] for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
-for r in range(R):
+if R0:
+    founders = {int(c): v for c, v in st0['founders'].items()}
+    nest = {int(c): v for c, v in st0['nest'].items()}
+    prev_dirs = {int(c): v for c, v in st0['prev_dirs'].items()}
+    rng.setstate((st0['rng'][0], tuple(st0['rng'][1]), st0['rng'][2]))
+    cap_now = st0['cap_now']
+for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
@@ -291,6 +318,10 @@ for r in range(R):
         if os.path.exists(f'{d}/events.csv'):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
+    import json
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now},
+              open(statep + '.tmp', 'w'))
+    os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)
 for d in prev_dirs.values():  # the last round keeps its genomes (the product) and gzips its log
     if os.path.exists(f'{d}/events.csv'):
