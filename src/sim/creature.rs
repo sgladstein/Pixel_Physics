@@ -5731,6 +5731,14 @@ pub(super) fn try_bud(
     // making the nest gate's decision itself. After the affordability check
     // so the count below means "could have laid and chose not to", the one
     // number that says whether a line has evolved a hold at all.
+    // SCRATCH (brood lane, 2026-10-24): a mind ant's evolved lay gate (`PP_LAYGENE`, [`mind::lay_bar_scale`])
+    // raises its own bar from what it senses where it stands; with no gate, nothing is read.
+    if let Some(scale) = mind::lay_bar_scale(world, organism, def, (hx, hy), bar) {
+        if bank + reachable < bar * scale {
+            world.creature_stats.lays_declined += 1;
+            return None;
+        }
+    }
     if lay < brain::LAY_HOLD_BELOW {
         world.creature_stats.lays_declined += 1;
         return None;

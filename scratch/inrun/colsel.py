@@ -61,6 +61,16 @@ def wean_p(r):
 # and is read only when PP_HOMEEAT is set.
 def with_p(args, p):
     return [f'{x},PP_BODYRULES_P={p:.3f},PP_HOMEEAT_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
+# capwean=R0:R1 (brood lane, 2026-10-24; owner: brood rules should "just balance through training"): inrun's size
+# brake lay_cap is a scaffold too -- the lab has none, and far64 boomed there to ~710 ants and starved 817 in 10k frames.
+# Each round gets lay_cap_p=p on wean_p's shape (1 up to round R0, linear to 0 at R1); the common garden runs at
+# lay_cap_p=0, so a colony is judged on its own brake (PP_LAYGENE=1 lets the genome learn one).
+CAPWEAN = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('capwean=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('capwean=')]
+def capwean_p(r):
+    return 1.0 if r <= CAPWEAN[0] else max(0.0, 1.0 - (r - CAPWEAN[0]) / max(1, CAPWEAN[1] - CAPWEAN[0]))
+def with_capp(args, p):
+    return [x for x in args if not x.startswith('lay_cap_p=')] + [f'lay_cap_p={p:.3f}']
 # pilecap=START:STEP:STARVED[:FLOOR] (plant-food lane, 2026-10-23; owner chose the weaning bed): the pile's cap (inrun
 # `cap=`) starts at START. After a round whose colonies' median starved is STARVED or fewer it falls by STEP, never below
 # FLOOR (default 10); after one with more than 3 x STARVED it rises by STEP, never above START; otherwise it holds. Run
@@ -212,6 +222,7 @@ def lab_alive(c, r, carry_c):
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 CGC = with_p(CGC, 0.0) if WEAN else CGC
+CGC = with_capp(CGC, 0.0) if CAPWEAN else CGC
 os.makedirs(OUT, exist_ok=True)
 
 
@@ -414,6 +425,7 @@ for r in range(R0, R):
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
         cr = with_p(cr, wean_p(r)) if WEAN else cr
+        cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
         cr = with_spiders(with_cap(cr), r)
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
