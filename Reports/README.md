@@ -2849,8 +2849,11 @@ drift that two of these documents still reflect.**
   the living bed. From a blank mind selection held the hunt but did not
   improve it (79 against 74 kills on fresh beds); from the hand-built
   `hunter` preset it did (145 against 116, 6 of 8 lines), and random parents
-  lost the hunt (57). Stage two, the ant defending, needs Attack and the alarm
-  emit in the ant's arena.
+  lost the hunt (57). **Stage two, same day**: `inrun spiders=POOL:N` puts the
+  fixed spider on the colony bed and offers the ant the bite; ants kill about
+  one spider a round from a blank entry, none when it is held off. Neither
+  colsel defence case (`+guard`, `+slay`) beat plain selection on 16 colonies,
+  and both cost food; garden replicates swing more than arms.
 
 ## Worldgen and world  ·  `outdoor`
 

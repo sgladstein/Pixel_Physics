@@ -62,6 +62,32 @@ if PILECAP:
     PILECAP = PILECAP + (10,) if len(PILECAP) == 3 else PILECAP
 EXTRA = [x for x in EXTRA if not x.startswith('pilecap=')]
 cap_now = PILECAP[0] if PILECAP else None
+# spiderramp=START:STEP:K[:FROM[:FLOOR]] (lone predator thread, 2026-10-24, at the teacher lane's ask: "a predator a
+# decent colony can just beat"): with inrun's `spiders=POOL:N` in the args, the spiders arrive at frame START of each
+# round (inrun `spider_start=`). After a round whose colonies' median killed (ants a spider took) is K or fewer they
+# arrive STEP frames earlier, never before FLOOR (default 0); after one above 3 x K, STEP later, never after START.
+# Rounds before FROM (default 0) run with no spiders at all, so the colony is established first (brood1ctl's round 0
+# held a median of 17.5 ants and 11 of 64 colonies extinct with no predator; round 2, 83). The common garden uses the
+# round's arrival. Logged per round (colsel.csv, cg.csv `spider_at`; empty = no spiders that round).
+# Why: one spider from frame 20,000 ended 15 of 16 round-0 colonies whether they could bite or not; one from 100,000
+# with a 50,000-frame refill gap killed 0-30 ants a run, and the ants killed it in 5 of 6 runs when they could bite,
+# 0 of 6 when they could not.
+SPIDERRAMP = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('spiderramp=')), None)
+if SPIDERRAMP:
+    assert len(SPIDERRAMP) in (3, 4, 5), 'spiderramp=START:STEP:K[:FROM[:FLOOR]]'
+    SPIDERRAMP = SPIDERRAMP + (0, 0)[len(SPIDERRAMP) - 3:]
+    assert any(x.startswith('spiders=') for x in EXTRA), 'spiderramp= needs inrun spiders=POOL:N in the args'
+EXTRA = [x for x in EXTRA if not x.startswith('spiderramp=')]
+spider_at = SPIDERRAMP[0] if SPIDERRAMP else None
+def with_spiders(args, r):
+    """The round's spider args: none before FROM, otherwise `spider_start=` the ramp's current arrival."""
+    if not SPIDERRAMP:
+        return args
+    if r < SPIDERRAMP[3]:
+        return [x for x in args if not x.startswith('spider')]
+    return [x for x in args if not x.startswith('spider_start=')] + [f'spider_start={spider_at}']
+def spider_log(r):
+    return '' if not SPIDERRAMP or r < SPIDERRAMP[3] else str(spider_at)
 def with_cap(args):
     return args if cap_now is None else [x for x in args if not x.startswith('cap=')] + [f'cap={cap_now}']
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
@@ -86,10 +112,18 @@ MODE = MODE.removesuffix('+inherit')
 # +rooms (more chambers + niches by the nest score), +shape (roomshape.py, the dig-scoring thread's graded "on the way to
 # multiple rooms": a second room or the start of a side tunnel scores, the main room and the crater never do; old ant
 # median 20 over 12 garden worlds, colsel3's arms 3-6). colsel3-1022's best arm: crater 114 vs the old ant's 4, rooms 0-1.
+# +guard (lone predator thread, 2026-10-24): fewer ants killed in the round (inrun's `death` rows of cause 3, killed:
+# on a bed with `spiders=POOL:N`, only a spider kills). Run it with inrun's `spiders=` in the args; on a bed without
+# spiders every colony scores 0 and the case drops nobody. **Measured to pay hiding** (16 colonies x 10 rounds, one
+# spider from round 2, 2026-10-24): against the same bed without the case, ants killed per round fell (median 29.5 vs
+# 31.5 at round 9, about half in rounds 3-7) but food home fell with it (5,553 vs 9,235), ants killed per 1,000 deliveries
+# did not (5.3 vs 4.7), and the common garden of its colonies collapsed (median 16 alive vs 70, 6 of 15 extinct vs 2).
+# +slay (same day): the colony's damage to spiders, spider cells bitten off (inrun `wound`) plus six for each spider
+# killed. A colony that hides scores 0 on it: the defence case that pays the verb, not the absence.
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape'), k
+    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay'), k
     EXTRA_CASES.append(k)
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
@@ -127,7 +161,7 @@ def result(rdir, frames):
     """(home8, late cuts, starved, rooms, alive, cuts, dug, pit) of one run; late = original-ground cuts within 20
     columns in the second half; rooms = chambers + niches in the last nest.csv row."""
     ev = f'{rdir}/events.csv'
-    home = late = starved = cuts = 0
+    home = late = starved = cuts = killed = slay = 0
     if os.path.exists(ev):
         with open(ev) as f:
             next(f)
@@ -141,6 +175,12 @@ def result(rdir, frames):
                     late += int(p[0]) > frames // 2
                 elif k == 'death' and p[5] == '1':
                     starved += 1
+                elif k == 'death' and p[5] == '3':
+                    killed += 1
+                elif k == 'wound':
+                    slay += int(p[5])
+                elif k == 'spdeath' and p[5] == '3':
+                    slay += 6  # a spider killed: its whole six-cell body
     rooms = alive = dug = pit = 0
     nf = f'{rdir}/nest.csv'
     if os.path.exists(nf):
@@ -152,7 +192,7 @@ def result(rdir, frames):
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
             n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
-            roomshape.score(rdir) if n else 0.0)
+            roomshape.score(rdir) if n else 0.0, killed, slay)
 
 
 def ranks(vals, higher_better=True):
@@ -176,7 +216,9 @@ def cases(v):
     c = c + (-v[12],) if SPOIL else c
     c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
     c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
-    return c + (v[14],) if 'shape' in EXTRA_CASES else c
+    c = c + (v[14],) if 'shape' in EXTRA_CASES else c
+    c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
+    return c + (v[16],) if 'slay' in EXTRA_CASES else c
 
 
 def dig_passed(v):
@@ -205,7 +247,7 @@ def garden(r, carry):
     """Common garden of every live colony's carry: fresh world c*1000+99, 200k frames, selection off."""
     live = [c for c in carry if carry[c] is not None]
     def one(c):
-        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + with_cap(CGC), f'{OUT}/cg/r{r}/c{c}')
+        d = run([f'founders={carry[c]}', f'seed={c * 1000 + 99}'] + with_spiders(with_cap(CGC), r), f'{OUT}/cg/r{r}/c{c}')
         v = result(d, 200000)
         shutil.rmtree(d, ignore_errors=True)
         return c, v
@@ -214,12 +256,13 @@ def garden(r, carry):
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
-            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,pilecap\n')
+            f.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,pilecap,spider_at\n')
         for c in sorted(got):
-            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now}\n')
+            f.write(f'{r},{c},' + ','.join(str(x) for x in got[c]) + f',{"" if cap_now is None else cap_now},{spider_log(r)}\n')
 
 
-rng = random.Random(12345)
+# LEXSEED (default 12345): the lexicase draws' seed, for a replicate of an arm on the same colony seeds.
+rng = random.Random(int(os.environ.get('LEXSEED', '12345')))
 # Resume (teacher lane, 2026-10-24): spot VMs were preempted five times on 2026-10-23, and a colsel job only reached the
 # bucket when it finished, so each preemption lost the whole batch (broodplant1b: 1 h 40 min). The driver now writes
 # state.json at the end of every round (everything the next round reads: founders, inherited nests, the last round's
@@ -244,7 +287,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,passed_gate,rank,refounded_from,pilecap\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,passed_gate,rank,refounded_from,pilecap,spider_at\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -277,13 +320,14 @@ if R0:
     prev_dirs = {int(c): v for c, v in st0['prev_dirs'].items()}
     rng.setstate((st0['rng'][0], tuple(st0['rng'][1]), st0['rng'][2]))
     cap_now = st0['cap_now']
+    spider_at = st0.get('spider_at', spider_at)
 for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = with_p(cr, wean_p(r)) if WEAN else cr
-        cr = with_cap(cr)
+        cr = with_spiders(with_cap(cr), r)
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
@@ -318,8 +362,8 @@ for r in range(R0, R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * 15
-        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now}\n')
+        v = res[c] or (0,) * 17
+        log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
@@ -332,6 +376,15 @@ for r in range(R0, R):
         elif med > 3 * PILECAP[2]:
             cap_now = min(PILECAP[0], cap_now + PILECAP[1])
         print(f'round {r}: median starved {med}, pile cap next round {cap_now}', flush=True)
+    if SPIDERRAMP and r >= SPIDERRAMP[3]:
+        # An extinct colony counts as one that lost everything, never as one that lost none.
+        kl = sorted(res[c][15] if res[c] else 10**9 for c in cols)
+        med = kl[len(kl) // 2]
+        if med <= SPIDERRAMP[2]:
+            spider_at = max(SPIDERRAMP[4], spider_at - SPIDERRAMP[1])
+        elif med > 3 * SPIDERRAMP[2]:
+            spider_at = min(SPIDERRAMP[0], spider_at + SPIDERRAMP[1])
+        print(f'round {r}: median killed {med}, spiders arrive at frame {spider_at} next round', flush=True)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
@@ -343,7 +396,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)

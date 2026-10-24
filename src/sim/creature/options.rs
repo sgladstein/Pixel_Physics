@@ -363,6 +363,15 @@ pub fn attack_on() -> bool {
     })
 }
 
+/// **A mind may pick up a corpse** ([`attack_on`]'s mouth for what it killed): on with the bite, unless
+/// `PP_MIND_CORPSE=off` (SCRATCH, lone predator thread, 2026-10-24), which keeps the bite and the old refusal of a
+/// dead ant -- built to ask whether a colony's own dead in its mouths, rather than the bite, is what a run with
+/// the switch on and no predator changes.
+pub fn corpse_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    attack_on() && *ON.get_or_init(|| std::env::var("PP_MIND_CORPSE").map_or(true, |v| v != "off"))
+}
+
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
 /// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
 /// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
@@ -649,7 +658,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
         if jaws_free
             && food
-            && (!corpse || attack_on())
+            && (!corpse || corpse_on())
             && room
             && crop.is_none_or(|c| c.material == cell.material)
             && diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD

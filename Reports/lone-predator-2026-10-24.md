@@ -1,4 +1,4 @@
-# The lone predator, stage one: a spider trained by in-run selection against the ant
+# The lone predator: a spider trained by in-run selection against the ant, and the colony's answer
 
 *Lone predator thread, 2026-10-23/24. Owner's ask (2026-10-23 23:13Z): "train a new lone predator creature using
 the same in colony training scheme the ants use. Eventually we should competitively train the ant colony to survive
@@ -61,10 +61,72 @@ What stage two needs from the Teacher lane is Attack and the alarm emit in the a
 bed. Until then a trained spider pool is the fixed predator to train the colony against, as the h1 ant was the
 fixed prey here.
 
+## Stage two: the colony with a spider on its bed (2026-10-24)
+
+At the Teacher lane's ask, on its bed (`examples/inrun.rs` + `scratch/inrun/colsel.py`, founder `hcs`, the `bp1pile`
+args: breeding on), the prey's side, with the spider held fixed (pool `score-1`, not evolving).
+
+**What was built**, all off by default:
+
+- `inrun spiders=POOL:N` keeps N spiders on the bed (`spider_start`, `spider_gap`, `spider_far`, `spider_grants`),
+  logs `spider`, `spdeath` and `wound` (spider cells bitten off) events, and keeps the spiders' meals out of the ants'
+  food rows. It turns the bite on, and the colony's mind is then offered Attack and the alarm emit
+  (`colony_bed::verbs`, `emits`); a founder with the bite banned takes it as a blank verb (`mind::enter_bite`,
+  `ant_bite=K` its job constant, -100 the "cannot bite" control).
+- colsel cases `+guard` (fewer ants killed) and `+slay` (damage done to spiders: cells bitten off, six for a kill),
+  columns `killed`, `slay`, `spider_at`, and `spiderramp=START:STEP:K[:FROM[:FLOOR]]`, the spiders' arrival ramped
+  like `pilecap` and carried in the resume file. `LEXSEED` for a replicate arm.
+
+**What it did.** Single runs, 200,000 frames:
+
+| Setting | Colonies with ants left at the end | Ants killed a run | Spiders the ants killed a run |
+|---|---|---|---|
+| 4 spiders from frame 0, 100,000 frames, bite / no bite / bite wired on | 0 of 12 | 24-237 | 1-13 / 0 / 1-12 |
+| 1 spider from 20,000, ants can bite | 1 of 4 | 34-88 | 0-3 |
+| 1 spider from 20,000, ants cannot | 1 of 4 | 39-93 | 0 |
+| 1 spider from 100,000, 50,000 refill gap, can bite | 4 of 6 | 0-18 | 1 in 5 of 6 runs |
+| same, cannot | 2 of 6 | 9-30 | 0 |
+
+**The ants fight from the start.** With the bite entered as a blank verb, the colony kills about one spider a round.
+Held off, it kills none. The switch with no spider on the bed costs the colony nothing distinguishable from a different
+mutant draw (mean alive over the run 49 against 56 and 50 for two draws with it off, 12 seeds).
+
+Selection, five arms of 16 colonies x 10 rounds, one spider from round 2 at frame 100,000, 50,000-frame gap (the ramp
+never stepped: median killed stayed between K=10 and 3K). In-run medians over rounds 5-9, and the common garden of the
+round-9 carry (fresh world, selection off, the same spider):
+
+| Arm | In-run food home | In-run ants killed | Garden alive | Garden food home | Garden killed per 1,000 deliveries |
+|---|---|---|---|---|---|
+| plain cases | 6,347 | 27 | 70 | 7,141 | 3.2 |
+| plain cases, replicate | 5,973 | 21 | 74 | 2,656 | 3.8 |
+| + guard | 5,009 | 16.5 | 16 | 1,694 | 4.7 |
+| + slay | 4,532 | 14.5 | 4 | 1,559 | 5.8 |
+| + slay, replicate | 3,253 | 27 | 95 | 3,369 | 6.6 |
+| plain cases, **no spider** while selected | 2,328 | -- | 10 | 1,406 | 4.6 |
+
+- **Neither defence case beat plain selection on defence, and both cost food.** +guard cut ants killed by paying
+  colonies that forage less: killed per delivery did not fall. +slay did not raise the damage done to spiders (median
+  9-10 against 11 plain). Both took in-run food from about 6,000 to 3,300-5,000.
+- **Plain selection with a spider on the bed learned something.** Ants killed per 1,000 deliveries fell from about 17 in
+  round 2 to 3-5 by round 9 in every spider arm, and damage to spiders rose from about 7 to 11-17. But a line selected
+  with no spider, judged against the same spider, loses ants at the same rate per delivery (4.6). So what fell is the
+  colony getting better at everything, not a defence the line without a spider lacks.
+- **Garden numbers swing more between replicates than between arms** (plain 7,141 against 2,656 food home), so 16
+  colonies cannot rank these arms. A defence case needs the 64-colony scale.
+- The spider-selected lines forage much more than the no-spider line (in-run 6,000 against 2,300). A corpse delivered
+  is not it (corpse pick-up off moves garden food 1-13%), and one no-spider replicate cannot say whether it is the
+  predator or the draw.
+
+Picture: `/mnt/project-files/predator/ants-kill-spider.gif` (ants yellow, spider red, food green): the colony
+kills a trained spider at its food pile.
+
 ## Reproduce
 
 ```
 cargo run --release --example predtrain -- out=DIR founder=hunter sel=score seed=1 rounds=10 frames=100000
 cargo run --release --example predtrain -- out=DIR pool=DIR/r9/pool sel=off preds=4 rounds=1 frames=30000 seed=101
 cargo run --release --example predtrain -- ... gif=0:3000:15000:30 crop=40,34,176,40 scale=4   # rN/round.gif
+# stage two: the batch's arms (ARGS = line 2 of scratch/inrun/jobs/broodplant1.txt from its 9th field; LEXSEED=2 for a replicate)
+CG_EVERY=5 python3 scratch/inrun/colsel.py OUT lex+spoil+crater+shape[+guard|+slay] 16 10 200000 scratch/inrun/genomes/hcs.raw.txt $ARGS \
+    spiders=/mnt/project-files/predator/pools/score-1:1 spider_gap=50000 spiderramp=100000:20000:10:2
 ```
