@@ -151,6 +151,52 @@ seeds do. The base arm reproduces the switch-on arm above exactly. Landed
 off in PR #846; the owner then chose **on** (2026-10-24), and
 `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=0` restores the old engine.
 
+## How realistic is the nutrient model? (2026-10-24)
+
+The owner asked, after turning `nutrient_by_root` on. The working doc is
+<https://claude.ai/artifact/HELUJxoRzov7XNEvGSBcaE>; this section is its
+record. Sources were read through search summaries, not opened in full.
+
+**The core matches the textbook.** Real uptake grows with absorbing root
+surface touching soil, saturates per unit surface (Michaelis-Menten, the
+Barber-Cushman model's kinetic), and demand is set mainly by leaves, which
+hold most of a plant's nitrogen. A nutrient-short plant shifts growth to
+roots (Brouwer's functional equilibrium; held up qualitatively in Poorter
+and Nagel's review, *Aust. J. Plant Physiol.* 27:595, 2000). The engine has all of
+these: face-summed uptake, `Km` 0.05, `NUTRIENT_FACES_PER_LEAF`, the 8x
+build price with root tips exempt, and the income multiplier.
+
+**Missing, by size of the gap:**
+
+| Real plants | Engine | |
+|---|---|---|
+| Roots proliferate in rich patches (Drew 1975, barley laterals in a fed patch) | Tips steer toward water only; `soil_nutrient_fraction` is read only by `nutrient_status` | missing |
+| An internal store: luxury uptake, remobilised later (*Bistorta*: stores met 56-100% of early-season shoot N) | Status recomputed from soil every organism tick | missing |
+| Resorption before leaf fall: ~62% of N, ~65% of P (Vergutz et al. 2012, *Ecol. Monogr.* 82:205) -- the reason leaves yellow first | A shed leaf takes nothing back | missing |
+| Nitrate moves with soil water (mass flow); phosphate diffuses only 0.2-1 mm (IPNI) | Soil nutrient never moves; inside the plant it rides the sap (`sap_flow`) | missing in soil |
+| Depletion around roots; neighbours compete | Per-cell deficit; one face draws at the recovery rate (period 45 = draw cadence), so a cell runs down only under 2+ faces | partly |
+| Litter returns nutrient | Time recovery instead; litter crediting reverted twice as a pump (`dead-ends.md`, biomass 1,718 -> 2,652) | simplified on purpose |
+| Mycorrhizal hyphae (clover P depletion to 11.7 cm with, ~1 cm without) | none | missing |
+| Several nutrients | one | fine at play scale |
+
+**Ideas, ranked by what the owner would see:**
+
+1. **Pale hungry leaves** -- leaf colour toward yellow-green as
+   `nutrient_status` falls (real N chlorosis). Render only; quantise it so
+   it changes in a few steps, or it keeps the dirty-rect skip from working.
+   Recommended first: the 8-bed run above showed the mechanism works and
+   cannot be seen.
+2. **Roots toward rich soil** -- add a nutrient term beside the water lean
+   in the tip's direction choice. Moves where roots go, not how many, so it
+   leaves `allocate_to_frontier`'s calibrated sum alone.
+3. **A store refilled by resorption** -- one float per plant; roots fill it,
+   building draws it, a shed leaf returns ~60%. Gives a graded fade and
+   yellowing before leaf fall. Changes what today's prices read, so it needs
+   its own paired run and a re-derivation of `Km` and `NUTRIENT_STARVED_COST`.
+4. **Nutrient carried by soil water** -- the biggest frame cost; measure first.
+5. **A nitrogen-fixing species** -- must not rebuild the litter pump.
+6. **Root fungi** -- a new living cell type; the largest build.
+
 ## Still open
 
 - Under `nutrient_by_root`, grass's foliage is its growing tips only
