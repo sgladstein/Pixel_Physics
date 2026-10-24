@@ -613,9 +613,12 @@ pub fn rootless_dries_default() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTLESS_DRIES").as_deref(), Ok("off")))
 }
 
-/// **`PIXEL_PHYSICS_ROOTS_REQUIRED=1` -- only roots drink, and a plant keeps
-/// the roots it drinks through.** Off by default; the live switch is
-/// `World::roots_required`, initialised from this.
+/// **`PIXEL_PHYSICS_ROOTS_REQUIRED` -- only roots drink, and a plant keeps
+/// the roots it drinks through.** **On by default since 2026-10-23**, the
+/// owner's choice ("turn it on everywhere", after the 8-bed paired run
+/// below); `PIXEL_PHYSICS_ROOTS_REQUIRED=0` (or `off`) restores the old
+/// engine exactly. The live switch is `World::roots_required`, initialised
+/// from this.
 ///
 /// The owner, 2026-10-23, on the four-role lab bed: *"I still often see
 /// plants like this one which seem to have no roots but are still
@@ -653,7 +656,7 @@ pub fn rootless_dries_default() -> bool {
 pub fn roots_required_default() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_ROOTS_REQUIRED").as_deref(), Ok("1") | Ok("on")))
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTS_REQUIRED").as_deref(), Ok("0") | Ok("off")))
 }
 
 /// Root cells die-back leaves a plant under `World::roots_required`. Two
@@ -24558,9 +24561,21 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
         // would not be: what is under test is what happens *after* leaves
         // are shed, so a tree with no leaves is not a weaker case, it is
         // not the case at all.
+        //
+        // **Run on the pre-`roots_required` engine, and that is a known
+        // blind spot rather than a fix.** The defect this guards is live
+        // either way: swept over 16 individuals (same scene, 8,000 frames),
+        // shedding every leaf cuts one cell -- a growing tip hanging off a
+        // leaf -- off **5 of 16 trees with the switch off and 7 of 16 with it
+        // on**. Individual 0 was clean on the old engine and is not on the
+        // new one, which is the reshuffle the comment below warns about. The
+        // guard pins its individual, so it was already blind to 5 of 16; the
+        // owner's switch is not what put the tip on the leaf
+        // (`Reports/rootless-plants-2026-10-23.md`, "Side finding").
         let (mut w, organism_id) = (0..8u16)
             .find_map(|individual| {
                 let mut w = test_world();
+                w.roots_required = false;
                 let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
                 for _ in 0..individual {
                     w.push_organism(tree).expect("an organism slot is free");
