@@ -1,0 +1,37 @@
+pile_s1 alive=1 minalive=1 starved=23 field=2131 home=225 dig=233 nestfood=31 nestfood_late=29.0 tank_late=44.1 nest=65 crater=100 nestcuts=62 late_cuts=13 shape=10.0
+pile_s2 alive=23 minalive=23 starved=1 field=2589 home=263 dig=236 nestfood=33 nestfood_late=35.0 tank_late=77.0 nest=30 crater=112 nestcuts=30 late_cuts=10 shape=2.0
+pile_s3 alive=23 minalive=23 starved=1 field=3171 home=341 dig=276 nestfood=39 nestfood_late=49.5 tank_late=150.5 nest=22 crater=142 nestcuts=21 late_cuts=7 shape=0.0
+pile_s4 alive=8 minalive=8 starved=16 field=2071 home=260 dig=211 nestfood=26 nestfood_late=28.0 tank_late=44.8 nest=41 crater=102 nestcuts=38 late_cuts=5 shape=6.0
+pile_s5 alive=24 minalive=24 starved=0 field=2759 home=290 dig=274 nestfood=50 nestfood_late=47.0 tank_late=46.9 nest=48 crater=123 nestcuts=29 late_cuts=13 shape=12.0
+pile_s6 alive=22 minalive=22 starved=2 field=3116 home=298 dig=275 nestfood=43 nestfood_late=42.0 tank_late=112.8 nest=38 crater=130 nestcuts=37 late_cuts=21 shape=3.0
+pile_s7 alive=13 minalive=13 starved=11 field=2512 home=281 dig=219 nestfood=60 nestfood_late=60.0 tank_late=131.2 nest=48 crater=70 nestcuts=37 late_cuts=13 shape=0.0
+pile_s8 alive=23 minalive=23 starved=1 field=4110 home=425 dig=255 nestfood=65 nestfood_late=63.5 tank_late=184.8 nest=39 crater=92 nestcuts=37 late_cuts=18 shape=7.0
+== pile median of 8: alive=22.5 minalive=22.5 starved=1.5 field=2674.0 home=285.5 dig=245.5 nestfood=41.0 nestfood_late=44.5 tank_late=94.9 nest=40.0 crater=107.0 nestcuts=37.0 late_cuts=13.0 shape=4.5
+gard_s1 alive=2 minalive=2 starved=22 field=1337 home=27 dig=44 nestfood=17 nestfood_late=18.0 tank_late=49.1 nest=53 crater=0 nestcuts=23 late_cuts=0 shape=10.0 plants_end=70 seeds_end=175 leaf_end=1069 fruit_end=25
+gard_s2 alive=0 minalive=0 starved=24 field=814 home=7 dig=30 nestfood=5 nestfood_late=5.0 tank_late=-0.0 nest=9 crater=8 nestcuts=1 late_cuts=0 shape=0.0 plants_end=71 seeds_end=144 leaf_end=1007 fruit_end=27
+gard_s3 alive=1 minalive=1 starved=23 field=1515 home=87 dig=56 nestfood=23 nestfood_late=23.0 tank_late=51.1 nest=20 crater=1 nestcuts=4 late_cuts=0 shape=0.0 plants_end=62 seeds_end=212 leaf_end=1065 fruit_end=25
+gard_s4 alive=0 minalive=0 starved=24 field=1600 home=52 dig=73 nestfood=17 nestfood_late=17.0 tank_late=-0.0 nest=87 crater=0 nestcuts=55 late_cuts=0 shape=0.0 plants_end=88 seeds_end=170 leaf_end=1068 fruit_end=15
+gard_s5 alive=0 minalive=0 starved=24 field=1124 home=22 dig=29 nestfood=19 nestfood_late=14.0 tank_late=-0.0 nest=40 crater=0 nestcuts=17 late_cuts=0 shape=0.0 plants_end=70 seeds_end=175 leaf_end=1230 fruit_end=34
+gard_s6 alive=1 minalive=1 starved=23 field=1223 home=29 dig=37 nestfood=14 nestfood_late=15.0 tank_late=29.9 nest=26 crater=13 nestcuts=8 late_cuts=0 shape=1.0 plants_end=64 seeds_end=218 leaf_end=1158 fruit_end=14
+gard_s7 alive=0 minalive=0 starved=24 field=714 home=18 dig=47 nestfood=9 nestfood_late=10.0 tank_late=-0.0 nest=35 crater=3 nestcuts=13 late_cuts=0 shape=9.0 plants_end=56 seeds_end=157 leaf_end=1186 fruit_end=23
+gard_s8 alive=0 minalive=0 starved=24 field=297 home=18 dig=47 nestfood=9 nestfood_late=6.0 tank_late=-0.0 nest=31 crater=27 nestcuts=2 late_cuts=0 shape=0.0 plants_end=80 seeds_end=251 leaf_end=1202 fruit_end=26
+== gard median of 8: alive=0.0 minalive=0.0 starved=24.0 field=1173.5 home=24.5 dig=45.5 nestfood=15.5 nestfood_late=14.5 tank_late=-0.0 nest=33.0 crater=2.0 nestcuts=10.5 late_cuts=0.0 shape=0.0 plants_end=70.0 seeds_end=175.0 leaf_end=1113.5 fruit_end=25.0
+gardng_s1 alive=0 minalive=0 starved=24 field=5 home=0 dig=20 nestfood=0 nestfood_late=1.0 tank_late=-0.0 nest=87 crater=30 nestcuts=0 late_cuts=0 shape=16.0 plants_end=61 seeds_end=200 leaf_end=1320 fruit_end=91
+gardng_s2 alive=0 minalive=0 starved=24 field=13 home=1 dig=16 nestfood=2 nestfood_late=1.0 tank_late=-0.0 nest=1334 crater=29 nestcuts=0 late_cuts=0 shape=54.0 plants_end=69 seeds_end=212 leaf_end=1311 fruit_end=20
+gardng_s3 alive=0 minalive=0 starved=24 field=2 home=0 dig=22 nestfood=3 nestfood_late=0.0 tank_late=-0.0 nest=391 crater=8 nestcuts=14 late_cuts=0 shape=30.0 plants_end=65 seeds_end=218 leaf_end=1105 fruit_end=11
+gardng_s4 alive=0 minalive=0 starved=24 field=4 home=0 dig=16 nestfood=0 nestfood_late=1.0 tank_late=-0.0 nest=122 crater=11 nestcuts=2 late_cuts=0 shape=27.0 plants_end=70 seeds_end=258 leaf_end=1521 fruit_end=19
+gardng_s5 alive=0 minalive=0 starved=24 field=0 home=0 dig=17 nestfood=1 nestfood_late=1.0 tank_late=-0.0 nest=674 crater=0 nestcuts=17 late_cuts=0 shape=25.0 plants_end=95 seeds_end=277 leaf_end=1483 fruit_end=44
+gardng_s6 alive=0 minalive=0 starved=24 field=18 home=0 dig=23 nestfood=0 nestfood_late=1.0 tank_late=-0.0 nest=22 crater=13 nestcuts=2 late_cuts=0 shape=1.0 plants_end=75 seeds_end=210 leaf_end=1250 fruit_end=15
+gardng_s7 alive=0 minalive=0 starved=24 field=0 home=0 dig=14 nestfood=0 nestfood_late=0.0 tank_late=-0.0 nest=1375 crater=28 nestcuts=4 late_cuts=0 shape=114.0 plants_end=46 seeds_end=216 leaf_end=1513 fruit_end=35
+gardng_s8 alive=0 minalive=0 starved=24 field=8 home=0 dig=21 nestfood=0 nestfood_late=0.0 tank_late=-0.0 nest=874 crater=44 nestcuts=5 late_cuts=0 shape=21.0 plants_end=71 seeds_end=171 leaf_end=1443 fruit_end=52
+== gardng median of 8: alive=0.0 minalive=0.0 starved=24.0 field=4.5 home=0.0 dig=18.5 nestfood=0.0 nestfood_late=1.0 tank_late=-0.0 nest=532.5 crater=20.5 nestcuts=3.0 late_cuts=0.0 shape=26.0 plants_end=69.5 seeds_end=214.0 leaf_end=1381.5 fruit_end=27.5
+spile_s1 alive=24 minalive=8 starved=161 field=3815 home=254 dig=395 nestfood=25 nestfood_late=11.0 tank_late=21.6 nest=45 crater=194 nestcuts=42 late_cuts=16 shape=0.0
+spile_s2 alive=0 minalive=0 starved=97 field=1775 home=262 dig=239 nestfood=5 nestfood_late=5.0 tank_late=-0.0 nest=40 crater=143 nestcuts=40 late_cuts=4 shape=0.0
+spile_s3 alive=24 minalive=24 starved=150 field=3824 home=306 dig=300 nestfood=15 nestfood_late=17.0 tank_late=16.2 nest=41 crater=144 nestcuts=39 late_cuts=25 shape=3.0
+spile_s4 alive=24 minalive=9 starved=173 field=3873 home=205 dig=311 nestfood=3 nestfood_late=3.0 tank_late=15.9 nest=53 crater=111 nestcuts=50 late_cuts=10 shape=0.0
+== spile median of 4: alive=24.0 minalive=8.5 starved=155.5 field=3819.5 home=258.0 dig=305.5 nestfood=10.0 nestfood_late=8.0 tank_late=16.05 nest=43.0 crater=143.5 nestcuts=41.0 late_cuts=13.0 shape=0.0
+sgard_s1 alive=0 minalive=0 starved=111 field=1465 home=27 dig=46 nestfood=17 nestfood_late=15.0 tank_late=12.9 nest=36 crater=0 nestcuts=12 late_cuts=0 shape=0.0 plants_end=75 seeds_end=252 leaf_end=1284 fruit_end=23
+sgard_s2 alive=0 minalive=0 starved=140 field=949 home=23 dig=29 nestfood=3 nestfood_late=6.0 tank_late=-0.0 nest=2 crater=20 nestcuts=0 late_cuts=0 shape=0.0 plants_end=67 seeds_end=209 leaf_end=1037 fruit_end=32
+sgard_s3 alive=0 minalive=0 starved=150 field=2066 home=56 dig=86 nestfood=30 nestfood_late=26.0 tank_late=-0.0 nest=17 crater=2 nestcuts=10 late_cuts=0 shape=1.0 plants_end=72 seeds_end=182 leaf_end=832 fruit_end=21
+sgard_s4 alive=0 minalive=0 starved=170 field=1421 home=52 dig=85 nestfood=16 nestfood_late=17.0 tank_late=-0.0 nest=19 crater=49 nestcuts=14 late_cuts=0 shape=0.0 plants_end=94 seeds_end=205 leaf_end=1025 fruit_end=13
+== sgard median of 4: alive=0.0 minalive=0.0 starved=145.0 field=1443.0 home=39.5 dig=65.5 nestfood=16.5 nestfood_late=16.0 tank_late=-0.0 nest=18.0 crater=11.0 nestcuts=11.0 late_cuts=0.0 shape=0.0 plants_end=73.5 seeds_end=207.0 leaf_end=1031.0 fruit_end=22.0
