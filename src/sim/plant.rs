@@ -659,9 +659,12 @@ pub fn roots_required_default() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTS_REQUIRED").as_deref(), Ok("0") | Ok("off")))
 }
 
-/// **`PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1` -- a plant's nutrient grows with how
-/// much root it has in soil, not only with how rich that soil is.** Off by
-/// default; the live switch is `World::nutrient_by_root`.
+/// **`PIXEL_PHYSICS_NUTRIENT_BY_ROOT` -- a plant's nutrient grows with how
+/// much root it has in soil, not only with how rich that soil is.** **On by
+/// default since 2026-10-24**, the owner's choice ("On", after the 8-bed
+/// paired run in `Reports/rootless-plants-2026-10-23.md`);
+/// `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=0` (or `off`) restores the old engine
+/// exactly. The live switch is `World::nutrient_by_root`.
 ///
 /// The owner, 2026-10-23, after roots became the only way to drink:
 /// *"Can a plant survive with a single root cell or does it need a root
@@ -677,7 +680,7 @@ pub fn roots_required_default() -> bool {
 pub fn nutrient_by_root_default() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_NUTRIENT_BY_ROOT").as_deref(), Ok("1") | Ok("on")))
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_NUTRIENT_BY_ROOT").as_deref(), Ok("0") | Ok("off")))
 }
 
 /// Soil faces of full soil one leaf needs under `World::nutrient_by_root`.

@@ -5,7 +5,7 @@ Reuses Reports/brain-training/cloud-compute/gcp/gcp_train_job.py (credentials, V
 the VM's startup script: build examples/inrun at REF, run every line of a jobs file (in the repo at REF) in parallel, one
 per vCPU, through scratch/inrun/rounds.sh, and put each finished job's folder to the bucket as runs/NAME/jobs/<job>.tgz.
 
-  start  NAME jobs=scratch/inrun/jobs/X.txt --ref BRANCH [--type c4d-highcpu-48] [--hours 2]
+  start  NAME jobs=scratch/inrun/jobs/X.txt --ref BRANCH [--type c4d-highcpu-48] [--hours 2] [--resume OLDNAME]
   status NAME          VM state and log lines
   pull   NAME DEST [--which jobs]   download progress, ARMSUM.txt and every finished job's small copy (or full copy) into DEST
   delete NAME          delete the VM (only after pull shows DONE)
@@ -21,7 +21,7 @@ import gcp_train_job as g
 g.STARTUP = r"""#!/bin/bash
 set -u
 W=/root/w; mkdir -p $W/out $W/tgz; cd $W
-NAME='@NAME@'; REF='@REF@'; ARGS='@ARGS@'
+NAME='@NAME@'; REF='@REF@'; ARGS='@ARGS@'; RESUME='@RESUME@'
 MD=http://metadata.google.internal/computeMetadata/v1/instance
 BUCKET=$(curl -sf -H "Metadata-Flavor: Google" $MD/attributes/bucket || true)
 tty() { cat > /dev/ttyS0; }
@@ -32,7 +32,24 @@ put() {
   curl -sf -X POST -H "Authorization: Bearer $TOK" -H "Content-Type: application/octet-stream" --data-binary "@$1" \
     "https://storage.googleapis.com/upload/storage/v1/b/$BUCKET/o?uploadType=media&name=runs%2F$NAME%2F$2" > /dev/null || { log "bucket upload of $2 failed"; return 1; }
 }
-export -f put log tty; export W MD BUCKET NAME
+# get OBJECT DEST: fetch runs/OBJECT from the bucket (for --resume)
+get() {
+  TOK=$(curl -sf -H "Metadata-Flavor: Google" $MD/service-accounts/default/token | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])') || return 1
+  curl -sf -H "Authorization: Bearer $TOK" -o "$2" "https://storage.googleapis.com/storage/v1/b/$BUCKET/o/runs%2F$(echo $1 | sed 's#/#%2F#g')?alt=media"
+}
+# snap: put each unfinished colsel job whose state.json moved since its last upload to partial/<job>.tgz (everything a
+# resume reads: csv files, state.json and the last round's genomes; no event logs or per-25k snapshots). Every 2 min with
+# progress, so a preemption costs at most the round in flight plus 2 minutes (2026-10-23 lost five whole batches).
+snap() {
+  for d in $W/out/*/; do
+    o=$(basename $d); [ -f $d/state.json ] || continue
+    grep -qx "$o" $W/done.list 2>/dev/null && continue
+    m=$(stat -c %Y $d/state.json); [ "$m" = "$(cat $W/snap.$o 2>/dev/null)" ] && continue
+    tar -C $W/out -czf $W/tgz/$o-p.tgz --exclude='events.csv*' --exclude='*_f0*' $o 2>/dev/null; [ $? -le 1 ] || continue
+    put $W/tgz/$o-p.tgz partial/$o.tgz && echo $m > $W/snap.$o; rm -f $W/tgz/$o-p.tgz
+  done
+}
+export -f put log tty get; export W MD BUCKET NAME
 progress() {
   { echo "name: $NAME"; echo "built from: $(cd $W/repo && git rev-parse HEAD)"; echo "vm: $(hostname) $(nproc) vcpus";
     echo "jobs: $(wc -l < $W/jobs.txt) done: $(cat $W/done.list 2>/dev/null | wc -l)"; echo "at: $(date -u +%FT%TZ)"; } > $W/progress.txt
@@ -58,6 +75,12 @@ fi
 log "built in $(( $(date +%s) - T0 )) s"
 sed "s/[[:space:]]*$//" "${ARGS#jobs=}" > $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
 put $W/jobs.txt jobs.txt
+if [ -n "$RESUME" ]; then
+  for o in $(cut -d' ' -f1 $W/jobs.txt); do
+    get "$RESUME/partial/$o.tgz" $W/tgz/$o-r.tgz && tar -C $W/out -xzf $W/tgz/$o-r.tgz && log "resumed $o from $RESUME at round $(python3 -c "import json;print(json.load(open('$W/out/$o/state.json'))['r'])")"
+    rm -f $W/tgz/$o-r.tgz
+  done
+fi
 export BIN=$W/repo/target/release/examples/inrun RAYON_NUM_THREADS=1
 run_one() {
   cd $W/repo; o=$1; shift
@@ -71,7 +94,8 @@ run_one() {
 }
 export -f run_one
 progress
-( while sleep 120; do progress; done ) &
+export -f snap
+( while sleep 120; do progress; snap; done ) &
 PP=$!
 log "batch start: $(wc -l < $W/jobs.txt) jobs on $(nproc) vcpus"
 xargs -P $(nproc) -L 1 bash -c 'run_one "$@"' _ < $W/jobs.txt
@@ -128,7 +152,9 @@ def main():
     pl.add_argument("--which", default="small", choices=("small", "jobs"), help="small: no event logs (default); jobs: everything")
     for c in ("status", "delete"):
         sub.add_parser(c).add_argument("name")
+    s.add_argument("--resume", default="", help="an earlier batch NAME whose partial/ job folders to restore (colsel jobs carry on from their last finished round)")
     a = p.parse_args()
+    g.STARTUP = g.STARTUP.replace("@RESUME@", getattr(a, "resume", "") or "")
     {"start": g.cmd_start, "status": g.cmd_status, "delete": g.cmd_delete, "pull": cmd_pull}[a.cmd](a)
 
 
