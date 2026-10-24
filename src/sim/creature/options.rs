@@ -347,6 +347,22 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// **A mind can bite** (lone predator thread, 2026-10-23): `PIXEL_PHYSICS_MIND_ATTACK=on` lands the Attack act
+/// (`mind::attack`), the game's own bite on a stranger in reach, and lets a mind pick up a cell of corpse its gut can
+/// use. **Why**: a predator that hunts by a mind needs a verb that kills and a mouth for what it killed; until now
+/// Attack was listed and never picked, and a dead ant was never picked up (no carry of one is built, and an ant
+/// eating its colony's dead was not what the rule was about). **Off by default, because it changes results**: a
+/// mind ant's genome can carry a live Attack switch, and in a box with two colonies or a predator it would start
+/// biting. Off, nothing is read or written: Attack is never picked and a corpse never offered, as before.
+pub fn attack_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_ATTACK").as_deref() {
+        Ok("on") => true,
+        Ok("off") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_ATTACK={other:?}: use on or off"),
+    })
+}
+
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
 /// leaves the feature at 0 and reads no temperature. SCRATCH port of the creature-performance thread's switch
 /// (mind-warmth-switch.patch, written against main) for the in-run gate check, 2026-10-22.
@@ -424,7 +440,40 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 /// the mind passes its Dig switch, and its picks are the same either way.
 pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>) {
     build_remembering(world, organism, def, roof, out, true);
+    home_eat_crutch(world, organism, def, out);
 }
+
+/// SCRATCH (brood lane, 2026-10-23; not for merging): `PP_HOMEEAT=H` -- a weaned crutch, the crater's pattern. An ant at
+/// home below `H` grants (`start_energy`) with a pick-up in reach is offered only its pick-ups, so it eats what it is
+/// standing beside. Why: with the training bed's real laying on (`inrun brood=lay`), colsel20's evolved colonies die
+/// with 106-188 kJ of crumbs in the nest, and starving ants at home touching crumbs, crop empty, jaws free, chose Walk
+/// 200 of 214 times (`PP_HUNGRYPROBE`): nothing in the bed had ever let an ant go hungry. `PP_HOMEEAT_P=p` (default 1)
+/// applies it per ant per 1,000-frame window with probability p (a pure hash), so colsel's `wean` can take it away.
+fn home_eat_crutch(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
+    static H: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let Some(h) = *H.get_or_init(|| std::env::var("PP_HOMEEAT").ok().and_then(|v| v.parse().ok())) else { return };
+    let p = *P.get_or_init(|| std::env::var("PP_HOMEEAT_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
+    if !out.iter().any(|o| o.verb == Verb::PickUp) {
+        return;
+    }
+    let Some(st) = world.organism(organism) else { return };
+    let Some(&(x, y)) = st.chain.first() else { return };
+    // "At home" is inside the nest's bowl -- within 12 columns of a nest site, at or below its door -- not the body's
+    // `food_at_home`, which is the door's ring only: the crumbs lie in the bowl (first run: the crutch never fired).
+    let in_nest = world.nest_sites.iter().any(|n| (x - n.x).abs() <= 12 && y >= n.surface);
+    if st.energy >= h * def.start_energy || !in_nest {
+        return;
+    }
+    if p < 1.0 && super::rng::stream(world.seed, organism as u64, world.frame / 1000, 0xB00D_0001).unit_f32() >= p {
+        return;
+    }
+    out.retain(|o| o.verb == Verb::PickUp);
+    HOME_EAT_FORCED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How many decisions [`home_eat_crutch`] narrowed (brood lane scratch; read by `inrun`).
+pub static HOME_EAT_FORCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// [`build_with`], with its cell window ([`MEMO_SIDE`]) or, `remember`
 /// false, with none -- every read straight from the world, as before the
@@ -570,7 +619,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
-        let food = world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0;
+        let food = world.materials.get(cell.material).food_energy > 0.0 && (cell.organism_id() == 0 || super::mind::scratch_log::grazeable(world, cell));
         if (jaws_free || pack) && diggable(world, def, organism, cell) && !review_body_rules_refuse(world, t) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
@@ -581,7 +630,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
         if jaws_free
             && food
-            && !corpse
+            && (!corpse || attack_on())
             && room
             && crop.is_none_or(|c| c.material == cell.material)
             && diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD

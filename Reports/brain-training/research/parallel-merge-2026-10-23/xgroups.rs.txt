@@ -1,0 +1,7 @@
+//! SCRATCH (merge thread): print mind::crossover_group for every slot of a genome of length N.
+fn main() {
+    let n: usize = std::env::args().nth(1).unwrap().parse().unwrap();
+    for i in 0..n {
+        println!("{}", pixel_physics::sim::creature::mind::crossover_group(i));
+    }
+}

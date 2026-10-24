@@ -2779,6 +2779,9 @@ const EMBEDDED: &[&str] = &[
     // seed with ground on top of it, which is not food (`buriedseed.ron`;
     // written only by `plant.rs`). Addressed by name, never by number.
     include_str!("../../assets/materials/buriedseed.ron"),
+    // Appended. The lone predator's body (`species/spider.ron`), addressed
+    // by name.
+    include_str!("../../assets/materials/spider.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

@@ -1,0 +1,33 @@
+// **The lone predator's body** (lone predator thread, 2026-10-23): a hunter
+// that lives alone, eats ants, and is trained the way the colony is, by
+// births and culls inside a living world (`examples/predtrain.rs`).
+//
+// `food_energy` equals `spider.ron`'s `body_energy`, the equality
+// `EnergyLedger` documents (per-cell flesh is priced once, on the material).
+//
+// `penetration_resistance: 2.0` is a plate, not soft flesh. Against the
+// ant's jaw (1.0) a bite takes a quarter of a cell (`contest::bite_progress`,
+// `(1.0 / 2.0)^2`), so four ant bites take one spider cell and the head is
+// one cell: a crowd of ants can kill a spider, one ant mostly cannot. That is
+// the ground the colony's defence is to be trained on later. Against the
+// spider's own jaw (0.5) an ant (0.25) comes apart in one bite.
+(
+    name: "spider",
+    display: "Spider",
+    kind: Creature,
+    density: 1.1,
+    colors: [
+        (58, 54, 66),
+        (44, 40, 52),
+        (92, 70, 54),
+    ],
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+
+    food_energy: 300.0,
+    penetration_resistance: 2.0,
+    food_class: 1.0,
+)

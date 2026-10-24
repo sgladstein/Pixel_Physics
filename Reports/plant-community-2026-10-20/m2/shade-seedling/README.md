@@ -205,3 +205,97 @@ not change (2.62 in every arm).
 run points at instead is a limit on the tree itself -- a canopy that opens
 as trees age and die, or a crown that stops growing -- rather than at how
 much light one leaf passes.
+
+## 7. A canopy that opens: trees aged on the wrong clock (`treegaps/`)
+
+Owner, 2026-10-23, on the next card ("either suggestion or both"): the
+lever is the tree. Chosen here: **gaps from tree death**, because §6 found
+the trees fill any extra light, and a dead tree is the one thing that
+takes leaf away for good.
+
+**First, a census of what a death does.** `plant_m0 mode=community
+gaps=N` prints, every N frames, one character per column for the light two
+rows above the ground (digit = % of open light, `+` = 10% or more) and a
+`TREE` line for every tree of 20+ shoot cells: span, cells, senescent, and
+its age on three clocks. On today's engine (8 seeds, 450,000 frames) a big
+tree (1,000+ cells) dies 0-3 times a bed. When one does, the floor under
+its span goes from ~3% to 7-10% within 20-40k frames and stays open for
+40-80k. So gaps work -- there are just almost none.
+
+**Why there are almost none: old age reads the wrong clock.** The old-age
+roll's age was `age_ticks * ORGANISM_TICK_INTERVAL`, rolled over 45 frames.
+A big plant ticks every `45 * size_cadence` frames and the lab bed runs at
+half pace, so both undercount: a tree 200,000 wall frames old read
+**28,935** on that clock against **100,035** plant frames, and each roll
+covered 45 frames of a ~155-frame tick. A tree authored to a 60,000 median
+lived to roughly 415,000 frames. The annual hazard beside it already
+reads `plant_frames` over the tick's real span (`review-3-2026-10-10.md`
+§1 found the same trap for herbs). **`World::old_age_plant_time`** (off)
+makes old age read the same clock. Guard:
+`old_age_reads_plant_time_only_under_the_switch`.
+
+**Every lifespan was tuned on the broken clock**, so the fix alone also
+shortens the shrub (45,000) and the shrub loses. Re-derived: the shrub's
+old real lifespan is ~45,000 × its cadence ≈ 135,000. Four arms, 8 paired
+seeds, four-role bed (`mode=community mix=roles loadfail=0 rain=steady
+spells=20000,40000 ground=patchy frames=450000 gaps=2000`), one binary:
+
+| arm | trees died (all, big) | tree leaf | shrub leaf | herb leaf | shrub beds | herb beds | creeper beds | roles a bed | dark floor (under 2%) | floor mean | light under cover |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A: today | 77, 16 | 36,429 | 1,925 | 5,104 | 7 | 6 | 0 | 2.62 | 32% | 5.5% | 0.155 |
+| clock fixed only | 200, 70 | 17,061 | 693 | 13,627 | 2 | 8 | 0 | 2.12 | 9% | 8.0% | 0.237 |
+| B: clock fixed, shrub 135k | 126, 54 | 9,789 | 5,612 | 10,681 | 8 | 8 | 1 | **3.00** | 5% | 8.6% | 0.273 |
+| C: B + tree 120k | 109, 34 | 25,531 | 6,447 | 3,504 | 7 | 7 | 1 | 2.88 | 18% | 6.8% | 0.214 |
+
+(Beds of 8 holding 100+ leaf of the role; "big" = a tree that had reached
+1,000 cells, counted from the full runs; the committed files keep each
+tree's first senescent line and the floor every 50,000 frames.
+`treegaps/summary.py` rebuilds the rest of the table.)
+
+- **The canopy opens and the shrub comes back.** B and C both double the
+  big-tree deaths and halve the dark floor, and the shrub, the role a
+  closed stand was squeezing, holds 3x its leaf on 7-8 beds.
+- **B is the most mixed bed and the thinnest forest**: tree leaf falls to
+  27% of today's and the herb takes the open ground. **C keeps 70% of the
+  trees** and gives the extra ground to the shrub. Pictures:
+  `tree-gaps-seed{1,4,7}-f450000.png` in the project files.
+- **The creeper is still absent** (1 bed in B and C). It has no lifespan to
+  re-derive; its trouble is §1-5's, not the canopy's.
+- **The seven-species bed** (`treegaps/mix7/`, `mix=mix7`, same flags, 8
+  paired seeds; arm on = clock fixed, tree and conifer 120,000, shrub
+  135,000, grass unchanged): dark floor 41% -> 25%, herb beds 3 -> 7 and
+  its leaf 1,763 -> 3,497, grass leaf +35%, conifer leaf -37% (25,518 ->
+  16,142), tree -22%; species a bed 3.75 -> 3.88, inside the spread.
+  Nothing collapses. Grass needs no re-derivation: the error is the
+  plant's cadence, and a plant small enough to tick every 45 frames reads
+  the same age on both clocks.
+- **The lab game with its colony** (`treegaps/lab/`, `latecensus`, the
+  played bed, 12 paired seeds x 500,000 frames, main vs this change):
+  the ants' gut-priced food on the bed, averaged over each run, is 18%
+  smaller (2,527 -> 2,069, smaller on 10 of 12 seeds; leaf -21%, seed
+  -13%). The colony does not show it: mean ants 126 -> 117, deliveries
+  -2%, digs -5%, each 6 of 12 either way, starvation deaths +12% (8 of
+  12), and 3 of 12 colonies extinct by 500,000 in both arms.
+
+**Switched on, owner's choice 2026-10-23** ("On, trees live 2x longer"):
+`World::old_age_plant_time` defaults on, tree and conifer
+`life_half_life` 120,000, shrub 135,000. `PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks`
+puts the old clock back (with the new lifespans).
+
+**With roots required as well** (`treegaps/roots/`, landed first as
+#841: `PIXEL_PHYSICS_ROOTS_REQUIRED=1`, four-role bed, 8 paired seeds;
+off = old clock at tree 60,000 and shrub 45,000, on = the shipped pair).
+Roots required already brings the shrub back on its own (shrub leaf
+1,925 -> 5,353, this off arm, matching `Reports/rootless-plants-2026-10-23/`),
+so the clock no longer adds shrub; it still opens the floor:
+
+| | tree leaf | shrub leaf | herb leaf | roles a bed | dark floor | light under cover |
+|---|---|---|---|---|---|---|
+| roots required, old clock | 35,227 | 5,353 | 5,208 | 2.88 | 37% | 0.170 |
+| roots required, plant clock | 26,954 | 5,525 | 6,552 | 2.62 | 22% | 0.236 |
+
+Roles a bed falls because one bed's tree and two beds' herb were under
+100 leaf at 450,000 (2 of 8 beds, about the seed spread here).
+  Rough frame cost (four runs sharing four cores): 329 s -> 348-359 s a run,
+  the cost of more, smaller plants.
+

@@ -8295,6 +8295,10 @@ const EMBEDDED: &[&str] = &[
     // `seed.ron` being lighter than water. See
     // `Reports/aquatic-implementation-plan-2026-09-14.md` §2a.
     include_str!("../../assets/species/reed.ron"),
+    // **The lone predator** (2026-10-23): a mind-driven hunter of ants,
+    // trained by births and culls among predators (`examples/predtrain.rs`).
+    // Placed by nothing in the game yet; its material is `spider.ron`.
+    include_str!("../../assets/species/spider.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

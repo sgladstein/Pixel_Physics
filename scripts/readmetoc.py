@@ -182,6 +182,7 @@ TOPICS = {
         "Sap flow status \u2014 water travels through the plant, and a drought lands on the far tips first",
         "Grass regrowth status \u2014 a tussock grows back from its crown, and the garden keeps seeding",
         "Planted bed status \u2014 a bitten herb grows back, and a herb lives one season",
+        "Roots required status \u2014 only roots drink, and a plant keeps its roots",
         "Plant lines merged: the genome, and the ecology",
         "Inheritance status \u2014 the growth program has no fallback under it",
         "Parameter-genome status \u2014 a species file is a starting point, and it ships inert",

@@ -702,6 +702,16 @@ by somebody about to try it on creatures.
   62–86% of shoot tips touch another plant. A grown bed copies exactly, and a
   small arena costs about 0.1 core-seconds.
 
+- [rootless-plants-2026-10-23.md](rootless-plants-2026-10-23.md)
+  — **Plants living with no roots, traced and fixed behind a switch (off).**
+  At 450,000 frames a third of the lab bed's leafy plants had no root in the
+  ground. Die-back sheds a starving plant's roots first, stem cells on the
+  soil drink in their place, and nothing can root the plant again.
+  `World::roots_required` lets only roots drink, keeps a plant's last roots,
+  and sprouts a root from a thirsty stem. Over 8 paired beds, rootless leafy
+  plants went 78 -> 9, shrub leaf 1,925 -> 5,353, and roles a bed
+  2.62 -> 2.88.
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
   handoff carrying the state and the queue -- read that first.** Revision 4
@@ -2831,6 +2841,16 @@ drift that two of these documents still reflect.**
   so *why* an edible leaf unequalises the banks is open. **The report is on
   main (brought docs-only 2026-10-10); `examples/replay.rs` is only on
   `claude/epic-bell-w6za1y`.**
+- [lone-predator-2026-10-24.md](lone-predator-2026-10-24.md) — **stage one of the
+  owner's predator, 2026-10-24: a spider trained by in-run selection against
+  the (not evolving) ant.** A six-cell hunter that cannot dig and kills an ant
+  in one bite; the mind's Attack verb acts under `PIXEL_PHYSICS_MIND_ATTACK=on`
+  (off by default); `examples/predtrain.rs` breeds and culls spiders inside
+  the living bed. From a blank mind selection held the hunt but did not
+  improve it (79 against 74 kills on fresh beds); from the hand-built
+  `hunter` preset it did (145 against 116, 6 of 8 lines), and random parents
+  lost the hunt (57). Stage two, the ant defending, needs Attack and the alarm
+  emit in the ant's arena.
 
 ## Worldgen and world  ·  `outdoor`
 
@@ -5883,6 +5903,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   weights nor adaptive weights can keep digging. Selecting colonies (12 colonies x 6 rounds, fixed-world judge) tripled
   food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
   win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
+
+- [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
+  **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
+  lessons made in parallel onto hA1 (home sense, crater refusal) merged by slot union kept both: food 309 -> 431, 22 of
+  24 worlds, starvation unchanged. Selection-trained lines merge to a compromise at best (two colsel20 colonies, a
+  digger and a forager: every merge lands between them) and a wreck at worst (dig-only and forage-only islands from
+  hcs: a dig-only island dies out, 6 of 8, without learning to dig; task arithmetic collapsed 12 of 12 colonies).
+  Recommends more full-job islands (e.g. on GitHub Actions) swapping whole ants, and a slot-mask merge rule for lessons.
+
+- [brain-training/parallel-training-guide.md](brain-training/parallel-training-guide.md) —
+  **living guide: which kind of parallel training fits a new ant task.** Six methods (full-job islands, world-variant
+  islands, lesson lanes merged by slot union, specialist islands with merged weights (never), co-evolving opponents,
+  a weaned body scaffold), six questions that pick one, the check that says whether it is working, and the method for each current task
+  (digging, foraging, brood, plant-only world, predators, colony battles). Edited in place.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
