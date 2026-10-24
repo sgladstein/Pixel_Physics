@@ -106,13 +106,13 @@ and is not on the new one. So the defect predates this switch and the guard
 was already blind to it. The guard now runs with `roots_required` off, and
 its doc carries these numbers. Not fixed here.
 
-## Nutrient grows with root (`World::nutrient_by_root`, off), 2026-10-24
+## Nutrient grows with root (`World::nutrient_by_root`, on), 2026-10-24
 
 The owner asked whether a plant can live on a single root. For water, no:
 uptake is per soil face and the store is `WATER_SCALE` per drinking root.
 For nutrient, yes: `nutrient_status` was the **mean** richness over the
 faces the roots touch, so one root in rich soil read as fully fed. The owner
-said to test the fix. `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1` makes the status
+said to test the fix. `World::nutrient_by_root` makes the status
 the smaller of that mean and the **sum** over the faces divided by what the
 foliage needs, `NUTRIENT_FACES_PER_LEAF` (0.5) faces of full soil per leaf or
 growing tip. Both nutrient prices read it.
@@ -147,8 +147,9 @@ against **0.345** (its patch's own richness) off.
 So plants carry more root per leaf, the root-starved tail is taxed as
 intended, trees grow about 11-14% less leaf, and the understory is about the
 same by 450k. Seen in pictures, the beds differ about as much as any two
-seeds do. The base arm reproduces the switch-on arm above exactly. The
-switch stays off pending the owner.
+seeds do. The base arm reproduces the switch-on arm above exactly. Landed
+off in PR #846; the owner then chose **on** (2026-10-24), and
+`PIXEL_PHYSICS_NUTRIENT_BY_ROOT=0` restores the old engine.
 
 ## Still open
 

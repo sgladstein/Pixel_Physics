@@ -103,7 +103,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Grass regrowth status — a tussock grows back from its crown, and the garden keeps seeding](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) | 11060 |
 | [Planted bed status — a bitten herb grows back, and a herb lives one season](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) | 11083 |
 | [Roots required status — only roots drink, and a plant keeps its roots](#roots-required-status--only-roots-drink-and-a-plant-keeps-its-roots) | 11130 |
-| [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11148 |
+| [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11156 |
 
 ### Milestones, in numeric order
 
@@ -178,7 +178,7 @@ your time goes, not a rule about what you may read.
 | **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7676 |
 | **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 7211 |
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7860 |
-| **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11148 |
+| **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11156 |
 | **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 9341 |
 
 <!-- END GENERATED TOC -->
@@ -11144,6 +11144,14 @@ stem cell on moist ground. 8 paired beds, 450k: rootless leafy plants
 **78 -> 9**, shrub leaf **1,925 -> 5,353**, roles a bed 2.62 -> 2.88, same
 run time. Record: `Reports/rootless-plants-2026-10-23.md`; probe
 `plant_m0 rootcensus=1`.
+
+**`PIXEL_PHYSICS_NUTRIENT_BY_ROOT`, shipped on 2026-10-24** (owner's choice;
+`0` is the ablation; landed off in PR #846 first): a plant's nutrient status
+is the mean richness its roots touch, capped by the total they reach against
+`NUTRIENT_FACES_PER_LEAF` (0.5) faces per foliage cell, so one root no longer
+feeds a crown. 8 paired beds, 450k: root per foliage 0.81 -> 0.86, the
+root-starved bottom tenth reads nutrient 0.34 -> 0.15, tree leaf about 11%
+lower, roles a bed 2.88 in both, same run time.
 
 ## Colony training status — the new ant in the box, and selection you can watch
 

@@ -6680,9 +6680,10 @@ pub struct World {
     /// (owner); `PIXEL_PHYSICS_ROOTS_REQUIRED=0` is the old engine.
     pub roots_required: bool,
     /// **A plant's nutrient grows with how much root it has in soil**
-    /// (`plant::nutrient_by_root_default`, `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1`):
-    /// the mean richness its roots touch, capped by the total they reach
-    /// against what its foliage needs. Off by default until measured.
+    /// (`plant::nutrient_by_root_default`): the mean richness its roots
+    /// touch, capped by the total they reach against what its foliage needs.
+    /// On by default since 2026-10-24 (owner);
+    /// `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=0` is the old engine.
     pub nutrient_by_root: bool,
     /// Adventitious roots sprouted under `roots_required`: its did-it-fire
     /// count.
