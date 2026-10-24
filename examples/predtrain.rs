@@ -6,8 +6,9 @@
 //! individual as the unit: a spider shares nothing and is paid only for what it eats.
 //!
 //! **The prey does not evolve** (stage one of the plan: the predator first, co-evolution after). The colony is the
-//! game's own ant mind (`assets/minds/h1.raw.txt`, `lab::training::h1_mind`) on the training bed with its food drip,
-//! no ant selection, and the colony held up to its headcount by fresh h1 ants at the door, so the spiders always have
+//! game's new ant (the standard pool, `assets/minds/std_pool.txt`, `lab::training::new_ant_minds`; `h1` until
+//! 2026-10-24) on the training bed with its food drip, no ant selection, and the colony held up to its headcount by
+//! fresh pool ants at the door, so the spiders always have
 //! prey and a round measures the hunter, not how fast the colony ran out.
 //!
 //! cargo run --release --example predtrain -- out=DIR [seed=1] [rounds=6] [frames=100000] [preds=12] [ants=30]
@@ -218,8 +219,13 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     }
     let seed = cfg.seed * 1000 + r as u64;
     let s = Settings { mode: Mode::Off, round_frames: cfg.frames, ..Default::default() };
-    let h1 = train::start_mind_text(&colony_bed::suite(), "h1", training::H1);
-    let mix = vec![(Founder { tag: "h1".into(), genome: h1.clone() }, cfg.ants)];
+    let pool = training::std_pool();
+    let mix: Vec<_> = pool
+        .iter()
+        .enumerate()
+        .map(|(k, g)| (Founder { tag: format!("p{k:02}"), genome: g.clone() }, cfg.ants / pool.len() + usize::from(k < cfg.ants % pool.len())))
+        .filter(|(_, n)| *n > 0)
+        .collect();
     let (mut round, mut w, sc): (Round, World, _) = Round::found(r, seed, &mix, &s);
     let ant = w.species.id_of("ant").expect("ant");
     let spider = w.species.id_of("spider").expect("spider in the species table");
@@ -227,7 +233,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     def.reproduce_threshold = 1.0e30;
     def.life_half_life = 0;
     w.species.set_creature(spider, def);
-    let ant_mind = colony_bed::mind(&h1);
+    let ant_minds = training::new_ant_minds();
     let (colony, anchor) = of_species(&w, ant).first().and_then(|&i| w.organism(i)).map(|st| (st.colony, st.forage_anchor)).expect("a colony");
     let slots = mind::trainable(VERBS, EMITS);
     let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5151);
@@ -309,7 +315,8 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
         if fr % 500 == 0 {
             let alive = of_species(&w, ant).len();
             for _ in alive..cfg.ants {
-                if predator::hatch_ant(&mut w, colony, anchor, colony_bed::NEST, 12, ant_mind.clone(), 3.0).is_some() {
+                let mind = ant_minds[ant_refills as usize % ant_minds.len()].clone();
+                if predator::hatch_ant(&mut w, colony, anchor, colony_bed::NEST, 12, mind, 3.0).is_some() {
                     ant_refills += 1;
                 }
             }

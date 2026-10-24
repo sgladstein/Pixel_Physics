@@ -306,11 +306,11 @@ pub struct Lab {
     /// rounds.sh's `SEED` for the next START.
     pub training_seed: u64,
     /// **ANT BRAIN: NEW** -- every ant in the box on screen decides by the
-    /// new mind (`training::h1_mind`) rather than the hand-built brain. Off
+    /// new mind (`training::new_ant_minds`) rather than the hand-built brain. Off
     /// is the shipped game. See [`Lab::set_new_ant`].
     pub new_ant: bool,
     /// The new mind, built once on first use.
-    new_ant_mind: Option<std::sync::Arc<crate::sim::creature::mind::MindGenome>>,
+    new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -1031,7 +1031,7 @@ impl Lab {
         if on {
             let n = self.give_new_ant_minds();
             self.world.log_player_action("ANT BRAIN: NEW".to_string());
-            format!("ANT BRAIN: NEW -- {n} ANTS NOW THINK WITH THE TRAINED MIND (H1)")
+            format!("ANT BRAIN: NEW -- {n} ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL)")
         } else {
             self.world.minds = None;
             self.world.log_player_action("ANT BRAIN: OLD".to_string());
@@ -1045,7 +1045,7 @@ impl Lab {
     /// released or a scenario loaded get it.
     fn give_new_ant_minds(&mut self) -> usize {
         let Some(sp) = self.world.species.id_of("ant") else { return 0 };
-        let mind = self.new_ant_mind.get_or_insert_with(training::h1_mind).clone();
+        let minds = self.new_ant_mind.get_or_insert_with(training::new_ant_minds).clone();
         let mut ids: Vec<_> = self
             .world
             .live_organism_ids()
@@ -1056,7 +1056,7 @@ impl Lab {
             .collect();
         ids.sort_unstable();
         for &id in &ids {
-            crate::sim::creature::mind::give(&mut self.world, id, mind.clone());
+            crate::sim::creature::mind::give(&mut self.world, id, training::new_ant_mind_for(&minds, id));
         }
         ids.len()
     }
