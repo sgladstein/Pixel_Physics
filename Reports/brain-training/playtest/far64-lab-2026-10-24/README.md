@@ -132,11 +132,17 @@ ended a live stroke with `self.stroke.take()`, which drops the stroke without
 calling `finish_stroke`. A left-button release inside the window always goes
 there, so the food, soil and dig brushes never logged from play. Only the
 right-button eraser and a release outside the window, which go through
-`end_stroke`, ever wrote a line. The 10-08 fix that added the line came in with
-this release path (PR #764). Its test closed the stroke with `end_stroke`, so
-it never took the path a mouse takes. **Fixed in the same PR as this report**:
-`release` now calls `finish_stroke`, and the test closes the food stroke with
-`release`.
+`end_stroke`, ever wrote a line. The release path dates from 2026-08-30
+(`7578f8f6`, the box's first verbs). The 10-08 fix (`7429327e`) added the line
+to `finish_stroke`, which that release skipped, so painted food has never been
+logged from a real mouse. No chronicle stored in the repo has a single
+`PAINTED FOOD` or `ERASED` line. The 10-08 test closed the stroke with
+`end_stroke`, so it never took the path a mouse takes. **Fixed in PR #867, the
+same PR as this report**: `release` now calls `finish_stroke`, and the test
+closes the food stroke with `release`. PR #869 then logged the eight other
+verbs that changed the box silently (alarm, fling, lamps, roster culls, rain,
+plant pace, fruit rot); owner, 2026-10-24: *"Player actions should all be in
+the data."*
 
 ## For training (sent to the Teacher lane)
 
