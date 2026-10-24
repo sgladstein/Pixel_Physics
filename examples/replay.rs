@@ -18,7 +18,7 @@
 //! ```
 //!
 //! **Two bed settings the actions log does not record: `rain=off pace=half`.** `CycleRain`, `CyclePlantPace`,
-//! `ToggleWindfallRot` and the lamp toggles are not logged, and the shipped rain is light; rain off + half pace is the
+//! `ToggleWindfallRot` and the lamp toggles were not logged (they are since 2026-10-24), and the shipped rain is light; rain off + half pace is the
 //! only pair that reproduces the playtest's census exactly through tick 40,000. It does not stay exact (adults at
 //! 100k: 205 here, 165 played), so a replay is *the owner's bed*, not *the owner's run*: compare arms against each
 //! other, paired by seed, never against the chronicle's own numbers.
