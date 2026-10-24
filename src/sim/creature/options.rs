@@ -437,6 +437,12 @@ pub fn home_dir() -> bool {
     })
 }
 
+/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED=1`, [`f::HUNGRY`] graded ([`describe`]). Off by default.
+fn hungry_graded() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PP_HUNGRY_GRADED").is_ok_and(|v| switch_on_value(&v)))
+}
+
 /// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond.
 pub fn far_ramp(d: f32, r: f32, w: f32) -> f32 {
     ((d - r) / w).clamp(0.0, 1.0)
@@ -877,7 +883,17 @@ fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'
             v[f::LARVA] = 1.0;
             v[f::LARVA_HUNGER] = hunger;
         } else {
-            v[f::HUNGRY] = f32::from(u8::from(hunger > 0.5));
+            // SCRATCH (sense-cap audit, 2026-10-24; off by default): `PP_HUNGRY_GRADED=1` reads a nestmate's hunger
+            // as the ant reads its own bank -- `1 / (1 + e)`, `e` its bank in the species' sensed tanks (`c::ENERGY`
+            // is `e / (1 + e)`) -- instead of "under half a start grant", which is 1 or 0 with nothing between and 0
+            // for any nestmate above one grant. On the training bed it fired on no option at all (every nestmate
+            // banked 7-60 tanks); in a lab box on 2.3-12% of options.
+            v[f::HUNGRY] = if hungry_graded() {
+                let tank = world.species.get(o.species).creature.as_ref().map_or(1.0, |d| d.sensed_tank.unwrap_or(d.start_energy)).max(1.0);
+                1.0 / (1.0 + o.energy.max(0.0) / tank)
+            } else {
+                f32::from(u8::from(hunger > 0.5))
+            };
         }
     }
     v[f::DEAD] = f32::from(u8::from(here.mats.corpse.is_some_and(|c| cell.material == c)));

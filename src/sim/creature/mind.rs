@@ -5414,6 +5414,12 @@ pub mod scratch_log {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| options::switch_on("PP_DIGHEAD_GATE"))
     }
+    /// `PP_DIGGATE_DOOR=1`: the dig head's gate measures "within 40 columns of the door" from the nearest nest site,
+    /// not from column 128 ([`dig_prepare`]). Off by default.
+    fn door_gate_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGGATE_DOOR").is_ok_and(|v| options::switch_on_value(&v)))
+    }
     pub fn dighead_on() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| dighead().is_some())
@@ -5457,11 +5463,16 @@ pub mod scratch_log {
             // (no spoil, crop empty, below the datum, within 40 columns of the door; hunger not read, so the copier
             // can apply the same gate from the log). Head v3/v4 ungated: P(Dig) on unlabelled decisions 0.008 ->
             // 0.018 and home food 318 -> 248-275.
+            // `PP_DIGGATE_DOOR=1` (sense-cap audit, 2026-10-24; off by default): "the door" is the nearest nest
+            // site's column ([`dig_ctx`]'s own `nx`) instead of column 128. 128 is the training bed's door, so off,
+            // a lab colony landing anywhere else (the lab boxes land at 256; the owner's 1024-wide box at four
+            // columns) never gets the head's "when" read-out at all.
+            let door = if door_gate_on() { ctxf.map_or(128, |c| c.0) } else { 128 };
             let gated = dig_gate_on()
                 && !world.organism(organism).is_some_and(|s| {
                     s.spoil.is_none()
                         && s.crop.is_none_or(|c| c.cells == 0)
-                        && (at.0 - 128).abs() <= 40
+                        && (at.0 - door).abs() <= 40
                         && world.room_surface_at(at.0).is_some_and(|top| at.1 > top)
                 });
             let add = match head {

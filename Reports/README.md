@@ -5849,6 +5849,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Teacher lane. Trail rule 2 still does not copy (its blocker is "on the trail", a comparison across options, not
   the home sense). Patch, genomes, copiers and scripts in `far-home-sense-2026-10-22/`.
 
+- [brain-training/teacher-training/sense-caps-audit-2026-10-24.md](brain-training/teacher-training/sense-caps-audit-2026-10-24.md) —
+  **which of the ant mind's senses are capped, flattened or on/off (owner's ask, 2026-10-24).** Every context slot,
+  option feature and dig-head feature, with its formula and the range measured on the training bed and in three lab
+  boxes. Three real findings, each an opt-in switch: scent A is pinned at its 16-bit ceiling for 30-33% of bed
+  decisions near home, where 41-43% of walk choices read flat (`PP_SCENT_SOFTCAP`, ceiling share to 0%, needs a
+  trained arm); the dig head's "when" gate is hard-wired to column 128, so no lab colony has had it
+  (`PP_DIGGATE_DOOR`, bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
+  (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
