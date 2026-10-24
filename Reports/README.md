@@ -2858,6 +2858,15 @@ drift that two of these documents still reflect.**
   one spider a round from a blank entry, none when it is held off. Neither
   colsel defence case (`+guard`, `+slay`) beat plain selection on 16 colonies,
   and both cost food; garden replicates swing more than arms.
+- [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
+  the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
+  now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's
+  child written into each hatchling. The packed nest is crumbs, and they are the
+  colony's working larder (75-83% of digestion is in the nest; making them rot
+  killed 4 of 4 colonies). Breeding halves the store but the size cap stops laying
+  while income exceeds upkeep; looser caps, rot, limited income and food moved
+  to 45 or 65 columns all either leave the pile or kill the colony. Evolved ants
+  starve beside crumbs (Walk 200 of 214 choices). The levers left are behavioural.
 
 ## Worldgen and world  ·  `outdoor`
 
