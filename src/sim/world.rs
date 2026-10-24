@@ -6679,6 +6679,11 @@ pub struct World {
     /// moist ground (an adventitious root). On by default since 2026-10-23
     /// (owner); `PIXEL_PHYSICS_ROOTS_REQUIRED=0` is the old engine.
     pub roots_required: bool,
+    /// **A plant's nutrient grows with how much root it has in soil**
+    /// (`plant::nutrient_by_root_default`, `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1`):
+    /// the mean richness its roots touch, capped by the total they reach
+    /// against what its foliage needs. Off by default until measured.
+    pub nutrient_by_root: bool,
     /// Adventitious roots sprouted under `roots_required`: its did-it-fire
     /// count.
     pub adventitious_roots: u64,
@@ -7694,6 +7699,7 @@ impl World {
             seedling_reserves: false,
             seedling_reserves_drawn: 0,
             roots_required: super::plant::roots_required_default(),
+            nutrient_by_root: super::plant::nutrient_by_root_default(),
             adventitious_roots: 0,
             dieback_roots_kept: 0,
             seed_settles: false,

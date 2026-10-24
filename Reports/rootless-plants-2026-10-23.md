@@ -106,12 +106,55 @@ and is not on the new one. So the defect predates this switch and the guard
 was already blind to it. The guard now runs with `roots_required` off, and
 its doc carries these numbers. Not fixed here.
 
+## Nutrient grows with root (`World::nutrient_by_root`, off), 2026-10-24
+
+The owner asked whether a plant can live on a single root. For water, no:
+uptake is per soil face and the store is `WATER_SCALE` per drinking root.
+For nutrient, yes: `nutrient_status` was the **mean** richness over the
+faces the roots touch, so one root in rich soil read as fully fed. The owner
+said to test the fix. `PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1` makes the status
+the smaller of that mean and the **sum** over the faces divided by what the
+foliage needs, `NUTRIENT_FACES_PER_LEAF` (0.5) faces of full soil per leaf or
+growing tip. Both nutrient prices read it.
+
+**The constant comes from the stand.** Over 319 plants (5+ foliage cells,
+seeds 1-4, 50k and 150k, roots required on), soil faces of root per foliage
+cell were p10 0.06, p25 0.26, p50 1.46, p75 2.85. Big trees (500+ foliage)
+had a median of 0.29. At 0.5 the median plant of every role but tree is
+untouched. A median tree reads about 0.58 of its mean, which the
+Michaelis-Menten curve (`Km` 0.05) turns into about 0.95 of its income. The
+bottom tenth reads short.
+
+Guard: `a_herb_on_one_root_reads_short_of_nutrient_only_with_nutrient_by_root_on`.
+A herb with 64 foliage cells on one root reads **0.022** with the switch on,
+against **0.345** (its patch's own richness) off.
+
+**8 beds paired, 450k, roots required on in both arms**
+(`rootless-plants-2026-10-23/nutrient-by-root/`):
+
+| | base | + nutrient by root |
+|---|---|---|
+| root cells per foliage cell, 150k / 450k | 0.68 / 0.81 | 0.80 / 0.86 |
+| faces per foliage, bottom tenth, 450k | 0.07 | 0.14 |
+| nutrient status, bottom tenth, 450k | 0.34 | 0.15 |
+| tree leaf, 150k / 450k | 35,637 / 35,227 | 30,511 / 31,243 |
+| shrub leaf, 150k / 450k | 7,139 / 5,353 | 8,191 / 4,882 |
+| herb leaf, 150k / 450k | 4,881 / 5,208 | 5,295 / 5,210 |
+| roles a bed, 150k / 450k | 3.00 / 2.88 | 3.12 / 2.88 |
+| light under cover, 450k | 0.170 | 0.185 |
+| run time, mean | 335 s | 321 s |
+
+So plants carry more root per leaf, the root-starved tail is taxed as
+intended, trees grow about 11-14% less leaf, and the understory is about the
+same by 450k. Seen in pictures, the beds differ about as much as any two
+seeds do. The base arm reproduces the switch-on arm above exactly. The
+switch stays off pending the owner.
+
 ## Still open
 
-- **Nutrient is an average, not a sum.** `nutrient_status` is the mean
-  richness over the faces the roots touch, so one root in rich soil reads
-  full. Water scales with root (`water_capacity_of`, per-face `Absorb`);
-  nutrient does not.
+- Under `nutrient_by_root`, grass's foliage is its growing tips only
+  (`leaves_in_row` counts `Leaf` and `GrowingTip`), so grass is barely taxed.
+  There is no grass in the four-role bed.
 - 9 of 239 leafy plants still read rootless at 450k with the switch on. Most
   are plants on their way out, and a few herbs read water status 1.0. Not
   traced.

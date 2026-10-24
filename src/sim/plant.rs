@@ -659,6 +659,32 @@ pub fn roots_required_default() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTS_REQUIRED").as_deref(), Ok("0") | Ok("off")))
 }
 
+/// **`PIXEL_PHYSICS_NUTRIENT_BY_ROOT=1` -- a plant's nutrient grows with how
+/// much root it has in soil, not only with how rich that soil is.** Off by
+/// default; the live switch is `World::nutrient_by_root`.
+///
+/// The owner, 2026-10-23, after roots became the only way to drink:
+/// *"Can a plant survive with a single root cell or does it need a root
+/// structure?"* For water the answer was already "structure": uptake is per
+/// soil face and the store is `WATER_SCALE` a drinking root. For nutrient it
+/// was not. `nutrient_status` is the *mean* richness over the faces the
+/// roots touch, so one root in rich soil read as fully fed whatever it had
+/// to feed. On, the status is the smaller of that mean and the *sum* over
+/// the faces against what the foliage needs (`NUTRIENT_FACES_PER_LEAF`).
+/// Both nutrient prices read it (`nutrient_availability`), so a plant short
+/// of root builds dearer and earns less, and grows root to fix it -- root
+/// tissue is exempt from the construction price.
+pub fn nutrient_by_root_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_NUTRIENT_BY_ROOT").as_deref(), Ok("1") | Ok("on")))
+}
+
+/// Soil faces of full soil one leaf needs under `World::nutrient_by_root`.
+/// Set from the stand (see the measurement at its definition site's
+/// report), not from biology.
+const NUTRIENT_FACES_PER_LEAF: f32 = 0.5;
+
 /// Root cells die-back leaves a plant under `World::roots_required`. Two
 /// rather than one so a plant keeps a root and the tip it grows from; not
 /// tuned.
@@ -13368,6 +13394,10 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         at.iter().map(|&(x, y)| world.carbon_at(x, y)).sum::<f32>()
     });
     let roots_required = world.roots_required;
+    let nutrient_by_root = world.nutrient_by_root;
+    // Foliage, for `World::nutrient_by_root`'s demand: leaves and growing
+    // tips, the cells `leaves_in_row` already counts in this walk.
+    let foliage: u32 = leaves_in_row.values().sum();
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
@@ -13411,8 +13441,19 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // all reads none either: the seedling this default protects starts
         // with a root (`germinate`'s companion root), so a rootless plant
         // with a shoot has lost its roots, not yet to grow them.
+        // **Under `World::nutrient_by_root` the mean is capped by the total**
+        // (`nutrient_by_root_default`): what the roots reach, summed over
+        // their soil faces, against what the foliage needs,
+        // `NUTRIENT_FACES_PER_LEAF` faces of full soil a leaf. A plant with
+        // root enough reads the mean exactly as before; one with a root or
+        // two behind a crown reads short, however rich that patch is.
         state.nutrient_status = if nutrient_faces > 0 {
-            nutrient_available / nutrient_faces as f32
+            let mean = nutrient_available / nutrient_faces as f32;
+            if nutrient_by_root && foliage > 0 {
+                mean.min(nutrient_available / (NUTRIENT_FACES_PER_LEAF * foliage as f32))
+            } else {
+                mean
+            }
         } else if root_cells > 0 || (roots_required && shoot_cells > 1) {
             0.0
         } else {
@@ -25162,6 +25203,50 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
         run_with_fields(&mut w, frames);
         w.organism(id).map_or(0, |s| s.shoot_cells)
+    }
+
+    /// **One root behind a leafy herb reads short of nutrient with
+    /// `World::nutrient_by_root` on, and as rich as its patch with it off**
+    /// (`nutrient_by_root_default`). A herb grown on rich, very wet soil
+    /// for 6,000 frames stands on a single root; its status is read in both
+    /// arms. Off is the hole: the mean over one
+    /// root's faces is the soil's own richness, whatever the crown.
+    #[test]
+    fn a_herb_on_one_root_reads_short_of_nutrient_only_with_nutrient_by_root_on() {
+        fn arm(on: bool) -> (f32, u32, u32) {
+            let mut w = test_world();
+            w.nutrient_by_root = on;
+            w.plant_load_failure = false;
+            w.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let (x, y) = (100, 120);
+            for fx in 60..=140 {
+                w.set(fx, y + 31, Cell::new(material::STONE, 0));
+                for dy in 1..=30 {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(900));
+                }
+            }
+            assert!(w.plant_tree_species(x, y, "herb"), "test setup: herb should plant");
+            let id = w.get(x, y).organism_id();
+            run_with_fields(&mut w, 6_000);
+            let st = w.organism(id).expect("test setup: the herb should be alive at 6,000");
+            // Grown in soil this wet the herb roots barely at all -- the root
+            // gate reads its own root zone, and that zone is never short of
+            // water -- which is the case under test without any surgery.
+            assert!(st.root_cells <= 3, "test setup: expected a herb on a root or two, it has {}", st.root_cells);
+            run_with_fields(&mut w, 2 * ORGANISM_TICK_INTERVAL as usize);
+            let st = w.organism(id).expect("the herb survives two ticks");
+            let foliage = st.cells.keys().filter(|&&(cx, cy)| matches!(organism::cell_type(w.get(cx, cy).aux()), Some(CellType::Leaf) | Some(CellType::GrowingTip))).count() as u32;
+            (st.nutrient_status, st.root_cells, foliage)
+        }
+        let (off, off_roots, off_foliage) = arm(false);
+        let (on, on_roots, on_foliage) = arm(true);
+        eprintln!("off: nutrient {off:.3} roots {off_roots} foliage {off_foliage}; on: nutrient {on:.3} roots {on_roots} foliage {on_foliage}");
+        assert!(off_foliage >= 10 && on_foliage >= 10, "test setup: the herb should be leafy");
+        // Off reads the patch's own richness, drawn down by its one root
+        // (0.345 when written); what matters is that the crown does not enter.
+        assert!(off > 0.2, "off is the hole: one root reads its patch's richness, whatever the crown ({off:.3})");
+        assert!(on < 0.5 * off, "on: one root behind {on_foliage} foliage cells reads short ({on:.3} against {off:.3})");
     }
 
     /// **A plant that loses its roots lives on its stem with
