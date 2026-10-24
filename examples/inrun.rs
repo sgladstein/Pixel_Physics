@@ -1158,7 +1158,11 @@ fn main() {
     // is on a living plant (leaf and blade, flower, fruit still on the stem), `loose_*` lies free (fallen fruit,
     // litter, dead leaf, crumbs, provisions); `seeds` and `plants` count organisms (a waiting seed, a growing plant).
     const GARDEN_KINDS: [&str; 9] = ["leaf", "grassblade", "flower", "fruit", "windfall", "litter", "deadleaf", "crumbs", "provisions"];
-    // SCRATCH (plant-food lane, 2026-10-23), the weaning bed's three levers, all off by default:
+    // SCRATCH (plant-food lane, 2026-10-23), the weaning bed's three levers. **`fjoule` and `weed=30` are on by default
+    // on a planted bed** (owner, 2026-10-24: "The default should be on unless there is uncertainty"): every planted
+    // batch ran both, and without weeding digging falls 246 -> 46 cuts. `fjoule=0` / `weed=0` opt out; neither does
+    // anything without `plants=`, so the pile bed is unchanged. `cap_to` stays off (a within-round fall kills the colony
+    // once the pile is gone: `Reports/dead-ends.md`).
     // fjoule=1: delivery and progress pay scale by the food's face worth over `joule_ref` (default 960, a provisions
     //   cell), so pay follows energy: a leaf (40) pays 1/24 of a provisions cell and a crop holds 24 times as many.
     //   Per-cell pay (the default) paid a leaf cell like a provisions cell.
@@ -1167,9 +1171,10 @@ fn main() {
     //   and an ant cannot cut a root (`jaw_can_cut`: plant tissue is not ground), so digging fell 246 -> 46 cuts.
     // cap_to=C:F: the pile's cap falls linearly from `cap` to C by frame F (then holds), so a colony is weaned off the
     //   pile onto the garden within a round.
-    let fjoule = num("fjoule", 0) > 0;
+    let planted = !garden.plants.is_empty();
+    let fjoule = num("fjoule", planted as u64) > 0;
     let joule_ref = fnum("joule_ref", 960.0);
-    let weed = num("weed", 0) as i32;
+    let weed = num("weed", if planted { 30 } else { 0 }) as i32;
     let cap_to: Option<(usize, u64)> = arg(&a, "cap_to").map(|v| {
         let (c, f) = v.split_once(':').expect("cap_to=C:F");
         (c.parse().unwrap(), f.parse().unwrap())

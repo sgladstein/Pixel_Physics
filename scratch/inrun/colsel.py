@@ -74,8 +74,8 @@ def with_capp(args, p):
 # pilecap=START:STEP:STARVED[:FLOOR] (plant-food lane, 2026-10-23; owner chose the weaning bed): the pile's cap (inrun
 # `cap=`) starts at START. After a round whose colonies' median starved is STARVED or fewer it falls by STEP, never below
 # FLOOR (default 10); after one with more than 3 x STARVED it rises by STEP, never above START; otherwise it holds. Run
-# with the garden's args (`plants=... weed=30 fjoule=1`, setenv PP_MIND_GRAZE=1). The cap used is logged per round
-# (colsel.csv, cg.csv `pilecap`).
+# with the garden's args (`plants=...`; `weed=30 fjoule=1` and PP_MIND_GRAZE come with it by default since 2026-10-24).
+# The cap used is logged per round (colsel.csv, cg.csv `pilecap`). On a breeding bed the step rule is pilegate's below.
 # Why starved and not alive: plantwean1-1023 stepped on median end-alive, which in-run births hold at 24 whatever
 # happens, so the cap fell every round (30 -> 0 by round 6) while starved per round ran 47, 9, 3, 6.5, 52, 195; at cap 0
 # 6 of 64 colonies lived and all were extinct by round 23. Why a floor: no common garden has yet shown a colony living on
@@ -95,9 +95,17 @@ cap_now = PILECAP[0] if PILECAP else None
 # median starved 6-17 (step down), at 20 43-65 (> 3 x 10, step straight back up), so no round ran twice at 20 and the
 # common garden at 20 stood still (median alive, extinct as 0: r9 62, r31 65.5). Extinctions at 20 were 10-16 of 64
 # colonies a round: pressure selection can act on, which a starved rule threw away after one round.
-PILEGATE = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')[1:]) for x in EXTRA if x.startswith('pilegate=')), None)
+# **On by default on a breeding bed** (owner, 2026-10-24: "The default should be on unless there is uncertainty"):
+# breeding is inrun's default, and there the starved rule is the one measured broken, so `pilecap=` without `pilegate=`
+# steps on extinct:10:25 unless the args carry `brood=off`; `pilegate=off` keeps the starved rule.
+_pg = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('pilegate=')), None)
+if _pg is None and PILECAP and 'brood=off' not in EXTRA:
+    _pg = 'extinct:10:25'
+PILEGATE = tuple(int(v) for v in _pg.split(':')[1:]) if _pg and _pg != 'off' else None
 if PILEGATE:
     assert PILECAP and len(PILEGATE) == 2, 'pilegate=extinct:LOW:HIGH needs pilecap='
+if PILECAP:
+    print(f'pilecap {PILECAP} steps on ' + (f'extinct colonies {PILEGATE[0]}:{PILEGATE[1]}%' if PILEGATE else 'median starved'), flush=True)
 EXTRA = [x for x in EXTRA if not x.startswith('pilegate=')]
 # spiderramp=START:STEP:K[:FROM[:FLOOR]] (lone predator thread, 2026-10-24, at the teacher lane's ask: "a predator a
 # decent colony can just beat"): with inrun's `spiders=POOL:N` in the args, the spiders arrive at frame START of each

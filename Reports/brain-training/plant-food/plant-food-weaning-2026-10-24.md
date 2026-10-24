@@ -13,6 +13,11 @@ The plant-food lane, a child of the Teacher lane. Owner, 2026-10-23 16:37Z: *"ex
 
 Everything here is a switch or a scratch tool; nothing changes the game. Grazing (`PP_MIND_GRAZE`) has been on by default since 2026-10-24 (owner: "Yes to grazing"; `PP_MIND_GRAZE=off` restores loose food only).
 
+**Defaults since 2026-10-24 evening** (owner, 17:35Z: "The default should be on unless there is uncertainty"):
+- With `plants=`, `weed=30` and `fjoule=1` are on (`weed=0` / `fjoule=0` opt out). Every planted batch here ran both, and without weeding digging falls 246 to 46 cuts. Neither does anything on the pile bed.
+- `colsel.py pilecap=` on a breeding bed steps on `pilegate=extinct:10:25` unless told otherwise (`pilegate=off`, or the args carry `brood=off`, for the starved rule). The starved rule is the one measured broken there (plantwean4).
+- Still off, for a stated reason: `plants=` itself is a choice of bed that costs about 2.3x per frame and whose one breeding run (plantwean4) lost two thirds of the nest; `cap_to=` is a dead end (§3).
+
 ## 1. The mind could not eat a living plant
 
 The mind's Pick up was offered only on food no organism owns (`src/sim/creature/options.rs`: `organism_id() == 0`). So a trained ant walked past every leaf, flower, fruit on the stem and fallen seed. On a planted bed it took about 5 bites, and all 24 ants starved by frame 2,600 (8 of 8 seeds). The old hand-built ant (`nomind=1`) on the same bed took 712 bites and all 24 were alive at 20k.
@@ -21,7 +26,7 @@ The mind's Pick up was offered only on food no organism owns (`src/sim/creature/
 
 ## 2. The planted bed (PR #836)
 
-`examples/inrun.rs`, all off unless set, byte-identical without them:
+`examples/inrun.rs`, all off unless set, byte-identical without them (the two weaning levers below are on with `plants=` since 2026-10-24):
 - `plants=MIX[:SPACING[:BAND]] grow=F rain=R` (`challenges::inrun::Garden`, `colony_in`) grows shipped species for F frames with the mister on, then lands the colony. It writes `garden.csv`, and `nestmap.txt` marks plant cells `%`; `nestcount.py`, `roomshape.py` and `inherit_nest` treat `%` as ground, because garden roots had read as up to 1,319 "nest" cells.
 - Weaning levers: `fjoule=1` (pay by the food's energy, so a leaf pays 1/24 of a provisions cell), `weed=B` (pull plant cells within B columns of the door), `cap_to=C:F`, `film_hw=`.
 
