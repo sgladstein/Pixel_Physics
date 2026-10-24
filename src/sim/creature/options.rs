@@ -422,7 +422,7 @@ pub fn switch_on_value(v: &str) -> bool {
 pub fn home_vec() -> Option<(f32, f32)> {
     static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "40:30".to_string());
+        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "100:100".to_string());
         if !switch_on_value(&v) {
             return None;
         }
