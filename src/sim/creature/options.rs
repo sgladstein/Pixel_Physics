@@ -511,10 +511,14 @@ pub fn home_dir() -> bool {
     })
 }
 
-/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED=1`, [`f::HUNGRY`] graded ([`describe`]). Off by default.
+/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED`, [`f::HUNGRY`] graded ([`describe`]). **On by default
+/// since laygene2** (teacher lane, 2026-10-24; owner: "the default should be on unless there is uncertainty"): the
+/// colonies selected with it on (laygene2's lgkeep arm) are the standard pool, and the previous pool, never trained
+/// with it, lived as well or better with it on in lab boxes (fruit 150 columns out 108-115 alive against 94-104).
+/// `PP_HUNGRY_GRADED=off` is the one-bit feature.
 fn hungry_graded() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PP_HUNGRY_GRADED").is_ok_and(|v| switch_on_value(&v)))
+    *ON.get_or_init(|| switch_on("PP_HUNGRY_GRADED"))
 }
 
 /// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond; or, for `log:S` (`r` NaN),
