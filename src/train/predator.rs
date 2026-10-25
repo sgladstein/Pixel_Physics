@@ -25,6 +25,66 @@ pub fn spider_mind(genome: &[f32]) -> Arc<mind::MindGenome> {
     Arc::new(mind::MindGenome::new(g))
 }
 
+/// **The spider's breeding genes**, `[birth_grant, reproduce_at]` (`organism::TRAIT_BIRTH_GRANT`,
+/// `TRAIT_REPRODUCE_AT`): how big a child's start is, and how rich a spider waits to be before it buds. Owner,
+/// 2026-10-25: *"Breeding parameters should be part of training."* A pool mind `NN.raw.txt` carries them in
+/// `NN.body.txt` beside it ([`read_breeding`]); a mind with none takes its species' own. They act only where spiders
+/// breed by the game's rule -- the lab (`examples/spiderlab.rs`, colsel `spiderlab=`) -- because the training bed
+/// refills its spiders and never lets one bud. **Why they had to be carried:** in the lab a population booms off a
+/// colony and starves out (`Reports/lone-predator-2026-10-24.md`, stage four), and how fast a spider breeds is the
+/// half of that a mind cannot change.
+pub const BREEDING: [usize; 2] = [crate::sim::organism::TRAIT_BIRTH_GRANT, crate::sim::organism::TRAIT_REPRODUCE_AT];
+
+/// The breeding genes file beside a pool mind: `k001.raw.txt` -> `k001.body.txt`.
+pub fn body_path(mind: &std::path::Path) -> std::path::PathBuf {
+    let s = mind.to_string_lossy();
+    std::path::PathBuf::from(s.strip_suffix(".raw.txt").map_or_else(|| format!("{s}.body.txt"), |b| format!("{b}.body.txt")))
+}
+
+/// The breeding genes saved beside `mind` (`birth_grant=X reproduce_at=Y`), or `None` if it has none.
+pub fn read_breeding(mind: &std::path::Path) -> Option<[f32; 2]> {
+    let text = std::fs::read_to_string(body_path(mind)).ok()?;
+    let get = |k: &str| text.split_whitespace().find_map(|t| t.strip_prefix(&format!("{k}=")).and_then(|v| v.parse().ok()));
+    Some([get("birth_grant")?, get("reproduce_at")?])
+}
+
+/// Save `genes` beside `mind`, as [`read_breeding`] reads them.
+pub fn save_breeding(mind: &std::path::Path, genes: [f32; 2]) -> std::io::Result<()> {
+    std::fs::write(body_path(mind), format!("birth_grant={} reproduce_at={}\n", genes[0], genes[1]))
+}
+
+/// A living spider's breeding genes.
+pub fn breeding_of(w: &World, id: OrganismId) -> Option<[f32; 2]> {
+    w.organism(id).map(|s| BREEDING.map(|slot| s.traits[slot]))
+}
+
+/// Give a living spider these breeding genes.
+pub fn set_breeding(w: &mut World, id: OrganismId, genes: [f32; 2]) {
+    if let Some(s) = w.organism_mut(id) {
+        for (slot, g) in BREEDING.iter().zip(genes) {
+            s.traits[*slot] = g;
+        }
+    }
+}
+
+/// **The breeding genes of a placed child**: each takes one uniform step of up to the species' own width for that
+/// slot, inside its bound -- `creature::mutate_traits`'s rule, cut to these two slots, so a harness's mutant moves them
+/// as far as a birth in the game would. `unit` is a draw in `0..1`.
+pub fn mutate_breeding(w: &World, genes: [f32; 2], mut unit: impl FnMut() -> f32) -> [f32; 2] {
+    let Some(def) = w.species.id_of("spider").and_then(|sp| w.species.get(sp).creature.as_ref()) else {
+        return genes;
+    };
+    let mut out = genes;
+    for (g, &slot) in out.iter_mut().zip(BREEDING.iter()) {
+        let width = creature::trait_width(def, slot);
+        if width > 0.0 {
+            let bound = creature::allele_bound(slot, w.trait_reach);
+            *g = (*g + (unit() * 2.0 - 1.0) * width).clamp(-bound, bound);
+        }
+    }
+    out
+}
+
 /// Ground as the dig arena counts it: powder or solid, not a body.
 pub fn ground(w: &World, x: i32, y: i32) -> bool {
     let c = w.get(x, y);

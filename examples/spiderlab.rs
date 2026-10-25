@@ -50,6 +50,8 @@ fn main() {
             pixel_physics::train::predator::spider_mind(&train::parse_genome(&text, pixel_physics::sim::creature::mind::GENOME_LEN, &p.display().to_string()))
         })
         .collect();
+    // Each mind's breeding genes (`NN.body.txt`, `predator::BREEDING`): here they act, for spiders breed by the game.
+    let bodies: Vec<Option<[f32; 2]>> = files.iter().map(|p| pixel_physics::train::predator::read_breeding(p)).collect();
     println!("spiderlab scenario={name} seed={seed} spiders={n} pool={pool} ({} minds) frames={frames}", minds.len());
     let mut lab = pixel_physics::lab::Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
@@ -102,6 +104,9 @@ fn main() {
                     continue;
                 }
                 if let Some(id) = pixel_physics::train::predator::place_spider(w, x, colony, minds[placed % minds.len()].clone(), 1.0) {
+                    if let Some(genes) = bodies[placed % minds.len()] {
+                        pixel_physics::train::predator::set_breeding(w, id, genes);
+                    }
                     colony = colony.or_else(|| w.organism(id).map(|s| s.colony));
                     seen.insert(id);
                     placed += 1;
@@ -144,8 +149,12 @@ fn main() {
             }
         }
     }
+    // The minds' own tallies: with the lab's hand-built ant (`ant=old`) the spiders are the only minds in the box, so
+    // these are theirs -- bites landed, kills, cells of flesh swallowed, and Eats (a cell finished at once rather
+    // than at the gut's rate).
+    let mc = lab.world.minds.as_ref().map(|m| (m.counts.bites, m.counts.kills, m.counts.flesh, m.counts.ate)).unwrap_or_default();
     println!(
-        "RESULT spiders={} peak={peak} placed={placed} births={births} starved={} killed={} old={} ants={} ants_killed={} coexist={:.2} spider_mean={:.1} ant_mean={:.1}",
+        "RESULT spiders={} peak={peak} placed={placed} births={births} starved={} killed={} old={} ants={} ants_killed={} coexist={:.2} spider_mean={:.1} ant_mean={:.1} mind_bites={} mind_kills={} mind_flesh={} mind_ate={}",
         count(&lab, "spider"),
         deaths[DeathCause::Starved.index()],
         deaths[DeathCause::Killed.index()],
@@ -155,5 +164,9 @@ fn main() {
         both as f64 / samples.max(1) as f64,
         s_sum as f64 / samples.max(1) as f64,
         a_sum as f64 / samples.max(1) as f64,
+        mc.0,
+        mc.1,
+        mc.2,
+        mc.3,
     );
 }

@@ -163,6 +163,8 @@ def spider_sustain(r, i, fp):
     d = f'{OUT}/spiderlab/r{r}/c{i:02}'
     os.makedirs(d, exist_ok=True)
     shutil.copy(fp, f'{d}/m.raw.txt')
+    if os.path.exists(fp[:-len('.raw.txt')] + '.body.txt'):
+        shutil.copy(fp[:-len('.raw.txt')] + '.body.txt', f'{d}/m.body.txt')
     sc, frames, n, _ = SPIDERLAB
     out = subprocess.run([SPIDERLAB_BIN, f'scenario={sc}', f'pool={d}', f'spiders={n}', f'frames={frames}', f'seed={r * 100 + i + 1}', 'every=5000'],
                          capture_output=True, text=True, env={**os.environ, 'PIXEL_PHYSICS_LAB_SCENARIOS': SPIDERLAB_DIR}).stdout
@@ -222,6 +224,9 @@ def evolve_spiders(r, dirs):
             f.write('round,rank,score,colony,k,placements,median_score,lives\n')
         for i, (sc, c, k, fp, v) in enumerate(keep):
             shutil.copy(fp, f'{nd}/{i:02}.raw.txt')
+            # The breeding genes ride with the mind (`predator::BREEDING`, owner 2026-10-25).
+            if os.path.exists(fp[:-len('.raw.txt')] + '.body.txt'):
+                shutil.copy(fp[:-len('.raw.txt')] + '.body.txt', f'{nd}/{i:02}.body.txt')
             new_hist[f'{nd}/{i:02}.raw.txt'] = v
             f.write(f'{r},{i},{sc:.4f},{c},{k},{len(rows)},{med:.4f},{len(v)}\n')
     spool, spool_hist = nd, new_hist
