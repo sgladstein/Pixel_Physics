@@ -2958,6 +2958,9 @@ pub struct CreatureStats {
     /// an animal being nibbled, and `severings` alone cannot tell them
     /// apart.
     pub severed_body_cells: u64,
+    /// **Body cells grown back** (`creature::regrow_tail`), the did-it-fire
+    /// count for `CreatureDef::regrows`.
+    pub regrown_cells: u64,
     /// **Children born to a living parent** — S6's "did it fire at all"
     /// counter, and the only thing that separates a population that is
     /// breeding from one that is merely still standing

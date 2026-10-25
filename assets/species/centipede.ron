@@ -80,6 +80,9 @@
         reproduce_threshold: 3200.0,
         handling: true,
         digs_inedible_food: true,
+        // A lost tail grows back out of a meal (`regrow_tail`; the enemy seat's
+        // hit and run, 2026-10-25).
+        regrows: true,
         mutation_rate: 0.0031548,
         force_fraction: 0.000015625,
         dig_force: 0.5,

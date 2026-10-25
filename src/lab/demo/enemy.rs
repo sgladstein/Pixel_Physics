@@ -129,6 +129,14 @@ pub struct EnemyDemo {
     /// raider landed.
     pub mutants: u32,
     pub mutants_at_landing: u32,
+    /// Shift is held, and how much of the raider's wind is spent (0 fresh, 1
+    /// out of breath). Spent to 1 the raider is winded and may not sprint
+    /// again until it is back to [`WINDED_UNTIL`].
+    pub sprint_held: bool,
+    pub spent: f32,
+    pub winded: bool,
+    /// Frames this raider spent at a sprint.
+    pub sprint_frames: u64,
 }
 
 /// **One raider life**: how long, what it took, what it cost, and how hard
@@ -354,8 +362,43 @@ pub fn frame(lab: &mut Lab) {
     }
 }
 
-/// Before each simulated tick.
-pub fn before_tick(_lab: &mut Lab) {}
+/// **Frames of sprint in a full wind** (4 s at 1x), **frames to get it all
+/// back** (10 s), and **how far it must come back after running out** before
+/// Shift works again. Hit and run, owner's playtest 2026-10-25: at its own
+/// pace the raider could not get away from a crowd, and nothing made backing
+/// off and coming back a choice. A wind meter rather than a charge on the
+/// tank, because the tank holds 1,600 J and the raider's whole bill is about
+/// 0.1 J a frame: a sprint already pays 2.5x that per frame
+/// (`steer::SPRINT_PACE`), and that is not a price anyone would notice.
+const SPRINT_FRAMES: f32 = 240.0;
+const RECOVER_FRAMES: f32 = 600.0;
+const WINDED_UNTIL: f32 = 0.4;
+
+/// Shift pressed or let go.
+pub fn sprint_key(lab: &mut Lab, pressed: bool) {
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.sprint_held = pressed;
+    }
+}
+
+/// **Before each simulated tick**: spend or recover wind, and tell the body
+/// whether it sprints this tick.
+pub fn before_tick(lab: &mut Lab) {
+    let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) else { return };
+    let run = e.raider.is_some() && e.ended.is_none() && e.sprint_held && !e.winded;
+    if run {
+        e.spent = (e.spent + 1.0 / SPRINT_FRAMES).min(1.0);
+        e.winded = e.spent >= 1.0;
+        e.sprint_frames += 1;
+    } else {
+        e.spent = (e.spent - 1.0 / RECOVER_FRAMES).max(0.0);
+        e.winded &= e.spent > WINDED_UNTIL;
+    }
+    let sprint = run && !e.winded;
+    if let Some(s) = lab.world.steered.as_mut() {
+        s.sprint = sprint;
+    }
+}
 
 /// **Eggs that took a mutated mind**, from the store's own log (drained, so it
 /// does not grow for the life of the box), and every 600 frames the store's
@@ -448,9 +491,10 @@ pub fn after_tick(lab: &mut Lab) {
     }
     e.kills_read = kills_len;
     if alive && len < e.last_len {
-        // A cell came off: the one at `len` in the old chain (everything behind
-        // a severed neck goes with it, so the bitten one is the first missing).
-        e.cells_lost.push((frame, len));
+        // Cells came off: the one at `len` in the old chain and everything
+        // behind it (a severed neck takes the rest), one row a cell -- one row
+        // a bite read "1 CELLS TAKEN" on a raider down to 2 of 5.
+        e.cells_lost.extend((len..e.last_len).map(|i| (frame, i)));
     }
     if !alive && e.ended.is_none() {
         if !starved {
@@ -594,13 +638,27 @@ pub fn hud_lines(lab: &Lab) -> Vec<String> {
     let trips = w.creature_stats.trip_deliveries.saturating_sub(e.trips_at_landing);
     if let Some(s) = e.raider.and_then(|id| w.organism(id)) {
         let quarters = (s.gnawed.clamp(0.0, 1.0) * 4.0).floor() as usize;
+        let def = w.species.get(s.species).creature.as_ref();
+        let plan = def.map_or(s.chain.len(), |d| match d.body {
+            crate::sim::organism::BodyPlan::Chain(n) => usize::from(n),
+            _ => s.chain.len(),
+        });
+        let tank_over = def.is_some_and(|d| s.energy >= d.start_energy + d.body_energy);
         out.push(format!(
-            "RAIDER {} CELLS  WOUND {}{}  A FULL WOUND TAKES THE BITTEN CELL; THE HEAD KILLS",
+            "RAIDER {}/{plan} CELLS  WOUND {}{}  {}",
             s.chain.len(),
             "*".repeat(quarters),
-            "-".repeat(4 - quarters.min(4))
+            "-".repeat(4 - quarters.min(4)),
+            if s.chain.len() >= plan {
+                "A FULL WOUND TAKES THE BITTEN CELL; THE HEAD KILLS"
+            } else if s.gnawed > 0.0 {
+                "HEAL FIRST, THEN YOUR TAIL REGROWS"
+            } else if tank_over {
+                "REGROWING YOUR TAIL"
+            } else {
+                "EAT TO OVERFILL YOUR TANK AND YOUR TAIL REGROWS"
+            }
         ));
-        let def = w.species.get(s.species).creature.as_ref();
         let (cells, cap) = match (s.crop, def) {
             (Some(c), Some(d)) => (c.cells as i32, (crate::sim::creature::organism_crop_capacity(w, e.raider.unwrap_or(0), d) / c.unit.max(1e-6)).floor() as i32),
             (None, Some(_)) => (0, 0),
@@ -608,6 +666,19 @@ pub fn hud_lines(lab: &Lab) -> Vec<String> {
         };
         let tank = (s.energy / e.start_energy.max(1.0)).clamp(0.0, 1.0);
         let bars = (tank * 10.0).round() as usize;
+        let legs = ((1.0 - e.spent) * 10.0).round() as usize;
+        out.push(format!(
+            "WIND {}{}  {}",
+            "*".repeat(legs.min(10)),
+            "-".repeat(10 - legs.min(10)),
+            if e.winded {
+                "WINDED -- WAIT"
+            } else if e.sprint_held && e.spent > 0.0 {
+                "SPRINTING"
+            } else {
+                "HOLD SHIFT TO SPRINT"
+            }
+        ));
         out.push(format!(
             "GUT {}   TANK {}{}{}",
             if cells == 0 { "EMPTY".to_string() } else if cap > 0 { format!("{cells}/{cap} DIGESTING") } else { format!("{cells} DIGESTING") },

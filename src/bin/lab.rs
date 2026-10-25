@@ -601,6 +601,7 @@ impl Handler {
                 KeyCode::ArrowUp => Some(DemoKey::Up),
                 KeyCode::ArrowDown => Some(DemoKey::Down),
                 KeyCode::Tab => Some(DemoKey::Tab),
+                KeyCode::ShiftLeft | KeyCode::ShiftRight => Some(DemoKey::Sprint),
                 KeyCode::KeyE => Some(DemoKey::Letter('E')),
                 KeyCode::KeyQ => Some(DemoKey::Letter('Q')),
                 KeyCode::KeyF => Some(DemoKey::Letter('F')),

@@ -66,6 +66,8 @@ struct Hold {
     right: bool,
     up: bool,
     down: bool,
+    /// Shift: sprint while fleeing or backing out (`sprint=0` never does).
+    sprint: bool,
 }
 
 fn ants(world: &World) -> Vec<(i32, i32)> {
@@ -87,6 +89,7 @@ fn main() {
     let after: u64 = arg("after").unwrap_or(12_000);
     let oldant = flag("oldant");
     let skulk = arg::<String>("policy").as_deref() == Some("skulk");
+    let sprints = arg::<u8>("sprint") != Some(0);
     let gif: Option<String> = arg("gif");
     let every: u64 = arg("every").unwrap_or(6);
     let row_every: u64 = arg("rows").unwrap_or(600);
@@ -194,16 +197,28 @@ fn main() {
                 }
                 taken_seen = e.bites_taken;
             }
-            let hurt = gnawed >= 0.6 || e.cells_lost.len() >= 2 && cells + 2 <= start_cells;
+            // Back off at the first cell lost or a wound half full: the door
+            // play used to wait for two cells, and died on the mound first
+            // (head off with 1-4 cells lost, 6 of 6, 2026-10-25).
+            let hurt = gnawed >= 0.5 || cells < start_cells;
             let home = *home_x.get_or_insert(head.0);
+            // The nearest ant, for backing off: rest only where none is close,
+            // because the first door runs rested on the foragers' road to the
+            // fruit and were bitten to the head there (2026-10-25).
+            let nearest = ants(&lab.world).into_iter().map(|a| (a, (a.0 - head.0).abs() + (a.1 - head.1).abs())).min_by_key(|&(_, d)| d);
+            let crowded = nearest.is_some_and(|(_, d)| d <= 10);
             let next = match state {
                 State::Stalk if gnawed >= 0.4 || cells < start_cells => State::Flee,
-                State::Flee if now - state_since >= 300 => State::Heal,
-                State::Heal if gnawed < 0.05 && now - state_since >= 300 => State::Stalk,
+                State::Flee if now - state_since >= 300 && !crowded => State::Heal,
+                State::Heal if crowded => State::Flee,
+                // Rest until healed and whole (a centipede regrows its tail out
+                // of a meal, `CreatureDef::regrows`), or 6,000 frames at most.
+                State::Heal if gnawed < 0.05 && now - state_since >= 300 && (cells >= start_cells || now - state_since >= 6000) => State::Stalk,
                 State::Approach | State::Hunt if hurt => State::Retreat,
                 State::Approach if depth >= 3 => State::Hunt,
-                State::Retreat if depth <= 0 => State::Rest,
-                State::Rest if now - state_since >= 1500 => State::Approach,
+                State::Retreat if depth <= 0 && (head.0 - door_x).abs() >= 20 && !crowded => State::Rest,
+                State::Rest if crowded => State::Retreat,
+                State::Rest if now - state_since >= 1500 && (gnawed < 0.05 && cells >= start_cells || now - state_since >= 6000) => State::Approach,
                 st => st,
             };
             if next != state {
@@ -244,7 +259,19 @@ fn main() {
                         press = Some('E');
                     }
                 }
-                State::Retreat => want.up = true,
+                State::Retreat => {
+                    // Out of the nest first, then away from the door along the
+                    // surface, at a sprint when there is wind for it.
+                    if depth >= 3 {
+                        want.up = true;
+                    } else {
+                        // Away from the nearest ant if one is close, else from the door.
+                        let from = nearest.filter(|&(_, d)| d <= 10).map_or(door_x, |(a, _)| a.0);
+                        want.left = head.0 <= from;
+                        want.right = head.0 > from;
+                    }
+                    want.sprint = sprints;
+                }
                 State::Rest | State::Heal => {}
                 State::Stalk => {
                     // A forager is fair game when it walks alone and away
@@ -274,8 +301,10 @@ fn main() {
                     }
                 }
                 State::Flee => {
-                    want.left = head.0 <= door_x;
-                    want.right = head.0 > door_x;
+                    let from = nearest.filter(|&(_, d)| d <= 10).map_or(door_x, |(a, _)| a.0);
+                    want.left = head.0 <= from;
+                    want.right = head.0 > from;
+                    want.sprint = sprints;
                 }
             }
             if Some(head) == last_head && (want.left || want.right || want.up || want.down) {
@@ -306,7 +335,7 @@ fn main() {
                 );
             }
         }
-        for (key, on, was) in [(DemoKey::Left, want.left, hold.left), (DemoKey::Right, want.right, hold.right), (DemoKey::Up, want.up, hold.up), (DemoKey::Down, want.down, hold.down)] {
+        for (key, on, was) in [(DemoKey::Left, want.left, hold.left), (DemoKey::Right, want.right, hold.right), (DemoKey::Up, want.up, hold.up), (DemoKey::Down, want.down, hold.down), (DemoKey::Sprint, want.sprint, hold.sprint)] {
             if on != was {
                 lab.demo_key(key, on);
             }
@@ -358,10 +387,10 @@ fn main() {
     let ran = lab.world.frame - t0;
     let per_min = if in_nest_frames > 0 { taken_in_nest as f64 * 3600.0 / in_nest_frames as f64 } else { 0.0 };
     println!(
-        "RESULT seed={seed} brain={} policy={} ran={ran} end={} in_nest_frames={in_nest_frames} deepest={deepest} kills={} given={} taken={} taken_in_nest={taken_in_nest} taken_per_min_in_nest={per_min:.1} cells_lost={} ants_at_landing={} ants_end={} trips_since={}",
+        "RESULT seed={seed} brain={} policy={} ran={ran} end={} in_nest_frames={in_nest_frames} deepest={deepest} kills={} given={} taken={} taken_in_nest={taken_in_nest} taken_per_min_in_nest={per_min:.1} cells_lost={} ants_at_landing={} ants_end={} trips_since={} sprint_frames={} regrown={}",
         if oldant { "hand-built" } else { "trained" },
         if skulk { "skulk" } else { "door" },
-        e.ended.map_or("alive", |(_, why)| why),
+        e.ended.map_or("alive".to_string(), |(_, why)| why.replace(' ', "_")),
         e.kills,
         e.bites_given,
         e.bites_taken,
@@ -369,6 +398,8 @@ fn main() {
         e.ants_at_landing,
         ants(&lab.world).len(),
         lab.world.creature_stats.trip_deliveries - e.trips_at_landing,
+        e.sprint_frames,
+        lab.world.creature_stats.regrown_cells,
     );
     // One line a season (each raider life), then the one still running.
     let mut seasons = e.seasons.clone();

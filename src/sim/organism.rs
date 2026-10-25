@@ -4222,6 +4222,17 @@ pub struct CreatureDef {
     /// (the whole `Cell` rides in the pellet).
     #[serde(default)]
     pub digs_inedible_food: bool,
+    /// **A lost tail grows back** (`creature::regrow_tail`): a `Chain` body short of its plan, its wounds healed and
+    /// its bank above a full tank (`start_energy`) plus a cell's stamp, grows one cell behind its tail every
+    /// [`crate::sim::creature::REGROW_FRAMES`], paying the stamp (`body_energy`) out of the bank. Off, every
+    /// species but the centipede.
+    ///
+    /// **Why** (enemy seat, owner's playtest 2026-10-25, "hit and run"): the player's raider lost cells for good,
+    /// so a fight could only ever wear it down and there was no reason to back off, eat and come back. Real
+    /// centipedes regrow lost legs at the moult; here a cell is the unit there is. Eating is what pays for it: a
+    /// raider starts at a full tank, so the first cell back comes out of a meal.
+    #[serde(default)]
+    pub regrows: bool,
     /// **How long an animal of this kind lives, in frames -- the median.**
     ///
     /// `0` is immortal, which is every species' default and the behaviour
@@ -4641,6 +4652,7 @@ impl CreatureDef {
             nectar_only,
             handling,
             digs_inedible_food,
+            regrows,
             life_half_life,
             scent_spread,
             scent_drift,
@@ -4775,6 +4787,8 @@ impl CreatureDef {
             handling: *handling,
             // A switch, as `nectar_only`.
             digs_inedible_food: *digs_inedible_food,
+            // A switch, as `nectar_only`.
+            regrows: *regrows,
             // **A span of real time, so x 1 -- and that is a claim about
             // the hazard, not an assumption.** A supersampled animal decides
             // `k` times as often, so a per-tick chance passed through

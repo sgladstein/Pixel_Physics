@@ -155,6 +155,47 @@ same 6 seeds both ways:
 A stalker now kills about an ant every 3 seconds at 1x and lives. The colony ends 186-255 ants against 201-303. The
 mound is still death for a raider that walks into it.
 
+## Hit and run (the owner's second playtest point, 2026-10-25)
+
+The owner's second point was that there was no strategy: walk at the pile, bite, and die near the nest. Three
+directions went to the owner on a card (hit and run, venom, a brood heist); hit and run was recommended and built
+first, because it answers the two things the playtest hit, no way out of a crowd and no reason to back off and come
+back. Two pieces:
+
+- **Sprint (hold Shift).** The steered body's tick interval is divided by `steer::SPRINT_PACE` (2.5: the
+  centipede's 5 becomes 2, against the ant's 6) while `Steered::sprint` is set. The seat sets it each tick from the
+  key and a wind meter: 240 frames of sprint (4 s at 1x), 600 to get it all back, and once spent it works again only
+  at 60% (`WINDED_UNTIL`). The HUD shows WIND and SPRINTING / WINDED. A wind meter rather than an energy price,
+  because the tank holds 1,600 J against a bill of ~0.1 J a frame, and a sprint already pays its per-tick bill 2.5x
+  as often. Before it, the raider at its own pace was barely faster than an ant (5 against 6).
+- **A fed centipede regrows its tail** (`CreatureDef::regrows`, centipede only, `creature::regrow_tail`;
+  `PIXEL_PHYSICS_REGROW=off` for the A/B). A `Chain` body short of its plan, its wound meter at zero, with a bank
+  above a full tank plus a cell's stamp, grows one cell behind the tail every 900 frames, paying the stamp
+  (`Metabolized` out of the bank, `Stamped` into the structure, so both ledger identities close). The raider lands at
+  a full tank, so a lost cell only comes back out of a meal. This is an engine rule, so a wild centipede in any box
+  regrows too. Guard: `mind::tests::a_fed_centipede_regrows_its_tail_and_a_hungry_one_does_not` (red with regrowth
+  off).
+- **The HUD now counts cells, not bites.** "1 CELLS TAKEN" was printed on a raider down to 2 of 5, because a neck
+  bite that takes everything behind it was one row. The RAIDER line reads `n/5` and says what regrowth waits on.
+
+Measured with `enemyhunt` against the trained colony, mutation on, 20,000 frames after landing, the same 6 seeds
+each way. The autopilot backs off at the first cell lost or a half-full wound, away from the nearest ant (or the
+door), sprinting when the arm has it, and rests only with no ant within 10 cells, until healed and whole or 6,000
+frames. (The first version rested on the foragers' road to the fruit and was bitten to its head there, so its
+door rows showed no sprint at all.) "none" is `sprint=0` with `PIXEL_PHYSICS_REGROW=off`:
+
+| Play | Arm | Raider died | Frames lived (each seed) | Kills in all |
+|---|---|---|---|---|
+| door | none | 5/6 | 9,070 / 1,214 / 1,981 / 4,711 / 576 / all | 0 |
+| door | **hit and run** | 4/6 | 11,235 / 5,091 / 2,386 / all / all / 5,922 | 0 |
+| skulk | none | 2/6 | all / all / 3,756 / 14,881 / all / all | 412 |
+| skulk | **hit and run** | 1/6 | all / all / all / 14,981 / all / all | 518 |
+
+At the door the raider lived longer on 5 of 6 seeds; it still never killed there, because the autopilot charges
+straight at the mound. **Regrowth fired 3 times in all 24 runs**: a raider that loses cells at the door has not
+eaten, and a stalker that eats rarely loses a cell. So regrowth is a reward for a player who eats before taking a
+risk, not something the autopilot shows working.
+
 ## Open
 
 - **Season 2 as designed** (a line bred off-screen against raiders, judged against a no-raider control) was not
