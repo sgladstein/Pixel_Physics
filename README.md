@@ -8163,6 +8163,7 @@ PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0        # grass never dies of old age (the r
 PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks          # old age counts turns taken, not plant time (the rule before 2026-10-23, when a big tree lived ~7x its lifespan); World::old_age_plant_time
 PIXEL_PHYSICS_SHADE_SCALD=0                # a shade-tolerant leaf is not scalded in bright light (the rule before 2026-10-24); World::shade_scald
 PIXEL_PHYSICS_SEED_SETTLE=0                # a waiting seed stays on litter and deadwood, and a sprout lifts nothing (before 2026-10-24); World::seed_settles
+PIXEL_PHYSICS_PLANT_POOL=0                 # the lab founds trees, shrubs, herbs and creepers from species files, not the bed-selected pool (before 2026-10-25); =PATH reads another pool; LabBox::plant_pool
 ```
 
 ## Chronicle status — the box tells you who did what, at any population

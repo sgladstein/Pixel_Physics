@@ -76,7 +76,54 @@ shrub 11,663 -> 14,721, herb 17,270 -> 8,942, creeper 270 -> 3,516.
   https://claude.ai/artifact/TdFfeHk6hUCV69m61xBreX
 - The pool: `pool-r8.ron`, 128 genomes, 32 per role.
 
+## On the engine with seed settling and sun scald (2026-10-24)
+
+The pool was selected before seed settling and sun scald went on (#876).
+Re-judged on 8 fresh paired beds at 450,000 frames with both on
+(`engine2/`, `plant_m0 mode=bedsel rounds=0 load=pool-r8.ron garden=8
+gframes=450000`):
+
+| load failure | shipped | pool | pool better / worse | creeper alive shipped / pool |
+|---|---|---|---|---|
+| off (`judge-loadfail0.txt`) | 2.62 | **3.12** | 3 / 1 | 2 / 8 -> 5 / 8 |
+| on (`judge-loadfail1.txt`) | 2.88 | **3.12** | 3 / 1 | 2 / 8 -> 5 / 8 |
+
+The gain is about half what it was on the engine it was bred on (2.56 ->
+3.44), but it holds and the creeper still lives. A pool bred on this engine
+should get the rest back.
+
+## In the lab game, with the colony (2026-10-25)
+
+The lab box now founds every pooled species (tree, shrub, herb, creeper)
+from `assets/plant_pools/roles4.ron`, this pool (`LabBox::plant_pool`;
+`PIXEL_PHYSICS_PLANT_POOL=0` is off, `=PATH` another pool). `played_bed`
+plants 8 of its 18 founders from it (1 tree, 3 shrubs, 4 herbs; the
+scrambler and grass are not pooled). `World::new` holds no pool, so the
+outdoor world is untouched, and the plant trainer's arena founds from the
+file it scores.
+
+`latecensus`, 12 paired seeds x 500,000 frames, one thread
+(`lab/`, `lab/parse.py` makes `lab/paired.txt`; means over the 10 samples):
+
+| | pool off | pool on | on higher / lower |
+|---|---|---|---|
+| plants standing | 96 | **135** | 10 / 2 |
+| leaf energy (J) | 67,410 | 60,465 | 3 / 9 |
+| edible food | 2,569 | 2,491 | 3 / 9 |
+| ants | 150 | **115** | 4 / 8 |
+| born by 500k | 2,018 | 1,496 | |
+| starved by 500k | 218 | 152 | |
+| colonies alive at 500k | 10 / 12 | 9 / 12 | |
+
+(Medians over seeds.) **More plants, each smaller, and a smaller colony.**
+The pool trades the shipped tree's big crown for more, smaller plants --
+the same trade as in the plant-only bed (tree leaf 42,692 -> 28,322) --
+and the ants, which eat leaf, run about a quarter smaller on it, with
+fewer births and fewer deaths by starving. Survival is unchanged. 8 of 12
+is not significant (sign test p ~ 0.4), but the medians point one way.
+The default is the owner's call (asked 2026-10-25); the precedent is the
+tree-age fix, kept on at -18% ant food.
+
 **Not yet known:** what changed in the genomes (which params and fates the
-pool moved), whether it holds under the colony (lab game), and with seed
-settling and sun scald on (on since 2026-10-24, §8 of
-`../shade-seedling/README.md`). One run per arm.
+pool moved). A pool bred with the colony in the bed (lesson 1 applied to
+the ants as well as the plants) is the obvious next round.
