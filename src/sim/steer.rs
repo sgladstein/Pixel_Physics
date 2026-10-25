@@ -138,6 +138,17 @@ pub struct Steered {
     /// the plan review's run 2 raiders became 72, which is no longer the
     /// player against the colony.
     pub may_breed: bool,
+    /// **Whether the body bites with a full crop** (enemy seat, owner's
+    /// playtest 2026-10-25): `false` from [`mark`] and [`mark_with`], and the
+    /// species' sated rule holds (`CreatureDef::handling`: no room in the
+    /// crop, no bite). A seat that sets it `true` lets the player's body
+    /// bite on with a full crop; the cell it takes comes off and is not
+    /// swallowed, as the fight verb leaves it. The rule is a decision -- a
+    /// sated predator does not *choose* to kill -- and the player decides.
+    /// Before this the centipede's crop (three ant cells, one digested in
+    /// ~740 frames) filled on the first kill and every bite after it needed
+    /// a spit (Q) first: "really annoying", the owner's first playtest.
+    pub bites_when_full: bool,
     /// **What the body's last forced decision did** (`mind::tick`, a body with
     /// a mind only): the verb the keys asked for (`None`: a direction or
     /// nothing), the verb carried out, and whether its act succeeded -- so a
@@ -205,6 +216,7 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
         id,
         role,
         may_breed: true,
+        bites_when_full: false,
         last_act: None,
         born_frame,
         colony,
@@ -412,6 +424,13 @@ pub fn may_breed(world: &World, organism: OrganismId) -> bool {
     }
 }
 
+/// **Does `organism` bite past a full crop?** `true` only for the steered
+/// body when a seat said so ([`Steered::bites_when_full`]).
+#[inline]
+pub fn bites_when_full(world: &World, organism: OrganismId) -> bool {
+    world.steered.as_ref().is_some_and(|s| s.bites_when_full) && is_steered(world, organism)
+}
+
 /// One body's entry in [`World::mind_force`]: the pick, and the body it
 /// was written for, so an id the engine hands to a newborn later is never
 /// led by an entry meant for the dead.
@@ -589,6 +608,7 @@ mod tests {
                         id: OrganismId::MAX,
                         role: SteerRole::Queen,
                         may_breed: true,
+                        bites_when_full: false,
                         last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,

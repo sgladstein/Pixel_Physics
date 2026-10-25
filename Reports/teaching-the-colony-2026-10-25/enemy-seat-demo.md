@@ -135,6 +135,26 @@ mutation in demo". Built (PR after #909):
   far more spread than any trend a handful of ant generations could show. The card makes the claim checkable, not
   true.
 
+## The owner's first playtest: no spit after a bite (2026-10-25)
+
+The owner played it and found the spit "really annoying": after the first kill every bite was refused until Q spat a
+cell. The cause was the centipede's sated rule (`CreatureDef::handling`, "a sated predator does not kill"): its crop
+holds 1,440, three ant cells, and digests one in about 740 frames, so the crop filled on the first ant. The rule is a
+decision, not physics, so the player's body now bites past it (`Steered::bites_when_full`, set by the seat): the
+bitten cell still comes off and is not swallowed. `fullbite=0` puts the rule back. Guard:
+`mind::tests::a_full_player_raider_bites_on_and_swallows_nothing` (red with the check removed).
+
+Measured with `enemyhunt policy=skulk`, trained colony, mutation on (the default), 12,000 frames after landing, the
+same 6 seeds both ways:
+
+| | Kills per run | Kills in all | Bites taken | Raider died |
+|---|---|---|---|---|
+| sated rule (`fullbite=0`) | 1-6 | 26 | 6-17 | 1/6 |
+| **bites when full (shipped)** | 36-72 | 345 | 1-17 | 2/6 |
+
+A stalker now kills about an ant every 3 seconds at 1x and lives. The colony ends 186-255 ants against 201-303. The
+mound is still death for a raider that walks into it.
+
 ## Open
 
 - **Season 2 as designed** (a line bred off-screen against raiders, judged against a no-raider control) was not
