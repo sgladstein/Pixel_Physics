@@ -283,3 +283,40 @@ Garden median nest r7 -> r15 -> r23: control 446 -> 394 -> 280, `w_dig=3` 467 ->
 a later main. Carried ants' live links stayed at ~1,950 in every arm (the standard pool's member 0: 1,947), so the
 brain is not being pruned. **Next, erosion3:** the same control against food held 25 columns out (`dist=25`, no
 ramp). Every batch that eroded trained on far food (100+ columns); colsel10 at 25 columns grew its nest r31 -> r47.
+
+**erosion3** (the same control against `near`: food held 25 columns out, no ramp): far food is not what erodes the
+nest. Garden median nest r7 -> r15 -> r23: control 446 -> 394 -> 280, `near` 276 -> 176 -> 156 (each arm's garden at
+its own training distance, 100 and 25). `near` had the smaller nest in 27 of 32 pairs at r23 and lost the lab case
+(ahead in 10 of 32); it kept more ants alive in its own easier garden (86.5 against 81). **Overturned:** "the far-food
+ramp trades digging away". Every arm of erosion1-3 erodes, whatever the food distance, the dig pay or the colony
+selection, so the next suspect is the in-run loop itself. One candidate found since: `pack_behind`'s cut ahead and
+`escape_cut` never reached `cut_log`, so the in-run dig credit missed them (fixed with the 0.25 link price, PR #899).
+**price25a**'s control (r7 -> r15 garden nest, on the fixed build) is the first read of whether that mattered.
+
+## 2026-10-25: at the 0.25 price the ramp hits a wall in the bed, not in the ants
+
+**price25a** (32 x 16 from colony 8 at the new 0.25 link price, the erosion3 setup): control, `rho`
+(`PIXEL_PHYSICS_B_RHO=0.25`, the pheromone lane's faster-fading B trail) and `caste` (`PP_MIND_CASTELESS=1`).
+
+**The ramp is a cliff at 121 columns, and it is the bed's.** In every arm the food distance went 100 -> 125 in five
+rounds, then alternated: every round at 120 lost a median 3-6 ants and kept all 32 colonies, and every round at 125
+lost ~230-350 and only 12-25 colonies came through. The bed's west wall is 128 columns from the door, and a west heap
+closer than 8 cells to it is moved east (`inrun.rs`), so past 120 **both heaps sit on the east side**. Five more
+columns are not the difficulty; losing the west heap is. widebed1 and linkprice1b's "stalled at 120-125" was the
+same wall. With `cg_every=8` every garden (r7, r15) fell on a 125 round, so the gardens drop the colonies that round
+killed, and the control's lab case read 404 at r15 against 1,766 at r14.
+
+Paired only where both colonies survived the garden round:
+
+| r15, vs control | nest bigger | food home (`home8`) more | starved fewer | crater smaller |
+|---|---|---|---|---|
+| `rho` (n = 11) | 3 (233 vs 395) | 10 (15,406 vs 10,905) | 7 | 8 (7 vs 19) |
+| `caste` (n = 14) | 5 (267 vs 392) | 12 (12,754 vs 10,290) | 3 (40 vs 13) | 11 (4.5 vs 18.5) |
+
+Lab case at r14 (the last clean round): `rho` ahead in 16 of 32 pairs, `caste` in 12. Both arms bring more food home
+and leave smaller craters, and both dig smaller nests. That is the opposite of the untrained screen for `rho`
+(nest 432 -> 528). `caste` also starves more, as the touch-feeding finding predicted. Neither is carried: the samples
+are small and the cliff confounds them. **Next, price25b:** the same three arms, 24 rounds, ramp capped at 120
+(`distramp=100:5:10:120`), so every round keeps food on both sides. The control's r7 -> r23 garden is also the first
+erosion read on the `cut_log`-fixed build: here the survivors' nest was 510 -> 395 by r15, against 446 -> 394 at
+price 1, so the fix has not stopped it.

@@ -96,7 +96,7 @@ Checked against the source; the reviewer corrected two of these.
 |---|---|---|
 | Brain weights are fixed at birth. The mind has **12 recurrent memory units** with their own forgetting rates | `mind.rs` (`MEMORY = 12`) | Ants already hold short-term state within a life. Nothing persists as learning, and the player cannot write to any of it |
 | A **last-food memory** sense exists (each option scored on how much it points back to where the ant last picked up food), on by default since today | `options.rs` `f::FOOD_WAY`, PR #884 | **But the shipped lab pool (`assets/minds/std_pool.txt`, layout 4) has every weight on it zeroed when loaded**, by design, until selection wires it. On today's ants, anything that writes this memory (carrying an ant to food, a tandem run) changes nothing |
-| Every live brain link costs energy every tick (`PIXEL_PHYSICS_LINK_PRICE`) | `creature.rs` | Selection actively removes weight from a sense that rarely pays. A memory sense survives training only where memory earns its keep |
+| Every live brain link costs energy every tick (`PIXEL_PHYSICS_LINK_PRICE`) | `creature.rs` | Meant to make selection remove weight from a sense that rarely pays. *Corrected 2026-10-25 (seat reviews):* the training bed never feels the bill, so selection has not yet shed links (`creature.rs:11596-11613`). A sense at weight 0 still does nothing; whether training will strip one is unmeasured |
 | The home sense comes from a stored home point, not step-by-step path integration | `f::HOME`, `forage_anchor` | A flung ant always knows home. The biology "flung ant searches where home would be" needs a real integrator |
 | The context carries **the change in energy since the last decision** | `mind.rs` `c::D_ENERGY` | A ready-made reward signal ("a need going down") for any learning rule |
 | A **provision** number travels from parent to egg and moves body traits through a heritable developmental block | `creature.rs` `made`, `brain.rs` | The hook for "what the queen feeds an egg shapes its body". The brood lay path sets it to 0, so it is unused today |
@@ -125,6 +125,12 @@ with the verbs the first draft dropped. Build: 5 = cheapest.
 | **Colony mind** | Sets the colony's values; the ants find the cheapest way to satisfy them | 4 | 1 | 4 | 2 | 5 |
 | **Enemy** (spider, antlion, rival) | By threat; the colony learns to avoid, mob, rescue | 2 | 5 | 3 | 5 | 4 |
 | **Ant-plant** (acacia) | By where its rewards appear | 3 | 5 | 4 | 2 | 3 |
+
+*Full design documents for the guest, colony mind, enemy and lone scout seats,
+each independently reviewed and revised, are in
+[`teaching-the-colony-2026-10-25/seats-overview.md`](teaching-the-colony-2026-10-25/seats-overview.md)
+(2026-10-25). They re-score the guest lower than this table: today's mind ants
+never read the scent model about a stranger.*
 
 ### 3b. The fork, stated honestly
 

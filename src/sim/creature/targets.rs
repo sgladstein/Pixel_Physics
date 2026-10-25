@@ -66,7 +66,7 @@ use super::{choose_weighted, inside_nest, jaw_can_cut, CreatureDef, DIRS};
 use crate::sim::cell::OrganismId;
 use crate::sim::material::{self, MaterialKind};
 use crate::sim::organism::SpeciesId;
-use crate::sim::pheromone::{self, Channel};
+use crate::sim::pheromone::Channel;
 use crate::sim::World;
 
 /// Features per target, in [`feature_names`] order.
@@ -317,7 +317,7 @@ pub fn features(
             f[8] = (d(x, y) - d(px, py)).clamp(-1.5, 1.5);
         }
     }
-    f[9] = world.pheromone_at(Channel::A, px, py) as f32 / pheromone::Scent::MAX as f32;
+    f[9] = super::options::mind_scent(world, Channel::A, px, py);
     // Inside the nest's recorded footprint: the game's own idea of where
     // the nest is, so cut in a home-blind world like the two door senses
     // (coordinator review of PR 709). `inside_nest` also counts any cell

@@ -257,6 +257,14 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   hunting a behaviour, rerun at `PIXEL_PHYSICS_LINK_PRICE=0` (or `labsurvive
   tax=0`); if the gap closes, it is the bill. Judge a lab number at the arm's
   own price (old-ant-rules-2026-10-25: fruit 200 alive 28 at price 1, 150 at 0).
+- **`PP_SCENT_BLIND=1` is a partial blinding.** It zeroes the head scent inputs
+  only; the per-option scent features and the dig head's A feature still read.
+  For "does the colony listen to this scent?" use **`PP_SCENT_DEAF=A,B,alarm|all`**
+  (every place a mind reads it) and, as the cleaner test, **`PP_SCENT_SHIFT=CH:40`**
+  (a real plane read in the wrong place; deaf is off-distribution). Muting the
+  emitters gives exactly the deaf result when ants are the only readers and
+  writers of a plane, so a "silent" arm is a wasted arm
+  (evolvable-pheromones-2026-10-25 §4).
 
 ## 5. Tools, by question
 
