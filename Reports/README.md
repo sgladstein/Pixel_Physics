@@ -5780,7 +5780,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `demo=enemy` puts the player in the shipped centipede against a dug-in colony. Of the design's Raider, Range and Pit
   only the Raider is buildable today. Over 36 scripted runs (`examples/enemyhunt.rs`) the door is defended (12/12
   raids die on the mound, both brains); stalking lone foragers from 70 columns out, the trained colony kills the
-  raider on 4 of 6 seeds and the hand-built one never does. The colony fights back but cannot learn within a session.
+  raider on 4 of 6 seeds and the hand-built one never does. Owner's pick: the demo colony's eggs take mutated minds
+  (`Store::wild_all`). At the training page's rate 3 of 6 colonies went extinct with no raider, so the default is a
+  tenth of it, which lives like the unmutated colony. Learning within a session is not shown.
 
 - [guest-seat-demo-2026-10-25.md](guest-seat-demo-2026-10-25.md) — **the guest seat demo (`demo=guest`): you are a
   rove beetle living off the colony by smelling like it.** Ants judge a registered visitor on a graded smell ladder

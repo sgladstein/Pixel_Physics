@@ -58,6 +58,11 @@ pub struct Store {
     pub queue: std::collections::VecDeque<Father>,
     /// Spent by the next egg: 0 none, else a level the mutator reads.
     pub wild: u8,
+    /// **A standing level, spent by no egg: every egg's mind is a mutated
+    /// copy** (the enemy seat's demo, owner's pick 2026-10-25: trained ants
+    /// mutate at birth so the raider's selection is real). 0, the default,
+    /// is today's frozen inheritance.
+    pub wild_all: u8,
     /// Only the steered queen's eggs use the store.
     pub queen_only: bool,
 }
@@ -156,7 +161,8 @@ pub fn on_egg(world: &mut World, layer: OrganismId, child: OrganismId) {
             }
         }
     }
-    let wild = std::mem::take(&mut store.wild);
+    let once = std::mem::take(&mut store.wild);
+    let wild = once.max(store.wild_all);
     let (build, mutate) = (fathers.build, fathers.mutate);
     // The line this egg would carry before any gamble: the drawn father's, or
     // the layer's own when nothing was drawn.
@@ -167,9 +173,9 @@ pub fn on_egg(world: &mut World, layer: OrganismId, child: OrganismId) {
     let Some((mut m, mut g)) = base else {
         // Nothing drawn and the layer's genome unknown: a wild level cannot be
         // spent on a mind the store cannot rebuild, so it waits for the next.
-        if wild > 0 {
+        if once > 0 {
             if let Some(s) = world.fathers.as_mut().and_then(|f| f.colonies.get_mut(&colony)) {
-                s.wild = wild;
+                s.wild = once;
             }
         }
         return;

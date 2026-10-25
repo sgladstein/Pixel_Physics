@@ -102,10 +102,43 @@ It is a dumb, fixed policy, the same for both brains. It does not back out tail 
 retries the door after its first approach. A human will do better and worse than it. Its job is a paired comparison
 and the pictures, not a difficulty rating.
 
+## Mutation at birth (owner's pick, 2026-10-25 14:40Z)
+
+The thread's decision card asked how the demo should show the colony learning. The owner picked "Turn on brain
+mutation in demo". Built (PR after #909):
+
+- **Every egg of the trained colony takes a mutated copy of its parent's mind**, in `demo=enemy` only. It goes
+  through the queen seat's fathers store (`sim::fathers`), which gains a standing level `Store::wild_all`, spent by
+  no egg (0, the default, is today's frozen inheritance). The demo draws every founder's mind from minds the store
+  built, so any child can be rebuilt mutated, and drains the store's log each tick, pruning genomes no ant carries.
+  The operator is the TRAINING page's own (`lab::training::mutate_genome`).
+- **Seasons.** Each raider life is a season. The card lists the newest four: time lived, kills, bites taken, and
+  **bites per minute in reach** (an ant cell within 3 cells of the head). It shows the rate, not the count, because a
+  raider that hides is bitten less without the colony having changed.
+- **The rate, measured on the colony alone** (`enemyhunt warm=1000000000 frames=176000`, no raider), ants at frame
+  175,000, 6 seeds a level:
+
+  | Level | Ants left |
+  |---|---|
+  | off | 16, 183, 274, 324, 326, 261 |
+  | training rate (`kpm` 0.03, `kevents` 10; `mutate=3`) | 182, 2, 0, 0, 4, 72 |
+  | a third (`mutate=2`) | 319, 361, 147, 293, 128, 109 |
+  | **a tenth (`mutate=1`, the default)** | 253, 368, 307, 276, 336, 238 |
+
+  At the training page's rate the colony melts down: three went extinct by frame 150,000 with no raider. The
+  training bed culls a bad mind before it breeds; the lab culls nothing. The first A/B with the raider at that rate
+  showed the same (4 of 6 below 30 ants; the raider took 5-31 ants a run, far too few to cause it). At a tenth of the
+  rate every egg still takes a changed mind (about 3,000 in a run this long) and the colony lives in the off arm's
+  spread, so that is the default. `mutate=0` turns it off.
+- **Not shown: that the colony gets better at fighting the raider within a session.** Over 150,000 frames the
+  scripted raider died 1-7 times a run, and the per-season bite rate swung from 4 to 222 with how it played. That is
+  far more spread than any trend a handful of ant generations could show. The card makes the claim checkable, not
+  true.
+
 ## Open
 
-- **Season 2** (a colony that adapts to the raider across seasons: replicate lines, a `+lab` case, a raider that goes
-  into the nest, a positive control, a null, a 10/12 gate, 27-110 core-hours) is on the owner's decision card.
+- **Season 2 as designed** (a line bred off-screen against raiders, judged against a no-raider control) was not
+  picked. The owner chose mutation in the demo (above).
 - **Nobody has played it by hand yet.** The page asks which colony is the better opponent.
 
 ## Tests

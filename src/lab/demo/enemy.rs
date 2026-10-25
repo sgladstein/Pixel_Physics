@@ -113,7 +113,72 @@ pub struct EnemyDemo {
     pub ended: Option<(u64, &'static str)>,
     /// The warm-up has asked for speed.
     warming: bool,
+    /// Frames this raider spent with an ant within [`CONTACT`] cells of its
+    /// head: the time the colony had to bite it.
+    pub contact: u64,
+    /// Every raider life so far, oldest first (kept across `R`).
+    pub seasons: Vec<Season>,
+    /// The colony's minds mutate at birth (`mutate=0` turns it off), and the
+    /// colony the store was armed for once it landed.
+    pub mutating: bool,
+    /// Its level (`mutate=`, [`BIRTH`]).
+    pub level: u8,
+    armed: bool,
+    store_colony: Option<u32>,
+    /// Eggs that took a mutated mind since the colony landed, and since this
+    /// raider landed.
+    pub mutants: u32,
+    pub mutants_at_landing: u32,
 }
+
+/// **One raider life**: how long, what it took, what it cost, and how hard
+/// the colony bit back per minute it had the chance.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Season {
+    pub frames: u64,
+    pub kills: u32,
+    pub bites_taken: u32,
+    pub contact: u64,
+    pub cells_lost: usize,
+    pub mutants: u32,
+}
+
+impl Season {
+    /// Bites on the raider per 3,600 frames (a minute at 1x) of contact.
+    pub fn bite_rate(&self) -> f64 {
+        if self.contact == 0 {
+            0.0
+        } else {
+            self.bites_taken as f64 * 3600.0 / self.contact as f64
+        }
+    }
+}
+
+/// "Contact": an ant cell within this many cells of the raider's head.
+const CONTACT: i32 = 3;
+
+/// **The birth mutation** (owner's pick on the thread card, 2026-10-25:
+/// "Turn on brain mutation in demo"): every egg of the trained colony takes a
+/// mutated copy of its parent's mind, by the TRAINING page's own operator
+/// (`lab::training::mutate_genome`). The level argument is the fathers
+/// store's standing one; every egg gets the same.
+fn birth_mutate(g: &[f32], level: u8, seed: u64) -> Vec<f32> {
+    let (pm, sigma, events) = BIRTH[usize::from(level.clamp(1, BIRTH.len() as u8)) - 1];
+    crate::lab::training::mutate_genome(g, pm, sigma, events, seed)
+}
+
+/// **The levels, `mutate=1..3`: a tenth of the training page's rate (the
+/// default), a third of it, and the rate itself** (`ColonyTrainer`'s `kpm`
+/// 0.03, `ksigma` 1.0, `kevents` 10). Measured 2026-10-25 with
+/// `examples/enemyhunt.rs warm=1000000000 frames=176000` (the colony alone,
+/// no raider), 6 seeds a level, ants at frame 175,000: off 16 / 183 / 274 /
+/// 324 / 326 / 261; the training rate 182 / 2 / 0 / 0 / 4 / 72 (three
+/// extinct by 150,000: in the lab nothing culls a bad mind before it lays,
+/// so the training bed's rate is a meltdown here); a third 319 / 361 / 147 /
+/// 293 / 128 / 109; a tenth 253 / 368 / 307 / 276 / 336 / 238, the off
+/// arm's spread. So the default is a tenth: every egg still takes a changed
+/// mind (about 3,000 of them in a run that long), and the colony lives.
+const BIRTH: [(f32, f32, usize); 3] = [(0.003, 1.0, 1), (0.01, 1.0, 3), (0.03, 1.0, 10)];
 
 /// **Which body is the player's**: the raider, once it has landed. Before
 /// that (the warm-up) there is none, and the launcher binds nothing.
@@ -154,7 +219,15 @@ fn land_raider(lab: &mut Lab) -> Option<OrganismId> {
     let start = lab.world.species.get(state.species).creature.as_ref().map_or(1.0, |d| d.start_energy);
     let frame = lab.world.frame;
     let e = lab.demo.as_mut()?.enemy.as_mut()?;
+    let kept = std::mem::take(e);
     *e = EnemyDemo {
+        seasons: kept.seasons,
+        mutating: kept.mutating,
+        level: kept.level,
+        armed: kept.armed,
+        store_colony: kept.store_colony,
+        mutants: kept.mutants,
+        mutants_at_landing: kept.mutants,
         raider: Some(id),
         landed: Some(frame),
         trips_at_landing: trips,
@@ -187,8 +260,55 @@ pub fn seat_key(lab: &mut Lab, key: char) {
     }
 }
 
+/// **Arm the birth mutation**: before the colony lands, every ant's mind is
+/// drawn from minds the store built (so a child of any of them can be
+/// rebuilt mutated); once the colony has landed, its store is opened with a
+/// standing wild level. Trained colony only: the hand-built brain has its
+/// own genome and its own birth mutation already.
+fn arm_mutation(lab: &mut Lab) {
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    if e.store_colony.is_some() || !lab.new_ant {
+        return;
+    }
+    let level = match lab.demo.as_ref().and_then(|d| d.args.get("mutate")).map(String::as_str) {
+        None => 1,
+        Some("off") => 0,
+        Some(v) => v.parse::<u8>().unwrap_or(1).min(BIRTH.len() as u8),
+    };
+    if level == 0 {
+        return;
+    }
+    if !e.armed {
+        use crate::train::challenges::colony_bed;
+        let genomes = crate::lab::training::std_pool();
+        let minds: Vec<_> = genomes.iter().map(|g| colony_bed::mind(g)).collect();
+        let mut f = crate::sim::fathers::Fathers::new(colony_bed::mind, birth_mutate);
+        for (m, g) in minds.iter().zip(genomes) {
+            f.know(m, &std::sync::Arc::new(g));
+        }
+        lab.world.fathers = Some(Box::new(f));
+        lab.set_new_ant_pool(minds);
+        if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+            e.armed = true;
+            e.mutating = true;
+            e.level = level;
+        }
+        return;
+    }
+    let Some(ant) = lab.world.species.id_of("ant") else { return };
+    let colony = lab.world.live_organism_ids().into_iter().filter_map(|id| lab.world.organism(id)).find(|s| s.species == ant).map(|s| s.colony);
+    let Some(colony) = colony else { return };
+    if let Some(f) = lab.world.fathers.as_mut() {
+        f.colonies.insert(colony, crate::sim::fathers::Store { wild_all: level, ..Default::default() });
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.store_colony = Some(colony);
+    }
+}
+
 /// Once a displayed frame: the warm-up's speed, then the landing.
 pub fn frame(lab: &mut Lab) {
+    arm_mutation(lab);
     let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
     if e.raider.is_some() {
         return;
@@ -231,12 +351,43 @@ pub fn frame(lab: &mut Lab) {
 /// Before each simulated tick.
 pub fn before_tick(_lab: &mut Lab) {}
 
+/// **Eggs that took a mutated mind**, from the store's own log (drained, so it
+/// does not grow for the life of the box), and every 600 frames the store's
+/// genome table is cut to minds still in use: a mutated mind no ant carries
+/// any more is held only by the table, and with every egg mutating the table
+/// would otherwise keep every mind the colony ever had.
+fn count_births(lab: &mut Lab) {
+    let Some(colony) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.store_colony) else { return };
+    let frame = lab.world.frame;
+    let Some(f) = lab.world.fathers.as_mut() else { return };
+    let n = f.log.drain(..).filter(|b| b.colony == colony && b.wild > 0).count() as u32;
+    if frame.is_multiple_of(600) {
+        f.genomes.retain(|(m, _)| std::sync::Arc::strong_count(m) > 1);
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.mutants += n;
+    }
+}
+
 /// **After each simulated tick**: read what happened to and by the raider from
 /// the world's own logs.
 pub fn after_tick(lab: &mut Lab) {
+    count_births(lab);
     let Some(id) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.raider) else { return };
     let frame = lab.world.frame;
     let w = &mut lab.world;
+    let ant = w.species.id_of("ant");
+    let near = w.organism(id).and_then(|s| s.chain.first().copied()).is_some_and(|(hx, hy)| {
+        (-CONTACT..=CONTACT).any(|dy| {
+            (-CONTACT..=CONTACT).any(|dx| {
+                let (x, y) = (hx + dx, hy + dy);
+                w.in_bounds(x, y) && {
+                    let o = w.get(x, y).organism_id();
+                    o != 0 && o != id && w.organism(o).is_some_and(|s| Some(s.species) == ant)
+                }
+            })
+        })
+    });
     let head = w.organism(id).and_then(|s| s.chain.first().copied());
     let (len, energy, gnawed, alive) = w.organism(id).map_or((0, 0.0, 0.0, false), |s| (s.chain.len(), s.energy, s.gnawed, true));
     let mut bites = Vec::new();
@@ -301,6 +452,18 @@ pub fn after_tick(lab: &mut Lab) {
         }
         e.ended = Some((frame, if starved { "YOU STARVED" } else { "THEY BIT YOUR HEAD OFF" }));
         e.card = true;
+        let season = Season {
+            frames: frame.saturating_sub(e.landed.unwrap_or(frame)),
+            kills: e.kills,
+            bites_taken: e.bites_taken,
+            contact: e.contact,
+            cells_lost: e.cells_lost.len(),
+            mutants: e.mutants - e.mutants_at_landing,
+        };
+        e.seasons.push(season);
+    }
+    if alive && near {
+        e.contact += 1;
     }
     if alive {
         e.last_len = len;
@@ -458,6 +621,15 @@ pub fn hud_lines(lab: &Lab) -> Vec<String> {
     ));
     let price = if trips >= 200 { format!("   {:.1} EATEN PER 1,000 LOADS", 1000.0 * e.kills as f64 / trips as f64) } else { String::new() };
     out.push(format!("COLONY {ants} ANTS ({brain}), {trips} LOADS HOME SINCE YOU CAME{price}"));
+    if e.mutating {
+        out.push(format!(
+            "SEASON {}   {} YOUNG BORN WITH MUTATED MINDS ({}), {} SINCE YOU CAME",
+            e.seasons.len() + 1,
+            e.mutants,
+            ["GENTLE", "STRONGER", "TRAINING RATE"][usize::from(e.level.clamp(1, 3)) - 1],
+            e.mutants - e.mutants_at_landing
+        ));
+    }
     if let Some((f, why)) = &e.note {
         if w.frame.saturating_sub(*f) < NOTE_FRAMES {
             out.push(why.clone());
@@ -502,8 +674,32 @@ pub fn card_lines(lab: &Lab) -> Vec<String> {
         verdict,
     ]
     .into_iter()
-    .chain(lab.new_ant.then(|| ["THIS COLONY FIGHTS BACK BUT DOES NOT LEARN YOU:".to_string(), "ITS YOUNG ARE BORN WITH THEIR PARENTS' MINDS.".to_string()]).into_iter().flatten())
+    .chain(season_lines(e))
+    .chain(if e.mutating {
+        vec!["ITS YOUNG ARE BORN WITH MUTATED COPIES OF THEIR PARENTS' MINDS:".to_string(), "THE ANTS YOU EAT LEAVE NO YOUNG. WATCH THE BITE RATE, SEASON BY SEASON.".to_string()]
+    } else if lab.new_ant {
+        vec!["THIS COLONY FIGHTS BACK BUT DOES NOT LEARN YOU:".to_string(), "ITS YOUNG ARE BORN WITH THEIR PARENTS' MINDS.".to_string()]
+    } else {
+        Vec::new()
+    })
     .collect()
+}
+
+/// **The seasons so far**, newest four: how long each raider lived, what it
+/// took, and how hard the colony bit back per minute it was in reach. The
+/// rate, not the count: a raider that hides is bitten less without the
+/// colony having changed at all.
+fn season_lines(e: &EnemyDemo) -> Vec<String> {
+    if e.seasons.is_empty() {
+        return Vec::new();
+    }
+    let first = e.seasons.len().saturating_sub(4);
+    std::iter::once("SEASON  LIVED  KILLS  BITTEN  PER MINUTE IN REACH".to_string())
+        .chain(e.seasons.iter().enumerate().skip(first).map(|(i, s)| {
+            let secs = s.frames / 60;
+            format!("{:>6}  {:>2}:{:02}  {:>5}  {:>6}  {:>18.1}", i + 1, secs / 60, secs % 60, s.kills, s.bites_taken, s.bite_rate())
+        }))
+        .collect()
 }
 
 /// The seat's panel: the HUD under the clock, and the card when it is up.
@@ -511,8 +707,9 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
     let white = [235u8, 235, 235, 255];
     let warn = [255u8, 200, 90, 255];
+    let note = e.note.as_ref().map(|(_, n)| n.as_str());
     for (i, line) in hud_lines(lab).iter().enumerate() {
-        let colour = if i >= 4 { warn } else { white };
+        let colour = if Some(line.as_str()) == note || line.starts_with("INSTINCT") { warn } else { white };
         hc.text(frame_buf, 4, 16 + 10 * i as i32, line, colour);
     }
     if e.card {
@@ -551,7 +748,7 @@ mod tests {
 
     /// The enemy box with its colony landing at 200 rather than 6,000, so a
     /// test reaches the hunt in hundreds of frames.
-    fn quick_lab(warm: &str) -> Lab {
+    fn quick_lab(warm: &str, mutate: bool) -> Lab {
         let mut sc = Scenario::load("demo_enemy").expect("demo_enemy ships");
         for e in &mut sc.timeline {
             if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
@@ -562,18 +759,23 @@ mod tests {
         lab.set_new_ant(true);
         let mut demo = Demo::new(DemoSeat::Enemy);
         demo.args.insert("warm".to_string(), warm.to_string());
+        if !mutate {
+            demo.args.insert("mutate".to_string(), "0".to_string());
+        }
         lab.demo = Some(demo);
         lab.load_scenario(sc);
         lab
     }
 
-    /// **Off is off, and the warm-up is the plain box**: until the raider
-    /// lands the seat only turns the speed dial, so the box under it is the
-    /// box with no demo, cell for cell, over 3,000 frames.
+    /// **Off is off, and with `mutate=0` the warm-up is the plain box**:
+    /// until the raider lands the seat only turns the speed dial, so the box
+    /// under it is the box with no demo, cell for cell, over 3,000 frames.
+    /// (With the birth mutation on, the demo's default since the owner's pick,
+    /// the colony is meant to differ from its first egg.)
     #[test]
     fn the_box_is_untouched_until_the_raider_lands() {
-        let mut with = quick_lab("1000000000");
-        let mut without = quick_lab("0");
+        let mut with = quick_lab("1000000000", false);
+        let mut without = quick_lab("0", false);
         without.demo = None;
         for _ in 0..3000 {
             with.demo_frame();
@@ -590,7 +792,7 @@ mod tests {
     /// reach it" is the head moving the way the arrow is held.
     #[test]
     fn a_raider_lands_after_the_warm_up_and_obeys_the_arrows() {
-        let mut lab = quick_lab("600");
+        let mut lab = quick_lab("600", true);
         let zoom0 = lab.renderer.zoom;
         for _ in 0..700 {
             lab.demo_frame();
@@ -618,5 +820,41 @@ mod tests {
         if let Some(x1) = x1 {
             assert!((x1 - x0).signum() == (x0 - door).signum() && x1 != x0, "held {key:?} for 200 frames and the head went {x0} -> {x1}");
         }
+    }
+
+    /// **The birth mutation reaches the colony's eggs**: with it on, eggs are
+    /// laid with minds the founders never had (each a mutated copy, counted
+    /// by the seat), and with `mutate=0` none is, and no store exists. The
+    /// positive control for "a mind differs" is the store's own flat genome
+    /// for each newborn, compared against all thirty founders.
+    #[test]
+    fn eggs_take_mutated_minds_only_with_mutation_on() {
+        let run = |mutate: bool| -> (u32, usize, bool) {
+            let mut lab = quick_lab("1000000000", mutate);
+            let founders = crate::lab::training::std_pool();
+            for _ in 0..4000 {
+                lab.demo_frame();
+                lab.tick_for_harness();
+            }
+            // Every living ant's (and egg's) flat genome, as the store rebuilt it.
+            let novel = lab.world.fathers.as_ref().map_or(0, |f| {
+                lab.world
+                    .live_organism_ids()
+                    .into_iter()
+                    .filter_map(|id| crate::sim::creature::mind::genome_of(&lab.world, id))
+                    .filter_map(|m| f.genome_of(&m))
+                    .filter(|g| !founders.iter().any(|h| h[..] == g[..]))
+                    .count()
+            });
+            let e = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).expect("enemy seat");
+            (e.mutants, novel, lab.world.fathers.is_some())
+        };
+        let (on, novel, store) = run(true);
+        assert!(store, "mutation on and no fathers store");
+        assert!(on > 0, "no egg took a mutated mind in 4,000 frames with mutation on");
+        assert!(novel > 0, "the eggs counted as mutants carry founders' genomes");
+        let (off, _, store) = run(false);
+        assert_eq!(off, 0);
+        assert!(!store, "mutate=0 and a fathers store exists");
     }
 }
