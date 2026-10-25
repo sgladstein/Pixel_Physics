@@ -235,3 +235,31 @@ ctl on garden nest-to-needed, r23, paired (20 of 32), lab case not worse.
 - **The nest erodes over rounds in every arm.** Garden median nest, r7 -> r23: ctl 251 -> 165, scalegate 321 -> 220,
   wide 313 -> 196.5; laygene2's lgkeep 528 -> 317. Colony 8's 536 was partly its one world: its descendants
   averaged about 250 by r7. A founder picked on one garden world is picked partly on luck; pick on several.
+
+## 2026-10-25: the brain's link price, not training, sets the far-food range
+
+The old-ant thread traced the far-food gap to the brain's per-link energy bill (the standard pool bills ~1,900 links
+a tick; one tank lasts ~1,000 frames against the hand-built ant's ~3,700) and built `PIXEL_PHYSICS_LINK_PRICE`.
+**linkprice1** (32 x 24 from laygene2 colony 8, the scalegate setup, the 448 bed with the ramp allowed to 230, lab
+case at 150 and 200 columns; built on main with the lab plant pool briefly on, so lab numbers sit low on food in
+every arm alike) trained at price 1 (control), 0.25 and 0. Deciding measure named before launch: the lab case at
+r23, paired against price 1 (20 of 32), garden nest not lower.
+
+- **Price 1 never left 100 columns** (median starved 39-53 a round). Prices 0.25 and 0 ramped to 120-125 and
+  bounced there, with colonies dying out in-round at the edge (0.25, r23: 17 of 32).
+- **Lab case r23:** price 0 ahead in 22 of 32 pairs (median 1,894 vs 1,028), 0.25 in 14. Garden r23 (extinct as 0):
+  nest 280 / 0 / 249, starved 39 / - / 2, alive 81 / - / 88.5. Price 0 passed its lab bar and failed the nest bar.
+- **Lab boxes** (grant 1, seeds 1/2, alive at 15k, plant pool off):
+
+| Price | Colonies | Fruit 150 | Provisions 150 | Fruit 200 |
+|---|---|---|---|---|
+| 0 | standard pool | 173/205 | 364/323 | 163/146 |
+| 0 | best four price-0 colonies | 190-246 | 316-360 | 129-188 |
+| 1 | standard pool | 114/123 | 200/178 | 20/39 |
+| 1 | the same four | 95-130 | 134-234 | 0-9 |
+
+**Overturned:** "far food needs a better-trained ant". The untrained pool at price 0 outlives the hand-built ant at
+200 columns (114-132), and training at price 0 adds little to it. The lever is the world's price, the owner's call.
+
+Found on the way: `+scale` scored a colony that had died out at the cap (no ants, so leftover food alone set its
+need); fixed to 0. Harmless to donors (a dead colony carries nothing), but it skewed the case's column.
