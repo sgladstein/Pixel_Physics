@@ -335,6 +335,14 @@ LAB_SCENS = os.environ.get('LAB_SCENS', 'lab_far_mix,lab_mid_fruit').split(',')
 # P to the driver's environment -- LAB_SCENS set by hand never reached a VM batch.
 LAB_SCENS = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('labscens=')), LAB_SCENS)
 EXTRA = [x for x in EXTRA if not x.startswith('labscens=')]
+# labcase=A,B (teacher lane, 2026-10-25, with +lab): lab scenarios scored each as a lexicase case of its own, beside the
+# summed LAB_SCENS case (and outside labgate=). **Why**: herbs1 added lab_herbs (the owner's herb-bed opening, plants
+# and no heaps) to the summed case and 24 rounds moved nothing -- herb headcount ahead of the control in 15 of 32 r23
+# carries, median 21 against 17 -- because ~17 ants on herbs is a sliver of a sum the far-food boxes (~65 each) set.
+# Logged as colsel.csv columns lab2_<name> after `lab`.
+LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('labcase=')), [])
+EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
+assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
@@ -342,10 +350,10 @@ LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split(
            if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT'))}
 
 
-def lab_alive(c, r, carry_c):
+def lab_alive(c, r, carry_c, scens=None):
     import re
     tot = 0
-    for k, sc in enumerate(LAB_SCENS):
+    for k, sc in enumerate(scens or LAB_SCENS):
         out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={c * 1000 + r * 10 + k}', f'after={LAB_AFTER}'],
                              capture_output=True, text=True, env={**os.environ, **LAB_ENV, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
         m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
@@ -446,7 +454,7 @@ def cases(v):
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
     c = c + (v[16],) if 'slay' in EXTRA_CASES else c
     c = c + (v[17],) if 'scale' in EXTRA_CASES else c
-    return c + (v[18],) if LAB else c
+    return c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
 
 
 def dig_passed(v):
@@ -515,7 +523,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' + ''.join(f'lab2_{sc},' for sc in LAB_CASES) if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -571,7 +579,9 @@ for r in range(R0, R):
     if LAB:
         with ThreadPoolExecutor(P) as ex:
             labv = dict(zip(ok, ex.map(lambda c: lab_alive(c, r, carry[c]), ok)))
-        res = {c: (v + (labv.get(c, 0),) if v else v) for c, v in res.items()}
+            # Each labcase= scenario keeps its seed offset past LAB_SCENS', so adding one never moves the summed case.
+            lab2 = [dict(zip(ok, ex.map(lambda c, k=k, sc=sc: lab_alive(c, r + 100 * (k + 1), carry[c], [sc]), ok))) for k, sc in enumerate(LAB_CASES)]
+        res = {c: (v + (labv.get(c, 0),) + tuple(d.get(c, 0) for d in lab2) if v else v) for c, v in res.items()}
     # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
@@ -603,7 +613,7 @@ for r in range(R0, R):
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
             nxt[b], src[b] = carry[d], str(d)
     for c in cols:
-        v = res[c] or (0,) * (19 if LAB else 18)
+        v = res[c] or (0,) * (19 + len(LAB_CASES) if LAB else 18)
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):

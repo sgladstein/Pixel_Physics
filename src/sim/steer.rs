@@ -51,6 +51,11 @@
 //! by the slice-0 comparison against main in the report: every `deeptrace`
 //! output byte-identical, at one thread and at four.
 //!
+//! **A body with a mind** (the trained ant, the spider, the centipede)
+//! returns into `mind::tick` before any of the five hooks; there the keyboard
+//! picks the mind's option instead ([`ForcedPick`], [`take_forced`],
+//! [`choose`]), and [`force`] lets a module lead any mind body the same way.
+//!
 //! **Not `World::player`** -- that is the gnome (`sim::player`).
 
 use crate::sim::cell::OrganismId;
@@ -80,6 +85,10 @@ pub struct SteerInput {
     pub lay: bool,
     /// T held: lay the food trail (channel B).
     pub trail: bool,
+    /// J: hop along the heading (`creature::launch`), the guest seat's
+    /// escape. Sets `Move` as well as `Impulse`, because the impulse is read
+    /// only inside a won step roll.
+    pub jump: bool,
 }
 
 impl SteerInput {
@@ -94,14 +103,47 @@ impl SteerInput {
             bite: self.bite || other.bite,
             lay: self.lay || other.lay,
             trail: self.trail || other.trail,
+            jump: self.jump || other.jump,
         }
     }
+}
+
+/// **Which body the player wears** (seat demos, 2026-10-25,
+/// `Reports/teaching-the-colony-2026-10-25/` and the shared board's
+/// `steered-ant.md`). The queen seat and the lone-scout seat both drive an
+/// ordinary ant; they differ only in the breeding rule her colony runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SteerRole {
+    /// The founding queen: her colony runs the queen rule (slice 0's only
+    /// role, and still what [`mark`] gives).
+    #[default]
+    Queen,
+    /// One worker among many (the scout seat): her colony keeps its own
+    /// breeding rule. Still no old age -- the owner's ruling is about the
+    /// player's body, not the queen's (*"My player shouldn't die of old
+    /// age"*, 2026-10-11).
+    Worker,
 }
 
 /// The one body the player drives, and the rules that come with it.
 #[derive(Clone, Debug)]
 pub struct Steered {
     pub id: OrganismId,
+    /// Queen or worker: only `regime_of_colony` reads it.
+    pub role: SteerRole,
+    /// **Whether the body may have young** (enemy seat, 2026-10-25): `true`
+    /// from [`mark`] and [`mark_with`]; a seat that sets it `false` stops the
+    /// body budding or laying (`try_bud`'s first check). The player's
+    /// centipede: a raider that eats well buds raiders above its bar, and in
+    /// the plan review's run 2 raiders became 72, which is no longer the
+    /// player against the colony.
+    pub may_breed: bool,
+    /// **What the body's last forced decision did** (`mind::tick`, a body with
+    /// a mind only): the verb the keys asked for (`None`: a direction or
+    /// nothing), the verb carried out, and whether its act succeeded -- so a
+    /// seat can say *why* a key did nothing (a full crop refuses a bite inside
+    /// the act, after the option was offered and picked).
+    pub last_act: Option<LastAct>,
     /// With `id`, the body's identity: a dead ant's id is never matched to
     /// another body by accident.
     pub born_frame: u64,
@@ -123,6 +165,17 @@ pub struct Steered {
     /// for replay; no replay has been shown yet** (slice 1 must show one
     /// exact replay before anything relies on it).
     pub log: Option<Vec<(u64, SteerInput)>>,
+    /// **The frame she last laid** (the queen seat's hold): set at marking
+    /// and in `try_bud`'s success path when she is the layer.
+    pub last_lay: u64,
+    /// **The queen seat's hold**, in frames (`None`: slice 0's rule, the
+    /// queen rule for her colony for the whole run). `Some(h)`: her rule
+    /// lasts `h` frames past her last egg; past that her colony runs the
+    /// process regime and any worker may lay, and her next egg brings the
+    /// rule back -- she is never suppressed while it holds, which the plain
+    /// queen rule would do the moment a lapse made a worker a breeder (it
+    /// counts `children > 0` for life). See [`holding_queen`].
+    pub hold: Option<u64>,
 }
 
 impl Steered {
@@ -137,6 +190,12 @@ impl Steered {
 /// whatever her id), and records her colony for the queen rule. Returns
 /// `false`, changing nothing, if `id` is not a live organism.
 pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> bool {
+    mark_with(world, id, input, SteerRole::Queen)
+}
+
+/// [`mark`] with the role named: [`SteerRole::Worker`] leaves her colony's
+/// breeding rule alone.
+pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, role: SteerRole) -> bool {
     let Some(state) = world.organism_mut(id) else {
         return false;
     };
@@ -144,12 +203,17 @@ pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> boo
     let (born_frame, colony) = (state.born_frame, state.colony);
     world.steered = Some(Steered {
         id,
+        role,
+        may_breed: true,
+        last_act: None,
         born_frame,
         colony,
         input,
         latched: SteerInput::default(),
         used: SteerInput::default(),
         log: None,
+        last_lay: world.frame,
+        hold: None,
     });
     true
 }
@@ -175,6 +239,13 @@ pub fn grant(world: &mut World, joules: f32) -> f32 {
     joules
 }
 
+/// **The steered body, if she is alive**: what a seat's own module reads to
+/// find her each tick (`world.organism(id)` for where she is).
+pub fn steered_id(world: &World) -> Option<OrganismId> {
+    let s = world.steered.as_ref()?;
+    is_steered(world, s.id).then_some(s.id)
+}
+
 /// **Is `organism` the steered body?** `false` with nobody steered, which is
 /// the whole of the off path: one `Option` read.
 #[inline]
@@ -183,6 +254,26 @@ pub fn is_steered(world: &World, organism: OrganismId) -> bool {
         None => false,
         Some(s) => s.id == organism && world.organism(organism).is_some_and(|st| st.born_frame == s.born_frame),
     }
+}
+
+/// **The steered queen of `colony` while her hold is up** (`Steered::hold`
+/// set, she is alive, and her last egg is at most `hold` frames old). `None`
+/// with no hold set, so slice 0's rule is untouched: `regime_of_colony` and
+/// `suppress_bar` read this only to *add* the hold's two facts -- the
+/// colony keeps the queen rule only while she holds, and while she holds she
+/// alone lays.
+pub fn holding_queen(world: &World, colony: u32) -> Option<OrganismId> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?;
+    (s.role == SteerRole::Queen && s.colony == colony && world.frame.saturating_sub(s.last_lay) <= hold && is_steered(world, s.id)).then_some(s.id)
+}
+
+/// **What is left of her hold**, `1.0` the frame she lays down to `0.0` when
+/// it lapses; `None` with no hold set or nobody steered. The HUD's bar.
+pub fn hold_left(world: &World) -> Option<f32> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?.max(1);
+    Some(1.0 - (world.frame.saturating_sub(s.last_lay) as f32 / hold as f32).min(1.0))
 }
 
 /// **The keyboard's input for `organism` this decision**, if it is the
@@ -241,6 +332,199 @@ pub fn pick_heading(usable: &[u8], dirs: &[(i32, i32); 8], dir: (i8, i8)) -> Opt
         }
     }
     best.map(|(d, _)| d)
+}
+
+/// **A decision forced on a body that thinks with a mind** (`mind::tick`),
+/// the mind's counterpart of the five hooks above, which all live in
+/// `creature_tick`'s hand-built path that a mind returns before reaching
+/// (enemy seat, 2026-10-25: a trained lab ant, the spider and the
+/// centipede are all minds, so `mark` alone steered none of them).
+///
+/// The mind still decides first, so its memory and its hidden state keep
+/// time; then the pick is replaced by the option this names, from the list
+/// the mind was offered -- **only a legal option is ever forced**, so the
+/// body can do nothing a mind of its kind could not. Read by [`choose`]:
+///
+/// - `verb` set: the option of that verb whose target lies nearest `dir`
+///   (any target of that verb if `dir` is `None`). None listed and the
+///   rule falls through to `dir`. `PickUp` falls back to `Eat`.
+/// - `dir` alone: a chain's TurnAround if its tail lies within 45 degrees of
+///   `dir`; else the Walk whose step is nearest `dir` within 90 degrees,
+///   else the TurnAround if its tail lies within 90, else (a
+///   level hold only) the walk straight up: held into a wall, she climbs.
+/// - Neither, or nothing usable that way: Rest. **She stands**, as a
+///   steered hand-built ant does with no key held.
+///
+/// Two writers. The steered body ([`World::steered`]) has its
+/// [`SteerInput`] converted ([`ForcedPick::from`]); any other body may be
+/// led by a module through [`force`] (the scout seat's tandem follower,
+/// the first such). The steered body's keyboard wins over a map entry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ForcedPick {
+    pub dir: Option<(i8, i8)>,
+    pub verb: Option<crate::sim::creature::options::Verb>,
+    /// Spent by the one decision that reads it ([`force`] entries only;
+    /// a steered body's input is spent by [`take_input`] as ever).
+    pub once: bool,
+}
+
+impl From<SteerInput> for ForcedPick {
+    /// The keyboard's verbs onto a mind's: B bites, G digs, E takes food,
+    /// Q puts down, F feeds. L and T have no mind verb (laying is the
+    /// body's, at its bar; a mind lays scent by its own emits) and are not
+    /// read here.
+    fn from(input: SteerInput) -> ForcedPick {
+        use crate::sim::creature::options::Verb;
+        let verb = if input.bite {
+            Some(Verb::Attack)
+        } else if input.dig {
+            Some(Verb::Dig)
+        } else if input.eat {
+            Some(Verb::PickUp)
+        } else if input.drop {
+            Some(Verb::Drop)
+        } else if input.share {
+            Some(Verb::Feed)
+        } else {
+            None
+        };
+        ForcedPick { dir: input.dir, verb, once: false }
+    }
+}
+
+/// [`Steered::last_act`]'s row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LastAct {
+    pub frame: u64,
+    pub asked: Option<crate::sim::creature::options::Verb>,
+    pub done: crate::sim::creature::options::Verb,
+    pub ok: bool,
+}
+
+/// **May `organism` have young?** `false` only for the steered body when a
+/// seat said so ([`Steered::may_breed`]). One `Option` read with nobody
+/// steered.
+#[inline]
+pub fn may_breed(world: &World, organism: OrganismId) -> bool {
+    match world.steered.as_ref() {
+        Some(s) if !s.may_breed => !is_steered(world, organism),
+        _ => true,
+    }
+}
+
+/// One body's entry in [`World::mind_force`]: the pick, and the body it
+/// was written for, so an id the engine hands to a newborn later is never
+/// led by an entry meant for the dead.
+#[derive(Clone, Copy, Debug)]
+pub struct Forced {
+    pub born_frame: u64,
+    pub pick: ForcedPick,
+}
+
+/// **Lead `id`'s next decisions** (or only the next, with `once`).
+/// Returns `false`, changing nothing, if `id` is not a live organism.
+/// Takes effect only on a body with a mind; [`unforce`] hands it back.
+pub fn force(world: &mut World, id: OrganismId, pick: ForcedPick) -> bool {
+    let Some(born_frame) = world.organism(id).map(|s| s.born_frame) else {
+        return false;
+    };
+    world.mind_force.insert(id, Forced { born_frame, pick });
+    true
+}
+
+/// Hand `id` back to its own mind.
+pub fn unforce(world: &mut World, id: OrganismId) {
+    world.mind_force.remove(&id);
+}
+
+/// **The pick forced on `organism` this decision**, if any, spending what
+/// is spent: the steered body's input (and its latch), or a `once` entry.
+/// With nobody steered and the map empty, two reads and `None`, which is
+/// the whole of the off path.
+pub fn take_forced(world: &mut World, organism: OrganismId) -> Option<ForcedPick> {
+    if let Some(input) = take_input(world, organism) {
+        return Some(ForcedPick::from(input));
+    }
+    if world.mind_force.is_empty() {
+        return None;
+    }
+    let entry = *world.mind_force.get(&organism)?;
+    let alive = world.organism(organism).is_some_and(|s| s.born_frame == entry.born_frame);
+    if !alive || entry.pick.once {
+        world.mind_force.remove(&organism);
+    }
+    alive.then_some(entry.pick)
+}
+
+/// **Which option a [`ForcedPick`] names**, as an index into `opts`, the
+/// list the mind was offered; `head` is the body's head cell. `None` only
+/// when the list holds no option the rule can use, not even Rest (every
+/// mind's list holds Rest, so in practice never). A pure function of its
+/// inputs. Only verbs whose act has landed (`Verb::acts`) and that `on`
+/// allows (the genome's verb switch, so a raider is never made to Feed: the
+/// body does only what a mind of its kind could) are forced; Rest always,
+/// since standing still is what no key means.
+pub fn choose(
+    opts: &[crate::sim::creature::options::Opt],
+    head: (i32, i32),
+    pick: ForcedPick,
+    on: impl Fn(crate::sim::creature::options::Verb) -> bool,
+) -> Option<usize> {
+    use crate::sim::creature::options::Verb;
+    let toward = |i: usize, dir: (i8, i8)| -> f32 {
+        let (dx, dy) = ((opts[i].target.0 - head.0) as f32, (opts[i].target.1 - head.1) as f32);
+        let (sx, sy) = (f32::from(dir.0), f32::from(dir.1));
+        let len = (dx * dx + dy * dy).sqrt() * (sx * sx + sy * sy).sqrt();
+        if len == 0.0 {
+            0.0
+        } else {
+            (dx * sx + dy * sy) / len
+        }
+    };
+    // The option of `verb` nearest `dir`; ties to the first listed, so the
+    // pick is a function of the list alone.
+    let of_verb = |verb: Verb, dir: Option<(i8, i8)>, need_ahead: bool| -> Option<usize> {
+        let mut best: Option<(usize, f32)> = None;
+        let allowed = verb.acts() && (verb == Verb::Rest || on(verb));
+        for i in (0..opts.len()).filter(|&i| allowed && opts[i].verb == verb) {
+            let cos = dir.map_or(0.0, |d| toward(i, d));
+            if need_ahead && cos <= 1e-6 {
+                continue;
+            }
+            if best.is_none_or(|(_, c)| cos > c + 1e-6) {
+                best = Some((i, cos));
+            }
+        }
+        best.map(|(i, _)| i)
+    };
+    if let Some(verb) = pick.verb {
+        let got = of_verb(verb, pick.dir, false).or_else(|| (verb == Verb::PickUp).then(|| of_verb(Verb::Eat, pick.dir, false)).flatten());
+        if got.is_some() {
+            return got;
+        }
+    }
+    if let Some(dir) = pick.dir {
+        // **A chain held back over its own tail turns round** rather than curl
+        // a diagonal step over its neck (plan review S7f): the TurnAround wins
+        // when its tail lies within 45 degrees of the held direction.
+        if let Some(t) = of_verb(Verb::TurnAround, Some(dir), true).filter(|&t| toward(t, dir) >= 0.70) {
+            return Some(t);
+        }
+        if let Some(i) = of_verb(Verb::Walk, Some(dir), true).or_else(|| of_verb(Verb::TurnAround, Some(dir), true)) {
+            return Some(i);
+        }
+        // **Held into a wall, she climbs** (scout seat's ask): a level hold with
+        // nothing within 90 degrees takes the walk straight up, before standing.
+        // Only up, and only for a level hold: held down on flat ground she must
+        // stand (so G digs where she is steered), not wander sideways.
+        let square = (dir.1 == 0)
+            .then(|| (0..opts.len()).find(|&i| opts[i].verb == Verb::Walk && opts[i].target.0 == head.0 && opts[i].target.1 < head.1))
+            .flatten();
+        if square.is_some() {
+            return square;
+        }
+    }
+    of_verb(Verb::Rest, None, false)
 }
 
 #[cfg(test)]
@@ -303,12 +587,17 @@ mod tests {
                 Some(None) => {
                     lab.world.steered = Some(Steered {
                         id: OrganismId::MAX,
+                        role: SteerRole::Queen,
+                        may_breed: true,
+                        last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,
                         input: Some(held),
                         latched: held,
                         used: held,
                         log: None,
+                        last_lay: 0,
+                        hold: None,
                     })
                 }
                 Some(Some(_)) => {
@@ -338,6 +627,294 @@ mod tests {
         let off = run(None);
         assert_eq!(run(Some(None)), off, "a steer on no living body moved the world");
         assert_ne!(run(Some(Some(0))), off, "steering a live ant changed nothing: the hash cannot see a hook");
+    }
+
+    /// **The forced pick names a legal option, by direction, verb first.**
+    /// A synthetic list round a head at the origin: walks east and north-east,
+    /// a turn-around to the west (a chain's tail), a dig to the south, Rest.
+    #[test]
+    fn a_forced_pick_takes_the_nearest_listed_option_and_stands_otherwise() {
+        use crate::sim::creature::options::{Opt, Verb, FEATURES};
+        let o = |verb, target| Opt { verb, target, feats: [0.0; FEATURES] };
+        let opts = [o(Verb::Walk, (1, 0)), o(Verb::Walk, (1, -1)), o(Verb::TurnAround, (-4, 0)), o(Verb::Dig, (0, 1)), o(Verb::Rest, (0, 0))];
+        let f = |dir, verb| ForcedPick { dir, verb, once: false };
+        let choose_all = |o: &[Opt], h, p| choose(o, h, p, |_| true);
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), None)), Some(0));
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, -1)), None)), Some(1));
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((0, -1)), None)), Some(1), "north: the north-east walk is within 90 degrees");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((-1, 0)), None)), Some(2), "west: the tail lies that way, the chain turns round");
+        let back = [o(Verb::Walk, (-1, -1)), o(Verb::TurnAround, (-4, 0)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_all(&back, (0, 0), f(Some((-1, 0)), None)), Some(1), "held back over the tail, it turns rather than curl north-west");
+        assert_eq!(choose(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Dig)), |v| v != Verb::Dig), Some(0), "a verb the genome has off is never forced");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((0, 1)), None)), Some(4), "south: nothing walks that way, she stands (no sideways wander)");
+        let face = [o(Verb::Walk, (0, 1)), o(Verb::Walk, (0, -1)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_all(&face, (0, 0), f(Some((1, 0)), None)), Some(1), "held right into a wall, she climbs it");
+        assert_eq!(choose_all(&face, (0, 0), f(Some((0, -1)), None)), Some(1), "held up, the walk up");
+        assert_eq!(choose_all(&opts, (0, 0), f(None, None)), Some(4), "no key: she stands");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Dig))), Some(3), "a pressed verb beats the direction");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Feed))), Some(0), "a verb not on the list falls back to the walk");
+        let eat = [o(Verb::Eat, (0, 0)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_all(&eat, (0, 0), f(None, Some(Verb::PickUp))), Some(0), "E with nothing to pick up eats from the crop");
+    }
+
+    /// The lab's trained colony, one ant in it marked or led, and a hash of
+    /// the box after `frames` more ticks. The shared rig of the mind tests.
+    fn trained_lab_run(lead: impl Fn(&mut crate::lab::Lab, OrganismId), frames: u32) -> (u64, (i32, i32), (i32, i32)) {
+        use crate::lab::scenario::{Placement, Scenario};
+        let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+        for e in &mut sc.timeline {
+            if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                e.at = 200;
+            }
+        }
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.set_new_ant(true);
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let mut ids = lab.world.live_organism_ids();
+        ids.sort();
+        let ant = lab.world.species.id_of("ant").expect("ant ships");
+        let id = *ids
+            .iter()
+            .find(|&&i| lab.world.organism(i).is_some_and(|s| s.species == ant) && crate::sim::creature::mind::has(&lab.world, i))
+            .expect("the colony landed, thinking with minds");
+        let start = lab.world.organism(id).and_then(|s| s.chain.first().copied()).expect("alive");
+        lead(&mut lab, id);
+        // The last cell her head stood in: led into the box's edge she may
+        // drown or be eaten, and a dead body's position is its last one.
+        let mut end = start;
+        for _ in 0..frames {
+            lab.tick_for_harness();
+            if let Some(at) = lab.world.organism(id).and_then(|s| s.chain.first().copied()) {
+                end = at;
+            }
+        }
+        let w = &lab.world;
+        let b = w.bounds().expect("the lab sets bounds");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                for v in [u64::from(c.material.0), u64::from(c.aux()), u64::from(c.organism_id())] {
+                    h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+        (h, start, end)
+    }
+
+    /// **A body with a mind obeys the keyboard** (shared/steer-mind.md): a
+    /// trained lab ant held to the east walks east, and off is off -- an
+    /// entry for a body that is not alive, and an empty map, leave the box
+    /// cell for cell as nobody steered. Watched red with `take_forced`'s call
+    /// in `mind::tick` taken out (the steered ant then wanders like the rest
+    /// and the hash equals the control).
+    #[test]
+    fn a_trained_ant_is_steered_through_its_mind_and_off_is_off() {
+        let east = SteerInput { dir: Some((1, 0)), ..Default::default() };
+        let (off, _, _) = trained_lab_run(|_, _| {}, 300);
+        let (dead, _, _) = trained_lab_run(
+            |lab, _| {
+                lab.world.mind_force.insert(OrganismId::MAX, Forced { born_frame: 0, pick: ForcedPick::from(east) });
+            },
+            300,
+        );
+        assert_eq!(dead, off, "an entry for no living body moved the world");
+        let (on, start, end) = trained_lab_run(
+            |lab, id| {
+                assert!(mark(&mut lab.world, id, Some(east)));
+            },
+            300,
+        );
+        assert_ne!(on, off, "steering a trained ant changed nothing: the mind ignores the keyboard");
+        assert!(end.0 >= start.0 + 10, "held east for 300 frames (50 decisions), the ant went from {start:?} to {end:?}");
+    }
+
+    /// **A module can lead a mind ant without the keyboard** (`force`).
+    /// Led east through the map, the ant goes east; this seed's ant left to
+    /// its mind walks west (the control, asserted), so the lead is what moved
+    /// her. A first version led her west and stayed green with the hook taken
+    /// out: she was going that way anyway.
+    #[test]
+    fn a_forced_entry_leads_a_mind_ant() {
+        let east = ForcedPick { dir: Some((1, 0)), verb: None, once: false };
+        let (_, s0, e0) = trained_lab_run(|_, _| {}, 300);
+        assert!(e0.0 < s0.0 + 10, "left to her mind she went east anyway ({s0:?} to {e0:?}): the test cannot see the lead");
+        let (_, start, end) = trained_lab_run(
+            |lab, id| {
+                assert!(force(&mut lab.world, id, east));
+            },
+            300,
+        );
+        assert!(end.0 >= start.0 + 10, "led east for 300 frames, the ant went from {start:?} to {end:?}");
+    }
+
+    /// **The nest raider is steerable** (enemy seat): a centipede with the
+    /// lab's trained raider mind, held east, takes its five-cell chain east.
+    /// The positive control is the same centipede left to its mind, which
+    /// does not go 10 columns east in the same time on this seed.
+    #[test]
+    fn a_steered_centipede_takes_its_chain_where_it_is_held() {
+        use crate::lab::scenario::{Placement, Scenario};
+        let run = |steer: bool| -> ((i32, i32), (i32, i32), usize) {
+            let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+            for e in &mut sc.timeline {
+                if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                    e.at = 200;
+                }
+            }
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            for _ in 0..400 {
+                lab.tick_for_harness();
+            }
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let b = lab.world.bounds().expect("bounded");
+            let x = b.min_x + 40;
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 1.0).expect("a centipede lands");
+            let start = lab.world.organism(id).and_then(|s| s.chain.first().copied()).expect("alive");
+            let len = lab.world.organism(id).map_or(0, |s| s.chain.len());
+            if steer {
+                assert!(mark(&mut lab.world, id, Some(SteerInput { dir: Some((1, 0)), ..Default::default() })));
+            }
+            let mut end = start;
+            for _ in 0..300 {
+                lab.tick_for_harness();
+                if let Some(at) = lab.world.organism(id).and_then(|s| s.chain.first().copied()) {
+                    end = at;
+                }
+            }
+            (start, end, len)
+        };
+        let (start, end, len) = run(true);
+        assert_eq!(len, 5, "the raider is a five-cell chain");
+        assert!(end.0 >= start.0 + 10, "held east for 300 frames (60 decisions), the raider went from {start:?} to {end:?}");
+        let (s0, e0, _) = run(false);
+        assert!(e0.0 < s0.0 + 10, "left to its mind the raider also went 10 east ({s0:?} to {e0:?}): the test cannot see the steer");
+    }
+
+    /// **B bites through the mind** (plan review S7g): the synthetic `choose`
+    /// test cannot see `act`. A steered centipede set down among the trained
+    /// colony's founders, held toward the nearest ant every frame, bites with
+    /// B held and not without (the control: same placement, same holds).
+    #[test]
+    fn a_steered_centipede_bites_when_b_is_held() {
+        use crate::lab::scenario::{Placement, Scenario};
+        let run = |bite: bool| -> usize {
+            let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+            for e in &mut sc.timeline {
+                if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                    e.at = 200;
+                }
+            }
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            for _ in 0..400 {
+                lab.tick_for_harness();
+            }
+            let ant = lab.world.species.id_of("ant").expect("ant ships");
+            let ants = |w: &World| -> Vec<(i32, i32)> {
+                let mut ids = w.live_organism_ids();
+                ids.sort();
+                ids.into_iter().filter_map(|i| w.organism(i).filter(|s| s.species == ant).and_then(|s| s.chain.first().copied())).collect()
+            };
+            let x = ants(&lab.world)[0].0;
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 1.0).expect("a centipede lands");
+            assert!(mark(&mut lab.world, id, Some(SteerInput::default())));
+            lab.world.encounter_log = Some(Default::default());
+            for _ in 0..600 {
+                let Some(head) = lab.world.organism(id).and_then(|s| s.chain.first().copied()) else { break };
+                let near = ants(&lab.world).into_iter().min_by_key(|&(ax, ay)| (ax - head.0).abs() + (ay - head.1).abs());
+                let dir = near.map(|(ax, ay)| ((ax - head.0).signum() as i8, (ay - head.1).signum() as i8));
+                if let Some(s) = lab.world.steered.as_mut() {
+                    s.input = Some(SteerInput { dir, bite, ..Default::default() });
+                }
+                lab.tick_for_harness();
+            }
+            let log = lab.world.encounter_log.as_ref().expect("on");
+            log.events.iter().filter(|e| e.kind == crate::sim::world::ENCOUNTER_BITE && e.a == id).count()
+        };
+        let (with, without) = (run(true), run(false));
+        assert_eq!(without, 0, "the raider bit {without} times with B never pressed: its mind is still choosing");
+        assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
+    }
+
+    /// **`Steered::may_breed` false stops the player's body budding** (the
+    /// enemy seat's raider: in the feasibility run two raiders became 72).
+    /// Paired with the same placement left `true`, which must bud, or the
+    /// test proves nothing about the flag.
+    #[test]
+    fn a_body_marked_not_to_breed_does_not_bud() {
+        use crate::lab::scenario::Scenario;
+        let run = |may_breed: bool| -> usize {
+            let sc = Scenario::load("steady_income").expect("steady_income ships");
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            let centipede = lab.world.species.id_of("centipede").expect("centipede ships");
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let x = lab.world.bounds().map_or(100, |b| (b.min_x + b.max_x) / 2);
+            // Four tanks against a two-tank threshold: due to bud at once.
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 4.0).expect("a centipede lands");
+            assert!(mark_with(&mut lab.world, id, Some(SteerInput::default()), SteerRole::Worker));
+            if let Some(s) = lab.world.steered.as_mut() {
+                s.may_breed = may_breed;
+            }
+            for _ in 0..1500 {
+                lab.tick_for_harness();
+            }
+            lab.world.live_organism_ids().into_iter().filter(|&i| lab.world.organism(i).is_some_and(|s| s.species == centipede)).count()
+        };
+        let (barred, free) = (run(false), run(true));
+        assert!(free > 1, "the control never budded ({free} centipedes): the test cannot see the flag");
+        assert_eq!(barred, 1, "a raider marked not to breed became {barred}");
+    }
+
+    /// **A trained (mind) ant marked as the queen's body obeys the keys**
+    /// (seat demos, 2026-10-25; the queen role only -- a worker body stays
+    /// in `mind::tick`). The lab opens on the trained pool, and
+    /// `mind::tick` reads no steer hook, so without the hand-off in
+    /// `creature_tick` the keys did nothing to her: `used` stayed at its
+    /// default because `take_input` was never reached. Watched red with the
+    /// `input_of(..).is_none()` term taken out of that branch.
+    #[test]
+    fn a_keyboard_drives_a_mind_ant() {
+        use crate::lab::scenario::{Placement, Scenario};
+        let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+        for e in &mut sc.timeline {
+            if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                e.at = 200;
+            }
+        }
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.set_new_ant(true);
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let mut ids = lab.world.live_organism_ids();
+        ids.sort();
+        let id = *ids
+            .iter()
+            .find(|&&i| crate::sim::creature::mind::has(&lab.world, i))
+            .expect("test setup: no ant has a mind");
+        let held = SteerInput {
+            dir: Some((1, 0)),
+            ..Default::default()
+        };
+        assert!(mark_with(&mut lab.world, id, Some(held), SteerRole::Queen));
+        assert_eq!(steered_id(&lab.world), Some(id));
+        for _ in 0..600 {
+            lab.tick_for_harness();
+        }
+        // `used` first: with the hand-off taken out she does not take the
+        // keys, and (measured) also dies inside the 600 frames.
+        assert_eq!(lab.world.steered.as_ref().map(|s| s.used), Some(held), "the mind ant never took the keys");
+        assert!(lab.world.organism(id).is_some(), "test setup: the steered ant died");
     }
 
     #[test]

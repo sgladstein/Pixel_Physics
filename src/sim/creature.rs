@@ -76,6 +76,8 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 pub mod needs;
 pub mod mind;
 pub mod options;
+pub mod guest;
+pub mod recall;
 pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
@@ -5634,7 +5636,10 @@ pub(super) fn try_bud(
     provision: f32,
     lay: f32,
 ) -> Option<ActiveSite> {
-    if world.births_paused {
+    // `steer::may_breed`: a seat demo's player body can be barred from
+    // budding (the enemy seat's raider -- two raiders became 72 in its
+    // feasibility run). True for every body nobody marked.
+    if world.births_paused || !crate::sim::steer::may_breed(world, organism) {
         return None;
     }
     let state = world.organism(organism)?;
@@ -6068,6 +6073,13 @@ pub(super) fn try_bud(
     if let Some(p) = world.organism_mut(organism) {
         p.children = p.children.saturating_add(1);
     }
+    // The steered queen's hold restarts on her own egg (`Steered::last_lay`).
+    if crate::sim::steer::is_steered(world, organism) {
+        let frame = world.frame;
+        if let Some(s) = world.steered.as_mut() {
+            s.last_lay = frame;
+        }
+    }
     // **The index write, in the same breath as the count that defines a
     // breeder.** `record_breeder` prunes `parent_colony`'s candidate list
     // of anyone who has died since it was last touched, then pushes
@@ -6087,6 +6099,12 @@ pub(super) fn try_bud(
     // (`mind::inherit`); nothing in the game has one, so this returns at once.
     if world.minds.is_some() {
         mind::inherit(world, organism, child);
+        // **The father store** (`sim::fathers`, seat demos): here and not
+        // inside `mind::inherit`, which runs again when the egg hatches and
+        // would spend a queued father twice. `None` outside a demo.
+        if world.fathers.is_some() {
+            crate::sim::fathers::on_egg(world, organism, child);
+        }
     }
     // **The line's own history, checked after the mutation that could have
     // moved it** -- see `World::note_line_generation`/`note_line_record`'s
@@ -7990,12 +8008,37 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
         return step_flight(world, organism, def);
     }
+    // **An ant touching a registered visitor rolls the ladder** (`guest`,
+    // the guest seat demo): it only marks the ant -- a nip lands now, a hold
+    // is carried out inside `mind::tick` -- and never returns early, so the
+    // body tick below runs whole. One `Option` read with the ladder off.
+    if world.visitors.is_some() {
+        guest::meet(world, organism, (x, y));
+    }
     // **An ant with a mind decides by it** (`mind`, stage 2 of the brain
     // plan): no sense, no `brain.rs`, no `act`, no walk. What the body does
     // regardless -- old age, wounds, crossings, flight above, and the fall,
     // the bill, digestion and birth inside -- stays the same. Nobody has a
     // mind in the game, so this is one `Option` read per tick there.
-    if world.minds.is_some() && mind::has(world, organism) {
+    //
+    // **Except the body a keyboard holds** (seat demos, 2026-10-25): the
+    // five `steer::` hooks live on the hand-built path below, and `mind::tick`
+    // reads none of them, so a trained lab ant marked as the player's body
+    // would ignore every key. While the keyboard drives her she takes this
+    // path -- her outputs are the keys' anyway (`steered_outputs`) -- and
+    // above the steering cap (`input` `None`) her mind drives her again.
+    // **The queen's body only** (`SteerRole::Queen`, an ant): she lays on L
+    // and digs and packs by slice 0's tested hooks, which the mind has no
+    // verb for. Every other steered mind body -- the scout seat's worker, the
+    // enemy seat's centipede -- stays in `mind::tick`, where the forced pick
+    // (`steer::take_forced`) drives it, so a worker body keeps her sisters'
+    // rules. Nobody steered: one more `Option` read.
+    if world.minds.is_some()
+        && mind::has(world, organism)
+        && !(crate::sim::steer::input_of(world, organism).is_some()
+            && world.steered.as_ref().is_some_and(|s| s.role == crate::sim::steer::SteerRole::Queen)
+            && world.organism(organism).is_some_and(|s| world.species.get(s.species).name == "ant"))
+    {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
         if !mind::scratch_log::shadow_on() {
             // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
@@ -11219,6 +11262,12 @@ fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gu
 /// so charging for it would price *being attacked* — the exact defect
 /// `armour_fraction`'s doc records for the plate, arriving on the other side
 /// of the same fight.
+/// [`cry_alarm`] for the rest of the crate: the guest seat's killed larva
+/// (`brood::larva_eaten`) cries it as a bite does.
+pub(crate) fn cry_alarm_at(world: &mut World, x: i32, y: i32) {
+    cry_alarm(world, x, y);
+}
+
 fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
 }
@@ -23040,14 +23089,23 @@ fn breeding_regime() -> BreedingRegime {
 }
 
 /// **The breeding rule for one colony**: `queen` for the player's colony
-/// (`steer`), so her daughters hold back while she lives wherever she
+/// (`steer`, when she wears the queen's role -- a `SteerRole::Worker` body
+/// leaves her colony's rule alone), so her daughters hold back while she lives wherever she
 /// roams -- under the shipped `graded`, a queen more than
 /// `PIXEL_PHYSICS_BREEDING_RADIUS` cells from them lets them lay at the full
 /// bar -- and [`breeding_regime`] for every other colony, which is the whole
 /// of the off path.
 fn regime_of_colony(world: &World, colony: u32) -> BreedingRegime {
     match world.steered.as_ref() {
-        Some(s) if s.colony == colony => BreedingRegime::Queen,
+        // With a hold set (the queen seat) the rule lasts only while she
+        // holds: past it her colony breeds like any other until she lays.
+        Some(s)
+            if s.colony == colony
+                && s.role == crate::sim::steer::SteerRole::Queen
+                && (s.hold.is_none() || crate::sim::steer::holding_queen(world, colony).is_some()) =>
+        {
+            BreedingRegime::Queen
+        }
         _ => breeding_regime(),
     }
 }
@@ -23608,7 +23666,19 @@ fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: Or
         // common regime there is.
         BreedingRegime::Individual => bar,
         BreedingRegime::Queen => {
-            if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
+            // **The queen seat's hold**: while the steered queen holds, she
+            // lays and nobody else does, whoever bred during a lapse. The
+            // plain rule below would shut her out for good once a worker
+            // had `children > 0` (it counts a breeder for life), so the
+            // player's next egg could never bring her rule back. `None`
+            // outside the demo: one `Option` read.
+            if let Some(q) = crate::sim::steer::holding_queen(world, colony) {
+                if q == organism {
+                    bar
+                } else {
+                    f32::INFINITY
+                }
+            } else if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
                 f32::INFINITY
             } else {
                 // **A queenless colony resumes** (owner's ruling): no
@@ -27740,15 +27810,16 @@ fn note_door(world: &mut World, why: u8) {
 /// below its threshold otherwise, so nothing happens on its own: `Move` 0
 /// fails every step roll, `Lay` -1 is under [`brain::LAY_HOLD_BELOW`] (a
 /// plain 0 would let the genome's bar decide), and `Tumble` and `Impulse` 0
-/// keep a standing ant standing. `Turn`, `Persist`, `Caution`, `Provision`
+/// keep a standing ant standing unless J is pressed. `Turn`, `Persist`, `Caution`, `Provision`
 /// and `EmitA` stay the genome's: the home scent is what her workers find
 /// the door by, and the rest only shape a walk the keyboard has taken over.
 fn steered_outputs(mut outputs: [f32; brain::BRAIN_OUTPUTS], input: crate::sim::steer::SteerInput) -> [f32; brain::BRAIN_OUTPUTS] {
     use brain::BrainOutput as O;
     let level = |held: bool| if held { 1.0 } else { 0.0 };
-    outputs[O::Move as usize] = level(input.dir.is_some());
+    // J writes `Move` too: the impulse is read only inside a won step roll.
+    outputs[O::Move as usize] = level(input.dir.is_some() || input.jump);
     outputs[O::Tumble as usize] = 0.0;
-    outputs[O::Impulse as usize] = 0.0;
+    outputs[O::Impulse as usize] = level(input.jump);
     outputs[O::Feed as usize] = level(input.eat);
     outputs[O::Drop as usize] = level(input.drop);
     outputs[O::DropSpoil as usize] = level(input.drop);
@@ -28718,6 +28789,101 @@ pub(crate) fn launch(world: &mut World, organism: OrganismId, heading: u8) -> bo
     }
     world.creature_stats.impulses += 1;
     true
+}
+
+/// **Lift an animal and set it down near `to`**: the keeper seat's CARRY
+/// (`Reports/keeper-seat-demo-2026-10-25.md`). The whole body moves rigidly
+/// (a pure translation, so `relocate_chain` with flat groups is exact, as for
+/// a flight substep or a fall) into the nearest free, supported placement
+/// within 8 cells of `to`, or the carry is refused.
+///
+/// **Then a fresh creature site at the new head, and that line is the
+/// difference between a carry and a freeze.** The scheduler keys an animal's
+/// next tick on its head cell; a body moved outside its own tick leaves that
+/// site pointing at the old cell, where it fails the ownership test, finds
+/// the chain intact through `reconcile_chain` (no death), and returns no
+/// site: "not dead, not scheduled, just an orphan standing in the world
+/// forever" (`creature_tick`'s own note). A frozen ant never starves, so it
+/// reads as healthy. The old site still fires once and is dropped that way.
+///
+/// Refused while the animal is in flight, rides another, or carries a rider.
+/// Clears the old walk's per-trip state that names cells near where it was
+/// (`dig_return`, the chooser's `home_best`); keeps `forage_anchor`, so it
+/// still knows the way home. Writes no memory: a carried mind ant learns the
+/// place by its own pick-up there.
+pub fn set_down(world: &mut World, organism: OrganismId, to: (i32, i32)) -> Result<(i32, i32), &'static str> {
+    if world.organism(organism).is_some() && !can_carry(world, organism) {
+        return Err(if world.organism(organism).is_some_and(|s| s.flight.is_some()) { "it is in the air" } else { "something is riding it, or it is riding" });
+    }
+    let Some(state) = world.organism(organism) else { return Err("nothing alive there") };
+    let Some(def) = world.species.get(state.species).creature.clone() else { return Err("only animals can be carried") };
+    let cells = state.chain.clone();
+    let Some(&head) = cells.first() else { return Err("nothing alive there") };
+    // Nearest placement first: rings of growing Chebyshev radius around `to`.
+    let mut placed = None;
+    'search: for r in 0..=8i32 {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx.abs().max(dy.abs()) != r {
+                    continue;
+                }
+                let (tx, ty) = (to.0 + dx - head.0, to.1 + dy - head.1);
+                if let Some(moved) = translated_if_free(world, &cells, tx, ty) {
+                    if body_is_supported(world, &moved) {
+                        placed = Some(moved);
+                        break 'search;
+                    }
+                }
+            }
+        }
+    }
+    let Some(moved) = placed else { return Err("no room to set it down there") };
+    relocate_chain(world, organism, &def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &moved, groups: &[] });
+    let new_head = moved[0];
+    if let Some(s) = world.organism_mut(organism) {
+        s.dig_return = None;
+        s.home_best = f32::INFINITY;
+    }
+    let next = world.creature_due(organism_tick_interval(world, organism, &def));
+    world.schedule_active_site(ActiveSite { x: new_head.0, y: new_head.1, kind: ActiveKind::Creature { organism }, next_frame: next });
+    Ok(new_head)
+}
+
+/// Whether [`set_down`] would lift this animal: alive, not in flight, and
+/// nothing riding it nor it riding anything (a stack of nestmates is lifted
+/// by none of its members). The keeper's hand reads it to pick the nearest
+/// ant it *can* lift rather than refuse the one on top of a pile.
+pub fn can_carry(world: &World, organism: OrganismId) -> bool {
+    let Some(state) = world.organism(organism) else { return false };
+    state.flight.is_none() && !state.chain.is_empty() && state.chain.iter().all(|&(x, y)| world.riders_at(x, y).is_empty())
+}
+
+/// **Put one mouthful of `food` worth `worth` into an animal's crop**: the
+/// keeper seat's TREAT. A real meal, so a real reward (the keeper design's
+/// rule against reward hacking: every reward is something the ant itself
+/// consumes), with `mind::pick_up`'s own guards -- the crop holds one food
+/// and has a capacity -- and booked as `Granted` on the colony's ledger,
+/// because a treat makes food from nothing. `false` if refused (gone, a full
+/// crop, or another food in it).
+pub fn treat(world: &mut World, organism: OrganismId, food: material::MaterialId, worth: f32) -> bool {
+    let Some(state) = world.organism(organism) else { return false };
+    let Some(def) = world.species.get(state.species).creature.clone() else { return false };
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.material != food || c.worth() + worth > organism_crop_capacity(world, organism, &def)) {
+        return false;
+    }
+    crop_take(world, organism, food, 0, worth, None);
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::Granted, f64::from(worth));
+    true
+}
+
+/// Is `(x, y)` "home" to this animal, in the sense a mind's pick-up uses
+/// (`food_at_home`): beside its dug nest or in its shaft. The keeper's TREAT
+/// refuses to plant a memory there, since a lesson at home teaches "here is
+/// the nest".
+pub fn is_home_for(world: &World, organism: OrganismId, (x, y): (i32, i32)) -> bool {
+    let Some(def) = world.organism(organism).and_then(|s| world.species.get(s.species).creature.as_ref()) else { return false };
+    food_at_home(world, organism, def, x, y)
 }
 
 /// One frame of ballistics for an airborne creature, and the reschedule.
@@ -55235,6 +55401,59 @@ mod tests {
             f32::INFINITY,
             "`c` was not shut out by `b`, the colony's successor breeder"
         );
+    }
+
+    /// **The queen seat's hold** (`Steered::hold`, 2026-10-25): while the
+    /// steered queen holds she alone lays, even after a lapse made a worker
+    /// a breeder; past the hold her colony runs the process regime; her
+    /// next egg brings the rule back. The first assert is the lock-out the
+    /// plan review predicted, with no hold set: the plain queen rule shuts
+    /// her out for good once `b` has bred, so it is the positive control
+    /// for the exemption below it.
+    #[test]
+    fn the_queens_hold_lapses_lets_workers_lay_and_returns_on_her_next_egg() {
+        let (mut w, founders) = breeding_colony(3, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder a").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        let (a, b, c) = (founders[0], founders[1], founders[2]);
+        let pos_of = |w: &World, id: OrganismId| *w.organism(id).expect("alive").chain.first().expect("has a body");
+        let bar = 500.0;
+        let read = |w: &World, id: OrganismId| {
+            let (x, y) = pos_of(w, id);
+            suppress_bar(regime_of_colony(w, colony), 24, w, id, colony, (x, y), bar).0
+        };
+        assert!(crate::sim::steer::mark(&mut w, a, None));
+        // A worker bred during a lapse (her egg, too: she is a breeder).
+        for id in [a, b] {
+            if let Some(s) = w.organism_mut(id) {
+                s.children = 1;
+            }
+            w.record_breeder(colony, id);
+        }
+        assert_eq!(read(&w, a), f32::INFINITY, "test setup: the plain queen rule did not lock her out, so the exemption is untested");
+
+        let hold = 1_000;
+        let start = w.frame;
+        w.steered.as_mut().expect("marked").hold = Some(hold);
+        w.steered.as_mut().expect("marked").last_lay = start;
+        assert_eq!(regime_of_colony(&w, colony), BreedingRegime::Queen);
+        assert_eq!(read(&w, a), bar, "the holding queen was shut out by a worker that bred in a lapse");
+        assert_eq!(read(&w, b), f32::INFINITY, "a worker laid while the queen held");
+        assert_eq!(read(&w, c), f32::INFINITY, "a worker laid while the queen held");
+
+        w.frame = start + hold + 1;
+        assert_eq!(crate::sim::steer::holding_queen(&w, colony), None);
+        assert_eq!(regime_of_colony(&w, colony), breeding_regime(), "the lapsed colony did not fall back to the process regime");
+        assert!(crate::sim::steer::hold_left(&w) == Some(0.0));
+
+        // Her next egg (`try_bud` writes `last_lay`): the rule is back.
+        w.steered.as_mut().expect("marked").last_lay = w.frame;
+        assert_eq!(read(&w, a), bar);
+        assert_eq!(read(&w, b), f32::INFINITY, "the returned rule did not shut the worker out again");
     }
 
     /// **`graded`'s multiplier, at both ends and the middle.** `0` is the

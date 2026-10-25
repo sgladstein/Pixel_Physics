@@ -38,6 +38,7 @@ pub mod batch;
 pub mod battle;
 pub mod bench;
 pub mod census;
+pub mod demo;
 pub mod names;
 pub mod nestcensus;
 pub mod nestscore;
@@ -177,6 +178,9 @@ pub struct Lab {
     /// the scenario back -- and `tick()` runs its timeline after every
     /// step. See `scenario::Scenario`'s own doc for what a scenario is.
     pub scenario: Option<scenario::Scenario>,
+    /// **The seat demo running, if any** (`demo=<seat>`, [`demo`]). `None`
+    /// in the lab: every demo hook is then one branch not taken.
+    pub demo: Option<demo::Demo>,
     /// The key list. On by default on a fresh lab and dismissed by any key,
     /// because there is no other way to discover a control here — the sandbox
     /// grew its bindings a key at a time in front of somebody who already knew
@@ -307,7 +311,9 @@ pub struct Lab {
     pub training_seed: u64,
     /// **ANT BRAIN: NEW** -- every ant in the box on screen decides by the
     /// new mind (`training::new_ant_minds`) rather than the hand-built brain. Off
-    /// is the shipped game. See [`Lab::set_new_ant`].
+    /// in a `Lab::new`, so harnesses keep measuring what they measured; **the lab
+    /// binary turns it on at launch since 2026-10-24** (`-- oldant` keeps it off).
+    /// See [`Lab::set_new_ant`].
     pub new_ant: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
@@ -611,6 +617,7 @@ impl Lab {
             ui,
             spec,
             scenario: None,
+            demo: None,
             // Down only when something explicitly asks for it. The one caller
             // is a headless capture wanting to photograph what is *under* the
             // key list, which is otherwise unreachable without a keypress and
@@ -1929,6 +1936,11 @@ impl Lab {
         if let Some(t) = &self.training {
             t.before_step(&mut self.world);
         }
+        // The seat demo's per-tick work (`demo`), so a 64x frame and a
+        // headless harness run the same sequence. One `Option` read without.
+        if self.demo.is_some() {
+            self.demo_before_tick();
+        }
         // **The simulation half of the tick is [`tick_world`]**, shared with
         // every harness that needs the box's own sequence (the plant trainer
         // first), so a copy of it outside this file cannot drift. What
@@ -1941,6 +1953,9 @@ impl Lab {
             &self.spec,
             self.scenario.as_ref(),
         );
+        if self.demo.is_some() {
+            self.demo_after_tick();
+        }
         // **The selection loop reads this tick's logs before anything else
         // does** -- the dig map below drains the cut log.
         if let Some(t) = self.training.as_mut() {
@@ -2327,7 +2342,7 @@ impl Lab {
         let layered = layer.is_some();
         let path_changed = self.painted_layered.replace(layered) != Some(layered);
         let force_full = if layered {
-            self.ui.world_marked()
+            self.ui.world_marked() || demo::marks_world(self)
         } else {
             self.ui.cursor().is_some()
                 || self.ui.is_dirty()
@@ -2357,6 +2372,9 @@ impl Lab {
             force_full,
         );
         self.ui.draw_world_marks(frame_buf, &self.world, &self.renderer);
+        if self.demo.is_some() {
+            demo::draw_world(self, frame_buf);
+        }
         // **Everything from here on is the interface**, painted on `hc` into
         // `frame_buf` -- the box's own buffer on the single-buffer path, or
         // the cleared 2x layer when one is due.
@@ -2375,6 +2393,9 @@ impl Lab {
         self.chrome_painted = Some((now, self.world.frame));
         crate::render::paint_owner::set("CLOCK");
         self.time.draw(hc, frame_buf, &self.world);
+        if self.demo.is_some() {
+            demo::draw_hud(self, hc, frame_buf);
+        }
         // **A request the machine cannot meet has to say so**, which is the
         // same principle `time::PRESETS` already states for the speed dial:
         // *"the dial is a request, and a request the machine cannot meet is
@@ -2527,6 +2548,9 @@ impl Lab {
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
+        if self.demo.is_some() && self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Press { erase: false }) {
+            return;
+        }
         // **`Lamp` remembers where the press landed, and nothing else does.**
         // Every other tool decides everything from the release position
         // alone; this one needs the press position too, to tell a click
@@ -2561,12 +2585,18 @@ impl Lab {
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
+        if self.demo.is_some() && self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Press { erase: true }) {
+            return;
+        }
         let at = self.renderer.logical_to_world(x, y);
         self.begin_stroke(at, true);
     }
 
     /// A button came up, or the pointer left. Ends whatever stroke was live.
     pub fn end_stroke(&mut self) {
+        if let Some(d) = self.demo.as_mut() {
+            d.mouse_held = false;
+        }
         self.finish_stroke();
         self.scent_origin = None;
     }
@@ -2605,6 +2635,10 @@ impl Lab {
     /// band instead of a row of blobs — `App::paint_stroke`'s reason, and the
     /// same call underneath.
     pub fn drag(&mut self, x: i32, y: i32) {
+        if self.demo.as_ref().is_some_and(|d| d.mouse_held) {
+            self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Drag);
+            return;
+        }
         let Some(stroke) = self.stroke else { return };
         let to = self.renderer.logical_to_world(x, y);
         if to == stroke.last {
@@ -3512,6 +3546,10 @@ impl Lab {
     /// keyboard can say *that ant*.
     pub fn release(&mut self, x: i32, y: i32) {
         self.chrome_due = true;
+        if self.demo.as_ref().is_some_and(|d| d.mouse_held) {
+            self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Release);
+            return;
+        }
         if self.stroke.is_some() {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
@@ -4880,6 +4918,12 @@ pub fn tick_world(
     spec: &scene::LabBox,
     scenario: Option<&scenario::Scenario>,
 ) {
+    // **Tandem runs, before the step**, so this tick's decisions read fresh forced picks (`sim::tandem`; off is
+    // one `Option` read).
+    if world.tandem.is_some() {
+        crate::sim::tandem::tick(world);
+        crate::sim::tandem::steer_cascade_leaders(world);
+    }
     frame::step(world, particles, blasts, player::PlayerInput::default(), player_tuning);
     // **Immediately after `frame::step`, per `scenario::tick_timeline`'s own
     // doc on why that ordering is the timing contract.** Cheap when there is
@@ -4893,6 +4937,11 @@ pub fn tick_world(
     // is its own due-gate on `World::frame` and returns 0 immediately for
     // `Rain::Off`. The shipped default is Light, not off.
     rain::tick(world, spec, spec.rain);
+    // **The guest seat's visit** (`creature::guest::tick`): fade, soak and the
+    // guest's pressed verbs. One `Option` read with no visitor registered.
+    if world.visitors.is_some() {
+        crate::sim::creature::guest::tick(world);
+    }
 }
 
 #[cfg(test)]

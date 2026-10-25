@@ -3748,7 +3748,11 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
 /// trained pool (`training::SPIDER_POOL`, given by `Lab::give_predator_minds`).
 /// **The centipede, the nest raider, came on with its own pool the same day**
 /// (`training::CENTIPEDE_POOL`, nest raider thread).
-pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale"];
+///
+/// **The rove beetle is the guest seat's player body** (2026-10-25,
+/// `demo=guest`): a body the keyboard drives, with a brain that stands
+/// still, so stocked by hand it would only stand where it was put.
+pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale", "rove"];
 
 /// Every species that can be *stocked* — the animals, in a stable order.
 ///

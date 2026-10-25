@@ -1,0 +1,121 @@
+# The queen seat demo: the player is the founding queen (2026-10-25)
+
+*Step 5 of the seat-demo board (owner, 2026-10-25: review each seat for feasibility, plan to a playable demo, review
+the plan independently, revise, build). The design is [`queen.md`](queen.md) and the teaching plan's §3-6
+([`../teaching-the-colony-2026-10-25.md`](../teaching-the-colony-2026-10-25.md)). The path that led here, in order:
+[feasibility review](queen/queen-feasibility-review.md) (feasible with changes) → [plan v1](queen/plan-v1.md) →
+[independent review](queen/queen-plan-review.md) (sound with changes, 8 must-changes) → [plan v2](queen/plan-v2.md)
+→ this build. M0 data: [`queen/m0a-shuffled-24seeds.txt`](queen/m0a-shuffled-24seeds.txt),
+[`queen/m0b-classes.txt`](queen/m0b-classes.txt). Pictures: https://claude.ai/artifact/BaPrQYh4UVRA58Ewc2v751*
+
+```
+cargo run --release --bin lab -- demo=queen            (seed=N for another box; opens paused, SPACE runs it)
+cargo run --release --example queendemo -- seed=2 frames=40000 gif=/tmp/q.gif up=8 crop=220,134,80,50
+```
+
+## What the player does
+
+| Verb | Key | What it leaves on screen |
+|---|---|---|
+| Found | arrows, E, G, L, Q | Slice 0's steered ant on the hand-built path. Her eggs, her chamber. "No room for an egg here, dig her a chamber" when L does nothing |
+| Fathers | (automatic) | Every egg of hers draws one of the 30 shipped minds as its father. They are near-copies (M0a), so they show as one line, **the stock**, in the ant's own brown |
+| Gamble | P (again: feral) | Her next egg's mind is a mutated copy of its father. It founds a named line with its own colour on the egg, the larva and the adult. Notices when it begins, hatches, and ends |
+| Keep | Y | Her next 5 eggs carry the line of the ant clicked with LOOK, or the ledger row under the cursor (K). The panel's next egg reads `KEPT x5` |
+| Ledger | J, K, U | Bottom-left panel: the hold bar, the next egg, workers, brood and hungry larvae, one row per line with adults, brood and a deed (digs or trips) per 1,000 frames alive past age 1,000 |
+| Hold | (lay to keep it) | The bar drains for 6,000 frames after her last egg. When it empties, her colony runs the process breeding rule and workers lay their own lines. Her next egg brings the rule back |
+
+## What was measured before building, and what it changed
+
+- **M0a: the 30 shipped minds barely differ** (one mixed colony, every ant scored on its own `LifeCounters`,
+  24 seeds, member labels shuffled per seed, a label-permutation null). Trip deliveries per 1,000 ant-frames do
+  spread beyond the null (p < 0.003), but the spread follows each line's age mix. Raw deliveries show nothing
+  (p = 0.14). For digging, two copies of member 0 scored 0.35 and 0.16, so a 2x gap is within the noise. The
+  positive control works: member 5 with its Dig links zeroed scored 0.00 digs (n = 119-192 ants). **So "choose whose
+  line" could not be the core verb**: the stock is one colour, and the wild egg is the gamble.
+- **M0b: a wild egg is a real gamble with a dial.** 20 mutants of member 0 at each width, each one line among ten
+  normal ones, 12 seeds, classed against the controls' bootstrap band:
+
+  | Width (pm, sigma, events) | Jewel | Ordinary | Broken forager |
+  |---|---|---|---|
+  | training's own (0.03, 1, 10) | 5 | 14 | 1 |
+  | mild, 3x (0.1, 1, 30) | 2 | 7 | 11 |
+  | feral, 10x (0.3, 2, 100) | 2 | 1 | 17 |
+
+  At feral width many broken lines dig 4 to 7 times the control and never forage, which shows on screen. Those two
+  widths are the demo's P and P-P (`queen::WILD`).
+- **A finding for anyone measuring lab colonies: which founders starve in the thin start follows the ant's id, not
+  its mind.** Unshuffled, members 6-25 lost both founders by about 1,100 frames with zero deliveries on all 16 runs,
+  and a copy of member 7 under another label foraged normally. The lab hands ant `id` the member `id % 30`, so a
+  per-member score on one seed measures id luck. Shuffle the member order per seed (`queen_m0 shuffle=1`). Recorded in
+  [`../how-we-test.md`](../how-we-test.md) §4 and sent to the Teacher lane.
+- **M0c: the scripted founding** (`examples/queendemo.rs`, 6 seeds, 60,000 frames; `queenprobe`'s `play=1` founder
+  driven through the demo's own key layer):
+
+  | Seed | 10 workers | 20 workers | Her eggs | Lapses | Returns | Longest gap |
+  |---|---|---|---|---|---|---|
+  | 1 | 4,251 | 7,451 | 210 | 1 | 1 | 6,880 |
+  | 2 | 3,701 | 5,701 | 88 | 3 | 3 | 9,880 |
+  | 3 | 3,501 | 6,501 | 119 | 1 | 0 | 4,265 |
+  | 4 | 3,751 | 6,551 | 135 | 1 | 0 | 1,795 |
+  | 5 | 5,901 | 13,251 | 179 | 1 | 0 | 4,480 |
+  | 6 | 3,851 | 6,651 | 232 | 2 | 2 | 7,025 |
+
+  Her lay-gap p90 was 555-970 frames on every seed. `HOLD = 6,000` sits several times above that, so a lapse means the
+  player stopped laying, not that she paused between trips. The three lapses that never returned were runs where
+  she never laid again (seed 3's queen died at about 35,700 frames; seeds 4 and 5 ended with the script stuck at
+  the heap). The plan's rule ("p90 x 1.5") would have given about 1,400 frames, which would lapse on every trip to
+  the food. That rule was set before anyone saw a lay gap, so it was dropped.
+
+## What the build found that the plan did not
+
+- **L held where no egg fits lays nothing, silently.** A scripted queen held L in her shaft for 10,000 frames at
+  4,000-8,000 J and laid nothing: `pile_site` found no cell, and `buds_held_for_nest` climbed 77 → 3,516. The demo
+  now says so (at most every 600 frames), and the script cuts a chamber sideways when 800 frames pass with no egg.
+  Seed 3 went from 18 eggs (colony dead) to 119.
+- **Line colours read as specks at the lab's 1:1 scale.** An ant is two or three pixels. The Artifact's GIF is 8x on
+  the nest door. The stock is drawn in its own colour (`CreatureColour::Off`), because BY COLONY gilds every ant
+  and drowns the line colours.
+- **A wild line stays one ant unless kept**, because only she lays while she holds. That is the design (the queen is
+  the only layer), but nothing on screen says it yet.
+- **The nest stays a shallow pit by the door.** Trained ants dig 0.2-0.8 times per 1,000 frames here. That is the
+  trained ant's known digging problem, not the demo's.
+
+## What was built (all off outside `demo=queen`)
+
+- **`sim::fathers`**, the shared "who lays" piece (`World::fathers`, `None` by default): a per-colony store of
+  fathers (mind, flat genome, weight), a draw chance `p`, a queue spent one per egg, and a wild level spent by the
+  next egg, read at `try_bud` after `mind::inherit` (never inside it, since it runs again at hatch). Draws come from
+  a keyed stream (`rng::stream(seed, child, frame, 0xFA7E)`), never `World::rng`. `queen_only` limits it to the
+  steered queen's eggs. A wild mind is rebuilt from the mutated flat genome through `colony_bed::mind`, never from
+  `MindGenome::w`, which has the lay gate stripped. Agreed with the colony mind seat
+  (`seat-demos/shared/who-lays.md`): weights plus `p`, no per-egg callback. Test:
+  `an_egg_takes_the_queue_then_the_draw_and_a_wild_level_once`.
+- **The hold** (`Steered::last_lay`, `Steered::hold`, `steer::holding_queen`, `steer::hold_left`):
+  `regime_of_colony` keeps the queen rule only while she holds. In `suppress_bar`'s queen arm, the holding queen
+  is never shut out and everyone else is. Without that exemption the plain rule counts any ant with `children > 0`
+  as a breeder for life, so one worker egg in a lapse would lock her out for good (the plan review's must-change
+  2). `hold: None` keeps slice 0's rule unchanged. Test:
+  `the_queens_hold_lapses_lets_workers_lay_and_returns_on_her_next_egg`. Its first assert is that lock-out, shown
+  with no hold set, as the positive control.
+- **The demo** (`lab/demo/queen.rs`, `assets/lab_scenarios/demo_queen.ron`): one founder, food 18 columns east at
+  20 cells every 1,500 frames, a 900 J reserve, the 30 fathers at `p = 1`, and the keys, ledger and notices above.
+  Test: `the_queen_demo_arms_on_landing_and_p_sets_the_wild_level`.
+- **`Renderer::line_tint`** (render.rs): an id→colour map over every creature colour mode, on adult cells and on
+  brood (`Seed`) cells, at the cell's own brightness. Empty: one `is_empty` per creature cell.
+  `line_tint_gen` forces one full repaint on a toggle.
+- **Launcher**: `seed=N` reseeds a demo's box, and a demo opens without the lab's welcome window.
+- **Instruments**: `examples/queen_m0.rs` (per-member census inside one mixed colony; `shuffle`, `twin`, `ablate`,
+  `wild`, `grant`) and `examples/queendemo.rs` (the scripted player, the panel printed, the GIF and stills;
+  `QD_DEBUG=1`). `labsurvive member=K` runs one pool member alone. `training::mutate_genome` wraps
+  `neutral_mutate` over `colony_bed::slots()`.
+
+## Cut, with the reason each is dead on trained ants (from the feasibility review)
+
+Provisioning and castes (no caste on the trained ant), walk genes (the mind decides the walk), brood carry (minds
+never carry brood), tandem memory (FOOD_WAY zeroed in the pool), kin bite, shelf-as-father (dropping the mind),
+presence field, brood temperature, dream replay, crossover, scent language, rival colony, mutiny.
+
+## Next
+
+The owner judges the Artifact. Then: open zoomed on the nest, say on screen why a wild line stays one ant until kept,
+and combine with the scout seat (queen → scout → colony mind, the life-cycle arc in `seats-overview.md`).

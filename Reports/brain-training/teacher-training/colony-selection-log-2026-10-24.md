@@ -292,3 +292,97 @@ ramp trades digging away". Every arm of erosion1-3 erodes, whatever the food dis
 selection, so the next suspect is the in-run loop itself. One candidate found since: `pack_behind`'s cut ahead and
 `escape_cut` never reached `cut_log`, so the in-run dig credit missed them (fixed with the 0.25 link price, PR #899).
 **price25a**'s control (r7 -> r15 garden nest, on the fixed build) is the first read of whether that mattered.
+
+## 2026-10-25: at the 0.25 price the ramp hits a wall in the bed, not in the ants
+
+**price25a** (32 x 16 from colony 8 at the new 0.25 link price, the erosion3 setup): control, `rho`
+(`PIXEL_PHYSICS_B_RHO=0.25`, the pheromone lane's faster-fading B trail) and `caste` (`PP_MIND_CASTELESS=1`).
+
+**The ramp is a cliff at 121 columns, and it is the bed's.** In every arm the food distance went 100 -> 125 in five
+rounds, then alternated: every round at 120 lost a median 3-6 ants and kept all 32 colonies, and every round at 125
+lost ~230-350 and only 12-25 colonies came through. The bed's west wall is 128 columns from the door, and a west heap
+closer than 8 cells to it is moved east (`inrun.rs`), so past 120 **both heaps sit on the east side**. Five more
+columns are not the difficulty; losing the west heap is. widebed1 and linkprice1b's "stalled at 120-125" was the
+same wall. With `cg_every=8` every garden (r7, r15) fell on a 125 round, so the gardens drop the colonies that round
+killed, and the control's lab case read 404 at r15 against 1,766 at r14.
+
+Paired only where both colonies survived the garden round:
+
+| r15, vs control | nest bigger | food home (`home8`) more | starved fewer | crater smaller |
+|---|---|---|---|---|
+| `rho` (n = 11) | 3 (233 vs 395) | 10 (15,406 vs 10,905) | 7 | 8 (7 vs 19) |
+| `caste` (n = 14) | 5 (267 vs 392) | 12 (12,754 vs 10,290) | 3 (40 vs 13) | 11 (4.5 vs 18.5) |
+
+Lab case at r14 (the last clean round): `rho` ahead in 16 of 32 pairs, `caste` in 12. Both arms bring more food home
+and leave smaller craters, and both dig smaller nests. That is the opposite of the untrained screen for `rho`
+(nest 432 -> 528). `caste` also starves more, as the touch-feeding finding predicted. Neither is carried: the samples
+are small and the cliff confounds them. **Next, price25b:** the same three arms, 24 rounds, ramp capped at 120
+(`distramp=100:5:10:120`), so every round keeps food on both sides. The control's r7 -> r23 garden is also the first
+erosion read on the `cut_log`-fixed build: here the survivors' nest was 510 -> 395 by r15, against 446 -> 394 at
+price 1, so the fix has not stopped it.
+
+## 2026-10-25: with food on both sides, the nest stops eroding; colony 10 becomes the standard ant
+
+**price25b** (price25a's three arms, 32 x 24, ramp capped at 120 so both heaps stay on the bed). Every colony of
+every arm lived through every round. Garden medians (food 25 out), paired over 32 colonies:
+
+| | r7 nest | r15 nest | r23 nest | r23 food home | r23 starved | lab case r23 ahead |
+|---|---|---|---|---|---|---|
+| control | 458 | 454 | **501** | 12,230 | 8.5 | (base) |
+| `rho` (B fade 0.25) | 440 | 476 | 214 (bigger 2/32) | 15,988 (28/32) | 22.5 (fewer 8/32) | 20/32 |
+| `caste` (`PP_MIND_CASTELESS=1`) | 509 | 297 | 278 (1/32) | 14,549 (26/32) | 46.5 (2/32) | 27/32 |
+
+**Overturned: "the nest erodes inside the round whatever we do."** At price 1 every control fell from ~446 to ~280
+by r23 (erosion1-3); this one held at ~500. The change from erosion3's control is the 0.25 link price and the
+`cut_log` fix together (both in #899); which of the two did it is not separated. Both arms trade the nest for food
+home under selection, and both starve more, so neither is carried. `rho` is recorded as failed under selection
+by the pheromone lane; `caste` wins the lab case clearly (27/32) and may come back weaned.
+
+**The ratchet: colony 10 of the control is the new `std_pool`.** Four of the control's best r23 colonies against
+colony 8 (the old `std_pool`) on 8 fresh gardens with food 100 out (the colsel garden is 25 out; its repro of
+colony 10 at its own seed matched the VM row exactly):
+
+| | nest (bigger) | crater (smaller) | starved | food home (higher) |
+|---|---|---|---|---|
+| colony 8 | 344 | 6.5 | 13.5 | 12,524 |
+| c10 | 462 (8/8) | 2 (8/8) | 10 | 11,872 (1/8) |
+| c21 | 394 (7/8) | 8 (3/8) | 8.5 | 10,402 (0/8) |
+| c22 | 430 (7/8) | 5 (5/8) | 8.5 | 11,515 (3/8) |
+| c24 | 430 (7/8) | 5.5 (5/8) | 6.5 | 11,556 (3/8) |
+
+Lab box, price 0.25, seeds 1-4, mean headcount after landing, c10 vs colony 8: fruit 150 95.9 vs 98.6, fruit 200
+77.9 vs 74.5, provisions 150 152.8 vs 153.7. Level in the lab, a third more nest, about 5% less food home.
+`founders=std` on the new file reproduces the carry's fruit 200 runs exactly. **Next, door1:** control against
+`PP_MIND_DOOR_OPEN=drop` and `=clear` from the new pool (the owner asked for both crutches off the trained ant).
+
+## 2026-10-25: the door's two crutches under selection; a plants-only lab case
+
+**door1** (32 x 24 from the new `std_pool`, colony 10; price25b's setup): control against `PP_MIND_DOOR_OPEN=drop`
+(an ant may put a pellet down in the door column) and `=clear` (the world stops deleting soil there). Every colony
+lived through every round. Garden medians (food 25 out), paired over 32:
+
+| | r7 / r15 / r23 nest | r23 food home (higher) | r23 starved | r23 alive | lab case ahead r7 / r15 / r23 |
+|---|---|---|---|---|---|
+| control | 404 / 390 / 383 | 16,412 | 6 | 92 | (base) |
+| `drop` | 419 / 341 / 377 (r23 bigger 18/32) | 15,469 (15/32) | 8.5 | 92 | 15 / 23 / 18 |
+| `clear` | 440 / 423 / 409 (17/32) | 6,073 (2/32) | 12.5 | 87 | 21 / 29 / 25 |
+
+**Lifting the put-down ban costs nothing under selection**: every measure is even with the control. **Stopping the
+world's clear of the door column halves the food carried home**, and 24 rounds of selection did not win it back
+(7,188 -> 5,403 -> 6,073); it does lift the lab case (median 2,181 against 1,865 at r23), where 15,000 frames is
+too short for a plugged door to cost. The clear stays a crutch the trained ant needs; the ban could go.
+
+**A plants-only lab case** (`scratch/inrun/labscen/lab_herbs.ron`, the owner's herb-bed opening
+`herb_first_colony_near` as is: herbs at the nest grown 35,000 frames, then 52 ants, no food heaps). labsurvive,
+after=15000, seeds 1-4, grant=1, mean headcount: the hand-built ant 68.1 / 69.3 / 67.8 / 61.5, the standard pool
+10.0 / 21.8 / 11.3 / 14.7 (default grant, seed 1: 55.9 against 10.8). It is the playtest's complaint as a number
+(the trained ant bites a plant at the same rate starving or fat), and no case in training has asked for it. A run
+costs ~28 s against ~5 s for a far-food box. **Next, herbs1:** control against `lab_herbs` added to the lab case,
+alone and with `drop`.
+
+**herbs1** (the control against `lab_herbs` added to the summed lab case, alone and with `drop`): the herb bed did not
+move. Each arm's 32 r23 carries in `lab_herbs` (labsurvive, seed = colony, after=15000, mean headcount): control
+median 16.9, `herbs` 21.0 (ahead in 15 of 32), `herbsdrop` 17.5 (16 of 32); in `lab_far200_fruit` 64.9, 63.2, 61.9.
+Gardens: `herbs` r23 nest 326 vs 383 (bigger 17/32) and starved 23 vs 6; `herbsdrop` even. The control matched
+door1's to the digit (deterministic). **Why nothing moved:** ~17 ants on herbs is a sliver of a sum the far-food boxes
+(~65 each) set. **Next, herbs2:** `labcase=lab_herbs` (new colsel arg), the herb bed as a lexicase case of its own.

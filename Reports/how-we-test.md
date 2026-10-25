@@ -134,7 +134,10 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 - **Plain `deliveries`** counts every put-down at home, including crumbs lifted
   inside the nest and set straight back (4–12x the real figure). Use
   **`trip_deliveries`** (`labforage trip_deliveries=`, census `tripD`) or pile
-  refills.
+  refills. **The mind's own `MindCounts::delivered` is the same trap**: a
+  louder food trail at the door once read as "+43% food home" on it and was
+  noise on `trip_deliveries` (more handling at the door, no more food;
+  `Reports/teaching-the-colony-2026-10-25/colony-mind-verdict.md`).
 - **Raw larvae starved** falls whenever eggs fall. Use **larvae starved per egg**.
 - **Total cuts.** 80–85% of nest cuts are re-digs of soil already moved. Count
   **new-ground cuts**.
@@ -265,6 +268,21 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   emitters gives exactly the deaf result when ants are the only readers and
   writers of a plane, so a "silent" arm is a wasted arm
   (evolvable-pheromones-2026-10-25 §4).
+- **A scripted player's "did N" is a request until the run reads back what
+  happened.** A harness that asked to carry 10 ants lifted about 6, because
+  the ants nearest the nest were stacked on one another and the carry refuses
+  a stack. Its first verdict, "carrying changes nothing at colony scale", was
+  wrong; with true counts, carrying ~17 ants raised station visits by a median
+  105 (10 of 12 seeds). Print the count of each act that actually happened
+  (`keeperdemo`'s `carried=`) beside every result, and pick targets the act
+  can take (`creature::can_carry`) (keeper-seat-demo-2026-10-25).
+- **A per-member score in a lab colony measures the ant's id, not its mind, unless
+  the member order is shuffled.** The lab hands ant `id` the member `id % n`, and
+  which founders live through the thin start follows the id: on `steady_income`
+  members 6-25 lost both founders by ~1,100 frames on all 16 unshuffled runs,
+  while a copy of member 7 under another label foraged normally. Shuffle labels
+  per seed (`queen_m0 shuffle=1`) and compare against a label-permutation null
+  (`Reports/teaching-the-colony-2026-10-25/queen-seat-demo.md`, M0a).
 
 ## 5. Tools, by question
 
