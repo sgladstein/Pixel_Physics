@@ -1593,6 +1593,11 @@ pub struct Minds {
     /// ([`every_ant_has_one`]): the control for the skip, off unless a
     /// paired check sets it.
     pub build_ways: bool,
+    /// **Where the colony's shared stomach is closed** (the colony mind seat's "close the stomach" verb,
+    /// `Reports/teaching-the-colony-2026-10-25/seat-colony-mind.md`): discs `(x, y, radius)` inside which an adult
+    /// whose head stands there is not offered Feed to another adult (`options`). Larvae are still fed. Empty -- every
+    /// world but the colony mind demo -- changes nothing.
+    pub closed_stomach: Vec<(i32, i32, i32)>,
 }
 
 /// **Whether every adult creature in the world decides by a mind**, so the
