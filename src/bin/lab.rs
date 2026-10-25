@@ -306,6 +306,24 @@ impl Handler {
             lab.set_new_ant(true);
             lab.ui.say("ANTS THINK WITH THE TRAINED BRAIN -- MENU > ANT BRAIN SWITCHES TO THE HAND-BUILT ONE".to_string());
         }
+        // **`demo=<seat>`: one of the six seat demos** (`lab::demo`, the
+        // common launcher, 2026-10-25). After the brain switch, so the
+        // demo's scenario is built and its ants given their minds the same
+        // way `scenario=` gets them; a demo opens paused like any scenario.
+        let demo_name = std::env::var("PIXEL_PHYSICS_LAB_DEMO")
+            .ok()
+            .or_else(|| args.iter().find_map(|a| a.strip_prefix("demo=").map(str::to_string)));
+        if let Some(name) = demo_name {
+            match pixel_physics::lab::demo::DemoSeat::parse(&name) {
+                Some(seat) => {
+                    lab.show_help = false;
+                    let kv = args.iter().filter_map(|a| a.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                    let msg = lab.start_demo_with(seat, kv);
+                    lab.ui.say(msg);
+                }
+                None => eprintln!("demo {name}: no such seat (queen, keeper, guest, mind, enemy, scout)"),
+            }
+        }
         if args.iter().any(|a| a == "training") {
             lab.show_help = false;
             lab.act(Action::Panel(Panel::Training));
@@ -384,6 +402,10 @@ impl Handler {
             // the map scroll at a quarter speed.
             self.lab.renderer.pan(dir, dt.min(0.1), (WIDTH, HEIGHT), bounds);
         }
+
+        // The seat demo's body takes its held keys, and the camera follows
+        // her (`lab::demo`); nothing with no demo running.
+        self.lab.demo_frame();
 
         if let Some(at) = self.forced_cursor {
             self.lab.set_cursor(Some(at));
@@ -566,6 +588,52 @@ impl Handler {
     }
 
     fn key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, pressed: bool) {
+        // **The seat demo's key layer reads first** (`lab::demo`): arrows
+        // steer the player's body, the slice-0 verb letters act, `Y U P J K
+        // R H` are the seat's own. Releases reach it too, because the arrows
+        // and `T` are held levels. With no demo running this is one `Option`
+        // read and nothing is consumed.
+        if self.lab.demo.is_some() && self.lab.ui.typing().is_none() {
+            use pixel_physics::lab::demo::DemoKey;
+            let key = match code {
+                KeyCode::ArrowLeft => Some(DemoKey::Left),
+                KeyCode::ArrowRight => Some(DemoKey::Right),
+                KeyCode::ArrowUp => Some(DemoKey::Up),
+                KeyCode::ArrowDown => Some(DemoKey::Down),
+                KeyCode::Tab => Some(DemoKey::Tab),
+                KeyCode::KeyE => Some(DemoKey::Letter('E')),
+                KeyCode::KeyQ => Some(DemoKey::Letter('Q')),
+                KeyCode::KeyF => Some(DemoKey::Letter('F')),
+                KeyCode::KeyG => Some(DemoKey::Letter('G')),
+                KeyCode::KeyB => Some(DemoKey::Letter('B')),
+                KeyCode::KeyL => Some(DemoKey::Letter('L')),
+                KeyCode::KeyT => Some(DemoKey::Letter('T')),
+                KeyCode::KeyY => Some(DemoKey::Letter('Y')),
+                KeyCode::KeyU => Some(DemoKey::Letter('U')),
+                KeyCode::KeyP => Some(DemoKey::Letter('P')),
+                KeyCode::KeyJ => Some(DemoKey::Letter('J')),
+                KeyCode::KeyK => Some(DemoKey::Letter('K')),
+                KeyCode::KeyR => Some(DemoKey::Letter('R')),
+                KeyCode::KeyH => Some(DemoKey::Letter('H')),
+                _ => None,
+            };
+            if let Some(key) = key {
+                if self.lab.demo_key(key, pressed) {
+                    if pressed && self.lab.show_help {
+                        self.lab.show_help = false;
+                    }
+                    return;
+                }
+            }
+            // The speed dial's second home while the arrows steer.
+            if pressed {
+                match code {
+                    KeyCode::PageUp => return self.lab.act(Action::Faster),
+                    KeyCode::PageDown => return self.lab.act(Action::Slower),
+                    _ => {}
+                }
+            }
+        }
         // Held state first, and only `WASD` — the arrow keys drive the dial,
         // so a pan reading of them would scroll the view every time the
         // player changed speed.

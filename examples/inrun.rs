@@ -793,6 +793,24 @@ fn main() {
         "mix" => ("provisions", "fruit"),
         f => panic!("food={f}: provisions, fruit or mix"),
     };
+    // SCRATCH (evolvable-pheromones lane, 2026-10-25): `patches=T:LO:HI` -- **one** food heap, on a random side at a
+    // random distance LO..HI columns from the door, that jumps to a new side and distance every T frames; the old
+    // heap is left to be eaten and is never topped up again. Off by default (the two mirrored heaps of `dist=`).
+    // **Why**: a signal evolves only when it carries something a nestmate cannot find alone (adversarial review
+    // C3, Floreano et al. 2007). Two permanent mirrored heaps fed by a steady drip are learnable by every ant
+    // without telling anyone; a heap that moves is news, and which side it is on is exactly what a trail can say.
+    // Seeded from the run's seed, so arms pair. The drip, cap and spread are `dist=`'s; `food=mix` alternates the
+    // material by side as the two heaps had it (provisions east, fruit west).
+    let patches: Option<(u64, i32, i32)> = arg(&a, "patches").map(|v| {
+        let p: Vec<&str> = v.split(':').collect();
+        assert!(p.len() == 3, "patches=T:LO:HI");
+        let (t, lo, hi): (u64, i32, i32) = (p[0].parse().expect("patches T"), p[1].parse().expect("patches LO"), p[2].parse().expect("patches HI"));
+        assert!(t > 0 && 0 < lo && lo <= hi, "patches=T:LO:HI with T > 0, 0 < LO <= HI");
+        (t, lo, hi)
+    });
+    let mut patch_rng = train::Rng(seed.wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ 0x9A7C);
+    let mut patch_at: (i32, &str) = (0, food_mats.0);
+    let mut patch_next = 0u64;
     // `foodflip=F` (Creatures research thread, 2026-10-25; the teacher lane's positive control for learning within a
     // life): food drips at one heap only, east or west as the seed draws it, and from frame F at the other one only,
     // the old heap's loose food cleared at the flip (`foodflip_keep=1` leaves it). A brain fixed at birth cannot know
@@ -832,6 +850,21 @@ fn main() {
             let tag = tag_over.unwrap_or_else(|| std::path::Path::new(p).file_stem().unwrap().to_string_lossy().to_string());
             mix.push((tag, inrun::mind(&g), n));
         }
+    }
+    // SCRATCH (evolvable-pheromones lane, 2026-10-25): `mutate_to=PATH:PM:SIGMA:EVENTS:MSEED` -- write one
+    // size-neutral mutant ([`neutral_mutate`], every trainable slot, no lesson protection) of the first founder to
+    // PATH and stop, without running a world. The emergence driver (`scratch/pheromones/emerge.py`) breeds whole
+    // colonies from one genome each, so it needs a mutant genome per child colony rather than mutant ants inside one.
+    if let Some(spec) = arg(&a, "mutate_to") {
+        let v: Vec<&str> = spec.split(':').collect();
+        assert!(v.len() == 5, "mutate_to=PATH:PM:SIGMA:EVENTS:MSEED");
+        let (pm, sigma, events, ms): (f32, f32, usize, u64) = (v[1].parse().unwrap(), v[2].parse().unwrap(), v[3].parse().unwrap(), v[4].parse().unwrap());
+        let mut rng = train::Rng(ms.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x3C3C);
+        let child = neutral_mutate(&raw[0], &inrun::slots(), pm, sigma, events, None, &mut rng);
+        let changed = child.iter().zip(&raw[0]).filter(|(x, y)| x != y).count();
+        train::save_genome(std::path::Path::new(v[0]), &child).unwrap();
+        println!("mutate_to: {} slots changed, written to {}", changed, v[0]);
+        return;
     }
     // mutants=N:pm:sigma:mseed -- N trainer-style mutants of the first genome, one founder each (m00..),
     // replacing the founders list's counts; the same mseed gives the same mutants on every colony seed.
@@ -1221,6 +1254,9 @@ fn main() {
     }
     let mut csv_ants = std::fs::OpenOptions::new().append(true).open(out.join("ants.csv")).unwrap();
     let mut births = std::io::BufWriter::new(std::fs::File::create(out.join("births.csv")).unwrap());
+    // patches.csv: frame,x,material for each jump of `patches=` (header only when it is off).
+    let mut patch_log = std::io::BufWriter::new(std::fs::File::create(out.join("patches.csv")).unwrap());
+    writeln!(patch_log, "frame,x,material").unwrap();
     writeln!(births, "frame,id,parent,family,gen,kind,links").unwrap();
     let mut sel_log = std::io::BufWriter::new(std::fs::File::create(out.join("sel.csv")).unwrap());
     // The colony's food stocks every 1,000 frames (owner, 2026-10-21: watch the store fall before anyone starves).
@@ -1382,6 +1418,7 @@ fn main() {
     if let Some(sl) = scent_log.as_mut() {
         writeln!(sl, "frame,laid_a,laid_b,cells_a,sum_a,cells_b,sum_b").unwrap();
     }
+    let phero_dump = num("phero_dump", 0);
     let film = fnum("film", 0.0) as u64;
     let mut film_r = pixel_physics::render::Renderer::new();
     let film_p = pixel_physics::sim::ParticleSystem::new();
@@ -1418,12 +1455,25 @@ fn main() {
             let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
             // On a bed widened by PP_BED_W the west wall is still 128 out: a west heap that would fall past it is
             // dropped 6 columns beyond the east one instead, so food farther than the wall allows is one-sided.
-            let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
-            for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
-                if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
-                    continue;
+            if let Some((t, lo, hi)) = patches {
+                if fr >= patch_next {
+                    patch_next = fr + t;
+                    let d = lo + patch_rng.below((hi - lo + 1) as usize) as i32;
+                    let east = patch_rng.unit() < 0.5;
+                    let x = if east { inrun::NEST + d } else { inrun::NEST - d };
+                    // Kept on the bed: a west heap past the wall goes east instead, as `dist=` does.
+                    patch_at = if x >= 8 && x < bw - 8 { (x, if east { food_mats.0 } else { food_mats.1 }) } else { (inrun::NEST + d, food_mats.0) };
+                    writeln!(patch_log, "{fr},{},{}", patch_at.0, patch_at.1).unwrap();
                 }
-                inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
+                inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now, drip as usize, spread, patch_at.1);
+            } else {
+                let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+                for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
+                    if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
+                        continue;
+                    }
+                    inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
+                }
             }
         }
         if food_flip == Some(fr) && !flip_keep {
@@ -2509,6 +2559,20 @@ fn main() {
                 }
             }
             writeln!(scent_log.as_mut().unwrap(), "{fr},{:.0},{:.0},{na},{sa},{nb},{sb}", laid[0], laid[1]).unwrap();
+        }
+        // SCRATCH (evolvable-pheromones lane, 2026-10-25): `phero_dump=N` -- every N frames, planes A and B over the
+        // bed's middle 201 columns, all rows, as `phero_fNNNNNNN.u16` (A then B, little-endian, 201 x bh each), for
+        // pictures of where each scent stands. Read only.
+        if phero_dump > 0 && fr % phero_dump == 0 {
+            let mut bytes = Vec::with_capacity(2 * 201 * bh as usize * 2);
+            for ch in [pheromone::Channel::A, pheromone::Channel::B] {
+                for y in 0..bh {
+                    for x in (inrun::NEST - 100)..=(inrun::NEST + 100) {
+                        bytes.extend_from_slice(&w.pheromone_at(ch, x, y).to_le_bytes());
+                    }
+                }
+            }
+            std::fs::write(out.join(format!("phero_f{fr:07}.u16")), bytes).unwrap();
         }
         // `film=N`: every N frames, the game's own renderer over the bed, as film/fNNNNNNN.png (for a video).
         if film > 0 && fr % film == 0 {

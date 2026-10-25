@@ -7991,11 +7991,6 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
         return step_flight(world, organism, def);
     }
-    // **An ant with a mind decides by it** (`mind`, stage 2 of the brain
-    // plan): no sense, no `brain.rs`, no `act`, no walk. What the body does
-    // regardless -- old age, wounds, crossings, flight above, and the fall,
-    // the bill, digestion and birth inside -- stays the same. Nobody has a
-    // mind in the game, so this is one `Option` read per tick there.
     // **An ant touching a registered visitor rolls the ladder** (`guest`,
     // the guest seat demo): it only marks the ant -- a nip lands now, a hold
     // is carried out inside `mind::tick` -- and never returns early, so the
@@ -8003,7 +7998,26 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.visitors.is_some() {
         guest::meet(world, organism, (x, y));
     }
-    if world.minds.is_some() && mind::has(world, organism) {
+    // **An ant with a mind decides by it** (`mind`, stage 2 of the brain
+    // plan): no sense, no `brain.rs`, no `act`, no walk. What the body does
+    // regardless -- old age, wounds, crossings, flight above, and the fall,
+    // the bill, digestion and birth inside -- stays the same. Nobody has a
+    // mind in the game, so this is one `Option` read per tick there.
+    //
+    // **Except the body a keyboard holds** (seat demos, 2026-10-25): the
+    // five `steer::` hooks live on the hand-built path below, and `mind::tick`
+    // reads none of them, so a trained lab ant marked as the player's body
+    // would ignore every key. While the keyboard drives her she takes this
+    // path -- her outputs are the keys' anyway (`steered_outputs`) -- and
+    // above the steering cap (`input` `None`) her mind drives her again.
+    // **Ants only**: a steered body of another species with a mind (the
+    // enemy seat's centipede) still falls through to `mind::tick`, where its
+    // own player hook lives. Nobody steered: one more `Option` read.
+    if world.minds.is_some()
+        && mind::has(world, organism)
+        && !(crate::sim::steer::input_of(world, organism).is_some()
+            && world.organism(organism).is_some_and(|s| world.species.get(s.species).name == "ant"))
+    {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
         if !mind::scratch_log::shadow_on() {
             // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
@@ -11608,7 +11622,8 @@ pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
 }
 
 /// **The price of one brain link, as a factor on `synapse_fraction`**
-/// (`PIXEL_PHYSICS_LINK_PRICE`, unset 1.0: the bill exactly as authored).
+/// (`PIXEL_PHYSICS_LINK_PRICE`, default 0.25 since 2026-10-25; `=1` is the
+/// bill exactly as authored).
 /// One factor for every animal and every brain -- the game's `brain.rs` and a
 /// mind alike, in training and the lab -- because a link costs the same in
 /// every world (owner, 2026-10-21: one physics).
@@ -11622,13 +11637,23 @@ pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
 /// at 1.0, 50 at 0.75, 89 at 0.5, 114 at 0.25 and 150 at 0 -- the
 /// hand-built ant 129, and 132 at 0 (`examples/labsurvive.rs tax=`). The
 /// training bed never feels the bill (food 25 columns out, 3 tanks a
-/// founder), so selection has not shed it. Whether a cheaper link or a bed
-/// that bills it is the fix is the owner's and the Teacher lane's call;
-/// unset is today's price.
+/// founder), so selection has not shed it.
+///
+/// **0.25 by default** (owner, 2026-10-25, on the Teacher lane's
+/// recommendation: "make the cheaper brain the default"). linkprice1 trained
+/// colonies at 1, 0.25 and 0 (32 x 24, the standard pool): at 1 the food ramp
+/// never left 100 columns; cheaper prices reached 120-125, the garden starved
+/// 2 against 39, and in the lab box the price, not the training, set the range
+/// (fruit 200 columns out: the standard pool 20/39 alive at 1, 163/146 at 0;
+/// colonies trained at 0 kept only 0-9 at 1). Why 0.25 and not 0: at 0 a
+/// link costs nothing, so nothing in the world ever charges for thinking,
+/// which is the unrealistic end; 0.25 puts the trained ant's brain at about
+/// twice an idle body's burn and gives 114 alive at fruit 200, the hand-built
+/// ant's level (129), whose own ~50 links barely notice the price.
 pub fn link_price() -> f32 {
     static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *F.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_LINK_PRICE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(1.0)
+        std::env::var("PIXEL_PHYSICS_LINK_PRICE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(0.25)
     })
 }
 
@@ -15058,6 +15083,13 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         pellet.material = hauled;
     }
     world.dug_cells.insert(ahead);
+    // The cut log too (`World::cut_log`): this cut had been missing from it since the log was built, so a reader that
+    // rebuilds the hole from the log disagreed with `dug_cells` once a run reached it (Teacher lane, 2026-10-25: the
+    // option test's hole check failed at the cheaper link price, frame 525, a cell only this cut had opened).
+    let frame = world.frame;
+    if let Some(log) = world.cut_log.as_mut() {
+        log.push((ahead.0, ahead.1, frame, organism));
+    }
     if let Some(s) = world.organism_mut(organism) {
         s.spoil = Some(Spoil { cell: pellet, store: false });
     }
@@ -23036,14 +23068,15 @@ fn breeding_regime() -> BreedingRegime {
 }
 
 /// **The breeding rule for one colony**: `queen` for the player's colony
-/// (`steer`), so her daughters hold back while she lives wherever she
+/// (`steer`, when she wears the queen's role -- a `SteerRole::Worker` body
+/// leaves her colony's rule alone), so her daughters hold back while she lives wherever she
 /// roams -- under the shipped `graded`, a queen more than
 /// `PIXEL_PHYSICS_BREEDING_RADIUS` cells from them lets them lay at the full
 /// bar -- and [`breeding_regime`] for every other colony, which is the whole
 /// of the off path.
 fn regime_of_colony(world: &World, colony: u32) -> BreedingRegime {
     match world.steered.as_ref() {
-        Some(s) if s.colony == colony => BreedingRegime::Queen,
+        Some(s) if s.colony == colony && s.role == crate::sim::steer::SteerRole::Queen => BreedingRegime::Queen,
         _ => breeding_regime(),
     }
 }

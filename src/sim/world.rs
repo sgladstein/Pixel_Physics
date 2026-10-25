@@ -4348,6 +4348,12 @@ pub struct World {
     /// guest seat demo): `None` in every world but `demo=guest`, and then
     /// every guest hook is one `Option` read.
     pub visitors: Option<crate::sim::creature::guest::Visitors>,
+    /// **Bodies with a mind that another module leads** (`steer::force`),
+    /// by id: each one's next decision takes the named option instead of
+    /// its mind's. Empty unless a demo sets an entry, and empty is one
+    /// `is_empty` read per mind decision (`steer::take_forced`). The
+    /// steered body's own keyboard never needs an entry.
+    pub mind_force: std::collections::BTreeMap<OrganismId, crate::sim::steer::Forced>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -4379,8 +4385,9 @@ pub struct World {
     /// **Every cell an animal cuts out of the ground**, as `(x, y, frame,
     /// cutter)`, off (`None`) unless a reader turns it on by setting
     /// `Some(Vec::new())`, and drained by that reader -- the lab's dig heat
-    /// map (`crate::dig_marks`). Pushed beside `dug_cells` in the one place a
-    /// cut is made; recording draws nothing and changes nothing.
+    /// map (`crate::dig_marks`). Pushed beside `dug_cells` wherever a cut is
+    /// made (the dig verb, `pack_behind`'s cut ahead and `escape_cut`; the last two
+    /// were missing until 2026-10-25); recording draws nothing and changes nothing.
     pub cut_log: Option<Vec<(i32, i32, u64, crate::sim::cell::OrganismId)>>,
     /// **What the removal being written right now is**, for
     /// `OrganismState::last_loss`. A removal that knows what it is (seed rot,
@@ -7488,6 +7495,7 @@ impl World {
             decision_log: None,
             steered: None,
             visitors: None,
+            mind_force: Default::default(),
             feed_log: None,
             bite_log: None,
             food_log: None,

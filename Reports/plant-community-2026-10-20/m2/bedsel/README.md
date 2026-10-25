@@ -142,6 +142,45 @@ Pictures, seed 1 at 50k / 100k / 150k (`planttrace shots=`, pool off above,
 on below): https://claude.ai/artifact/Fdq8vHHXbRFL8sxVx2PnxM. The pool's
 tree is lankier and more open, with more plants along the bed.
 
+## Bred on the lab bed, with the colony (2026-10-25)
+
+Lesson 1 again: train where the plant will live. `plant_m0 mode=bedsel
+bed=played` runs `played_bed` as the game builds it, through
+`lab::tick_world` (timeline, mister), with the ants landing at frame 6,000.
+The pooled roles are tree, shrub and herb (the creeper is carried over
+untouched). Beds are ranked by kinds holding 100+ leaf first, then by the
+colony's mean edible food over the round (`lab::census`, every 25k). These
+are two keys and never a sum, so food cannot buy back a lost kind. The run
+started from `roles4.ron` and went 8 rounds × 8 beds × 150k frames
+(`played/select.txt`, pool `played/pool-played-r8.ron`).
+
+**The per-round food did not move**: mean edible 589, 516, 569, 566, 592,
+577, 555, 570. Kinds a bed wandered between 2.1 and 2.9.
+
+**The judge**: `latecensus mister=1` (the game's mister; the earlier
+checks above ran without it), 12 paired seeds × 500k, three arms on one
+build (`played/judge/`). Medians, with "lower" counted against species
+files:
+
+| | species files | old pool (roles4) | new pool (played) |
+|---|---|---|---|
+| plants standing | 113 | 135 | 122 |
+| edible food | 2,597 | 2,260 (lower 8 / 12) | 2,272 (lower 8 / 12) |
+| leaf energy (J) | 66,548 | 56,522 | 57,836 |
+| ants (run mean) | 161 | 180 | 168 |
+| starved by 500k | 91 | 195 | 148 |
+| alive at 500k | 12 / 12 | 10 / 12 | 10 / 12 |
+
+With the mister on, the pool's harm is milder: food is down an eighth, not
+a quarter, and the colony is no smaller. But starvation still doubles and
+two more colonies die out. The new pool is the old one within noise: it is
+higher on edible food on 5 of 12 seeds and lower starved on its median
+only. **Breeding with the colony did not give the food back** at this
+round length. A round of 150k frames over 8 beds is dominated by
+bed-to-bed spread, so the food key never saw a signal to select on. The
+pool stays off; the record is in `Reports/dead-ends.md`.
+
 **Not yet known:** what changed in the genomes (which params and fates the
-pool moved). A pool bred with the colony in the bed (lesson 1 applied to
-the ants as well as the plants) is the obvious next round.
+pool moved), and whether food can be selected at all on this bed: it would
+need longer rounds, many more beds a round, or a food score from what the
+ants ate rather than what stood.
