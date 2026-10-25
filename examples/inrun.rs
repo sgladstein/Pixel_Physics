@@ -782,6 +782,17 @@ fn main() {
     }
     let num = |k: &str, d: u64| arg(&a, k).map_or(d, |v| v.parse().unwrap());
     let (frames, seed, dist, drip, every, window) = (num("frames", 200_000), num("seed", 1), num("dist", 40) as i32, num("drip", 5) as u32, num("every", 500), num("window", 2000));
+    // near=N (Teacher lane, 2026-10-25): the west heap sits N columns from the door instead of `dist`, so a colony
+    // ramped out to far food still has food at home. **Why**: traced one ant at a time on the herb bed (`lab_herbs`,
+    // herbs at the nest), the trained pool's ants spread over the whole box (x quartiles 114 / 277 / 414, the door at
+    // 256) while the hand-built ant's stay by it (253 / 257 / 282) and are on a plant 82% of the time by 4,000 frames
+    // against the trained 18%; both bite as often when on one. Every bed since the ramp put all food 100+ columns
+    // out, so walking away is all the pool has been asked to do. 0 = off (both heaps at `dist`).
+    let near = num("near", 0) as i32;
+    let west_at = |dist: i32| {
+        let d = if near > 0 { near } else { dist };
+        if inrun::NEST - d >= 8 { inrun::NEST - d } else { inrun::NEST + dist + 6 }
+    };
     let maps = num("maps", 1) == 1;
     let cap = num("cap", 60) as usize;
     let spread = num("spread", 0) as i32;
@@ -1467,7 +1478,7 @@ fn main() {
                 }
                 inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now, drip as usize, spread, patch_at.1);
             } else {
-                let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+                let west = west_at(dist);
                 for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
                     if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
                         continue;
@@ -1478,7 +1489,7 @@ fn main() {
         }
         if food_flip == Some(fr) && !flip_keep {
             // The first heap's loose food goes at the flip, so the side that fed the colony is empty, not slowly eaten out.
-            let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+            let west = west_at(dist);
             let (x, mat) = if flip_east_first { (inrun::NEST + dist, food_mats.0) } else { (west, food_mats.1) };
             let m = w.materials.id_of(mat).expect("the drip's food");
             let mut cleared = 0;

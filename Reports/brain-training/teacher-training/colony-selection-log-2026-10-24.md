@@ -386,3 +386,22 @@ median 16.9, `herbs` 21.0 (ahead in 15 of 32), `herbsdrop` 17.5 (16 of 32); in `
 Gardens: `herbs` r23 nest 326 vs 383 (bigger 17/32) and starved 23 vs 6; `herbsdrop` even. The control matched
 door1's to the digit (deterministic). **Why nothing moved:** ~17 ants on herbs is a sliver of a sum the far-food boxes
 (~65 each) set. **Next, herbs2:** `labcase=lab_herbs` (new colsel arg), the herb bed as a lexicase case of its own.
+
+**herbs2** (`labcase=lab_herbs`, the herb bed as a lexicase case of its own; alone as `hcase` and with `drop` as
+`hcasedrop`; the control reran door1's to the digit): **the herb bed still did not move.** The in-round herb case
+stayed flat (median 188 -> 174 tenths, r0 -> r23), and the r23 carries in `lab_herbs` (seed = colony) sit where the
+control's do: median 17.3 and 17.4 against 16.9, ahead in 16 and 15 of 32. Two ways of asking failed the same way,
+so the approach is wrong, not the weighting: whatever the hand-built ant does on herbs (~65 ants against ~17) is
+not one mutation away in this pool, or this case cannot see it. Not tried yet: tracing why the trained founders
+starve beside herbs (the playtest found the bite rate flat in hunger) before building a third case.
+
+What the arms did win: the far-food box. `lab_far200_fruit` medians 71.6 (`hcase`, ahead 19/32) and 71.6
+(`hcasedrop`, 24/32) against 64.9; `hcasedrop`'s garden nest at r23 480 against 383 (bigger 23/32) with food home
+even (13/32). Four of `hcasedrop`'s best r23 colonies against colony 10 (both under `drop`), 8 fresh gardens with
+food 100 out: every one brings more food home (c1 12,875, c12 13,720, c14 13,806, c17 12,709 against 10,785; higher
+in 7-8 of 8) but digs a smaller or a cratered nest (c1 274, c12 239, c14 400 against 418; c17 479 but crater 9
+against 3.5, worse in 8/8). No clean win, so colony 10 stays the standard ant.
+
+**Next, fw1:** the standard pool carries 0 on every last-food weight (the keeper and scout seats both found the
+memory reading into nothing), so selection never tried it. `fwseed05` / `fwseed15` draw each member's 16 `f::FOOD_WAY`
+weights N(0, 0.5) / N(0, 1.5) and change nothing else; run on herbs2's build so `hcasedrop` is the control.
