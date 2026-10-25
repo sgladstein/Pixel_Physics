@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example spiderlab -- \
-//!     scenario=lab_mid_fruit pool=DIR spiders=4 frames=400000 seed=1 [every=5000] [out=DIR] [ant=old|std]
+//!     scenario=lab_mid_fruit pool=DIR spiders=4 frames=400000 seed=1 [every=5000] [out=DIR] [ant=old|std] [delay=20000]
 //! ```
 //!
 //! Prints one row per `every` frames (`frame, spiders, ants, spider births, spider deaths by cause, ants killed`)
@@ -27,6 +27,9 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(400_000);
     let every: u64 = arg("every").unwrap_or(5_000);
     let n: usize = arg("spiders").unwrap_or(4);
+    // `delay=`: frames after the first ant stands before the spiders land. Set down beside a colony still landing,
+    // they ate it before it had a nest: every one of 18 first runs (2 boxes x 1/2/4 spiders x 3 seeds) wiped it.
+    let delay: u64 = arg("delay").unwrap_or(20_000);
     let pool: String = arg("pool").expect("pool=DIR of spider .raw.txt");
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| panic!("scenario {name}: {e}"));
     if let Some(sd) = arg::<u64>("seed") {
@@ -75,6 +78,7 @@ fn main() {
     }
     let killed0 = lab.world.deaths_by_cause[DeathCause::Killed as usize];
     let mut peak = 0usize;
+    let mut landed: Option<u64> = None;
     // Graded, over the samples since the spiders were set down: how often both kinds were alive (`coexist`, the
     // sustainability the owner asked about), and the mean of each headcount.
     let (mut samples, mut both, mut s_sum, mut a_sum) = (0u64, 0u64, 0u64, 0u64);
@@ -83,7 +87,10 @@ fn main() {
         let w = &mut lab.world;
         // Set the spiders down once the colony stands, away from every nest door, the first founding the predators'
         // colony so spiders are kin and do not bite each other.
-        if placed < n && w.live_organism_ids().iter().any(|&id| w.organism(id).is_some_and(|s| Some(s.species) == w.species.id_of("ant"))) {
+        if landed.is_none() && w.live_organism_ids().iter().any(|&id| w.organism(id).is_some_and(|s| Some(s.species) == w.species.id_of("ant"))) {
+            landed = Some(w.frame);
+        }
+        if placed < n && landed.is_some_and(|l| w.frame >= l + delay) {
             let (x0, _, x1, _) = w.bounds().map(|b| (b.min_x, b.min_y, b.max_x, b.max_y)).expect("a lab box is bounded");
             let doors: Vec<i32> = w.nest_sites.iter().map(|s| s.x).collect();
             for _ in 0..200 {
