@@ -279,6 +279,46 @@ pool (no evolution that round) while the round's median ants killed is above K, 
 **`spiderlab=SCEN:FRAMES:N:TOP`** runs the top TOP spider candidates through `spiderlab` in SCEN before KEEP is taken,
 reordering them by coexistence, then food, so the pool is picked to share a box with a colony rather than wipe it.
 
+## Stage five: co-evolving spiders that last beside a colony (2026-10-25)
+
+Owner (2026-10-24): *"If the spiders start doing too well then we need to hold their evolution while selecting for
+the best ants until the ants survive... also trying to select for a spider colony that's more sustainable instead of
+one that wipes out."* Batch `ce4`, local, handling time on, 16 colonies x 10 rounds x 200k from `std_pool`
+(`lesson=c1:0.1`), one spider at a time from `sight-h2` (`spiderramp=100000:20000:10:2`), `spiderevo=8:0.03:0.3:2:0.5`,
+two arms: **coex** adds `spiderhold=30` and `spiderlab=lab_mid_fruit:150000:2:8`; **evo** has neither. The median
+colony lost 8-13 ants a round to spiders in coex and 7-16 in evo, so the hold never fired. The lab stage's best
+candidate coexisted in 36-100% of samples by round (100% in round 2, and for two minds in round 7, whose spiders
+lived the whole 150k frames beside about 200 ants).
+
+**Judged in the lab** (`spiderlab`, lab_mid_fruit, 2 spiders, 300k frames, seeds 11-14, on the nest raider lane's
+build, in which a predator with handling can no longer pay for a child out of living prey beside it):
+
+| spiders | ant | coexist (share of samples, 4 seeds) | spider births | ants at 300k | ants at 300k with no spiders |
+|---|---|---|---|---|---|
+| start (`sight-h2`) | hand-built | 0.13 / 0.04 / 0.02 / 0.15 | 1-6 | 226-444 | 190-266 |
+| evo r10 | hand-built | 0.24 / 0.25 / 0.07 / 0.15 | 0-72 | 354 / 146 / 0 / 0 | |
+| **coex r10** | hand-built | **0.71 / 0.80** / 0.11 / 0.05 | 0-43 | **199 / 187** / 174 / 267 | |
+| start | trained | 0.02-0.13 | 2-34 | 0 / 0 / 27 / 151 | 0 / 0 / 0 / 112 |
+| evo r10 | trained | 1.00 / 0.55 / 0.38 / 1.00 | 55-252 | 104 / 0 / 0 / 86 | |
+| coex r10 | trained | 0.78 / 0.27 / 1.00 / 0.00 | 0-234 | 8 / 0 / 2 / 150 | |
+
+- **The starting spiders never last** (both kinds alive in at most 15% of samples): trained before handling time,
+  they die out to the ants.
+- **The coex pool lives beside the hand-built colony for about 200,000 frames on two seeds of four**, peaking at 9-11
+  spiders, the colony intact at about 200 ants, the spiders then dwindling out (seed 12: 7-11 spiders from 40k to
+  80k, 2-6 to 220k, none by 260k). This is the graded outcome the stage-four rule table lacked. On the other two
+  seeds the pair died before breeding. The evo pool did not do this (at most 25%), and twice its colony died
+  (ants 0 against 190-266 with no spiders, after only 2-4 kills; not yet explained).
+- **With the trained ant, lab_mid_fruit is no test of the spider**: that colony dies in 3 of 4 seeds with no spiders
+  at all (the lab-box starvation the Teacher lane is working on). Evolved spiders there boom to 32-52 and in three
+  runs both kinds were still alive at 300k (evo seeds 11 and 14: 104 and 86 ants, where the no-spider colony had 0
+  and 112).
+
+Four seeds is a first look, not a ranking of the arms. **Shipped**: the lab's spider pool
+(`assets/minds/spider_pool.txt`) is now `coex-r10`, the pool that lasts, so a playtest sees spiders hunt and breed
+rather than die in 4,000 frames. Pools: `/mnt/project-files/predator/pools/{coex-r10,evo-r10}`; the picture,
+`/mnt/project-files/predator/spider-coexist-lab.gif` (coex, seed 12, frames 30k-130k).
+
 ## Reproduce
 
 ```
