@@ -5767,6 +5767,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   line, Y keeps a line for 5 eggs, and a 6,000-frame hold lapses to worker laying if she stops. Measured first: the
   30 minds barely differ (M0a), while at feral width 17 of 20 mutants are visibly broken foragers and 2 are jewels
   (M0b). Lab colonies' founder deaths follow the ant's id, not its mind. Review, plans and data in `queen/`.
+  **Enemy seat: a playable raider demo** ([`enemy-seat-demo.md`](teaching-the-colony-2026-10-25/enemy-seat-demo.md),
+  2026-10-25; feasibility review, plan, plan review and plan v2 in `teaching-the-colony-2026-10-25/enemy/`):
+  `demo=enemy` puts the player in the shipped centipede against a dug-in colony. Of the design's Raider, Range and Pit
+  only the Raider is buildable today. Over 36 scripted runs (`examples/enemyhunt.rs`) the door is defended (12/12
+  raids die on the mound, both brains); stalking lone foragers from 70 columns out, the trained colony kills the
+  raider on 4 of 6 seeds and the hand-built one never does. The colony fights back but cannot learn within a session.
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
