@@ -354,3 +354,28 @@ Lab box, price 0.25, seeds 1-4, mean headcount after landing, c10 vs colony 8: f
 77.9 vs 74.5, provisions 150 152.8 vs 153.7. Level in the lab, a third more nest, about 5% less food home.
 `founders=std` on the new file reproduces the carry's fruit 200 runs exactly. **Next, door1:** control against
 `PP_MIND_DOOR_OPEN=drop` and `=clear` from the new pool (the owner asked for both crutches off the trained ant).
+
+## 2026-10-25: the door's two crutches under selection; a plants-only lab case
+
+**door1** (32 x 24 from the new `std_pool`, colony 10; price25b's setup): control against `PP_MIND_DOOR_OPEN=drop`
+(an ant may put a pellet down in the door column) and `=clear` (the world stops deleting soil there). Every colony
+lived through every round. Garden medians (food 25 out), paired over 32:
+
+| | r7 / r15 / r23 nest | r23 food home (higher) | r23 starved | r23 alive | lab case ahead r7 / r15 / r23 |
+|---|---|---|---|---|---|
+| control | 404 / 390 / 383 | 16,412 | 6 | 92 | (base) |
+| `drop` | 419 / 341 / 377 (r23 bigger 18/32) | 15,469 (15/32) | 8.5 | 92 | 15 / 23 / 18 |
+| `clear` | 440 / 423 / 409 (17/32) | 6,073 (2/32) | 12.5 | 87 | 21 / 29 / 25 |
+
+**Lifting the put-down ban costs nothing under selection**: every measure is even with the control. **Stopping the
+world's clear of the door column halves the food carried home**, and 24 rounds of selection did not win it back
+(7,188 -> 5,403 -> 6,073); it does lift the lab case (median 2,181 against 1,865 at r23), where 15,000 frames is
+too short for a plugged door to cost. The clear stays a crutch the trained ant needs; the ban could go.
+
+**A plants-only lab case** (`scratch/inrun/labscen/lab_herbs.ron`, the owner's herb-bed opening
+`herb_first_colony_near` as is: herbs at the nest grown 35,000 frames, then 52 ants, no food heaps). labsurvive,
+after=15000, seeds 1-4, grant=1, mean headcount: the hand-built ant 68.1 / 69.3 / 67.8 / 61.5, the standard pool
+10.0 / 21.8 / 11.3 / 14.7 (default grant, seed 1: 55.9 against 10.8). It is the playtest's complaint as a number
+(the trained ant bites a plant at the same rate starving or fat), and no case in training has asked for it. A run
+costs ~28 s against ~5 s for a far-food box. **Next, herbs1:** control against `lab_herbs` added to the lab case,
+alone and with `drop`.
