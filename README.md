@@ -105,7 +105,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Roots required status — only roots drink, and a plant keeps its roots](#roots-required-status--only-roots-drink-and-a-plant-keeps-its-roots) | 11139 |
 | [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11165 |
 | [Spider status — a trained predator in the box, and a meal that takes time](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) | 11234 |
-| [Nest raider status — a centipede that fits the ants' shaft](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) | 11270 |
+| [Nest raider status — a centipede that fits the ants' shaft](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) | 11271 |
 
 ### Milestones, in numeric order
 
@@ -182,7 +182,7 @@ your time goes, not a rule about what you may read.
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7866 |
 | **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11165 |
 | **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 9350 |
-| **the spider: a trained predator, and a meal that takes time** | engine | [Spider status](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) 11234, [Nest raider status](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) 11270 |
+| **the spider: a trained predator, and a meal that takes time** | engine | [Spider status](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) 11234, [Nest raider status](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) 11271 |
 
 <!-- END GENERATED TOC -->
 
@@ -11258,12 +11258,13 @@ parent's. The BATTLE panel counts spiders alive, ants eaten and spiders lost.
 - A mind's bite is the game's bite (`PIXEL_PHYSICS_MIND_ATTACK`, on).
 
 **Known limits.**
-- **No coexistence yet.** With handling time the ants win: the spiders are
-  killed off, mostly by ants. In the trained ant's box two spiders were
-  dead inside 4,000 frames of landing. Selecting spider pools that share a
-  box with a colony (colsel `spiderlab=`), and their breeding genes with
-  them, is the next batch.
-- The shipped pool was trained before handling time existed.
+- **Coexistence is seed-dependent.** The shipped pool (since 2026-10-25,
+  co-evolved for coexistence) lived beside an intact hand-built colony for
+  about 200,000 frames on two seeds of four and died early on the other
+  two; the pool before it always died out. With the trained ant the test
+  box's colony often dies with no spiders at all.
+- The pool file does not carry the spiders' evolved breeding genes: a lab
+  spider breeds at its species' own bar.
 
 The write-up, every batch and the numbers: `Reports/lone-predator-2026-10-24.md`.
 
