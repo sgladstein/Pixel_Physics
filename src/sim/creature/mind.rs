@@ -1593,6 +1593,11 @@ pub struct Minds {
     /// ([`every_ant_has_one`]): the control for the skip, off unless a
     /// paired check sets it.
     pub build_ways: bool,
+    /// **Where the colony's shared stomach is closed** (the colony mind seat's "close the stomach" verb,
+    /// `Reports/teaching-the-colony-2026-10-25/seat-colony-mind.md`): discs `(x, y, radius)` inside which an adult
+    /// whose head stands there is not offered Feed to another adult (`options`). Larvae are still fed. Empty -- every
+    /// world but the colony mind demo -- changes nothing.
+    pub closed_stomach: Vec<(i32, i32, i32)>,
 }
 
 /// **Whether every adult creature in the world decides by a mind**, so the
@@ -1938,7 +1943,7 @@ fn context_at(
         _ => adjacent_nest(world, hx, hy, def),
     };
     v[c::AT_NEST] = f32::from(u8::from(home));
-    let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
+    let scents = EMIT_CHANNELS.map(|ch| options::mind_scent(world, ch, hx, hy));
     // SCRATCH (teacher lane): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
     static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
@@ -2322,6 +2327,10 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             m.counts.falls += 1;
         }
     } else if let Some(mut mind) = world.minds.as_mut().and_then(|m| m.ants.get(&organism).cloned()) {
+        // **The player's body, or a body a module leads** (`steer::take_forced`):
+        // read before the closure, which cannot borrow the world mutably. `None`
+        // with nobody steered and no entry, every tick in the shipped game.
+        let forced = crate::sim::steer::take_forced(world, organism);
         let decided = SCRATCH.with(|s| {
             let mut opts = s.borrow_mut();
             options::build_with(
@@ -2538,6 +2547,36 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                         mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
                         mind.state.last_verb = Some(opts[i].verb);
                     }
+                }
+            }
+            // **The forced pick replaces the mind's** (`steer::ForcedPick`), last, so
+            // no teacher above can undo the player. The memory and the pull
+            // (`last_verb`) then follow the verb actually carried out, as
+            // `PP_OLDLAB_ACT`'s override does, so a body handed back resumes a mind
+            // whose state matches what its body did (scout seat's ask: a tandem
+            // follower is led for hundreds of decisions). A mind with every verb
+            // off still obeys: the decision is built here with no scores.
+            if let Some(f) = forced {
+                let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
+                let head = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+                if let Some(i) = crate::sim::steer::choose(list, head, f, |v| mind.genome.w[SWITCH + v as usize] > 0.0) {
+                    match d.as_mut() {
+                        Some(d) => {
+                            if redrawn.is_none() {
+                                mind.state.mem = remember_done(&mind.genome.w, &ctx, &mem0, &opts, &d.scores, list[i].verb);
+                            }
+                            d.pick = i;
+                        }
+                        None => {
+                            d = Some(Decision {
+                                pick: i,
+                                scores: vec![0.0; list.len()],
+                                jobs: [None; VERBS],
+                                emits: [0.0; EMITS],
+                            })
+                        }
+                    }
+                    mind.state.last_verb = Some(list[i].verb);
                 }
             }
             mind.state.last = Some(now);
@@ -3243,7 +3282,7 @@ fn lay(
     };
     for (e, &s) in emits.iter().enumerate() {
         let amount = (s * pheromone::DEPOSIT as f32) as pheromone::Scent;
-        if amount > 0 {
+        if amount > 0 && !options::scent_silent(EMIT_CHANNELS[e]) {
             world.deposit_pheromone(EMIT_CHANNELS[e], hx, hy, amount);
             if let Some(m) = world.minds.as_mut() {
                 m.counts.laid[e] += f64::from(s);
@@ -5064,6 +5103,38 @@ mod tests {
 /// on `main` 2026-10-22 with these hooks re-threaded into the restructured
 /// [`tick`] (`context_at`, `decide_planned`), and with none set an hA1 batch
 /// came back byte-identical to the compute branch it came from.
+/// **The memory a decision writes when its verb is `verb`**, from the decision's
+/// own scores: what `decide` writes for the verb it picked, recomputed for a verb
+/// carried out instead (a forced pick, `steer::ForcedPick`; the teachers'
+/// overrides through `scratch_log::remember`). Out of the scratch module because
+/// the player's body depends on it.
+pub(crate) fn remember_done(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], opts: &[Opt], scores: &[f32], verb: Verb) -> [f32; MEMORY] {
+    let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
+    let (mut best, mut sum, mut n) = (f32::NEG_INFINITY, 0.0f32, 0u32);
+    for (o, op) in opts.iter().enumerate() {
+        if on(op.verb) {
+            best = best.max(scores[o]);
+            sum += scores[o];
+            n += 1;
+        }
+    }
+    let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
+    let mut fresh = [0.0f32; MEMORY];
+    for (m, slot) in fresh.iter_mut().enumerate() {
+        let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
+        let mut s = row[M_IN - 1] + row[CONTEXT] * best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
+        for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+            s += w * x;
+        }
+        for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
+            s += w * x;
+        }
+        let r = rate(g, m);
+        *slot = r * mem0[m] + (1.0 - r) * squash(s);
+    }
+    fresh
+}
+
 pub mod scratch_log {
     use super::*;
     use std::collections::HashMap;
@@ -5603,30 +5674,7 @@ pub mod scratch_log {
     /// memory a forced dig wrote as if the brain had done its own pick, and a veto's redraw summed the options without
     /// the vetoed verb's, so the ceiling's ant remembered something other than what it did.
     pub fn remember(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], opts: &[Opt], scores: &[f32], verb: Verb) -> [f32; MEMORY] {
-        let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
-        let (mut best, mut sum, mut n) = (f32::NEG_INFINITY, 0.0f32, 0u32);
-        for (o, op) in opts.iter().enumerate() {
-            if on(op.verb) {
-                best = best.max(scores[o]);
-                sum += scores[o];
-                n += 1;
-            }
-        }
-        let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
-        let mut fresh = [0.0f32; MEMORY];
-        for (m, slot) in fresh.iter_mut().enumerate() {
-            let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
-            let mut s = row[M_IN - 1] + row[CONTEXT] * best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
-            for (w, x) in row[..CONTEXT].iter().zip(ctx) {
-                s += w * x;
-            }
-            for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
-                s += w * x;
-            }
-            let r = rate(g, m);
-            *slot = r * mem0[m] + (1.0 - r) * squash(s);
-        }
-        fresh
+        super::remember_done(g, ctx, mem0, opts, scores, verb)
     }
     /// `PP_TEACH_Q=q`: each call is applied with probability q (the compliance curve). `PP_TEACH_FLOOR=1`: each call
     /// is applied only as often as a brain saturated towards it would obey under `choose_weighted`'s floor (labelled
@@ -6650,6 +6698,13 @@ pub mod scratch_log {
             at.0, at.1, o.verb as usize, o.target.0, o.target.1,
             last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
         ) + &format!(",{}", f(&o.feats)));
+        // SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_MIND_LOG_EMITS=1` adds an `E` row per decision with
+        // the three emit strengths (A, B, alarm), joined to its `M` row by seed, frame and id -- the signalling
+        // census: what each emission depends on. A row of its own so every `M` parser keeps its layout.
+        static EMITS: OnceLock<bool> = OnceLock::new();
+        if *EMITS.get_or_init(|| std::env::var("PP_MIND_LOG_EMITS").is_ok_and(|v| v == "1")) {
+            line(format!("E,{seed},{frame},{id},{}", f(&d.emits)));
+        }
         // SCRATCH (teacher-training measurement 2): every Walk, Dig and Drop option, not only the chosen one, so a
         // copier can see the whole choice. Per option `verb tx ty brain_score|k:v k:v` with only nonzero features.
         let all: Vec<String> = opts

@@ -666,6 +666,20 @@ impl PheromonePlane {
         true
     }
 
+    /// **Scale one cell's scent by `keep` (0 = scrub it).** The only write that lowers a plane outside its own decay:
+    /// the colony mind demo's "hush the trail" (`Reports/teaching-the-colony-2026-10-25/seat-colony-mind.md`). It
+    /// marks the tile deposited so the next pass processes it, as a deposit does. Returns whether the cell was in
+    /// bounds.
+    fn scale(&mut self, x: i32, y: i32, keep: f32) -> bool {
+        let Some(i) = self.index(x, y) else {
+            return false;
+        };
+        self.front[i] = (self.front[i] as f32 * keep.clamp(0.0, 1.0)) as Scent;
+        let (tx, ty) = ((x - self.origin.0) as usize / TILE, (y - self.origin.1) as usize / TILE);
+        self.deposited[ty * self.tw + tx] = true;
+        true
+    }
+
     /// Should this tile be processed at all?
     ///
     /// The 8-neighbour term is the load-bearing part. Without it a trail
@@ -979,6 +993,15 @@ fn a_rho() -> f32 {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_RHO").ok().and_then(|s| s.parse().ok()).unwrap_or(TRAIL_A_RHO))
 }
 
+/// `PIXEL_PHYSICS_A_DIFFUSE`: channel A's blend per pass, unset meaning the shipped [`DIFFUSE`] -- the partner of
+/// [`a_rho`] (evolvable-pheromones lane, 2026-10-25). A had a fade switch and no blend switch, and the molecules
+/// sheet (`examples/molecules.rs`) measures the blend as the knob that sets a ground trail's width and much of its
+/// life: at blend 0.05 a laid-once trail still peaks at 3.0 of 255 after 4,800 frames, against 0.6 at 0.25.
+fn a_diffuse() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_DIFFUSE").ok().and_then(|s| s.parse().ok()).unwrap_or(DIFFUSE))
+}
+
 /// **The switch for how long a food trail (channel B) lasts** --
 /// `PIXEL_PHYSICS_B_RHO` (fade per pass) and `PIXEL_PHYSICS_B_DIFFUSE`
 /// (blend per pass). Unset, the engine runs [`DECAY_RHO`]/[`DIFFUSE`] and
@@ -1068,7 +1091,7 @@ impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
         Self {
             planes: [
-                PheromonePlane::with_params(bounds, DIFFUSE, a_rho()),
+                PheromonePlane::with_params(bounds, a_diffuse(), a_rho()),
                 PheromonePlane::with_params(bounds, b_diffuse(), b_rho()),
             ],
             alarm: None,
@@ -1287,6 +1310,21 @@ impl Pheromones {
                 Channel::A => self.stats.deposits_a += 1,
                 Channel::B => self.stats.deposits_b += 1,
                 Channel::Alarm => unreachable!("handled above"),
+            }
+        }
+    }
+
+    /// Scale one cell of a channel by `keep` in [0, 1] ([`PheromonePlane::scale`]). An alarm plane that was never
+    /// made has nothing to lower, so it is not minted.
+    pub fn scale(&mut self, channel: Channel, x: i32, y: i32, keep: f32) {
+        match channel {
+            Channel::A | Channel::B => {
+                self.planes[channel as usize].scale(x, y, keep);
+            }
+            Channel::Alarm => {
+                if let Some(p) = self.alarm.as_mut() {
+                    p.scale(x, y, keep);
+                }
             }
         }
     }

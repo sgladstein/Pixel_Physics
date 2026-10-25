@@ -4344,6 +4344,12 @@ pub struct World {
     /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
     /// which is the gnome.
     pub steered: Option<crate::sim::steer::Steered>,
+    /// **Bodies with a mind that another module leads** (`steer::force`),
+    /// by id: each one's next decision takes the named option instead of
+    /// its mind's. Empty unless a demo sets an entry, and empty is one
+    /// `is_empty` read per mind decision (`steer::take_forced`). The
+    /// steered body's own keyboard never needs an entry.
+    pub mind_force: std::collections::BTreeMap<OrganismId, crate::sim::steer::Forced>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -4375,8 +4381,9 @@ pub struct World {
     /// **Every cell an animal cuts out of the ground**, as `(x, y, frame,
     /// cutter)`, off (`None`) unless a reader turns it on by setting
     /// `Some(Vec::new())`, and drained by that reader -- the lab's dig heat
-    /// map (`crate::dig_marks`). Pushed beside `dug_cells` in the one place a
-    /// cut is made; recording draws nothing and changes nothing.
+    /// map (`crate::dig_marks`). Pushed beside `dug_cells` wherever a cut is
+    /// made (the dig verb, `pack_behind`'s cut ahead and `escape_cut`; the last two
+    /// were missing until 2026-10-25); recording draws nothing and changes nothing.
     pub cut_log: Option<Vec<(i32, i32, u64, crate::sim::cell::OrganismId)>>,
     /// **What the removal being written right now is**, for
     /// `OrganismState::last_loss`. A removal that knows what it is (seed rot,
@@ -7488,6 +7495,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             steered: None,
+            mind_force: Default::default(),
             feed_log: None,
             bite_log: None,
             food_log: None,
@@ -7828,6 +7836,13 @@ impl World {
         // deposit changes what a neighbour's cached sense would have said.
         self.write_watch.mark(x, y);
         self.pheromones.deposit(channel, x, y, amount);
+    }
+
+    /// Scale a pheromone channel at `(x, y)` by `keep` in [0, 1] -- the one write that lowers scent (the colony mind
+    /// demo's "hush"). Marks the write watch as a deposit does, for the same reason.
+    pub fn scale_pheromone(&mut self, channel: Channel, x: i32, y: i32, keep: f32) {
+        self.write_watch.mark(x, y);
+        self.pheromones.scale(channel, x, y, keep);
     }
 
     /// Read a pheromone channel at `(x, y)`. Nearest-cell — the plane is
