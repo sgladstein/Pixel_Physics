@@ -1636,6 +1636,78 @@ pub fn give(world: &mut World, organism: OrganismId, genome: Arc<MindGenome>) {
             state: MindState::default(),
         },
     );
+    uncaste(world, organism);
+}
+
+/// **No caste for a mind** (`PP_MIND_CASTELESS`, old-ant-rules-2026-10-25 H1). The game's storeroom
+/// (`Storeroom::SHIPPED`, `caste=4`) stamps one ant in four by its id as a nest worker for life, and that stamp
+/// decided two things a mind ant could not choose: whether a touching larva may feed from its bank
+/// (`brood::NurseMode::Workers`) and whether the founding cut counts as home for its put-downs
+/// (`Storeroom::worker_home`). The owner's rule is one brain for every ant and no castes (2026-10-21). On: a mind
+/// ant is never stamped ([`give`], [`inherit`] clear `nest_bound_until`), any mind adult may feed a touching larva,
+/// and the cut is home for every mind ant. Off: the stamp as before. The game ant (no mind) is untouched either way.
+/// `PP_MIND_CASTELESS=nurse` or `=home` opens one reader alone and keeps the stamp, to tell the two apart.
+///
+/// **Off when unset**, because on the pool trained under the caste it costs nest and crater. Training bed (inrun
+/// sel=off, std_pool, 200k frames, seeds 101-108, paired): food carried home 12.4-14.9k -> 12.9-17.8k (more in 7
+/// of 8), larva feeding 21-34 -> 21-50 kJ, but nest 532-709 -> 458-669 cells (smaller in 6 of 8) and crater
+/// 1-9 -> 4-20 (bigger in 6 of 8). All of it is the `nurse` part: `home` alone is bit-identical to off on the bed
+/// (no mind put-down there lands in the cut outside the door's reach). Lab, fruit 150, seeds 1-8: alive median 96
+/// both ways. The test the owner's rule needs is a pool trained without it: the Teacher lane's arm.
+pub fn casteless() -> bool {
+    caste_parts() == (true, true)
+}
+
+/// [`casteless`]'s two readers: (any mind adult nurses, the cut is every mind ant's home).
+fn caste_parts() -> (bool, bool) {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PP_MIND_CASTELESS").as_deref().map(str::trim) {
+        Ok("nurse") => (true, false),
+        Ok("home") => (false, true),
+        Ok(v) if super::options::switch_on_value(v) => (true, true),
+        _ => (false, false),
+    })
+}
+
+/// **The door column's parts a world of minds drops** (`PP_MIND_DOOR_OPEN`; see `creature::door_column_of`):
+/// `(drop ban off, clear off)`. `=drop` lifts the ban on putting a pellet there, `=clear` stops the world deleting
+/// soil there, `=1`/`on` both. **Off when unset**: on the pool trained under it, the clear is load-bearing.
+/// Training bed (as [`casteless`]'s): with it, food carried home 12.4-14.9k; ban lifted, clear kept 11.4-19.2k
+/// (nest smaller in 6 of 8, crater the same); clear stopped, ban kept 4.6-8.2k and starved 18-45 -> 25-68; both
+/// 3.0-4.2k, starved 43-127. Lab, fruit 150, seeds 1-8, both off: alive median 96 -> 108 (15k frames is too short
+/// for a plugged door to cost). A colony that plugs its own door has never paid for it in training.
+pub fn door_open() -> (bool, bool) {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PP_MIND_DOOR_OPEN").as_deref().map(str::trim) {
+        Ok("drop") => (true, false),
+        Ok("clear") => (false, true),
+        Ok(v) if super::options::switch_on_value(v) => (true, true),
+        _ => (false, false),
+    })
+}
+
+/// Under [`casteless`] (or its `nurse` part): `organism` is a mind ant, so any larva it touches may feed from it.
+pub fn casteless_nurse(world: &World, organism: OrganismId) -> bool {
+    caste_parts().0 && has(world, organism)
+}
+
+/// Under [`casteless`] (or its `home` part): `organism` is a mind ant, so the founding cut is its home.
+pub fn casteless_home(world: &World, organism: OrganismId) -> bool {
+    caste_parts().1 && has(world, organism)
+}
+
+/// Clear the caste stamp off a mind ant under [`casteless`].
+fn uncaste(world: &mut World, organism: OrganismId) {
+    if casteless() {
+        clear_caste(world, organism);
+    }
+}
+
+/// [`uncaste`]'s write, whatever the switch says.
+fn clear_caste(world: &mut World, organism: OrganismId) {
+    if let Some(st) = world.organism_mut(organism) {
+        st.nest_bound_until = 0;
+    }
 }
 
 /// Whether `organism` decides by a mind.
@@ -1667,6 +1739,7 @@ pub fn inherit(world: &mut World, parent: OrganismId, child: OrganismId) {
                     state: MindState::default(),
                 },
             );
+            uncaste(world, child);
         }
         None => {
             // An id can come back after its slot's generation wraps; a
@@ -4276,6 +4349,30 @@ mod tests {
             target,
             feats: [0.0; FEATURES],
         }
+    }
+
+    /// **A mind ant can carry no caste** (`PP_MIND_CASTELESS`): the game's storeroom stamps one ant in four
+    /// nest-bound for life by id, giving a mind keeps it while the switch is off (unset), and the switch's write
+    /// clears it. The control is the box before the write, where the stamp is there to clear.
+    #[test]
+    fn a_mind_ant_carries_no_caste() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, colony_ants: 12, width: 256, height: 128, ground_y: 64, soil_depth: 40, ..crate::lab::scene::LabBox::default() }.build();
+        assert_eq!(super::super::storeroom_of(&w).caste, 4, "test setup: the shipped storeroom has its caste");
+        let ants: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|&id| w.organism(id).is_some_and(|s| w.species.get(s.species).creature.is_some())).collect();
+        let bound = |w: &World| ants.iter().filter(|&&id| w.organism(id).is_some_and(|s| super::super::is_nest_bound(w, s))).count();
+        let stamped = bound(&w);
+        assert!(stamped > 0, "the control: no ant was stamped, so there is nothing to clear");
+        let g = Arc::new(MindGenome::new(blank(&[Verb::Walk, Verb::Rest])));
+        for &id in &ants {
+            give(&mut w, id, g.clone());
+        }
+        if !casteless() {
+            assert_eq!(bound(&w), stamped, "off, a mind took the stamp away");
+        }
+        for &id in &ants {
+            clear_caste(&mut w, id);
+        }
+        assert_eq!(bound(&w), 0, "a mind ant kept its caste");
     }
 
     /// **The food verbs move food by the world's rules, one job each**: a

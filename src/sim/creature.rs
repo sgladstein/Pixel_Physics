@@ -17622,11 +17622,25 @@ pub fn door_loose_of(world: &World) -> bool {
 /// into the mouth, not pellets landing in it"). Re-tested at the owner's
 /// ask on the game since then (the doorway left unpacked, lean ants digging
 /// out of the mound, hunger-first and the trip home).
+///
+/// **A world of minds has no door column under `PP_MIND_DOOR_OPEN`**
+/// (old-ant-rules-2026-10-25 H4). Both parts decide for the trained ant
+/// something it could choose: where its pellet goes, and whether a pellet
+/// that lands over the door stays. `clear` deletes that soil from the world
+/// every frame, so a colony that plugs its own door never pays for it. On:
+/// in a world where any ant has a mind, the parts it names are off
+/// (`World::door_column` still wins, as the soil ladder's arena sets it).
+/// Off (unset): as before. Measured: `mind::door_open`.
 pub fn door_column_of(world: &World) -> DoorColumn {
-    world.door_column.unwrap_or_else(|| {
+    let (open_drop, open_clear) = mind::door_open();
+    let base = world.door_column.unwrap_or_else(|| {
         static V: std::sync::OnceLock<DoorColumn> = std::sync::OnceLock::new();
         *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DOOR_COLUMN_UNSET, |v| DoorColumn::parse(&v)))
-    })
+    });
+    if world.door_column.is_none() && (open_drop || open_clear) && world.minds.as_ref().is_some_and(|m| !m.is_empty()) {
+        return DoorColumn { drop: base.drop && !open_drop, clear: base.clear && !open_clear };
+    }
+    base
 }
 
 /// What `PIXEL_PHYSICS_DOOR_COLUMN` unset means: **on since 2026-10-10**,
@@ -19272,8 +19286,9 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
 fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The cut is a nest worker's home** ([`Storeroom::worker_home`]), and a
     // forager's only if the rules below say so. Off, one branch.
+    // A mind ant under `PP_MIND_CASTELESS` has no caste: the cut is every mind ant's home.
     if storeroom_of(world).worker_home
-        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st))
+        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st) || mind::casteless_home(world, organism))
         && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y))
     {
         return true;
