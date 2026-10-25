@@ -962,7 +962,7 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
                     // adult-to-adult sharing (24% of h1's decisions, each billed as jaw work) is what drains a home
                     // crowd in lockstep.
                     let fed = match o.brood {
-                        None => poorer && std::env::var("PP_NOADULTFEED").is_err(),
+                        None => poorer && std::env::var("PP_NOADULTFEED").is_err() && !stomach_closed(world, head),
                         Some(b) => {
                             b.stage == crate::sim::organism::BroodStage::Larva
                                 && o.energy < b.target
@@ -997,6 +997,12 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         }
     }
     DESCRIBED.set(described);
+}
+
+/// **Is the shared stomach closed where this head stands?** The colony mind's verb (`Minds::closed_stomach`); false in
+/// any world without minds or without a closed disc, so the shipped lab never pays more than the `Option` read.
+fn stomach_closed(world: &World, (hx, hy): (i32, i32)) -> bool {
+    world.minds.as_ref().is_some_and(|m| m.closed_stomach.iter().any(|&(x, y, r)| (hx - x).pow(2) + (hy - y).pow(2) <= r * r))
 }
 
 fn bottom_reach() -> Option<i32> {

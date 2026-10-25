@@ -320,3 +320,37 @@ are small and the cliff confounds them. **Next, price25b:** the same three arms,
 (`distramp=100:5:10:120`), so every round keeps food on both sides. The control's r7 -> r23 garden is also the first
 erosion read on the `cut_log`-fixed build: here the survivors' nest was 510 -> 395 by r15, against 446 -> 394 at
 price 1, so the fix has not stopped it.
+
+## 2026-10-25: with food on both sides, the nest stops eroding; colony 10 becomes the standard ant
+
+**price25b** (price25a's three arms, 32 x 24, ramp capped at 120 so both heaps stay on the bed). Every colony of
+every arm lived through every round. Garden medians (food 25 out), paired over 32 colonies:
+
+| | r7 nest | r15 nest | r23 nest | r23 food home | r23 starved | lab case r23 ahead |
+|---|---|---|---|---|---|---|
+| control | 458 | 454 | **501** | 12,230 | 8.5 | (base) |
+| `rho` (B fade 0.25) | 440 | 476 | 214 (bigger 2/32) | 15,988 (28/32) | 22.5 (fewer 8/32) | 20/32 |
+| `caste` (`PP_MIND_CASTELESS=1`) | 509 | 297 | 278 (1/32) | 14,549 (26/32) | 46.5 (2/32) | 27/32 |
+
+**Overturned: "the nest erodes inside the round whatever we do."** At price 1 every control fell from ~446 to ~280
+by r23 (erosion1-3); this one held at ~500. The change from erosion3's control is the 0.25 link price and the
+`cut_log` fix together (both in #899); which of the two did it is not separated. Both arms trade the nest for food
+home under selection, and both starve more, so neither is carried. `rho` is recorded as failed under selection
+by the pheromone lane; `caste` wins the lab case clearly (27/32) and may come back weaned.
+
+**The ratchet: colony 10 of the control is the new `std_pool`.** Four of the control's best r23 colonies against
+colony 8 (the old `std_pool`) on 8 fresh gardens with food 100 out (the colsel garden is 25 out; its repro of
+colony 10 at its own seed matched the VM row exactly):
+
+| | nest (bigger) | crater (smaller) | starved | food home (higher) |
+|---|---|---|---|---|
+| colony 8 | 344 | 6.5 | 13.5 | 12,524 |
+| c10 | 462 (8/8) | 2 (8/8) | 10 | 11,872 (1/8) |
+| c21 | 394 (7/8) | 8 (3/8) | 8.5 | 10,402 (0/8) |
+| c22 | 430 (7/8) | 5 (5/8) | 8.5 | 11,515 (3/8) |
+| c24 | 430 (7/8) | 5.5 (5/8) | 6.5 | 11,556 (3/8) |
+
+Lab box, price 0.25, seeds 1-4, mean headcount after landing, c10 vs colony 8: fruit 150 95.9 vs 98.6, fruit 200
+77.9 vs 74.5, provisions 150 152.8 vs 153.7. Level in the lab, a third more nest, about 5% less food home.
+`founders=std` on the new file reproduces the carry's fruit 200 runs exactly. **Next, door1:** control against
+`PP_MIND_DOOR_OPEN=drop` and `=clear` from the new pool (the owner asked for both crutches off the trained ant).

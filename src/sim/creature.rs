@@ -8010,12 +8010,16 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // would ignore every key. While the keyboard drives her she takes this
     // path -- her outputs are the keys' anyway (`steered_outputs`) -- and
     // above the steering cap (`input` `None`) her mind drives her again.
-    // **Ants only**: a steered body of another species with a mind (the
-    // enemy seat's centipede) still falls through to `mind::tick`, where its
-    // own player hook lives. Nobody steered: one more `Option` read.
+    // **The queen's body only** (`SteerRole::Queen`, an ant): she lays on L
+    // and digs and packs by slice 0's tested hooks, which the mind has no
+    // verb for. Every other steered mind body -- the scout seat's worker, the
+    // enemy seat's centipede -- stays in `mind::tick`, where the forced pick
+    // (`steer::take_forced`) drives it, so a worker body keeps her sisters'
+    // rules. Nobody steered: one more `Option` read.
     if world.minds.is_some()
         && mind::has(world, organism)
         && !(crate::sim::steer::input_of(world, organism).is_some()
+            && world.steered.as_ref().is_some_and(|s| s.role == crate::sim::steer::SteerRole::Queen)
             && world.organism(organism).is_some_and(|s| world.species.get(s.species).name == "ant"))
     {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.

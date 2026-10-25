@@ -5755,6 +5755,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
   Full designs for the guest, colony mind, enemy and lone scout seats, each reviewed and revised:
   [`teaching-the-colony-2026-10-25/seats-overview.md`](teaching-the-colony-2026-10-25/seats-overview.md).
+  **Colony mind seat: no standalone demo on today's trained ants**
+  ([`colony-mind-verdict.md`](teaching-the-colony-2026-10-25/colony-mind-verdict.md), 2026-10-25): the design was
+  checked against the hand-built ant, which the lab no longer runs; of its verbs only closing the shared stomach
+  moves trained ants (sharing -95%, hunger spread doubled, 16/16 seeds), with no payoff; a louder food trail read as
+  "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
+  bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
