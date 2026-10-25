@@ -190,7 +190,7 @@ fn main() {
         let c = if arg::<u8>("nestlook").unwrap_or(0) == 1 { (nest.x, nest.surface + 14) } else { g.chain.first().copied().unwrap_or(site) };
         look(&lab.world, guest, ant, c, arg("half").unwrap_or(8));
     }
-    let s0 = lab.world.creature_stats.clone();
+    let s0 = lab.world.creature_stats;
     let mb0 = lab.world.minds.as_ref().map_or(0, |m| m.counts.bites);
     let e0 = g.energy;
     let (mut touch, mut bites, mut alive, mut peak_e) = (0u64, 0u64, 0u64, e0);

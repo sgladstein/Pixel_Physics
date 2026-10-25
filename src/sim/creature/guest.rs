@@ -516,11 +516,14 @@ pub fn force_options(world: &World, ant: OrganismId, opts: &mut Vec<Opt>) {
     }
 }
 
+/// An ant beside the guest: its id, its cell, and the guest's cell it touches.
+type Beside = (OrganismId, (i32, i32), (i32, i32));
+
 /// The adult ants beside any cell of `guest`, nearest-first by ring order,
 /// without repeats.
-fn ants_beside(world: &World, host: SpeciesId, guest: OrganismId) -> Vec<(OrganismId, (i32, i32), (i32, i32))> {
+fn ants_beside(world: &World, host: SpeciesId, guest: OrganismId) -> Vec<Beside> {
     let Some(st) = world.organism(guest) else { return Vec::new() };
-    let mut out: Vec<(OrganismId, (i32, i32), (i32, i32))> = Vec::new();
+    let mut out: Vec<Beside> = Vec::new();
     for &(gx, gy) in &st.chain {
         for (dx, dy) in crate::sim::structural::NEIGHBOURS_8 {
             let (x, y) = (gx + dx, gy + dy);
@@ -772,7 +775,7 @@ pub fn eat_corpse(world: &mut World, guest: OrganismId) -> f32 {
     let Some(st) = world.organism(guest) else { return 0.0 };
     let crop = st.crop;
     let chain = st.chain.clone();
-    let cap = world.species.creature_shared(st.species).map_or(0.0, |d| super::organism_crop_capacity(world, guest, &*d));
+    let cap = world.species.creature_shared(st.species).map_or(0.0, |d| super::organism_crop_capacity(world, guest, &d));
     for &(gx, gy) in &chain {
         for (dx, dy) in crate::sim::structural::NEIGHBOURS_8 {
             let (x, y) = (gx + dx, gy + dy);
@@ -811,7 +814,7 @@ mod tests {
         for i in 0..=40 {
             let g = i as f32 * 0.1;
             let (p1, p2, p3) = odds(g, 1.0);
-            assert!(p1 >= FLOOR && p1 <= CEILING, "antennate at g={g}: {p1}");
+            assert!((FLOOR..=CEILING).contains(&p1), "antennate at g={g}: {p1}");
             assert!(p2 >= FLOOR.min(p1) && p2 <= p1, "display at g={g}: {p2} vs {p1}");
             assert!(p3 <= p2 && p3 < 1.0, "nip at g={g}: {p3}");
             assert!(p1 >= last.0 - 1e-6 && p2 >= last.1 - 1e-6 && p3 >= last.2 - 1e-6, "odds fell as the gap grew at g={g}");

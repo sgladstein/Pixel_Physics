@@ -5762,6 +5762,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
   bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
 
+- [guest-seat-demo-2026-10-25.md](guest-seat-demo-2026-10-25.md) — **the guest seat demo (`demo=guest`): you are a
+  rove beetle living off the colony by smelling like it.** Ants judge a registered visitor on a graded smell ladder
+  (walk on, antennate, display, nip; the head is bitten last); rub, soak, beg, kill a larva, eat a corpse; the
+  disguise fades. 12 seeds x 60 s: a raw guest is killed on 11 of 12, a disguised one on 5 of 12 and fed on 11 of 12;
+  colony food runs unchanged. Off-identical everywhere else. Its feasibility review, plan, plan review and revised
+  plan are in `guest-seat-demo-2026-10-25/`.
+
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
   and three numbers.** `sim::steer` is off-identical to main. A trail laid by
