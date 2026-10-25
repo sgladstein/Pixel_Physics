@@ -5739,6 +5739,13 @@ pub(super) fn try_bud(
             return None;
         }
     }
+    // SCRATCH (colony-vs-colony thread): a harness's per-colony laying brake (`World::colony_lay_scale`); None, unread.
+    if let Some(scale) = world.colony_lay_scale.as_ref().and_then(|m| m.get(&world.colony_of(organism)).copied()) {
+        if bank + reachable < bar * scale {
+            world.creature_stats.lays_declined += 1;
+            return None;
+        }
+    }
     if lay < brain::LAY_HOLD_BELOW {
         world.creature_stats.lays_declined += 1;
         return None;

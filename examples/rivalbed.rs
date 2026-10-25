@@ -25,9 +25,9 @@
 //! bans it (the option is never listed), `keep` leaves each genome as the pool holds it (the shipped pool already
 //! holds it on at 0, from inrun's `enter_bite`). `pool=A,B` or `pool_a=`/`pool_b=`: `std`, a `*pool.txt`, a
 //! directory of `.raw.txt`, or a colsel carry (`path[@tag]:count,...`); founders per colony are `ants=` (default
-//! the first pool's size), member k % size. `lay_cap=T:D` is per colony (default inrun's 48:8); the game's laying bar is one per
-//! species, so the cap is applied to the bed's total at `T x colonies : D x colonies` -- a colony that wins the bed
-//! may grow into its loser's share, which is part of what winning means here.
+//! the first pool's size), member k % size. `lay_cap=T:D` is per colony (default inrun's 48:8), each colony's adults
+//! and brood against its own cap through `World::colony_lay_scale`; `lay_cap_mode=shared` is the bed's total against
+//! T and D times the colonies on the species' one bar, which let the colony that grew first stop its neighbour laying.
 //!
 //! Prints a `RESULT` line per colony: adults alive at the end, the mean adults over the run (`lived`,
 //! graded where alive is all-or-nothing), food delivered home (a trip cell put down within 12 columns of its own
@@ -196,6 +196,11 @@ fn main() {
     let pools: Vec<&str> = vec![arg(&a, "pool_a").unwrap_or(short[0]), arg(&a, "pool_b").unwrap_or(short[1])];
     let bites: Vec<&str> = arg(&a, "bite").unwrap_or("0,0").split(',').collect();
     assert!(bites.len() == 2, "bite=A,B takes one per colony");
+    let shared_cap = match arg(&a, "lay_cap_mode").unwrap_or("colony") {
+        "colony" => false,
+        "shared" => true,
+        m => panic!("lay_cap_mode={m}: colony or shared"),
+    };
     let (lay_t, lay_d) = arg(&a, "lay_cap").unwrap_or("48:8").split_once(':').map(|(t, d)| (t.parse::<f64>().unwrap(), d.parse::<f64>().unwrap().max(1.0))).expect("lay_cap=T:D");
     let xs = [colony_bed::NEST - gap / 2, colony_bed::NEST + gap / 2];
     let present = [solo != "b", solo != "a"];
@@ -336,16 +341,28 @@ fn main() {
             }
         }
         if f % 250 == 0 {
-            // inrun's lay cap, on the bed's total (one laying bar per species).
-            // Adults and brood, as inrun's cap counts them (eggs, larvae and pupae are `live_brood_ids`, not ants).
-            let heads = (inrun::ants(&w, sp).len() + w.live_brood_ids().len()) as f64;
-            let lay_at = base_lay_at as f64 * 2f64.powf((heads - lay_t * n_col).max(0.0) / (lay_d * n_col));
-            let mut d = w.species.get(sp).creature.clone().unwrap();
-            if let Some(b) = d.brood.as_mut() {
-                if (b.lay_at as f64 - lay_at).abs() > 0.5 {
-                    b.lay_at = lay_at as f32;
-                    w.species.set_creature(sp, d);
+            // inrun's lay cap, adults and brood counted as inrun counts them (eggs, larvae and pupae are
+            // `live_brood_ids`, not ants). `lay_cap_mode=colony` (default): each colony's own heads against its own cap,
+            // through `World::colony_lay_scale`. `shared`: the bed's total against T x colonies on the species' one
+            // bar, as the first three batches ran -- where the colony that grew first stopped its neighbour laying.
+            let mut heads = [0f64; 2];
+            for id in inrun::ants(&w, sp).into_iter().chain(w.live_brood_ids()) {
+                if let Some(s) = w.organism(id).and_then(|st| side_of_colony(st.colony, &sides)) {
+                    heads[s] += 1.0;
                 }
+            }
+            if shared_cap {
+                let lay_at = base_lay_at as f64 * 2f64.powf((heads[0] + heads[1] - lay_t * n_col).max(0.0) / (lay_d * n_col));
+                let mut d = w.species.get(sp).creature.clone().unwrap();
+                if let Some(b) = d.brood.as_mut() {
+                    if (b.lay_at as f64 - lay_at).abs() > 0.5 {
+                        b.lay_at = lay_at as f32;
+                        w.species.set_creature(sp, d);
+                    }
+                }
+            } else {
+                let m: HashMap<u32, f32> = (0..2).filter(|&s| present[s]).map(|s| (sides[s].colony, 2f64.powf((heads[s] - lay_t).max(0.0) / lay_d) as f32)).collect();
+                w.colony_lay_scale = Some(m);
             }
         }
         inrun::step(&mut w, &sc);

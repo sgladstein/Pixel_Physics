@@ -4882,6 +4882,12 @@ pub struct World {
     /// wants the per-encounter funnel sets it to `Some`. Read-only: nothing in
     /// the simulation consults it, and recording draws no random numbers.
     pub encounter_log: Option<EncounterLog>,
+    /// SCRATCH (colony-vs-colony thread, 2026-10-24): **a harness's laying brake per colony** -- the bank a layer of
+    /// colony `c` must hold is multiplied by `colony_lay_scale[c]` (`creature::try_bud`, beside the mind's own lay
+    /// gate). `None` (always, outside `examples/rivalbed.rs`): nothing is read. **Why**: the brood block's `lay_at` is
+    /// one per species, so a lay cap on a two-colony bed counted both colonies' heads, and the colony that grew
+    /// first stopped its neighbour laying -- a tournament round selected for that, not for anything the ants did.
+    pub colony_lay_scale: Option<std::collections::HashMap<u32, f32>>,
     /// **What was standing in the vital cell of every creature that died of
     /// `DeathCause::Killed`**, as `(species, colony, material, count)` — see
     /// [`World::note_vital_loss`]. Read against `kills_log`: the difference
@@ -7570,6 +7576,7 @@ impl World {
             kills_log: Vec::new(),
             kills_unlogged: 0,
             encounter_log: None,
+            colony_lay_scale: None,
             vital_losses: Vec::new(),
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
