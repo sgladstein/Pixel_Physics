@@ -1093,7 +1093,8 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         }
         // **`NURSE=workers`: only nest-bound ants give from their banks**
         // ([`NurseMode::Workers`]).
-        if workers_only && !creature::is_nest_bound(world, st) {
+        // A mind ant under `PP_MIND_CASTELESS` has no caste to be asked for.
+        if workers_only && !creature::is_nest_bound(world, st) && !creature::mind::casteless_nurse(world, id) {
             continue;
         }
         if best.is_none_or(|(_, e)| st.energy > e) {

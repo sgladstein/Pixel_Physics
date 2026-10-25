@@ -5991,7 +5991,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   link price 1 / 0.25 / 0: 28 / 114 / 150, against the old ant's 129 (`PIXEL_PHYSICS_LINK_PRICE`, PR #881). Every
   old-ant rule sorted into physics, policy the mind already decides, and missing moves or senses, plus nine
   hard-codes still on the trained ant (a one-in-four nest-worker caste, touch-feeding, the door-column put-down ban,
-  the dig head's gate, the spoil roll differing between training and the lab), each with a way to open it.
+  the dig head's gate), each with a way to open it. §5 opens two as default-off switches (`PP_MIND_CASTELESS`,
+  `PP_MIND_DOOR_OPEN`) and prices them on the pool trained under them. The caste's effect is all touch-feeding: more
+  food home, but bigger craters in 6 of 8. The world deleting soil over the door every frame is load-bearing: without
+  it, food carried home falls by about 60%.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
