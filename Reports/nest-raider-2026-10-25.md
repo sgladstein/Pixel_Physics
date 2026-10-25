@@ -20,7 +20,7 @@ picking off foragers on the surface, and so makes nest defence worth learning. B
   gut will not take is loose ground to a mind's Dig. Walled in with the cut in its jaws, the mind's pack move puts
   the cell back where its tail was (`options::pack_on`), the whole `Cell` riding in the pellet, so a crumb keeps its
   worth and the store is moved, never lost. Its verbs are the spider's and Dig and Put Down
-  (`train::predator::RAIDER_VERBS`). Owner's question, asked 2026-10-25 (see *Why it shoves*).
+  (`train::predator::RAIDER_VERBS`). **Owner, 2026-10-25: yes, it shoves through crumbs** (see *Why it shoves*).
 - **The harnesses take the species**: `predtrain species= warm= far= credit=`, `spiderlab species= far= gif=
   pool=<preset>`, `inrun spider_species=`; `train::predator::place_predator`, `verbs_for`, `mind_for`,
   `mutate_breeding_of`, `picture`, `save_gif`. Defaults are the spider's, unchanged.
@@ -132,8 +132,6 @@ column, which is a predator the colony has to answer, but not the one the owner 
   through unchanged.
 - **The ants' side** is the Teacher lane's: a colony that can lose its larder to something inside the nest is a
   defence case it has not had. `inrun spider_species=centipede` puts the raider on the colony bed.
-- **The owner's question on shoving is open** (crumbs are loose ground to the raider). If the answer is no,
-  `digs_inedible_food` comes off the centipede and it is shut out of every trained colony's nest.
 
 ## Reproduce
 
