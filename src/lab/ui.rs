@@ -3745,10 +3745,10 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
 /// **The spider was held off too until it had a trained mind** (lone predator
 /// thread, 2026-10-23): stocked by hand it would have walked on its fallback
 /// instincts (the beetle's). It came onto the chip on 2026-10-25 with its
-/// trained pool (`training::SPIDER_POOL`, given by `Lab::give_spider_minds`).
-/// **The centipede, the nest raider (2026-10-25), is held off for the same
-/// reason** until it has a trained pool of its own.
-pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "centipede", "chitin_pale"];
+/// trained pool (`training::SPIDER_POOL`, given by `Lab::give_predator_minds`).
+/// **The centipede, the nest raider, came on with its own pool the same day**
+/// (`training::CENTIPEDE_POOL`, nest raider thread).
+pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale"];
 
 /// Every species that can be *stocked* — the animals, in a stable order.
 ///

@@ -14,7 +14,7 @@
 //! cargo run --release --example predtrain -- out=DIR [seed=1] [rounds=6] [frames=100000] [preds=12] [ants=30]
 //!     [sel=score|random|off] [judge=1000] [min_age=6000] [turn=20000] [keep=8] [grants=1] [kid_grants=1]
 //!     [kpm=0.03] [ksigma=1] [kevents=10] [start_events=20] [founder=PATH|hunter] [pool=DIR] [lo=6] [hi=16] [cooldown=4000]
-//!     [frames_out=0] [step=game|harness] [species=spider|centipede] [warm=0] [far=30]
+//!     [frames_out=0] [step=game|harness] [species=spider|centipede] [warm=0] [far=30] [credit=swallow|digest]
 //!
 //! Sets `PIXEL_PHYSICS_MIND_ATTACK=on` itself (the Attack act, `creature::options::attack_on`).
 //!
@@ -169,6 +169,9 @@ struct Cfg {
     warm: u64,
     /// `far=`: the fewest columns from the door a predator is set down (0: at the door).
     far: i32,
+    /// `credit=swallow|digest`: what pays a predator. Default `digest` for a species that can put food down (the
+    /// raider), `swallow` for the spider, as stage one scored it.
+    by_digest: bool,
     game: bool,
     /// `gif=R:START:END:EVERY` -- round R's frames START..END, one picture every EVERY frames, into rR/round.gif.
     gif: Option<(usize, u64, u64, u64)>,
@@ -260,6 +263,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     let mut kills_seen: Vec<(u64, (i32, i32))> = Vec::new();
     let mut last_at: BTreeMap<OrganismId, (i32, i32)> = BTreeMap::new();
+    let (mut deaths_killed, mut deaths_in_nest) = (0u64, 0u64);
     let ants_killed0 = w.minds.as_ref().map_or(0, |m| m.counts.kills);
     for fr in 1..=cfg.frames {
         w.cut_log.get_or_insert_with(Vec::new).clear();
@@ -274,12 +278,27 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
             w.step_fields();
             w.step_pheromones();
         }
-        // The spiders' ledger, read before the bed's own drains the logs.
+        // The spiders' ledger, read before the bed's own drains the logs. Credit is the swallow's face worth, or under
+        // `credit=digest` what the crop gave up (`digest_log`): a raider can put a crop cell down (its Put Down is for
+        // pellets), and picked one cell of ant up again and again -- 7,300 swallow rows in a 100,000-frame round
+        // against 37 cells bitten, each paid in full.
+        if cfg.by_digest {
+            for &(who, worth, _) in w.digest_log.iter().flatten() {
+                if let Some(b) = book.get_mut(&who) {
+                    b.credit += worth as f64 / 100.0;
+                }
+            }
+        }
         if let Some(log) = w.food_log.as_ref() {
             for row in log.iter().filter(|r| r.kind == creature::FOOD_SWALLOW) {
                 if let Some(b) = book.get_mut(&row.who) {
-                    b.credit += row.worth as f64 / 100.0;
+                    if !cfg.by_digest {
+                        b.credit += row.worth as f64 / 100.0;
+                    }
                     swallows += 1;
+                    if std::env::var("PP_SWALLOWLOG").is_ok() && swallows <= 40 {
+                        eprintln!("swallow f{} who {} at {:?} worth {} store {}", row.frame, row.who, row.at, row.worth, row.store);
+                    }
                 }
             }
         }
@@ -287,6 +306,11 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
             for d in log.iter().filter(|d| d.species == ant && d.cause == DeathCause::Killed) {
                 if let Some(at) = w.organism(d.id).and_then(|s| s.chain.first().copied()).or(last_at.get(&d.id).copied()) {
                     kills_seen.push((d.frame, at));
+                    // Where it died: under the ground (in the nest) or on it. The raid is the first.
+                    deaths_killed += 1;
+                    if at.1 > predator::surface(&w, at.0) {
+                        deaths_in_nest += 1;
+                    }
                 }
             }
             for d in log.iter() {
@@ -298,14 +322,11 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
                 }
             }
         }
-        if let Some((gr, g0, g1, _)) = cfg.gif {
-            if gr == r && fr + 1 >= g0 && fr <= g1 {
-                last_at.clear();
-                for id in of_species(&w, ant) {
-                    if let Some(h) = w.organism(id).and_then(|s| s.chain.first().copied()) {
-                        last_at.insert(id, h);
-                    }
-                }
+        // Every ant's head, every frame: where a killed ant was (its body is gone by the time the log is read).
+        last_at.clear();
+        for id in of_species(&w, ant) {
+            if let Some(h) = w.organism(id).and_then(|s| s.chain.first().copied()) {
+                last_at.insert(id, h);
             }
         }
         kills_seen.retain(|(t, _)| w.frame.saturating_sub(*t) < 120);
@@ -451,7 +472,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     let m = w.minds.as_ref().map(|m| m.counts).unwrap_or_default();
     let mean_links = if pool.is_empty() { 0.0 } else { pool.iter().map(|(_, b)| b.genome[mind::FIRST_LINK..].iter().filter(|v| **v != 0.0).count() as f64).sum::<f64>() / pool.len() as f64 };
     let line = format!(
-        "round {r} seed {seed}: spiders alive {} births {births} culls {culls} starved {starved} | ants killed {} flesh cells {} corpse cells {} | ants alive {} refills {ant_refills} | pool best {:.3} mean {:.3} links {mean_links:.0} | bites {}",
+        "round {r} seed {seed}: spiders alive {} births {births} culls {culls} starved {starved} | ants killed {} flesh cells {} corpse cells {} | ants alive {} refills {ant_refills} | pool best {:.3} mean {:.3} links {mean_links:.0} | bites {} | ant deaths killed {deaths_killed}, in the nest {deaths_in_nest}",
         book.len(),
         m.kills - ants_killed0,
         m.flesh,
@@ -478,7 +499,7 @@ fn main() {
     creature::mutation_off_for_measuring();
     let a: Vec<String> = std::env::args().skip(1).collect();
     let known = [
-        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool", "species", "warm", "far",
+        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool", "species", "warm", "far", "credit",
     ];
     for x in &a {
         let k = x.split('=').next().unwrap_or("");
@@ -512,6 +533,12 @@ fn main() {
         frames_out: num("frames_out", 0.0) as u64,
         warm: num("warm", 0.0) as u64,
         far: num("far", 30.0) as i32,
+        by_digest: match arg(&a, "credit") {
+            Some("digest") => true,
+            Some("swallow") => false,
+            Some(o) => panic!("credit={o}: swallow or digest"),
+            None => predator::verbs_for(arg(&a, "species").unwrap_or("spider")).contains(&creature::options::Verb::Drop),
+        },
         gif: arg(&a, "gif").map(|v| {
             let p: Vec<u64> = v.split(':').map(|x| x.parse().expect("gif=R:START:END:EVERY")).collect();
             assert_eq!(p.len(), 4, "gif=R:START:END:EVERY");

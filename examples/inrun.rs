@@ -660,10 +660,31 @@ impl Spiders {
 
     /// The bed's food rows before the ants' book reads them: a living spider's swallow is its credit (face worth /
     /// 100, as `examples/predtrain.rs` scores it).
+    ///
+    /// **Not for a predator that can put food down** (the nest raider, whose verbs carry Put Down for its pellets):
+    /// it picked a dropped cell of ant up again and again, and each pick-up was a swallow row -- 7,300 in one
+    /// 100,000-frame `predtrain` round against 37 cells bitten. Its credit is what it digests ([`Spiders::digested`]).
     fn ate(&mut self, rows: &[creature::FoodRow]) {
+        if self.by_digest() {
+            return;
+        }
         for r in rows.iter().filter(|r| r.kind == creature::FOOD_SWALLOW && self.ids.contains(&r.who)) {
             if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == r.who && e.4.is_none()) {
                 e.5 += r.worth as f64 / 100.0;
+            }
+        }
+    }
+
+    /// Whether this species' credit is digestion rather than swallows: one whose verbs can put a crop cell down.
+    fn by_digest(&self) -> bool {
+        pixel_physics::train::predator::verbs_for(&self.species).contains(&creature::options::Verb::Drop)
+    }
+
+    /// A living spider's digestion row, as its credit (face worth / 100) when [`Spiders::by_digest`].
+    fn digested(&mut self, who: u32, worth: f32) {
+        if self.by_digest() {
+            if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == who && e.4.is_none()) {
+                e.5 += worth as f64 / 100.0;
             }
         }
     }
@@ -1578,7 +1599,8 @@ fn main() {
             }
         }
         for (who, worth, _) in w.digest_log.as_mut().unwrap().drain(..) {
-            if spiders.as_ref().is_some_and(|s| s.ids.contains(&who)) {
+            if let Some(s) = spiders.as_mut().filter(|s| s.ids.contains(&who)) {
+                s.digested(who, worth);
                 continue;
             }
             writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();

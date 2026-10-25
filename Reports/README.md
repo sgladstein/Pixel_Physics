@@ -2886,6 +2886,18 @@ drift that two of these documents still reflect.**
   16 colonies x 12 rounds): the spider pool evolved *backwards* (kills less in 49
   of 77 paired judgings; selection on one noisy life per placement, no elitism),
   and no clear defence learning in the colonies.
+- [nest-raider-2026-10-25.md](nest-raider-2026-10-25.md) — **the owner's second
+  predator, 2026-10-25: a centipede that fits the ants' two-wide shaft.** A
+  `Chain(5)` one cell wide, with the spider's plate, gut and handling time; its
+  jaw cannot cut soil, so it enters by the door. A trained colony's nest is
+  packed solid with crumbs, so it shoves through food it cannot eat
+  (`CreatureDef::digs_inedible_food`) and moves the store without losing it.
+  Two fixes on the way: a predator with handling no longer pays for a child with
+  living ants in reach (3 births in 23 frames -> 0; changes the spider too), and
+  a raider is paid in training for what it digests, not what it swallows (7,300
+  swallows against 37 cells bitten). Training on four lines did not beat the
+  untrained hunter mind; in the lab the one population that lived held the
+  surface, not the nest. RAIDER_POOL_LINE
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's

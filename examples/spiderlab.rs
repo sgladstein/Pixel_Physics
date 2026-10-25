@@ -32,7 +32,8 @@ fn main() {
     // `delay=`: frames after the first ant stands before the spiders land. Set down beside a colony still landing,
     // they ate it before it had a nest: every one of 18 first runs (2 boxes x 1/2/4 spiders x 3 seeds) wiped it.
     let delay: u64 = arg("delay").unwrap_or(20_000);
-    // `pool=lab`: the lab game's own spider pool (`lab::training::spider_minds`), the one a hand-stocked spider gets.
+    // `pool=lab`: the lab game's own pool for the species (`lab::training::predator_minds`), the one a hand-stocked
+    // predator gets.
     let pool: String = arg("pool").expect("pool=DIR of spider .raw.txt, or pool=lab");
     // `species=`: the predator, `spider` (default) or the nest raider `centipede`.
     let species: String = arg("species").unwrap_or_else(|| "spider".to_string());
@@ -56,7 +57,7 @@ fn main() {
     let minds: Vec<_> = if let Some(g) = &preset {
         vec![pixel_physics::train::predator::mind_for(&species, g)]
     } else if pool == "lab" {
-        pixel_physics::lab::training::spider_minds()
+        pixel_physics::lab::training::predator_minds(&species).unwrap_or_else(|| panic!("pool=lab: no lab pool for {species}"))
     } else {
         files
             .iter()
@@ -161,6 +162,8 @@ fn main() {
         for id in w.live_organism_ids() {
             if w.organism(id).is_some_and(|s| s.species == spider) && seen.insert(id) {
                 births += 1;
+                // `PP_BIRTHLOG=1`: each birth as it is seen -- how a centipede budding three times in 23 frames at a door
+                // was found (the second mouth, `creature::provision_at`).
                 if std::env::var("PP_BIRTHLOG").is_ok() {
                     let s = w.organism(id).expect("alive");
                     eprintln!("birth f{} id {id} cells {} energy {:.0} crop {:?} head {:?}", w.frame, s.cells.len(), s.energy, s.crop, s.chain.first());
@@ -187,7 +190,7 @@ fn main() {
                     }
                 }
                 kills_seen.retain(|(t, _)| f.saturating_sub(*t) < 120);
-                if f >= g0 && (f - g0) % ge == 0 {
+                if f >= g0 && (f - g0).is_multiple_of(ge) {
                     shots.push(pixel_physics::train::predator::picture(w, crop, scale, &kills_seen, f, ant_sp, spider));
                 }
             }
