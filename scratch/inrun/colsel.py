@@ -322,6 +322,10 @@ def nest_scale(rdir, nest):
     if os.path.exists(f'{rdir}/brood.csv'):
         rows = list(csv.DictReader(open(f'{rdir}/brood.csv')))
         brood = sum(int(rows[-1][k]) for k in ('eggs', 'larvae', 'pupae')) if rows else 0
+    if alive == 0:
+        # A colony that died out needs no nest, so leftover food alone made its need tiny and its case the cap:
+        # linkprice1-1025's colony 1 (0 ants, 22 food cells, nest 134) scored 1.25, the best a colony can.
+        return 0.0
     need = SCALE_W[0] * alive + SCALE_W[1] * brood + SCALE_W[2] * food
     return round(min(nest / need, SCALE_CAP), 4) if need > 0 else 0.0
 LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
