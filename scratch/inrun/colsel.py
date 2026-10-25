@@ -322,6 +322,15 @@ assert LABGATE is None or LAB, 'labgate= needs +lab'
 # for selection to act on. The cap keeps a colony from buying the case with a huge empty bowl over feeding.
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
+# scaleopen=1 / SCALE_OPEN=1 (teacher lane, 2026-10-25): score only the nest's OPEN cells against the need. nest1-1025's scalegate
+# grew the nest 116 -> 424 cells over random food distances, but the gain was stored food: open room stayed 66-112 cells
+# in every arm (food 342-666) and the hand-built ant keeps ~1,100 open. With food out of the numerator, a stored cell
+# costs the room it fills, so a colony keeps the case by digging around its store (a second room) or storing less.
+# Use with NEST_NEED's F at 1 (an aisle per stored cell), not 2: the food is already charged once in the numerator.
+# Job lines cannot set colsel's environment on the VM, so both ride as args: `scaleopen=1`, `nestneed=A,B,F`.
+SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
+SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
+EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed='))]
 
 
 def nest_scale(rdir, nest):
@@ -441,7 +450,8 @@ def result(rdir, frames):
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
             n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
-            roomshape.score(rdir) if n else 0.0, killed, slay, nest_scale(rdir, n.get('nest', 0)) if n else 0.0)
+            roomshape.score(rdir) if n else 0.0, killed, slay,
+            nest_scale(rdir, n.get('nest_open' if SCALE_OPEN else 'nest', 0)) if n else 0.0)
 
 
 def ranks(vals, higher_better=True):
