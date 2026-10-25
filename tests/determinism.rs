@@ -267,6 +267,15 @@ fn the_serial_driver_is_deterministic_across_identical_runs() {
 // speed (`scene.rs`, owner's card): the same first birth now arrives near
 // frame 3,600 of world time, so 2,400 frames left `plant_generation` at 0 and
 // this guard red for the right reason. Same plant time, same margin.
+//
+// **Raised to 8,400 on 2026-10-25**, when the lab box began founding its
+// herbs from the bed-selected plant pool (`LabBox::plant_pool`). Measured
+// on this bed (a scratch probe stepping `frame::step` and reading the
+// deepest generation of a germinated plant every 100 frames): the first
+// germinated generation-1 plant arrives by frame **4,400** with species-file
+// founders (`plant_pool: false`; the engine has moved since the 3,600 above)
+// and by **6,400** with the pool's. 8,400 clears 6,400 by about a third, the
+// margin this guard has always kept.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::stats::Stats;
@@ -275,7 +284,7 @@ use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem as LabParticles;
 use pixel_physics::sim::player;
 
-const LAB_FRAMES: u64 = 4_800;
+const LAB_FRAMES: u64 = 8_400;
 const LAB_CHECKPOINT_EVERY: u64 = 600;
 
 /// The shipped bed, with its colony. **Both halves deliberately**: the ants
@@ -367,7 +376,7 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
         a.windows(2).any(|w| w[0] != w[1]),
         "the bed never changed between checkpoints — it has stopped exercising anything"
     );
-    let census = stats.census().expect("a census after 4,800 frames");
+    let census = stats.census().expect("a census after 8,400 frames");
     assert!(census.plants > 0, "nothing is alive in the bed");
     assert!(
         world.live_creature_count() > 0,
@@ -381,7 +390,7 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
         census.plant_generation > 0,
         "deepest plant generation is 0 — every plant is a founder, so this run \
          never reached a birth and the heritable path is untested (measured: \
-         generation 1 arrives at frame 1,800 on this bed)"
+         a germinated generation 1 arrives by frame 6,400 on this bed)"
     );
 }
 
