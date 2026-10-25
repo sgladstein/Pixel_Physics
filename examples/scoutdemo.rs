@@ -256,7 +256,8 @@ fn main() {
         lab.tick_for_harness();
         if gif && (lab.world.frame - start).is_multiple_of(shot) {
             if let Some((hx, hy)) = head(&lab.world, player) {
-                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+                // A third of the way down, not centred: the seat panel and the bar cover the lower half.
+                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 3, (full_w, full_h), Some(bounds));
             }
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);

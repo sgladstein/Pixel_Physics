@@ -328,6 +328,14 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             hc.put(buf, x, y, c);
         }
     };
+    // A body cell filled whole: one pixel per cell vanishes at play zoom.
+    let cell = |buf: &mut [u8], x: i32, y: i32, c: [u8; 4]| {
+        let (x0, y0, x1, y1, _) = r.world_rect_to_logical(x, y, x, y);
+        let y1 = y1.min(top - 1);
+        if y1 >= y0 {
+            hc.fill_rect(buf, x0, y0, x1 - x0 + 1, y1 - y0 + 1, c);
+        }
+    };
     let world = &lab.world;
     // Knowledge tint over every body that holds a lesson.
     for (&id, &s) in &t.lessons {
@@ -335,7 +343,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             let k = 0.45 + 0.55 * s.clamp(0.0, 1.0);
             let c = [(ORANGE[0] as f32 * k) as u8, (ORANGE[1] as f32 * k) as u8, (ORANGE[2] as f32 * k) as u8, 255];
             for &(x, y) in &st.chain {
-                dot(frame_buf, at(x, y), c);
+                cell(frame_buf, x, y, c);
             }
         }
     }
@@ -368,6 +376,13 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             Phase::Lost { .. } => GREY,
         };
         hc.fill_rect(frame_buf, px - 1, py - 1, 3, 3, c);
+        // Her body in the pip's colour too: at play zoom an ant is a few pixels, and the first GIFs lost the
+        // pupil among her sisters.
+        if let Some(st) = world.organism(p.follower) {
+            for &(x, y) in &st.chain {
+                cell(frame_buf, x, y, c);
+            }
+        }
         for i in 0..i32::from(p.learned.min(8)) {
             dot(frame_buf, (px - 4 + i, py - 3), WHITE);
         }
@@ -403,13 +418,15 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
     // The player: white body, and a ring round her.
     if let Some(me) = steer::steered_id(world).and_then(|id| world.organism(id)) {
         for &(x, y) in &me.chain {
-            dot(frame_buf, at(x, y), WHITE);
+            cell(frame_buf, x, y, WHITE);
         }
         if let Some(&(x, y)) = me.chain.first() {
             let (cx, cy) = at(x, y);
-            for a in 0..16 {
-                let th = a as f32 * std::f32::consts::TAU / 16.0;
-                dot(frame_buf, (cx + (th.cos() * 5.0).round() as i32, cy + (th.sin() * 5.0).round() as i32), WHITE);
+            let (x0, _, x1, _, _) = r.world_rect_to_logical(x, y, x, y);
+            let rad = (2 * (x1 - x0 + 1) + 3) as f32;
+            for a in 0..24 {
+                let th = a as f32 * std::f32::consts::TAU / 24.0;
+                dot(frame_buf, (cx + (th.cos() * rad).round() as i32, cy + (th.sin() * rad).round() as i32), WHITE);
             }
         }
     }
