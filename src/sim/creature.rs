@@ -6068,6 +6068,13 @@ pub(super) fn try_bud(
     if let Some(p) = world.organism_mut(organism) {
         p.children = p.children.saturating_add(1);
     }
+    // The steered queen's hold restarts on her own egg (`Steered::last_lay`).
+    if crate::sim::steer::is_steered(world, organism) {
+        let frame = world.frame;
+        if let Some(s) = world.steered.as_mut() {
+            s.last_lay = frame;
+        }
+    }
     // **The index write, in the same breath as the count that defines a
     // breeder.** `record_breeder` prunes `parent_colony`'s candidate list
     // of anyone who has died since it was last touched, then pushes
@@ -6087,6 +6094,12 @@ pub(super) fn try_bud(
     // (`mind::inherit`); nothing in the game has one, so this returns at once.
     if world.minds.is_some() {
         mind::inherit(world, organism, child);
+        // **The father store** (`sim::fathers`, seat demos): here and not
+        // inside `mind::inherit`, which runs again when the egg hatches and
+        // would spend a queued father twice. `None` outside a demo.
+        if world.fathers.is_some() {
+            crate::sim::fathers::on_egg(world, organism, child);
+        }
     }
     // **The line's own history, checked after the mutation that could have
     // moved it** -- see `World::note_line_generation`/`note_line_record`'s
@@ -23066,7 +23079,15 @@ fn breeding_regime() -> BreedingRegime {
 /// of the off path.
 fn regime_of_colony(world: &World, colony: u32) -> BreedingRegime {
     match world.steered.as_ref() {
-        Some(s) if s.colony == colony && s.role == crate::sim::steer::SteerRole::Queen => BreedingRegime::Queen,
+        // With a hold set (the queen seat) the rule lasts only while she
+        // holds: past it her colony breeds like any other until she lays.
+        Some(s)
+            if s.colony == colony
+                && s.role == crate::sim::steer::SteerRole::Queen
+                && (s.hold.is_none() || crate::sim::steer::holding_queen(world, colony).is_some()) =>
+        {
+            BreedingRegime::Queen
+        }
         _ => breeding_regime(),
     }
 }
@@ -23627,7 +23648,19 @@ fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: Or
         // common regime there is.
         BreedingRegime::Individual => bar,
         BreedingRegime::Queen => {
-            if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
+            // **The queen seat's hold**: while the steered queen holds, she
+            // lays and nobody else does, whoever bred during a lapse. The
+            // plain rule below would shut her out for good once a worker
+            // had `children > 0` (it counts a breeder for life), so the
+            // player's next egg could never bring her rule back. `None`
+            // outside the demo: one `Option` read.
+            if let Some(q) = crate::sim::steer::holding_queen(world, colony) {
+                if q == organism {
+                    bar
+                } else {
+                    f32::INFINITY
+                }
+            } else if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
                 f32::INFINITY
             } else {
                 // **A queenless colony resumes** (owner's ruling): no
@@ -55254,6 +55287,59 @@ mod tests {
             f32::INFINITY,
             "`c` was not shut out by `b`, the colony's successor breeder"
         );
+    }
+
+    /// **The queen seat's hold** (`Steered::hold`, 2026-10-25): while the
+    /// steered queen holds she alone lays, even after a lapse made a worker
+    /// a breeder; past the hold her colony runs the process regime; her
+    /// next egg brings the rule back. The first assert is the lock-out the
+    /// plan review predicted, with no hold set: the plain queen rule shuts
+    /// her out for good once `b` has bred, so it is the positive control
+    /// for the exemption below it.
+    #[test]
+    fn the_queens_hold_lapses_lets_workers_lay_and_returns_on_her_next_egg() {
+        let (mut w, founders) = breeding_colony(3, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder a").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        let (a, b, c) = (founders[0], founders[1], founders[2]);
+        let pos_of = |w: &World, id: OrganismId| *w.organism(id).expect("alive").chain.first().expect("has a body");
+        let bar = 500.0;
+        let read = |w: &World, id: OrganismId| {
+            let (x, y) = pos_of(w, id);
+            suppress_bar(regime_of_colony(w, colony), 24, w, id, colony, (x, y), bar).0
+        };
+        assert!(crate::sim::steer::mark(&mut w, a, None));
+        // A worker bred during a lapse (her egg, too: she is a breeder).
+        for id in [a, b] {
+            if let Some(s) = w.organism_mut(id) {
+                s.children = 1;
+            }
+            w.record_breeder(colony, id);
+        }
+        assert_eq!(read(&w, a), f32::INFINITY, "test setup: the plain queen rule did not lock her out, so the exemption is untested");
+
+        let hold = 1_000;
+        let start = w.frame;
+        w.steered.as_mut().expect("marked").hold = Some(hold);
+        w.steered.as_mut().expect("marked").last_lay = start;
+        assert_eq!(regime_of_colony(&w, colony), BreedingRegime::Queen);
+        assert_eq!(read(&w, a), bar, "the holding queen was shut out by a worker that bred in a lapse");
+        assert_eq!(read(&w, b), f32::INFINITY, "a worker laid while the queen held");
+        assert_eq!(read(&w, c), f32::INFINITY, "a worker laid while the queen held");
+
+        w.frame = start + hold + 1;
+        assert_eq!(crate::sim::steer::holding_queen(&w, colony), None);
+        assert_eq!(regime_of_colony(&w, colony), breeding_regime(), "the lapsed colony did not fall back to the process regime");
+        assert!(crate::sim::steer::hold_left(&w) == Some(0.0));
+
+        // Her next egg (`try_bud` writes `last_lay`): the rule is back.
+        w.steered.as_mut().expect("marked").last_lay = w.frame;
+        assert_eq!(read(&w, a), bar);
+        assert_eq!(read(&w, b), f32::INFINITY, "the returned rule did not shut the worker out again");
     }
 
     /// **`graded`'s multiplier, at both ends and the middle.** `0` is the

@@ -147,6 +147,17 @@ pub struct Steered {
     /// for replay; no replay has been shown yet** (slice 1 must show one
     /// exact replay before anything relies on it).
     pub log: Option<Vec<(u64, SteerInput)>>,
+    /// **The frame she last laid** (the queen seat's hold): set at marking
+    /// and in `try_bud`'s success path when she is the layer.
+    pub last_lay: u64,
+    /// **The queen seat's hold**, in frames (`None`: slice 0's rule, the
+    /// queen rule for her colony for the whole run). `Some(h)`: her rule
+    /// lasts `h` frames past her last egg; past that her colony runs the
+    /// process regime and any worker may lay, and her next egg brings the
+    /// rule back -- she is never suppressed while it holds, which the plain
+    /// queen rule would do the moment a lapse made a worker a breeder (it
+    /// counts `children > 0` for life). See [`holding_queen`].
+    pub hold: Option<u64>,
 }
 
 impl Steered {
@@ -181,6 +192,8 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
         latched: SteerInput::default(),
         used: SteerInput::default(),
         log: None,
+        last_lay: world.frame,
+        hold: None,
     });
     true
 }
@@ -221,6 +234,26 @@ pub fn is_steered(world: &World, organism: OrganismId) -> bool {
         None => false,
         Some(s) => s.id == organism && world.organism(organism).is_some_and(|st| st.born_frame == s.born_frame),
     }
+}
+
+/// **The steered queen of `colony` while her hold is up** (`Steered::hold`
+/// set, she is alive, and her last egg is at most `hold` frames old). `None`
+/// with no hold set, so slice 0's rule is untouched: `regime_of_colony` and
+/// `suppress_bar` read this only to *add* the hold's two facts -- the
+/// colony keeps the queen rule only while she holds, and while she holds she
+/// alone lays.
+pub fn holding_queen(world: &World, colony: u32) -> Option<OrganismId> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?;
+    (s.role == SteerRole::Queen && s.colony == colony && world.frame.saturating_sub(s.last_lay) <= hold && is_steered(world, s.id)).then_some(s.id)
+}
+
+/// **What is left of her hold**, `1.0` the frame she lays down to `0.0` when
+/// it lapses; `None` with no hold set or nobody steered. The HUD's bar.
+pub fn hold_left(world: &World) -> Option<f32> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?.max(1);
+    Some(1.0 - (world.frame.saturating_sub(s.last_lay) as f32 / hold as f32).min(1.0))
 }
 
 /// **The keyboard's input for `organism` this decision**, if it is the
@@ -521,6 +554,8 @@ mod tests {
                         latched: held,
                         used: held,
                         log: None,
+                        last_lay: 0,
+                        hold: None,
                     })
                 }
                 Some(Some(_)) => {

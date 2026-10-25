@@ -237,11 +237,21 @@ impl Lab {
         let mut demo = Demo::new(seat);
         demo.args = args;
         self.demo = Some(demo);
+        // `seed=N` on the command line reseeds the demo's box.
+        let seed = self.demo.as_ref().and_then(|d| d.args.get("seed")).and_then(|v| v.parse::<u64>().ok());
         let msg = match super::scenario::Scenario::load(&seat.scenario_name()) {
-            Ok(s) => self.load_scenario(s),
+            Ok(mut s) => {
+                if let Some(sd) = seed {
+                    s.bed.seed = sd;
+                }
+                self.load_scenario(s)
+            }
             Err(e) => format!("NO SCENARIO {} YET ({e}) -- OPENING ON THE SAVED BOX", seat.scenario_name().to_uppercase()),
         };
         self.demo_bind_body();
+        // The lab's welcome window would cover the box: a demo opens on its
+        // own help line instead (`H` shows it again).
+        self.show_help = false;
         format!("{msg} -- {}", help_line(seat))
     }
 

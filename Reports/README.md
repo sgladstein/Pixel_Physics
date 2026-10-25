@@ -5761,6 +5761,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   moves trained ants (sharing -95%, hunger spread doubled, 16/16 seeds), with no payoff; a louder food trail read as
   "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
   bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
+  **Queen seat demo: first playable** ([`queen-seat-demo.md`](teaching-the-colony-2026-10-25/queen-seat-demo.md),
+  2026-10-25, `demo=queen`): the player is the founding queen and the colony's only layer. Each egg of hers draws a
+  father from the 30 shipped minds. P makes the next egg a wild (3x) or feral (10x) mutant that founds a coloured
+  line, Y keeps a line for 5 eggs, and a 6,000-frame hold lapses to worker laying if she stops. Measured first: the
+  30 minds barely differ (M0a), while at feral width 17 of 20 mutants are visibly broken foragers and 2 are jewels
+  (M0b). Lab colonies' founder deaths follow the ant's id, not its mind. Review, plans and data in `queen/`.
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,

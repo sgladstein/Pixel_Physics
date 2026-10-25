@@ -4436,6 +4436,10 @@ pub struct World {
     /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
     /// game: no ant has one, and the tick reads this once to know.
     pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
+    /// **Whose mind an egg carries** (`sim::fathers`, seat demos): `None`
+    /// unless a demo fills it, and then an egg of a colony with a store may
+    /// carry a drawn father's mind rather than its layer's.
+    pub fathers: Option<Box<crate::sim::fathers::Fathers>>,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
     /// `None` follows the environment, which is on unless set to `anywhere`; a field for
@@ -7507,6 +7511,7 @@ impl World {
             targets: None,
             option_shadow: false,
             minds: None,
+            fathers: None,
             bud_at_nest: None,
             dig_roof: None,
             food_door: None,
