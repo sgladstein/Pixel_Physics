@@ -5753,6 +5753,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   lab's hand tools, settled by two faked ten-minute slices. Warns that a learned sense entering at weight zero ships
   dead (the shipped pool's last-food weight is zeroed) and redesigns the memory layer: generic smell and place values,
   heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
+  Full designs for the guest, colony mind, enemy and lone scout seats, each reviewed and revised:
+  [`teaching-the-colony-2026-10-25/seats-overview.md`](teaching-the-colony-2026-10-25/seats-overview.md).
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,

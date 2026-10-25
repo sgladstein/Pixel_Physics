@@ -392,8 +392,10 @@ pub fn cross_on() -> bool {
 /// **On by default since 2026-10-24** (owner: "Everything should be on by default"); `=off` is the game before.
 /// What the default costs, measured: on the colony bed with no spider the bite has no stranger to act on, and the
 /// blank verb it enters as (`mind::enter_bite`) cost nothing past the mutant draw's own noise (stage two, 12 seeds);
-/// a genome that holds Attack banned -- every trained pool, the lab's new ant included -- still never bites
-/// outside `inrun`, which is the only caller of `enter_bite`.
+/// a genome that holds Attack banned still never bites outside `inrun`, which is the only caller of `enter_bite`.
+/// **Not every trained pool holds it banned** (seat reviews, 2026-10-25): `assets/minds/std_pool.txt`, the lab's
+/// trained ant, sets the Attack switch (slot 8) to 1 in member 0 and no other member's delta touches it, so all 30
+/// members bite a stranger in reach (`mind::attack`). Read a pool's slot 8 before assuming its ants are peaceable.
 pub fn attack_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_ATTACK").as_deref() {
