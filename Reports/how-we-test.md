@@ -268,6 +268,13 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   emitters gives exactly the deaf result when ants are the only readers and
   writers of a plane, so a "silent" arm is a wasted arm
   (evolvable-pheromones-2026-10-25 §4).
+- **A per-member score in a lab colony measures the ant's id, not its mind, unless
+  the member order is shuffled.** The lab hands ant `id` the member `id % n`, and
+  which founders live through the thin start follows the id: on `steady_income`
+  members 6-25 lost both founders by ~1,100 frames on all 16 unshuffled runs,
+  while a copy of member 7 under another label foraged normally. Shuffle labels
+  per seed (`queen_m0 shuffle=1`) and compare against a label-permutation null
+  (`Reports/teaching-the-colony-2026-10-25/queen-seat-demo.md`, M0a).
 
 ## 5. Tools, by question
 

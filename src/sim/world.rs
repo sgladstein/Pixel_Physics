@@ -4436,6 +4436,10 @@ pub struct World {
     /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
     /// game: no ant has one, and the tick reads this once to know.
     pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
+    /// **Whose mind an egg carries** (`sim::fathers`, seat demos): `None`
+    /// unless a demo fills it, and then an egg of a colony with a store may
+    /// carry a drawn father's mind rather than its layer's.
+    pub fathers: Option<Box<crate::sim::fathers::Fathers>>,
     /// **The recall head** (`creature::recall`): a scripted gain by which a
     /// mind ant's remembered food place tilts its walk, and the meal copy
     /// that passes the place on. `None` in the shipped lab and game; set by
@@ -7512,6 +7516,7 @@ impl World {
             targets: None,
             option_shadow: false,
             minds: None,
+            fathers: None,
             recall: crate::sim::creature::recall::Recall::from_env(),
             bud_at_nest: None,
             dig_roof: None,
