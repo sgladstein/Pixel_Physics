@@ -66,6 +66,9 @@ struct Side {
     /// Bites this colony's ants gave and strangers they touched (`World::encounter_log`; a touch is logged only for
     /// the game's stranger alarm).
     bites_given: u64,
+    /// Food cells swallowed away from home (inrun's `field`): a colony can live off the heaps without carrying
+    /// anything home, and `delivered` alone cannot tell that from starving.
+    field_eat: u64,
     touches: u64,
 }
 
@@ -399,6 +402,11 @@ fn main() {
             }
         }
         for r in w.food_log.as_mut().unwrap().drain(..) {
+            if r.kind == creature::FOOD_SWALLOW && !r.flag {
+                if let Some(&s) = who.get(&r.who) {
+                    sides[s].field_eat += 1;
+                }
+            }
             if r.kind == creature::FOOD_DROP && r.flag {
                 if let Some(&s) = who.get(&r.who) {
                     if (r.at.0 - sides[s].x).abs() <= 12 {
@@ -502,6 +510,47 @@ fn main() {
             }
         }
     }
+    // The nest each colony left: open cells (empty or an animal) below the datum joined to its door, flooded from
+    // the door's columns within 40 columns of it. `nest_deep` is 3+ rows down, `crater` the top three rows. Cuts
+    // alone pay a colony that churns the same ground (the first tournament's champions cut 5,000 cells a match and
+    // left a shallow pit), so this is the nest a tournament should score.
+    let mut nest_open = [(0u32, 0u32); 2];
+    for s in (0..2).filter(|&s| present[s]) {
+        let x0 = sides[s].x;
+        let row = |x: i32| surf[x.clamp(0, colony_bed::SIZE.0 - 1) as usize];
+        let mut seen = std::collections::HashSet::new();
+        let mut stack: Vec<(i32, i32)> = Vec::new();
+        for dx in -2..=2 {
+            for dy in 0..6 {
+                let (x, y) = (x0 + dx, row(x0 + dx) + dy);
+                if inrun::open(&w, x, y) && seen.insert((x, y)) {
+                    stack.push((x, y));
+                }
+            }
+        }
+        while let Some((x, y)) = stack.pop() {
+            if y >= row(x) + 3 {
+                nest_open[s].0 += 1;
+            } else {
+                nest_open[s].1 += 1;
+            }
+            for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                if (nx - x0).abs() <= 40 && nx >= 0 && nx < colony_bed::SIZE.0 && ny >= row(nx) && ny < colony_bed::SIZE.1 && inrun::open(&w, nx, ny) && seen.insert((nx, ny)) {
+                    stack.push((nx, ny));
+                }
+            }
+        }
+    }
+    // map=PATH: the ground around both nests at the end, one char a cell (inrun's `cell_char`: `.` open, `a` an
+    // animal, `f` provisions, `#` anything else), rows from 4 above the datum.
+    if let Some(p) = arg(&a, "map") {
+        let mut f = std::fs::File::create(p).unwrap();
+        let (xa, xb) = ((xs[0] - 40).max(0), (xs[1] + 40).min(colony_bed::SIZE.0 - 1));
+        writeln!(f, "x {xa}..={xb}, rows {}.., nests at {} and {}", surf[xs[0] as usize] - 4, xs[0], xs[1]).unwrap();
+        for y in surf[xs[0] as usize] - 4..colony_bed::SIZE.1 - 1 {
+            writeln!(f, "{}", (xa..=xb).map(|x| inrun::cell_char(&w, x, y)).collect::<String>()).unwrap();
+        }
+    }
     let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
     let mut alive = [0usize; 2];
     for id in inrun::ants(&w, sp) {
@@ -513,7 +562,7 @@ fn main() {
     for s in (0..2).filter(|&s| present[s]) {
         let b = &sides[s];
         println!(
-            "RESULT seed={seed} {arm} side={} alive={} lived={:.1} peak={} delivered={} nest_cuts={} deep_cuts={} other_cuts={} killed={} starved={} kills_of_foe={} first_kill={} bites_given={} touches={}",
+            "RESULT seed={seed} {arm} side={} alive={} lived={:.1} peak={} delivered={} nest_cuts={} deep_cuts={} other_cuts={} killed={} starved={} kills_of_foe={} first_kill={} bites_given={} touches={} field_eat={} nest_deep={} crater={}",
             ["west", "east"][s],
             alive[s],
             b.lived as f64 / frames as f64,
@@ -527,7 +576,10 @@ fn main() {
             b.kills_of_foe,
             b.first_kill.map_or("-".to_string(), |f| f.to_string()),
             b.bites_given,
-            b.touches
+            b.touches,
+            b.field_eat,
+            nest_open[s].0,
+            nest_open[s].1
         );
     }
     println!("mind acts: bites {} kills {} flesh {} | alarm laid {:.1}", k.bites, k.kills, k.flesh, k.laid[2]);

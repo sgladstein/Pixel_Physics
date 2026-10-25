@@ -4,7 +4,7 @@
 The owner asked whether selecting colonies for how they do beside a rival would just breed peaceful pairs. This tries
 it. Each round the colonies are paired at random; each pair plays two matches on `examples/rivalbed.rs` (sides swapped,
 different seeds); a colony scores, per match, its share of the pair's ants over the run (`lived`) plus half its share
-of the pair's nest cuts -- a score against the rival, so two colonies at peace tie and whichever takes the other's
+of the pair's nest cuts (`score=` sets the terms) -- a score against the rival, so two colonies at peace tie and whichever takes the other's
 ground wins. Inside a match every hatchling is a mutant of its layer (`mutate=`), so each colony is under natural
 selection too. The winner's survivors (`save=`) found both of the pair's colonies next round, one from each match.
 
@@ -23,6 +23,9 @@ opt = dict(a.split('=', 1) for a in own)
 NCOL, ROUNDS, FRAMES, P = int(opt.get('ncol', 12)), int(opt.get('rounds', 16)), int(opt.get('frames', 60000)), int(opt.get('P', 4))
 BIN = opt.get('bin', 'target/release/examples/rivalbed')
 SEED0 = int(opt.get('seed0', 0))
+# score=KEY:W,...: a colony's match score is the sum of W x its share of the pair's KEY (a RESULT field). Default the
+# first tournament's, lived:1,nest_cuts:0.5 -- whose champions stopped carrying food home and cut 5,000 cells a match.
+SCORE = [(k, float(w)) for k, w in (p.split(':') for p in opt.get('score', 'lived:1,nest_cuts:0.5').split(','))]
 assert NCOL % 2 == 0, 'ncol must be even'
 os.makedirs(OUT, exist_ok=True)
 state_p = f'{OUT}/state.json'
@@ -71,7 +74,7 @@ for r in range(st['round'], ROUNDS):
     for (pi, m, west, east, seed), (d, rows) in done:
         for side, c, other in (('west', west, 'east'), ('east', east, 'west')):
             a, b = rows[side], rows[other]
-            s = share(float(a['lived']), float(b['lived'])) + 0.5 * share(float(a['nest_cuts']), float(b['nest_cuts']))
+            s = sum(wt * share(float(a[k]), float(b[k])) for k, wt in SCORE)
             score[c] += s
             best.setdefault(c, []).append((s, f'{d}/save/{side}', int(a['alive'])))
             rows_out.append([r, pi, m, c, side, seed, a['lived'], a['alive'], a['nest_cuts'], a['delivered'], a['kills_of_foe'], a['killed'], a['starved'], a.get('bites_given', ''), f'{s:.4f}'])
