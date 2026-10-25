@@ -71,7 +71,11 @@ def count(d, frames=None):
     crater = sum(1 for dy in range(H) for dx in range(door - REACH, door + REACH + 1)
                  if grid[dy][dx] == e and below(dx, dy) and (dx, dy) not in nest)
     spoil = sum(1 for dy in range(H) for dx in range(door - REACH, door + REACH + 1) if grid[dy][dx] == sp and below(dx, dy))
-    out = {'nest': len(nest), 'crater': crater, 'spoil': spoil, 'nestcuts': None, 'nestcuts_late': None, 'spoil_in': None}
+    # nest_open (teacher lane, 2026-10-25): the nest's cells that are still open air, not stored food or crumbs. The
+    # owner's "too small" read as a nest of ~100 open cells under ~500 cells of food in every trained colony (pictures
+    # https://claude.ai/artifact/7CykXk4N8PiKzo1BEomvVz), while `nest` counts the food as room.
+    nest_open = sum(1 for dx, dy in nest if grid[dy][dx] == e)
+    out = {'nest': len(nest), 'nest_open': nest_open, 'crater': crater, 'spoil': spoil, 'nestcuts': None, 'nestcuts_late': None, 'spoil_in': None}
     ev = f'{d}/events.csv'
     if not os.path.exists(ev) and not os.path.exists(ev + '.gz'):
         return out
