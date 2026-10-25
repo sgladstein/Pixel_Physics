@@ -214,6 +214,15 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     }
 }
 
+/// **Whether a seat routes a body letter itself** (`E Q F G B L T`) rather
+/// than handing it to the steered body. No seat takes one yet: a seat that
+/// does adds its arm here and routes the letter in `demo_key` beside
+/// `queen::seat_key`.
+pub fn seat_takes(seat: DemoSeat, c: char) -> bool {
+    let _ = (seat, c);
+    false
+}
+
 /// The one-line key reminder each seat shows on `H` and at start.
 pub fn help_line(seat: DemoSeat) -> String {
     let body = "ARROWS STEER -- E EAT, Q DROP, F FEED, G DIG, B BITE, L LAY, T TRAIL -- TAB FOLLOW -- PGUP/PGDN SPEED";
@@ -328,9 +337,10 @@ impl Lab {
     pub fn demo_key(&mut self, key: DemoKey, pressed: bool) -> bool {
         let Some(seat) = self.demo.as_ref().map(|d| d.seat) else { return false };
         // The seat's own keys first, so a seat can claim one even with no
-        // body (the keeper, the colony mind).
+        // body (the keeper, the colony mind) -- and a body letter it routes
+        // by its own rules (`seat_takes`: the guest seat's B and E).
         if let DemoKey::Letter(c) = key {
-            if matches!(c, 'Y' | 'U' | 'P' | 'J' | 'K' | 'R' | 'H') {
+            if matches!(c, 'Y' | 'U' | 'P' | 'J' | 'K' | 'R' | 'H') || seat_takes(seat, c) {
                 if pressed {
                     if c == 'H' {
                         let line = help_line(seat);

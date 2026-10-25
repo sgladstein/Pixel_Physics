@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus", "beds", "round", "rounds", "pick", "keep", "pmut", "fmut", "garden", "gframes", "save", "load", "pool"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus", "beds", "round", "rounds", "pick", "keep", "pmut", "fmut", "garden", "gframes", "save", "load", "pool", "bed"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -87,7 +87,10 @@ fn mix(name: &str) -> Vec<&'static str> {
         "stand-shrub" => vec!["tree", "herb", "creeper"],
         "stand-herb" => vec!["tree", "shrub", "creeper"],
         "stand-creeper" => vec!["tree", "shrub", "herb"],
-        other => panic!("mix={other} is not mix7|roles4|roles|stand-ROLE"),
+        // **The pooled roles `played_bed` sows** (`bed=played`): one tree,
+        // three shrubs, four herbs; its scrambler and grass are not pooled.
+        "played" => vec!["tree", "shrub", "herb"],
+        other => panic!("mix={other} is not mix7|roles4|roles|stand-ROLE|played"),
     }
 }
 
@@ -2152,6 +2155,12 @@ struct BedEnd {
     leaf: Vec<u64>,
     harvest: BTreeMap<String, Vec<PlantGenome>>,
     transplanted: usize,
+    /// `bed=played` only: the colony's larder over the round -- mean edible
+    /// food at each 25,000-frame sample (`lab::census`), the ants at the
+    /// end, and the colony's starved deaths.
+    food: u64,
+    ants: usize,
+    starved: u64,
 }
 
 /// One bed of `mode=bedsel`: the community bed at `seed`, its founders
@@ -2165,7 +2174,30 @@ fn bedsel_bed(m: &BTreeMap<String, String>, seed: u64, frames: u64, pool: &BTree
     // judge's "shipped" arm would both be someone else's selection.
     mm.insert("pool".into(), "0".into());
     mm.insert("heredity".into(), if heredity { "on" } else { "off" }.into());
-    let (mut w, bed, scenario, species, _, _) = community_bed(&mm);
+    // **`bed=played`: the lab's own bed with its colony** (2026-10-25). The
+    // four-role pool bred without ants fed the colony a quarter less food
+    // in the game (`Reports/plant-community-2026-10-20/m2/bedsel/`), so this
+    // breeds where the plants will live -- `played_bed` as the game builds
+    // it, ants landing at frame 6,000 -- stepped by `lab::tick_world`, the
+    // game's own tick with the timeline and the mister.
+    let played = m.get("bed").map(String::as_str) == Some("played");
+    let (mut w, bed, scenario, species) = if played {
+        let mut sc = Scenario::load("played_bed").expect("played_bed loads");
+        sc.bed.seed = seed;
+        sc.bed.plant_pool = false;
+        let (mut w, _, _) = sc.build();
+        // `community_bed`'s heredity dials, for the same reasons.
+        w.fate_mutation_chance = 0.0;
+        w.param_mutation_chance = 0.0;
+        if !heredity {
+            w.mutation_sigma = 0.0;
+            w.founder_variant_chance = 0.0;
+        }
+        (w, sc.bed.clone(), sc, mix("played"))
+    } else {
+        let (w, bed, scenario, species, _, _) = community_bed(&mm);
+        (w, bed, scenario, species)
+    };
     if heredity {
         // `community_bed` zeroes the two coarse dials for a census of
         // today's species; selection needs a lineage to be able to leave
@@ -2188,9 +2220,19 @@ fn bedsel_bed(m: &BTreeMap<String, String>, seed: u64, frames: u64, pool: &BTree
         transplanted += 1;
     }
     let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
-    for _ in 0..frames {
+    let ids = pixel_physics::lab::census::Ids::resolve(&w);
+    let (mut food_sum, mut food_n) = (0u64, 0u64);
+    for f in 1..=frames {
         pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
+        if played && f % 25_000 == 0 {
+            let nest = pixel_physics::lab::census::nest_columns(&w, &bed, Some(&scenario));
+            food_sum += pixel_physics::lab::census::census(&w, &bed, 0.0, &nest, &ids).edible as u64;
+            food_n += 1;
+        }
     }
+    let food = food_sum / food_n.max(1);
+    let ants = w.live_creature_count();
+    let starved = if played { pixel_physics::lab::census::colony_deaths(&w, &bed.colony_species).0 } else { 0 };
     if let Some(path) = shot_path {
         shot(&mut w, &particles, &mut pixel_physics::render::Renderer::new(), &bed, get(m, "below", 20usize), &path);
     }
@@ -2221,7 +2263,7 @@ fn bedsel_bed(m: &BTreeMap<String, String>, seed: u64, frames: u64, pool: &BTree
             .collect();
         harvest.insert(species[i].to_string(), gs);
     }
-    BedEnd { leaf, harvest, transplanted }
+    BedEnd { leaf, harvest, transplanted, food, ants, starved }
 }
 
 /// A bed's rank in `mode=bedsel`: roles holding 100+ leaf first, then the
@@ -2259,9 +2301,14 @@ fn bedsel(m: &BTreeMap<String, String>) {
     let garden: usize = get(m, "garden", 8);
     let gframes: u64 = get(m, "gframes", 300_000);
     assert!(pick == "types" || pick == "random", "pick={pick} is not types|random");
-    let species = mix(&get(m, "mix", "roles4".to_string()));
+    let played = m.get("bed").map(String::as_str) == Some("played");
+    if played {
+        pixel_physics::sim::creature::mutation_off_for_measuring();
+    }
+    let species = if played { mix("played") } else { mix(&get(m, "mix", "roles4".to_string())) };
     println!(
-        "plant_m0 bedsel: beds={beds} round={round} rounds={rounds} pick={pick} seed={base} keep={} pmut={} fmut={} garden={garden} gframes={gframes} roles={species:?}",
+        "plant_m0 bedsel: bed={} beds={beds} round={round} rounds={rounds} pick={pick} seed={base} keep={} pmut={} fmut={} garden={garden} gframes={gframes} roles={species:?}",
+        if played { "played" } else { "community" },
         get(m, "keep", 8usize),
         get(m, "pmut", 0.1f32),
         get(m, "fmut", pixel_physics::sim::plant::fate_mutation_chance_seed())
@@ -2289,7 +2336,13 @@ fn bedsel(m: &BTreeMap<String, String>) {
         let ends = run_all(&seeds, round, &pool, true, None);
         let mut order: Vec<usize> = (0..beds).collect();
         if pick == "types" {
-            order.sort_by_key(|&i| (std::cmp::Reverse(bedsel_rank(&ends[i].leaf)), i));
+            // `bed=played`: kinds first, then the colony's larder -- never
+            // one summed score, so food cannot buy back a lost kind.
+            if played {
+                order.sort_by_key(|&i| (std::cmp::Reverse((bedsel_rank(&ends[i].leaf).0, ends[i].food)), i));
+            } else {
+                order.sort_by_key(|&i| (std::cmp::Reverse(bedsel_rank(&ends[i].leaf)), i));
+            }
         } else {
             let mut rng = pixel_physics::sim::rng::stream(base, r as u64, 0x5e1, 0);
             for i in (1..order.len()).rev() {
@@ -2300,22 +2353,29 @@ fn bedsel(m: &BTreeMap<String, String>) {
         for (i, e) in ends.iter().enumerate() {
             let (t, lo) = bedsel_rank(&e.leaf);
             println!(
-                "BED r={r} bed={i} seed={} types={t} weakest={lo} leaf={} given={} parent={}",
+                "BED r={r} bed={i} seed={} types={t} weakest={lo} food={} ants={} starved={} leaf={} given={} parent={}",
                 seeds[i],
+                e.food,
+                e.ants,
+                e.starved,
                 species.iter().zip(&e.leaf).map(|(n, l)| format!("{n}:{l}")).collect::<Vec<_>>().join(","),
                 e.transplanted,
                 parents.contains(&i)
             );
         }
         let mean_types = ends.iter().map(|e| bedsel_rank(&e.leaf).0).sum::<usize>() as f64 / beds as f64;
-        let mut next: BTreeMap<String, Vec<PlantGenome>> = BTreeMap::new();
+        let mean_food = ends.iter().map(|e| e.food).sum::<u64>() / beds as u64;
+        // A role this bed does not sow (the creeper, under `bed=played`)
+        // is carried over untouched, so the pool keeps all four.
+        let mut next: BTreeMap<String, Vec<PlantGenome>> =
+            pool.iter().filter(|(role, _)| !species.contains(&role.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
         for &p in &parents {
             for (role, gs) in &ends[p].harvest {
                 next.entry(role.clone()).or_default().extend(gs.iter().copied());
             }
         }
         println!(
-            "ROUND r={r} mean_types={mean_types:.2} pool={} elapsed={:.0}s",
+            "ROUND r={r} mean_types={mean_types:.2} mean_food={mean_food} pool={} elapsed={:.0}s",
             next.iter().map(|(k, v)| format!("{k}:{}", v.len())).collect::<Vec<_>>().join(","),
             started.elapsed().as_secs_f64()
         );

@@ -8002,12 +8002,16 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // would ignore every key. While the keyboard drives her she takes this
     // path -- her outputs are the keys' anyway (`steered_outputs`) -- and
     // above the steering cap (`input` `None`) her mind drives her again.
-    // **Ants only**: a steered body of another species with a mind (the
-    // enemy seat's centipede) still falls through to `mind::tick`, where its
-    // own player hook lives. Nobody steered: one more `Option` read.
+    // **The queen's body only** (`SteerRole::Queen`, an ant): she lays on L
+    // and digs and packs by slice 0's tested hooks, which the mind has no
+    // verb for. Every other steered mind body -- the scout seat's worker, the
+    // enemy seat's centipede -- stays in `mind::tick`, where the forced pick
+    // (`steer::take_forced`) drives it, so a worker body keeps her sisters'
+    // rules. Nobody steered: one more `Option` read.
     if world.minds.is_some()
         && mind::has(world, organism)
         && !(crate::sim::steer::input_of(world, organism).is_some()
+            && world.steered.as_ref().is_some_and(|s| s.role == crate::sim::steer::SteerRole::Queen)
             && world.organism(organism).is_some_and(|s| world.species.get(s.species).name == "ant"))
     {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
@@ -11608,7 +11612,8 @@ pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
 }
 
 /// **The price of one brain link, as a factor on `synapse_fraction`**
-/// (`PIXEL_PHYSICS_LINK_PRICE`, unset 1.0: the bill exactly as authored).
+/// (`PIXEL_PHYSICS_LINK_PRICE`, default 0.25 since 2026-10-25; `=1` is the
+/// bill exactly as authored).
 /// One factor for every animal and every brain -- the game's `brain.rs` and a
 /// mind alike, in training and the lab -- because a link costs the same in
 /// every world (owner, 2026-10-21: one physics).
@@ -11622,13 +11627,23 @@ pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
 /// at 1.0, 50 at 0.75, 89 at 0.5, 114 at 0.25 and 150 at 0 -- the
 /// hand-built ant 129, and 132 at 0 (`examples/labsurvive.rs tax=`). The
 /// training bed never feels the bill (food 25 columns out, 3 tanks a
-/// founder), so selection has not shed it. Whether a cheaper link or a bed
-/// that bills it is the fix is the owner's and the Teacher lane's call;
-/// unset is today's price.
+/// founder), so selection has not shed it.
+///
+/// **0.25 by default** (owner, 2026-10-25, on the Teacher lane's
+/// recommendation: "make the cheaper brain the default"). linkprice1 trained
+/// colonies at 1, 0.25 and 0 (32 x 24, the standard pool): at 1 the food ramp
+/// never left 100 columns; cheaper prices reached 120-125, the garden starved
+/// 2 against 39, and in the lab box the price, not the training, set the range
+/// (fruit 200 columns out: the standard pool 20/39 alive at 1, 163/146 at 0;
+/// colonies trained at 0 kept only 0-9 at 1). Why 0.25 and not 0: at 0 a
+/// link costs nothing, so nothing in the world ever charges for thinking,
+/// which is the unrealistic end; 0.25 puts the trained ant's brain at about
+/// twice an idle body's burn and gives 114 alive at fruit 200, the hand-built
+/// ant's level (129), whose own ~50 links barely notice the price.
 pub fn link_price() -> f32 {
     static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *F.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_LINK_PRICE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(1.0)
+        std::env::var("PIXEL_PHYSICS_LINK_PRICE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(0.25)
     })
 }
 
@@ -15058,6 +15073,13 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         pellet.material = hauled;
     }
     world.dug_cells.insert(ahead);
+    // The cut log too (`World::cut_log`): this cut had been missing from it since the log was built, so a reader that
+    // rebuilds the hole from the log disagreed with `dug_cells` once a run reached it (Teacher lane, 2026-10-25: the
+    // option test's hole check failed at the cheaper link price, frame 525, a cell only this cut had opened).
+    let frame = world.frame;
+    if let Some(log) = world.cut_log.as_mut() {
+        log.push((ahead.0, ahead.1, frame, organism));
+    }
     if let Some(s) = world.organism_mut(organism) {
         s.spoil = Some(Spoil { cell: pellet, store: false });
     }

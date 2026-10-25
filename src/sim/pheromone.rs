@@ -979,6 +979,15 @@ fn a_rho() -> f32 {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_RHO").ok().and_then(|s| s.parse().ok()).unwrap_or(TRAIL_A_RHO))
 }
 
+/// `PIXEL_PHYSICS_A_DIFFUSE`: channel A's blend per pass, unset meaning the shipped [`DIFFUSE`] -- the partner of
+/// [`a_rho`] (evolvable-pheromones lane, 2026-10-25). A had a fade switch and no blend switch, and the molecules
+/// sheet (`examples/molecules.rs`) measures the blend as the knob that sets a ground trail's width and much of its
+/// life: at blend 0.05 a laid-once trail still peaks at 3.0 of 255 after 4,800 frames, against 0.6 at 0.25.
+fn a_diffuse() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_DIFFUSE").ok().and_then(|s| s.parse().ok()).unwrap_or(DIFFUSE))
+}
+
 /// **The switch for how long a food trail (channel B) lasts** --
 /// `PIXEL_PHYSICS_B_RHO` (fade per pass) and `PIXEL_PHYSICS_B_DIFFUSE`
 /// (blend per pass). Unset, the engine runs [`DECAY_RHO`]/[`DIFFUSE`] and
@@ -1068,7 +1077,7 @@ impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
         Self {
             planes: [
-                PheromonePlane::with_params(bounds, DIFFUSE, a_rho()),
+                PheromonePlane::with_params(bounds, a_diffuse(), a_rho()),
                 PheromonePlane::with_params(bounds, b_diffuse(), b_rho()),
             ],
             alarm: None,

@@ -1111,7 +1111,10 @@ the review (§12), **M1 runs in this order**:
    (24 paired seeds x 500k, one build): plants 98 -> 119, but edible food
    2,906 -> 2,197 and leaf -30% (lower on 22 of 24), starved 139 -> 218,
    extinct 3 -> 6. Off by default for that harm (`PIXEL_PHYSICS_PLANT_POOL=1`).
-   Next: a pool bred in the lab bed with the colony, ranked on food too.
+   Bred again on the lab bed with the colony (`bed=played`, 8 x 8 x 150k,
+   kinds then food): per-round food flat, and judged with the mister on
+   (12 seeds) it matches the old pool -- edible -13%, starved 91 -> ~150-195,
+   alive 10 vs 12 of 12. Pool stays off; dead end recorded.
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with

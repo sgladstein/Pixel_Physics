@@ -5753,6 +5753,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   lab's hand tools, settled by two faked ten-minute slices. Warns that a learned sense entering at weight zero ships
   dead (the shipped pool's last-food weight is zeroed) and redesigns the memory layer: generic smell and place values,
   heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
+  Full designs for the guest, colony mind, enemy and lone scout seats, each reviewed and revised:
+  [`teaching-the-colony-2026-10-25/seats-overview.md`](teaching-the-colony-2026-10-25/seats-overview.md).
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
@@ -6005,6 +6007,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `PP_MIND_DOOR_OPEN`) and prices them on the pool trained under them. The caste's effect is all touch-feeding: more
   food home, but bigger craters in 6 of 8. The world deleting soil over the door every frame is load-bearing: without
   it, food carried home falls by about 60%.
+
+- [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
+  ants evolve their own scents (owner's ask, 2026-10-25): decode and tuning done, emergence test running.** A planned
+  palette of fixed molecules picked by a gene is parked after
+  [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
+  in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
+  selection off, 32 seeds: scent A carries the colony (deaf: nest 432 -> 51 cells, 32/32); B is laid only by laden
+  ants and reading it trades storing for feeding; the alarm plane carries nothing (a free channel). B fade 0.03 ->
+  0.25-0.40 stores more (441 -> 495) and builds more (432 -> 528), starvation unchanged, because slow B piles up in
+  the nest and homecoming foragers graze the store instead of digging (traced per ant). Switches: `PP_SCENT_DEAF`,
+  `PP_SCENT_SHIFT`, `PIXEL_PHYSICS_A_DIFFUSE`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
