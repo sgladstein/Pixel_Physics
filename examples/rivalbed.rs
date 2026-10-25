@@ -510,7 +510,7 @@ fn main() {
             }
         }
     }
-    // The nest each colony left: open cells (empty or an animal) below the datum joined to its door, flooded from
+    // The nest each colony left: open cells (empty, an animal or provisions) below the datum joined to its door, flooded from
     // the door's columns within 40 columns of it. `nest_deep` is 3+ rows down, `crater` the top three rows. Cuts
     // alone pay a colony that churns the same ground (the first tournament's champions cut 5,000 cells a match and
     // left a shallow pit), so this is the nest a tournament should score.
@@ -518,12 +518,14 @@ fn main() {
     for s in (0..2).filter(|&s| present[s]) {
         let x0 = sides[s].x;
         let row = |x: i32| surf[x.clamp(0, colony_bed::SIZE.0 - 1) as usize];
+        // Open, an animal, or provisions: a chamber holding the colony's store is still a chamber.
+        let hollow = |x: i32, y: i32| inrun::cell_char(&w, x, y) != '#';
         let mut seen = std::collections::HashSet::new();
         let mut stack: Vec<(i32, i32)> = Vec::new();
         for dx in -2..=2 {
             for dy in 0..6 {
                 let (x, y) = (x0 + dx, row(x0 + dx) + dy);
-                if inrun::open(&w, x, y) && seen.insert((x, y)) {
+                if hollow(x, y) && seen.insert((x, y)) {
                     stack.push((x, y));
                 }
             }
@@ -535,7 +537,7 @@ fn main() {
                 nest_open[s].1 += 1;
             }
             for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
-                if (nx - x0).abs() <= 40 && nx >= 0 && nx < colony_bed::SIZE.0 && ny >= row(nx) && ny < colony_bed::SIZE.1 && inrun::open(&w, nx, ny) && seen.insert((nx, ny)) {
+                if (nx - x0).abs() <= 40 && nx >= 0 && nx < colony_bed::SIZE.0 && ny >= row(nx) && ny < colony_bed::SIZE.1 && hollow(nx, ny) && seen.insert((nx, ny)) {
                     stack.push((nx, ny));
                 }
             }
