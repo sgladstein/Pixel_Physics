@@ -11305,7 +11305,7 @@ Training and lab tests take it by name: `predtrain species=centipede`,
   hunter-2) is the only one of four that makes a population in most lab
   boxes (4 of 6 runs; the untrained hunter 0), and it can eat a colony out
   (2 of 6). But it does it from the far end of the box, on the surface
-  175-250 columns from the door, eating the foragers that range out that
+  170-250 columns from the door, eating the foragers that range out that
   far; none was seen in the shaft. Training pays for food, and nothing pays
   for going in.
 

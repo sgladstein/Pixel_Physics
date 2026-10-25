@@ -117,7 +117,7 @@ colony (seed 4: 10 raiders and 205 ants at the end), and a boom that ate the col
 
 **And it still does not raid.** The seed-3 boom filmed over the whole box, 100,000 to 126,000 frames
 (`/mnt/project-files/predator/nest-raider/lab-boom-seed3-wholebox.gif`): the raiders live on the surface against
-the east wall, at columns 431-507, 175-250 columns from the door at 256, and eat the foragers that range out that
+the east wall, at columns 428-507, 170-250 columns from the door at 256, and eat the foragers that range out that
 far. None is in the shaft or a chamber in any frame. The trained pool makes a population by keeping its distance
 from the nest and picking off the far edge of the foraging range, which is a predator the colony has to answer, but
 not the one the owner asked for.
@@ -125,7 +125,7 @@ not the one the owner asked for.
 *Correction, 2026-10-25.* The first version of this paragraph said the raiders sat in two heaps 75 and 85 columns
 either side of the door. It was read from a crop of the box (columns 136-376) that held no raider at all: the two
 heaps are lab_mid_fruit's fruit bushes, drawn in their own many-coloured palette. A count of predator-red pixels in
-that GIF reads 0 in every frame; over the whole box it reads 83-140 cells' worth, all east of column 430. **Count
+that GIF reads 0 in every frame; over the whole box it reads 83-140 cells' worth, all east of column 427. **Count
 the predator's colour in a crop before describing where it is**: a picture with none of it in shows nothing.
 
 ## Where it goes next
