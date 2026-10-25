@@ -201,6 +201,9 @@ pub struct Pair {
     pub last_at: (i32, i32),
     /// Frames the leader's head has not moved.
     pub leader_still: u64,
+    /// Frames since the follower's head last moved (a step is one decision
+    /// in five or six, so "did not step this tick" says nothing alone).
+    pub follower_still: u64,
     /// Leader steps since the last landmark.
     pub since_landmark: u32,
     /// Arm B: a column member, no pauses or breaks.
@@ -499,6 +502,7 @@ fn start_pair(world: &mut World, leader: OrganismId, follower: OrganismId, colum
         over_for: 0,
         last_at: fat,
         leader_still: 0,
+        follower_still: 0,
         since_landmark: 0,
         column,
         cascade,
@@ -672,6 +676,7 @@ pub fn tick(world: &mut World) {
         }
         let g = contact_gap(world, p.follower, p.leader).unwrap_or_else(|| gap(fat, lat));
         let stepped = fat != p.last_at;
+        p.follower_still = if stepped { 0 } else { p.follower_still + 1 };
         p.last_at = fat;
         // Arrival: in the patch, and either food in reach or her leader stopped here for a second. The second
         // clause is the leader's word that this is the place: the heap is eaten down between drops, and in the
@@ -772,12 +777,19 @@ pub fn tick(world: &mut World) {
                     let len = k.sweep_legs[usize::from(leg).min(k.sweep_legs.len() - 1)];
                     let end = centre.0 + if east { len } else { -len };
                     let (mut leg, mut east) = (leg, east);
-                    if (east && fat.0 >= end) || (!east && fat.0 <= end) || !stepped && frame.saturating_sub(since) % 30 == 29 {
+                    // Blocked: she tries to climb for a while before turning back. The first cut reversed on any
+                    // tick she had not stepped on, which is five ticks in six for a walking ant, so she paced a
+                    // four-cell stretch for the whole search, leg counter racing, never reaching a leader eight
+                    // cells off (caught by the sweep test after a merge moved the box).
+                    let blocked = p.follower_still > 60;
+                    if (east && fat.0 >= end) || (!east && fat.0 <= end) || blocked {
                         east = !east;
                         leg = leg.saturating_add(1);
+                        p.follower_still = 0;
                     }
                     p.phase = Phase::Lost { since, centre, leg, east };
-                    dir = Some((if east { 1 } else { -1 }, 0));
+                    let dx = if east { 1 } else { -1 };
+                    dir = Some((dx, if p.follower_still > 20 { -1 } else { 0 }));
                 }
             }
         }

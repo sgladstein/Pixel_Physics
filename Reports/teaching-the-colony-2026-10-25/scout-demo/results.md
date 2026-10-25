@@ -78,6 +78,12 @@ better, is the owner's and is asked on the first-look page.
    seed-1 run. A trip home from the heap now renews it.
 6. **The welcome card covers every headless shot** unless
    `Lab::show_help = false`.
+7. **"Did not step this tick" is not "blocked".** The search first turned
+   back on any tick the pupil had not stepped on, which is five ticks in six
+   for a walking ant: she paced four cells for the whole search and never
+   reached a leader eight cells off. She now climbs after 20 still frames
+   and turns back after 60. No paired run above lost a pupil under a patient
+   leader, so the search never ran in them and their numbers stand.
 
 ## Frame cost
 
