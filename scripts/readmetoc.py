@@ -173,6 +173,10 @@ GAME = {
     # brain as a switch in the box. `lab` because only the lab builds it.
     "colony training in the box, and the new ant": "lab",
     "the held world — the third game, and time you carry": "held",
+    # The trained spider, and the handling time that keeps it from eating a
+    # colony at bite speed. `engine` because the rule is the species' in
+    # every world; the lab is only where it is stocked by hand.
+    "the spider: a trained predator, and a meal that takes time": "engine",
 }
 
 TOPICS = {
@@ -425,6 +429,9 @@ TOPICS = {
     ],
     "the held world — the third game, and time you carry": [
         "Held world status — the third game, and time you carry in a circle",
+    ],
+    "the spider: a trained predator, and a meal that takes time": [
+        "Spider status — a trained predator in the box, and a meal that takes time",
     ],
 }
 

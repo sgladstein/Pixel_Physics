@@ -3742,11 +3742,11 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
 /// the druid game stocks three of them (`src/druid/founding.rs`) and the
 /// creature-look probes in `examples/` still render them.
 ///
-/// **And the spider, until it has a trained mind** (lone predator thread,
-/// 2026-10-23): stocked by hand it would walk on its fallback instincts (the
-/// beetle's), which is not the animal being trained (`examples/predtrain.rs`).
-/// It comes onto the chip with its trained pool.
-pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale", "spider"];
+/// **The spider was held off too until it had a trained mind** (lone predator
+/// thread, 2026-10-23): stocked by hand it would have walked on its fallback
+/// instincts (the beetle's). It came onto the chip on 2026-10-25 with its
+/// trained pool (`training::SPIDER_POOL`, given by `Lab::give_spider_minds`).
+pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale"];
 
 /// Every species that can be *stocked* — the animals, in a stable order.
 ///

@@ -3501,6 +3501,13 @@ fn lay_home_on() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").map_or(true, |v| v.trim() != "off"))
 }
 
+/// **Whether this species' meals take the gut's time** (`CreatureDef::handling`): the species says so, unless
+/// `PIXEL_PHYSICS_HANDLING=off`.
+pub fn handling_on(def: &CreatureDef) -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    def.handling && !*OFF.get_or_init(|| std::env::var("PIXEL_PHYSICS_HANDLING").is_ok_and(|v| v.trim() == "off"))
+}
+
 pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Option<f32> {
     (def.reproduce_threshold > 0.0).then(|| {
         let bar = def.reproduce_threshold * reproduce_fraction(traits[TRAIT_REPRODUCE_AT]);
@@ -8190,7 +8197,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // scaling `start_energy` 900 -> 90 and leaving the tax alone spent 72
     // of a 90-point life on thinking, 80% of a life, and silently
     // dominated a three-knob sweep that had to be thrown away.
-    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let synapse_tax = def.synapse_fraction * link_price() * def.start_energy * active_synapses as f32;
     // **Metabolism is per body cell** (`idle_cost_per_cell`). Read once
     // here rather than at each of the three charge sites below: the chain
     // cannot change length between them, and a creature that steps into a
@@ -9028,7 +9035,8 @@ fn settle(
             // A packed lunch meeting food it cannot share a crop with is
             // finished this tick (`eat_lunch_now`, set in `act`): the whole
             // cell in progress, at the normal overhead.
-            let finish_lunch = world.organism(organism).is_some_and(|s| s.eat_lunch_now);
+            // A species with a handling time (`CreatureDef::handling`) is not hurried: the cell finishes at the gut's pace.
+            let finish_lunch = world.organism(organism).is_some_and(|s| s.eat_lunch_now) && !handling_on(def);
             let progressed = if finish_lunch { (c.unit - c.digesting).max(0.0) } else { digest_rate.min((c.unit - c.digesting).max(0.0)) };
             let matured = c.digesting + progressed;
             let finished = matured >= c.unit;
@@ -11579,6 +11587,31 @@ pub(crate) fn kin_components(traits: &[[f32; CREATURE_TRAITS]]) -> Vec<usize> {
         }
     }
     (0..n).map(|i| find(&mut parent, i)).collect()
+}
+
+/// **The price of one brain link, as a factor on `synapse_fraction`**
+/// (`PIXEL_PHYSICS_LINK_PRICE`, unset 1.0: the bill exactly as authored).
+/// One factor for every animal and every brain -- the game's `brain.rs` and a
+/// mind alike, in training and the lab -- because a link costs the same in
+/// every world (owner, 2026-10-21: one physics).
+///
+/// **Why it is a dial** (old-ant thread, 2026-10-25): the price was set
+/// against the hand-built brain, ~50 live links. The trained mind carries
+/// ~1,900 (482 of them the dig head), billed every tick: 0.85 J against an
+/// idle body's 0.1, so with no food one tank lasts it ~1,000 frames and the
+/// hand-built ant ~3,700 (lab box, 52 ants, 1 tank). With fruit 200 columns
+/// out (8 seeds, 15k frames after landing) the trained pool keeps 28 alive
+/// at 1.0, 50 at 0.75, 89 at 0.5, 114 at 0.25 and 150 at 0 -- the
+/// hand-built ant 129, and 132 at 0 (`examples/labsurvive.rs tax=`). The
+/// training bed never feels the bill (food 25 columns out, 3 tanks a
+/// founder), so selection has not shed it. Whether a cheaper link or a bed
+/// that bills it is the fix is the owner's and the Teacher lane's call;
+/// unset is today's price.
+pub fn link_price() -> f32 {
+    static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *F.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_LINK_PRICE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(1.0)
+    })
 }
 
 /// **Frames for an unbitten animal to mend one whole cell of bite damage**
@@ -29240,7 +29273,7 @@ fn fly_brain_tick(world: &mut World, organism: OrganismId, def: &CreatureDef, fl
     // Charged at the ground's own rates and booked to the ground's own
     // sinks, so the conservation identity needs no new term. See
     // `creature_tick` for each fraction's derivation.
-    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let synapse_tax = def.synapse_fraction * link_price() * def.start_energy * active_synapses as f32;
     let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
     let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
     let colony = world.colony_of(organism);

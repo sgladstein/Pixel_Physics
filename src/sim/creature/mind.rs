@@ -2138,7 +2138,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         .as_ref()
         .and_then(|m| m.ants.get(&organism))
         .map_or(0, |m| m.genome.live);
-    let brain_tax = def.synapse_fraction * def.start_energy * live as f32;
+    let brain_tax = def.synapse_fraction * super::link_price() * def.start_energy * live as f32;
     let jaw_traits = traits_of(world, organism, def);
     let force_tax = def.force_fraction
         * def.start_energy
@@ -2549,6 +2549,10 @@ fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): 
         return false;
     };
     if their_colony == colony {
+        return false;
+    }
+    // A sated predator does not kill (`CreatureDef::handling`): no room in the crop for this cell, no bite.
+    if super::handling_on(def) && !crop.is_none_or(|c| c.material == cell.material && c.worth() + c.unit <= organism_crop_capacity(world, organism, def)) {
         return false;
     }
     let gut = super::gut_of(world, organism, def);

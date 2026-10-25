@@ -230,6 +230,13 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
 - **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare
   sorted. A new loop over a HashMap that touches credit or counters must sort
   first (2 of 64 seeds diverged between runs once).
+- **A trained ant that starves faster than the old ant may be paying for its
+  brain, not missing a rule.** Every live link is billed per tick at the
+  hand-built ant's price: `std_pool`'s ~1,900 links cost 0.85 J a tick against
+  an idle body's 0.1, so one tank lasts 1,000 frames rather than 3,700. Before
+  hunting a behaviour, rerun at `PIXEL_PHYSICS_LINK_PRICE=0` (or `labsurvive
+  tax=0`); if the gap closes, it is the bill. Judge a lab number at the arm's
+  own price (old-ant-rules-2026-10-25: fruit 200 alive 28 at price 1, 150 at 0).
 
 ## 5. Tools, by question
 

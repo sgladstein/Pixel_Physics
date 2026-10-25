@@ -311,6 +311,8 @@ pub struct Lab {
     pub new_ant: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
+    /// The lab spider's trained pool (`training::spider_minds`), built once on first use.
+    spider_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -653,6 +655,7 @@ impl Lab {
             training_seed: 1,
             new_ant: false,
             new_ant_mind: None,
+            spider_mind: None,
             view_dirty: false,
             chrome_due: true,
             chrome_painted: None,
@@ -1085,6 +1088,31 @@ impl Lab {
         ids.sort_unstable();
         for &id in &ids {
             crate::sim::creature::mind::give(&mut self.world, id, training::new_ant_mind_for(&minds, id));
+        }
+        ids.len()
+    }
+
+    /// **Give every spider in the box that has no mind a trained one** ([`training::spider_minds`]), member by id, and
+    /// return how many it gave. A spider has no hand-built brain worth playing (its fallback is the beetle's
+    /// instincts), so this is not behind ANT BRAIN; it runs on the same sweep, so a spider stocked by hand, released
+    /// from a jar or loaded in a scenario gets one within [`NEW_ANT_SWEEP`] frames, and one whose mind was dropped
+    /// (ANT BRAIN: OLD clears every mind) gets a fresh one. A spider born in the box inherits its parent's mind at birth.
+    fn give_spider_minds(&mut self) -> usize {
+        let Some(sp) = self.world.species.id_of("spider") else { return 0 };
+        let mut ids: Vec<_> = self
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&id| self.world.organism(id).is_some_and(|st| st.species == sp))
+            .filter(|&id| !crate::sim::creature::mind::has(&self.world, id))
+            .collect();
+        if ids.is_empty() {
+            return 0;
+        }
+        ids.sort_unstable();
+        let minds = self.spider_mind.get_or_insert_with(training::spider_minds).clone();
+        for &id in &ids {
+            crate::sim::creature::mind::give(&mut self.world, id, minds[id as usize % minds.len()].clone());
         }
         ids.len()
     }
@@ -1902,8 +1930,11 @@ impl Lab {
             if t.round_done() {
                 self.next_training_round();
             }
-        } else if self.new_ant && self.world.frame.is_multiple_of(NEW_ANT_SWEEP) {
-            self.give_new_ant_minds();
+        } else if self.world.frame.is_multiple_of(NEW_ANT_SWEEP) {
+            if self.new_ant {
+                self.give_new_ant_minds();
+            }
+            self.give_spider_minds();
         }
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
@@ -7890,6 +7921,40 @@ mod tests {
         run(&mut lab, 6_000);
         let left = count(&lab);
         assert!(left < placed, "the colony ate none of the {placed} cells of food beside its nest");
+    }
+
+    /// **A spider stocked by hand thinks with the trained spider pool** (owner, 2026-10-25: "add spider to the actual
+    /// lab game so I can play test it"). It is on the animal chip, it goes in as a lone hunter (a carnivore's gut), and
+    /// within one sweep it has a mind -- the pool's, which is what makes it the trained animal and not the beetle's
+    /// instincts in a spider's body. The pool parses whole: every member a full mind of the build's length.
+    #[test]
+    fn a_hand_stocked_spider_gets_a_trained_mind() {
+        let minds = training::spider_minds();
+        assert_eq!(minds.len(), 8, "the spider pool's members");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let spider = lab.world.species.id_of("spider").expect("spider");
+        assert!(ui::stockable_species(&lab.world).contains(&spider), "the spider is not on the animal chip");
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut frame, 60.0);
+        lab.spec.colony_species = "spider".to_string();
+        let nest_x = lab.world.nest_sites.first().map(|s| s.x).expect("the default box founds one colony");
+        // 52 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1: one spider, where the click is.
+        lab.act(ui::Action::Stock(-6));
+        assert_eq!(lab.ui.stock(), 1, "test setup: the dial did not land on 1");
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        let ground = lab.spec.ground_y;
+        click_cell(&mut lab, nest_x + 60, ground);
+        let spiders = |lab: &Lab| -> Vec<u32> {
+            lab.world.live_organism_ids().into_iter().filter(|&id| lab.world.organism(id).is_some_and(|s| s.species == spider)).collect()
+        };
+        let placed = spiders(&lab);
+        assert_eq!(placed.len(), 1, "asked for one spider: {placed:?}");
+        run(&mut lab, NEW_ANT_SWEEP as u32 * 2);
+        let id = placed[0];
+        assert!(crate::sim::creature::mind::has(&lab.world, id), "the stocked spider has no mind after two sweeps");
+        let g = crate::sim::creature::mind::genome_of(&lab.world, id).expect("its mind");
+        assert!(minds.iter().any(|p| p.w == g.w), "the stocked spider's mind is not one of the pool's");
     }
 
     /// **A carnivore is stocked as lone hunters, never as a clump.** Owner,

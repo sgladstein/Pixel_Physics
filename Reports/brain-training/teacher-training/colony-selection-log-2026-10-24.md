@@ -216,3 +216,22 @@ changes too; its tests stay green.
 
 **Ratchet turn:** std_pool = lgkeep colony 8: lab survival level with the current pool, nest 536 cells against 409,
 crater 2, fewest starved of the four. Fruit 200 columns out is still the hand-built ant's (114/132 against 9/37).
+
+## 2026-10-24 late: a wider bed does not buy range; a lab floor under the nest case works
+
+**widebed1** (32 colonies x 24 rounds, from laygene2 colony 8, the shipped pool; `cg_every=8`). Three arms:
+`ctl` (the standard cases, food ramp to the bed's 110-column limit), `wide` (the bed widened to 448 columns with
+`PP_BED_W`, ramp allowed to 230), `scalegate` (`+scale` with `labgate=50`: every donor must clear the round's median
+lab case). Deciding measures named before launch: wide vs ctl on the lab case, r23, paired (20 of 32); scalegate vs
+ctl on garden nest-to-needed, r23, paired (20 of 32), lab case not worse.
+
+- **wide failed.** Given room, the ramp still stalled at 120-125 columns, and the lab case lost 27 of 32 pairs.
+  **Overturned:** "the bed's width is what stops the ramp". The limit is in the ant (a later finding by the old-ant
+  thread put most of it on the brain's per-link energy bill).
+- **scalegate beat ctl but just missed its bar.** Garden r23 (extinct as 0): alive 87 vs 74.5 (31 of 32 pairs),
+  starved 46 vs 111.5, nest 220 vs 165, nest-to-needed ahead in 19 of 32 (bar 20), lab case ahead in 23 of 32.
+  The floor did what farfood3b's `+scale` arm could not: nest and lab together.
+- **Not carried.** No scalegate colony matched the founder's own garden (best nest 370 vs colony 8's 536).
+- **The nest erodes over rounds in every arm.** Garden median nest, r7 -> r23: ctl 251 -> 165, scalegate 321 -> 220,
+  wide 313 -> 196.5; laygene2's lgkeep 528 -> 317. Colony 8's 536 was partly its one world: its descendants
+  averaged about 250 by r7. A founder picked on one garden world is picked partly on luck; pick on several.

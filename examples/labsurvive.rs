@@ -30,6 +30,11 @@ fn main() {
     let after: u64 = arg("after").unwrap_or(15_000);
     let limit: u64 = arg("limit").unwrap_or(40_000);
     let grant: f32 = arg("grant").unwrap_or(0.0);
+    // `probe=N` (old-ant thread, 2026-10-25): every N frames after landing, one `PROBE` line -- the food trail (scent
+    // B) laid over the box (its sum, in full deposits, and the cells holding a tenth of one or more), and how far out
+    // the ants are (median and 90th-percentile columns from the colony's first nest site, empty ants beyond 100 and
+    // 150 columns, ants carrying food). Unset: no line, the run unchanged.
+    let probe: u64 = arg("probe").unwrap_or(0);
     let founders: String = arg("founders").expect("founders=LIST|std|old");
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| panic!("scenario {name}: {e}"));
     if let Some(sd) = arg::<u64>("seed") {
@@ -38,6 +43,16 @@ fn main() {
     println!("labsurvive scenario={name} seed={} after={after} grant={grant} founders={founders}", sc.bed.seed);
     let mut lab = pixel_physics::lab::Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
+    // `tax=K` (old-ant thread, 2026-10-25): the brain's per-link bill (`synapse_fraction`) times K for every ant, to
+    // price what a trained mind's ~1,900 live links cost it against the hand-built brain's ~50. Unset: no change.
+    if let Some(k) = arg::<f32>("tax") {
+        let w = &mut lab.world;
+        let sp = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.synapse_fraction *= k;
+        w.species.set_creature(sp, def);
+        println!("tax x{k}: synapse_fraction {}", w.species.get(sp).creature.as_ref().unwrap().synapse_fraction);
+    }
     match founders.as_str() {
         "old" => {}
         "std" => {
@@ -83,6 +98,9 @@ fn main() {
                 println!("granted {} ants {grant} tanks", lab.grant_ants(grant));
             }
         }
+        if probe > 0 && landed.is_some_and(|l| f > l && (f - l).is_multiple_of(probe)) {
+            probe_line(&lab, f - landed.unwrap());
+        }
         if landed.is_some_and(|l| f >= l + after) || (landed.is_none() && f >= limit) {
             break;
         }
@@ -97,4 +115,35 @@ fn main() {
         landed.map_or(-1, |l| l as i64),
         w.frame
     );
+}
+
+/// One `probe=` line ([`main`]): the food trail and how far out the colony is.
+fn probe_line(lab: &pixel_physics::lab::Lab, since: u64) {
+    use pixel_physics::sim::pheromone::{Channel, Scent};
+    let w = &lab.world;
+    let (mut b_sum, mut b_cells) = (0.0f64, 0usize);
+    for y in 0..320 {
+        for x in 0..512 {
+            let b = w.pheromone_at(Channel::B, x, y) as f64 / Scent::MAX as f64;
+            b_sum += b;
+            b_cells += usize::from(b >= 0.1);
+        }
+    }
+    let door = w.nest_sites.first().map_or(256, |s| s.x);
+    let sp = w.species.id_of("ant");
+    let mut d: Vec<i32> = Vec::new();
+    let (mut far100, mut far150, mut laden) = (0, 0, 0);
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id).filter(|s| Some(s.species) == sp) else { continue };
+        let Some(&(hx, _)) = s.chain.first() else { continue };
+        let dx = (hx - door).abs();
+        d.push(dx);
+        let full = s.crop.is_some_and(|c| c.cells > 0);
+        laden += usize::from(full);
+        far100 += usize::from(!full && dx > 100);
+        far150 += usize::from(!full && dx > 150);
+    }
+    d.sort();
+    let q = |p: f64| d.get(((d.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(-1);
+    println!("PROBE since={since} ants={} b_sum={b_sum:.2} b_cells={b_cells} col_med={} col_p90={} empty_past100={far100} empty_past150={far150} laden={laden}", d.len(), q(0.5), q(0.9));
 }

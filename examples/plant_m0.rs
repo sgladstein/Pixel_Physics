@@ -45,7 +45,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus", "beds", "round", "rounds", "pick", "keep", "pmut", "fmut", "garden", "gframes", "save", "load"];
+const KNOWN: &[&str] = &["scald", "endow", "waits", "reserves", "settle", "oldage", "mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys", "swap", "role", "arms", "sow", "window", "gap", "gapat", "gaps", "rootcensus", "beds", "round", "rounds", "pick", "keep", "pmut", "fmut", "garden", "gframes", "save", "load", "pool"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -170,6 +170,9 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
             Spells { wet: wet.parse().expect("wet frames"), dry: dry.parse().expect("dry frames") }
         }),
         species_ron: cripple.as_deref().map(|c| crippled(c, 0.1)),
+        // `pool=0`: founders from species files, not the lab box's shipped
+        // plant pool (`LabBox::plant_pool`).
+        plant_pool: get(m, "pool", 1u8) != 0,
         ground: match m.get("ground").map(String::as_str) {
             None | Some("uniform") => Ground::Uniform,
             Some("patchy") => Ground::Patchy,
@@ -2157,6 +2160,10 @@ struct BedEnd {
 fn bedsel_bed(m: &BTreeMap<String, String>, seed: u64, frames: u64, pool: &BTreeMap<String, Vec<PlantGenome>>, heredity: bool, salt: usize, shot_path: Option<String>) -> BedEnd {
     let mut mm = m.clone();
     mm.insert("seed".into(), seed.to_string());
+    // The trainer's beds found from species files plus the pool it is
+    // given -- never from the engine's shipped pool, or round 0 and the
+    // judge's "shipped" arm would both be someone else's selection.
+    mm.insert("pool".into(), "0".into());
     mm.insert("heredity".into(), if heredity { "on" } else { "off" }.into());
     let (mut w, bed, scenario, species, _, _) = community_bed(&mm);
     if heredity {
