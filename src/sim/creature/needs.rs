@@ -2510,6 +2510,11 @@ fn escape_cut(world: &mut World, organism: OrganismId, def: &CreatureDef, head: 
     }
     world.set(tx, ty, Cell::EMPTY);
     world.dug_cells.insert((tx, ty));
+    // The cut log too, as at the dig verb (`World::cut_log`; it had missed this cut since it was built).
+    let frame = world.frame;
+    if let Some(log) = world.cut_log.as_mut() {
+        log.push((tx, ty, frame, organism));
+    }
     if spoil_kept() {
         if let Some(s) = world.organism_mut(organism) {
             s.spoil = Some(Spoil {

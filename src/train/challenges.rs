@@ -3846,7 +3846,7 @@ mod tests {
         let t = Trail { ants: 1, frames: 1, clones: true };
         let genome = std::sync::Arc::new(crate::sim::creature::mind::MindGenome::new(fully_live_mind(&t)));
         let def = w.species.get(sp).creature.clone().expect("creature");
-        let per_tick = (def.synapse_fraction * def.start_energy * genome.live as f32) as f64;
+        let per_tick = (def.synapse_fraction * crate::sim::creature::link_price() * def.start_energy * genome.live as f32) as f64;
         crate::sim::creature::mind::give(&mut w, ids[0], genome);
         for x in 0..64 {
             for y in 20..24 {
