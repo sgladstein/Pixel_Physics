@@ -76,6 +76,7 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 pub mod needs;
 pub mod mind;
 pub mod options;
+pub mod recall;
 pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
@@ -28770,6 +28771,95 @@ pub(crate) fn launch(world: &mut World, organism: OrganismId, heading: u8) -> bo
     }
     world.creature_stats.impulses += 1;
     true
+}
+
+/// **Lift an animal and set it down near `to`**: the keeper seat's CARRY
+/// (`Reports/keeper-seat-demo-2026-10-25.md`). The whole body moves rigidly
+/// (a pure translation, so `relocate_chain` with flat groups is exact, as for
+/// a flight substep or a fall) into the nearest free, supported placement
+/// within 8 cells of `to`, or the carry is refused.
+///
+/// **Then a fresh creature site at the new head, and that line is the
+/// difference between a carry and a freeze.** The scheduler keys an animal's
+/// next tick on its head cell; a body moved outside its own tick leaves that
+/// site pointing at the old cell, where it fails the ownership test, finds
+/// the chain intact through `reconcile_chain` (no death), and returns no
+/// site: "not dead, not scheduled, just an orphan standing in the world
+/// forever" (`creature_tick`'s own note). A frozen ant never starves, so it
+/// reads as healthy. The old site still fires once and is dropped that way.
+///
+/// Refused while the animal is in flight, rides another, or carries a rider.
+/// Clears the old walk's per-trip state that names cells near where it was
+/// (`dig_return`, the chooser's `home_best`); keeps `forage_anchor`, so it
+/// still knows the way home. Writes no memory: a carried mind ant learns the
+/// place by its own pick-up there.
+pub fn set_down(world: &mut World, organism: OrganismId, to: (i32, i32)) -> Result<(i32, i32), &'static str> {
+    let Some(state) = world.organism(organism) else { return Err("nothing alive there") };
+    let Some(def) = world.species.get(state.species).creature.clone() else { return Err("only animals can be carried") };
+    let cells = state.chain.clone();
+    let Some(&head) = cells.first() else { return Err("nothing alive there") };
+    if state.flight.is_some() {
+        return Err("it is in the air");
+    }
+    if cells.iter().any(|&(x, y)| !world.riders_at(x, y).is_empty()) {
+        return Err("something is riding it, or it is riding");
+    }
+    // Nearest placement first: rings of growing Chebyshev radius around `to`.
+    let mut placed = None;
+    'search: for r in 0..=8i32 {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx.abs().max(dy.abs()) != r {
+                    continue;
+                }
+                let (tx, ty) = (to.0 + dx - head.0, to.1 + dy - head.1);
+                if let Some(moved) = translated_if_free(world, &cells, tx, ty) {
+                    if body_is_supported(world, &moved) {
+                        placed = Some(moved);
+                        break 'search;
+                    }
+                }
+            }
+        }
+    }
+    let Some(moved) = placed else { return Err("no room to set it down there") };
+    relocate_chain(world, organism, &def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &moved, groups: &[] });
+    let new_head = moved[0];
+    if let Some(s) = world.organism_mut(organism) {
+        s.dig_return = None;
+        s.home_best = f32::INFINITY;
+    }
+    let next = world.creature_due(organism_tick_interval(world, organism, &def));
+    world.schedule_active_site(ActiveSite { x: new_head.0, y: new_head.1, kind: ActiveKind::Creature { organism }, next_frame: next });
+    Ok(new_head)
+}
+
+/// **Put one mouthful of `food` worth `worth` into an animal's crop**: the
+/// keeper seat's TREAT. A real meal, so a real reward (the keeper design's
+/// rule against reward hacking: every reward is something the ant itself
+/// consumes), with `mind::pick_up`'s own guards -- the crop holds one food
+/// and has a capacity -- and booked as `Granted` on the colony's ledger,
+/// because a treat makes food from nothing. `false` if refused (gone, a full
+/// crop, or another food in it).
+pub fn treat(world: &mut World, organism: OrganismId, food: material::MaterialId, worth: f32) -> bool {
+    let Some(state) = world.organism(organism) else { return false };
+    let Some(def) = world.species.get(state.species).creature.clone() else { return false };
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.material != food || c.worth() + worth > organism_crop_capacity(world, organism, &def)) {
+        return false;
+    }
+    crop_take(world, organism, food, 0, worth, None);
+    let colony = world.colony_of(organism);
+    world.book(colony, Account::Granted, f64::from(worth));
+    true
+}
+
+/// Is `(x, y)` "home" to this animal, in the sense a mind's pick-up uses
+/// (`food_at_home`): beside its dug nest or in its shaft. The keeper's TREAT
+/// refuses to plant a memory there, since a lesson at home teaches "here is
+/// the nest".
+pub fn is_home_for(world: &World, organism: OrganismId, (x, y): (i32, i32)) -> bool {
+    let Some(def) = world.organism(organism).and_then(|s| world.species.get(s.species).creature.clone()) else { return false };
+    food_at_home(world, organism, &def, x, y)
 }
 
 /// One frame of ballistics for an airborne creature, and the reschedule.
