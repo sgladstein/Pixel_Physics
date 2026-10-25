@@ -225,6 +225,16 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   starves (far64 playtest: 710 ants, then 817 starved in 10k frames with 2.4 MJ
   left). Judge a pool in the lab on starvation after its peak, not only on
   whether it is alive.
+- **A playtest chronicle can be replayed and traced per ant.**
+  `examples/replay actions=CHRONICLE.actions.csv newant=1 trace=25` rebuilds the
+  owner's box from its logged plantings, colonies and food, and its census
+  matched the owner's exactly to F40000 (plant playtest, 2026-10-25). Run
+  `newant=0` beside it: the hand-built ant in the same box says whether the
+  box or the brain is the problem.
+- **A grazing ant must be judged on bites by hunger, not on bites.** The
+  trained ant's bite rate on a plant is flat in its energy (4-5% of 25-frame
+  windows from starving to 20 tanks), so a high bite total can hide founders
+  starving beside plants and fat ants that never go home.
 - **`examples/labshot` never runs the lab mister**: any plant or water number
   from it is a box with no rain.
 - **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare

@@ -885,6 +885,7 @@ impl Lab {
         if self.new_ant {
             self.give_new_ant_minds();
         }
+        self.log_ant_brain();
         self.time.phase = time::Phase::Paused;
         format!(
             "{title} LOADED -- {} CELLS, {} PLANTS, {} ANIMALS, {} SETTINGS",
@@ -1040,6 +1041,16 @@ impl Lab {
             self.world.log_player_action("ANT BRAIN: OLD".to_string());
             "ANT BRAIN: HAND-BUILT -- THE OLD BRAIN".to_string()
         }
+    }
+
+    /// **Which brain the rebuilt box's ants think with, as its own chronicle
+    /// line.** A REBUILD starts a new chronicle, and the switch only logged
+    /// when it was flipped, so the owner's 2026-10-25 plant playtest -- built
+    /// after a rebuild, trained ant on from launch -- had no line saying which
+    /// brain its ants used. The same text the switch writes, so one parser
+    /// reads both.
+    fn log_ant_brain(&mut self) {
+        self.world.log_player_action(if self.new_ant { "ANT BRAIN: NEW" } else { "ANT BRAIN: OLD" }.to_string());
     }
 
     /// **ANT BRAIN: NEW with another pool**: the minds every ant without one
@@ -3767,6 +3778,7 @@ impl Lab {
                     if self.new_ant {
                         self.give_new_ant_minds();
                     }
+                    self.log_ant_brain();
                 }
             }
             ui::Action::Training(t) => {
@@ -5532,6 +5544,32 @@ mod tests {
         lab.write_chronicle();
         let text = newest_chronicle_text(&dir);
         assert!(text.contains("REBUILT"), "the rebuild line is missing from the new run's own chronicle:\n{text}");
+
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A rebuilt box's chronicle says which brain its ants use** (owner's
+    /// 2026-10-25 plant playtest had no line for it). Through the REBUILD
+    /// verb itself, two presses, with the trained ant switched on in the box
+    /// being thrown away -- so the only `ANT BRAIN` line the new run can hold
+    /// is the one the rebuild wrote. Remove `log_ant_brain` from the `Reset`
+    /// arm and this goes red.
+    #[test]
+    fn a_rebuild_says_which_ant_brain_it_kept() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("rebuilt_brain");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        lab.set_new_ant(true);
+        run(&mut lab, 5);
+        lab.act(ui::Action::Reset);
+        lab.act(ui::Action::Reset);
+        run(&mut lab, 1);
+        lab.write_chronicle();
+        let text = newest_chronicle_text(&dir);
+        assert!(text.contains("REBUILT"), "this is not the rebuilt run's chronicle:\n{text}");
+        assert!(text.contains("ANT BRAIN: NEW"), "the rebuilt run does not say its ants are on the trained brain:\n{text}");
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);

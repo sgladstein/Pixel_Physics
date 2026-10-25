@@ -6088,6 +6088,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   about one dig per ant per 10k frames, ~900 open cells in 220k frames, brood in a pocket by the door. 2-27% of ants are
   under ground, 30-60% sit fed on the spoil mound. Also fixes `Lab::release` dropping painted-food lines from the log.
 
+- [brain-training/playtest/plant-forage-lab-2026-10-25/README.md](brain-training/playtest/plant-forage-lab-2026-10-25/README.md) —
+  **why the trained ant leaves the nest for the plants and dies there (owner's 2026-10-25 lab playtest), from a
+  headless replay of the box traced per ant.** The trained ant's bite rate beside a plant is flat in its energy (~5% of
+  25-frame windows starving or at 20 tanks), so founders on 1 tank starve beside the plants (median life ~1,100) and the
+  lucky ones gorge, stay, and die of old age at ~22 tanks without carrying food home. Its home trail follows the colony
+  to the plants. Heaping founders at the door changes where they die, not whether. The hand-built ant in the same box
+  keeps founders 4-13x longer and ends with 165 adults against 11. Adds `replay actions=/newant=/trace=` and logs the
+  ant brain after a rebuild.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

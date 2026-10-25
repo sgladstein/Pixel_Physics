@@ -198,12 +198,54 @@ fn main() {
             ));
         }
         println!("  plan: {} plantings from {path}", plan.len());
+    } else if arg::<String>("actions").is_some() {
     } else {
         for (name, x, y) in PLANTS {
             let ok = lab.world.plant_tree_species(x, y, name);
             println!("  plant {name} at {x},{y}: {ok}");
         }
     }
+    // `actions=FILE` (2026-10-25, the owner's plant-forage playtest): replay a whole chronicle's `.actions.csv` --
+    // PLANTED, PLACED COLONY OF n ANT [(k ASKED)] AT X x, PAINTED FOOD AT x,y -- n CELLS -- each before the tick of
+    // its own logged frame, the way the game applied it between ticks. The colony's click row is not logged, so it
+    // lands from the surface; the food stroke's path is not either, so it is one disc of about the logged count.
+    // `newant=1` gives every ant the trained mind (the lab binary's default since 2026-10-24). `trace=N` writes
+    // trace.csv: every adult ant every N frames.
+    let mut colonies: Vec<(u64, i32, i32)> = Vec::new();
+    let mut foods: Vec<(u64, i32, i32, i32)> = Vec::new();
+    if let Some(path) = arg::<String>("actions") {
+        for line in std::fs::read_to_string(&path).expect("actions=FILE").lines().skip(1) {
+            let Some((f, text)) = line.split_once(',') else { continue };
+            let f: u64 = f.parse().unwrap();
+            let text = text.trim_matches('"');
+            if let Some(rest) = text.strip_prefix("PLANTED ") {
+                let (name, xy) = rest.split_once(" AT ").unwrap();
+                let (x, y) = xy.split_once(',').unwrap();
+                plan.push((f, name.to_lowercase(), x.trim().parse().unwrap(), y.trim().parse().unwrap()));
+            } else if let Some(rest) = text.strip_prefix("PLACED COLONY OF ") {
+                let n: i32 = rest.split(' ').next().unwrap().parse().unwrap();
+                let asked = rest.split_once('(').and_then(|(_, r)| r.split(' ').next()?.parse().ok()).unwrap_or(n);
+                let x: i32 = rest.rsplit_once("AT X ").unwrap().1.trim().parse().unwrap();
+                colonies.push((f, asked, x));
+            } else if let Some(rest) = text.strip_prefix("PAINTED FOOD AT ") {
+                let (xy, cells) = rest.split_once(" -- ").unwrap();
+                let (x, y) = xy.split_once(',').unwrap();
+                let n: i32 = cells.split(' ').next().unwrap().parse().unwrap();
+                foods.push((f, x.parse().unwrap(), y.parse().unwrap(), n));
+            }
+        }
+        println!("  actions: {} plantings, {} colonies, {} food strokes from {path}", plan.len(), colonies.len(), foods.len());
+    }
+    if arg::<u32>("newant") == Some(1) {
+        println!("  {}", lab.set_new_ant(true));
+    }
+    let trace_every: u64 = arg("trace").unwrap_or(0);
+    let mut trace = (trace_every > 0).then(|| {
+        let mut f = BufWriter::new(File::create(format!("{out}/trace.csv")).unwrap());
+        writeln!(f, "frame,id,colony,site_x,x,y,h,energy,crop,bites,pher_a,pher_b,plant_d,on_plant").unwrap();
+        f
+    });
+    let mut site_of: HashMap<u32, i32> = HashMap::new();
     if arg::<u32>("doortree").unwrap_or(0) == 1 {
         // Intervention: a tree and a conifer planted ~20 columns from where the two colonies will found.
         for (name, x, y) in [("tree", 748, 230), ("conifer", 304, 230)] {
@@ -279,8 +321,35 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             lab.spec.rain = pixel_physics::lab::rain::Rain::Light;
             println!("  frame {}: rain turned to {}", lab.world.frame, lab.spec.rain.label());
         }
+        for &(cf, asked, x) in colonies.iter() {
+            if cf == lab.world.frame {
+                let y = surface(&lab.world, x, ground_y) - 4;
+                let n = lab.world.found_colony_of(x, y, "ant", asked);
+                println!("  frame {cf}: colony at x={x} placed {n} of {asked}");
+                for id in lab.world.live_organism_ids() {
+                    if let Some(s) = lab.world.organism(id) {
+                        if lab.world.species.get(s.species).creature.is_some() {
+                            site_of.entry(s.colony).or_insert(x);
+                        }
+                    }
+                }
+            }
+        }
+        for &(ff, x, y, n) in foods.iter() {
+            if ff == lab.world.frame {
+                let r = ((n as f32 / std::f32::consts::PI).sqrt().round() as i32).max(1);
+                let id = lab.world.materials.id_of("provisions").expect("provisions");
+                lab.world.paint_capsule_as((x, y), (x, y), r, id, 1.0);
+                println!("  frame {ff}: food disc r={r} at {x},{y} for a logged {n} cells");
+            }
+        }
         lab.tick_for_harness();
         let f = lab.world.frame;
+        if let Some(t) = trace.as_mut() {
+            if !colonies.is_empty() && f >= colonies[0].0 && f.is_multiple_of(trace_every) {
+                trace_rows(&lab.world, f, ground_y, &site_of, t);
+            }
+        }
         if ants == 1 {
             if f == t1 {
                 let n = lab.world.found_colony_of(728, 230, "ant", 52);
@@ -1009,4 +1078,47 @@ fn drain_digs(w: &mut World, digs: &mut BTreeMap<(u64, u32, u8, String), u64>, f
         *digs.entry((r.frame / 10_000, colony, why, mat)).or_insert(0) += 1;
     }
     let _ = f;
+}
+
+/// `trace=N`: one row per adult ant -- where it is, how high above the ground, its energy, what its crop holds, its
+/// lifetime bite count, the two trail planes at its head, and how far the nearest plant-owned cell is (Chebyshev,
+/// within 12; 99 = none), `on_plant` when a plant owns a cell touching the head.
+fn trace_rows(w: &World, f: u64, ground_y: i32, site_of: &HashMap<u32, i32>, out: &mut BufWriter<File>) {
+    use pixel_physics::sim::pheromone::Channel;
+    let plant_owned = |x: i32, y: i32| {
+        let oid = w.get(x, y).organism_id();
+        oid != 0 && w.organism(oid).is_some_and(|o| w.species.get(o.species).creature.is_none())
+    };
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id) else { continue };
+        if w.species.get(s.species).creature.is_none() || s.brood.is_some() {
+            continue;
+        }
+        let Some(&(hx, hy)) = s.chain.first() else { continue };
+        let mut pd = 99;
+        'r: for d in 0..=12i32 {
+            for dy in -d..=d {
+                for dx in -d..=d {
+                    if dx.abs().max(dy.abs()) == d && plant_owned(hx + dx, hy + dy) {
+                        pd = d;
+                        break 'r;
+                    }
+                }
+            }
+        }
+        let crop = s.crop.as_ref().map(|c| w.materials.get(c.material).name.clone()).unwrap_or_default();
+        writeln!(
+            out,
+            "{f},{id},{},{},{hx},{hy},{},{:.1},{crop},{},{},{},{pd},{}",
+            s.colony,
+            site_of.get(&s.colony).copied().unwrap_or(-1),
+            surface(w, hx, ground_y) - hy,
+            s.energy,
+            s.life.bites,
+            w.pheromone_at(Channel::A, hx, hy),
+            w.pheromone_at(Channel::B, hx, hy),
+            (pd <= 1) as u8
+        )
+        .unwrap();
+    }
 }
