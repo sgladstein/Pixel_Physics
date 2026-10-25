@@ -1,0 +1,85 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+latecensus: scenario=played_bed seed=6 frames=500000 sample=50000 band=64 threads=1
+latecensus: ant scent_drift = Some(0.15)
+  ant life_half_life = 40000 frames (0 = immortal)
+  room_gate = true (target 2.00); PIXEL_PHYSICS_LAB_ROOM=unset
+  bed: 0 of 0 founders planted; scenario placed 0 cells, 18 plants, 0 animals
+  plant pool: off
+  nests at [256]; band = +-64 columns of a nest
+
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd oldag killd othr crpss   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut
+        (and: rpa=roofed void per ant at the nest, occ=what the dig gate reads for it, mbare/mcols=bare columns on the mound's own surface)
+        (then, cumulative production: shed=leaves shed, borne=seeds borne, germ=germinations, fdrop=fruit dropped)
+      0     0     0    18     18      2160 |        0       0       0   2160      0       0       0     0 |     0     0     0     0     0    0     0      0      0       0 |      0     0      0      0    0 |  129/129  365/383      0     18
+STOP frame=0 ants=0 plants=0 bank=18 edible=18 starved=0 oldage=0 killed=0 other=0 born=0 died=0 digs=0 eats=0 deliveries=0 leaf_j=0 seed_j=2160 roofed=0 mound_high=0
+        rpa=- occ=- mbare=0/0
+        shed=0 borne=0 germ=0 fdrop=0
+        shares=0 shared_j=0 | sampled=0 strangers=0.00% scent_spread=-0.0000 (tolerance radius 1.0)
+  frame 6000: 44 animal(s) arrived on the timeline, founder gut_bias -0.8
+  50000   228    95   214   3343    335010 |    92178   80093   68818  77760      0   15163     999    13 |   256    72     0    72     0    0     8  15260   1216    6680 |    322   100    173     76   23 |    9/129   15/383   2129  11126
+STOP frame=50000 ants=228 plants=95 bank=214 edible=3343 starved=0 oldage=72 killed=0 other=0 born=256 died=72 digs=1216 eats=15260 deliveries=6680 leaf_j=92178 seed_j=77760 roofed=322 mound_high=23
+        rpa=1.35 occ=0.597 mbare=25/46
+        shed=526 borne=8946 germ=408 fdrop=107
+        shares=18464 shared_j=458407 | sampled=228 strangers=0.00% scent_spread=0.0040 (tolerance radius 1.0)
+ 100000   409    54    70   2172    144719 |    64120   17107   29938  25272      0    4666    3617     4 |   751   386     1   385     0    0    12  43004   4410   23328 |    359   169    249     90   36 |    9/129   25/383   1680   9309
+STOP frame=100000 ants=409 plants=54 bank=70 edible=2172 starved=1 oldage=385 killed=0 other=0 born=751 died=386 digs=4410 eats=43004 deliveries=23328 leaf_j=64120 seed_j=25272 roofed=359 mound_high=36
+        rpa=0.56 occ=0.781 mbare=51/64
+        shed=779 borne=9749 germ=602 fdrop=158
+        shares=57023 shared_j=1233839 | sampled=205 strangers=0.00% scent_spread=0.0045 (tolerance radius 1.0)
+ 150000   113    76   124   1955    158762 |    55598   10886   36158  35381      0   17496    3242    15 |   958   889   108   781     0    0     5  67637   7773   38291 |    165   202    331     74   35 |   17/129   58/383   1596   8760
+STOP frame=150000 ants=113 plants=76 bank=124 edible=1955 starved=108 oldage=781 killed=0 other=0 born=958 died=889 digs=7773 eats=67637 deliveries=38291 leaf_j=55598 seed_j=35381 roofed=165 mound_high=35
+        rpa=1.26 occ=0.613 mbare=39/64
+        shed=881 borne=11353 germ=804 fdrop=187
+        shares=113746 shared_j=2161624 | sampled=113 strangers=0.00% scent_spread=0.0004 (tolerance radius 1.0)
+ 200000   120    88   170   3609    219471 |   107762    6221   41213  57931      0    3499    2845     3 |  1094  1018   117   901     0    0     1  86590  10019   51007 |    165   173    340     86   35 |   15/129    8/383   2024  14230
+STOP frame=200000 ants=120 plants=88 bank=170 edible=3609 starved=117 oldage=901 killed=0 other=0 born=1094 died=1018 digs=10019 eats=86590 deliveries=51007 leaf_j=107762 seed_j=57931 roofed=165 mound_high=35
+        rpa=1.36 occ=0.596 mbare=46/68
+        shed=1054 borne=14481 germ=1131 fdrop=230
+        shares=132788 shared_j=2560999 | sampled=120 strangers=0.00% scent_spread=0.0097 (tolerance radius 1.0)
+ 250000   171    79   120   3284    228575 |    95386    3888   83981  40079      0    3499    1742     3 |  1315  1188   137  1051     0    0     6 103592  12256   59912 |    132   122    460    101   48 |    0/129   36/383   3497   9893
+STOP frame=250000 ants=171 plants=79 bank=120 edible=3284 starved=137 oldage=1051 killed=0 other=0 born=1315 died=1188 digs=12256 eats=103592 deliveries=59912 leaf_j=95386 seed_j=40079 roofed=132 mound_high=48
+        rpa=0.49 occ=0.802 mbare=33/69
+        shed=1263 borne=17484 germ=1372 fdrop=253
+        shares=160512 shared_j=3154442 | sampled=171 strangers=0.00% scent_spread=0.0103 (tolerance radius 1.0)
+ 300000   157    67   113   3314    233473 |    98140   13997   42379  40435      0   36158    2364    31 |  1517  1404   143  1261     0    0     5 116993  14399   66882 |    201   193    523    160   48 |   16/129   74/383   3427  10148
+STOP frame=300000 ants=157 plants=67 bank=113 edible=3314 starved=143 oldage=1261 killed=0 other=0 born=1517 died=1404 digs=14399 eats=116993 deliveries=66882 leaf_j=98140 seed_j=40435 roofed=201 mound_high=48
+        rpa=1.00 occ=0.667 mbare=56/78
+        shed=1448 borne=20522 germ=1512 fdrop=285
+        shares=193999 shared_j=3818630 | sampled=157 strangers=0.00% scent_spread=0.0071 (tolerance radius 1.0)
+ 350000   100    77   165   3475    326816 |    95224   13997  122472  52942      0   36158    6023    31 |  1630  1574   155  1419     0    0     4 129650  16044   74610 |    113   144    522    136   48 |    0/129   20/383   4499  11636
+STOP frame=350000 ants=100 plants=77 bank=165 edible=3475 starved=155 oldage=1419 killed=0 other=0 born=1630 died=1574 digs=16044 eats=129650 deliveries=74610 leaf_j=95224 seed_j=52942 roofed=113 mound_high=48
+        rpa=1.01 occ=0.664 mbare=36/71
+        shed=1700 borne=23242 germ=1744 fdrop=332
+        shares=214087 shared_j=4250780 | sampled=100 strangers=0.00% scent_spread=0.0077 (tolerance radius 1.0)
+ 400000    73    66   173   3662    306041 |   103615   15552   95256  61819      0   27994    1805    24 |  1726  1697   166  1531     0    0     3 137646  17222   79027 |     94   161    529    130   48 |    4/129    8/383   4226  12875
+STOP frame=400000 ants=73 plants=66 bank=173 edible=3662 starved=166 oldage=1531 killed=0 other=0 born=1726 died=1697 digs=17222 eats=137646 deliveries=79027 leaf_j=103615 seed_j=61819 roofed=94 mound_high=48
+        rpa=1.11 occ=0.643 mbare=58/84
+        shed=1926 borne=28598 germ=2011 fdrop=377
+        shares=225991 shared_j=4546096 | sampled=73 strangers=0.00% scent_spread=0.0029 (tolerance radius 1.0)
+ 450000    94    73   159   2745    272900 |    73062   12442  122472  52488      0   11664     773    10 |  1825  1775   175  1600     0    0     0 143267  18237   81693 |    192   143    532    123   48 |    1/129   27/383   4127  10919
+STOP frame=450000 ants=94 plants=73 bank=159 edible=2745 starved=175 oldage=1600 killed=0 other=0 born=1825 died=1775 digs=18237 eats=143267 deliveries=81693 leaf_j=73062 seed_j=52488 roofed=192 mound_high=48
+        rpa=1.59 occ=0.558 mbare=52/84
+        shed=2109 borne=33355 germ=2293 fdrop=425
+        shares=236820 shared_j=4802595 | sampled=94 strangers=0.00% scent_spread=0.0093 (tolerance radius 1.0)
+ 500000    99    70   161   3090    313468 |    80708   11664  160186  52488      0    3499    4922     3 |  1953  1898   176  1722     0    0     0 153994  19626   88478 |    132    76    512    153   47 |    0/129    8/383   2737  12152
+STOP frame=500000 ants=99 plants=70 bank=161 edible=3090 starved=176 oldage=1722 killed=0 other=0 born=1953 died=1898 digs=19626 eats=153994 deliveries=88478 leaf_j=80708 seed_j=52488 roofed=132 mound_high=47
+        rpa=1.09 occ=0.647 mbare=45/83
+        shed=2290 borne=36685 germ=2552 fdrop=472
+        shares=251360 shared_j=5140895 | sampled=99 strangers=0.00% scent_spread=0.0030 (tolerance radius 1.0)
+
+--- who kills whom --- 0 killing(s) logged
+  killer       relation         kills mean victim J      first       last
+  kills by tenth of the run: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  victims under 100 J at death: 0 of 0 (0%) -- these were starving animals that were eaten, not animals that lost a fight
+  KILLED deaths booked: 0, of which 0 are attributable to an attacker
+
+SUMMARY scenario=played_bed seed=6 frames=500000 born=1953 died=1898 eats=153994 digs=19626 spoil_dumped=19550 deliveries=88478 nectar_paid=12960 bare_seeds_spared=873 bare_seeds_carried=656 seeds_carried=687 seeds_delivered=679 pips_released_by_digestion=565 plants_from_pip=216 seed_bank=161 plants=70 ants=99 leaf_kj=80.7 litter_kj=160.2 seed_kj=52.5 lifespan=40000 oldage=1722 starved=176 killed=0 seeds_lost_no_room=8
+SUMMARY room_gate=true room_target=2.00
+SUMMARY room_per_ant n=1930 min=0.182 p10=0.545 med=1.100 mean=1.035 p90=1.411 max=2.139
+SUMMARY dig_input    n=1930 min=0.483 p10=0.586 med=0.645 mean=0.667 p90=0.786 max=0.917
+SUMMARY dig_rolls=1197025 digs=19626 at_nest_ticks=2518054 dug_per_roll=0.016
+SUMMARY at_nest_crowding n=2518054 buckets(0.0..1.0 by 0.1)=[0, 0, 0, 0, 3312, 290516, 1143125, 874498, 205717, 886] top_bucket_share=0.000
+SUMMARY plant_pool=off founded=0
+SUMMARY roofed_engine=108 roofed_library=132 deaths_starved=176 deaths_killed=0 deaths_oldage=1722 deaths_other=0
+SUMMARY z23 plant_cells=14889 eat_plant_cells=17579 attacks=0 atk_plant=0 atk_cells=0 atk_plant_cells=0 al_attack=0 al_eat_animal=0 al_eat_plant=60639 harv_plant=7961469 harv_corpse=261 severed_cells=39626 severed_pieces=38308
+SUMMARY mound_bare=45 mound_cols=83 digs_per_1k=39.25 roofed=132 packed_above=153 mound_high=47

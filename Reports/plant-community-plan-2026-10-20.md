@@ -1108,9 +1108,10 @@ the review (§12), **M1 runs in this order**:
    shrub, herb and creeper from it (`assets/plant_pools/roles4.ron`,
    `LabBox::plant_pool`). With seed settling and scald on the gain is
    2.62 -> 3.12 roles a bed (creeper alive 2 -> 5 of 8). With the colony
-   (12 paired seeds x 500k): plants 96 -> 135, leaf -10%, ants 150 -> 115
-   (smaller on 8 of 12), survival unchanged. Default asked of the owner.
-   Next: a pool bred with the colony in the bed.
+   (24 paired seeds x 500k, one build): plants 98 -> 119, but edible food
+   2,906 -> 2,197 and leaf -30% (lower on 22 of 24), starved 139 -> 218,
+   extinct 3 -> 6. Off by default for that harm (`PIXEL_PHYSICS_PLANT_POOL=1`).
+   Next: a pool bred in the lab bed with the colony, ranked on food too.
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
