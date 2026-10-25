@@ -1966,14 +1966,26 @@ and `steer.rs`.
   and the lab gives every ant a mind, so `creature_tick` sends an ant whose
   `input` is `Some` down the hand-built path instead; her eggs still carry
   her mind (`try_bud` copies it), and with `input` `None` (above the
-  steering cap) her mind drives her again. **Ants only**: another species
-  with a mind falls through to `mind::tick`.
+  steering cap) her mind drives her again. **The queen's body only**
+  (`SteerRole::Queen`, an ant): a steered worker body and any other species
+  with a mind stay in `mind::tick`, under the forced pick below.
 - **Two roles** (`steer::SteerRole`, `steer::mark_with`): `Queen`, what
   `mark` gives, runs the `queen` rule for her colony; `Worker` (the scout
   seat's body) leaves her colony's rule alone. Both skip old age.
 - **The lab drives her through `lab::demo`** (`demo=<seat>`): arrows steer,
   the slice-0 letters act, and the camera follows. With no demo the lab never
   marks anyone.
+- **The queen seat's hold** (`Steered::hold`, `steer::holding_queen`; `None`
+  except in `demo=queen`): her colony keeps the `queen` rule only for `hold`
+  frames past her last egg (`Steered::last_lay`, written in `try_bud`). Past
+  it the colony breeds by the process regime. While she holds, `suppress_bar`
+  never shuts her out and shuts out everyone else, even an ant that bred in a
+  lapse.
+- **Whose mind an egg carries** can come from a store of fathers
+  (`sim::fathers`, `World::fathers`; `None` except in a demo): read at
+  `try_bud` after `mind::inherit`, a queue first, then a weighted draw with
+  chance `p`, then an optional wild level that mutates the drawn genome and
+  rebuilds the mind. Keyed draws, never `World::rng`.
 - **An ant with a mind** (the trained ant, the lab's default; also the spider
   and the centipede) never reaches the five hooks: `creature_tick` returns into
   `mind::tick` first. There the keyboard works by **picking the mind's option**

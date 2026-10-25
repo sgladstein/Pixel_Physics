@@ -5769,6 +5769,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   they-follow-you arm leads 2-3x as many sisters. Frame cost within noise. Found: contact must be measured to the
   leader's body, not her head; a steered worker must think with her mind; a lesson is the heap, not a cell. With the
   feasibility review, plan, plan review, revision and box census in the same folder. Instrument `examples/scoutdemo.rs`.
+  **Queen seat demo: first playable** ([`queen-seat-demo.md`](teaching-the-colony-2026-10-25/queen-seat-demo.md),
+  2026-10-25, `demo=queen`): the player is the founding queen and the colony's only layer. Each egg of hers draws a
+  father from the 30 shipped minds. P makes the next egg a wild (3x) or feral (10x) mutant that founds a coloured
+  line, Y keeps a line for 5 eggs, and a 6,000-frame hold lapses to worker laying if she stops. Measured first: the
+  30 minds barely differ (M0a), while at feral width 17 of 20 mutants are visibly broken foragers and 2 are jewels
+  (M0b). Lab colonies' founder deaths follow the ant's id, not its mind. Review, plans and data in `queen/`.
   **Enemy seat: a playable raider demo** ([`enemy-seat-demo.md`](teaching-the-colony-2026-10-25/enemy-seat-demo.md),
   2026-10-25; feasibility review, plan, plan review and plan v2 in `teaching-the-colony-2026-10-25/enemy/`):
   `demo=enemy` puts the player in the shipped centipede against a dug-in colony. Of the design's Raider, Range and Pit

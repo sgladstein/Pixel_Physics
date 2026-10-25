@@ -1,0 +1,39 @@
+// The queen seat's demo box (`demo=queen`, `src/lab/demo/queen.rs`).
+//
+// Steady income's bed and its fixed food supply, but one founder instead of
+// 52: the player is she. The food lands 18 columns east of her, close enough
+// that a queen of one can walk to it and back inside her reserve, and keeps
+// arriving at a fixed rate so a colony the player raises well settles rather
+// than starves (the trained colony crashes on far food: the scout seat's
+// step-1 review, and the lab playtests). Lands at frame 1,200, once the
+// soil has settled.
+(
+    name: "demo_queen",
+    title: "DEMO: THE QUEEN",
+    question: "You are the founding queen. Can you raise a colony, and breed a line worth keeping?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 1,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 1200, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 1)),
+        (at: 1200, every: 1500, until: 0, what: Heap(material: "provisions", x: 274, cells: 20)),
+    ],
+    horizon: 600000,
+)
