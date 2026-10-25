@@ -2886,6 +2886,23 @@ drift that two of these documents still reflect.**
   16 colonies x 12 rounds): the spider pool evolved *backwards* (kills less in 49
   of 77 paired judgings; selection on one noisy life per placement, no elitism),
   and no clear defence learning in the colonies.
+- [colony-vs-colony-2026-10-24.md](colony-vs-colony-2026-10-24.md) — **two trained
+  colonies on one bed, 2026-10-24/25 (owner: "are we ready to start exploring
+  colony vs colony combat?").** `examples/rivalbed.rs` founds two `std_pool`
+  colonies side by side with their own food and breeding. The shipped pool can
+  already bite strangers; with both able to, they keep a cold peace (~17 kills
+  in 100k frames, no cost); a colony that can bite beside one that cannot kills
+  ~150 of it and wipes it out 10 times in 24, **and gains nothing itself**. The
+  wipeouts are one raider in the victim's nest: the mind's bite takes a cell
+  ant on ant, so a bitten head is a death (`PP_MIND_BITE_SCALE`, scratch, makes
+  it graded). A tournament scored against the rival (`rivaltour.py`) bred
+  champions that beat the founder 24 of 24 and kill 2-7 for each lost, and
+  that also stopped carrying food home and dug a wide pit; a second tournament
+  with food home in the score lost it the same way (so did the no-bite control):
+  inside a match nothing rewards an ant for carrying, so the proposed paired
+  case for the Teacher lane keeps births going to carriers. Found on the way: the
+  brood lay cap was one per species, so one colony's growth stopped its
+  neighbour laying (`World::colony_lay_scale`, per colony, harness only).
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's
