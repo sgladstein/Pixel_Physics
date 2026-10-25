@@ -5634,7 +5634,10 @@ pub(super) fn try_bud(
     provision: f32,
     lay: f32,
 ) -> Option<ActiveSite> {
-    if world.births_paused {
+    // `steer::may_breed`: a seat demo's player body can be barred from
+    // budding (the enemy seat's raider -- two raiders became 72 in its
+    // feasibility run). True for every body nobody marked.
+    if world.births_paused || !crate::sim::steer::may_breed(world, organism) {
         return None;
     }
     let state = world.organism(organism)?;
