@@ -262,8 +262,9 @@ pub fn pick_heading(usable: &[u8], dirs: &[(i32, i32); 8], dir: (i8, i8)) -> Opt
 /// - `verb` set: the option of that verb whose target lies nearest `dir`
 ///   (any target of that verb if `dir` is `None`). None listed and the
 ///   rule falls through to `dir`. `PickUp` falls back to `Eat`.
-/// - `dir` alone: the Walk whose step is nearest `dir` within 90 degrees,
-///   else a chain body's TurnAround if its tail lies that way, else (a
+/// - `dir` alone: a chain's TurnAround if its tail lies within 45 degrees of
+///   `dir`; else the Walk whose step is nearest `dir` within 90 degrees,
+///   else the TurnAround if its tail lies within 90, else (a
 ///   level hold only) the walk straight up: held into a wall, she climbs.
 /// - Neither, or nothing usable that way: Rest. **She stands**, as a
 ///   steered hand-built ant does with no key held.
@@ -353,8 +354,16 @@ pub fn take_forced(world: &mut World, organism: OrganismId) -> Option<ForcedPick
 /// list the mind was offered; `head` is the body's head cell. `None` only
 /// when the list holds no option the rule can use, not even Rest (every
 /// mind's list holds Rest, so in practice never). A pure function of its
-/// inputs. Only verbs whose act has landed (`Verb::acts`) are forced.
-pub fn choose(opts: &[crate::sim::creature::options::Opt], head: (i32, i32), pick: ForcedPick) -> Option<usize> {
+/// inputs. Only verbs whose act has landed (`Verb::acts`) and that `on`
+/// allows (the genome's verb switch, so a raider is never made to Feed: the
+/// body does only what a mind of its kind could) are forced; Rest always,
+/// since standing still is what no key means.
+pub fn choose(
+    opts: &[crate::sim::creature::options::Opt],
+    head: (i32, i32),
+    pick: ForcedPick,
+    on: impl Fn(crate::sim::creature::options::Verb) -> bool,
+) -> Option<usize> {
     use crate::sim::creature::options::Verb;
     let toward = |i: usize, dir: (i8, i8)| -> f32 {
         let (dx, dy) = ((opts[i].target.0 - head.0) as f32, (opts[i].target.1 - head.1) as f32);
@@ -370,7 +379,8 @@ pub fn choose(opts: &[crate::sim::creature::options::Opt], head: (i32, i32), pic
     // pick is a function of the list alone.
     let of_verb = |verb: Verb, dir: Option<(i8, i8)>, need_ahead: bool| -> Option<usize> {
         let mut best: Option<(usize, f32)> = None;
-        for i in (0..opts.len()).filter(|&i| opts[i].verb == verb && verb.acts()) {
+        let allowed = verb.acts() && (verb == Verb::Rest || on(verb));
+        for i in (0..opts.len()).filter(|&i| allowed && opts[i].verb == verb) {
             let cos = dir.map_or(0.0, |d| toward(i, d));
             if need_ahead && cos <= 1e-6 {
                 continue;
@@ -388,6 +398,12 @@ pub fn choose(opts: &[crate::sim::creature::options::Opt], head: (i32, i32), pic
         }
     }
     if let Some(dir) = pick.dir {
+        // **A chain held back over its own tail turns round** rather than curl
+        // a diagonal step over its neck (plan review S7f): the TurnAround wins
+        // when its tail lies within 45 degrees of the held direction.
+        if let Some(t) = of_verb(Verb::TurnAround, Some(dir), true).filter(|&t| toward(t, dir) >= 0.70) {
+            return Some(t);
+        }
         if let Some(i) = of_verb(Verb::Walk, Some(dir), true).or_else(|| of_verb(Verb::TurnAround, Some(dir), true)) {
             return Some(i);
         }
@@ -511,19 +527,23 @@ mod tests {
         let o = |verb, target| Opt { verb, target, feats: [0.0; FEATURES] };
         let opts = [o(Verb::Walk, (1, 0)), o(Verb::Walk, (1, -1)), o(Verb::TurnAround, (-4, 0)), o(Verb::Dig, (0, 1)), o(Verb::Rest, (0, 0))];
         let f = |dir, verb| ForcedPick { dir, verb, once: false };
-        assert_eq!(choose(&opts, (0, 0), f(Some((1, 0)), None)), Some(0));
-        assert_eq!(choose(&opts, (0, 0), f(Some((1, -1)), None)), Some(1));
-        assert_eq!(choose(&opts, (0, 0), f(Some((0, -1)), None)), Some(1), "north: the north-east walk is within 90 degrees");
-        assert_eq!(choose(&opts, (0, 0), f(Some((-1, 0)), None)), Some(2), "west: no walk that way, the chain turns round");
-        assert_eq!(choose(&opts, (0, 0), f(Some((0, 1)), None)), Some(4), "south: nothing walks that way, she stands (no sideways wander)");
+        let choose_all = |o: &[Opt], h, p| choose(o, h, p, |_| true);
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), None)), Some(0));
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, -1)), None)), Some(1));
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((0, -1)), None)), Some(1), "north: the north-east walk is within 90 degrees");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((-1, 0)), None)), Some(2), "west: the tail lies that way, the chain turns round");
+        let back = [o(Verb::Walk, (-1, -1)), o(Verb::TurnAround, (-4, 0)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_all(&back, (0, 0), f(Some((-1, 0)), None)), Some(1), "held back over the tail, it turns rather than curl north-west");
+        assert_eq!(choose(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Dig)), |v| v != Verb::Dig), Some(0), "a verb the genome has off is never forced");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((0, 1)), None)), Some(4), "south: nothing walks that way, she stands (no sideways wander)");
         let face = [o(Verb::Walk, (0, 1)), o(Verb::Walk, (0, -1)), o(Verb::Rest, (0, 0))];
-        assert_eq!(choose(&face, (0, 0), f(Some((1, 0)), None)), Some(1), "held right into a wall, she climbs it");
-        assert_eq!(choose(&face, (0, 0), f(Some((0, -1)), None)), Some(1), "held up, the walk up");
-        assert_eq!(choose(&opts, (0, 0), f(None, None)), Some(4), "no key: she stands");
-        assert_eq!(choose(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Dig))), Some(3), "a pressed verb beats the direction");
-        assert_eq!(choose(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Feed))), Some(0), "a verb not on the list falls back to the walk");
+        assert_eq!(choose_all(&face, (0, 0), f(Some((1, 0)), None)), Some(1), "held right into a wall, she climbs it");
+        assert_eq!(choose_all(&face, (0, 0), f(Some((0, -1)), None)), Some(1), "held up, the walk up");
+        assert_eq!(choose_all(&opts, (0, 0), f(None, None)), Some(4), "no key: she stands");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Dig))), Some(3), "a pressed verb beats the direction");
+        assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Feed))), Some(0), "a verb not on the list falls back to the walk");
         let eat = [o(Verb::Eat, (0, 0)), o(Verb::Rest, (0, 0))];
-        assert_eq!(choose(&eat, (0, 0), f(None, Some(Verb::PickUp))), Some(0), "E with nothing to pick up eats from the crop");
+        assert_eq!(choose_all(&eat, (0, 0), f(None, Some(Verb::PickUp))), Some(0), "E with nothing to pick up eats from the crop");
     }
 
     /// The lab's trained colony, one ant in it marked or led, and a hash of
@@ -663,6 +683,54 @@ mod tests {
         assert!(end.0 >= start.0 + 10, "held east for 300 frames (60 decisions), the raider went from {start:?} to {end:?}");
         let (s0, e0, _) = run(false);
         assert!(e0.0 < s0.0 + 10, "left to its mind the raider also went 10 east ({s0:?} to {e0:?}): the test cannot see the steer");
+    }
+
+    /// **B bites through the mind** (plan review S7g): the synthetic `choose`
+    /// test cannot see `act`. A steered centipede set down among the trained
+    /// colony's founders, held toward the nearest ant every frame, bites with
+    /// B held and not without (the control: same placement, same holds).
+    #[test]
+    fn a_steered_centipede_bites_when_b_is_held() {
+        use crate::lab::scenario::{Placement, Scenario};
+        let run = |bite: bool| -> usize {
+            let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+            for e in &mut sc.timeline {
+                if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                    e.at = 200;
+                }
+            }
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            for _ in 0..400 {
+                lab.tick_for_harness();
+            }
+            let ant = lab.world.species.id_of("ant").expect("ant ships");
+            let ants = |w: &World| -> Vec<(i32, i32)> {
+                let mut ids = w.live_organism_ids();
+                ids.sort();
+                ids.into_iter().filter_map(|i| w.organism(i).filter(|s| s.species == ant).and_then(|s| s.chain.first().copied())).collect()
+            };
+            let x = ants(&lab.world)[0].0;
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 1.0).expect("a centipede lands");
+            assert!(mark(&mut lab.world, id, Some(SteerInput::default())));
+            lab.world.encounter_log = Some(Default::default());
+            for _ in 0..600 {
+                let Some(head) = lab.world.organism(id).and_then(|s| s.chain.first().copied()) else { break };
+                let near = ants(&lab.world).into_iter().min_by_key(|&(ax, ay)| (ax - head.0).abs() + (ay - head.1).abs());
+                let dir = near.map(|(ax, ay)| ((ax - head.0).signum() as i8, (ay - head.1).signum() as i8));
+                if let Some(s) = lab.world.steered.as_mut() {
+                    s.input = Some(SteerInput { dir, bite, ..Default::default() });
+                }
+                lab.tick_for_harness();
+            }
+            let log = lab.world.encounter_log.as_ref().expect("on");
+            log.events.iter().filter(|e| e.kind == crate::sim::world::ENCOUNTER_BITE && e.a == id).count()
+        };
+        let (with, without) = (run(true), run(false));
+        assert_eq!(without, 0, "the raider bit {without} times with B never pressed: its mind is still choosing");
+        assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
     }
 
     #[test]
