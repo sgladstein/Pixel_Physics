@@ -3020,6 +3020,21 @@ fn walk(world: &mut World, organism: OrganismId, def: &CreatureDef, target: (i32
         groups: &groups,
         authored: &authored_widths,
     };
+    // **A Walk into living wood is the trunk crossing** (`options::cross_on`, which is the only way one is offered),
+    // started exactly as the game's ant starts one in `step_chain`: `creature_tick` runs it out before the mind decides
+    // again. `true`: the body acted, though the head moves only when the crossing is due.
+    let cell = world.get(target.0, target.1);
+    if options::cross_on() && super::is_living_tissue(world, cell) && world.materials.get(cell.material).woody {
+        let Some((out, thickness)) = super::trunk_crossing(world, def, body, to as u8, parting_enabled(), super::stacker_of(world, organism)) else {
+            return false;
+        };
+        let due = world.frame + u64::from(thickness) * super::organism_tick_interval(world, organism, def);
+        if let Some(state) = world.organism_mut(organism) {
+            state.crossing = Some(organism::Crossing { to: out, heading: to as u8, due, thickness });
+        }
+        world.creature_stats.crossings += 1;
+        return true;
+    }
     commit_step(
         world,
         organism,
