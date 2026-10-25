@@ -4906,6 +4906,75 @@ mod tests {
         assert!((after - full).abs() < 1e-3, "a full crop swallowed: {full} -> {after}");
     }
 
+    /// **A centipede regrows a lost tail out of a meal, and only then** (enemy seat's hit and run, 2026-10-25,
+    /// `CreatureDef::regrows`): bitten from five cells to three, healed, with a bank above a full tank plus a stamp
+    /// it grows one cell behind its tail per window, paying the stamp; at a full tank, or still wounded, it does not;
+    /// and an ant (`regrows` off) never does, however rich.
+    #[test]
+    fn a_fed_centipede_regrows_its_tail_and_a_hungry_one_does_not() {
+        let (mut w, me, ant) = beside_an_ant("centipede");
+        let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+        let adef = w.species.get(w.organism(ant).expect("placed").species).creature.clone().expect("creature");
+        assert!(def.regrows && !adef.regrows, "the arms of this test moved");
+        let plan = w.organism(me).expect("placed").chain.len();
+        assert_eq!(plan, 5);
+        for _ in 0..2 {
+            let tail = *w.organism(me).expect("alive").chain.last().expect("tail");
+            w.set(tail.0, tail.1, Cell::EMPTY);
+            assert!(super::super::reconcile_chain(&mut w, me), "a tail bite killed it");
+        }
+        assert_eq!(w.organism(me).expect("alive").chain.len(), 3);
+        // Step to the start of this body's window, so one call is one chance.
+        let window = |w: &mut World, who: OrganismId| {
+            let k = super::super::REGROW_FRAMES;
+            w.frame = (w.frame / k + 1) * k - (who as u64 % k);
+        };
+        let set = |w: &mut World, who: OrganismId, energy: f32, gnawed: f32| {
+            let st = w.organism_mut(who).expect("alive");
+            st.energy = energy;
+            st.gnawed = gnawed;
+        };
+        let len = |w: &World, who: OrganismId| w.organism(who).expect("alive").chain.len();
+        // A full tank only: the stamp is not there to pay.
+        set(&mut w, me, def.start_energy, 0.0);
+        window(&mut w, me);
+        super::super::regrow_tail(&mut w, me, &def);
+        assert_eq!(len(&w, me), 3, "grew a cell out of a tank that cannot pay for it");
+        // Fed, but still being chewed.
+        set(&mut w, me, def.start_energy + 2.0 * def.body_energy + 1.0, 0.5);
+        window(&mut w, me);
+        super::super::regrow_tail(&mut w, me, &def);
+        assert_eq!(len(&w, me), 3, "grew a cell with a wound open");
+        // Fed and healed: a cell, paid for.
+        set(&mut w, me, def.start_energy + 2.0 * def.body_energy + 1.0, 0.0);
+        let stamped = w.energy_ledger.stamped;
+        window(&mut w, me);
+        super::super::regrow_tail(&mut w, me, &def);
+        assert_eq!(len(&w, me), 4, "a fed, healed centipede did not regrow");
+        let st = w.organism(me).expect("alive");
+        assert!((st.energy - (def.start_energy + def.body_energy + 1.0)).abs() < 1e-3, "the stamp was not paid: {}", st.energy);
+        let new = *st.chain.last().expect("tail");
+        assert_eq!(w.get(new.0, new.1).organism_id(), me, "the new cell is not the centipede's");
+        assert!(st.cells.contains_key(&new), "the new cell is not filed as the body's");
+        assert!((w.energy_ledger.stamped - stamped - f64::from(def.body_energy)).abs() < 1e-6, "the stamp was not booked");
+        assert_eq!(w.creature_stats.regrown_cells, 1);
+        // The body's next tick is past its window: once a window.
+        w.frame += crate::sim::creature::organism_tick_interval(&w, me, &def);
+        super::super::regrow_tail(&mut w, me, &def);
+        assert_eq!(len(&w, me), 4, "grew twice in one window");
+        // An ant, short a cell and rich, does not.
+        let tail = *w.organism(ant).expect("ant").chain.last().expect("tail");
+        let alen = len(&w, ant);
+        if alen >= 2 {
+            w.set(tail.0, tail.1, Cell::EMPTY);
+            assert!(super::super::reconcile_chain(&mut w, ant));
+            set(&mut w, ant, adef.start_energy * 10.0, 0.0);
+            window(&mut w, ant);
+            super::super::regrow_tail(&mut w, ant, &adef);
+            assert_eq!(len(&w, ant), alen - 1, "the ant regrew");
+        }
+    }
+
     /// **The raider shoves through stored food it cannot eat, and through nothing else** (nest raider thread,
     /// 2026-10-25, `CreatureDef::digs_inedible_food`): a centipede's jaws may cut a cell of crumbs, which its
     /// carnivore gut will not take, but not soil (0.8 against its 0.5 jaw), and the cut keeps the crumb's worth in

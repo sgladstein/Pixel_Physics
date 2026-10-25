@@ -121,6 +121,8 @@ pub enum DemoKey {
     Up,
     Down,
     Tab,
+    /// Shift, held: the enemy seat's sprint.
+    Sprint,
     /// An upper-case ASCII letter.
     Letter(char),
 }
@@ -263,7 +265,7 @@ pub fn help_line(seat: DemoSeat) -> String {
         DemoSeat::Scout => format!("SCOUT DEMO: {body} -- {}", scout::SEAT_KEYS),
         DemoSeat::Guest => format!("GUEST DEMO: ARROWS MOVE -- {} -- TAB FOLLOW -- PGUP/PGDN SPEED", guest::SEAT_KEYS),
         DemoSeat::Enemy => format!(
-            "ENEMY DEMO: YOU ARE A CENTIPEDE -- ARROWS CREEP, B BITE, G CUT/SHOVE, E EAT, Q SPIT OR DROP -- TAB FOLLOW -- PGUP/PGDN SPEED -- {} -- THE COLONY FIGHTS BACK BUT DOES NOT LEARN YOU",
+            "ENEMY DEMO: YOU ARE A CENTIPEDE -- ARROWS CREEP, SHIFT SPRINT, B BITE, G CUT/SHOVE, E EAT, Q SPIT OR DROP -- TAB FOLLOW -- PGUP/PGDN SPEED -- {} -- THE COLONY FIGHTS BACK BUT DOES NOT LEARN YOU",
             enemy::SEAT_KEYS
         ),
         s if s.body().is_some() => format!("{} DEMO: {body}", s.name().to_uppercase()),
@@ -424,6 +426,13 @@ impl Lab {
                 return true;
             }
         }
+        if key == DemoKey::Sprint {
+            if seat != DemoSeat::Enemy {
+                return false;
+            }
+            enemy::sprint_key(self, pressed);
+            return true;
+        }
         if seat.body().is_none() {
             return false;
         }
@@ -439,6 +448,7 @@ impl Lab {
                 }
             }
             DemoKey::Letter('T') => demo.held.trail = pressed,
+            DemoKey::Sprint => return false,
             DemoKey::Letter(c @ ('E' | 'Q' | 'F' | 'G' | 'B' | 'L')) => {
                 if pressed {
                     let press = SteerInput {

@@ -3505,6 +3505,12 @@ fn lay_home_on() -> bool {
 
 /// **Whether this species' meals take the gut's time** (`CreatureDef::handling`): the species says so, unless
 /// `PIXEL_PHYSICS_HANDLING=off`.
+/// `CreatureDef::regrows`, unless `PIXEL_PHYSICS_REGROW=off` (the A/B arm).
+pub fn regrows_on(def: &CreatureDef) -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    def.regrows && !*OFF.get_or_init(|| std::env::var("PIXEL_PHYSICS_REGROW").is_ok_and(|v| v.trim() == "off"))
+}
+
 pub fn handling_on(def: &CreatureDef) -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     def.handling && !*OFF.get_or_init(|| std::env::var("PIXEL_PHYSICS_HANDLING").is_ok_and(|v| v.trim() == "off"))
@@ -5440,10 +5446,60 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 /// mix above 1.0 has to shrink the number it is applied to — the same
 /// inversion `tick_interval_of`'s own doc explains for `TRAIT_PACE` against
 /// `ratio_factor`, on the composition axis instead of the trait one.
+/// **Frames between one regrown cell and the next** (`regrow_tail`): 15 s at 1x, so a raider bitten to its head
+/// is whole again in a minute of rest if it has eaten enough to pay for it.
+pub const REGROW_FRAMES: u64 = 900;
+
+/// **Grow one cell behind the tail** of a `Chain` body short of its plan (`CreatureDef::regrows`). Once a
+/// [`REGROW_FRAMES`] window, keyed on the organism so a crowd does not all grow on one frame; only with the wound
+/// meter at zero (a body still being chewed does not mend), and only from a bank above a full tank plus the
+/// cell's stamp, which it pays. The new cell is a copy of the tail cell, written by `World::set` (which files it
+/// in `cells`), on the first empty one of the tail's eight neighbours -- eight because a chain is eight-connected
+/// (`reconcile_chain`). No room, no cell this window.
+///
+/// **The ledger**: the stamp leaves the bank as `Metabolized` and enters the structure as `Stamped`, the same
+/// two accounts a body built at a birth is booked in, so the live and meat identities both still close; when
+/// the cell is bitten off again `reconcile_chain` books it to `meat_lost` like any other.
+fn regrow_tail(world: &mut World, organism: OrganismId, def: &CreatureDef) {
+    let organism::BodyPlan::Chain(plan) = def.body else { return };
+    if !regrows_on(def) {
+        return;
+    }
+    let interval = organism_tick_interval(world, organism, def);
+    if (world.frame + organism as u64) % REGROW_FRAMES >= interval {
+        return;
+    }
+    let Some(st) = world.organism(organism) else { return };
+    if st.chain.len() < 2 || st.chain.len() >= usize::from(plan) || st.gnawed > 0.0 || st.energy < def.start_energy + def.body_energy {
+        return;
+    }
+    let (tx, ty) = *st.chain.last().expect("two cells or more");
+    let colony = st.colony;
+    let cell = world.get(tx, ty);
+    let Some((x, y)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (tx + dx, ty + dy)).find(|&(x, y)| world.in_bounds(x, y) && world.get(x, y).material == crate::sim::material::EMPTY) else {
+        return;
+    };
+    world.set(x, y, cell);
+    if let Some(st) = world.organism_mut(organism) {
+        st.chain.push((x, y));
+        st.energy -= def.body_energy;
+    }
+    world.book(colony, Account::Metabolized, f64::from(def.body_energy));
+    world.book(colony, Account::Stamped, f64::from(def.body_energy));
+    world.creature_stats.regrown_cells += 1;
+}
+
 pub fn organism_tick_interval(world: &World, organism: OrganismId, def: &CreatureDef) -> u64 {
     let base = world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     let mix = composition_mix(body_mix(world, organism).leg, BASELINE_LEG_FRAC);
-    ((base as f32 / mix).round() as u64).max(1)
+    let interval = ((base as f32 / mix).round() as u64).max(1);
+    // A seat's player body at a sprint (`steer::Steered::sprint`). Every rate charged per tick here is
+    // charged that much more often per frame, and every rate already divided by this interval (old age,
+    // wound healing) stays per frame.
+    if crate::sim::steer::sprinting(world, organism) {
+        return ((interval as f32 / crate::sim::steer::SPRINT_PACE).round() as u64).max(1);
+    }
+    interval
 }
 
 /// **What `try_bud` would weigh for this animal right now**, without budding:
@@ -7988,6 +8044,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 st.gnawed = (st.gnawed - interval as f32 / frames).max(0.0);
             }
         }
+    }
+
+    // --- a lost tail grows back (`CreatureDef::regrows`) -------------------
+    if def.regrows {
+        regrow_tail(world, organism, def);
     }
 
     // --- airborne: integrate, do not decide -----------------------------

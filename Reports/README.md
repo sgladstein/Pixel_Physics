@@ -5782,7 +5782,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   raids die on the mound, both brains); stalking lone foragers from 70 columns out, the trained colony kills the
   raider on 4 of 6 seeds and the hand-built one never does. Owner's pick: the demo colony's eggs take mutated minds
   (`Store::wild_all`). At the training page's rate 3 of 6 colonies went extinct with no raider, so the default is a
-  tenth of it, which lives like the unmutated colony. Learning within a session is not shown.
+  tenth of it, which lives like the unmutated colony. Learning within a session is not shown. Owner's playtest: the
+  forced spit is gone (the player bites past the sated rule; a stalker's kills 26 -> 345 over 6 seeds), and hit and
+  run is built: Shift sprints on a wind meter, and a fed centipede regrows its tail (`CreatureDef::regrows`). At the
+  door the raider lived longer on 5 of 6 seeds; regrowth fired 3 times in 24 runs.
 
 - [guest-seat-demo-2026-10-25.md](guest-seat-demo-2026-10-25.md) — **the guest seat demo (`demo=guest`): you are a
   rove beetle living off the colony by smelling like it.** Ants judge a registered visitor on a graded smell ladder

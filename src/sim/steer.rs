@@ -149,6 +149,13 @@ pub struct Steered {
     /// ~740 frames) filled on the first kill and every bite after it needed
     /// a spit (Q) first: "really annoying", the owner's first playtest.
     pub bites_when_full: bool,
+    /// **The body is sprinting this tick** (enemy seat, hit and run,
+    /// 2026-10-25): its tick interval is divided by [`SPRINT_PACE`]
+    /// (`creature::organism_tick_interval`), so it walks, bites and pays its
+    /// per-tick bill that much more often. `false` from [`mark`] and
+    /// [`mark_with`]; the seat sets it each tick from a held key and its own
+    /// wind meter, so a sprint cannot be held for ever.
+    pub sprint: bool,
     /// **What the body's last forced decision did** (`mind::tick`, a body with
     /// a mind only): the verb the keys asked for (`None`: a direction or
     /// nothing), the verb carried out, and whether its act succeeded -- so a
@@ -217,6 +224,7 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
         role,
         may_breed: true,
         bites_when_full: false,
+        sprint: false,
         last_act: None,
         born_frame,
         colony,
@@ -431,6 +439,19 @@ pub fn bites_when_full(world: &World, organism: OrganismId) -> bool {
     world.steered.as_ref().is_some_and(|s| s.bites_when_full) && is_steered(world, organism)
 }
 
+/// **How much faster a sprinting body ticks** ([`Steered::sprint`]): the
+/// centipede's interval of 5 becomes 2, against the ant's 6. At its own
+/// pace the raider is barely faster than an ant, so once a crowd closed in
+/// it could not get away (owner's playtest, 2026-10-25).
+pub const SPRINT_PACE: f32 = 2.5;
+
+/// **Is `organism` the steered body, sprinting?** One `Option` read with
+/// nobody steered.
+#[inline]
+pub fn sprinting(world: &World, organism: OrganismId) -> bool {
+    world.steered.as_ref().is_some_and(|s| s.sprint) && is_steered(world, organism)
+}
+
 /// One body's entry in [`World::mind_force`]: the pick, and the body it
 /// was written for, so an id the engine hands to a newborn later is never
 /// led by an entry meant for the dead.
@@ -609,6 +630,7 @@ mod tests {
                         role: SteerRole::Queen,
                         may_breed: true,
                         bites_when_full: false,
+                        sprint: false,
                         last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,
