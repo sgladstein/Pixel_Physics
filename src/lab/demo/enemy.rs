@@ -195,7 +195,9 @@ pub fn frame(lab: &mut Lab) {
     }
     // `warm=` moves the landing (a test, or a player who wants straight in).
     let warm = lab.demo.as_ref().and_then(|d| d.args.get("warm")).and_then(|v| v.parse().ok()).unwrap_or(WARM_UNTIL);
-    if lab.world.frame < warm {
+    // And never before the colony has a door: `warm=0` would otherwise set
+    // the raider down on an empty bed, 6,000 frames before the ants land.
+    if lab.world.frame < warm || lab.world.nest_sites.is_empty() {
         if !e.warming {
             // The top of the dial that still draws: the colony digging in is the
             // demo's opening shot, and a blank window reads as a hang.

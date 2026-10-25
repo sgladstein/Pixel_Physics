@@ -16,7 +16,8 @@
 //! `policy=skulk` is the player who waits out on the surface for a forager
 //! walking alone, away from the mound, and backs off when bitten; the
 //! default (`door`) walks straight at the nearest door. `land=` is the
-//! demo's own (how far from the door the raider is set down).
+//! demo's own (how far from the door the raider is set down). `drawcost`
+//! prints what the seat's view costs `Lab::draw`, in microseconds.
 //!
 //! The autopilot is deliberately dumb and the same for both brains: walk to
 //! the nearest door, hold down and dig until the head is three rows under
@@ -124,6 +125,8 @@ fn main() {
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     let mut landed_at: Option<u64> = None;
     let mut start_cells: Option<usize> = None;
+    let drawcost = flag("drawcost");
+    let mut cost: Vec<(u64, u64)> = Vec::new();
 
     loop {
         lab.demo_frame();
@@ -288,10 +291,35 @@ fn main() {
         }
         hold = want;
         lab.tick_for_harness();
+        // `drawcost`: every displayed frame drawn twice, the demo's view (the
+        // camera following, the marks) and then the plain lab at the same
+        // camera with the seat taken away, so the difference is what the
+        // seat costs the draw. The plain draw follows a demo draw, so its
+        // dirty-rect skip is the box's own between two frames.
+        if drawcost {
+            let t = std::time::Instant::now();
+            lab.draw(&mut buf, 60.0);
+            let with = t.elapsed().as_micros() as u64;
+            let seat = lab.demo.take();
+            let t = std::time::Instant::now();
+            lab.draw(&mut buf, 60.0);
+            let without = t.elapsed().as_micros() as u64;
+            lab.demo = seat;
+            cost.push((with, without));
+        }
         if gif.is_some() && (lab.world.frame - t0).is_multiple_of(every) {
             lab.draw(&mut buf, 60.0);
             shots.push(image::RgbaImage::from_raw(WIDTH, HEIGHT, buf.clone()).expect("frame size"));
         }
+    }
+    if !cost.is_empty() {
+        let stat = |v: &mut Vec<u64>| {
+            v.sort_unstable();
+            (v.iter().sum::<u64>() / v.len() as u64, v[v.len() * 99 / 100], v[v.len() - 1])
+        };
+        let (mut a, mut b): (Vec<u64>, Vec<u64>) = cost.iter().copied().unzip();
+        let ((am, a99, amax), (bm, b99, bmax)) = (stat(&mut a), stat(&mut b));
+        println!("drawcost frames={} demo_us mean={am} p99={a99} max={amax}  plain_us mean={bm} p99={b99} max={bmax}", cost.len());
     }
     // `card=x.png`: the last frame with the season card up (Y, as the
     // player opens it; a death has already opened it).
