@@ -64,6 +64,10 @@
         // The beetle's ratio to its tank (2550 / 1600). Unused in training,
         // where births are the selection's.
         reproduce_threshold: 3200.0,
+        // A meal takes the gut's time, and a full spider does not bite
+        // (`CreatureDef::handling`): without it two spiders in a lab nest
+        // became 28 in 6,000 frames and ate the colony.
+        handling: true,
         mutation_rate: 0.0031548,
         force_fraction: 0.000015625,
         dig_force: 0.5,

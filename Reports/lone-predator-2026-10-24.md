@@ -202,6 +202,83 @@ The judge is `scratch/inrun/predjudge.py` (`S=` the folder holding the arms as `
 `SIGHT=on COLS=founder,sight EVO=sight ORIG=.../sight-h2` for the sighted grid). The judged rows are in
 `/mnt/project-files/predator/coevo1/`.
 
+**The elitism rerun: spiders that live long, not spiders that hunt.** `ce2`: the sighted line again (`sight-h2`,
+16 x 12 x 200k, local), now with `spider_mut=0.03:0.3:2:0.5` (half the placements the parent itself, the rest gentle
+mutants) and `spiderevo=8:0.03:0.3:2:0.5` (each parent's score a shrunk mean over all its lives, prior 2), against
+the same spiders fixed. Judged as above after round 12:
+
+| colonies | spiders | ants killed (median / mean) | spiders killed by ants (mean) | food home (median) | starved (median) |
+|---|---|---|---|---|---|
+| founder | sight-h2 | 65 / 73.8 | 2.25 | 10,464 | 10 |
+| founder | evolved (r12) | 13 / 28.8 | 0.88 | 10,313 | 9 |
+| coevo | sight-h2 | 47 / 51.7 | 2.25 | 13,959 | 0 |
+| coevo | evolved | 22 / 26.6 | 1.00 | 13,978 | 1 |
+| fixed | sight-h2 | 57 / 50.9 | 2.50 | 13,685 | 1 |
+| fixed | evolved | 23 / 29.6 | 0.62 | 14,249 | 1 |
+
+Spider lives grew from about 6k to 22-33k frames and food eaten per life from 310 to 520 -- so the selection now
+worked -- **and the evolved spiders killed fewer ants in 38 of 48 judgings.** The score was food per 1,000 frames
+alive, which pays a spider that lives long on little as well as one that kills. Asked (decision card, 2026-10-24),
+the owner chose **total food eaten in its life**: `spider_score=total` (the default since `ad11f653`) is credit over
+the run the spider could have had, `(end - born) / 1000`, so dying early costs it; `spider_score=life` is the old
+score. Colonies again showed no clear defence: coevo and fixed each beat the founder in 11 of 16 against `sight-h2`.
+
+## Stage four: does a spider population last in a lab box? (2026-10-25)
+
+Owner (2026-10-24): *"We should test if a spider population survives / is sustainable in the lab."* Training never
+asks, because a training bed refills every spider. `examples/spiderlab.rs` lands a lab scenario through the lab's own
+`Lab` (the lab's ant, hand-built by default; `ant=std` for the trained pool), sets down `spiders=N` spiders from
+`pool=` `delay=` frames after the first ant stands, at least 30 columns from every nest door, and lets the game decide:
+a spider buds at its species' bar (`reproduce_threshold` 3,200, about 1.6 tanks or three ants) and its child inherits
+its mind. Nothing is refilled. `coexist` is the share of samples since landing with both kinds alive.
+
+**Not yet: every population that breeds eats the colony and then starves.** `sight-h2`, 300k frames:
+
+| box | spiders | delay | peak spiders (range over 3 seeds) | births | ants at the end | coexist |
+|---|---|---|---|---|---|---|
+| played_bed | 0 | -- | -- | -- | 181 / 0 / 107 | -- |
+| played_bed | 1 | 0 | 11 / 2 / 1 | 10 / 1 / 0 | 0 / 198 / 231 | -- |
+| played_bed | 2-4 | 0 | 8-14 | 9-11 | all 0 | 0.00-0.03 |
+| lab_mid_fruit | 0 | -- | -- | -- | 228-412 | -- |
+| lab_mid_fruit | 1-4 | 0 | 11-23 | 9-27 | all 0 | 0.03-0.17 |
+| lab_mid_fruit | 1 | 30k | 35 / 1 / 39 | 82 / 0 / 125 | 0 / 211 / 64 | 0.07-0.19 |
+| lab_mid_fruit | 2 | 30k | 28-38 | 64-87 | all 0 | 0.04-0.11 |
+
+In 21 of the 24 runs with spiders the spiders bred to a peak of 8-39 and the colony was wiped in 20; it survived
+whole only where a lone spider starved before its line took hold. Landing the spiders after the colony has settled
+(`delay=30000`) changes nothing, and neither does a breeding bar 2x or 4x as high (6,400 / 12,800: peaks 9-25, the
+colony wiped in 7 of 12). `ants_killed` in the RESULT line counts every `Killed` death in the box, and lab_mid_fruit
+loses 147-212 ants that way with no spider eating them; it is not the spiders' tally.
+
+**The cause, traced frame by frame (seed 1, 2 spiders): no handling time.** Inside the nest two spiders became 23 in
+1,500 frames and killed about 250 ants. Each spider's bank rose about 1,350 J per 100 frames, more than an ant's worth,
+against a gut rate of under 1 J a frame. One bite kills an ant (a 0.5 jaw on 0.25 flesh), the cell goes into the crop,
+and the mind's Eat finishes it at once (`eat_lunch_now`), so a spider among packed ants eats at bite speed: 229 of 231
+kills were swallowed. A predator in nature spends most of a meal handling it, and that is what the classic
+predator-prey models say keeps a predator from overshooting its prey.
+
+| rule (lab_mid_fruit, 1-2 spiders x 3 seeds, delay 30k) | colony alive at 300k | spider peak | kills / cells eaten |
+|---|---|---|---|
+| as shipped before | 2 of 6 (one down to 64 ants) | 1-39 | 231 / 229 (seed 1 to 42k) |
+| digest at the gut's pace only | 5 of 6 | 1-8 | 408 / 55 (seed 3, 2 spiders) |
+| a full spider does not bite, only | 2 of 6 | 1-36 | 215 / 266 |
+| **both (`handling: true`)** | **6 of 6** | **1-5** | **43 / 43** |
+
+With both, every kill is eaten and the ants win: the spiders die out, nearly all killed by ants (0-15 a run; one starved). That is
+the middle the arms race can work from, where the old rule had none. **Shipped as `CreatureDef::handling`, on for the
+spider** (`PIXEL_PHYSICS_HANDLING=off` for the old rule; checked to reproduce both the scratch run and the old one
+exactly). It changes the spider on the training bed too: a pool trained before it hunted under the old rule.
+
+**Breeding genes in training** (owner, 2026-10-25: *"Breeding parameters should be part of training"*): a spider's
+`birth_grant` and `reproduce_at` (`predator::BREEDING`) ride with its mind as `NN.body.txt`, stepped by `spider_mut`
+as a game birth would step them, saved by `spider_out`, copied by colsel and set by `spiderlab` on the spiders it
+lands. They act only where spiders breed, so they are selected by `spiderlab=`, not on the bed.
+
+Built for the owner's two training ideas (2026-10-24, agreed 23:26Z), in colsel: **`spiderhold=K`** holds the spider
+pool (no evolution that round) while the round's median ants killed is above K, so the colonies can catch up; and
+**`spiderlab=SCEN:FRAMES:N:TOP`** runs the top TOP spider candidates through `spiderlab` in SCEN before KEEP is taken,
+reordering them by coexistence, then food, so the pool is picked to share a box with a colony rather than wipe it.
+
 ## Reproduce
 
 ```

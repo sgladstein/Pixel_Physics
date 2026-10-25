@@ -3501,6 +3501,13 @@ fn lay_home_on() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").map_or(true, |v| v.trim() != "off"))
 }
 
+/// **Whether this species' meals take the gut's time** (`CreatureDef::handling`): the species says so, unless
+/// `PIXEL_PHYSICS_HANDLING=off`.
+pub fn handling_on(def: &CreatureDef) -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    def.handling && !*OFF.get_or_init(|| std::env::var("PIXEL_PHYSICS_HANDLING").is_ok_and(|v| v.trim() == "off"))
+}
+
 pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Option<f32> {
     (def.reproduce_threshold > 0.0).then(|| {
         let bar = def.reproduce_threshold * reproduce_fraction(traits[TRAIT_REPRODUCE_AT]);
@@ -9021,7 +9028,8 @@ fn settle(
             // A packed lunch meeting food it cannot share a crop with is
             // finished this tick (`eat_lunch_now`, set in `act`): the whole
             // cell in progress, at the normal overhead.
-            let finish_lunch = world.organism(organism).is_some_and(|s| s.eat_lunch_now);
+            // A species with a handling time (`CreatureDef::handling`) is not hurried: the cell finishes at the gut's pace.
+            let finish_lunch = world.organism(organism).is_some_and(|s| s.eat_lunch_now) && !handling_on(def);
             let progressed = if finish_lunch { (c.unit - c.digesting).max(0.0) } else { digest_rate.min((c.unit - c.digesting).max(0.0)) };
             let matured = c.digesting + progressed;
             let finished = matured >= c.unit;

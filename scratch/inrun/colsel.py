@@ -139,6 +139,38 @@ spider_at = SPIDERRAMP[0] if SPIDERRAMP else None
 SPIDEREVO = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('spiderevo=')), None)
 PRIOR = 2.0
 spool_hist = {}
+# spiderhold=K (owner, 2026-10-24 23:18Z: "If the spiders start doing too well then we need to hold their evolution
+# while selecting for the best ants until the ants survive"): the spider pool evolves after a round only when that
+# round's median colony lost K ants or fewer to spiders (an extinct colony counts as having lost everything); above
+# it the pool is held and only the ants are selected, until the colonies catch up. Logged per round.
+SPIDERHOLD = next((int(x.split('=', 1)[1]) for x in EXTRA if x.startswith('spiderhold=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('spiderhold=')]
+# spiderlab=SCEN:FRAMES:N:TOP (owner, same evening: "select for a spider colony that's more sustainable instead of one
+# that wipes out"): the TOP candidates of the in-run ranking each land as N spiders of their one mind in the lab
+# scenario SCEN (examples/spiderlab.rs: the lab's own ant, the game's own breeding, nothing refilled) for FRAMES, and
+# the pool is the KEEP of those whose population lived longest beside the ants (`coexist`, the share of samples with
+# both alive; then the spiders' mean headcount; then the in-run rank). The lab's first look: one spider bred to 11,
+# wiped a colony of 181 and starved out. SPIDERLAB_BIN / SPIDERLAB_DIR as LAB_BIN / LAB_DIR.
+SPIDERLAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('spiderlab=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('spiderlab=')]
+SPIDERLAB_BIN = os.environ.get('SPIDERLAB_BIN', 'target/release/examples/spiderlab')
+SPIDERLAB_DIR = os.environ.get('SPIDERLAB_DIR', 'scratch/inrun/labscen')
+
+
+def spider_sustain(r, i, fp):
+    """(coexist, spider_mean) of one spider mind as a lab population (`spiderlab=`)."""
+    import re
+    d = f'{OUT}/spiderlab/r{r}/c{i:02}'
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(fp, f'{d}/m.raw.txt')
+    if os.path.exists(fp[:-len('.raw.txt')] + '.body.txt'):
+        shutil.copy(fp[:-len('.raw.txt')] + '.body.txt', f'{d}/m.body.txt')
+    sc, frames, n, _ = SPIDERLAB
+    out = subprocess.run([SPIDERLAB_BIN, f'scenario={sc}', f'pool={d}', f'spiders={n}', f'frames={frames}', f'seed={r * 100 + i + 1}', 'every=5000'],
+                         capture_output=True, text=True, env={**os.environ, 'PIXEL_PHYSICS_LAB_SCENARIOS': SPIDERLAB_DIR}).stdout
+    open(f'{d}.log', 'w').write(out)
+    m = re.search(r'coexist=([\d.]+) spider_mean=([\d.]+)', out)
+    return (float(m.group(1)), float(m.group(2))) if m else (0.0, 0.0)
 EXTRA = [x for x in EXTRA if not x.startswith('spiderevo=')]
 spool = next((x.split('=', 1)[1].rsplit(':', 1)[0] for x in EXTRA if x.startswith('spiders=')), None)
 if SPIDEREVO:
@@ -175,6 +207,13 @@ def evolve_spiders(r, dirs):
     else:
         cands = [(sc, c, k, fp, [sc]) for sc, c, k, fp, p, mutant in rows]
     cands.sort(key=lambda x: (-x[0], x[1], x[2]))
+    if SPIDERLAB:
+        top = cands[:int(SPIDERLAB[3])]
+        with ThreadPoolExecutor(P) as ex:
+            lab = list(ex.map(lambda t: spider_sustain(r, t[0], t[1][3]), enumerate(top)))
+        order = sorted(range(len(top)), key=lambda i: (-lab[i][0], -lab[i][1], i))
+        print(f'round {r}: spiderlab coexist of the top {len(top)}: ' + ' '.join(f'{lab[i][0]:.2f}' for i in order), flush=True)
+        cands = [top[i] for i in order] + cands[len(top):]
     keep = cands[:int(SPIDEREVO[0])]
     nd = f'{OUT}/spool/r{r + 1}'
     os.makedirs(nd, exist_ok=True)
@@ -185,6 +224,9 @@ def evolve_spiders(r, dirs):
             f.write('round,rank,score,colony,k,placements,median_score,lives\n')
         for i, (sc, c, k, fp, v) in enumerate(keep):
             shutil.copy(fp, f'{nd}/{i:02}.raw.txt')
+            # The breeding genes ride with the mind (`predator::BREEDING`, owner 2026-10-25).
+            if os.path.exists(fp[:-len('.raw.txt')] + '.body.txt'):
+                shutil.copy(fp[:-len('.raw.txt')] + '.body.txt', f'{nd}/{i:02}.body.txt')
             new_hist[f'{nd}/{i:02}.raw.txt'] = v
             f.write(f'{r},{i},{sc:.4f},{c},{k},{len(rows)},{med:.4f},{len(v)}\n')
     spool, spool_hist = nd, new_hist
@@ -547,7 +589,11 @@ for r in range(R0, R):
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):
         garden(r, carry)
     if SPIDEREVO and (not SPIDERRAMP or r >= SPIDERRAMP[3]):
-        evolve_spiders(r, dirs)  # after the garden, which faces the pool this round's colonies faced
+        kl = sorted(res[c][15] if res[c] else 10**9 for c in cols)
+        if SPIDERHOLD is not None and kl[len(kl) // 2] > SPIDERHOLD:
+            print(f'round {r}: median killed {kl[len(kl) // 2]} > {SPIDERHOLD}: spider pool held, ants catch up', flush=True)
+        else:
+            evolve_spiders(r, dirs)  # after the garden, which faces the pool this round's colonies faced
     if PILECAP:
         # A colony with no run this round (extinct, not refounded) counts as starving, never as a colony that starved none.
         st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
