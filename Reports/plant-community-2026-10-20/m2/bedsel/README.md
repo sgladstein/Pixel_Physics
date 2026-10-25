@@ -124,6 +124,10 @@ is not significant (sign test p ~ 0.4), but the medians point one way.
 The default is the owner's call (asked 2026-10-25); the precedent is the
 tree-age fix, kept on at -18% ant food.
 
+Pictures, seed 1 at 50k / 100k / 150k (`planttrace shots=`, pool off above,
+on below): https://claude.ai/artifact/Fdq8vHHXbRFL8sxVx2PnxM. The pool's
+tree is lankier and more open, with more plants along the bed.
+
 **Not yet known:** what changed in the genomes (which params and fates the
 pool moved). A pool bred with the colony in the bed (lesson 1 applied to
 the ants as well as the plants) is the obvious next round.
