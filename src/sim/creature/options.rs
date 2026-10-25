@@ -329,8 +329,33 @@ pub fn mind_scent(world: &World, ch: Channel, x: i32, y: i32) -> f32 {
     if scent_deaf(ch) {
         return 0.0;
     }
+    if let Some(v) = scent_const(ch) {
+        return v;
+    }
     let dx = scent_shift(ch);
     world.pheromone_at(ch, x + dx, y) as f32 / pheromone::Scent::MAX as f32
+}
+
+/// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_SCENT_CONST=alarm:0.05` makes a mind ant read that plane
+/// as one constant level everywhere and always. **The control that separates information from presence**: a
+/// colony that dies deaf might need the *level* (a bias its weights were tuned around) rather than what the map
+/// says; at a constant level the bias stays and every place and change in it is gone.
+pub fn scent_const(ch: Channel) -> Option<f32> {
+    static V: std::sync::OnceLock<[Option<f32>; 3]> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        let mut d = [None; 3];
+        for item in std::env::var("PP_SCENT_CONST").unwrap_or_default().split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            let (name, v) = item.split_once(':').expect("PP_SCENT_CONST=CH:V,...");
+            let v: f32 = v.parse().expect("PP_SCENT_CONST v");
+            match name.to_ascii_lowercase().as_str() {
+                "a" => d[Channel::A as usize] = Some(v),
+                "b" => d[Channel::B as usize] = Some(v),
+                "alarm" => d[Channel::Alarm as usize] = Some(v),
+                other => panic!("PP_SCENT_CONST: unknown channel {other} (A, B, alarm)"),
+            }
+        }
+        d
+    })[ch as usize]
 }
 
 /// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_SCENT_SHIFT=A:40,B:40` makes a mind ant read a plane

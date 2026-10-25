@@ -1087,6 +1087,25 @@ pub const LAB_B_RHO: f32 = DECAY_RHO;
 /// laden ants (`examples/trailprofile.rs`).
 pub const LAB_B_DIFFUSE: f32 = 0.05;
 
+/// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PIXEL_PHYSICS_ALARM_GROUND=RHO:DIFFUSE` puts the third
+/// plane on the **ground law** -- [`Spread::Diffuse`] at that fade and blend, like A and B -- instead of the
+/// shipped active-space call. Off when unset, and then nothing here changes.
+///
+/// **Why it exists: the emergence test needs a channel that can reach the food.** The shipped call is built
+/// for a wound -- an ant's own deposit carries about 3 cells before [`ALARM_RHO`] erases it -- and the first
+/// emergence run (`Reports/brain-training/evolvable-pheromones-2026-10-25.md` s7) gave evolution that channel
+/// to invent a food signal on, with food 30-110 columns away. The independent review named that as one of
+/// the three reasons the test could not have passed. A ground-law third plane is the "fresh" molecule of the
+/// parked palette (s2): one fixed chemistry, not a per-ant gene, so the one-physics rule holds.
+pub fn alarm_ground_law() -> Option<(f32, f32)> {
+    static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let s = std::env::var("PIXEL_PHYSICS_ALARM_GROUND").ok()?;
+        let (r, d) = s.split_once(':').expect("PIXEL_PHYSICS_ALARM_GROUND=RHO:DIFFUSE");
+        Some((r.trim().parse().expect("ALARM_GROUND rho"), d.trim().parse().expect("ALARM_GROUND diffuse")))
+    })
+}
+
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
         Self {
@@ -1096,9 +1115,9 @@ impl Pheromones {
             ],
             alarm: None,
             bounds,
-            alarm_rho: ALARM_RHO,
-            alarm_diffuse: DIFFUSE,
-            alarm_spread: Spread::ActiveSpace { fall: ALARM_FALL },
+            alarm_rho: alarm_ground_law().map_or(ALARM_RHO, |(rho, _)| rho),
+            alarm_diffuse: alarm_ground_law().map_or(DIFFUSE, |(_, d)| d),
+            alarm_spread: if alarm_ground_law().is_some() { Spread::Diffuse } else { Spread::ActiveSpace { fall: ALARM_FALL } },
             stats: PheromoneStats::default(),
         }
     }

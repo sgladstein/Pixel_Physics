@@ -20,6 +20,12 @@ Every EVERY generations the best colony's genome is replayed on LISTEN seeds nor
 columns off; emergence = that gap growing over generations, in free and not in drift.
 
   python3 scratch/pheromones/emerge.py OUT ARM N GENS FRAMES FOUNDER [P=4] [EVERY=10] [LISTEN=4] [extra inrun args...]
+  [EVALS=1] seeds per colony per generation, scores averaged (the review's fix: one seed predicts the next at r=0.23)
+  [SCORE=both|stored] stored food + nest cells, or stored food only (nest cells let a 4-ant huddle win the 1st run)
+  [ZERO=LO-HI] zero these genome slots in the founder (2375-2409: the B emit row, for the re-evolve check)
+  [FILL=SIGMA] after ZERO, give every zeroed slot a small random weight N(0, SIGMA) (seeded): the operator's
+  add events almost never land on the one input a signal needs, so start the row dense and let sigma tune it
+  [CHAN=alarm|B] the channel the listening replays deafen and shift; [ALARM=train|frozen] PP_MIND_ALARM
   e.g. python3 scratch/pheromones/emerge.py /tmp/em free 16 200 100000 assets/minds/std_pool.txt P=4
 
 FOUNDER may be a .raw.txt or a pool file (member 0 is used). Resumes from the last complete generation.
@@ -33,13 +39,16 @@ import nestcount  # noqa: E402
 
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT, ARM, N, GENS, FRAMES, FOUNDER = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT'))}
-EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT')]
+OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL')
+opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in OPTS)}
+EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in OPTS]
 P, EVERY, LISTEN, SEED = int(opts.get('P', 4)), int(opts.get('EVERY', 10)), int(opts.get('LISTEN', 4)), int(opts.get('SEED', 1))
 MUT = opts.get('MUT', '0.013:1.0:4')  # pm:sigma:events, the standard line's kpm / ksigma / kevents
+EVALS, SCORE, ZERO, CHAN = int(opts.get('EVALS', 1)), opts.get('SCORE', 'both'), opts.get('ZERO'), opts.get('CHAN', 'alarm')
 assert ARM in ('free', 'deaf', 'drift'), ARM
+assert SCORE in ('both', 'stored') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
 BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0'] + EXTRA
-ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', 'PP_MIND_ALARM': 'train'}
+ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', **({'PP_MIND_ALARM': 'train'} if opts.get('ALARM', 'train') == 'train' else {})}
 RUN_ENV = {**ENV, **({'PP_SCENT_DEAF': 'alarm'} if ARM == 'deaf' else {})}
 os.makedirs(OUT, exist_ok=True)
 
@@ -61,7 +70,11 @@ def founder_raw():
     fp = f'{OUT}/founder.raw.txt'
     with open(fp, 'w') as f:
         f.write(f'genome {head[3]} {head[4]}\n')
-        f.writelines(f'{i} {w}\n' for i, w in sorted(m.items()) if float(w) != 0.0)
+        lo, hi = (int(x) for x in ZERO.split('-')) if ZERO else (1, 0)
+        f.writelines(f'{i} {w}\n' for i, w in sorted(m.items()) if float(w) != 0.0 and not lo <= i <= hi)
+        if 'FILL' in opts:
+            fr = random.Random(SEED * 31 + 7)
+            f.writelines(f'{i} {fr.gauss(0.0, float(opts["FILL"])):.6f}\n' for i in range(lo, hi + 1))
     return fp
 
 
@@ -102,7 +115,7 @@ def score(d):
                 r['layA'], r['layB'], r['layAl'] = float(t[1]), float(t[3]), float(t[5])
     except OSError:
         pass
-    r['score'] = r['stored'] + r['nest'] if r['alive'] else 0
+    r['score'] = (r['stored'] + (r['nest'] if SCORE == 'both' else 0)) if r['alive'] else 0
     for fn in os.listdir(d):  # keep the small files only
         if fn.startswith(('map_f', 'ants_f', 'nestmap_f', 'occupants')) or fn in ('events.csv', 'births.csv', 'age30.csv'):
             os.remove(f'{d}/{fn}')
@@ -114,7 +127,7 @@ listen_csv = f'{OUT}/listen.csv'
 g0 = 0
 while os.path.exists(f'{OUT}/g{g0:03}/done'):
     g0 += 1
-print(f'emerge: arm {ARM}, {N} colonies, gens {g0}..{GENS - 1}, {FRAMES} frames, bed {" ".join(BED)}', flush=True)
+print(f'emerge: arm {ARM}, {N} colonies, gens {g0}..{GENS - 1}, {FRAMES} frames, EVALS={EVALS} SCORE={SCORE} ZERO={ZERO} CHAN={CHAN} ALARM={opts.get("ALARM", "train")}, bed {" ".join(BED)}', flush=True)
 if g0 == 0:
     os.makedirs(f'{OUT}/g000', exist_ok=True)
     base = founder_raw()
@@ -130,7 +143,13 @@ for g in range(g0, GENS):
     os.makedirs(gd, exist_ok=True)
     genomes = [f'{gd}/c{c:02}.raw.txt' for c in range(N)]
     with ThreadPoolExecutor(P) as ex:
-        res = list(ex.map(lambda c: run(genomes[c], SEED * 1000003 + g * 1000 + c, f'{gd}/r{c:02}', RUN_ENV), range(N)))
+        flat = list(ex.map(lambda j: run(genomes[j[0]], SEED * 1000003 + g * 1000 + j[0] + 100 * j[1],
+                                         f'{gd}/r{j[0]:02}' + (f'_{j[1]}' if j[1] else ''), RUN_ENV),
+                           [(c, e) for c in range(N) for e in range(EVALS)]))
+    res = [{k: sum(r[k] for r in flat[c * EVALS:(c + 1) * EVALS]) / EVALS for k in flat[0]} for c in range(N)]
+    for r in res:
+        for k in ('score', 'stored', 'nest', 'alive', 'starved'):
+            r[k] = round(r[k])
     rng = random.Random(SEED * 7919 + g)
     order = sorted(range(N), key=lambda c: (-res[c]['score'], c))
     if ARM == 'drift':
@@ -147,7 +166,7 @@ for g in range(g0, GENS):
         jobs = []
         for k in range(LISTEN):
             s = 900000 + k
-            jobs += [(s, 'normal', ENV), (s, 'deaf', {**ENV, 'PP_SCENT_DEAF': 'alarm'}), (s, 'shift', {**ENV, 'PP_SCENT_SHIFT': 'alarm:40'})]
+            jobs += [(s, 'normal', ENV), (s, 'deaf', {**ENV, 'PP_SCENT_DEAF': CHAN}), (s, 'shift', {**ENV, 'PP_SCENT_SHIFT': f'{CHAN}:40'})]
         with ThreadPoolExecutor(P) as ex:
             lr = list(ex.map(lambda j: run(genomes[best], j[0], f'{ld}/{j[1]}_s{j[0]}', j[2]), jobs))
         with open(listen_csv, 'a') as f:
@@ -166,4 +185,4 @@ for g in range(g0, GENS):
             parents_of[(g + 1, k)] = f'g{g}c{p}'
     open(f'{gd}/done', 'w').close()
     sc = sorted((r['score'] for r in res), reverse=True)
-    print(f'gen {g}: best {sc[0]} median {sc[N // 2]} alive {sum(1 for r in res if r["alive"])}/{N} alarm laid median {sorted(r["layAl"] for r in res)[N // 2]:.0f}', flush=True)
+    print(f'gen {g}: best {sc[0]} median {sc[N // 2]} alive {sum(1 for r in res if r["alive"])}/{N} alarm laid median {sorted(r["layAl"] for r in res)[N // 2]:.0f} B laid max {max(r["layB"] for r in res):.0f}', flush=True)
