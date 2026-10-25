@@ -278,9 +278,10 @@ impl Lab {
         }
         let pick = match demo.seat {
             DemoSeat::Queen => queen::pick_body(&self.world),
-            // No body until the warm-up hands one over (`scout::HANDOVER`).
-            DemoSeat::Scout if !demo.scout.as_ref().is_some_and(|s| s.started) => None,
-            DemoSeat::Scout => scout::pick_body(&self.world),
+            // No body until the warm-up hands one over (`scout::HANDOVER`). A layer armed without the seat's
+            // state (no `start_demo_with`) binds at once, as every other seat does.
+            DemoSeat::Scout if demo.scout.as_ref().is_some_and(|s| !s.started) => None,
+            DemoSeat::Scout => scout::pick_body(&self.world).or_else(|| oldest_ant(&self.world)),
             _ => oldest_ant(&self.world),
         };
         if let Some(id) = pick {

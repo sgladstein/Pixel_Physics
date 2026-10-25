@@ -11,7 +11,13 @@
 //! ```text
 //! cargo run --release --example scoutdemo -- arm=A seed=1 frames=36000
 //! cargo run --release --example scoutdemo -- arm=A seed=1 rude=1     # a player who never waits
+//! cargo run --release --example scoutdemo -- arm=A seed=1 gain=0     # the memory pull off: the honest arm
+//! cargo run --release --example scoutdemo -- arm=A seed=1 off=1      # module off, same player: frame cost
+//! cargo run --release --example scoutdemo -- arm=A seed=1 frames=6000 gif=1 shot=40 zoom=6 out=a.gif
 //! ```
+//!
+//! The run goes through the seat's own start (`lab::demo::scout::start_tandems`, `pick_body`, the worker's
+//! role) and drives the body through the keys (`SteerInput`), so its pictures are the binary's.
 //!
 //! `rude=1` is the positive control for the pauses: a leader who walks on
 //! through every stop must break runs that a waiting leader keeps.
@@ -54,7 +60,7 @@ fn main() {
     let rude = arg::<u8>("rude").unwrap_or(0) == 1;
     let c: Option<f32> = arg("c");
     let trace = arg::<u8>("trace").unwrap_or(0) == 1;
-    println!("scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?}", arm.letter());
+    println!("scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?}", arm.letter(), arg::<f32>("gain"));
 
     let mut sc = Scenario::load("demo_scout").expect("demo_scout.ron ships");
     sc.bed.seed = seed;
@@ -68,13 +74,15 @@ fn main() {
     // **The seat's own start**, so this run and `--bin lab -- demo=scout` begin the same way: the seat's
     // tandem set-up, the seat's choice of body, the worker's role (her colony keeps its own breeding rule),
     // and the seat's overlays and panel in every captured frame.
-    scout::start_tandems(&mut lab.world, arm, c);
+    let gain: f32 = arg("gain").unwrap_or(scout::GAIN);
+    scout::start_tandems(&mut lab.world, arm, c, gain);
     let mut demo = Demo::new(DemoSeat::Scout);
     let mut args = std::collections::BTreeMap::new();
     args.insert("arm".to_string(), arm.letter().to_string());
     if let Some(c) = c {
         args.insert("c".to_string(), c.to_string());
     }
+    args.insert("gain".to_string(), gain.to_string());
     let mut seat = scout::ScoutDemo::from_args(&args, seed);
     seat.started = true;
     seat.alive_at_start = alive0;
@@ -109,6 +117,12 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
 
     let mut plan = Plan::Home;
+    // `off=1`: the same player and script, the module disarmed for every tick (re-armed empty between ticks so
+    // the script's reads still work). The frame-cost control: the tick time is what the module adds.
+    let off = arg::<u8>("off").unwrap_or(0) == 1;
+    let map_at: Option<u64> = arg("map");
+    let mut tick_ns: u128 = 0;
+    let mut ticks: u64 = 0;
     let mut refusals: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     let mut tap_tries = 0u32;
     let mut leads_done = 0u32;
@@ -124,7 +138,7 @@ fn main() {
             println!("frame {}: the player died ({cause:?})", w.frame);
             break;
         };
-        let pairs: Vec<_> = w.tandem.as_ref().unwrap().pairs.iter().filter(|p| p.leader == player).cloned().collect();
+        let pairs: Vec<_> = w.tandem.as_ref().map_or(&[][..], |t| &t.pairs[..]).iter().filter(|p| p.leader == player).cloned().collect();
         for p in &pairs {
             if let Some(g) = tandem::contact_gap(w, p.follower, player) {
                 gaps[(g as usize).min(7)] += 1;
@@ -194,7 +208,9 @@ fn main() {
         let hungry = w.organism(player).is_some_and(|s| s.energy < 1_500.0);
         let food_near = w.materials.id_of("provisions").is_some_and(|f| (-3..=3).any(|dx| (-3..=3).any(|dy| w.get(at.0 + dx, at.1 + dy).material == f)));
         let eat = hungry && food_near;
-        if std::env::var("SCOUT_MAP").ok().and_then(|v| v.parse::<u64>().ok()) == Some(w.frame) {
+        // `map=FRAME`: the cells round the player and her options at that frame (`a` an ant's cell, `@` her
+        // head). How the buried-by-the-heap and walking-backwards stalls were found.
+        if map_at == Some(w.frame) {
             for y in at.1 - 8..=at.1 + 3 {
                 let row: String = (at.0 - 14..=at.0 + 14)
                     .map(|x| {
@@ -253,7 +269,16 @@ fn main() {
         if let Some(st) = w.steered.as_mut() {
             st.input = Some(SteerInput { dir, eat, dig: boxed && !eat, ..SteerInput::default() });
         }
+        if off {
+            lab.world.tandem = None;
+        }
+        let t0 = std::time::Instant::now();
         lab.tick_for_harness();
+        tick_ns += t0.elapsed().as_nanos();
+        ticks += 1;
+        if off {
+            lab.world.tandem = Some(Box::new(tandem::Tandems::new(arm, None)));
+        }
         if gif && (lab.world.frame - start).is_multiple_of(shot) {
             if let Some((hx, hy)) = head(&lab.world, player) {
                 // A third of the way down, not centred: the seat panel and the bar cover the lower half.
@@ -269,14 +294,16 @@ fn main() {
             let t = lab.world.tandem.as_ref().unwrap();
             let knows = t.lessons.len();
             println!(
-                "f{} alive {} plan {:?} | {:?} | know {} income/min {} | gaps0-7 {:?}",
+                "f{} alive {} plan {:?} | {:?} | know {} income/min {} | gaps0-7 {:?} | recall tilted {} flipped {}",
                 lab.world.frame,
                 scout::ants(&lab.world).len(),
                 plan,
                 t.counts,
                 knows,
                 t.income_over(lab.world.frame, 3_600),
-                gaps
+                gaps,
+                lab.world.recall.as_ref().map_or(0, |r| r.counts.tilted),
+                lab.world.recall.as_ref().map_or(0, |r| r.counts.picks_flipped)
             );
         }
     }
@@ -298,6 +325,7 @@ fn main() {
         }
     }
     println!("tap outcomes: {refusals:?}");
+    println!("tick cost: {:.3} ms mean over {ticks} ticks (off={off})", tick_ns as f64 / ticks.max(1) as f64 / 1e6);
     let t = lab.world.tandem.as_ref().unwrap();
     println!("END arm={} seed={seed} rude={rude}: leads {leads_done} alive {}->{} {:?}", arm.letter(), alive0, scout::ants(&lab.world).len(), t.counts);
 }

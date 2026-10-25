@@ -570,7 +570,10 @@ fn release(world: &mut World, i: usize, arrived: bool) {
     let patch = t.patch;
     if lesson > 0.0 {
         t.lessons.insert(id, lesson);
-        if let Some(cell) = patch.and_then(|p| nearest_food(world, (p.x, head(world, id).map_or(0, |h| h.1)), p.r)) {
+        // The heap's nearest food cell, or its middle at her height once it has been eaten down: arrival no longer
+        // needs food in reach (the leader's stop says "here"), so neither may the lesson.
+        let y = head(world, id).map_or(0, |h| h.1);
+        if let Some(cell) = patch.map(|p| nearest_food(world, (p.x, y), p.r).unwrap_or((p.x, y))) {
             plant_lesson(world, id, cell, lesson);
         }
     }
@@ -580,14 +583,13 @@ fn release(world: &mut World, i: usize, arrived: bool) {
     }
 }
 
-/// Hand the lesson to the remembered-place head (keeper seat). A memory of
-/// the patch with strength `s`.
+/// Hand the lesson to the remembered-place head (`creature::recall`, the
+/// keeper seat's shared piece): her memory of the patch, learned with
+/// strength `s`. With the head off (`World::recall` `None`) the memory is
+/// still written and today's trained ant ignores it (its pool weight on the
+/// memory is zeroed), which is the honest arm.
 fn plant_lesson(world: &mut World, id: OrganismId, cell: (i32, i32), s: f32) {
-    let frame = world.frame;
-    if let Some(st) = world.organism_mut(id) {
-        st.last_food = Some((cell.0, cell.1, frame));
-    }
-    let _ = s;
+    crate::sim::creature::recall::plant_with(world, id, cell, s);
 }
 
 /// The nearest provisions cell to `near` within `r` columns of it.
@@ -808,6 +810,12 @@ fn watch_trips(world: &mut World) {
     }
     let seed = world.seed;
     let mut fired: Vec<OrganismId> = Vec::new();
+    // **She was taught the patch, not a cell.** Her own pick-up anywhere in the heap moves her memory to that
+    // cell; the recall head keeps a lesson only within `recall::SAME_PLACE` (6) of where it was planted, and the
+    // heap is 20 columns wide, so in the first four-seed sweep most taught ants lost the lesson on their first
+    // trip (the head tilted 17 decisions in a whole seed-1 run). A trip home from the patch renews it where she
+    // last picked up, at the strength she was taught.
+    let mut renew: Vec<(OrganismId, f32)> = Vec::new();
     let ids = world.live_organism_ids();
     for id in ids {
         let Some(st) = world.organism(id) else { continue };
@@ -823,6 +831,7 @@ fn watch_trips(world: &mut World) {
         t.counts.patch_trips += 1;
         if t.tree.contains_key(&id) {
             t.counts.tree_trips += 1;
+            renew.push((id, t.lessons.get(&id).copied().unwrap_or(1.0)));
             if let Some(r) = t.released.iter_mut().find(|r| r.id == id && !r.arrived) {
                 r.arrived = true;
                 t.counts.broken_still_arrived += 1;
@@ -838,6 +847,11 @@ fn watch_trips(world: &mut World) {
     }
     let watch = t.knobs.watch_frames;
     t.released.retain(|r| frame.saturating_sub(r.at) <= watch);
+    for (id, s) in renew {
+        if let Some((x, y, _)) = world.organism(id).and_then(|st| st.last_food) {
+            plant_lesson(world, id, (x, y), s);
+        }
+    }
     for id in fired {
         cascade_tap(world, id);
     }
@@ -1149,13 +1163,13 @@ mod tests {
         lab.world.organism_mut(taught).unwrap().life.trip_deliveries += 1;
         lab.world.organism_mut(untaught).unwrap().life.trip_deliveries += 1;
         watch_trips(&mut lab.world);
-        let c = lab.world.tandem.as_deref().unwrap().counts.clone();
+        let c = lab.world.tandem.as_deref().unwrap().counts;
         assert_eq!((c.patch_trips, c.tree_trips, c.cascade_runs), (2, 1, 1), "{c:?}");
         // Remembered outside the patch: a trip, but not the patch's.
         lab.world.organism_mut(taught).unwrap().last_food = Some((PATCH.x - 100, 150, frame));
         lab.world.organism_mut(taught).unwrap().life.trip_deliveries += 1;
         watch_trips(&mut lab.world);
-        let c2 = lab.world.tandem.as_deref().unwrap().counts.clone();
+        let c2 = lab.world.tandem.as_deref().unwrap().counts;
         assert_eq!((c2.patch_trips, c2.tree_trips, c2.cascade_runs), (2, 1, 1), "{c2:?}");
     }
 

@@ -67,6 +67,8 @@ pub struct ScoutDemo {
     /// What the HUD calls the arm ("1", or "A").
     pub label: String,
     pub c: Option<f32>,
+    /// The recall head's gain ([`start_tandems`]).
+    pub gain: f32,
     pub started: bool,
     pub alive_at_start: usize,
     pub last_pupil: Option<OrganismId>,
@@ -104,6 +106,7 @@ impl ScoutDemo {
             sealed,
             label: if sealed { raw.clone() } else { arm.letter().to_string() },
             c: args.get("c").and_then(|s| s.parse().ok()),
+            gain: args.get("gain").and_then(|s| s.parse().ok()).unwrap_or(GAIN),
             started: false,
             alive_at_start: 0,
             last_pupil: None,
@@ -149,13 +152,27 @@ pub fn pick_body(world: &World) -> Option<OrganismId> {
 
 /// **Arm the tandem module** at the hand-over (also what a headless harness
 /// calls, so the binary and `examples/scoutdemo.rs` start the same way).
-pub fn start_tandems(world: &mut World, arm: Arm, c: Option<f32>) {
+///
+/// `gain` is the recall head's listening gain (`creature::recall`): how
+/// strongly a taught sister's walk leans toward the place she was shown.
+/// Today's pool has no weight on the memory, so it is scripted, the same in
+/// every arm, and named on the panel; `gain=0` is the honest arm (a lesson
+/// that changes nothing after the first trip). [`GAIN`] by default: the
+/// keeper seat's calibration put a place 60 columns out 37 columns nearer in
+/// 1,500 frames at gain 4 and 91 at 8; the heap is 120 out.
+pub fn start_tandems(world: &mut World, arm: Arm, c: Option<f32>, gain: f32) {
     let mut t = Tandems::new(arm, Some(Patch { x: HEAP_X, r: 10 }));
     if let (Some(c), Arm::Scout) = (c, arm) {
         t.knobs.cascade_c = c;
     }
     world.tandem = Some(Box::new(t));
+    if world.recall.is_none() {
+        world.recall = Some(crate::sim::creature::recall::Recall::new(gain, 0.0));
+    }
 }
+
+/// The recall gain the seat runs at unless `gain=` says otherwise.
+pub const GAIN: f32 = 6.0;
 
 /// One of the seat keys (`Y U P J K R`) was pressed.
 pub fn seat_key(lab: &mut Lab, key: char) {
@@ -228,8 +245,8 @@ pub fn frame(lab: &mut Lab) {
             }
             return;
         }
-        let (arm, c) = (s.arm, s.c);
-        start_tandems(&mut lab.world, arm, c);
+        let (arm, c, gain) = (s.arm, s.c, s.gain);
+        start_tandems(&mut lab.world, arm, c, gain);
         lab.time.set_preset(0);
         let alive = ants(&lab.world).len();
         if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
@@ -338,7 +355,11 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
     };
     let world = &lab.world;
     // Knowledge tint over every body that holds a lesson.
+    // Strength times freshness when the recall head holds her lesson, so the tint fades as the memory does.
     for (&id, &s) in &t.lessons {
+        let s = crate::sim::creature::recall::lesson(world, id)
+            .and_then(|p| crate::sim::creature::recall::knows(world, id, p.place, 0))
+            .unwrap_or(s);
         if let Some(st) = world.organism(id) {
             let k = 0.45 + 0.55 * s.clamp(0.0, 1.0);
             let c = [(ORANGE[0] as f32 * k) as u8, (ORANGE[1] as f32 * k) as u8, (ORANGE[2] as f32 * k) as u8, 255];
@@ -468,6 +489,10 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     let alive = ants(world).len();
     say(format!("COLONY {alive} (WAS {} AT HATCH) -- TAPS {} REFUSED {}", s.alive_at_start, c.taps, c.refusals), GREY);
     if !s.sealed {
-        say(format!("KNOBS: C {:.2}/TRIP, CASCADE RUNS {}, PAUSE 1/{:.0} STEPS", t.knobs.cascade_c, c.cascade_runs, 1.0 / t.knobs.pause_chance), GREY);
+        let gain = world.recall.as_ref().map_or(0.0, |r| r.gain);
+        say(
+            format!("KNOBS: C {:.2}/TRIP, CASCADE RUNS {}, PAUSE 1/{:.0} STEPS, MEMORY PULL {gain:.0} (SCRIPTED)", t.knobs.cascade_c, c.cascade_runs, 1.0 / t.knobs.pause_chance),
+            GREY,
+        );
     }
 }

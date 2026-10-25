@@ -5761,6 +5761,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   moves trained ants (sharing -95%, hunger spread doubled, 16/16 seeds), with no payoff; a louder food trail read as
   "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
   bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
+  **Lone scout seat: a playable demo** ([`scout-demo/results.md`](teaching-the-colony-2026-10-25/scout-demo/results.md),
+  2026-10-25; `demo=scout`): you lead one sister at a time to a far heap by touch, stopping when she stops. Works on
+  the trained ant through the steer-mind slot: nearly every sister led arrives, none lost under a patient leader.
+  With the keeper seat's recall head (a scripted pull) taught sisters bring food home from the heap more often on 4
+  of 4 seeds (6/18/4/15 trips against 2/14/1/10), a small effect; the cascade fires 0-2 times a run; the
+  they-follow-you arm leads 2-3x as many sisters. Frame cost within noise. Found: contact must be measured to the
+  leader's body, not her head; a steered worker must think with her mind; a lesson is the heap, not a cell. With the
+  feasibility review, plan, plan review, revision and box census in the same folder. Instrument `examples/scoutdemo.rs`.
 
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
