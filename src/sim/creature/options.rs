@@ -320,7 +320,74 @@ fn squash(x: f32) -> f32 {
 }
 
 fn scent(world: &World, ch: Channel, x: i32, y: i32) -> f32 {
-    world.pheromone_at(ch, x, y) as f32 / pheromone::Scent::MAX as f32
+    mind_scent(world, ch, x, y)
+}
+
+/// **Every scent a mind ant reads goes through here** (head, options, dig head), so the deaf and shift switches
+/// below reach all of them at once. Unset, it is `pheromone_at` scaled to 0..1, exactly as before.
+pub fn mind_scent(world: &World, ch: Channel, x: i32, y: i32) -> f32 {
+    if scent_deaf(ch) {
+        return 0.0;
+    }
+    let dx = scent_shift(ch);
+    world.pheromone_at(ch, x + dx, y) as f32 / pheromone::Scent::MAX as f32
+}
+
+/// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_SCENT_SHIFT=A:40,B:40` makes a mind ant read a plane
+/// `dx` columns away from where it stands. **The scrambled listening test the review asked for** (H3): unlike
+/// [`scent_deaf`], the ant still reads a real plane with real trails on it -- the same kind of numbers it was
+/// trained on -- but they no longer describe where it is. Off the plane's edge it reads 0.
+pub fn scent_shift(ch: Channel) -> i32 {
+    static V: std::sync::OnceLock<[i32; 3]> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        let mut d = [0; 3];
+        for item in std::env::var("PP_SCENT_SHIFT").unwrap_or_default().split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            let (name, dx) = item.split_once(':').expect("PP_SCENT_SHIFT=CH:DX,...");
+            let dx: i32 = dx.parse().expect("PP_SCENT_SHIFT dx");
+            match name.to_ascii_lowercase().as_str() {
+                "a" => d[Channel::A as usize] = dx,
+                "b" => d[Channel::B as usize] = dx,
+                "alarm" => d[Channel::Alarm as usize] = dx,
+                other => panic!("PP_SCENT_SHIFT: unknown channel {other} (A, B, alarm)"),
+            }
+        }
+        d
+    })[ch as usize]
+}
+
+/// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_SCENT_DEAF=A,B,alarm` (any subset) makes a mind ant read
+/// those planes as 0 **everywhere it reads them**: the head inputs and their changes (`mind.rs`), every option's
+/// strength and two differences ([`f::SCENT`]), and the dig head's channel-A feature (`targets.rs`).
+/// `PP_SCENT_SILENT=` (same list) stops a mind ant *depositing* on those planes while still billing the emit, so
+/// the energy is unchanged and only the information goes. **Why both, and why not `PP_SCENT_BLIND`**: the old
+/// switch zeroes the six head inputs only, leaving the nine per-option features that steer each step, and
+/// because the B emitter reads B it also changes what is laid -- a partial, confounded blinding (adversarial
+/// review, `/mnt/project-files/evolvable-pheromones/adversarial-review-2026-10-25.md` H3). Deaf asks "does
+/// anyone *read* this channel"; silent asks "does anything *written* on it matter to the colony". Unset, every
+/// read and deposit is untouched (bit-identical).
+pub fn scent_deaf(ch: Channel) -> bool {
+    static V: std::sync::OnceLock<[bool; 3]> = std::sync::OnceLock::new();
+    V.get_or_init(|| channel_list("PP_SCENT_DEAF"))[ch as usize]
+}
+
+/// `PP_SCENT_SILENT`; see [`scent_deaf`].
+pub fn scent_silent(ch: Channel) -> bool {
+    static V: std::sync::OnceLock<[bool; 3]> = std::sync::OnceLock::new();
+    V.get_or_init(|| channel_list("PP_SCENT_SILENT"))[ch as usize]
+}
+
+fn channel_list(var: &str) -> [bool; 3] {
+    let mut on = [false; 3];
+    for name in std::env::var(var).unwrap_or_default().split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        match name.to_ascii_lowercase().as_str() {
+            "a" => on[Channel::A as usize] = true,
+            "b" => on[Channel::B as usize] = true,
+            "alarm" => on[Channel::Alarm as usize] = true,
+            "all" => on = [true; 3],
+            other => panic!("{var}: unknown channel {other} (A, B, alarm, all)"),
+        }
+    }
+    on
 }
 
 const CHANNELS: [Channel; 3] = [Channel::A, Channel::B, Channel::Alarm];
