@@ -5744,6 +5744,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   code — and says that on §8.3's own numbers **the pheromone planes, not the
   field, are the pass with the right shape** for a device.
 
+- [teaching-the-colony-2026-10-25.md](teaching-the-colony-2026-10-25.md) — **game design plan: every way a player
+  could teach the ant colony, and what it would do, expected and surprising (research only).** Five independent
+  researchers (keeper, queen, other seats, ant biology, player-trained AI; notes in `teaching-the-colony-2026-10-25/`)
+  and an independent review. Real colonies change through the place, a little memory per ant, ant-to-ant teaching,
+  how the young are raised, and the bloodline, on three clocks. Recommends the queen as the main seat (who is born,
+  what they are fed, where the brood lies, feed or bite in the act, presence and absence, blessing deeds), keeping the
+  lab's hand tools, settled by two faked ten-minute slices. Warns that a learned sense entering at weight zero ships
+  dead (the shipped pool's last-food weight is zeroed) and redesigns the memory layer: generic smell and place values,
+  heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
+
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
   and three numbers.** `sim::steer` is off-identical to main. A trail laid by
