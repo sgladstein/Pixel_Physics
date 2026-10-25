@@ -131,6 +131,19 @@ pub struct Steered {
     pub id: OrganismId,
     /// Queen or worker: only `regime_of_colony` reads it.
     pub role: SteerRole,
+    /// **Whether the body may have young** (enemy seat, 2026-10-25): `true`
+    /// from [`mark`] and [`mark_with`]; a seat that sets it `false` stops the
+    /// body budding or laying (`try_bud`'s first check). The player's
+    /// centipede: a raider that eats well buds raiders above its bar, and in
+    /// the plan review's run 2 raiders became 72, which is no longer the
+    /// player against the colony.
+    pub may_breed: bool,
+    /// **What the body's last forced decision did** (`mind::tick`, a body with
+    /// a mind only): the verb the keys asked for (`None`: a direction or
+    /// nothing), the verb carried out, and whether its act succeeded -- so a
+    /// seat can say *why* a key did nothing (a full crop refuses a bite inside
+    /// the act, after the option was offered and picked).
+    pub last_act: Option<LastAct>,
     /// With `id`, the body's identity: a dead ant's id is never matched to
     /// another body by accident.
     pub born_frame: u64,
@@ -152,6 +165,17 @@ pub struct Steered {
     /// for replay; no replay has been shown yet** (slice 1 must show one
     /// exact replay before anything relies on it).
     pub log: Option<Vec<(u64, SteerInput)>>,
+    /// **The frame she last laid** (the queen seat's hold): set at marking
+    /// and in `try_bud`'s success path when she is the layer.
+    pub last_lay: u64,
+    /// **The queen seat's hold**, in frames (`None`: slice 0's rule, the
+    /// queen rule for her colony for the whole run). `Some(h)`: her rule
+    /// lasts `h` frames past her last egg; past that her colony runs the
+    /// process regime and any worker may lay, and her next egg brings the
+    /// rule back -- she is never suppressed while it holds, which the plain
+    /// queen rule would do the moment a lapse made a worker a breeder (it
+    /// counts `children > 0` for life). See [`holding_queen`].
+    pub hold: Option<u64>,
 }
 
 impl Steered {
@@ -180,12 +204,16 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
     world.steered = Some(Steered {
         id,
         role,
+        may_breed: true,
+        last_act: None,
         born_frame,
         colony,
         input,
         latched: SteerInput::default(),
         used: SteerInput::default(),
         log: None,
+        last_lay: world.frame,
+        hold: None,
     });
     true
 }
@@ -226,6 +254,26 @@ pub fn is_steered(world: &World, organism: OrganismId) -> bool {
         None => false,
         Some(s) => s.id == organism && world.organism(organism).is_some_and(|st| st.born_frame == s.born_frame),
     }
+}
+
+/// **The steered queen of `colony` while her hold is up** (`Steered::hold`
+/// set, she is alive, and her last egg is at most `hold` frames old). `None`
+/// with no hold set, so slice 0's rule is untouched: `regime_of_colony` and
+/// `suppress_bar` read this only to *add* the hold's two facts -- the
+/// colony keeps the queen rule only while she holds, and while she holds she
+/// alone lays.
+pub fn holding_queen(world: &World, colony: u32) -> Option<OrganismId> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?;
+    (s.role == SteerRole::Queen && s.colony == colony && world.frame.saturating_sub(s.last_lay) <= hold && is_steered(world, s.id)).then_some(s.id)
+}
+
+/// **What is left of her hold**, `1.0` the frame she lays down to `0.0` when
+/// it lapses; `None` with no hold set or nobody steered. The HUD's bar.
+pub fn hold_left(world: &World) -> Option<f32> {
+    let s = world.steered.as_ref()?;
+    let hold = s.hold?.max(1);
+    Some(1.0 - (world.frame.saturating_sub(s.last_lay) as f32 / hold as f32).min(1.0))
 }
 
 /// **The keyboard's input for `organism` this decision**, if it is the
@@ -341,6 +389,26 @@ impl From<SteerInput> for ForcedPick {
             None
         };
         ForcedPick { dir: input.dir, verb, once: false }
+    }
+}
+
+/// [`Steered::last_act`]'s row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LastAct {
+    pub frame: u64,
+    pub asked: Option<crate::sim::creature::options::Verb>,
+    pub done: crate::sim::creature::options::Verb,
+    pub ok: bool,
+}
+
+/// **May `organism` have young?** `false` only for the steered body when a
+/// seat said so ([`Steered::may_breed`]). One `Option` read with nobody
+/// steered.
+#[inline]
+pub fn may_breed(world: &World, organism: OrganismId) -> bool {
+    match world.steered.as_ref() {
+        Some(s) if !s.may_breed => !is_steered(world, organism),
+        _ => true,
     }
 }
 
@@ -520,12 +588,16 @@ mod tests {
                     lab.world.steered = Some(Steered {
                         id: OrganismId::MAX,
                         role: SteerRole::Queen,
+                        may_breed: true,
+                        last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,
                         input: Some(held),
                         latched: held,
                         used: held,
                         log: None,
+                        last_lay: 0,
+                        hold: None,
                     })
                 }
                 Some(Some(_)) => {
@@ -770,6 +842,36 @@ mod tests {
         let (with, without) = (run(true), run(false));
         assert_eq!(without, 0, "the raider bit {without} times with B never pressed: its mind is still choosing");
         assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
+    }
+
+    /// **`Steered::may_breed` false stops the player's body budding** (the
+    /// enemy seat's raider: in the feasibility run two raiders became 72).
+    /// Paired with the same placement left `true`, which must bud, or the
+    /// test proves nothing about the flag.
+    #[test]
+    fn a_body_marked_not_to_breed_does_not_bud() {
+        use crate::lab::scenario::Scenario;
+        let run = |may_breed: bool| -> usize {
+            let sc = Scenario::load("steady_income").expect("steady_income ships");
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            let centipede = lab.world.species.id_of("centipede").expect("centipede ships");
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let x = lab.world.bounds().map_or(100, |b| (b.min_x + b.max_x) / 2);
+            // Four tanks against a two-tank threshold: due to bud at once.
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 4.0).expect("a centipede lands");
+            assert!(mark_with(&mut lab.world, id, Some(SteerInput::default()), SteerRole::Worker));
+            if let Some(s) = lab.world.steered.as_mut() {
+                s.may_breed = may_breed;
+            }
+            for _ in 0..1500 {
+                lab.tick_for_harness();
+            }
+            lab.world.live_organism_ids().into_iter().filter(|&i| lab.world.organism(i).is_some_and(|s| s.species == centipede)).count()
+        };
+        let (barred, free) = (run(false), run(true));
+        assert!(free > 1, "the control never budded ({free} centipedes): the test cannot see the flag");
+        assert_eq!(barred, 1, "a raider marked not to breed became {barred}");
     }
 
     /// **A trained (mind) ant marked as the queen's body obeys the keys**
