@@ -2600,6 +2600,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         if let Some((opt, emits, n)) = decided {
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_ACT);
             let did = act(world, organism, def, opt, &mut draw);
+            // **What the player's key did** (`steer::Steered::last_act`), for a seat
+            // to say why a key changed nothing. Only for a forced decision.
+            if let Some(f) = forced {
+                let frame = world.frame;
+                if let Some(s) = world.steered.as_mut().filter(|s| s.id == organism) {
+                    s.last_act = Some(crate::sim::steer::LastAct { frame, asked: f.verb, done: opt.verb, ok: did });
+                }
+            }
             // **Feeding is mandible to mandible, priced as the game prices
             // a share** (`creature_tick`'s jaw bill): the same work whoever
             // decided it, from the bank or the crop.
