@@ -172,6 +172,9 @@ GAME = {
     # The in-run selection harness as a page of the lab, and the new ant's
     # brain as a switch in the box. `lab` because only the lab builds it.
     "colony training in the box, and the new ant": "lab",
+    # The seat demos (`demo=<seat>`): the player wears one ant of a trained
+    # colony. `lab` because only the lab binary launches them.
+    "playing one ant: the seat demos": "lab",
     "the held world — the third game, and time you carry": "held",
     # The trained spider, and the handling time that keeps it from eating a
     # colony at bite speed. `engine` because the rule is the species' in
@@ -429,6 +432,9 @@ TOPICS = {
     ],
     "the held world — the third game, and time you carry": [
         "Held world status — the third game, and time you carry in a circle",
+    ],
+    "playing one ant: the seat demos": [
+        "Lone scout status — you lead a sister to food by touch, and she goes back",
     ],
     "the spider: a trained predator, and a meal that takes time": [
         "Spider status — a trained predator in the box, and a meal that takes time",

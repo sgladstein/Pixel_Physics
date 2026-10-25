@@ -4354,6 +4354,9 @@ pub struct World {
     /// `is_empty` read per mind decision (`steer::take_forced`). The
     /// steered body's own keyboard never needs an entry.
     pub mind_force: std::collections::BTreeMap<OrganismId, crate::sim::steer::Forced>,
+    /// **Tandem runs** (`sim::tandem`, the lone scout demo): `None` unless a
+    /// demo sets it, so the off path is one `Option` read in `lab::tick_world`.
+    pub tandem: Option<Box<crate::sim::tandem::Tandems>>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -7505,6 +7508,7 @@ impl World {
             steered: None,
             visitors: None,
             mind_force: Default::default(),
+            tandem: None,
             feed_log: None,
             bite_log: None,
             food_log: None,

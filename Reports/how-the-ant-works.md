@@ -1997,8 +1997,12 @@ and `steer.rs`.
   Eat), Drop and Feed nearest the direction. Memory and the pull follow the
   forced verb. A module can lead any mind body the same way through
   `World::mind_force` (`steer::force`, `unforce`; a `once` entry is spent by
-  one decision), which the scout seat's tandem follower uses. Empty and with
-  nobody steered, two reads per decision.
+  one decision), which the scout seat's tandem follower uses (`sim::tandem`,
+  `demo=scout`: a led sister is forced one step a tick toward the oldest of
+  her leader's footsteps she has not reached, stands within one cell of the
+  leader's *body*, and is released to her own mind on arrival or when lost;
+  off unless `World::tandem` is set). Empty and with nobody steered, two
+  reads per decision.
 
 ## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
 

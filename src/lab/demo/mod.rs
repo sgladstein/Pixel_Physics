@@ -48,6 +48,7 @@ pub mod keeper;
 pub mod guest;
 pub mod enemy;
 pub mod queen;
+pub mod scout;
 
 use crate::sim::cell::OrganismId;
 use crate::sim::steer::{self, SteerInput, SteerRole};
@@ -174,6 +175,8 @@ pub struct Demo {
     pub queen: Option<queen::QueenDemo>,
     /// The keeper seat's own state (None in every other seat).
     pub keeper: Option<keeper::KeeperDemo>,
+    /// The scout seat's own state (set by `start_demo_with`, which has the args).
+    pub scout: Option<scout::ScoutDemo>,
     /// The guest seat's own state (None in every other seat).
     pub guest: Option<guest::GuestDemo>,
     /// The enemy seat's own state.
@@ -190,6 +193,7 @@ impl Demo {
             mouse_held: false,
             queen: (seat == DemoSeat::Queen).then(queen::QueenDemo::default),
             keeper: (seat == DemoSeat::Keeper).then(keeper::KeeperDemo::default),
+            scout: None,
             guest: (seat == DemoSeat::Guest).then(guest::GuestDemo::default),
             enemy: (seat == DemoSeat::Enemy).then(enemy::EnemyDemo::default),
         }
@@ -204,6 +208,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
     match demo.seat {
         DemoSeat::Queen => queen::draw_world(lab, frame_buf),
         DemoSeat::Keeper => keeper::draw_world(lab, frame_buf),
+        DemoSeat::Scout => scout::draw_world(lab, frame_buf),
         DemoSeat::Guest => guest::draw_world(lab, frame_buf),
         DemoSeat::Enemy => enemy::draw_world(lab, frame_buf),
         _ => {}
@@ -215,6 +220,7 @@ pub fn marks_world(lab: &Lab) -> bool {
     match lab.demo.as_ref().map(|d| d.seat) {
         Some(DemoSeat::Queen) => queen::marks_world(lab),
         Some(DemoSeat::Keeper) => keeper::marks_world(lab),
+        Some(DemoSeat::Scout) => scout::marks_world(lab),
         Some(DemoSeat::Guest) => guest::marks_world(lab),
         Some(DemoSeat::Enemy) => enemy::marks_world(lab),
         _ => false,
@@ -228,6 +234,7 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     match demo.seat {
         DemoSeat::Queen => queen::draw_hud(lab, hc, frame_buf),
         DemoSeat::Keeper => keeper::draw_hud(lab, hc, frame_buf),
+        DemoSeat::Scout => scout::draw_hud(lab, hc, frame_buf),
         DemoSeat::Guest => guest::draw_hud(lab, hc, frame_buf),
         DemoSeat::Enemy => enemy::draw_hud(lab, hc, frame_buf),
         _ => {}
@@ -253,6 +260,7 @@ pub fn help_line(seat: DemoSeat) -> String {
     match seat {
         DemoSeat::Queen => format!("QUEEN DEMO: {body} -- {}", queen::SEAT_KEYS),
         DemoSeat::Keeper => format!("KEEPER DEMO: {} -- H HELP -- WASD PAN, THE LAB'S TOOLS WORK WHEN THE HAND IS NONE", keeper::SEAT_KEYS),
+        DemoSeat::Scout => format!("SCOUT DEMO: {body} -- {}", scout::SEAT_KEYS),
         DemoSeat::Guest => format!("GUEST DEMO: ARROWS MOVE -- {} -- TAB FOLLOW -- PGUP/PGDN SPEED", guest::SEAT_KEYS),
         DemoSeat::Enemy => format!(
             "ENEMY DEMO: YOU ARE A CENTIPEDE -- ARROWS CREEP, B BITE, G CUT/SHOVE, E EAT, Q SPIT OR DROP -- TAB FOLLOW -- PGUP/PGDN SPEED -- {} -- THE COLONY FIGHTS BACK BUT DOES NOT LEARN YOU",
@@ -293,6 +301,12 @@ impl Lab {
         if seat == DemoSeat::Keeper {
             keeper::on_start(self);
         }
+        if seat == DemoSeat::Scout {
+            let seed = self.spec.seed;
+            if let Some(d) = self.demo.as_mut() {
+                d.scout = Some(scout::ScoutDemo::from_args(&d.args, seed));
+            }
+        }
         self.demo_bind_body();
         // The lab's welcome window would cover the box: a demo opens on its
         // own help line instead (`H` shows it again).
@@ -317,6 +331,10 @@ impl Lab {
         }
         let pick = match demo.seat {
             DemoSeat::Queen => queen::pick_body(&self.world),
+            // No body until the warm-up hands one over (`scout::HANDOVER`). A layer armed without the seat's
+            // state (no `start_demo_with`) binds at once, as every other seat does.
+            DemoSeat::Scout if demo.scout.as_ref().is_some_and(|s| !s.started) => None,
+            DemoSeat::Scout => scout::pick_body(&self.world).or_else(|| oldest_ant(&self.world)),
             DemoSeat::Guest => guest::pick_body(&self.world),
             DemoSeat::Enemy => return,
             _ => oldest_ant(&self.world),
@@ -338,6 +356,7 @@ impl Lab {
         match self.demo.as_ref().map(|d| d.seat) {
             Some(DemoSeat::Queen) => queen::before_tick(self),
             Some(DemoSeat::Keeper) => keeper::before_tick(self),
+            Some(DemoSeat::Scout) => scout::before_tick(self),
             Some(DemoSeat::Guest) => guest::before_tick(self),
             Some(DemoSeat::Enemy) => enemy::before_tick(self),
             _ => {}
@@ -349,6 +368,7 @@ impl Lab {
         match self.demo.as_ref().map(|d| d.seat) {
             Some(DemoSeat::Queen) => queen::after_tick(self),
             Some(DemoSeat::Keeper) => keeper::after_tick(self),
+            Some(DemoSeat::Scout) => scout::after_tick(self),
             Some(DemoSeat::Guest) => guest::after_tick(self),
             Some(DemoSeat::Enemy) => enemy::after_tick(self),
             _ => {}
@@ -393,6 +413,8 @@ impl Lab {
                         queen::seat_key(self, c);
                     } else if seat == DemoSeat::Keeper {
                         keeper::seat_key(self, c);
+                    } else if seat == DemoSeat::Scout {
+                        scout::seat_key(self, c);
                     } else if seat == DemoSeat::Guest {
                         guest::seat_key(self, c);
                     } else if seat == DemoSeat::Enemy {
@@ -463,6 +485,7 @@ impl Lab {
         }
         match seat {
             DemoSeat::Queen => queen::frame(self),
+            DemoSeat::Scout => scout::frame(self),
             DemoSeat::Guest => guest::frame(self),
             DemoSeat::Enemy => enemy::frame(self),
             _ => {}
