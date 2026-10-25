@@ -7825,6 +7825,13 @@ impl World {
         self.pheromones.deposit(channel, x, y, amount);
     }
 
+    /// Scale a pheromone channel at `(x, y)` by `keep` in [0, 1] -- the one write that lowers scent (the colony mind
+    /// demo's "hush"). Marks the write watch as a deposit does, for the same reason.
+    pub fn scale_pheromone(&mut self, channel: Channel, x: i32, y: i32, keep: f32) {
+        self.write_watch.mark(x, y);
+        self.pheromones.scale(channel, x, y, keep);
+    }
+
     /// Read a pheromone channel at `(x, y)`. Nearest-cell — the plane is
     /// already at CA resolution. Out of world reads 0.
     pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> super::pheromone::Scent {

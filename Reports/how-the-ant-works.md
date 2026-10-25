@@ -1701,8 +1701,14 @@ Read once per process from the environment. The default is what ships.
   face rules, the company veto). With `World::targets` unset, as in the
   game, §5 runs unchanged.
 - `creature/options.rs` and `creature/mind.rs`: **the general brain**
-  (stage 2; harness only, like the needs walk). An ant the rig has given a
-  mind (`World::minds`) skips §3-§6 entirely. `creature_tick` hands it to
+  (stage 2). **Not harness only any more: the lab binary gives every ant a
+  mind from the first frame since 2026-10-24** (`src/bin/lab.rs`, ANT BRAIN:
+  NEW; `-- oldant` for the hand-built brain); the sandbox game still has none.
+  An ant given a mind (`World::minds`) skips §3-§6 entirely -- **so nothing
+  in `act()` or the hand-built walk reaches it**: the forage drive and the
+  met-a-returner stamp (§6d), RECRUIT, MEET_WAY, the store rules and the
+  nurse-scent walk are dead in the default lab (colony-mind seat review,
+  2026-10-25). `creature_tick` hands it to
   `mind::tick` once old age, wounds, crossings and flight are done. Each
   decision runs in this order:
   1. The body lists every legal (verb, target) pair, described by 43

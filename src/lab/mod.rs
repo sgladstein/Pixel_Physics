@@ -307,7 +307,9 @@ pub struct Lab {
     pub training_seed: u64,
     /// **ANT BRAIN: NEW** -- every ant in the box on screen decides by the
     /// new mind (`training::new_ant_minds`) rather than the hand-built brain. Off
-    /// is the shipped game. See [`Lab::set_new_ant`].
+    /// in a `Lab::new`, so harnesses keep measuring what they measured; **the lab
+    /// binary turns it on at launch since 2026-10-24** (`-- oldant` keeps it off).
+    /// See [`Lab::set_new_ant`].
     pub new_ant: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
