@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn a_bed_holds_exactly_its_founder_and_the_dials_are_off() {
         let spec = BedSpec::default();
-        let bed = bed_for(None, "herb", Layout { seed: 3, offset: Offset::Quarter }, &spec);
+        let bed = LabBox { plant_pool: true, ..bed_for(None, "herb", Layout { seed: 3, offset: Offset::Quarter }, &spec) };
         let (w, founder) = build(&bed, &spec);
         assert!(w.organism(founder).is_some());
         assert_eq!(w.founder_variant_chance, 0.0);

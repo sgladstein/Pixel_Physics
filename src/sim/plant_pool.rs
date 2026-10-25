@@ -101,16 +101,32 @@ impl PlantPool {
 /// files are (`.claude/rules/assets.md`).
 pub const SHIPPED: &str = include_str!("../../assets/plant_pools/roles4.ron");
 
-/// What the lab box founds from (`LabBox::plant_pool`): the shipped pool, unless
-/// `PIXEL_PHYSICS_PLANT_POOL=0` (species files only, the engine before
-/// 2026-10-24) or `PIXEL_PHYSICS_PLANT_POOL=PATH` (another pool file).
+/// **Whether a lab box founds from the pool by default: off** (2026-10-25).
+/// `PIXEL_PHYSICS_PLANT_POOL=1` (or a pool file's path) turns it on.
+///
+/// **Off for a measured harm to the colony**, the owner's bar for a default
+/// (2026-10-24). On `played_bed`, 24 paired seeds x 500,000 frames, both
+/// arms on one build (`Reports/plant-community-2026-10-20/m2/bedsel/`,
+/// `lab2/`): the pool's founders stand more plants (98 -> 119, more on 17
+/// of 24) but carry a quarter less food -- edible 2,906 -> 2,197 and leaf
+/// energy 79,341 -> 55,921, lower on 22 of 24 -- so more ants starve
+/// (139 -> 218, more on 18 of 24) and twice as many colonies die out by
+/// 500k (3 -> 6). The pool was bred with no colony in the bed; a pool bred
+/// with one is the way back.
+pub fn pool_switch() -> bool {
+    !matches!(std::env::var("PIXEL_PHYSICS_PLANT_POOL").as_deref(), Err(_) | Ok("") | Ok("0") | Ok("off"))
+}
+
+/// What a box with `LabBox::plant_pool` set founds from: the shipped pool,
+/// or `PIXEL_PHYSICS_PLANT_POOL=PATH`'s file; `=0` holds even a box that
+/// asks for the pool to species files.
 pub fn default_pool() -> Option<std::sync::Arc<PlantPool>> {
     use std::sync::{Arc, OnceLock};
     static POOL: OnceLock<Option<Arc<PlantPool>>> = OnceLock::new();
     POOL.get_or_init(|| {
         let text = match std::env::var("PIXEL_PHYSICS_PLANT_POOL").as_deref() {
             Ok("0") | Ok("off") => return None,
-            Ok(path) if !path.is_empty() => std::fs::read_to_string(path).unwrap_or_else(|e| panic!("PIXEL_PHYSICS_PLANT_POOL={path}: {e}")),
+            Ok(path) if !path.is_empty() && path != "1" && path != "on" => std::fs::read_to_string(path).unwrap_or_else(|e| panic!("PIXEL_PHYSICS_PLANT_POOL={path}: {e}")),
             _ => SHIPPED.to_string(),
         };
         Some(Arc::new(PlantPool::parse(&text).unwrap_or_else(|e| panic!("plant pool does not parse: {e}"))))
