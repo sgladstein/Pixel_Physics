@@ -6090,6 +6090,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it can ship on), a "bored" drive for idle fed ants, then instincts and a reward/punish player verb. Warns off
   Creatures 2's reward-imbalance collapse. Sources read through search summaries only.
 
+- [brain-training/research/creatures-1996-game-design-2026-10-25.md](brain-training/research/creatures-1996-game-design-2026-10-25.md) —
+  **what made *Creatures* fun and boring as a game, and what the lab should take (research only).** Fun was one
+  creature you bonded with, a hand that taught it for life (tickle and slap), surprise from genetics, death that
+  mattered, and a sharing community; boring was babysitting a creature that starves beside food or unlearns eating,
+  with no goal. Ranked for the lab: a pool that survives the box first, then a reward/punish verb, ant biographies and
+  marked deaths, a job icon over a selected ant, visible genetics, and sharing lines with player-made goals.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
