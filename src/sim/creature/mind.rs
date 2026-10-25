@@ -5271,16 +5271,70 @@ pub mod scratch_log {
         // nearest home's column; with none (a wall face), the step down. The trace (/mnt/project-files/starve-trace/):
         // 50-62% of hA1 starvation deaths walked out fat past 60 columns, showed no homeward pull at any tank (net
         // -2% to +2% of walks) with a correct home sense, and starved at the box walls ~45k frames later.
-        if let Some(r) = homefar() {
-            if st.crop.is_none() && st.spoil.is_none() {
+        // SCRATCH (teacher lane, 2026-10-25): `PP_HOMEFAR_HUNGRY=1` gates the rule on hunger (`PP_CARRY_HUNGRY`'s H
+        // tanks) instead of on an empty crop alone. The empty-and-far rule leaked into foraging when copied (every empty
+        // ant learned to stay home); a hungry one leaves the fed forager alone. Traced (nest batch 4, colony 7, far
+        // moving food): 72 of 106 starved ants reached a bed wall while fat (median 13 tanks), and at the wall the
+        // brain's walk scores sit at +-0.99 whatever `f::HOME` reads -- 504 steps away, 536 into it, 403 along it -- so
+        // the way back 300 columns is a random walk of tens of thousands of frames.
+        let hungry_gate = std::env::var("PP_HOMEFAR_HUNGRY").is_ok_and(|v| v == "1");
+        // Hungry and food in reach: the hungry branch's pick-up comes first, so an ant at a far heap eats there.
+        // `PP_HOMEFAR_FUEL=k`: hungry means fewer than 1 + k x (columns from home) tanks -- enough to walk back, so a
+        // far ant turns early and a near one late. The flat gate turned ants 300 columns out at 2 tanks, ~165 columns
+        // of walking, and they starved on the way (ceiling, seed 23099: 139 of 303 died in the field).
+        static FUEL: OnceLock<Option<f32>> = OnceLock::new();
+        let fuel = *FUEL.get_or_init(|| std::env::var("PP_HOMEFAR_FUEL").ok().map(|v| v.parse().expect("PP_HOMEFAR_FUEL")));
+        let fuel_ok = fuel.is_none_or(|k| {
+            let nx = world.nest_sites.iter().min_by_key(|s| (s.x - st.forage_anchor.0).abs()).map_or(st.forage_anchor.0, |s| s.x);
+            e < 1.0 + k * (at.0 - nx).abs() as f32
+        });
+        let hungry_now = if fuel.is_some() { fuel_ok } else { carry_hungry().is_some_and(|h| e < h) };
+        let gate_ok = !hungry_gate || (hungry_now && of(Verb::PickUp).is_empty());
+        // Under the hunger gate a pellet does not exempt the ant: it puts the pellet down wherever it may and walks
+        // home. Left to the hungry branch below, a hungry carrier on the surface is walked AWAY from home's column
+        // ("up, then away"): 43 of 91 dead in the climb-out ceiling (seed 21099) died holding spoil, 78 at the walls.
+        if let Some(r) = homefar().filter(|_| gate_ok) {
+            if st.crop.is_none() && (st.spoil.is_none() || hungry_gate) {
                 let ax = st.forage_anchor.0;
                 let nx = world.nest_sites.iter().min_by_key(|s| (s.x - ax).abs()).map_or(ax, |s| s.x);
+                if st.spoil.is_some() && (at.0 - nx).abs() > r {
+                    let drops = of(Verb::Drop);
+                    if !drops.is_empty() {
+                        HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                        return drops;
+                    }
+                }
                 if (at.0 - nx).abs() > r {
-                    let walks = of(Verb::Walk);
+                    // Under the hunger gate a step into the ant's own body is no step: turn round instead. Traced
+                    // (ceiling, seed 23099, ant 1048627): facing away from home in a heap pit, the only nearer step
+                    // was its own tail cell, labelled every decision, and it stood on one cell for 2,500 frames.
+                    let walks: Vec<usize> = of(Verb::Walk).into_iter().filter(|&i| !hungry_gate || !st.chain.contains(&opts[i].target)).collect();
                     let far = |x: i32| (x - nx).abs();
+                    if hungry_gate && st.chain.iter().any(|&(cx, _)| far(cx) < far(at.0)) && !walks.iter().any(|&i| far(opts[i].target.0) < far(at.0)) {
+                        let turns = of(Verb::TurnAround);
+                        if !turns.is_empty() {
+                            HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                            return turns;
+                        }
+                    }
                     if let Some(best) = walks.iter().map(|&i| far(opts[i].target.0)).min().filter(|&b| b < far(at.0)) {
                         HOMEFAR.fetch_add(1, Ordering::Relaxed);
                         return walks.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                    }
+                    // Under the hunger gate, a hungry ant in a pit below the ground as built climbs out, and with no
+                    // step up cuts towards home. Traced (ceiling, seed 21099, ant 3145756): 2 tanks in a two-cell pit
+                    // dug where a heap had been, packed soil on the home side, only same-column steps offered; it sat
+                    // there until it starved, as 89 of 104 dead did in that run.
+                    if hungry_gate && ctx[c::DEPTH] > 0.05 {
+                        if let Some(top) = walks.iter().map(|&i| opts[i].target.1).min().filter(|&t| t < at.1) {
+                            HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                            return walks.into_iter().filter(|&i| opts[i].target.1 == top).collect();
+                        }
+                        let digs = of(Verb::Dig);
+                        if let Some(best) = digs.iter().map(|&i| far(opts[i].target.0)).min().filter(|&b| b < far(at.0)) {
+                            HOMEFAR.fetch_add(1, Ordering::Relaxed);
+                            return digs.into_iter().filter(|&i| far(opts[i].target.0) == best).collect();
+                        }
                     }
                     if let Some(low) = walks.iter().map(|&i| opts[i].target.1).max().filter(|&l| l > at.1) {
                         HOMEFAR.fetch_add(1, Ordering::Relaxed);
