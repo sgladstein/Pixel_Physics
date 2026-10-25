@@ -115,18 +115,43 @@ fn pool_layout(head: &str) -> Option<u32> {
 /// **The lab's spider** (owner, 2026-10-25: "add spider to the actual lab game so I can play test it"): the trained
 /// spider pool, each member a whole mind (zeros left out; no member a delta of another, unlike [`STD_POOL`]). Source and
 /// numbers in the file's header. Every spider in a lab box without a mind gets one of these
-/// (`Lab::give_spider_minds`); a spider born there inherits its parent's.
+/// (`Lab::give_predator_minds`); a spider born there inherits its parent's.
 pub const SPIDER_POOL: &str = include_str!("../../assets/minds/spider_pool.txt");
 
 /// [`SPIDER_POOL`]'s members as spider minds: each cut to the spider's verbs and silent
 /// (`train::predator::spider_mind`).
 pub fn spider_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
-    let mut lines = SPIDER_POOL.lines().filter(|l| !l.starts_with('#'));
-    let head = lines.next().expect("spider_pool: header");
+    predator_pool(SPIDER_POOL, "spider")
+}
+
+/// **The lab's nest raider: the trained centipede pool** (nest raider thread, 2026-10-25), in [`SPIDER_POOL`]'s
+/// format. Source and numbers in the file's header. Every centipede in a lab box without a mind gets one of these
+/// (`Lab::give_predator_minds`); one born there inherits its parent's.
+pub const CENTIPEDE_POOL: &str = include_str!("../../assets/minds/centipede_pool.txt");
+
+/// [`CENTIPEDE_POOL`]'s members as raider minds, cut to the raider's verbs (`train::predator::RAIDER_VERBS`).
+pub fn centipede_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
+    predator_pool(CENTIPEDE_POOL, "centipede")
+}
+
+/// The lab's trained pool for a predator `species`, if it has one.
+pub fn predator_minds(species: &str) -> Option<Vec<std::sync::Arc<creature::mind::MindGenome>>> {
+    match species {
+        "spider" => Some(spider_minds()),
+        "centipede" => Some(centipede_minds()),
+        _ => None,
+    }
+}
+
+/// A predator pool file (`pool N genome LEN`, then `member K` and `slot value` lines, every member whole) as minds of
+/// `species` (`train::predator::mind_for`).
+fn predator_pool(text: &str, species: &str) -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    let head = lines.next().unwrap_or_else(|| panic!("{species} pool: header"));
     let mut h = head.split_whitespace();
-    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "spider_pool: {head:?}");
-    let len: usize = h.next().and_then(|n| n.parse().ok()).expect("spider_pool: genome length");
-    assert_eq!(len, creature::mind::GENOME_LEN, "spider_pool: genome length");
+    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "{species} pool: {head:?}");
+    let len: usize = h.next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{species} pool: genome length"));
+    assert_eq!(len, creature::mind::GENOME_LEN, "{species} pool: genome length");
     let layout = pool_layout(head);
     let mut pool: Vec<Vec<f32>> = Vec::new();
     for l in lines {
@@ -134,14 +159,14 @@ pub fn spider_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
             pool.push(vec![0.0; len]);
             continue;
         }
-        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("spider_pool: {l:?} is not `slot value`"));
-        let g = pool.last_mut().expect("spider_pool: a slot before the first member");
-        g[i.parse::<usize>().expect("spider_pool slot")] = w.parse().expect("spider_pool value");
+        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("{species} pool: {l:?} is not `slot value`"));
+        let g = pool.last_mut().unwrap_or_else(|| panic!("{species} pool: a slot before the first member"));
+        g[i.parse::<usize>().expect("pool slot")] = w.parse().expect("pool value");
     }
     pool.iter_mut().for_each(|g| {
         creature::mind::enter_last_food(g, layout);
     });
-    pool.iter().map(|g| crate::train::predator::spider_mind(g)).collect()
+    pool.iter().map(|g| crate::train::predator::mind_for(species, g)).collect()
 }
 
 /// A saved genome made fit for this build's dig head: its own head kept when

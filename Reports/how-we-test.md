@@ -230,6 +230,16 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
 - **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare
   sorted. A new loop over a HashMap that touches credit or counters must sort
   first (2 of 64 seeds diverged between runs once).
+- **A swallow count is not food eaten for an animal that can put food down.**
+  `food_log` writes a row each time a cell is swallowed, and a mind with Put
+  Down can drop the same cell of crop and pick it up again: a centipede round
+  logged 7,300 swallows against 37 cells bitten (nest raider, 2026-10-25). Pay
+  and judge such an animal on **`digest_log`** (`predtrain credit=digest`, the
+  default when the verbs include Drop).
+- **A predator's breeding before 2026-10-25 could be paid in living ants.**
+  `try_bud`'s provisions counted ant cells round the head (3 births in 23
+  frames for one centipede); spider lab results judged on births from before
+  the nest raider PR are not comparable with later ones.
 - **A trained ant that starves faster than the old ant may be paying for its
   brain, not missing a rule.** Every live link is billed per tick at the
   hand-built ant's price: `std_pool`'s ~1,900 links cost 0.85 J a tick against

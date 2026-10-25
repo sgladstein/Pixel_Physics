@@ -1,0 +1,34 @@
+// **The nest raider's body** (nest raider thread, 2026-10-25): the second
+// predator, the one that goes *into* the nest (`species/centipede.ron`).
+//
+// `food_energy` equals `centipede.ron`'s `body_energy`, the equality
+// `EnergyLedger` documents (per-cell flesh is priced once, on the material).
+//
+// `penetration_resistance: 2.0` is the spider's plate, kept equal on
+// purpose: against the ant's jaw (1.0) a bite takes a quarter of a cell
+// (`contest::bite_progress`, `(1.0 / 2.0)^2`), so four ant bites take one
+// cell. What differs is the body: the spider is six cells in one rigid
+// block, and a bitten-off cell of a chain is a shorter centipede, not a
+// dead one, unless the bite lands on the head. A centipede the colony
+// fights off comes away short, which is the graded middle a one-block
+// body cannot have.
+(
+    name: "centipede",
+    display: "Centipede",
+    kind: Creature,
+    density: 1.1,
+    colors: [
+        (150, 62, 30),
+        (122, 46, 22),
+        (186, 104, 42),
+    ],
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+
+    food_energy: 300.0,
+    penetration_resistance: 2.0,
+    food_class: 1.0,
+)
