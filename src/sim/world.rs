@@ -4344,6 +4344,10 @@ pub struct World {
     /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
     /// which is the gnome.
     pub steered: Option<crate::sim::steer::Steered>,
+    /// **The visitors the colony judges by smell** (`creature::guest`, the
+    /// guest seat demo): `None` in every world but `demo=guest`, and then
+    /// every guest hook is one `Option` read.
+    pub visitors: Option<crate::sim::creature::guest::Visitors>,
     /// **Bodies with a mind that another module leads** (`steer::force`),
     /// by id: each one's next decision takes the named option instead of
     /// its mind's. Empty unless a demo sets an entry, and empty is one
@@ -7502,6 +7506,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             steered: None,
+            visitors: None,
             mind_force: Default::default(),
             tandem: None,
             feed_log: None,
