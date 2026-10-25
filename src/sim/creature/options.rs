@@ -903,7 +903,10 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
                     if fed {
                         push(Verb::Feed, t, &|_| {});
                     }
-                } else {
+                } else if !super::guest::is_visitor(world, other) {
+                    // **Never on a registered visitor** (`guest`): the
+                    // ladder's nip is the only harm it takes, so the harm is
+                    // graded. One `Option` read with the ladder off.
                     push(Verb::Attack, t, &|_| {});
                 }
             }

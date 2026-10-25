@@ -80,6 +80,10 @@ pub struct SteerInput {
     pub lay: bool,
     /// T held: lay the food trail (channel B).
     pub trail: bool,
+    /// J: hop along the heading (`creature::launch`), the guest seat's
+    /// escape. Sets `Move` as well as `Impulse`, because the impulse is read
+    /// only inside a won step roll.
+    pub jump: bool,
 }
 
 impl SteerInput {
@@ -94,6 +98,7 @@ impl SteerInput {
             bite: self.bite || other.bite,
             lay: self.lay || other.lay,
             trail: self.trail || other.trail,
+            jump: self.jump || other.jump,
         }
     }
 }

@@ -2313,6 +2313,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
+            // **An ant held on a visitor takes the one option the ladder
+            // left it** (`guest::force_options`): a Rest while it inspects,
+            // one Walk away after a display. Cut here, before the context
+            // and the scoring, so the draw, the bills, the memory and the
+            // reschedule all run as for any decision. One `Option` read off.
+            if world.visitors.is_some() {
+                super::guest::force_options(world, organism, &mut opts);
+            }
             // `at_nest` was read above at `(x, y)`; since then only the
             // colony odour was blended and no fall happened, so no cell
             // moved (ant cost review A4, 2026-10-22).

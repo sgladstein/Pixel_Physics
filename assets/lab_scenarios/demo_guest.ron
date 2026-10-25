@@ -1,0 +1,41 @@
+// The guest seat's demo (`demo=guest`, 2026-10-25): you are a rove beetle
+// that lives off an ant colony by smelling like it. The design and its two
+// reviews are `Reports/guest-seat-demo-2026-10-25.md`.
+//
+// **Steady income's box and colony, landed early.** The beggar needs a
+// grown nest with brood and fed workers to beg from, which steady income
+// grows by about frame 30,000 (`examples/guestprobe.rs` DONORS: adults
+// there hold 2-5 grants). The colony lands at 600 rather than 6,000 so the
+// warm-up is shorter; the seat runs the clock at top speed until the
+// guest lands (`land=`, default 30,000) and then drops to 1x. Nothing else
+// differs from steady_income, so a guest's cost reads against that box.
+(
+    name: "demo_guest",
+    title: "GUEST",
+    question: "You are a rove beetle at an ant nest. Smell like family and they feed you; smell wrong and they bite. How long can you live off them?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 600, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+        (at: 600, every: 1000, until: 0, what: Heap(material: "provisions", x: 286, cells: 40)),
+    ],
+    horizon: 600000,
+)

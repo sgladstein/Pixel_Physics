@@ -8341,6 +8341,10 @@ const EMBEDDED: &[&str] = &[
     // that fits the ants' shaft and hunts inside the nest. Its material is
     // `centipede.ron`.
     include_str!("../../assets/species/centipede.ron"),
+    // **The guest** (2026-10-25): the player's rove beetle in the guest seat
+    // demo (`demo=guest`), an ant-sized body the colony judges by smell
+    // (`sim::guest`). Placed by nothing else. Its material is `rove.ron`.
+    include_str!("../../assets/species/rove.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

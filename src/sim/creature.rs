@@ -76,6 +76,7 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 pub mod needs;
 pub mod mind;
 pub mod options;
+pub mod guest;
 pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
@@ -7995,6 +7996,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // regardless -- old age, wounds, crossings, flight above, and the fall,
     // the bill, digestion and birth inside -- stays the same. Nobody has a
     // mind in the game, so this is one `Option` read per tick there.
+    // **An ant touching a registered visitor rolls the ladder** (`guest`,
+    // the guest seat demo): it only marks the ant -- a nip lands now, a hold
+    // is carried out inside `mind::tick` -- and never returns early, so the
+    // body tick below runs whole. One `Option` read with the ladder off.
+    if world.visitors.is_some() {
+        guest::meet(world, organism, (x, y));
+    }
     if world.minds.is_some() && mind::has(world, organism) {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
         if !mind::scratch_log::shadow_on() {
@@ -11219,6 +11227,12 @@ fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gu
 /// so charging for it would price *being attacked* — the exact defect
 /// `armour_fraction`'s doc records for the plate, arriving on the other side
 /// of the same fight.
+/// [`cry_alarm`] for the rest of the crate: the guest seat's killed larva
+/// (`brood::larva_eaten`) cries it as a bite does.
+pub(crate) fn cry_alarm_at(world: &mut World, x: i32, y: i32) {
+    cry_alarm(world, x, y);
+}
+
 fn cry_alarm(world: &mut World, x: i32, y: i32) {
     world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
 }
@@ -27722,15 +27736,16 @@ fn note_door(world: &mut World, why: u8) {
 /// below its threshold otherwise, so nothing happens on its own: `Move` 0
 /// fails every step roll, `Lay` -1 is under [`brain::LAY_HOLD_BELOW`] (a
 /// plain 0 would let the genome's bar decide), and `Tumble` and `Impulse` 0
-/// keep a standing ant standing. `Turn`, `Persist`, `Caution`, `Provision`
+/// keep a standing ant standing unless J is pressed. `Turn`, `Persist`, `Caution`, `Provision`
 /// and `EmitA` stay the genome's: the home scent is what her workers find
 /// the door by, and the rest only shape a walk the keyboard has taken over.
 fn steered_outputs(mut outputs: [f32; brain::BRAIN_OUTPUTS], input: crate::sim::steer::SteerInput) -> [f32; brain::BRAIN_OUTPUTS] {
     use brain::BrainOutput as O;
     let level = |held: bool| if held { 1.0 } else { 0.0 };
-    outputs[O::Move as usize] = level(input.dir.is_some());
+    // J writes `Move` too: the impulse is read only inside a won step roll.
+    outputs[O::Move as usize] = level(input.dir.is_some() || input.jump);
     outputs[O::Tumble as usize] = 0.0;
-    outputs[O::Impulse as usize] = 0.0;
+    outputs[O::Impulse as usize] = level(input.jump);
     outputs[O::Feed as usize] = level(input.eat);
     outputs[O::Drop as usize] = level(input.drop);
     outputs[O::DropSpoil as usize] = level(input.drop);

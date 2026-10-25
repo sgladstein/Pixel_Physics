@@ -4344,6 +4344,10 @@ pub struct World {
     /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
     /// which is the gnome.
     pub steered: Option<crate::sim::steer::Steered>,
+    /// **The visitors the colony judges by smell** (`creature::guest`, the
+    /// guest seat demo): `None` in every world but `demo=guest`, and then
+    /// every guest hook is one `Option` read.
+    pub visitors: Option<crate::sim::creature::guest::Visitors>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -7483,6 +7487,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             steered: None,
+            visitors: None,
             feed_log: None,
             bite_log: None,
             food_log: None,

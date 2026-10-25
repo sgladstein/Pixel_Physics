@@ -1,0 +1,22 @@
+// The guest seat's rove beetle (`assets/species/rove.ron`): amber-red, so a
+// player finds their body among a colony of near-black ants at a glance.
+(
+    name: "rove",
+    display: "Rove beetle",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (164, 74, 30),
+        (190, 98, 40),
+        (132, 56, 24),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+
+    food_energy: 480.0,
+    penetration_resistance: 0.25,
+    food_class: 1.0,
+)
