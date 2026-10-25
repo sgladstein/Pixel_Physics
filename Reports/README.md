@@ -5951,6 +5951,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (`PP_DIGGATE_DOOR`, default-on: bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
   (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
 
+- [brain-training/teacher-training/old-ant-rules-2026-10-25.md](brain-training/teacher-training/old-ant-rules-2026-10-25.md) —
+  **opening the old ant to evolution (owner's ask, 2026-10-25): its rules, and what is still hard-coded on the trained
+  ant.** The hand-built brain is ~50 weights, so there is nothing to transfer, and running it through colony selection
+  would leave its ~110 rules hand-written. Switching off 21 rules one at a time: only the chooser's walk outward along
+  the food trail carries it on far food. The trained ant's far-food deaths are its brain bill: ~1,900 links at the
+  hand-built ant's per-link price, 0.85 J a tick, so a tank lasts 1,000 frames rather than 3,700. Fruit 200 alive at
+  link price 1 / 0.25 / 0: 28 / 114 / 150, against the old ant's 129 (`PIXEL_PHYSICS_LINK_PRICE`, PR #881). Every
+  old-ant rule sorted into physics, policy the mind already decides, and missing moves or senses, plus nine
+  hard-codes still on the trained ant (a one-in-four nest-worker caste, touch-feeding, the door-column put-down ban,
+  the dig head's gate, the spoil roll differing between training and the lab), each with a way to open it.
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
