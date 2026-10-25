@@ -8675,6 +8675,7 @@ impl World {
             still_ticks: 0,
             traffic_deferred: 0,
             forage_anchor: (0, 0),
+            last_food: None,
             forage_max: 0,
             // Never away from home yet: no depth (`creature::depth_slow_of`).
             last_out_row: None,

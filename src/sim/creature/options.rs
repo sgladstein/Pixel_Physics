@@ -158,8 +158,18 @@ pub mod f {
     /// way: `SCENT + 3 * channel + k`. The two differences are gained
     /// (`SCENT_GAIN`).
     pub const SCENT: usize = 9;
-    /// Missing: comes with the building-scent emit.
+    /// Missing: comes with the building-scent emit. **Holds [`FOOD_WAY`]
+    /// until then** (on by default, [`last_food`]).
     pub const BUILDING: usize = 18;
+    /// **How much the option points back to where this ant last picked up
+    /// food** ([`last_food`]): the step's cosine to that spot, times how far
+    /// it is on a log scale, times how fresh the memory is. Shares
+    /// [`BUILDING`]'s slot, which nothing wrote: a new slot would have moved
+    /// every later weight of every saved genome and every tool that indexes
+    /// them, and [`LAST_FOOD`], the slot the design named for it, has carried
+    /// the far-from-home sense since 2026-10-22. The building scent takes a
+    /// new slot of its own when it comes.
+    pub const FOOD_WAY: usize = BUILDING;
     /// The body can stand there; it would fall; it climbs.
     pub const STAND: usize = 19;
     pub const FALL: usize = 20;
@@ -196,7 +206,9 @@ pub mod f {
     pub const ROOM: usize = 38;
     /// How much the option points home, by the body's home vector.
     pub const HOME: usize = 39;
-    /// Missing: the way back to the last food is a new body memory.
+    /// Named for the way back to the last food, and **carries the
+    /// far-from-home sense instead** ([`super::home_vec`], on by default);
+    /// the last-food memory is [`FOOD_WAY`].
     pub const LAST_FOOD: usize = 40;
     /// Warmer (+) or cooler (-) there than here.
     pub const WARMTH: usize = 41;
@@ -296,6 +308,10 @@ struct Here {
     scent: [f32; 3],
     warmth: f32,
     home: Option<(i32, i32)>,
+    /// Where this ant last picked up food, and how fresh that memory is,
+    /// `T / (T + age)` ([`last_food`]); `None` with the memory off or
+    /// before its first pick-up.
+    food: Option<((i32, i32), f32)>,
     mats: Mats,
 }
 
@@ -511,6 +527,56 @@ pub fn home_dir() -> bool {
     })
 }
 
+/// **The last-food memory** (`PP_LASTFOOD`; Creatures research thread, 2026-10-25, for the teacher lane): each ant
+/// remembers where it last picked up food away from home (`OrganismState::last_food`, set by `mind::pick_up`), and
+/// every option reads [`f::FOOD_WAY`] = the step's cosine to that spot x [`far_ramp`]`(d, log:40)` x `T / (T + age)`,
+/// `age` the frames since the pick-up. Returns `T`, how many frames the memory takes to fade to half (default
+/// 4,000: about two to four foraging trips in the lab box); `PP_LASTFOOD=off` (or `0`) writes nothing and the
+/// mind is byte-identical to before; `PP_LASTFOOD=T` sets the fade.
+///
+/// **Why** (`Reports/brain-training/research/creatures-1996-lessons-2026-10-25.md`, idea 1): a trained ant's
+/// weights are fixed at birth, so nothing it knows says where food is in *this* world, and in the owner's 1024-wide
+/// lab box with fruit 150-200 columns out the trained pool walks at random and starves (`far-food-1024`). Real ants
+/// remember a feeder; the rev 3 design lists a last-food vector as a *must* body memory, and nothing kept one.
+///
+/// **It enters at weight 0**: a genome file saved before it (layout 4 or older, `mind::LAYOUT`) has every scorer
+/// unit's weight on the slot zeroed as it is read (`mind::enter_last_food`): the slot read 0 until now, so those
+/// weights moved no choice, and a pool selected before the memory must not act on it at random weights. Their only
+/// effect was the link bill, which is the one way it changes such a founder's ants. A file saved by a build with
+/// the memory keeps what evolution put there.
+///
+/// **On by default** (owner, 2026-09-27 and the project rule: features ship on unless there is a measured harm): the
+/// feature is a sense at weight 0, so a pool moves only as selection wires it. Panics with `PP_HOMEDIR=1` or
+/// `PP_BOTTOM`, the scratch switches that wrote the same unwritten slot -- set `PP_LASTFOOD=off` to run them.
+pub fn last_food() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let v = std::env::var("PP_LASTFOOD").unwrap_or_default();
+        if !v.is_empty() && !switch_on_value(&v) {
+            return None;
+        }
+        assert!(
+            !(std::env::var("PP_HOMEDIR").is_ok_and(|v| v == "1") || std::env::var("PP_BOTTOM").is_ok()),
+            "PP_HOMEDIR and PP_BOTTOM write f::BUILDING, which holds the last-food memory: set PP_LASTFOOD=off to run them"
+        );
+        match v.trim() {
+            "" | "on" | "1" => Some(LAST_FOOD_FADE),
+            t => {
+                let t: f32 = t.parse().unwrap_or_else(|_| panic!("PP_LASTFOOD={t:?}: off, on, or a fade in frames"));
+                assert!(t > 0.0, "PP_LASTFOOD=T, T > 0");
+                Some(t)
+            }
+        }
+    })
+}
+
+/// [`last_food`]'s default fade: the memory reads half as strong this many frames after the pick-up.
+pub const LAST_FOOD_FADE: f32 = 4000.0;
+
+/// [`last_food`]'s distance scale, the far sense's own (`PP_HOMEVEC=log:40`): 0.49 at 25 columns, 1.25 at 100,
+/// 2.14 at 300, never capped (owner, 2026-10-24: graded senses, no cap).
+pub const LAST_FOOD_SCALE: f32 = 40.0;
+
 /// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED`, [`f::HUNGRY`] graded ([`describe`]). **On by default
 /// since laygene2** (teacher lane, 2026-10-24; owner: "the default should be on unless there is uncertainty"): the
 /// colonies selected with it on (laygene2's lgkeep arm) are the standard pool, and the previous pool, never trained
@@ -605,6 +671,9 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         scent: CHANNELS.map(|ch| scent(world, ch, head.0, head.1)),
         warmth: if warmth_on() { world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature } else { 0.0 },
         home: sensed_home(world, organism, def, st).0,
+        food: last_food().and_then(|t| {
+            st.last_food.map(|(x, y, at)| ((x, y), t / (t + world.frame.saturating_sub(at) as f32)))
+        }),
         mats: Mats {
             spoil: world.materials.known(Known::Spoil),
             packed: world.materials.known(Known::PackedSoil),
@@ -1016,6 +1085,17 @@ fn describe(world: &World, memo: &mut impl CellRead, warm: Option<&mut Sampler<'
             if home_dir() {
                 v[f::BUILDING] = cos;
             }
+        }
+    }
+    // The way back to the last food ([`last_food`]), on the same terms as
+    // home's: 0 standing on the spot, or before any pick-up.
+    if let Some(((fx, fy), fresh)) = here.food {
+        let (gx, gy) = (fx - here.head.0, fy - here.head.1);
+        let (sx, sy) = (x - here.head.0, y - here.head.1);
+        let (g2, s2) = ((gx * gx + gy * gy) as f32, (sx * sx + sy * sy) as f32);
+        if g2 > 0.0 && s2 > 0.0 {
+            let cos = (gx * sx + gy * sy) as f32 / (g2.sqrt() * s2.sqrt());
+            v[f::FOOD_WAY] = cos * far_ramp(g2.sqrt(), f32::NAN, LAST_FOOD_SCALE) * fresh;
         }
     }
     if warmth_on() {
