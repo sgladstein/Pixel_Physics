@@ -268,6 +268,14 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   emitters gives exactly the deaf result when ants are the only readers and
   writers of a plane, so a "silent" arm is a wasted arm
   (evolvable-pheromones-2026-10-25 §4).
+- **A scripted player's "did N" is a request until the run reads back what
+  happened.** A harness that asked to carry 10 ants lifted about 6, because
+  the ants nearest the nest were stacked on one another and the carry refuses
+  a stack. Its first verdict, "carrying changes nothing at colony scale", was
+  wrong; with true counts, carrying ~17 ants raised station visits by a median
+  105 (10 of 12 seeds). Print the count of each act that actually happened
+  (`keeperdemo`'s `carried=`) beside every result, and pick targets the act
+  can take (`creature::can_carry`) (keeper-seat-demo-2026-10-25).
 - **A per-member score in a lab colony measures the ant's id, not its mind, unless
   the member order is shuffled.** The lab hands ant `id` the member `id % n`, and
   which founders live through the thin start follows the id: on `steady_income`

@@ -2381,6 +2381,11 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             super::recall::TILT.with(|t| t.set(tilt));
             let mut d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
             super::recall::TILT.with(|t| t.set(None));
+            if tilt.is_some() {
+                if let Some(r) = world.recall.as_mut() {
+                    r.counts.offered += 1;
+                }
+            }
             if let Some((moved, flipped)) = super::recall::MOVED.with(|m| m.take()) {
                 super::recall::note_tilt(world, moved, flipped);
             }

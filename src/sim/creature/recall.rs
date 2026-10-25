@@ -92,6 +92,10 @@ pub struct RecallCounts {
     /// Decisions whose pick, under the same draw, differs with the tilt from
     /// without it: the steps the head actually changed. Exactly 0 at gain 0.
     pub picks_flipped: u64,
+    /// Decisions made by a taught, unladen ant (the tilt was on offer),
+    /// whatever verb the job head then drew: `tilted / offered` is the Walk
+    /// share the tilt can act on, the plan's first-named risk.
+    pub offered: u64,
     pub plants: u64,
     pub copies: u64,
     /// Copies by the generation they wrote (index 1..=3; 4+ in the last slot).
@@ -114,8 +118,12 @@ pub struct Recall {
 
 /// How far (Chebyshev cells) an ant's `last_food` may sit from a
 /// provenance's place and still be that memory: its own pick-up at the taught
-/// station lands on a neighbouring food cell, not the planted one.
-pub const SAME_PLACE: i32 = 6;
+/// station lands on a neighbouring food cell, not the planted one. **12, not
+/// 6**: the keeper demo's station is a heap of ~80 cells, a pyramid nine
+/// columns either side of its peak, so a taught ant that walked there and
+/// took a bite from the heap's edge would lose its lesson at 6 -- the trip that
+/// should renew the memory erased it.
+pub const SAME_PLACE: i32 = 12;
 
 impl Recall {
     pub fn new(gain: f32, copy: f32) -> Self {
@@ -140,14 +148,20 @@ pub fn lesson(world: &World, ant: OrganismId) -> Option<Provenance> {
     ((x - p.place.0).abs() <= SAME_PLACE && (y - p.place.1).abs() <= SAME_PLACE).then_some(p)
 }
 
-/// Forget records for the dead and for memories since overwritten. Cheap;
-/// the demo calls it every few hundred frames, and nothing reads a stale
-/// record anyway ([`lesson`] re-checks).
+/// Forget records for the dead. **Only the dead** (keeper demo, 2026-10-25):
+/// a record whose memory has since been overwritten is kept *dormant*, and
+/// wakes again ([`lesson`] matches) the next time the ant takes food back at
+/// the taught place. Traced on the demo box, a carried ant that took one
+/// stray cell dropped on its way home lost its lesson for good under the
+/// first rule (pruned on mismatch), and its next real bite at the station a
+/// thousand frames later taught it nothing: the trip that should renew the
+/// lesson could not. Nothing reads a dormant record as a lesson ([`lesson`]
+/// re-checks the place), so this changes only what a return trip restores.
 pub fn prune(world: &mut World) {
     let Some(ids) = world.recall.as_ref().map(|r| r.provenance.keys().copied().collect::<Vec<_>>()) else { return };
-    let stale: Vec<OrganismId> = ids.into_iter().filter(|&id| lesson(world, id).is_none()).collect();
+    let dead: Vec<OrganismId> = ids.into_iter().filter(|&id| world.organism(id).is_none()).collect();
     if let Some(r) = world.recall.as_mut() {
-        for id in stale {
+        for id in dead {
             r.provenance.remove(&id);
         }
     }

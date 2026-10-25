@@ -28812,16 +28812,13 @@ pub(crate) fn launch(world: &mut World, organism: OrganismId, heading: u8) -> bo
 /// still knows the way home. Writes no memory: a carried mind ant learns the
 /// place by its own pick-up there.
 pub fn set_down(world: &mut World, organism: OrganismId, to: (i32, i32)) -> Result<(i32, i32), &'static str> {
+    if world.organism(organism).is_some() && !can_carry(world, organism) {
+        return Err(if world.organism(organism).is_some_and(|s| s.flight.is_some()) { "it is in the air" } else { "something is riding it, or it is riding" });
+    }
     let Some(state) = world.organism(organism) else { return Err("nothing alive there") };
     let Some(def) = world.species.get(state.species).creature.clone() else { return Err("only animals can be carried") };
     let cells = state.chain.clone();
     let Some(&head) = cells.first() else { return Err("nothing alive there") };
-    if state.flight.is_some() {
-        return Err("it is in the air");
-    }
-    if cells.iter().any(|&(x, y)| !world.riders_at(x, y).is_empty()) {
-        return Err("something is riding it, or it is riding");
-    }
     // Nearest placement first: rings of growing Chebyshev radius around `to`.
     let mut placed = None;
     'search: for r in 0..=8i32 {
@@ -28852,6 +28849,15 @@ pub fn set_down(world: &mut World, organism: OrganismId, to: (i32, i32)) -> Resu
     Ok(new_head)
 }
 
+/// Whether [`set_down`] would lift this animal: alive, not in flight, and
+/// nothing riding it nor it riding anything (a stack of nestmates is lifted
+/// by none of its members). The keeper's hand reads it to pick the nearest
+/// ant it *can* lift rather than refuse the one on top of a pile.
+pub fn can_carry(world: &World, organism: OrganismId) -> bool {
+    let Some(state) = world.organism(organism) else { return false };
+    state.flight.is_none() && !state.chain.is_empty() && state.chain.iter().all(|&(x, y)| world.riders_at(x, y).is_empty())
+}
+
 /// **Put one mouthful of `food` worth `worth` into an animal's crop**: the
 /// keeper seat's TREAT. A real meal, so a real reward (the keeper design's
 /// rule against reward hacking: every reward is something the ant itself
@@ -28876,8 +28882,8 @@ pub fn treat(world: &mut World, organism: OrganismId, food: material::MaterialId
 /// refuses to plant a memory there, since a lesson at home teaches "here is
 /// the nest".
 pub fn is_home_for(world: &World, organism: OrganismId, (x, y): (i32, i32)) -> bool {
-    let Some(def) = world.organism(organism).and_then(|s| world.species.get(s.species).creature.clone()) else { return false };
-    food_at_home(world, organism, &def, x, y)
+    let Some(def) = world.organism(organism).and_then(|s| world.species.get(s.species).creature.as_ref()) else { return false };
+    food_at_home(world, organism, def, x, y)
 }
 
 /// One frame of ballistics for an airborne creature, and the reschedule.
