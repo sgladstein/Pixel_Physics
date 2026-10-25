@@ -1,8 +1,8 @@
 # Evolvable pheromones: what the scents mean, a better B, and an emergence test (2026-10-25)
 
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
-**decode and tuning done; the emergence test is running** (free / deaf / drift arms, 200 generations each,
-results to be added in §7). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+**finished.** Decode done; B fade 0.25 rejected under selection (§5); the emergence test found no convention
+that beats deafness, so the palette stays parked (§7). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -23,10 +23,13 @@ the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJY
   more and starve more. The alarm plane is laid mostly by empty ants away from home and changes nothing: a free
   channel.
 - **B fading 0.03 -> 0.25 to 0.40** (§5) stores more food (441 -> 495) and builds a bigger nest (432 -> 528),
-  starvation unchanged, with selection off. Handed to the Teacher lane to test under selection before any default
-  changes.
+  starvation unchanged, with selection off, **but loses under selection**: trained under it, colonies bring home
+  more food and dig half the nest, and more ants starve. B stays at 0.03.
 - **Why** (§6): slow-fading B piles up in the nest five times over, and foragers coming home stop to eat from the
   store and shuffle food instead of digging. Faster fading keeps the nest from smelling of food.
+- **Emergence test** (§7): with the unused alarm channel opened to evolution under colony-level selection, the best
+  brains came to rely on it, but the colonies got worse than in the deaf control (median 9 against 284), and the run
+  lost its last good lineage. No convention that beats deafness formed, so the palette stays parked.
 
 ## 1. The physics today
 
@@ -156,8 +159,20 @@ bFxx = B fade 0.xx (control 0.03); aB = A blend (control 0.25); aF03 = A fade 0.
   changed. At 0.60 starvation starts to rise (23/9). **B that never fades kills the colony** (alive 0.5).
 - **A should stay as it is**: a narrower A (blend 0.05, 0.10) costs food and nest; a fading A (0.03) wrecks the nest
   (124 cells) while ants stop starving, the same "feed yourself, build nothing" pattern as no scent at all.
-- **Status**: the Teacher lane is running B fade 0.25 against the control under in-run selection (32 colonies x 16
-  rounds), judged on garden stored food and nest with starvation as a guard. No default changes until that passes.
+- **Under selection it loses.** Teacher lane, price25b: 32 colonies x 24 rounds from colony 8, link price 0.25,
+  ramp capped at 120, all colonies alive throughout. Garden medians against the shared control, paired over 32:
+
+  | round | nest | nest bigger | food home | food higher | starved |
+  |---|---|---|---|---|---|
+  | r7 | 440 vs 458 | 13/32 | 11,920 vs 12,369 | 17/32 | |
+  | r15 | 476 vs 454 | 21/32 | 12,010 vs 12,905 | 14/32 | 27 vs 12 (fewer 9/32) |
+  | r23 | 214 vs 501 | 2/32 | 15,988 vs 12,230 | 28/32 | 22.5 vs 8.5 (fewer 8/32) |
+
+  By r23 selection under the fast fade traded the nest for food home and the starvation guard fails. **B stays at
+  0.03.** Re-gardening colonies 1-8 at r23 with events (`scratch/pheromones/storeeat.py`) shows a different cause
+  from §6: store eating per forager is unchanged (~76 each), churn unchanged; the trained colonies have more
+  foragers (63.5 -> 72.5, 6/8) that each dig about half as much (forager cuts 234 -> 146, 3.7 -> 2.0 each).
+  **Lesson**: a constant judged on an untrained pool says nothing about a pool trained under it.
 
 ## 6. Why faster B fading helps
 
@@ -185,7 +200,7 @@ Control (B fade 0.03) against 0.25. Picture: the B map and these numbers on the 
   foragers stop grazing the store and do more digging and carrying. The link from the ant's scent inputs to its
   choice is inferred from these counts, not traced decision by decision.
 
-## 7. The emergence test (running)
+## 7. The emergence test
 
 The test the review asked for (E2), built on the conditions the robot-colony studies needed:
 
@@ -204,8 +219,38 @@ The test the review asked for (E2), built on the conditions the robot-colony stu
   or deaf.
 - **Baseline**: on the patch bed `std_pool` is neutral to alarm deafness (6 better / 5 worse, 12 seeds) and 2 of 12
   colonies go extinct by 100k frames: the channel starts empty, and the world is harsh enough to select.
-- **Run**: 16 colonies x 200 generations x 100,000 frames per arm, ~7 hours on 4 cores each, at `8b51c3f`.
-  `scratch/pheromones/emerge.py`; results (`gens.csv`, `listen.csv`) to be added here.
+- **Run**: 16 colonies x 200 generations x 100,000 frames per arm at `8b51c3f`, about a minute a generation on 4
+  cores (`scratch/pheromones/emerge.py`). Free arm in this lane's container, deaf and drift on runner threads; the
+  deaf arm is read to generation 185 (it finished minutes later). Raw `gens.csv` / `listen.csv` stayed in the
+  project's shared folder.
+
+**Results** (listening replays: 4 seeds per checkpoint, one checkpoint every 10 generations; extinct = score 0):
+
+| arm, generations | hearing beat deaf | hearing beat misplaced | extinct: hearing / deaf / misplaced | best (median over gens) | median colony | scoring colonies |
+|---|---|---|---|---|---|---|
+| free 0-44 | 4/11 | 2/12 | 5 / 1 / 1 of 16 | 454 | 196 | 12.1 of 16 |
+| free 45-124 | **20/7** | **20/8** | 8 / **20** / 22 of 32 | 412 | **9** | 8.0 |
+| free 125-199 | 15/11 | 17/8 | 8 / 13 / 15 of 32 | 36 | 12 | 11.4 |
+| deaf 0-44 | 11/5 | 9/7 | 1 / 3 / 5 of 16 | 552 | 274 | 12.7 |
+| deaf 45-124 | 12/19 | 17/13 | 5 / 2 / 3 of 32 | 552 | 284 | 12.5 |
+| deaf 125-185 | 9/14 | 10/14 | 2 / 1 / 3 of 24 | 545 | 316 | 13.2 |
+| drift | | | all colonies dead by gen 20 | | | |
+
+- **The free arm's best brains did come to rely on the alarm scent** (gens 45-124): deafened or reading it 40
+  columns off, they died out in 20-22 of 32 replays against 8 hearing. The deaf arm shows no such reliance.
+- **But relying on it made the colonies worse, not better.** Over the same generations the free arm's median
+  colony scored 9 against 284 in the deaf arm, and only half its colonies scored at all. At generation 128 the last
+  strong lineage drew a seed it could not survive (its elite clone scored 0) and nothing above ~40 scored again.
+- **Reading**: std_pool already reads the alarm plane (trained when it meant nothing). Once its emit row mutates,
+  every emit mutation changes what every nestmate hears at once, so most are harmful, and what selection kept was
+  brains wired to whatever their own lineage happened to emit: dependence, i.e. fragility, not a convention. A real
+  convention would show as the free arm out-scoring the deaf one; it never did. Drift collapsing in ~10 generations
+  says unprotected standard mutation is itself heavy; colony selection holds it off in the deaf arm.
+- **Verdict for the owner's rule** (palette only if a convention forms): **no convention formed; the palette stays
+  parked.**
+- **If retried** (not recommended now): a founder that does not yet read the channel (zero its alarm read weights),
+  two or more seeds per evaluation so one extinction cannot erase the best lineage, 32+ colonies, and replicate runs
+  per arm. About 4x this run's cost.
 
 ## 8. Switches and tools added (all off by default; off is bit-identical)
 
@@ -221,6 +266,8 @@ The test the review asked for (E2), built on the conditions the robot-colony stu
 | `inrun phero_dump=N` | A and B planes around the nest every N frames |
 | `inrun mutate_to=PATH:PM:SIGMA:EVENTS:MSEED` | mutate one genome and save it |
 | `examples/molecules.rs` | one walk of trail per molecule, both laws, at five ages |
+| `scratch/pheromones/emerge.py` | the emergence test's generation driver (§7) |
+| `scratch/pheromones/storeeat.py` | per-class store eating, churn, deliveries and digging from `events.csv` |
 
 `PP_SCENT_BLIND=1` (older) zeroes only the head scent inputs, not the per-option features or the dig head, and so
 is a **partial** blinding; use `PP_SCENT_DEAF=all` for a listening test.
