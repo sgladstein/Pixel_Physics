@@ -2897,7 +2897,10 @@ drift that two of these documents still reflect.**
   ant on ant, so a bitten head is a death (`PP_MIND_BITE_SCALE`, scratch, makes
   it graded). A tournament scored against the rival (`rivaltour.py`) bred
   champions that beat the founder 24 of 24 and kill 2-7 for each lost, and
-  that also stopped carrying food home and dug a wide pit. Found on the way: the
+  that also stopped carrying food home and dug a wide pit; a second tournament
+  with food home in the score lost it the same way (so did the no-bite control):
+  inside a match nothing rewards an ant for carrying, so the proposed paired
+  case for the Teacher lane keeps births going to carriers. Found on the way: the
   brood lay cap was one per species, so one colony's growth stopped its
   neighbour laying (`World::colony_lay_scale`, per colony, harness only).
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in

@@ -18,7 +18,9 @@ combat?" and (23:32Z) "Won't this just select colonies that live in peace. That 
    beat the founder in 24 of 24 matches and kill 2-7 ants for each they lose; colonies bred with no bite are wiped out
    when they meet one that bites. **But the champions also stopped carrying food home and dug a wide pit**, because
    the first score paid ants alive and cuts and nothing else. A second tournament with food home and the nest's real
-   size in the score is §5.
+   size in the score (§5) bred better fighters and a real nest, and **still lost carrying home**: inside a match
+   nothing rewards an ant for carrying, so the fix belongs in the Teacher lane's selection, where births go to
+   carriers (§6).
 5. **A wipeout is one ant, and the bite is binary.** One bite takes one cell ant on ant and a bitten head is a death
    (7 bites in 10 kill); in a nest that cannot bite back, a single raider kills 20-60. A graded bite (4 bites a cell,
    mouths adding up) gives a fight its middle when both sides bite.
@@ -145,14 +147,65 @@ a ~15 x 15 bowl open at the top (`nest_deep` 94, `crater` 39) where the founder 
 (`nest_deep` 0-3: its ants tunnel through soil that closes behind them). The picture is
 `/mnt/project-files/colony-war/tournament-champion-vs-founder.png`.
 
-## 5. The second tournament
+## 5. The second tournament: food home in the score does not hold it
 
-*(running: score = share of ants lived + half the share of food home + half the share of `nest_deep`; fight and
-graded arms; filled in when it finishes)*
+Same bed, mutation and pairing; the score is now the colony's share of the pair's ants lived **plus half its share of
+food home plus half its share of `nest_deep`** (the open or provisioned nest joined to its door, 3+ rows down). Two
+arms, `fight` and `graded`, 16 rounds each. Medians over the round's 24 colony-matches:
 
-## 6. What this means for training
+| Round | fight: kills / food home / `nest_deep` / crater / lived | graded: kills / food home / `nest_deep` / crater / lived |
+|---|---|---|
+| 0 | 33 / 4,522 / 2 / 4 / 65 | 19 / 4,585 / 2 / 6 / 65 |
+| 2 | 43 / 797 / 168 / 39 / 78 | 24 / 800 / 194 / 42 / 77 |
+| 8 | 34 / 468 / 202 / 40 / 76 | 30 / 420 / 163 / 44 / 79 |
+| 15 | **72** / 562 / 168 / 28 / 75 | **50** / 600 / 146 / 44 / 78 |
 
-*(after §5)*
+Judged as before (two final-round champions an arm, 6 fresh seeds x both sides, no mutation, against `std_pool`, scored
+on this tournament's score):
+
+| Champions | Won (of 24) | share of ants lived | kills / killed (median) | food home: champion vs founder | `nest_deep` | crater |
+|---|---|---|---|---|---|---|
+| fight | **24** | 0.56-0.62 | 72-144 / 30-35 | 364-446 vs ~4,500 | 32-168 vs 1-2 | 24-40 vs 2-4 |
+| graded (bite 0.25) | **24** | 0.55-0.57 | 32-48 / 6-10 | 292-473 vs 4,284-4,428 | 231-246 vs 0-2 | 48-56 vs 2-4 |
+
+The fighting got better again (the fight champions kill 2-4 for each lost, the graded ones ~5), the open nest is real
+(a joined nest 3+ rows down where the founder keeps none), and **food home fell exactly as it did without the term**:
+from ~4,500 a match to ~500 by round 3, in both arms. **It fell the same way in tournament 1's no-bite control**
+(4,926 -> 290), so it is not the fighting and not the score. Three things together:
+
+- **A share of the rival's food home cannot hold a habit both colonies lose together.** Two grazing colonies split the
+  term 0.5 / 0.5 just as two carrying colonies do; only a colony that carries while its rival does not is paid, and
+  that pays for one round at most.
+- **Inside a match nothing rewards an ant for carrying home.** Every hatchling is a mutant of its layer, and the layers
+  are whichever ants are fed well enough to lay; the ants carried to the next round are whichever are alive at the end.
+  An ant that eats where the food lies is both. Food home per 10,000 frames falls inside each match, and faster each
+  round (fight, round 1: 653 -> 172; round 3: 172 -> 15).
+- **On this bed grazing is not even a loss for the colony's headcount**: the heaps are 25 columns from the door and
+  refill, and ants lived rose from 65 to 75-79 as carrying stopped.
+
+The Teacher lane's in-run selection does not have the second problem: there births go to the ants that bring food
+home, which is what holds carrying in its colonies. That is the reason the next step belongs in its harness, not in
+this one.
+
+## 6. What this means
+
+**For the owner's question -- does selection against a rival settle into peace?** No. From a founder whose two
+colonies keep a cold peace, both tournaments bred colonies that kill more each round and win every match against the
+founder; a line bred with no bite loses every match to one that bites and dies out in nearly half of them. Peace is where today's pool starts, not where
+selection against a rival goes. What keeps it from being a war of conquest today is that **a kill gains the killer
+nothing in the world**: no flesh eaten, no food or ground taken. The tournament pays for a kill only because the score
+is relative. For colonies to fight in the lab for a reason, killing has to pay -- the dead eaten, or food and ground
+that only one colony can hold.
+
+**For the Teacher lane (proposal, not built):** a paired-colony case in colony selection. Two colonies of the batch on
+one bed (the bed and counters are `examples/rivalbed.rs`; inrun would need a second colony's ledger, births and culls
+kept apart). The contest scored against the rival -- share of ants lived, kills both ways -- and **food home and the
+joined nest scored as colsel already scores them, against the founder, not as a share of the rival's**, with births
+inside the run still going to the ants that bring food home. Run it with the graded bite: with a one-bite kill, a lone
+raider in a nest that cannot answer is the cheapest win there is (§2), and selection will find it.
+
+**Not changed by this work:** nothing outside `examples/rivalbed.rs` reads `World::colony_lay_scale` (None everywhere
+else) or sets `PP_MIND_BITE_SCALE`, so the lab, inrun and colsel are byte-identical.
 
 ## 7. Other things found on the way
 
