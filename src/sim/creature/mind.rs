@@ -2304,6 +2304,10 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             m.counts.falls += 1;
         }
     } else if let Some(mut mind) = world.minds.as_mut().and_then(|m| m.ants.get(&organism).cloned()) {
+        // **The player's body, or a body a module leads** (`steer::take_forced`):
+        // read before the closure, which cannot borrow the world mutably. `None`
+        // with nobody steered and no entry, every tick in the shipped game.
+        let forced = crate::sim::steer::take_forced(world, organism);
         let decided = SCRATCH.with(|s| {
             let mut opts = s.borrow_mut();
             options::build_with(
@@ -2514,6 +2518,36 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                         mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, opts[i].verb);
                         mind.state.last_verb = Some(opts[i].verb);
                     }
+                }
+            }
+            // **The forced pick replaces the mind's** (`steer::ForcedPick`), last, so
+            // no teacher above can undo the player. The memory and the pull
+            // (`last_verb`) then follow the verb actually carried out, as
+            // `PP_OLDLAB_ACT`'s override does, so a body handed back resumes a mind
+            // whose state matches what its body did (scout seat's ask: a tandem
+            // follower is led for hundreds of decisions). A mind with every verb
+            // off still obeys: the decision is built here with no scores.
+            if let Some(f) = forced {
+                let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
+                let head = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+                if let Some(i) = crate::sim::steer::choose(list, head, f) {
+                    match d.as_mut() {
+                        Some(d) => {
+                            if redrawn.is_none() {
+                                mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &d.scores, list[i].verb);
+                            }
+                            d.pick = i;
+                        }
+                        None => {
+                            d = Some(Decision {
+                                pick: i,
+                                scores: vec![0.0; list.len()],
+                                jobs: [None; VERBS],
+                                emits: [0.0; EMITS],
+                            })
+                        }
+                    }
+                    mind.state.last_verb = Some(list[i].verb);
                 }
             }
             mind.state.last = Some(now);
