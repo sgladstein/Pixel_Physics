@@ -3,7 +3,7 @@
 //! per-ant events the pilot's score is built from, and the nest's open cells every `window` frames.
 //!
 //! cargo run --release --example inrun -- founders=v2.txt:15,s171.txt:15[,zero:4] frames=200000 seed=1 out=DIR
-//!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1]
+//!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1] [foodflip=FRAME [foodflip_keep=1]]
 //!     (since 2026-10-24 the standard line's settings, `STANDARD`, fill in anything not given; `std=off` for none)
 //!
 //! Genomes load through the copylog suite, as training loads them. `zero` is an all-zero mind (every option scored
@@ -59,7 +59,17 @@ fn load_founder(p: &str) -> Vec<f32> {
     let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
     let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
     let len = if creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on() { len } else { creature::mind::GENOME_LEN };
-    train::parse_genome(&text, len, p)
+    let mut g = train::parse_genome(&text, len, p);
+    // A founder saved before the last-food memory meets it at weight 0 (`mind::enter_last_food`).
+    creature::mind::enter_last_food(&mut g, train::genome_text_layout(&text, p));
+    g
+}
+
+/// A spider's `.raw.txt`, met by the last-food memory at weight 0 if saved before it (`mind::enter_last_food`).
+fn spider_file(text: &str, name: &str) -> Vec<f32> {
+    let mut g = train::parse_genome(text, creature::mind::GENOME_LEN, name);
+    creature::mind::enter_last_food(&mut g, train::genome_text_layout(text, name));
+    g
 }
 
 /// SCRATCH (brood lane, 2026-10-24): under `PP_LAYGENE` (on by default) every genome ends in a lay gate of
@@ -546,10 +556,10 @@ impl Spiders {
             files.sort();
             files
                 .iter()
-                .map(|p| (train::parse_genome(&std::fs::read_to_string(p).unwrap(), creature::mind::GENOME_LEN, &p.display().to_string()), pixel_physics::train::predator::read_breeding(p)))
+                .map(|p| (spider_file(&std::fs::read_to_string(p).unwrap(), &p.display().to_string()), pixel_physics::train::predator::read_breeding(p)))
                 .unzip()
         } else if pool.ends_with(".txt") {
-            let g = train::parse_genome(&std::fs::read_to_string(pool).unwrap_or_else(|e| panic!("spiders={pool}: {e}")), creature::mind::GENOME_LEN, pool);
+            let g = spider_file(&std::fs::read_to_string(pool).unwrap_or_else(|e| panic!("spiders={pool}: {e}")), pool);
             (vec![g], vec![pixel_physics::train::predator::read_breeding(std::path::Path::new(pool))])
         } else {
             (vec![creature::mind::preset(pool, verbs).unwrap_or_else(|| panic!("spiders={pool}: not a directory, a .raw.txt or a preset"))], vec![None])
@@ -783,8 +793,21 @@ fn main() {
         "mix" => ("provisions", "fruit"),
         f => panic!("food={f}: provisions, fruit or mix"),
     };
+    // `foodflip=F` (Creatures research thread, 2026-10-25; the teacher lane's positive control for learning within a
+    // life): food drips at one heap only, east or west as the seed draws it, and from frame F at the other one only,
+    // the old heap's loose food cleared at the flip (`foodflip_keep=1` leaves it). A brain fixed at birth cannot know
+    // which side comes second, so deliveries after F measure whether ants re-route within their lives; `events.csv`'s
+    // `field` rows say which side each bite came from. Off (unset) is the two heaps as before, bit for bit.
+    let food_flip: Option<u64> = arg(&a, "foodflip").map(|v| v.parse().expect("foodflip=FRAME"));
+    let flip_east_first = (seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 63) == 1;
+    let flip_keep = num("foodflip_keep", 0) == 1;
     let out = std::path::PathBuf::from(arg(&a, "out").expect("out=DIR"));
     std::fs::create_dir_all(&out).unwrap();
+    if let Some(f) = food_flip {
+        let first = if flip_east_first { "east" } else { "west" };
+        println!("foodflip: food {first} until frame {f}, then the other side only{}", if flip_keep { "" } else { ", the old heap cleared" });
+        std::fs::write(out.join("foodflip.txt"), format!("first {first}\nflip {f}\n")).unwrap();
+    }
     // The suite a founder enters by is the game training page's own (`colony_bed::suite`): soil + scarce + trail.
     let suite = pixel_physics::train::challenges::colony_bed::suite();
     // founders=path:count,...
@@ -1396,9 +1419,29 @@ fn main() {
             // On a bed widened by PP_BED_W the west wall is still 128 out: a west heap that would fall past it is
             // dropped 6 columns beyond the east one instead, so food farther than the wall allows is one-sided.
             let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
-            for (x, mat) in [(inrun::NEST + dist, food_mats.0), (west, food_mats.1)] {
+            for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
+                if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
+                    continue;
+                }
                 inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
             }
+        }
+        if food_flip == Some(fr) && !flip_keep {
+            // The first heap's loose food goes at the flip, so the side that fed the colony is empty, not slowly eaten out.
+            let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+            let (x, mat) = if flip_east_first { (inrun::NEST + dist, food_mats.0) } else { (west, food_mats.1) };
+            let m = w.materials.id_of(mat).expect("the drip's food");
+            let mut cleared = 0;
+            for cx in (x - 8 - spread).max(0)..=(x + 8 + spread).min(bw - 1) {
+                for cy in 0..bh {
+                    let c = w.get(cx, cy);
+                    if c.material == m && c.organism_id() == 0 {
+                        w.set(cx, cy, pixel_physics::sim::Cell::EMPTY);
+                        cleared += 1;
+                    }
+                }
+            }
+            println!("foodflip at frame {fr}: {cleared} cells cleared from the first heap; deliveries so far {}", w.creature_stats.deliveries);
         }
         if weed > 0 && fr % 500 == 0 {
             for x in (inrun::NEST - weed).max(0)..=(inrun::NEST + weed).min(bw - 1) {

@@ -97,7 +97,9 @@ kills are mostly at the door: the six arms together killed 335 ants, 52 of them 
 ## Which mind the lab gets: chosen in the lab, not on the bed
 
 The bed's ranking says nothing about whether a raider population lives in a lab box, so the four candidates were
-run where the pool will be used: `spiderlab`, lab_mid_fruit, 2 raiders, 300,000 frames, seeds 1-6 (landing as above).
+run where the pool will be used: `spiderlab`, lab_mid_fruit, 2 raiders, 300,000 frames, seeds 1-6 (landing as above). Measured
+before `main`'s last-food memory and trunk crossing (PRs #883, #882) reached this branch; the memory enters this
+layout-4 pool at weight 0, and lab_mid_fruit's trees are the only place the crossing can differ.
 
 | mind | took hold (peak > 6) | lived the whole run | colony eaten out | raiders' peak | ants killed (mean) |
 |---|---|---|---|---|---|

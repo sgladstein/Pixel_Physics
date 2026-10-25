@@ -6342,6 +6342,11 @@ pub struct OrganismState {
     ///
     /// Anchored at the spawn position, because an ant hatches at home.
     pub forage_anchor: (i32, i32),
+    /// **Where a mind last picked up food away from home, and the frame it
+    /// did** (`mind::pick_up`): the last-food memory a mind's options read
+    /// (`creature::options::last_food`). `None` until the first such pick-up;
+    /// a newborn starts with none, as a hatchling remembers no feeder.
+    pub last_food: Option<(i32, i32, u64)>,
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
