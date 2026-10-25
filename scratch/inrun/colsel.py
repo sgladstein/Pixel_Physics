@@ -330,7 +330,10 @@ SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
 # Job lines cannot set colsel's environment on the VM, so both ride as args: `scaleopen=1`, `nestneed=A,B,F`.
 SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
 SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
-EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed='))]
+# shapeopen=1 (teacher lane, 2026-10-25): +shape reads rooms from the nest's open cells only (roomshape.OPEN_ONLY):
+# with stored food counted as space, nest1's best "rooms" colony (85) was a lumpy food pile with 17 open cells.
+roomshape.OPEN_ONLY = 'shapeopen=1' in EXTRA
+EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed=', 'shapeopen='))]
 
 
 def nest_scale(rdir, nest):

@@ -34,6 +34,7 @@ RAGGED = 2       # reach a wall bump can have without being a passage
 CAP_T, CAP_R, BEST_T = 15, 50, 4
 N4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
 N8 = tuple((a, b) for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b)
+OPEN_ONLY = False  # colsel `shapeopen=1`, or ROOMSHAPE_OPEN=1 on the command line: see nest_cells
 
 
 def nest_cells(d):
@@ -91,7 +92,20 @@ def nest_cells(d):
     entry = min((p for p in nest if abs(p[0] - door) <= 1), key=lambda p: p[1], default=None)
     sp = chr(65 + legend.index('spoil')) if 'spoil' in legend else None
     spoil = {(dx, dy) for dy in range(H) for dx in range(W) if grid[dy][dx] == sp and below(dx, dy)}
-    return nest | crater, entry, spoil, crater
+    space = nest | crater
+    if OPEN_ONLY:
+        # OPEN_ONLY (teacher lane, 2026-10-25): keep only open cells of the space. Stored food fills trained nests
+        # (~500 food cells against ~20 open), and with food counted as space a lumpy food pile scored as rooms:
+        # nest1-1025 heapsgate c9 scored 85 on 17 open cells, the hand-built ant 36 on 732 on the same world
+        # (replay https://claude.ai/artifact/1MgsAwA6bprQ1o73HaCs6B). The flood above still passes food, so a room
+        # behind a larder stays joined to the door; only its shape is read from the open cells.
+        # food out, everything else the flood passed stays (ants '?', door markers): dropping ants too cut the
+        # hand-built ant's own tunnels (world 1099 85 -> 29)
+        food = {chr(65 + k) for k, m in enumerate(legend) if m in ('crumbs', 'fruit', 'food')}
+        space = {p for p in space if grid[p[1]][p[0]] not in food}
+        crater = crater & space
+        entry = min((p for p in space if abs(p[0] - door) <= 1), key=lambda p: p[1], default=None)
+    return space, entry, spoil, crater
 
 
 def fill(nest, spoil, rounds=3):
@@ -183,5 +197,7 @@ def score(d):
 
 
 if __name__ == '__main__':
+    import os
+    OPEN_ONLY = os.environ.get('ROOMSHAPE_OPEN') == '1'
     for d in sys.argv[1:]:
         print(d.rstrip('/'), parts(d))
