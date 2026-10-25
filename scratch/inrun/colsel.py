@@ -327,6 +327,10 @@ def nest_scale(rdir, nest):
 LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
 LAB_DIR = os.environ.get('LAB_DIR', 'scratch/inrun/labscen')
 LAB_SCENS = os.environ.get('LAB_SCENS', 'lab_far_mix,lab_mid_fruit').split(',')
+# labscens=A,B (jobs arg; teacher lane, 2026-10-25): the same list from a jobs line, since the cloud runner passes only
+# P to the driver's environment -- LAB_SCENS set by hand never reached a VM batch.
+LAB_SCENS = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('labscens=')), LAB_SCENS)
+EXTRA = [x for x in EXTRA if not x.startswith('labscens=')]
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
