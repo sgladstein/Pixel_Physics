@@ -4918,6 +4918,12 @@ pub fn tick_world(
     spec: &scene::LabBox,
     scenario: Option<&scenario::Scenario>,
 ) {
+    // **Tandem runs, before the step**, so this tick's decisions read fresh forced picks (`sim::tandem`; off is
+    // one `Option` read).
+    if world.tandem.is_some() {
+        crate::sim::tandem::tick(world);
+        crate::sim::tandem::steer_cascade_leaders(world);
+    }
     frame::step(world, particles, blasts, player::PlayerInput::default(), player_tuning);
     // **Immediately after `frame::step`, per `scenario::tick_timeline`'s own
     // doc on why that ordering is the timing contract.** Cheap when there is
@@ -4931,6 +4937,11 @@ pub fn tick_world(
     // is its own due-gate on `World::frame` and returns 0 immediately for
     // `Rain::Off`. The shipped default is Light, not off.
     rain::tick(world, spec, spec.rain);
+    // **The guest seat's visit** (`creature::guest::tick`): fade, soak and the
+    // guest's pressed verbs. One `Option` read with no visitor registered.
+    if world.visitors.is_some() {
+        crate::sim::creature::guest::tick(world);
+    }
 }
 
 #[cfg(test)]

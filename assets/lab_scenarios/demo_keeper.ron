@@ -1,0 +1,40 @@
+// DEMO: the keeper seat (`demo=keeper`, `src/lab/demo/keeper.rs`). The
+// player is a hand over the box, not an ant: they sketch galleries, and
+// teach the colony a far station by carrying an ant there or treating it.
+//
+// The nest goal's box (no plants, mister off) with the colony landed at
+// once at the west end (x: 107, `far_larder`'s measured column: the
+// smallest at which all 52 land) on a founding heap. The far station
+// (column 390 by default, ~180 columns past the colony band's east edge)
+// and the ration inside the nest are kept by `keeper.rs`, not by this file,
+// because a top-up reads the box: the timeline cannot say "back up to 80".
+(
+    name: "demo_keeper",
+    title: "DEMO: THE KEEPER",
+    question: "Can a hand that carries and feeds ants teach a trained colony where far food is -- and does the lesson spread mouth to mouth and fade if you stop?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [
+        Colony(species: "ant", x: 107, count: 52),
+        Heap(material: "provisions", x: 137, cells: 120),
+    ],
+    timeline: [],
+    horizon: 36000,
+)

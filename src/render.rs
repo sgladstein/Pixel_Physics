@@ -3639,6 +3639,15 @@ pub struct Renderer {
     /// reason: every creature pixel in the buffer was painted in the old
     /// mode, and a switch dirties no chunk.
     last_creature_colour: CreatureColour,
+    /// **A colour per animal, over every other creature colour** (the queen
+    /// seat demo's line tint, `lab::demo::queen`): an ant or a brood cell
+    /// whose organism is in the map wears that colour at its own brightness,
+    /// as a group hue does. Empty everywhere else, and then each creature
+    /// cell pays one `is_empty` test. Its filler bumps `line_tint_gen` when
+    /// the map changes in a way no dirtied chunk would show (a toggle).
+    pub line_tint: std::collections::HashMap<OrganismId, [f32; 3]>,
+    pub line_tint_gen: u64,
+    last_line_tint_gen: u64,
     /// **Roots near a nest draw mostly see-through** -- faded toward the
     /// soil they grow in, so a plant over the colony does not hide its
     /// tunnels. Owner, 2026-10-03: *"when plants are growing over a nest The
@@ -4001,6 +4010,9 @@ impl Renderer {
             organism_overlay: OrganismOverlay::Off,
             creature_colour: CreatureColour::Off,
             last_creature_colour: CreatureColour::Off,
+            line_tint: std::collections::HashMap::new(),
+            line_tint_gen: 0,
+            last_line_tint_gen: 0,
             fade_roots: false,
             root_fade_soil: None,
             last_root_fade: (false, 0),
@@ -4854,6 +4866,10 @@ impl Renderer {
         // ~150 creature cells and no chunk is dirtied by it.
         if self.last_creature_colour != self.creature_colour {
             self.last_creature_colour = self.creature_colour;
+            organism_overlay_changed = true;
+        }
+        if self.last_line_tint_gen != self.line_tint_gen {
+            self.last_line_tint_gen = self.line_tint_gen;
             organism_overlay_changed = true;
         }
         // Root fade: same trigger, for a toggle or a new nest.
@@ -7413,7 +7429,9 @@ impl Renderer {
         {
             if let Some(state) = world.organism(cell.organism_id()) {
                 let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
-                let readout = animal_readout_colour(self.creature_colour, world, state);
+                // The demo's line tint wins over every mode (`line_tint`).
+                let line = if self.line_tint.is_empty() { None } else { self.line_tint.get(&cell.organism_id()).copied() };
+                let readout = if line.is_some() { None } else { animal_readout_colour(self.creature_colour, world, state) };
                 if let Some(rgb) = readout {
                     // **A full replace, flat over the whole body** -- these
                     // are readouts, and the luminance-ratio shading the group
@@ -7422,7 +7440,7 @@ impl Renderer {
                     for (c, g) in base.iter_mut().take(3).zip(rgb) {
                         *c = g.round().clamp(0.0, 255.0) as u8;
                     }
-                } else if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
+                } else if let Some(group) = line.or_else(|| group_colour(self.creature_colour, state.species, state.colony, homeless)) {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -7514,6 +7532,21 @@ impl Renderer {
                             }
                         }
                     }
+                }
+            }
+        }
+        // **Brood wears its line too** (`line_tint`): an egg, larva or pupa is
+        // a `Seed` cell of its own organism, which the block above skips. A
+        // plant's seed is never in the map, so this is one `is_empty` test
+        // everywhere but the queen seat demo.
+        if !self.line_tint.is_empty() && cell.organism_id() != 0 && organism::cell_type(cell.aux()) == Some(organism::CellType::Seed) {
+            if let Some(rgb) = self.line_tint.get(&cell.organism_id()) {
+                const DARKEST: f32 = 0.55;
+                let luma = |c: [u8; 4]| c[0] as f32 * 0.299 + c[1] as f32 * 0.587 + c[2] as f32 * 0.114;
+                let brightest = palette.iter().map(|&c| luma(c)).fold(1.0, f32::max);
+                let ratio = (luma(base) / brightest).clamp(DARKEST, 1.0);
+                for (c, g) in base.iter_mut().take(3).zip(rgb) {
+                    *c = (g * ratio).round().clamp(0.0, 255.0) as u8;
                 }
             }
         }

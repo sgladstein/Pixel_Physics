@@ -1537,7 +1537,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_MIND_ATTACK` | `on` (since 2026-10-24, owner: "Everything should be on by default"; `off` is the game before) | minds only (§13): on lets a mind's Attack act (the game's bite on a stranger in reach, `mind::attack`) and lets a mind pick up a corpse its gut takes (`options::attack_on`; `PP_MIND_CORPSE=off` keeps the old refusal); the colony bed's mind then offers the ant Attack and the alarm emit too (`colony_bed::verbs`, `emits`; `PP_MIND_ALARM=off` keeps the alarm shut), and a founder with the bite banned takes it as a blank verb (`mind::enter_bite`). The lone predator's training turns it on (`examples/predtrain.rs`), and so does a spider on the colony bed (`examples/inrun.rs spiders=`). On the colony bed with no spider it never bites (no stranger lives there): 4 seeds x 200k frames, bites 0, food home 11.2k against 9.4k off, starved 19 against 17; mutants do lay a little alarm (2-13k against 300k of A) |
 | `PIXEL_PHYSICS_MIND_SIGHT` | `on` (2026-10-24; `off` casts no ray) | minds with an eye only (`CreatureDef::sight_range` > 0: the spider, never the ant): the game's eye (`creature::sighted`) cast once a decision, and the nearest prey it reaches read on the mind's home senses (home seen, distance and its change, each option's step toward home) in place of the forage anchor (`options::sensed_home`), billed `sight_fraction` a cell read. An eyeless mind is untouched. `options::SIGHT_CASTS`/`SIGHT_SEEN` count it; `predtrain` prints them. `Reports/lone-predator-2026-10-24.md`, *Spider sight* |
 | `PP_LASTFOOD` | `on`, fade 4,000 frames (since 2026-10-25) | minds only (§13): each mind remembers where it last picked up food away from home (`OrganismState::last_food`, set in `mind::pick_up`), and every option reads `f::FOOD_WAY` (the unwritten building slot, 18) = the step's cosine to that spot x `ln(1 + d / 40)` x `T / (T + age)` (`options::last_food`); `PP_LASTFOOD=T` sets the fade, `off` writes nothing (the mind as before). A genome file saved before it (layout 4 or older) has its links on the slot zeroed as it is read (`mind::enter_last_food`, `mind::LAYOUT` 5), so the shipped pool meets it at weight 0 and moves only as selection wires it. Panics beside the scratch `PP_HOMEDIR=1` or `PP_BOTTOM`, which wrote the same slot. `Reports/brain-training/research/creatures-1996-lessons-2026-10-25.md`, idea 1 |
-| `PIXEL_PHYSICS_RECALL_GAIN` | unset: off (2026-10-25; a demo seat's tool, not a training default) | minds only, and only an ant a player *taught* (`World::recall`, `creature::recall`): `g[,copy]` lets a taught, unladen mind's Walk target draw lean toward its remembered food spot, after the job head has picked Walk: each target's weight x `exp(g x strength x FOOD_WAY)` (`recall::tilt` in `decide_planned`), so the verb and every untaught ant are untouched. Teaching is `recall::plant` (the keeper's carry, `creature::set_down`, or a treat, `creature::treat`); a taught ant that feeds a nestmate passes the spot on at `copy` x its own freshness, never over fresher news, and the generation is counted (`recall::share_on_feed`). Gain 0, and unset, are byte-identical to the ant without it (`the_recall_head_at_gain_zero_is_todays_ant_exactly`). Unit box, spot planted 60 columns out, furthest columns the ant got toward it in 1,500 frames: off 2, gain 2 12, gain 4 37, gain 6 124, gain 8 113 |
+| `PIXEL_PHYSICS_RECALL_GAIN` | unset: off (2026-10-25; a demo seat's tool, not a training default) | minds only, and only an ant a player *taught* (`World::recall`, `creature::recall`): `g[,copy]` lets a taught, unladen mind's Walk target draw lean toward its remembered food spot, after the job head has picked Walk: each target's weight x `exp(g x strength x FOOD_WAY)` (`recall::tilt` in `decide_planned`), so the verb and every untaught ant are untouched. Teaching is `recall::plant` (the keeper's carry, `creature::set_down`, or a treat, `creature::treat`); a taught ant that feeds a nestmate passes the spot on at `copy` x its own freshness, never over fresher news, and the generation is counted (`recall::share_on_feed`). A lesson whose memory a stray bite moved elsewhere sleeps (no tilt) and wakes at the next bite within `recall::SAME_PLACE` (12) of the taught spot; only the dead are pruned (`recall::prune`). The keeper seat demo (`demo=keeper`, `lab::demo::keeper`) turns it on at gain 6, copy 0.5. Gain 0, and unset, are byte-identical to the ant without it (`the_recall_head_at_gain_zero_is_todays_ant_exactly`). Unit box, spot planted 60 columns out, furthest columns the ant got toward it in 1,500 frames: off 2, gain 2 12, gain 4 37, gain 6 124, gain 8 113 |
 | `PIXEL_PHYSICS_B_RHO` | 0.03 everywhere (`LAB_B_RHO = DECAY_RHO`) | trail B's fade rate per pass; `0.005` is the lasting trail the owner played 2026-10-04, which cost the goal box a fifth of its food (`pheromone::b_rho`) |
 | `PIXEL_PHYSICS_B_DIFFUSE` | 0.05 in the lab, 0.25 elsewhere | trail B's blend toward its 3x3 mean per pass |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
@@ -1966,14 +1966,26 @@ and `steer.rs`.
   and the lab gives every ant a mind, so `creature_tick` sends an ant whose
   `input` is `Some` down the hand-built path instead; her eggs still carry
   her mind (`try_bud` copies it), and with `input` `None` (above the
-  steering cap) her mind drives her again. **Ants only**: another species
-  with a mind falls through to `mind::tick`.
+  steering cap) her mind drives her again. **The queen's body only**
+  (`SteerRole::Queen`, an ant): a steered worker body and any other species
+  with a mind stay in `mind::tick`, under the forced pick below.
 - **Two roles** (`steer::SteerRole`, `steer::mark_with`): `Queen`, what
   `mark` gives, runs the `queen` rule for her colony; `Worker` (the scout
   seat's body) leaves her colony's rule alone. Both skip old age.
 - **The lab drives her through `lab::demo`** (`demo=<seat>`): arrows steer,
   the slice-0 letters act, and the camera follows. With no demo the lab never
   marks anyone.
+- **The queen seat's hold** (`Steered::hold`, `steer::holding_queen`; `None`
+  except in `demo=queen`): her colony keeps the `queen` rule only for `hold`
+  frames past her last egg (`Steered::last_lay`, written in `try_bud`). Past
+  it the colony breeds by the process regime. While she holds, `suppress_bar`
+  never shuts her out and shuts out everyone else, even an ant that bred in a
+  lapse.
+- **Whose mind an egg carries** can come from a store of fathers
+  (`sim::fathers`, `World::fathers`; `None` except in a demo): read at
+  `try_bud` after `mind::inherit`, a queue first, then a weighted draw with
+  chance `p`, then an optional wild level that mutates the drawn genome and
+  rebuilds the mind. Keyed draws, never `World::rng`.
 - **An ant with a mind** (the trained ant, the lab's default; also the spider
   and the centipede) never reaches the five hooks: `creature_tick` returns into
   `mind::tick` first. There the keyboard works by **picking the mind's option**
@@ -1985,8 +1997,12 @@ and `steer.rs`.
   Eat), Drop and Feed nearest the direction. Memory and the pull follow the
   forced verb. A module can lead any mind body the same way through
   `World::mind_force` (`steer::force`, `unforce`; a `once` entry is spent by
-  one decision), which the scout seat's tandem follower uses. Empty and with
-  nobody steered, two reads per decision.
+  one decision), which the scout seat's tandem follower uses (`sim::tandem`,
+  `demo=scout`: a led sister is forced one step a tick toward the oldest of
+  her leader's footsteps she has not reached, stands within one cell of the
+  leader's *body*, and is released to her own mind on arrival or when lost;
+  off unless `World::tandem` is set). Empty and with nobody steered, two
+  reads per decision.
 
 ## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
 
