@@ -2181,7 +2181,25 @@ fn decide_planned(
         (targets[n], shifted[n]) = (o, w);
         n += 1;
     }
-    let pick = targets[choose_weighted(&shifted[..n], PICK_FLOOR, draw.unit_f32())];
+    // The recall head (`recall`): a taught ant's remembered place tilts which way it walks, after the verb is drawn,
+    // so it never changes whether the ant walks. Unset (or a list longer than the stack, which nothing builds): the
+    // pick below is untouched, and the draw is consumed exactly once either way.
+    let u = draw.unit_f32();
+    let mut orig = [0.0f32; STACK_OPTS];
+    let tilted = match super::recall::TILT.with(|t| t.get()) {
+        Some(gain) if verb == Verb::Walk && n <= STACK_OPTS => {
+            orig[..n].copy_from_slice(&shifted[..n]);
+            let moved = super::recall::tilt(&mut shifted[..n], &orig[..n], |i| opts[targets[i]].feats[options::f::FOOD_WAY], gain, PICK_FLOOR);
+            Some(moved)
+        }
+        _ => None,
+    };
+    let pick_i = choose_weighted(&shifted[..n], PICK_FLOOR, u);
+    if let Some(moved) = tilted {
+        let flipped = choose_weighted(&orig[..n], PICK_FLOOR, u) != pick_i;
+        super::recall::MOVED.with(|m| m.set(Some((moved, flipped))));
+    }
+    let pick = targets[pick_i];
 
     // Memory, from what the ant felt, saw and chose.
     let mut fresh = [0.0f32; MEMORY];
@@ -2359,7 +2377,13 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             }
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+            let tilt = super::recall::tilt_for(world, organism);
+            super::recall::TILT.with(|t| t.set(tilt));
             let mut d = decide_planned(&mind.genome.w, &mind.genome.plan, &ctx, &opts, &mut mind.state, &mut draw);
+            super::recall::TILT.with(|t| t.set(None));
+            if let Some((moved, flipped)) = super::recall::MOVED.with(|m| m.take()) {
+                super::recall::note_tilt(world, moved, flipped);
+            }
             if let Some(d) = d.as_ref() {
                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
                 // SCRATCH (foraging-loop thread): the carry-home teacher's label rides the copy log as a 16th field.
@@ -3139,6 +3163,10 @@ fn feed(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i
     } else {
         blend_with_kin(world, organism, other, world.nest_blend);
         world.creature_stats.share_blends += 1;
+        // The recall head's meal copy: the fed nestmate may take the giver's remembered place, weaker.
+        if world.recall.is_some() {
+            super::recall::share_on_feed(world, organism, other);
+        }
         if laygene_on() {
             note_fed(world, other, amount);
         }
@@ -4382,6 +4410,191 @@ mod tests {
         println!("columns walked towards the remembered food in 600 frames: wired {wired}, link cut {cut}");
         assert!(wired >= 25, "a mind wired to the memory got {wired} of 40 columns towards it");
         assert!(wired - cut >= 15, "wired {wired} against cut {cut}: the memory moved the walk too little");
+    }
+
+    /// **The recall head moves a trained ant toward a remembered place, and
+    /// only the head does** (`recall`, keeper seat demo). The shipped pool's
+    /// weights on the last-food memory are zeroed on load, so a planted memory
+    /// alone moves nothing (the gain-0 arm is the control); with the head at a
+    /// scripted gain, the same ant on the same seed walks toward the place.
+    /// Removing the term from `decide_planned` makes the two arms identical
+    /// and this goes red.
+    #[test]
+    fn the_recall_head_walks_a_trained_ant_toward_a_remembered_place() {
+        let pool = crate::lab::training::std_pool();
+        let run = |gain: Option<f32>| -> (i32, super::super::recall::RecallCounts) {
+            let (mut w, _def, ids) = mind_box();
+            let g = Arc::new(MindGenome::new(pool[0].clone()));
+            for &id in &ids {
+                give(&mut w, id, g.clone());
+            }
+            w.recall = gain.map(|g| super::super::recall::Recall::new(g, 0.0));
+            let id = ids[0];
+            let start = head_of(&w, id);
+            let spot = (start.0 + 60, start.1);
+            super::super::recall::plant(&mut w, id, spot);
+            let mut best = 0;
+            for _ in 0..1500 {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+                match w.organism(id).and_then(|s| s.chain.first().copied()) {
+                    Some(h) => best = best.max(h.0 - start.0),
+                    None => break,
+                }
+            }
+            (best, w.recall.as_ref().map(|r| r.counts).unwrap_or_default())
+        };
+        let (off, _) = run(None);
+        let (zero, c0) = run(Some(0.0));
+        if let Ok(v) = std::env::var("RECALL_SWEEP") {
+            for g in v.split(',').map(|x| x.parse::<f32>().expect("gain")) {
+                let (d, c) = run(Some(g));
+                println!("gain {g}: furthest {d}, tilted {}, mass moved {:.1}", c.tilted, c.mass_moved);
+            }
+        }
+        let (on, c) = run(Some(6.0));
+        println!("furthest columns toward the remembered place in 1,500 frames: off {off}, gain 0 {zero}, gain 6 {on}; {c:?}");
+        assert_eq!(off, zero, "gain 0 must be today's ant exactly");
+        assert_eq!((c0.mass_moved, c0.picks_flipped), (0.0, 0), "gain 0 moved probability: the counter is not a function of the gain");
+        assert!(c.tilted > 0 && c.picks_flipped > 0, "the head never fired: {c:?}");
+        assert!(on >= 40 && on - zero >= 30, "gain 6 reached {on} of 60 columns against {zero} at gain 0");
+    }
+
+    /// **Off is today's ant, and so is gain 0** (plan review M6). On a box of
+    /// std_pool ants making real decisions, with one memory planted: no head,
+    /// the head at gain 0 with no copy, and the head at gain 0 *with* the meal
+    /// copy spreading the place must all end in the same world. That holds
+    /// because the lab freezes mutation and `last_food`'s only reader is the
+    /// `FOOD_WAY` feature, whose pool weights are zeroed on load; if either
+    /// changes, this goes red and the honest arm is no longer honest. The
+    /// positive control, gain 2, must differ, or the fingerprint is blind.
+    #[test]
+    fn the_recall_head_at_gain_zero_is_todays_ant_exactly() {
+        let pool = crate::lab::training::std_pool();
+        // The fingerprint is every live animal's head, energy and id at every frame, folded: a world that merely
+        // converges after the planted ant dies (it does, in this foodless box) must still read as different.
+        let run = |recall: Option<(f32, f32)>| -> (u64, u64) {
+            use std::hash::{Hash, Hasher};
+            let (mut w, _def, ids) = mind_box();
+            let g = Arc::new(MindGenome::new(pool[0].clone()));
+            for &id in &ids {
+                give(&mut w, id, g.clone());
+            }
+            w.recall = recall.map(|(g, c)| super::super::recall::Recall::new(g, c));
+            let start = head_of(&w, ids[0]);
+            super::super::recall::plant(&mut w, ids[0], (start.0 + 60, start.1));
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for _ in 0..2000 {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+                for id in w.live_organism_ids() {
+                    if let Some(s) = w.organism(id) {
+                        (id, s.chain.first().copied(), s.energy.to_bits()).hash(&mut h);
+                    }
+                }
+            }
+            (h.finish(), w.recall.as_ref().map_or(0, |r| r.counts.copies))
+        };
+        let (off, _) = run(None);
+        let (zero, _) = run(Some((0.0, 0.0)));
+        let (zero_copy, copies) = run(Some((0.0, 0.5)));
+        let (on, _) = run(Some((2.0, 0.0)));
+        assert_eq!(off, zero, "the head at gain 0 changed the world");
+        assert_eq!(off, zero_copy, "the meal copy at gain 0 changed the world");
+        println!("meal copies made at gain 0: {copies}");
+        assert_ne!(off, on, "gain 2 left the world unchanged: the fingerprint cannot see the head");
+    }
+
+    /// **A carried mind ant keeps living where it is set down** (keeper seat's
+    /// CARRY, `creature::set_down`). A body moved outside its own tick must be
+    /// rescheduled at its new head, or it freezes: never ticks, never pays,
+    /// reads as healthy. So: it moved there, it owns exactly its new cells,
+    /// and over the next 400 frames it keeps deciding (its head moves) and
+    /// keeps paying (its energy falls). 400, not more: this box is foodless,
+    /// and an uncarried ant here starves at about 680 (measured), so a longer
+    /// window tests starvation, not the carry. Removing the reschedule line
+    /// in `set_down` turns this red.
+    #[test]
+    fn a_carried_ant_keeps_living_where_it_is_set_down() {
+        let pool = crate::lab::training::std_pool();
+        let (mut w, _def, ids) = mind_box();
+        let g = Arc::new(MindGenome::new(pool[0].clone()));
+        for &id in &ids {
+            give(&mut w, id, g.clone());
+        }
+        let id = ids[0];
+        let from = head_of(&w, id);
+        let ground = (0..128).find(|&y| !w.is_empty(from.0 + 70, y)).expect("ground");
+        let landed = crate::sim::creature::set_down(&mut w, id, (from.0 + 70, ground - 1)).expect("room to set it down");
+        assert!((landed.0 - (from.0 + 70)).abs() <= 8, "set down near the target: {landed:?}");
+        let owned = |w: &World| -> usize {
+            let mut n = 0;
+            for y in 0..128 {
+                for x in 0..256 {
+                    if w.get(x, y).organism_id() == id {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let chain = w.organism(id).expect("alive").chain.clone();
+        assert!(chain.iter().all(|&(x, y)| w.get(x, y).organism_id() == id), "every chain cell carries the ant");
+        assert_eq!(owned(&w), chain.len(), "no cell left behind owning the ant");
+        let e0 = w.organism(id).expect("alive").energy;
+        let mut moved = false;
+        for _ in 0..400 {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+            w.step_pheromones();
+            let Some(s) = w.organism(id) else { break };
+            moved |= s.chain.first() != Some(&landed);
+        }
+        let s = w.organism(id).expect("a carried ant should not die of the carry within 400 frames");
+        assert!(moved, "the carried ant never moved again: frozen, not rescheduled");
+        assert!(s.energy < e0, "the carried ant never paid for living: {e0} -> {}", s.energy);
+    }
+
+    /// **A treat is a real, guarded meal** (keeper seat's TREAT): it fills the
+    /// crop (so the ant is laden and walks home first), is refused for a
+    /// different food in the crop, and is booked as granted energy.
+    #[test]
+    fn a_treat_fills_the_crop_with_the_pick_up_guards() {
+        let (mut w, _def, ids) = mind_box();
+        let id = ids[0];
+        let food = w.materials.id_of("provisions").expect("provisions");
+        let other = w.materials.id_of("seed").or_else(|| w.materials.id_of("windfall")).expect("another food");
+        assert!(w.organism(id).expect("alive").crop.is_none());
+        assert!(crate::sim::creature::treat(&mut w, id, food, 100.0));
+        assert!(w.organism(id).and_then(|s| s.crop).is_some_and(|c| c.material == food));
+        assert!(!crate::sim::creature::treat(&mut w, id, other, 100.0), "a crop holds one food");
+    }
+
+    /// **The meal copy is weaker than what was given**, and only fresher news
+    /// replaces what the taker already holds.
+    #[test]
+    fn a_fed_nestmate_takes_the_place_at_reduced_freshness() {
+        let (mut w, _def, ids) = mind_box();
+        w.recall = Some(super::super::recall::Recall::new(1.0, 0.5));
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        super::super::recall::plant(&mut w, a, (200, 50));
+        super::super::recall::share_on_feed(&mut w, a, b);
+        let fb = super::super::recall::knows(&w, b, (200, 50), 0).expect("b heard of it");
+        assert!((fb - 0.5).abs() < 0.01, "second-hand reads half: {fb}");
+        super::super::recall::share_on_feed(&mut w, b, c);
+        let fc = super::super::recall::knows(&w, c, (200, 50), 0).expect("c heard of it");
+        assert!((fc - 0.25).abs() < 0.01, "third-hand reads a quarter: {fc}");
+        // Staler news does not overwrite fresher.
+        super::super::recall::share_on_feed(&mut w, c, a);
+        assert!(super::super::recall::knows(&w, a, (200, 50), 0).expect("a still") > 0.99);
+        let r = w.recall.as_ref().expect("on");
+        assert_eq!(r.counts.copies, 2);
+        assert_eq!(r.provenance.get(&c).map(|p| p.generation), Some(2));
     }
 
     fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
