@@ -283,3 +283,12 @@ Garden median nest r7 -> r15 -> r23: control 446 -> 394 -> 280, `w_dig=3` 467 ->
 a later main. Carried ants' live links stayed at ~1,950 in every arm (the standard pool's member 0: 1,947), so the
 brain is not being pruned. **Next, erosion3:** the same control against food held 25 columns out (`dist=25`, no
 ramp). Every batch that eroded trained on far food (100+ columns); colsel10 at 25 columns grew its nest r31 -> r47.
+
+**erosion3** (the same control against `near`: food held 25 columns out, no ramp): far food is not what erodes the
+nest. Garden median nest r7 -> r15 -> r23: control 446 -> 394 -> 280, `near` 276 -> 176 -> 156 (each arm's garden at
+its own training distance, 100 and 25). `near` had the smaller nest in 27 of 32 pairs at r23 and lost the lab case
+(ahead in 10 of 32); it kept more ants alive in its own easier garden (86.5 against 81). **Overturned:** "the far-food
+ramp trades digging away". Every arm of erosion1-3 erodes, whatever the food distance, the dig pay or the colony
+selection, so the next suspect is the in-run loop itself. One candidate found since: `pack_behind`'s cut ahead and
+`escape_cut` never reached `cut_log`, so the in-run dig credit missed them (fixed with the 0.25 link price, PR #899).
+**price25a**'s control (r7 -> r15 garden nest, on the fixed build) is the first read of whether that mattered.

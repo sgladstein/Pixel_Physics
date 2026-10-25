@@ -4375,8 +4375,9 @@ pub struct World {
     /// **Every cell an animal cuts out of the ground**, as `(x, y, frame,
     /// cutter)`, off (`None`) unless a reader turns it on by setting
     /// `Some(Vec::new())`, and drained by that reader -- the lab's dig heat
-    /// map (`crate::dig_marks`). Pushed beside `dug_cells` in the one place a
-    /// cut is made; recording draws nothing and changes nothing.
+    /// map (`crate::dig_marks`). Pushed beside `dug_cells` wherever a cut is
+    /// made (the dig verb, `pack_behind`'s cut ahead and `escape_cut`; the last two
+    /// were missing until 2026-10-25); recording draws nothing and changes nothing.
     pub cut_log: Option<Vec<(i32, i32, u64, crate::sim::cell::OrganismId)>>,
     /// **What the removal being written right now is**, for
     /// `OrganismState::last_loss`. A removal that knows what it is (seed rot,
