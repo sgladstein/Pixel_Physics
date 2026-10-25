@@ -295,13 +295,10 @@ fn main() {
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
     );
-    // The arm, and whether it fired: founders given a genome from the lab's
-    // plant pool (`LabBox::plant_pool`; PIXEL_PHYSICS_PLANT_POOL=0 is off).
-    println!(
-        "  plant pool: {} (founders from it {})",
-        if world.plant_pool.is_some() { "on" } else { "off" },
-        world.plant_pool_founded
-    );
+    // The arm (`LabBox::plant_pool`; PIXEL_PHYSICS_PLANT_POOL=0 is off).
+    // Whether it fired is `SUMMARY plant_pool founded=`: a founder takes its
+    // pool genome when it germinates, so the count is 0 here.
+    println!("  plant pool: {}", if world.plant_pool.is_some() { "on" } else { "off" });
     // **`census::nest_columns`, not a copy of half of it.** This block read
     // only the scenario's own placements and timeline; the shared function
     // adds the bed's `colonies` and -- the half that was missing everywhere
@@ -656,6 +653,11 @@ fn main() {
     // that grows over a run is the drift the selftest exists to catch,
     // arriving somewhere the selftest cannot see.
     let (starved, killed, oldage, other) = census::colony_deaths(&world, &spec.colony_species);
+    println!(
+        "SUMMARY plant_pool={} founded={}",
+        if world.plant_pool.is_some() { "on" } else { "off" },
+        world.plant_pool_founded
+    );
     println!(
         "SUMMARY roofed_engine={} roofed_library={} deaths_starved={} deaths_killed={} deaths_oldage={} deaths_other={}",
         world.nest_room.first().map_or(0, |r| r.roofed),

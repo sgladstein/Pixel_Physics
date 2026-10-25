@@ -1670,27 +1670,61 @@ mod tests {
         }
     }
 
-    /// **The box founds a pooled species from the shipped plant pool**, in
-    /// list order, and `plant_pool: false` founds from the species file.
-    /// Scoped to the lab: a plain world holds no pool, and the plant
-    /// trainer's arena -- which scores a species file -- never reads one.
+    /// **The box founds a pooled species from the shipped plant pool**, and
+    /// `plant_pool: false` founds from the species file. Scoped to the lab:
+    /// a plain world holds no pool, and the plant trainer's arena -- which
+    /// scores a species file -- never reads one.
+    ///
+    /// **And the seed still reaches the founders**: three herbs are three
+    /// consecutive pool individuals from a seeded start, and two seeds give
+    /// different founders (lineage seeds, and on these two seeds different
+    /// individuals). Without that every seed of the rack was one world.
     #[test]
     fn the_box_founds_pooled_species_from_the_plant_pool() {
+        type Draws = [f32; crate::sim::organism::GENOTYPE_TRAITS];
         let pool = crate::sim::plant_pool::default_pool().expect("the shipped pool is on");
         let herbs = &pool.by_species["herb"];
-        let bed = LabBox { colonies: 0, founders: 3, species: "herb".into(), ..LabBox::default() };
-        let (w, planted) = bed.build_counted();
-        assert_eq!(planted.planted, 3, "test setup: the bed planted {} of 3", planted.planted);
-        assert_eq!(w.plant_pool_founded, 3, "every herb founder takes a pool genome");
-        let mut got: Vec<[f32; crate::sim::organism::GENOTYPE_TRAITS]> =
-            w.live_organism_ids().into_iter().filter_map(|id| w.organism(id)).map(|st| st.genotype_draws).collect();
-        let mut want: Vec<_> = herbs[..3].iter().map(|g| g.draws).collect();
-        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        assert_eq!(got, want, "the founders carry the pool's first three herbs");
+        let founders = |seed: u64| -> (u64, Vec<(Draws, u64)>) {
+            let bed = LabBox { colonies: 0, founders: 3, species: "herb".into(), seed, ..LabBox::default() };
+            let (mut w, planted) = bed.build_counted();
+            assert_eq!(planted.planted, 3, "test setup: the bed planted {} of 3", planted.planted);
+            assert_eq!(w.plant_pool_founded, 0, "a founder takes its genome at germination, not at planting");
+            // Germination, not planting: step until all three have come up.
+            let mut particles = crate::sim::particle::ParticleSystem::new();
+            let mut blasts = crate::sim::explosion::Blasts::new();
+            let tuning = crate::sim::player::Tuning::default();
+            for _ in 0..3_000 {
+                if w.plant_pool_founded >= 3 {
+                    break;
+                }
+                crate::sim::frame::step(&mut w, &mut particles, &mut blasts, crate::sim::player::PlayerInput::default(), &tuning);
+            }
+            let mut got: Vec<(Draws, u64)> = w
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .map(|st| (st.genotype_draws, st.lineage_seed))
+                .collect();
+            got.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            (w.plant_pool_founded, got)
+        };
+        let (n1, a) = founders(1);
+        assert_eq!(n1, 3, "every herb founder takes a pool genome as it germinates");
+        let at: Vec<usize> = a
+            .iter()
+            .map(|(d, _)| herbs.iter().position(|g| g.draws == *d).expect("a founder's draws are a pool herb's"))
+            .collect();
+        let mut run = at.clone();
+        run.sort_unstable();
+        assert!(
+            (0..herbs.len()).any(|s| (0..3).all(|k| run.contains(&((s + k) % herbs.len())))),
+            "the three founders are consecutive pool individuals: {at:?}"
+        );
+        let (_, b) = founders(2);
+        assert_ne!(a, b, "two seeds founded the same plants");
 
-        let off = LabBox { plant_pool: false, ..bed.clone() }.build();
-        assert_eq!(off.plant_pool_founded, 0, "plant_pool: false founds from the file");
+        let off = LabBox { plant_pool: false, colonies: 0, founders: 3, species: "herb".into(), ..LabBox::default() }.build();
+        assert!(off.plant_pool.is_none(), "plant_pool: false founds from the file");
         let outdoor = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
         assert!(outdoor.plant_pool.is_none(), "a plain world holds no pool");
     }

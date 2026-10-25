@@ -5,8 +5,9 @@
 //! A species file says what a species is *on average*; a pool is a
 //! population of individuals selected in the mixed bed, each one a full
 //! heritable state (`OrganismState`'s genotype draws, alleles, param
-//! overrides, lineage seed and fate table). `World::plant_tree_species`
-//! gives each founder of a pooled species the next genome from its list,
+//! overrides, lineage seed and fate table). `plant::seed_genotype` gives
+//! each founder of a pooled species the next genome from its list as it
+//! germinates,
 //! so a sown bed starts from the selected population rather than from the
 //! species file -- the plant counterpart of the ant's `std_pool.txt`.
 //!

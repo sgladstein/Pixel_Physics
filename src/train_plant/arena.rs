@@ -615,6 +615,6 @@ mod tests {
         assert_eq!(w.founder_variant_chance, 0.0);
         assert_eq!(w.fate_mutation_chance, 0.0);
         assert!(bed.plant_pool, "test setup: the box would have pooled the herb");
-        assert_eq!(w.plant_pool_founded, 0, "the founder is the species file, not a pool genome");
+        assert!(w.plant_pool.is_none(), "the founder is the species file, not a pool genome");
     }
 }
