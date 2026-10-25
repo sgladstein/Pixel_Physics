@@ -263,3 +263,16 @@ r23, paired against price 1 (20 of 32), garden nest not lower.
 
 Found on the way: `+scale` scored a colony that had died out at the cap (no ants, so leftover food alone set its
 need); fixed to 0. Harmless to donors (a dead colony carries nothing), but it skewed the case's column.
+
+## 2026-10-25: the nest erodes inside the round, not from colony selection
+
+**erosion1** (32 x 24 from colony 8, price 1): the standard lex arm beside `plain` (no colony selection; each colony
+keeps only the in-run loop). Measure named before launch: garden median nest, r7 -> r23.
+
+- lex: 446 -> 394 -> 280 (identical to linkprice1's price-1 arm, same seeds: the harness is deterministic).
+- plain: 185 -> 84 -> 46, with late cuts 120 -> 65 and 26 of 32 colonies left by r23.
+
+**Overturned:** "colony selection wears the nest down". Without it the nest erodes faster; colony selection is
+what slows it. The erosion is inside the round, where children are bred from the best-scoring ants, and the
+standard in-run score pays a delivery 7 times (`w_deliver=7`) what it pays a nest cut (`w_dig` 1). Next:
+**erosion2** raises `w_dig` to 3 and 7 against a fresh control.
