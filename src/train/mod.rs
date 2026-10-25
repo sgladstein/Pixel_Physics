@@ -288,12 +288,17 @@ fn mind_from_text(ch: &dyn Challenge, start: &str, text: &str, enter: bool) -> V
     // Saved before Pick up had its own act: once, whether it is
     // trained from or scored, so a champion runs as it was trained
     // to pick up (fix plan step 1).
-    match genome_text_layout(text, start) {
+    let layout = genome_text_layout(text, start);
+    match layout {
         None => {
             mind::split_pick_up(&mut g);
             println!("{start}: saved before Pick up had its own act; Eat's links copied to Pick up, Eat quieted");
         }
         Some(l) => assert!(l <= mind::LAYOUT, "{start}: layout {l} is newer than this build's {}", mind::LAYOUT),
+    }
+    let cut = mind::enter_last_food(&mut g, layout);
+    if cut > 0 {
+        println!("{start}: saved before the last-food memory; {cut} links on its slot zeroed");
     }
     if enter {
         let live = |g: &[f32]| mind::MindGenome::new(g.to_vec()).live;
@@ -602,7 +607,8 @@ pub enum Start {
 /// than read it as its own. **An unmarked file is read as old and converted**
 /// (review of PR 724, N3), so a mind file written by hand, or in
 /// `brainfit`'s one-per-line form, needs `layout=4` in its header or its
-/// Pick up row is overwritten by Eat's.
+/// Pick up row is overwritten by Eat's -- and `layout=5` to keep its links
+/// on the last-food slot (`mind::enter_last_food`).
 pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
     let mut s = if is_mind(g.len()) {
         format!("genome {} layout={}\n", g.len(), mind::LAYOUT)

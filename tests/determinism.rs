@@ -276,6 +276,9 @@ fn the_serial_driver_is_deterministic_across_identical_runs() {
 // founders (`plant_pool: false`; the engine has moved since the 3,600 above)
 // and by **6,400** with the pool's. 8,400 clears 6,400 by about a third, the
 // margin this guard has always kept.
+// The pool went back off by default the same day (a measured harm to the
+// colony, `plant_pool::pool_switch`); 8,400 is kept so the guard still
+// holds the day it comes back on.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::stats::Stats;

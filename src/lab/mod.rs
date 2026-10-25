@@ -311,8 +311,9 @@ pub struct Lab {
     pub new_ant: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
-    /// The lab spider's trained pool (`training::spider_minds`), built once on first use.
-    spider_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
+    /// The lab predators' trained pools (`training::predator_minds`: the spider's, the centipede's), each built once
+    /// on first use.
+    predator_mind: std::collections::BTreeMap<String, Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -655,7 +656,7 @@ impl Lab {
             training_seed: 1,
             new_ant: false,
             new_ant_mind: None,
-            spider_mind: None,
+            predator_mind: Default::default(),
             view_dirty: false,
             chrome_due: true,
             chrome_painted: None,
@@ -885,6 +886,7 @@ impl Lab {
         if self.new_ant {
             self.give_new_ant_minds();
         }
+        self.log_ant_brain();
         self.time.phase = time::Phase::Paused;
         format!(
             "{title} LOADED -- {} CELLS, {} PLANTS, {} ANIMALS, {} SETTINGS",
@@ -1042,6 +1044,16 @@ impl Lab {
         }
     }
 
+    /// **Which brain the rebuilt box's ants think with, as its own chronicle
+    /// line.** A REBUILD starts a new chronicle, and the switch only logged
+    /// when it was flipped, so the owner's 2026-10-25 plant playtest -- built
+    /// after a rebuild, trained ant on from launch -- had no line saying which
+    /// brain its ants used. The same text the switch writes, so one parser
+    /// reads both.
+    fn log_ant_brain(&mut self) {
+        self.world.log_player_action(if self.new_ant { "ANT BRAIN: NEW" } else { "ANT BRAIN: OLD" }.to_string());
+    }
+
     /// **ANT BRAIN: NEW with another pool**: the minds every ant without one
     /// gets from now on, in place of the standard pool -- for a harness that
     /// asks how a training batch's own carry lives in a lab box
@@ -1092,29 +1104,35 @@ impl Lab {
         ids.len()
     }
 
-    /// **Give every spider in the box that has no mind a trained one** ([`training::spider_minds`]), member by id, and
-    /// return how many it gave. A spider has no hand-built brain worth playing (its fallback is the beetle's
-    /// instincts), so this is not behind ANT BRAIN; it runs on the same sweep, so a spider stocked by hand, released
-    /// from a jar or loaded in a scenario gets one within [`NEW_ANT_SWEEP`] frames, and one whose mind was dropped
-    /// (ANT BRAIN: OLD clears every mind) gets a fresh one. A spider born in the box inherits its parent's mind at birth.
-    fn give_spider_minds(&mut self) -> usize {
-        let Some(sp) = self.world.species.id_of("spider") else { return 0 };
-        let mut ids: Vec<_> = self
-            .world
-            .live_organism_ids()
-            .into_iter()
-            .filter(|&id| self.world.organism(id).is_some_and(|st| st.species == sp))
-            .filter(|&id| !crate::sim::creature::mind::has(&self.world, id))
-            .collect();
-        if ids.is_empty() {
-            return 0;
+    /// **Give every predator in the box that has no mind a trained one** ([`training::predator_minds`]: the spider's
+    /// pool, and the nest raider's since 2026-10-25), member by id, and return how many it gave. A predator has no
+    /// hand-built brain worth playing (its fallback is the beetle's instincts), so this is not behind ANT BRAIN; it
+    /// runs on the same sweep, so one stocked by hand, released from a jar or loaded in a scenario gets one within
+    /// [`NEW_ANT_SWEEP`] frames, and one whose mind was dropped (ANT BRAIN: OLD clears every mind) gets a fresh one.
+    /// One born in the box inherits its parent's mind at birth.
+    fn give_predator_minds(&mut self) -> usize {
+        let mut given = 0;
+        for species in ["spider", "centipede"] {
+            let Some(sp) = self.world.species.id_of(species) else { continue };
+            let mut ids: Vec<_> = self
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|&id| self.world.organism(id).is_some_and(|st| st.species == sp))
+                .filter(|&id| !crate::sim::creature::mind::has(&self.world, id))
+                .collect();
+            if ids.is_empty() {
+                continue;
+            }
+            ids.sort_unstable();
+            let Some(minds) = self.predator_mind.get(species).cloned().or_else(|| training::predator_minds(species)) else { continue };
+            self.predator_mind.entry(species.to_string()).or_insert_with(|| minds.clone());
+            for &id in &ids {
+                crate::sim::creature::mind::give(&mut self.world, id, minds[id as usize % minds.len()].clone());
+            }
+            given += ids.len();
         }
-        ids.sort_unstable();
-        let minds = self.spider_mind.get_or_insert_with(training::spider_minds).clone();
-        for &id in &ids {
-            crate::sim::creature::mind::give(&mut self.world, id, minds[id as usize % minds.len()].clone());
-        }
-        ids.len()
+        given
     }
 
     // ------------------------------------------------------------ the rack
@@ -1934,7 +1952,7 @@ impl Lab {
             if self.new_ant {
                 self.give_new_ant_minds();
             }
-            self.give_spider_minds();
+            self.give_predator_minds();
         }
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
@@ -3767,6 +3785,7 @@ impl Lab {
                     if self.new_ant {
                         self.give_new_ant_minds();
                     }
+                    self.log_ant_brain();
                 }
             }
             ui::Action::Training(t) => {
@@ -5532,6 +5551,32 @@ mod tests {
         lab.write_chronicle();
         let text = newest_chronicle_text(&dir);
         assert!(text.contains("REBUILT"), "the rebuild line is missing from the new run's own chronicle:\n{text}");
+
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A rebuilt box's chronicle says which brain its ants use** (owner's
+    /// 2026-10-25 plant playtest had no line for it). Through the REBUILD
+    /// verb itself, two presses, with the trained ant switched on in the box
+    /// being thrown away -- so the only `ANT BRAIN` line the new run can hold
+    /// is the one the rebuild wrote. Remove `log_ant_brain` from the `Reset`
+    /// arm and this goes red.
+    #[test]
+    fn a_rebuild_says_which_ant_brain_it_kept() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("rebuilt_brain");
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        lab.set_new_ant(true);
+        run(&mut lab, 5);
+        lab.act(ui::Action::Reset);
+        lab.act(ui::Action::Reset);
+        run(&mut lab, 1);
+        lab.write_chronicle();
+        let text = newest_chronicle_text(&dir);
+        assert!(text.contains("REBUILT"), "this is not the rebuilt run's chronicle:\n{text}");
+        assert!(text.contains("ANT BRAIN: NEW"), "the rebuilt run does not say its ants are on the trained brain:\n{text}");
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);
@@ -7931,13 +7976,26 @@ mod tests {
     fn a_hand_stocked_spider_gets_a_trained_mind() {
         let minds = training::spider_minds();
         assert_eq!(minds.len(), 8, "the spider pool's members");
+        a_hand_stocked_predator_gets_one_of(&minds, "spider");
+    }
+
+    /// **The nest raider the same way** (nest raider thread, 2026-10-25): on the chip, stocked as a lone hunter, and
+    /// thinking with its own pool on its own verbs within a sweep.
+    #[test]
+    fn a_hand_stocked_centipede_gets_a_trained_mind() {
+        let minds = training::centipede_minds();
+        assert!(!minds.is_empty(), "the centipede pool has no members");
+        a_hand_stocked_predator_gets_one_of(&minds, "centipede");
+    }
+
+    fn a_hand_stocked_predator_gets_one_of(minds: &[std::sync::Arc<crate::sim::creature::mind::MindGenome>], species: &str) {
         let mut lab = Lab::new(scene::LabBox { founders: 0, ..scene::LabBox::default() });
         lab.show_help = false;
-        let spider = lab.world.species.id_of("spider").expect("spider");
-        assert!(ui::stockable_species(&lab.world).contains(&spider), "the spider is not on the animal chip");
+        let spider = lab.world.species.id_of(species).expect("the predator's species");
+        assert!(ui::stockable_species(&lab.world).contains(&spider), "the {species} is not on the animal chip");
         let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
         lab.draw(&mut frame, 60.0);
-        lab.spec.colony_species = "spider".to_string();
+        lab.spec.colony_species = species.to_string();
         let nest_x = lab.world.nest_sites.first().map(|s| s.x).expect("the default box founds one colony");
         // 52 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1: one spider, where the click is.
         lab.act(ui::Action::Stock(-6));

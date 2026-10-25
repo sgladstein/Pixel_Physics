@@ -102,27 +102,41 @@ scrambler and grass are not pooled). `World::new` holds no pool, so the
 outdoor world is untouched, and the plant trainer's arena founds from the
 file it scores.
 
-`latecensus`, 12 paired seeds x 500,000 frames, one thread
-(`lab/`, `lab/parse.py` makes `lab/paired.txt`; means over the 10 samples):
+`latecensus`, paired seeds x 500,000 frames, one thread; means over the
+10 samples, then medians over seeds. Two checks:
 
-| | pool off | pool on | on higher / lower |
+- **First** (`lab/`, 12 seeds): founders took their pool genome at
+  planting. CI then showed that gave every lab rack copy the same plants,
+  and #878 moved founding to germination under the world seed.
+- **On the founding that shipped** (`lab2/`, 24 seeds, both arms on one
+  build, main 53f8c55). The owner asked for 12 more seeds before choosing.
+  The off arm of `lab/` could not be reused: main moved between the two
+  builds, and its seed 1 differs at every sample.
+
+| `lab2/`, 24 seeds | pool off | pool on | on higher / lower |
 |---|---|---|---|
-| plants standing | 96 | **135** | 10 / 2 |
-| leaf energy (J) | 67,410 | 60,465 | 3 / 9 |
-| edible food | 2,569 | 2,491 | 3 / 9 |
-| ants | 150 | **115** | 4 / 8 |
-| born by 500k | 2,018 | 1,496 | |
-| starved by 500k | 218 | 152 | |
-| colonies alive at 500k | 10 / 12 | 9 / 12 | |
+| plants standing | 98 | **119** | 17 / 7 |
+| leaf energy (J) | 79,341 | 55,921 | 2 / 22 |
+| edible food | 2,906 | **2,197** | 2 / 22 |
+| ants (mean over the run) | 137 | 143 | 13 / 11 |
+| ants at 500k | 69 | 41 | 11 / 13 |
+| starved by 500k | 139 | **218** | 18 / 6 |
+| colonies extinct by 500k | 3 / 24 | **6 / 24** | |
 
-(Medians over seeds.) **More plants, each smaller, and a smaller colony.**
-The pool trades the shipped tree's big crown for more, smaller plants --
-the same trade as in the plant-only bed (tree leaf 42,692 -> 28,322) --
-and the ants, which eat leaf, run about a quarter smaller on it, with
-fewer births and fewer deaths by starving. Survival is unchanged. 8 of 12
-is not significant (sign test p ~ 0.4), but the medians point one way.
-The default is the owner's call (asked 2026-10-25); the precedent is the
-tree-age fix, kept on at -18% ant food.
+The first check, for the record: plants 96 -> 135, leaf 67,410 -> 60,465,
+and ants 150 -> 115 (fewer on 8 of 12). Its colony drop did not hold up.
+
+**More plants, but a quarter less food, so more ants starve.** The pool
+trades the shipped tree's big crown for more, smaller plants. That is the
+same trade as in the plant-only bed, where tree leaf went 42,692 -> 28,322.
+Leaf and edible food fall by about a quarter on 22 of 24 seeds. The colony
+is the same size on average, but more ants starve (18 of 24 seeds) and
+twice as many colonies die out. **That is a measured harm to the main game,
+so the lab founds from species files by default again** (2026-10-25,
+`plant_pool::pool_switch`; `PIXEL_PHYSICS_PLANT_POOL=1` or `plant_m0 pool=1`
+turns it on). The pool was bred with no colony in the bed, so the lesson is
+the first one above: train where it will live. The next pool is bred in the
+lab bed with the ants, and ranked on food as well as kinds.
 
 Pictures, seed 1 at 50k / 100k / 150k (`planttrace shots=`, pool off above,
 on below): https://claude.ai/artifact/Fdq8vHHXbRFL8sxVx2PnxM. The pool's

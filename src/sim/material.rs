@@ -2782,6 +2782,9 @@ const EMBEDDED: &[&str] = &[
     // Appended. The lone predator's body (`species/spider.ron`), addressed
     // by name.
     include_str!("../../assets/materials/spider.ron"),
+    // Appended. The nest raider's body (`species/centipede.ron`), addressed
+    // by name.
+    include_str!("../../assets/materials/centipede.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

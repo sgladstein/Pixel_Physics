@@ -3107,8 +3107,10 @@ mod tests {
     /// **A mind file names its layout, and one saved before Pick up had its
     /// act converts once** (fix plan step 1; `save_genome`,
     /// `mind::split_pick_up`): an unmarked file loads as the converter
-    /// leaves it, and saved again it carries `layout=4` and loads unchanged,
-    /// so a champion is never converted twice.
+    /// leaves it, and saved again it carries today's layout and loads
+    /// unchanged, so a champion is never converted twice. The converter
+    /// includes the last-food memory's entry (`mind::enter_last_food`):
+    /// an unmarked file is older than layout 5 too.
     #[test]
     fn a_mind_file_names_its_layout_and_an_old_one_converts_once() {
         let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: false, brake: None, dist: SCARCE_DIST, steps: true, fed: false, dig: false };
@@ -3122,6 +3124,7 @@ mod tests {
         assert_eq!(super::super::genome_file_layout(&unmarked), None);
         let mut want = old.clone();
         creature::mind::split_pick_up(&mut want);
+        creature::mind::enter_last_food(&mut want, None);
         creature::mind::apply_bans(&mut want, ch.verbs(), ch.mind_emits());
         let got = super::super::start_mind_saved(&ch, unmarked.to_str().unwrap());
         assert_eq!(got, want, "an unmarked file converts");

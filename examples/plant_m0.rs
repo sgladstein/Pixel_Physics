@@ -170,9 +170,9 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
             Spells { wet: wet.parse().expect("wet frames"), dry: dry.parse().expect("dry frames") }
         }),
         species_ron: cripple.as_deref().map(|c| crippled(c, 0.1)),
-        // `pool=0`: founders from species files, not the lab box's shipped
-        // plant pool (`LabBox::plant_pool`).
-        plant_pool: get(m, "pool", 1u8) != 0,
+        // `pool=1`: founders from the lab's bed-selected plant pool
+        // (`LabBox::plant_pool`, off by default since 2026-10-25).
+        plant_pool: get(m, "pool", u8::from(pixel_physics::sim::plant_pool::pool_switch())) != 0,
         ground: match m.get("ground").map(String::as_str) {
             None | Some("uniform") => Ground::Uniform,
             Some("patchy") => Ground::Patchy,

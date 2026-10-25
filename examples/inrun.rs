@@ -3,7 +3,7 @@
 //! per-ant events the pilot's score is built from, and the nest's open cells every `window` frames.
 //!
 //! cargo run --release --example inrun -- founders=v2.txt:15,s171.txt:15[,zero:4] frames=200000 seed=1 out=DIR
-//!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1]
+//!     [dist=40] [drip=5] [every=500] [window=2000] [maps=1] [foodflip=FRAME [foodflip_keep=1]]
 //!     (since 2026-10-24 the standard line's settings, `STANDARD`, fill in anything not given; `std=off` for none)
 //!
 //! Genomes load through the copylog suite, as training loads them. `zero` is an all-zero mind (every option scored
@@ -25,7 +25,7 @@
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
 //! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
-//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=total|life]` keeps N spiders
+//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=total|life] [spider_species=spider|centipede]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -59,7 +59,17 @@ fn load_founder(p: &str) -> Vec<f32> {
     let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
     let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
     let len = if creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on() { len } else { creature::mind::GENOME_LEN };
-    train::parse_genome(&text, len, p)
+    let mut g = train::parse_genome(&text, len, p);
+    // A founder saved before the last-food memory meets it at weight 0 (`mind::enter_last_food`).
+    creature::mind::enter_last_food(&mut g, train::genome_text_layout(&text, p));
+    g
+}
+
+/// A spider's `.raw.txt`, met by the last-food memory at weight 0 if saved before it (`mind::enter_last_food`).
+fn spider_file(text: &str, name: &str) -> Vec<f32> {
+    let mut g = train::parse_genome(text, creature::mind::GENOME_LEN, name);
+    creature::mind::enter_last_food(&mut g, train::genome_text_layout(text, name));
+    g
 }
 
 /// SCRATCH (brood lane, 2026-10-24): under `PP_LAYGENE` (on by default) every genome ends in a lay gate of
@@ -492,6 +502,8 @@ type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64, bool, [f32; 2]);
 /// and `spider_out=DIR` writes every placement's genome and score, from which colsel's `spiderevo=` picks the next
 /// round's pool.
 struct Spiders {
+    /// `spider_species=`: `spider` (default) or the nest raider `centipede`.
+    species: String,
     pool: Vec<Arc<creature::mind::MindGenome>>,
     /// The pool's genomes as read, the parents of `spider_mut`'s placements.
     raw: Vec<Vec<f32>>,
@@ -537,22 +549,25 @@ impl Spiders {
         let spec = arg(a, "spiders")?;
         let (pool, n) = spec.rsplit_once(':').expect("spiders=POOL:N");
         let n: usize = n.parse().expect("spiders=POOL:N");
-        let verbs = pixel_physics::train::predator::VERBS;
+        let species = arg(a, "spider_species").unwrap_or("spider").to_string();
+        let verbs = pixel_physics::train::predator::verbs_for(&species);
         let (genomes, bodies): (Vec<Vec<f32>>, Vec<Option<[f32; 2]>>) = if std::path::Path::new(pool).is_dir() {
             let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(pool).unwrap().filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.to_string_lossy().ends_with(".raw.txt")).collect();
             files.sort();
             files
                 .iter()
-                .map(|p| (train::parse_genome(&std::fs::read_to_string(p).unwrap(), creature::mind::GENOME_LEN, &p.display().to_string()), pixel_physics::train::predator::read_breeding(p)))
+                .map(|p| (spider_file(&std::fs::read_to_string(p).unwrap(), &p.display().to_string()), pixel_physics::train::predator::read_breeding(p)))
                 .unzip()
         } else if pool.ends_with(".txt") {
-            let g = train::parse_genome(&std::fs::read_to_string(pool).unwrap_or_else(|e| panic!("spiders={pool}: {e}")), creature::mind::GENOME_LEN, pool);
+            let g = spider_file(&std::fs::read_to_string(pool).unwrap_or_else(|e| panic!("spiders={pool}: {e}")), pool);
             (vec![g], vec![pixel_physics::train::predator::read_breeding(std::path::Path::new(pool))])
         } else {
             (vec![creature::mind::preset(pool, verbs).unwrap_or_else(|| panic!("spiders={pool}: not a directory, a .raw.txt or a preset"))], vec![None])
         };
         assert!(!genomes.is_empty(), "spiders={pool}: no .raw.txt in it");
-        let sp = w.species.id_of("spider").expect("spider in the species table");
+        // `spider_species=centipede`: the nest raider (2026-10-25) in the spider's place, on every rule above, with its
+        // own verbs (`predator::verbs_for`).
+        let sp = w.species.id_of(&species).unwrap_or_else(|| panic!("spider_species={species}: not in the species table"));
         let ant = w.species.id_of("ant").expect("ant");
         // The pool is fixed: no spider breeds or ages out, as on predtrain's bed.
         let mut def = w.species.get(sp).creature.clone().expect("spider is a creature");
@@ -561,14 +576,15 @@ impl Spiders {
         w.species.set_creature(sp, def);
         let num = |k: &str, d: f64| arg(a, k).map_or(d, |v| v.parse().unwrap());
         Some(Spiders {
-            pool: genomes.iter().map(|g| pixel_physics::train::predator::spider_mind(g)).collect(),
+            species: species.clone(),
+            pool: genomes.iter().map(|g| pixel_physics::train::predator::mind_for(&species, g)).collect(),
             raw: genomes.clone(),
             bodies,
             brng: train::Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xB0D1),
             mutate: arg(a, "spider_mut").map(|v| {
                 let p: Vec<&str> = v.split(':').collect();
                 assert!(p.len() == 3 || p.len() == 4, "spider_mut=PM:SIGMA:EVENTS[:ELITE]");
-                let slots = creature::mind::trainable(pixel_physics::train::predator::VERBS, pixel_physics::train::predator::EMITS);
+                let slots = creature::mind::trainable(verbs, pixel_physics::train::predator::EMITS);
                 (p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap(), slots)
             }),
             elite: arg(a, "spider_mut").and_then(|v| v.split(':').nth(3)).map_or(0.0, |e| e.parse().expect("spider_mut ELITE")),
@@ -611,19 +627,19 @@ impl Spiders {
             let (genome, mind, mutant) = match &self.mutate {
                 Some((pm, sigma, events, slots)) if !elite => {
                     let child = neutral_mutate(&self.raw[g], slots, *pm, *sigma, *events, None, &mut self.rng);
-                    let m = pixel_physics::train::predator::spider_mind(&child);
+                    let m = pixel_physics::train::predator::mind_for(&self.species, &child);
                     (child, m, true)
                 }
                 _ => (self.raw[g].clone(), self.pool[g].clone(), false),
             };
-            let Some(id) = pixel_physics::train::predator::place_spider(w, x, self.colony, mind, self.grants) else {
+            let Some(id) = pixel_physics::train::predator::place_predator(w, &self.species, x, self.colony, mind, self.grants) else {
                 self.due[k] = frame + 100; // no footing there: try another column shortly
                 continue;
             };
             // The breeding genes ride with the mind: the pool mind's own (the species' if it has none), stepped as a
             // birth would step them when the placement is a mutant.
             let parent = self.bodies[g].or_else(|| pixel_physics::train::predator::breeding_of(w, id)).unwrap_or_default();
-            let genes = if mutant { pixel_physics::train::predator::mutate_breeding(w, parent, || self.brng.unit()) } else { parent };
+            let genes = if mutant { pixel_physics::train::predator::mutate_breeding_of(w, &self.species, parent, || self.brng.unit()) } else { parent };
             pixel_physics::train::predator::set_breeding(w, id, genes);
             self.log.push((id, g, genome, frame, None, 0.0, mutant, genes));
             self.next += 1;
@@ -654,10 +670,31 @@ impl Spiders {
 
     /// The bed's food rows before the ants' book reads them: a living spider's swallow is its credit (face worth /
     /// 100, as `examples/predtrain.rs` scores it).
+    ///
+    /// **Not for a predator that can put food down** (the nest raider, whose verbs carry Put Down for its pellets):
+    /// it picked a dropped cell of ant up again and again, and each pick-up was a swallow row -- 7,300 in one
+    /// 100,000-frame `predtrain` round against 37 cells bitten. Its credit is what it digests ([`Spiders::digested`]).
     fn ate(&mut self, rows: &[creature::FoodRow]) {
+        if self.by_digest() {
+            return;
+        }
         for r in rows.iter().filter(|r| r.kind == creature::FOOD_SWALLOW && self.ids.contains(&r.who)) {
             if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == r.who && e.4.is_none()) {
                 e.5 += r.worth as f64 / 100.0;
+            }
+        }
+    }
+
+    /// Whether this species' credit is digestion rather than swallows: one whose verbs can put a crop cell down.
+    fn by_digest(&self) -> bool {
+        pixel_physics::train::predator::verbs_for(&self.species).contains(&creature::options::Verb::Drop)
+    }
+
+    /// A living spider's digestion row, as its credit (face worth / 100) when [`Spiders::by_digest`].
+    fn digested(&mut self, who: u32, worth: f32) {
+        if self.by_digest() {
+            if let Some(e) = self.log.iter_mut().rev().find(|e| e.0 == who && e.4.is_none()) {
+                e.5 += worth as f64 / 100.0;
             }
         }
     }
@@ -774,8 +811,21 @@ fn main() {
     let mut patch_rng = train::Rng(seed.wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ 0x9A7C);
     let mut patch_at: (i32, &str) = (0, food_mats.0);
     let mut patch_next = 0u64;
+    // `foodflip=F` (Creatures research thread, 2026-10-25; the teacher lane's positive control for learning within a
+    // life): food drips at one heap only, east or west as the seed draws it, and from frame F at the other one only,
+    // the old heap's loose food cleared at the flip (`foodflip_keep=1` leaves it). A brain fixed at birth cannot know
+    // which side comes second, so deliveries after F measure whether ants re-route within their lives; `events.csv`'s
+    // `field` rows say which side each bite came from. Off (unset) is the two heaps as before, bit for bit.
+    let food_flip: Option<u64> = arg(&a, "foodflip").map(|v| v.parse().expect("foodflip=FRAME"));
+    let flip_east_first = (seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 63) == 1;
+    let flip_keep = num("foodflip_keep", 0) == 1;
     let out = std::path::PathBuf::from(arg(&a, "out").expect("out=DIR"));
     std::fs::create_dir_all(&out).unwrap();
+    if let Some(f) = food_flip {
+        let first = if flip_east_first { "east" } else { "west" };
+        println!("foodflip: food {first} until frame {f}, then the other side only{}", if flip_keep { "" } else { ", the old heap cleared" });
+        std::fs::write(out.join("foodflip.txt"), format!("first {first}\nflip {f}\n")).unwrap();
+    }
     // The suite a founder enters by is the game training page's own (`colony_bed::suite`): soil + scarce + trail.
     let suite = pixel_physics::train::challenges::colony_bed::suite();
     // founders=path:count,...
@@ -1418,10 +1468,30 @@ fn main() {
                 inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now, drip as usize, spread, patch_at.1);
             } else {
                 let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
-                for (x, mat) in [(inrun::NEST + dist, food_mats.0), (west, food_mats.1)] {
+                for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
+                    if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
+                        continue;
+                    }
                     inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
                 }
             }
+        }
+        if food_flip == Some(fr) && !flip_keep {
+            // The first heap's loose food goes at the flip, so the side that fed the colony is empty, not slowly eaten out.
+            let west = if inrun::NEST - dist >= 8 { inrun::NEST - dist } else { inrun::NEST + dist + 6 };
+            let (x, mat) = if flip_east_first { (inrun::NEST + dist, food_mats.0) } else { (west, food_mats.1) };
+            let m = w.materials.id_of(mat).expect("the drip's food");
+            let mut cleared = 0;
+            for cx in (x - 8 - spread).max(0)..=(x + 8 + spread).min(bw - 1) {
+                for cy in 0..bh {
+                    let c = w.get(cx, cy);
+                    if c.material == m && c.organism_id() == 0 {
+                        w.set(cx, cy, pixel_physics::sim::Cell::EMPTY);
+                        cleared += 1;
+                    }
+                }
+            }
+            println!("foodflip at frame {fr}: {cleared} cells cleared from the first heap; deliveries so far {}", w.creature_stats.deliveries);
         }
         if weed > 0 && fr % 500 == 0 {
             for x in (inrun::NEST - weed).max(0)..=(inrun::NEST + weed).min(bw - 1) {
@@ -1622,7 +1692,8 @@ fn main() {
             }
         }
         for (who, worth, _) in w.digest_log.as_mut().unwrap().drain(..) {
-            if spiders.as_ref().is_some_and(|s| s.ids.contains(&who)) {
+            if let Some(s) = spiders.as_mut().filter(|s| s.ids.contains(&who)) {
+                s.digested(who, worth);
                 continue;
             }
             writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();

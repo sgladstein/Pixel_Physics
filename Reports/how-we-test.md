@@ -225,11 +225,31 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   starves (far64 playtest: 710 ants, then 817 starved in 10k frames with 2.4 MJ
   left). Judge a pool in the lab on starvation after its peak, not only on
   whether it is alive.
+- **A playtest chronicle can be replayed and traced per ant.**
+  `examples/replay actions=CHRONICLE.actions.csv newant=1 trace=25` rebuilds the
+  owner's box from its logged plantings, colonies and food, and its census
+  matched the owner's exactly to F40000 (plant playtest, 2026-10-25). Run
+  `newant=0` beside it: the hand-built ant in the same box says whether the
+  box or the brain is the problem.
+- **A grazing ant must be judged on bites by hunger, not on bites.** The
+  trained ant's bite rate on a plant is flat in its energy (4-5% of 25-frame
+  windows from starving to 20 tanks), so a high bite total can hide founders
+  starving beside plants and fat ants that never go home.
 - **`examples/labshot` never runs the lab mister**: any plant or water number
   from it is a box with no rain.
 - **Rows of `events.csv` and `final/index.csv` are HashMap-ordered**: compare
   sorted. A new loop over a HashMap that touches credit or counters must sort
   first (2 of 64 seeds diverged between runs once).
+- **A swallow count is not food eaten for an animal that can put food down.**
+  `food_log` writes a row each time a cell is swallowed, and a mind with Put
+  Down can drop the same cell of crop and pick it up again: a centipede round
+  logged 7,300 swallows against 37 cells bitten (nest raider, 2026-10-25). Pay
+  and judge such an animal on **`digest_log`** (`predtrain credit=digest`, the
+  default when the verbs include Drop).
+- **A predator's breeding before 2026-10-25 could be paid in living ants.**
+  `try_bud`'s provisions counted ant cells round the head (3 births in 23
+  frames for one centipede); spider lab results judged on births from before
+  the nest raider PR are not comparable with later ones.
 - **A trained ant that starves faster than the old ant may be paying for its
   brain, not missing a rule.** Every live link is billed per tick at the
   hand-built ant's price: `std_pool`'s ~1,900 links cost 0.85 J a tick against

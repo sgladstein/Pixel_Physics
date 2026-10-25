@@ -518,7 +518,38 @@ fn newly_live() -> Vec<usize> {
 /// older and converted once ([`split_pick_up`]); a marked one is not.
 /// Layouts 1-3 are [`GENOME_LEN_V1`], [`GENOME_LEN_V2`] and today's length
 /// before step 1 ([`pad`]).
-pub const LAYOUT: u32 = 4;
+///
+/// **Layout 5** (2026-10-25) is layout 4 with `f::FOOD_WAY` live: the same
+/// length and slots, but a file marked 4 or older has its weights on that
+/// slot zeroed as it is read ([`enter_last_food`]), so the last-food memory
+/// enters every older pool at weight 0.
+pub const LAYOUT: u32 = 5;
+
+/// **The last-food memory enters an older genome at weight 0**
+/// (`options::last_food`): with the memory on and `layout` older than 5 (or
+/// unmarked), every scorer unit's weight on `f::FOOD_WAY` is set to 0, and
+/// the count of links cut is returned. The slot was `f::BUILDING`, which
+/// nothing wrote, so those weights moved no choice and drifted freely (23
+/// of the standard pool's 30 members carry one, member 0 six); left in
+/// place they would act on the new sense at random the moment it reads.
+/// A layout-5 file keeps them: they were selected with the memory on.
+/// Every reader of a saved mind calls this (`train::load_mind`, the lab's
+/// pools, `inrun`'s founders, `labsurvive`), riders past [`GENOME_LEN`]
+/// untouched.
+pub fn enter_last_food(g: &mut [f32], layout: Option<u32>) -> usize {
+    if options::last_food().is_none() || layout.is_some_and(|l| l >= 5) {
+        return 0;
+    }
+    let mut cut = 0;
+    for u in 0..UNITS {
+        let k = S_FEAT + u * FEATURES + options::f::FOOD_WAY;
+        if g[k] != 0.0 {
+            g[k] = 0.0;
+            cut += 1;
+        }
+    }
+    cut
+}
 
 /// **A genome saved before Pick up had its own act, as one that has it**
 /// (fix plan step 1; review of the actions audit, fix 1). Until then Eat
@@ -686,6 +717,29 @@ pub fn enter_bite(g: &mut [f32], offset: f32) -> bool {
     g[s] = 1.0;
     g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1] = offset;
     true
+}
+
+/// **The bite's two genes as a genome holds them**: its switch (-1 banned) and its job's constant, the slot
+/// [`enter_bite`] writes. SCRATCH (colony-vs-colony thread, 2026-10-24): `examples/rivalbed.rs` reports them per pool,
+/// so a run that never bites can be told from a pool that never could.
+pub fn bite_genes(g: &[f32]) -> (f32, f32) {
+    (g[SWITCH + Verb::Attack as usize], g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1])
+}
+
+/// **Set the bite as a harness wants it, whatever the genome evolved**: `Some(k)` switches it on at job constant `k`
+/// (a blank verb at 0, held off at -100 as the predator lane's `ant_bite=-100`), `None` bans it (switch -1, the
+/// option never listed). SCRATCH (colony-vs-colony thread, 2026-10-24): the arms of `examples/rivalbed.rs`, where one
+/// colony bites and its neighbour cannot. [`enter_bite`] leaves an evolved bite alone, which is right for a line and
+/// wrong for an arm.
+pub fn set_bite(g: &mut [f32], k: Option<f32>) {
+    let s = SWITCH + Verb::Attack as usize;
+    match k {
+        Some(k) => {
+            g[s] = 1.0;
+            g[JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1] = k;
+        }
+        None => g[s] = -1.0,
+    }
 }
 
 /// **A rung's entry into a genome an earlier rung trained**: each verb
@@ -999,7 +1053,11 @@ fn lay_vetoes(g: &mut [f32]) -> Vec<String> {
 /// **Inputs nothing writes yet**, 0 on every option: the building scent
 /// (it comes with a building emit) and the way back to the last food (a
 /// body memory not kept yet). A weight on one moves nothing and is billed
-/// every tick.
+/// every tick. **Both are written now, by default** (noted 2026-10-25,
+/// not changed here): the building slot holds the last-food memory
+/// (`options::f::FOOD_WAY`, which [`enter_rung`] spares while it is on),
+/// and the last-food slot the far-from-home sense (`options::home_vec`),
+/// which a rung entry that cuts unread links still cuts.
 const UNWRITTEN: [usize; 2] = [options::f::BUILDING, options::f::LAST_FOOD];
 
 /// **Links that can never move a decision, zeroed** (R11,
@@ -1049,8 +1107,12 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
             .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS);
         kill(g, fan_in, &mut cut[0]);
     }
+    // The building slot holds the last-food memory while that is on
+    // (`options::f::FOOD_WAY`): written, so not cut.
+    let food_way = options::last_food().is_some();
     for u in 0..UNITS {
-        kill(g, UNWRITTEN.map(|k| S_FEAT + u * FEATURES + k), &mut cut[1]);
+        let unwritten = UNWRITTEN.into_iter().filter(|&k| !(food_way && k == options::f::FOOD_WAY));
+        kill(g, unwritten.map(|k| S_FEAT + u * FEATURES + k), &mut cut[1]);
     }
     for v in Verb::ALL.into_iter().filter(|v| !verbs.contains(v)).map(|v| v as usize) {
         let job = JOB + v * J_IN;
@@ -1574,6 +1636,78 @@ pub fn give(world: &mut World, organism: OrganismId, genome: Arc<MindGenome>) {
             state: MindState::default(),
         },
     );
+    uncaste(world, organism);
+}
+
+/// **No caste for a mind** (`PP_MIND_CASTELESS`, old-ant-rules-2026-10-25 H1). The game's storeroom
+/// (`Storeroom::SHIPPED`, `caste=4`) stamps one ant in four by its id as a nest worker for life, and that stamp
+/// decided two things a mind ant could not choose: whether a touching larva may feed from its bank
+/// (`brood::NurseMode::Workers`) and whether the founding cut counts as home for its put-downs
+/// (`Storeroom::worker_home`). The owner's rule is one brain for every ant and no castes (2026-10-21). On: a mind
+/// ant is never stamped ([`give`], [`inherit`] clear `nest_bound_until`), any mind adult may feed a touching larva,
+/// and the cut is home for every mind ant. Off: the stamp as before. The game ant (no mind) is untouched either way.
+/// `PP_MIND_CASTELESS=nurse` or `=home` opens one reader alone and keeps the stamp, to tell the two apart.
+///
+/// **Off when unset**, because on the pool trained under the caste it costs nest and crater. Training bed (inrun
+/// sel=off, std_pool, 200k frames, seeds 101-108, paired): food carried home 12.4-14.9k -> 12.9-17.8k (more in 7
+/// of 8), larva feeding 21-34 -> 21-50 kJ, but nest 532-709 -> 458-669 cells (smaller in 6 of 8) and crater
+/// 1-9 -> 4-20 (bigger in 6 of 8). All of it is the `nurse` part: `home` alone is bit-identical to off on the bed
+/// (no mind put-down there lands in the cut outside the door's reach). Lab, fruit 150, seeds 1-8: alive median 96
+/// both ways. The test the owner's rule needs is a pool trained without it: the Teacher lane's arm.
+pub fn casteless() -> bool {
+    caste_parts() == (true, true)
+}
+
+/// [`casteless`]'s two readers: (any mind adult nurses, the cut is every mind ant's home).
+fn caste_parts() -> (bool, bool) {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PP_MIND_CASTELESS").as_deref().map(str::trim) {
+        Ok("nurse") => (true, false),
+        Ok("home") => (false, true),
+        Ok(v) if super::options::switch_on_value(v) => (true, true),
+        _ => (false, false),
+    })
+}
+
+/// **The door column's parts a world of minds drops** (`PP_MIND_DOOR_OPEN`; see `creature::door_column_of`):
+/// `(drop ban off, clear off)`. `=drop` lifts the ban on putting a pellet there, `=clear` stops the world deleting
+/// soil there, `=1`/`on` both. **Off when unset**: on the pool trained under it, the clear is load-bearing.
+/// Training bed (as [`casteless`]'s): with it, food carried home 12.4-14.9k; ban lifted, clear kept 11.4-19.2k
+/// (nest smaller in 6 of 8, crater the same); clear stopped, ban kept 4.6-8.2k and starved 18-45 -> 25-68; both
+/// 3.0-4.2k, starved 43-127. Lab, fruit 150, seeds 1-8, both off: alive median 96 -> 108 (15k frames is too short
+/// for a plugged door to cost). A colony that plugs its own door has never paid for it in training.
+pub fn door_open() -> (bool, bool) {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PP_MIND_DOOR_OPEN").as_deref().map(str::trim) {
+        Ok("drop") => (true, false),
+        Ok("clear") => (false, true),
+        Ok(v) if super::options::switch_on_value(v) => (true, true),
+        _ => (false, false),
+    })
+}
+
+/// Under [`casteless`] (or its `nurse` part): `organism` is a mind ant, so any larva it touches may feed from it.
+pub fn casteless_nurse(world: &World, organism: OrganismId) -> bool {
+    caste_parts().0 && has(world, organism)
+}
+
+/// Under [`casteless`] (or its `home` part): `organism` is a mind ant, so the founding cut is its home.
+pub fn casteless_home(world: &World, organism: OrganismId) -> bool {
+    caste_parts().1 && has(world, organism)
+}
+
+/// Clear the caste stamp off a mind ant under [`casteless`].
+fn uncaste(world: &mut World, organism: OrganismId) {
+    if casteless() {
+        clear_caste(world, organism);
+    }
+}
+
+/// [`uncaste`]'s write, whatever the switch says.
+fn clear_caste(world: &mut World, organism: OrganismId) {
+    if let Some(st) = world.organism_mut(organism) {
+        st.nest_bound_until = 0;
+    }
 }
 
 /// Whether `organism` decides by a mind.
@@ -1605,6 +1739,7 @@ pub fn inherit(world: &mut World, parent: OrganismId, child: OrganismId) {
                     state: MindState::default(),
                 },
             );
+            uncaste(world, child);
         }
         None => {
             // An id can come back after its slot's generation wraps; a
@@ -2533,7 +2668,7 @@ fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): 
         return false;
     }
     let gut = super::gut_of(world, organism, def);
-    let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell));
+    let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell)) * bite_scale();
     world.creature_stats.contests += 1;
     if damage <= 0.0 {
         return false;
@@ -2659,6 +2794,7 @@ fn pick_up(
         return false;
     }
     let at_home = food_at_home(world, organism, def, hx, hy);
+    let frame = world.frame;
     let seed = plant::seed_survives_bite(world, fx, fy, draw);
     let worth = match seed {
         plant::SeedBite::SurvivedBare => food_value(world, bite) * plant::seed_provision_fraction(world, fx, fy),
@@ -2691,6 +2827,9 @@ fn pick_up(
             state.trip_cells = 0;
         }
         if !at_home {
+            // The last-food memory (`options::last_food`): kept whether or not
+            // the memory is read, so turning it off changes no choice.
+            state.last_food = Some((fx, fy, frame));
             state.foraged = true;
             state.trip_load = true;
             state.since_trip = 0;
@@ -2872,6 +3011,16 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         m.counts.delivered += u64::from(at_nest);
     }
     true
+}
+
+/// SCRATCH (colony-vs-colony thread, 2026-10-24): `PP_MIND_BITE_SCALE=f` scales what one mind bite takes off its
+/// victim (`OrganismState::gnawed`, banked on the victim, so several mouths add up). Ant on ant the ratio is 1, so
+/// one bite is one cell and the head is a death: on `examples/rivalbed.rs` 274 of 397 bites killed, and one ant
+/// that could not be bitten back killed 25 in a nest in 700 frames. Below 1 a kill takes several bites, from one
+/// mouth or many -- the swarm the game's own fight banks damage for. Unset: 1, the bite as it was.
+fn bite_scale() -> f32 {
+    static K: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *K.get_or_init(|| std::env::var("PP_MIND_BITE_SCALE").map_or(1.0, |v| v.parse().expect("PP_MIND_BITE_SCALE=f")))
 }
 
 /// **Feed the nestmate or larva at `target`.** A nestmate poorer than the
@@ -4082,6 +4231,112 @@ mod tests {
         assert_eq!(w.minds.as_ref().expect("minds").counts.packed, 1, "the pack was not counted");
     }
 
+    /// **The last-food memory reaches the options, graded and fading**
+    /// (`options::last_food`): with a spot remembered east of the head, a
+    /// step east reads `f::FOOD_WAY` above 0 and a step west below it, by
+    /// the same cosine; the reading falls as the memory ages and is exactly
+    /// 0 with nothing remembered. The specificity half: an ant that
+    /// remembers nothing reads 0 on every option, so a weight on the slot
+    /// moves no choice until a pick-up.
+    #[test]
+    fn the_last_food_memory_points_each_option_back_to_the_food() {
+        let fade = options::last_food().expect("the last-food memory is on by default");
+        let (mut w, def, ids) = mind_box();
+        let id = ids[0];
+        let head = head_of(&w, id);
+        let read = |w: &World| {
+            let mut opts = Vec::new();
+            options::build(w, id, &def, &mut opts);
+            let walk = |dx: i32| {
+                opts.iter()
+                    .find(|o| o.verb == Verb::Walk && o.target.0 - head.0 == dx && o.target.1 == head.1)
+                    .map(|o| o.feats[options::f::FOOD_WAY])
+            };
+            (opts.iter().map(|o| o.feats[options::f::FOOD_WAY].abs()).fold(0.0, f32::max), walk(1), walk(-1))
+        };
+        assert_eq!(read(&w).0, 0.0, "an ant that remembers no food reads the slot");
+        w.organism_mut(id).expect("alive").last_food = Some((head.0 + 60, head.1, w.frame));
+        let (_, east, west) = read(&w);
+        let (east, west) = (east.expect("a step east on flat ground"), west.expect("a step west"));
+        let want = (1.0 + 60.0 / options::LAST_FOOD_SCALE).ln();
+        assert!((east - want).abs() < 1e-4, "east {east} against ln(1 + 60/40) {want}");
+        assert!((west + want).abs() < 1e-4, "west {west} is not the mirror of east");
+        // Remembered `fade` frames ago: half as strong.
+        w.organism_mut(id).expect("alive").last_food = Some((head.0 + 60, head.1, w.frame.saturating_sub(fade as u64)));
+        let old = read(&w).1.expect("a step east");
+        if w.frame >= fade as u64 {
+            assert!((old - want / 2.0).abs() < 1e-4, "a memory {fade} frames old reads {old}, not half of {want}");
+        } else {
+            assert!(old < east, "an older memory reads no weaker: {old} against {east}");
+        }
+    }
+
+    /// **The last-food memory enters an older genome at weight 0, and a new
+    /// one keeps what evolution put there** (`enter_last_food`): a file
+    /// marked layout 4, or unmarked, loses every scorer unit's weight on
+    /// the slot and nothing else; layout 5 is untouched.
+    #[test]
+    fn the_last_food_slot_is_zeroed_only_in_genomes_saved_before_it() {
+        let mut g: Vec<f32> = (0..GENOME_LEN).map(|k| ((k * 37) % 11) as f32 / 10.0 - 0.5).collect();
+        let slots: Vec<usize> = (0..UNITS).map(|u| S_FEAT + u * FEATURES + options::f::FOOD_WAY).collect();
+        for &k in &slots {
+            g[k] = 0.7;
+        }
+        let mut kept = g.clone();
+        assert_eq!(enter_last_food(&mut kept, Some(LAYOUT)), 0);
+        assert_eq!(kept, g, "a genome saved with the memory lost links");
+        for layout in [Some(4), None] {
+            let mut old = g.clone();
+            assert_eq!(enter_last_food(&mut old, layout), UNITS, "layout {layout:?}: links cut");
+            for k in 0..GENOME_LEN {
+                let want = if slots.contains(&k) { 0.0 } else { g[k] };
+                assert_eq!(old[k], want, "layout {layout:?}: slot {k} moved");
+            }
+        }
+    }
+
+    /// **The positive and negative control for the memory as something a
+    /// brain can use** (Creatures research thread, idea 1; for the teacher
+    /// lane): the same walking mind, with and without one scorer unit that
+    /// weighs `f::FOOD_WAY`, remembering a spot 40 columns east on flat
+    /// ground. Wired, it walks there; with that one link cut it does not --
+    /// so a pool that never wires the slot is not evidence the sense is
+    /// dead, and one that does has something to find. Prints both, as the
+    /// trip-2-against-trip-1 numbers a wired pool should show.
+    #[test]
+    fn a_mind_wired_to_the_last_food_memory_walks_back_to_it() {
+        let run = |wired: bool| -> i32 {
+            let (mut w, _def, ids) = mind_box();
+            let mut g = blank(&[Verb::Walk]);
+            if wired {
+                g[S_FEAT + options::f::FOOD_WAY] = 8.0;
+                g[S_OUT] = 4.0;
+            }
+            let g = Arc::new(MindGenome::new(g));
+            for &id in &ids {
+                give(&mut w, id, g.clone());
+            }
+            let id = ids[0];
+            let start = head_of(&w, id);
+            let spot = (start.0 + 40, start.1);
+            w.organism_mut(id).expect("alive").last_food = Some((spot.0, spot.1, w.frame));
+            for _ in 0..600 {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+                if w.organism(id).is_none() {
+                    break;
+                }
+            }
+            w.organism(id).and_then(|s| s.chain.first()).map_or(start.0, |h| h.0) - start.0
+        };
+        let (wired, cut) = (run(true), run(false));
+        println!("columns walked towards the remembered food in 600 frames: wired {wired}, link cut {cut}");
+        assert!(wired >= 25, "a mind wired to the memory got {wired} of 40 columns towards it");
+        assert!(wired - cut >= 15, "wired {wired} against cut {cut}: the memory moved the walk too little");
+    }
+
     fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
         w.organism(id)
             .and_then(|s| s.chain.first().copied())
@@ -4094,6 +4349,30 @@ mod tests {
             target,
             feats: [0.0; FEATURES],
         }
+    }
+
+    /// **A mind ant can carry no caste** (`PP_MIND_CASTELESS`): the game's storeroom stamps one ant in four
+    /// nest-bound for life by id, giving a mind keeps it while the switch is off (unset), and the switch's write
+    /// clears it. The control is the box before the write, where the stamp is there to clear.
+    #[test]
+    fn a_mind_ant_carries_no_caste() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, colony_ants: 12, width: 256, height: 128, ground_y: 64, soil_depth: 40, ..crate::lab::scene::LabBox::default() }.build();
+        assert_eq!(super::super::storeroom_of(&w).caste, 4, "test setup: the shipped storeroom has its caste");
+        let ants: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|&id| w.organism(id).is_some_and(|s| w.species.get(s.species).creature.is_some())).collect();
+        let bound = |w: &World| ants.iter().filter(|&&id| w.organism(id).is_some_and(|s| super::super::is_nest_bound(w, s))).count();
+        let stamped = bound(&w);
+        assert!(stamped > 0, "the control: no ant was stamped, so there is nothing to clear");
+        let g = Arc::new(MindGenome::new(blank(&[Verb::Walk, Verb::Rest])));
+        for &id in &ants {
+            give(&mut w, id, g.clone());
+        }
+        if !casteless() {
+            assert_eq!(bound(&w), stamped, "off, a mind took the stamp away");
+        }
+        for &id in &ants {
+            clear_caste(&mut w, id);
+        }
+        assert_eq!(bound(&w), 0, "a mind ant kept its caste");
     }
 
     /// **The food verbs move food by the world's rules, one job each**: a
@@ -4272,6 +4551,81 @@ mod tests {
         } else {
             assert!(w.organism(ant).is_some_and(|s| s.chain.len() == ant_body.len() - 1), "a bitten segment");
         }
+    }
+
+    /// One `species` animal and one ant side by side on the ground of a small box: (world, animal, ant).
+    fn beside_an_ant(species: &str) -> (World, OrganismId, OrganismId) {
+        let mut w = crate::lab::scene::LabBox {
+            founders: 0,
+            colonies: 0,
+            width: 128,
+            height: 96,
+            ground_y: 60,
+            soil_depth: 30,
+            ..crate::lab::scene::LabBox::default()
+        }
+        .build();
+        let gy = (0..96).find(|&y| y > 10 && w.get(64, y).material != crate::sim::material::EMPTY).expect("ground");
+        let place = |w: &mut World, x: i32, name: &str| match crate::sim::creature::plant_creature_seed(w, x, gy - 1, name).map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no {name} placed: {other:?}"),
+        };
+        let animal = place(&mut w, 60, species);
+        let ant = place(&mut w, 62, "ant");
+        (w, animal, ant)
+    }
+
+    /// **A predator with handling time cannot pay for a child out of living prey** (nest raider thread,
+    /// 2026-10-25): `try_bud`'s second mouth (`provisions_in_reach`) counted every living ant cell round the head as
+    /// food in reach and took it whole, so a centipede landed at a lab door budded three times in 23 frames. With
+    /// `handling` a living animal's cell is not a provision. **The positive control is the beetle**, a carnivore
+    /// without handling: the same ant beside it is still counted, so the census can see a living ant at all.
+    #[test]
+    fn a_predator_with_handling_cannot_pay_a_birth_with_living_prey() {
+        for (species, handles) in [("centipede", true), ("spider", true), ("beetle", false)] {
+            let (w, me, ant) = beside_an_ant(species);
+            let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+            assert_eq!(def.handling, handles, "{species}: the arms of this test moved");
+            let gut = crate::sim::creature::gut_of(&w, me, &def);
+            let ant_cells: Vec<(i32, i32)> = w.organism(ant).expect("ant").chain.clone();
+            // Bring the ant into reach of the head, whatever the two bodies' shapes.
+            let reach = |w: &World| {
+                let (hx, hy) = head_of(w, me);
+                crate::sim::creature::provisions_in_reach(w, hx, hy, gut).filter(|&(_, x, y)| ant_cells.contains(&(x, y))).count()
+            };
+            let (hx, hy) = head_of(&w, me);
+            assert!(
+                ant_cells.iter().any(|&(x, y)| (x - hx).abs() <= 1 && (y - hy).abs() <= 1),
+                "{species}: the ant is not in reach of the head at {:?} ({ant_cells:?})",
+                (hx, hy)
+            );
+            assert_eq!(reach(&w) > 0, !crate::sim::creature::handling_on(&def), "{species}: whether a living ant pays a birth");
+        }
+    }
+
+    /// **The raider shoves through stored food it cannot eat, and through nothing else** (nest raider thread,
+    /// 2026-10-25, `CreatureDef::digs_inedible_food`): a centipede's jaws may cut a cell of crumbs, which its
+    /// carnivore gut will not take, but not soil (0.8 against its 0.5 jaw), and the cut keeps the crumb's worth in
+    /// the pellet. An ant, which eats crumbs, still may not dig them: food is its pick-up's.
+    #[test]
+    fn the_raider_shoves_through_crumbs_it_cannot_eat_and_nothing_else() {
+        let (mut w, me, ant) = beside_an_ant("centipede");
+        let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+        let adef = w.species.get(w.organism(ant).expect("placed").species).creature.clone().expect("creature");
+        assert!(def.digs_inedible_food && !adef.digs_inedible_food);
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs");
+        let (hx, hy) = head_of(&w, me);
+        let t = DIRS.iter().map(|&(dx, dy)| (hx + dx, hy + dy)).find(|&(x, y)| w.get(x, y).material != crate::sim::material::EMPTY && w.get(x, y).organism_id() == 0).expect("ground beside the head");
+        w.set(t.0, t.1, Cell::new(w.materials.id_of("soil").expect("soil"), 0));
+        assert!(!options::diggable(&w, &def, me, w.get(t.0, t.1)), "the raider's jaw cut soil");
+        let crumb = Cell::new(crumbs, 0).with_aux(400);
+        w.set(t.0, t.1, crumb);
+        assert!(options::diggable(&w, &def, me, w.get(t.0, t.1)), "the raider cannot cut crumbs");
+        assert!(!options::diggable(&w, &adef, ant, w.get(t.0, t.1)), "an ant may dig food");
+        give(&mut w, me, Arc::new(MindGenome::new(blank(crate::train::predator::RAIDER_VERBS))));
+        assert!(dig(&mut w, me, &def, t), "the cut");
+        let pellet = w.organism(me).and_then(|s| s.spoil).expect("the crumb in the jaws");
+        assert_eq!((pellet.cell.material, pellet.cell.aux()), (crumbs, 400), "the crumb's worth was not kept");
     }
 
     /// **The soil verbs move soil by the world's rules**: a cut takes the

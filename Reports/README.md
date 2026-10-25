@@ -2886,6 +2886,37 @@ drift that two of these documents still reflect.**
   16 colonies x 12 rounds): the spider pool evolved *backwards* (kills less in 49
   of 77 paired judgings; selection on one noisy life per placement, no elitism),
   and no clear defence learning in the colonies.
+- [nest-raider-2026-10-25.md](nest-raider-2026-10-25.md) — **the owner's second
+  predator, 2026-10-25: a centipede that fits the ants' two-wide shaft.** A
+  `Chain(5)` one cell wide, with the spider's plate, gut and handling time; its
+  jaw cannot cut soil, so it enters by the door. A trained colony's nest is
+  packed solid with crumbs, so it shoves through food it cannot eat
+  (`CreatureDef::digs_inedible_food`) and moves the store without losing it.
+  Two fixes on the way: a predator with handling no longer pays for a child with
+  living ants in reach (3 births in 23 frames -> 0; changes the spider too), and
+  a raider is paid in training for what it digests, not what it swallows (7,300
+  swallows against 37 cells bitten). Training on four lines did not beat the
+  untrained hunter mind; in the lab the one population that lived held the
+  surface, not the nest. The lab pool was chosen in the lab: trained line
+  hunter-2 is the only one of four that took hold in most boxes (4 of 6; ate the
+  colony out in 2), by ambushing foragers on the surface, not by raiding.
+- [colony-vs-colony-2026-10-24.md](colony-vs-colony-2026-10-24.md) — **two trained
+  colonies on one bed, 2026-10-24/25 (owner: "are we ready to start exploring
+  colony vs colony combat?").** `examples/rivalbed.rs` founds two `std_pool`
+  colonies side by side with their own food and breeding. The shipped pool can
+  already bite strangers; with both able to, they keep a cold peace (~17 kills
+  in 100k frames, no cost); a colony that can bite beside one that cannot kills
+  ~150 of it and wipes it out 10 times in 24, **and gains nothing itself**. The
+  wipeouts are one raider in the victim's nest: the mind's bite takes a cell
+  ant on ant, so a bitten head is a death (`PP_MIND_BITE_SCALE`, scratch, makes
+  it graded). A tournament scored against the rival (`rivaltour.py`) bred
+  champions that beat the founder 24 of 24 and kill 2-7 for each lost, and
+  that also stopped carrying food home and dug a wide pit; a second tournament
+  with food home in the score lost it the same way (so did the no-bite control):
+  inside a match nothing rewards an ant for carrying, so the proposed paired
+  case for the Teacher lane keeps births going to carriers. Found on the way: the
+  brood lay cap was one per species, so one colony's growth stopped its
+  neighbour laying (`World::colony_lay_scale`, per colony, harness only).
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's
@@ -5713,6 +5744,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   code — and says that on §8.3's own numbers **the pheromone planes, not the
   field, are the pass with the right shape** for a device.
 
+- [teaching-the-colony-2026-10-25.md](teaching-the-colony-2026-10-25.md) — **game design plan: every way a player
+  could teach the ant colony, and what it would do, expected and surprising (research only).** Five independent
+  researchers (keeper, queen, other seats, ant biology, player-trained AI; notes in `teaching-the-colony-2026-10-25/`)
+  and an independent review. Real colonies change through the place, a little memory per ant, ant-to-ant teaching,
+  how the young are raised, and the bloodline, on three clocks. Recommends the queen as the main seat (who is born,
+  what they are fed, where the brood lies, feed or bite in the act, presence and absence, blessing deeds), keeping the
+  lab's hand tools, settled by two faked ten-minute slices. Warns that a learned sense entering at weight zero ships
+  dead (the shipped pool's last-food weight is zeroed) and redesigns the memory layer: generic smell and place values,
+  heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
+
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
   and three numbers.** `sim::steer` is off-identical to main. A trail laid by
@@ -5960,7 +6001,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   link price 1 / 0.25 / 0: 28 / 114 / 150, against the old ant's 129 (`PIXEL_PHYSICS_LINK_PRICE`, PR #881). Every
   old-ant rule sorted into physics, policy the mind already decides, and missing moves or senses, plus nine
   hard-codes still on the trained ant (a one-in-four nest-worker caste, touch-feeding, the door-column put-down ban,
-  the dig head's gate, the spoil roll differing between training and the lab), each with a way to open it.
+  the dig head's gate), each with a way to open it. §5 opens two as default-off switches (`PP_MIND_CASTELESS`,
+  `PP_MIND_DOOR_OPEN`) and prices them on the pool trained under them. The caste's effect is all touch-feeding: more
+  food home, but bigger craters in 6 of 8. The world deleting soil over the door every frame is load-bearing: without
+  it, food carried home falls by about 60%.
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
@@ -6056,6 +6100,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it can ship on), a "bored" drive for idle fed ants, then instincts and a reward/punish player verb. Warns off
   Creatures 2's reward-imbalance collapse. Sources read through search summaries only.
 
+- [brain-training/research/creatures-1996-game-design-2026-10-25.md](brain-training/research/creatures-1996-game-design-2026-10-25.md) —
+  **what made *Creatures* fun and boring as a game, and what the lab should take (research only).** Fun was one
+  creature you bonded with, a hand that taught it for life (tickle and slap), surprise from genetics, death that
+  mattered, and a sharing community; boring was babysitting a creature that starves beside food or unlearns eating,
+  with no goal. Ranked for the lab: a pool that survives the box first, then a reward/punish verb, ant biographies and
+  marked deaths, a job icon over a selected ant, visible genetics, and sharing lines with player-made goals.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
@@ -6070,6 +6121,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   colony is uncapped; `lays_declined` is 0 all run. 56% of landed founders starve in ~1,500 frames (1 tank). Nests:
   about one dig per ant per 10k frames, ~900 open cells in 220k frames, brood in a pocket by the door. 2-27% of ants are
   under ground, 30-60% sit fed on the spoil mound. Also fixes `Lab::release` dropping painted-food lines from the log.
+
+- [brain-training/playtest/plant-forage-lab-2026-10-25/README.md](brain-training/playtest/plant-forage-lab-2026-10-25/README.md) —
+  **why the trained ant leaves the nest for the plants and dies there (owner's 2026-10-25 lab playtest), from a
+  headless replay of the box traced per ant.** The trained ant's bite rate beside a plant is flat in its energy (~5% of
+  25-frame windows starving or at 20 tanks), so founders on 1 tank starve beside the plants (median life ~1,100) and the
+  lucky ones gorge, stay, and die of old age at ~22 tanks without carrying food home. Its home trail follows the colony
+  to the plants. Heaping founders at the door changes where they die, not whether. The hand-built ant in the same box
+  keeps founders 4-13x longer and ends with 165 adults against 11. Adds `replay actions=/newant=/trace=` and logs the
+  ant brain after a rebuild.
 
 ## Licensing and distribution
 

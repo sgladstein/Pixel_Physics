@@ -211,7 +211,7 @@ def blame_dates():
             line += 1
             if pending is not None:
                 import datetime
-                dates[line] = datetime.datetime.utcfromtimestamp(pending).strftime("%Y-%m-%d")
+                dates[line] = datetime.datetime.fromtimestamp(pending, datetime.timezone.utc).strftime("%Y-%m-%d")
     return dates
 
 

@@ -226,10 +226,10 @@ pub struct LabBox {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub species_ron: Option<String>,
     /// **Found pooled species from `World::plant_pool`** (the shipped
-    /// bed-selected pool). `true`, the default, is the engine's; `false`
-    /// founds from species files, the arm a pool is judged against
-    /// (`plant_m0 pool=0`, `mode=bedsel`'s shipped garden).
-    /// `PIXEL_PHYSICS_PLANT_POOL=0` turns it off for every box.
+    /// bed-selected pool). **Off by default since 2026-10-25** for a
+    /// measured harm to the colony (`plant_pool::pool_switch` has the
+    /// numbers); `PIXEL_PHYSICS_PLANT_POOL=1` turns it on for every box
+    /// built with the default, `plant_m0 pool=1` for that harness.
     ///
     /// **The lab's, not the engine's**: the pool was selected in this box
     /// (four roles, grow lights, half-speed plants), and nobody has
@@ -418,7 +418,7 @@ fn is_drain_default(drain: &bool) -> bool {
 /// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
 /// and a fresh `World` agree, `PIXEL_PHYSICS_WINDFALL_ROT=off` included.
 fn plant_pool_default() -> bool {
-    true
+    crate::sim::plant_pool::pool_switch()
 }
 
 fn windfall_rots_default() -> bool {
@@ -538,7 +538,7 @@ impl Default for LabBox {
             windfall_rots: windfall_rots_default(),
             founder_at: None,
             species_ron: None,
-            plant_pool: true,
+            plant_pool: plant_pool_default(),
             drain: drain_default(),
             spells: None,
             ground: Ground::Uniform,
@@ -1685,7 +1685,7 @@ mod tests {
         let pool = crate::sim::plant_pool::default_pool().expect("the shipped pool is on");
         let herbs = &pool.by_species["herb"];
         let founders = |seed: u64| -> (u64, Vec<(Draws, u64)>) {
-            let bed = LabBox { colonies: 0, founders: 3, species: "herb".into(), seed, ..LabBox::default() };
+            let bed = LabBox { plant_pool: true, colonies: 0, founders: 3, species: "herb".into(), seed, ..LabBox::default() };
             let (mut w, planted) = bed.build_counted();
             assert_eq!(planted.planted, 3, "test setup: the bed planted {} of 3", planted.planted);
             assert_eq!(w.plant_pool_founded, 0, "a founder takes its genome at germination, not at planting");

@@ -432,6 +432,7 @@ TOPICS = {
     ],
     "the spider: a trained predator, and a meal that takes time": [
         "Spider status — a trained predator in the box, and a meal that takes time",
+        "Nest raider status — a centipede that fits the ants' shaft",
     ],
 }
 

@@ -5746,6 +5746,13 @@ pub(super) fn try_bud(
             return None;
         }
     }
+    // SCRATCH (colony-vs-colony thread): a harness's per-colony laying brake (`World::colony_lay_scale`); None, unread.
+    if let Some(scale) = world.colony_lay_scale.as_ref().and_then(|m| m.get(&world.colony_of(organism)).copied()) {
+        if bank + reachable < bar * scale {
+            world.creature_stats.lays_declined += 1;
+            return None;
+        }
+    }
     if lay < brain::LAY_HOLD_BELOW {
         world.creature_stats.lays_declined += 1;
         return None;
@@ -10906,6 +10913,9 @@ pub(super) struct Gut {
     /// **chooses**, not only what it succeeds at, or `adjacent_food` keeps
     /// offering a leaf every tick to a mouth that will not take one.
     nectar_only: bool,
+    /// `handling_on(def)`: a living animal is not a provision this gut's
+    /// birth may be paid from ([`provision_at`]); see that line for why.
+    handling: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
     ///
@@ -11281,6 +11291,7 @@ pub(super) fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> 
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
         nectar_only: def.nectar_only,
+        handling: handling_on(def),
         bite: bite_force_of(def, &traits, world.trait_reach),
     }
 }
@@ -11913,6 +11924,22 @@ fn provision_at(world: &World, px: i32, py: i32, gut: Gut) -> Option<(f32, i32, 
         // the pollinator design's §2.2 arithmetic assumed when it costed a
         // bud at "about ten flowers above upkeep".
         if gut.nectar_only {
+            return None;
+        }
+        // **And for a predator with handling time, a living animal is prey,
+        // not a provision** (nest raider thread, 2026-10-25) -- the same
+        // second mouth, found a third time. `try_bud` counted every living
+        // ant cell round the head as food in reach and its shortfall loop
+        // took them whole, so a predator standing in a crowd paid for a
+        // child out of the crowd: no bite, no crop, none of `handling`'s
+        // pace. Measured on lab_mid_fruit (seed 1, one centipede landed at
+        // the door at frame 36,000): **three buds in the first 23 frames**,
+        // each child 800 J, from a parent landed on 1,600 J against a 3,200
+        // J bar. A bitten-off cell, a corpse, a fruit still count; a cell of
+        // a living animal is taken by the bite or not at all. Gated on
+        // `handling` so every species without it is bit-identical
+        // (`PIXEL_PHYSICS_HANDLING=off` restores the old rule with the rest).
+        if gut.handling && cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|s| world.species.get(s.species).creature.is_some()) {
             return None;
         }
         let yielded = diet_yield(world, cell, gut.bias);
@@ -17595,11 +17622,25 @@ pub fn door_loose_of(world: &World) -> bool {
 /// into the mouth, not pellets landing in it"). Re-tested at the owner's
 /// ask on the game since then (the doorway left unpacked, lean ants digging
 /// out of the mound, hunger-first and the trip home).
+///
+/// **A world of minds has no door column under `PP_MIND_DOOR_OPEN`**
+/// (old-ant-rules-2026-10-25 H4). Both parts decide for the trained ant
+/// something it could choose: where its pellet goes, and whether a pellet
+/// that lands over the door stays. `clear` deletes that soil from the world
+/// every frame, so a colony that plugs its own door never pays for it. On:
+/// in a world where any ant has a mind, the parts it names are off
+/// (`World::door_column` still wins, as the soil ladder's arena sets it).
+/// Off (unset): as before. Measured: `mind::door_open`.
 pub fn door_column_of(world: &World) -> DoorColumn {
-    world.door_column.unwrap_or_else(|| {
+    let (open_drop, open_clear) = mind::door_open();
+    let base = world.door_column.unwrap_or_else(|| {
         static V: std::sync::OnceLock<DoorColumn> = std::sync::OnceLock::new();
         *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DOOR_COLUMN_UNSET, |v| DoorColumn::parse(&v)))
-    })
+    });
+    if world.door_column.is_none() && (open_drop || open_clear) && world.minds.as_ref().is_some_and(|m| !m.is_empty()) {
+        return DoorColumn { drop: base.drop && !open_drop, clear: base.clear && !open_clear };
+    }
+    base
 }
 
 /// What `PIXEL_PHYSICS_DOOR_COLUMN` unset means: **on since 2026-10-10**,
@@ -19245,8 +19286,9 @@ fn parse_dig_down(raw: &str) -> Option<DigDown> {
 fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The cut is a nest worker's home** ([`Storeroom::worker_home`]), and a
     // forager's only if the rules below say so. Off, one branch.
+    // A mind ant under `PP_MIND_CASTELESS` has no caste: the cut is every mind ant's home.
     if storeroom_of(world).worker_home
-        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st))
+        && world.organism(organism).is_some_and(|st| is_nest_bound(world, st) || mind::casteless_home(world, organism))
         && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y))
     {
         return true;
