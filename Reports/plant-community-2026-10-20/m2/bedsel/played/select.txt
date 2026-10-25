@@ -1,0 +1,77 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+plant_m0 bedsel: bed=played beds=8 round=150000 rounds=8 pick=types seed=1 keep=8 pmut=0.1 fmut=0.3 garden=0 gframes=300000 roles=["tree", "shrub", "herb"]
+plant_m0 bedsel: loaded 128 genomes from assets/plant_pools/roles4.ron
+BED r=0 bed=0 seed=1000 types=3 weakest=483 food=569 ants=34 starved=237 leaf=tree:529,shrub:483,herb:573 given=8 parent=true
+BED r=0 bed=1 seed=1001 types=3 weakest=147 food=525 ants=275 starved=36 leaf=tree:260,shrub:147,herb:276 given=8 parent=true
+BED r=0 bed=2 seed=1002 types=3 weakest=156 food=533 ants=331 starved=76 leaf=tree:812,shrub:493,herb:156 given=8 parent=true
+BED r=0 bed=3 seed=1003 types=2 weakest=0 food=593 ants=250 starved=71 leaf=tree:0,shrub:696,herb:157 given=8 parent=false
+BED r=0 bed=4 seed=1004 types=2 weakest=6 food=635 ants=167 starved=241 leaf=tree:191,shrub:6,herb:283 given=8 parent=false
+BED r=0 bed=5 seed=1005 types=3 weakest=301 food=666 ants=60 starved=135 leaf=tree:322,shrub:409,herb:301 given=8 parent=true
+BED r=0 bed=6 seed=1006 types=2 weakest=0 food=620 ants=297 starved=18 leaf=tree:0,shrub:165,herb:149 given=8 parent=false
+BED r=0 bed=7 seed=1007 types=1 weakest=0 food=577 ants=411 starved=24 leaf=tree:0,shrub:359,herb:58 given=8 parent=false
+ROUND r=0 mean_types=2.38 mean_food=589 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=435s
+BED r=1 bed=0 seed=1008 types=3 weakest=142 food=485 ants=248 starved=153 leaf=tree:431,shrub:142,herb:392 given=8 parent=true
+BED r=1 bed=1 seed=1009 types=2 weakest=2 food=546 ants=183 starved=43 leaf=tree:441,shrub:701,herb:2 given=8 parent=true
+BED r=1 bed=2 seed=1010 types=1 weakest=21 food=451 ants=345 starved=23 leaf=tree:565,shrub:21,herb:79 given=8 parent=false
+BED r=1 bed=3 seed=1011 types=3 weakest=240 food=605 ants=165 starved=69 leaf=tree:240,shrub:451,herb:288 given=8 parent=true
+BED r=1 bed=4 seed=1012 types=3 weakest=301 food=481 ants=209 starved=112 leaf=tree:350,shrub:431,herb:301 given=8 parent=true
+BED r=1 bed=5 seed=1013 types=2 weakest=52 food=535 ants=145 starved=35 leaf=tree:961,shrub:425,herb:52 given=8 parent=false
+BED r=1 bed=6 seed=1014 types=1 weakest=37 food=553 ants=215 starved=74 leaf=tree:37,shrub:40,herb:109 given=8 parent=false
+BED r=1 bed=7 seed=1015 types=2 weakest=74 food=472 ants=102 starved=17 leaf=tree:312,shrub:470,herb:74 given=8 parent=false
+ROUND r=1 mean_types=2.12 mean_food=516 pool=creeper:32,herb:25,shrub:31,tree:28 elapsed=890s
+BED r=2 bed=0 seed=1016 types=2 weakest=82 food=545 ants=236 starved=49 leaf=tree:168,shrub:82,herb:170 given=8 parent=true
+BED r=2 bed=1 seed=1017 types=2 weakest=66 food=683 ants=541 starved=178 leaf=tree:425,shrub:473,herb:66 given=8 parent=true
+BED r=2 bed=2 seed=1018 types=1 weakest=0 food=699 ants=306 starved=17 leaf=tree:0,shrub:473,herb:21 given=8 parent=false
+BED r=2 bed=3 seed=1019 types=2 weakest=0 food=460 ants=264 starved=37 leaf=tree:574,shrub:164,herb:0 given=8 parent=false
+BED r=2 bed=4 seed=1020 types=2 weakest=91 food=538 ants=248 starved=44 leaf=tree:91,shrub:565,herb:178 given=8 parent=false
+BED r=2 bed=5 seed=1021 types=3 weakest=331 food=485 ants=347 starved=272 leaf=tree:433,shrub:343,herb:331 given=8 parent=true
+BED r=2 bed=6 seed=1022 types=2 weakest=9 food=507 ants=192 starved=56 leaf=tree:496,shrub:575,herb:9 given=8 parent=false
+BED r=2 bed=7 seed=1023 types=3 weakest=452 food=638 ants=15 starved=82 leaf=tree:452,shrub:1216,herb:602 given=8 parent=true
+ROUND r=2 mean_types=2.12 mean_food=569 pool=creeper:32,herb:32,shrub:32,tree:26 elapsed=1317s
+BED r=3 bed=0 seed=1024 types=3 weakest=295 food=473 ants=93 starved=73 leaf=tree:381,shrub:295,herb:418 given=8 parent=false
+BED r=3 bed=1 seed=1025 types=3 weakest=494 food=580 ants=127 starved=145 leaf=tree:494,shrub:782,herb:728 given=8 parent=false
+BED r=3 bed=2 seed=1026 types=3 weakest=147 food=693 ants=261 starved=189 leaf=tree:521,shrub:759,herb:147 given=8 parent=true
+BED r=3 bed=3 seed=1027 types=3 weakest=174 food=415 ants=156 starved=11 leaf=tree:567,shrub:188,herb:174 given=8 parent=false
+BED r=3 bed=4 seed=1028 types=2 weakest=67 food=516 ants=123 starved=53 leaf=tree:489,shrub:963,herb:67 given=8 parent=false
+BED r=3 bed=5 seed=1029 types=3 weakest=175 food=599 ants=74 starved=40 leaf=tree:406,shrub:824,herb:175 given=8 parent=true
+BED r=3 bed=6 seed=1030 types=3 weakest=266 food=594 ants=188 starved=119 leaf=tree:727,shrub:729,herb:266 given=8 parent=true
+BED r=3 bed=7 seed=1031 types=3 weakest=151 food=662 ants=422 starved=140 leaf=tree:992,shrub:467,herb:151 given=8 parent=true
+ROUND r=3 mean_types=2.88 mean_food=566 pool=creeper:32,herb:32,shrub:32,tree:30 elapsed=1741s
+BED r=4 bed=0 seed=1032 types=2 weakest=44 food=728 ants=133 starved=13 leaf=tree:557,shrub:971,herb:44 given=8 parent=false
+BED r=4 bed=1 seed=1033 types=2 weakest=94 food=686 ants=384 starved=2 leaf=tree:700,shrub:492,herb:94 given=8 parent=false
+BED r=4 bed=2 seed=1034 types=3 weakest=147 food=508 ants=210 starved=74 leaf=tree:411,shrub:485,herb:147 given=8 parent=false
+BED r=4 bed=3 seed=1035 types=3 weakest=415 food=517 ants=62 starved=39 leaf=tree:415,shrub:886,herb:564 given=8 parent=false
+BED r=4 bed=4 seed=1036 types=3 weakest=150 food=586 ants=112 starved=75 leaf=tree:584,shrub:662,herb:150 given=8 parent=true
+BED r=4 bed=5 seed=1037 types=3 weakest=331 food=537 ants=87 starved=138 leaf=tree:331,shrub:493,herb:355 given=8 parent=true
+BED r=4 bed=6 seed=1038 types=3 weakest=348 food=620 ants=160 starved=228 leaf=tree:766,shrub:825,herb:348 given=8 parent=true
+BED r=4 bed=7 seed=1039 types=3 weakest=271 food=554 ants=70 starved=46 leaf=tree:489,shrub:585,herb:271 given=8 parent=true
+ROUND r=4 mean_types=2.75 mean_food=592 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=2136s
+BED r=5 bed=0 seed=1040 types=3 weakest=367 food=652 ants=177 starved=38 leaf=tree:396,shrub:880,herb:367 given=8 parent=true
+BED r=5 bed=1 seed=1041 types=3 weakest=245 food=641 ants=405 starved=67 leaf=tree:324,shrub:348,herb:245 given=8 parent=true
+BED r=5 bed=2 seed=1042 types=3 weakest=143 food=590 ants=302 starved=57 leaf=tree:390,shrub:523,herb:143 given=8 parent=true
+BED r=5 bed=3 seed=1043 types=3 weakest=138 food=492 ants=143 starved=53 leaf=tree:603,shrub:972,herb:138 given=8 parent=false
+BED r=5 bed=4 seed=1044 types=3 weakest=306 food=569 ants=148 starved=41 leaf=tree:458,shrub:559,herb:306 given=8 parent=true
+BED r=5 bed=5 seed=1045 types=2 weakest=0 food=731 ants=238 starved=65 leaf=tree:0,shrub:626,herb:273 given=8 parent=false
+BED r=5 bed=6 seed=1046 types=3 weakest=245 food=427 ants=216 starved=117 leaf=tree:410,shrub:261,herb:245 given=8 parent=false
+BED r=5 bed=7 seed=1047 types=2 weakest=0 food=518 ants=122 starved=49 leaf=tree:0,shrub:269,herb:391 given=8 parent=false
+ROUND r=5 mean_types=2.75 mean_food=577 pool=creeper:32,herb:32,shrub:32,tree:26 elapsed=2553s
+BED r=6 bed=0 seed=1048 types=2 weakest=0 food=611 ants=308 starved=9 leaf=tree:356,shrub:261,herb:0 given=8 parent=false
+BED r=6 bed=1 seed=1049 types=3 weakest=211 food=656 ants=167 starved=43 leaf=tree:211,shrub:636,herb:782 given=8 parent=true
+BED r=6 bed=2 seed=1050 types=3 weakest=327 food=456 ants=207 starved=60 leaf=tree:648,shrub:327,herb:574 given=8 parent=true
+BED r=6 bed=3 seed=1051 types=3 weakest=201 food=447 ants=67 starved=18 leaf=tree:466,shrub:516,herb:201 given=8 parent=true
+BED r=6 bed=4 seed=1052 types=2 weakest=93 food=577 ants=312 starved=91 leaf=tree:392,shrub:93,herb:323 given=8 parent=false
+BED r=6 bed=5 seed=1053 types=2 weakest=8 food=657 ants=351 starved=41 leaf=tree:235,shrub:206,herb:8 given=8 parent=false
+BED r=6 bed=6 seed=1054 types=3 weakest=165 food=468 ants=234 starved=81 leaf=tree:720,shrub:258,herb:165 given=8 parent=true
+BED r=6 bed=7 seed=1055 types=2 weakest=86 food=573 ants=176 starved=54 leaf=tree:476,shrub:900,herb:86 given=8 parent=false
+ROUND r=6 mean_types=2.50 mean_food=555 pool=creeper:32,herb:32,shrub:32,tree:25 elapsed=2981s
+BED r=7 bed=0 seed=1056 types=3 weakest=314 food=718 ants=185 starved=206 leaf=tree:767,shrub:531,herb:314 given=8 parent=true
+BED r=7 bed=1 seed=1057 types=3 weakest=196 food=552 ants=222 starved=19 leaf=tree:418,shrub:354,herb:196 given=8 parent=true
+BED r=7 bed=2 seed=1058 types=3 weakest=164 food=504 ants=318 starved=27 leaf=tree:378,shrub:164,herb:300 given=8 parent=false
+BED r=7 bed=3 seed=1059 types=3 weakest=111 food=432 ants=141 starved=140 leaf=tree:266,shrub:111,herb:352 given=8 parent=false
+BED r=7 bed=4 seed=1060 types=2 weakest=90 food=591 ants=100 starved=77 leaf=tree:468,shrub:1035,herb:90 given=8 parent=false
+BED r=7 bed=5 seed=1061 types=3 weakest=311 food=707 ants=164 starved=120 leaf=tree:533,shrub:672,herb:311 given=8 parent=true
+BED r=7 bed=6 seed=1062 types=2 weakest=0 food=485 ants=195 starved=54 leaf=tree:0,shrub:238,herb:286 given=8 parent=false
+BED r=7 bed=7 seed=1063 types=3 weakest=150 food=574 ants=174 starved=199 leaf=tree:392,shrub:483,herb:150 given=8 parent=true
+ROUND r=7 mean_types=2.75 mean_food=570 pool=creeper:32,herb:32,shrub:32,tree:32 elapsed=3377s
+plant_m0 bedsel: saved 128 genomes to /tmp/claude-0/sh/played/pool.ron
+plant_m0 done: 3377.0 s
