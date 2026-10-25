@@ -6006,6 +6006,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   food home, but bigger craters in 6 of 8. The world deleting soil over the door every frame is load-bearing: without
   it, food carried home falls by about 60%.
 
+- [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
+  ants evolve their own scents (owner's ask, 2026-10-25): decode and tuning done, emergence test running.** A planned
+  palette of fixed molecules picked by a gene is parked after
+  [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
+  in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
+  selection off, 32 seeds: scent A carries the colony (deaf: nest 432 -> 51 cells, 32/32); B is laid only by laden
+  ants and reading it trades storing for feeding; the alarm plane carries nothing (a free channel). B fade 0.03 ->
+  0.25-0.40 stores more (441 -> 495) and builds more (432 -> 528), starvation unchanged, because slow B piles up in
+  the nest and homecoming foragers graze the store instead of digging (traced per ant). Switches: `PP_SCENT_DEAF`,
+  `PP_SCENT_SHIFT`, `PIXEL_PHYSICS_A_DIFFUSE`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
+
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,
