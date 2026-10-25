@@ -64,9 +64,15 @@ fn main() {
         assert!(lab.world.frame < land + 600, "no rove landed by frame {}", lab.world.frame);
     }
     println!("  warm-up to frame {} took {:.1} s wall", lab.world.frame, t0.elapsed().as_secs_f32());
-    for _ in 1..zoom {
+    // The lab opens zoomed out (a stride), so step in until the zoom is the
+    // one asked for, as the scroll wheel does.
+    for _ in 0..16 {
+        if lab.renderer.zoom >= zoom && lab.renderer.zoom_out_stride <= 1 {
+            break;
+        }
         lab.renderer.adjust_zoom(1);
     }
+    println!("  view: zoom {} stride {}", lab.renderer.zoom, lab.renderer.zoom_out_stride);
     let start = lab.world.frame;
     let rove0 = steer::steered_id(&lab.world).expect("landed");
     let nest = lab.world.nest_sites.iter().find(|n| n.seeded).cloned().expect("a nest");

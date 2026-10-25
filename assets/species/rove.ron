@@ -7,8 +7,12 @@
 // **The ant's body, not the beetle's.** The shipped beetle is a 2x2 rigid
 // block and a grown nest is galleries one or two cells wide (step 0,
 // `examples/guestprobe.rs nestlook=1`), so a beetle cannot follow a nurse
-// into the brood chamber, which is the whole seat. `Chain(2)` and the ant's
+// into the brood chamber, which is the whole seat. A chain and the ant's
 // walk constants put it wherever an ant can go, by the same body rules.
+// **Three cells, one more than the ant**: the ladder's nip takes the rear
+// cell first and the head last, so three cells is nine nips from landing to
+// death, and the cells left are the player's health bar (at two, the first
+// GIF's rove died inside a second of landing on a crowded mound).
 //
 // **A carnivore's gut** (`traits.0 = 1.0`, the beetle's): the lab's crumbs,
 // fruit and provisions are plant food it cannot use, so it eats only what
@@ -28,7 +32,7 @@
         (Segment, []),
     ],
     creature: Some((
-        body: Chain(2),
+        body: Chain(3),
         tick_interval: 6,
         // **No old age**: the steered body skips the roll anyway (`steer`),
         // and 0 keeps it off when nobody steers it.

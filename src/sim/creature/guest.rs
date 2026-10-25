@@ -96,6 +96,11 @@ const FADE_TAU_S: f32 = 60.0;
 /// Soak is refused while the guest is further than this from the nest's
 /// odour, in units of the colony's tolerance.
 const SOAK_REFUSE_G: f32 = 2.0;
+/// Columns either side of a nest's door, and rows above its surface, that
+/// count as in the nest for the soak.
+const SOAK_REACH: i32 = 16;
+/// Rows below the door's surface that count as in the nest.
+const SOAK_DEPTH: i32 = 60;
 /// A donor gives from its bank down to this share of its species' grant,
 /// never below (finding 6).
 const DONOR_FLOOR: f32 = 0.7;
@@ -334,7 +339,14 @@ pub fn meet(world: &mut World, ant: OrganismId, (x, y): (i32, i32)) {
             break;
         }
     }
-    let Some((visitor, cell)) = touch else { return };
+    let Some((visitor, _)) = touch else { return };
+    // **The bite lands on the rear cell**, whichever cell was touched: the
+    // head is taken last, so a nipped guest loses its body a cell at a time
+    // (three nips a cell) and dies only when the head goes -- a graded
+    // death, not the first unlucky nip on the head (seen in the first GIF:
+    // a two-cell rove landing on a crowded mound lost its head to three
+    // nips inside a second).
+    let Some(cell) = world.organism(visitor).and_then(|s| s.chain.last().copied()) else { return };
     let frame = world.frame;
     let mark = v.marks.get(&ant).copied();
     let new_episode = mark.is_none_or(|m| frame.saturating_sub(m.last_touch) > EPISODE_GAP);
@@ -554,7 +566,12 @@ pub fn tick(world: &mut World) {
         let mut next = [0, 1, 2].map(|i| mine[i] + k_fade * (vis.home_scent[i] - mine[i]));
         if input.soak {
             if let (Some((ns, nx, ny)), Some((hx, hy))) = (nest, head) {
-                let by_nest = (hx - nx).abs() <= 6 && (hy - ny).abs() <= 6;
+                // **In the nest**: within [`SOAK_REACH`] columns of the door,
+                // from the mound's top down into the galleries, or beside
+                // brood. Six cells round the door's surface cell missed a
+                // guest standing on a grown mound (first GIF: soak on, no
+                // frame soaked in a minute beside the door).
+                let by_nest = (hx - nx).abs() <= SOAK_REACH && (-SOAK_REACH..=SOAK_DEPTH).contains(&(hy - ny));
                 let by_brood = brood_beside(world, vis.id).is_some();
                 if by_nest || by_brood {
                     if distance(&mine, &ns) / mean_r <= SOAK_REFUSE_G {

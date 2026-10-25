@@ -34,9 +34,9 @@ pub const LAND_DEFAULT: u64 = 30_000;
 /// a raw guest is nipped within seconds of contact (ladder probe: at 1.0
 /// three of five seeds killed it inside 6,000 frames; at 2.0 every seed
 /// inside 1,800).
-pub const GAP_DEFAULT: f32 = 1.5;
+pub const GAP_DEFAULT: f32 = 1.2;
 /// Columns from the nest's door to where the rove lands.
-pub const DOOR_OFFSET: i32 = 10;
+pub const DOOR_OFFSET: i32 = 24;
 /// Frames from a death to the next rove (3 s at 1x).
 pub const RESPAWN: u64 = 180;
 /// Frames a mark stays over an ant (about a second at 1x).
@@ -230,6 +230,10 @@ pub fn before_tick(lab: &mut Lab) {
             lab.ui.say(line);
         }
         lab.time.set_preset(WARMUP_PRESET);
+        // The welcome card and the battle panel would sit over the guest:
+        // the help line (H) says the keys instead.
+        lab.show_help = false;
+        lab.ui.battle.on = false;
         lab.ui.say("THE COLONY IS GROWING -- YOU LAND WHEN IT HAS BROOD TO STEAL FROM");
         let args = lab.demo.as_ref().map(|d| d.args.clone()).unwrap_or_default();
         if let Some(s) = state_mut(lab) {
@@ -252,7 +256,7 @@ pub fn before_tick(lab: &mut Lab) {
             lab.time.set_preset(0);
         }
         let gap = state(lab).map_or(0.0, |s| s.gap);
-        lab.ui.say(format!("YOU LAND BESIDE THE DOOR SMELLING {gap:.1} OFF -- RUB ANTS (R) AND SOAK (P) TO SMELL LIKE FAMILY, THEN BEG (Y)"));
+        lab.ui.say(format!("YOU LAND SMELLING {gap:.1} OFF: RUB ANTS (R), SOAK (P), BEG (Y)"));
     }
 }
 
@@ -312,7 +316,7 @@ fn mark_glyph(r: Rung) -> Option<(&'static str, [u8; 4])> {
         Rung::Nip => Some(("X", [255, 40, 40, 255])),
         Rung::Fed => Some(("+", [80, 240, 100, 255])),
         Rung::Empty => Some(("-", [170, 170, 170, 255])),
-        Rung::Rubbed => Some(("~", [120, 200, 255, 255])),
+        Rung::Rubbed => Some(("*", [120, 200, 255, 255])),
         Rung::Ignore => None,
     }
 }
@@ -372,27 +376,23 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
             hc.fill_rect(frame_buf, x1, y0, 1, y1 - y0 + 1, ring);
         }
     }
-    // The ledger.
+    // The ledger, top left under the clock. Rows kept under 34 glyphs so
+    // the panel stays 210 logical pixels wide.
     let c = v.counts;
     let (x, mut y) = (8, 40);
     let row = |frame_buf: &mut [u8], y: &mut i32, text: String, colour: [u8; 4]| {
         hc.text(frame_buf, x, *y, &text, colour);
         *y += 9;
     };
-    let width = 196;
-    hc.blend_rect(frame_buf, x - 4, y - 4, width, 9 * 9 + 6, [0, 0, 0, 255], 0.55);
+    hc.blend_rect(frame_buf, x - 4, y - 4, 214, 9 * 9 + 6, [0, 0, 0, 255], 0.6);
     let (energy, cells, cap) = body.map_or((0.0, 0, 1.0), |(_, s)| (s.energy, s.chain.len(), w.species.creature_shared(s.species).map_or(200.0, |d| d.start_energy)));
     let life = match st.died_at {
-        Some(_) => "DEAD -- RESPAWNING".to_string(),
+        Some(_) => "DEAD -- BACK IN 3 S".to_string(),
         None => format!("ALIVE {}", clock(frame.saturating_sub(st.born))),
     };
-    row(frame_buf, &mut y, format!("GUEST  ROVE {}  {life}", st.lives), [240, 200, 140, 255]);
-    // The smell bar, on the same ramp as the ring.
-    let bar = 100;
-    hc.text(frame_buf, x, y, "SMELL", [220, 220, 220, 255]);
-    hc.fill_rect(frame_buf, x + 34, y + 1, bar, 5, [40, 40, 40, 255]);
-    let fill = if g.is_finite() { ((1.0 - (g / 1.6).clamp(0.0, 1.0)) * bar as f32) as i32 } else { 0 };
-    hc.fill_rect(frame_buf, x + 34, y + 1, fill.max(1), 5, ring);
+    row(frame_buf, &mut y, format!("GUEST: ROVE {}  {life}", st.lives), [240, 200, 140, 255]);
+    // The smell bar, on the same ramp as the ring: full is family.
+    let bar = 64;
     let word = if !g.is_finite() {
         "?"
     } else if g < 0.5 {
@@ -402,21 +402,26 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     } else {
         "STRANGER"
     };
-    hc.text(frame_buf, x + 38 + bar, y, &format!("{g:.2} {word}"), ring);
+    hc.text(frame_buf, x, y, "SMELL", [220, 220, 220, 255]);
+    hc.fill_rect(frame_buf, x + 40, y + 1, bar, 5, [40, 40, 40, 255]);
+    let fill = if g.is_finite() { ((1.0 - (g / 1.6).clamp(0.0, 1.0)) * bar as f32) as i32 } else { 0 };
+    hc.fill_rect(frame_buf, x + 40, y + 1, fill.max(1), 5, ring);
+    hc.text(frame_buf, x + 44 + bar, y, &format!("{g:.2} {word}"), ring);
     y += 9;
     hc.text(frame_buf, x, y, "ENERGY", [220, 220, 220, 255]);
-    hc.fill_rect(frame_buf, x + 34, y + 1, bar, 5, [40, 40, 40, 255]);
-    hc.fill_rect(frame_buf, x + 34, y + 1, ((energy / (2.0 * cap)).clamp(0.0, 1.0) * bar as f32) as i32, 5, [230, 200, 80, 255]);
-    hc.text(frame_buf, x + 38 + bar, y, &format!("{energy:.0}  CELLS {cells}"), [220, 220, 220, 255]);
+    hc.fill_rect(frame_buf, x + 40, y + 1, bar, 5, [40, 40, 40, 255]);
+    hc.fill_rect(frame_buf, x + 40, y + 1, ((energy / (2.0 * cap)).clamp(0.0, 1.0) * bar as f32) as i32, 5, [230, 200, 80, 255]);
+    hc.text(frame_buf, x + 44 + bar, y, &format!("{energy:.0}  CELLS {cells}"), [220, 220, 220, 255]);
     y += 9;
-    row(frame_buf, &mut y, format!("FED {} ({:.0} J)  REFUSED {}  EMPTY {}", c.fed, c.fed_j, c.refused, c.empty), [120, 240, 130, 255]);
-    row(frame_buf, &mut y, format!("TOUCHES: ? {}  ! {}  NIPS {}  CELLS LOST {}", c.antennated, c.displayed, c.nipped, c.cells_lost), [255, 200, 90, 255]);
-    row(frame_buf, &mut y, format!("RUBS {}  SOAK {}  LARVAE KILLED {}  ATE {:.0} J", c.rubs, if st.soak { "ON" } else { "OFF" }, c.larvae_killed, c.eaten_j), [160, 210, 255, 255]);
+    row(frame_buf, &mut y, format!("FED {} ({:.0} J) NO {} EMPTY {}", c.fed, c.fed_j, c.refused, c.empty), [120, 240, 130, 255]);
+    row(frame_buf, &mut y, format!("? {}  ! {}  NIPS {}  LOST {}", c.antennated, c.displayed, c.nipped, c.cells_lost), [255, 200, 90, 255]);
+    row(frame_buf, &mut y, format!("RUBS {} SOAK {} LARVAE {} ATE {:.0}", c.rubs, if st.soak { "ON" } else { "OFF" }, c.larvae_killed, c.eaten_j), [160, 210, 255, 255]);
     if let Some(host) = st.host_colony {
         let (a, b) = colony_size(w, host);
-        row(frame_buf, &mut y, format!("COLONY: {a} ANTS {b} BROOD (ON ARRIVAL {} / {})", st.arrival.0, st.arrival.1), [210, 210, 210, 255]);
+        row(frame_buf, &mut y, format!("COLONY {a} ANTS {b} BROOD (WAS {})", st.arrival.0), [210, 210, 210, 255]);
     }
-    row(frame_buf, &mut y, format!("BEST LIFE {}  GRADE: {}", clock(st.best_life.max(st.died_at.map_or(frame.saturating_sub(st.born), |_| 0))), grade(&c)), [255, 255, 255, 255]);
+    let now = st.died_at.map_or(frame.saturating_sub(st.born), |_| 0);
+    row(frame_buf, &mut y, format!("BEST {}  GRADE {}", clock(st.best_life.max(now)), grade(&c)), [255, 255, 255, 255]);
 }
 
 /// **The grade of the guest's career**, from where its food came from:
