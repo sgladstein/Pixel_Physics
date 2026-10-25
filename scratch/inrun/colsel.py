@@ -290,6 +290,14 @@ SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 # the pool lived with food 10-50 columns out and every ant starved at 100-240 (the hand-built ant lived at all of
 # them), because every training bed had dropped its food 25 columns from the door. The scenarios live in LAB_DIR.
 LAB = 'lab' in EXTRA_CASES
+# labgate=Q (teacher lane, 2026-10-24, with +lab): a donor must also have a lab case at or above the Q-th percentile of
+# the round's donors (Q=50: the better half). **Why**: farfood3b's +scale arm won the nest the owner asked for (garden
+# nest 318 vs 127, 29 of 32 pairs) and lost the lab case in 30 of 32 -- with nine lexicase cases, lab survival led only
+# one pick in nine, and the nest cases outvoted it. A gate makes lab survival a floor every donor clears rather than one
+# vote among many, without weighting the lexicase (which keeps "No weights").
+LABGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('labgate=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('labgate=')]
+assert LABGATE is None or LAB, 'labgate= needs +lab'
 # +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
 # end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
 # (stock.csv nest_food + door_food, wherever they lie), case = min(nest / NEED, SCALE_CAP). Why a needed size and not
@@ -577,6 +585,10 @@ for r in range(R0, R):
         half = NCOL // 2
         top = [c for c in order[:half] if carry[c] is not None]
         donors = [c for c in top if passed[c]] or top
+        if LABGATE is not None and len(donors) > 1:
+            lv = sorted(res[c][18] for c in donors)
+            bar = lv[min(len(lv) - 1, int(len(lv) * LABGATE / 100))]
+            donors = [c for c in donors if res[c][18] >= bar] or donors
         for i, b in enumerate(order[half:][::-1]):  # worst first
             if not donors:
                 break
