@@ -347,6 +347,24 @@ pub fn pack_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIND_PACK").map_or(true, |v| v != "off"))
 }
 
+/// **A mind goes round a trunk** (plant-food lane, 2026-10-25; the owner, asked whether the trained ant should get the
+/// old ant's trunk move: *"Yes. Do it"*). A Walk into living wood is offered when the game's own `trunk_crossing`
+/// finds the far side, and taking it starts the same `organism::Crossing` the game's ant makes (`mind::walk`): the
+/// body waits thickness x interval frames, comes out on the far side, and pays the steps it replaced. Before it, wood
+/// was a wall to a mind (`is_partable` refuses woody tissue and the Walk landings filter on it), so a trained ant had
+/// to climb over a stem: on the played bed (`examples/treewalk`, 4 seeds x 20k frames) it spent 5.2-8.3% of its time
+/// stuck beside wood against 0.3-2.3% for the game's ant. **On by default**; `PIXEL_PHYSICS_MIND_CROSS=off` is the body
+/// before, and `CROSS_TRUNK=0` turns crossing off for every animal. A bed with no living wood (the training pile bed)
+/// offers no new option, so it is unchanged.
+pub fn cross_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MIND_CROSS").as_deref() {
+        Ok("on") | Err(_) => super::crossing_enabled(),
+        Ok("off") => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MIND_CROSS={other:?}: use on or off"),
+    })
+}
+
 /// **A mind can bite** (lone predator thread, 2026-10-23): `PIXEL_PHYSICS_MIND_ATTACK=on` lands the Attack act
 /// (`mind::attack`), the game's own bite on a stranger in reach, and lets a mind pick up a cell of corpse its gut can
 /// use. **Why**: a predator that hunts by a mind needs a verb that kills and a mouth for what it killed; until now
@@ -701,6 +719,19 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
             &mut landing,
         );
         if !landing_is_placeable_through_tissue(world, &st.chain, &landing, parting, stacker) {
+            // A trunk in the way: the step is the crossing (`cross_on`), footed by the trunk it goes round.
+            // `trunk_crossing` is `None` at once unless `t` itself is living wood.
+            let body = BodyShape {
+                chain: &st.chain,
+                groups,
+                authored: &authored,
+            };
+            if cross_on() && super::trunk_crossing(world, def, body, d, parting, stacker).is_some() {
+                push(Verb::Walk, t, &|feats| {
+                    feats[f::STAND] = 1.0;
+                    feats[f::CLIMB] = f32::from(u8::from(dy < 0));
+                });
+            }
             continue;
         }
         let footed = body_has_foothold(world, def, &landing, t, kin);
@@ -1319,7 +1350,7 @@ mod tests {
         let def = w.species.get(sp).creature.clone().expect("creature");
         let corpse = w.materials.id_of("corpse");
         let mut opts = Vec::new();
-        let (mut decisions, mut carrying) = (0, 0);
+        let (mut decisions, mut carrying, mut crossable) = (0, 0, 0);
         for f in 0..3000 {
             step(&mut w);
             if f % 25 != 0 {
@@ -1337,11 +1368,33 @@ mod tests {
                 let of =
                     |v: Verb| -> Vec<(i32, i32)> { opts.iter().filter(|o| o.verb == v).map(|o| o.target).collect() };
                 assert_eq!(of(Verb::Rest), vec![head], "frame {f} ant {id}");
-                let footed: Vec<(i32, i32)> = opts
+                // A Walk into living wood is the trunk crossing (`cross_on`), which the game's walk takes only when
+                // blocked, so it is held apart from the steps: each one must be a crossing the body could make.
+                let wood = |t: &(i32, i32)| {
+                    let c = w.get(t.0, t.1);
+                    super::super::is_living_tissue(&w, c) && w.materials.get(c.material).woody
+                };
+                type Cells = Vec<(i32, i32)>;
+                let (crossings, footed): (Cells, Cells) = opts
                     .iter()
                     .filter(|o| o.verb == Verb::Walk && o.feats[f::STAND] == 1.0)
                     .map(|o| o.target)
-                    .collect();
+                    .partition(wood);
+                crossable += crossings.len();
+                for t in &crossings {
+                    let d = DIRS.iter().position(|&(dx, dy)| (head.0 + dx, head.1 + dy) == *t).expect("a step") as u8;
+                    let authored = segment_authored_widths(&def, st.fates);
+                    let body = BodyShape {
+                        chain: &st.chain,
+                        groups: &st.segment_groups,
+                        authored: &authored,
+                    };
+                    assert!(cross_on(), "frame {f} ant {id}: a walk into wood with the crossing off");
+                    assert!(
+                        super::super::trunk_crossing(&w, &def, body, d, parting_enabled(), stacker_of(&w, id)).is_some(),
+                        "frame {f} ant {id}: a walk into wood at {t:?} with no far side"
+                    );
+                }
                 let usable: Vec<(i32, i32)> = usable_headings(&w, id, &def)
                     .iter()
                     .map(|&d| (head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1))
@@ -1412,8 +1465,8 @@ mod tests {
             }
         }
         assert!(
-            decisions > 1000 && carrying > 0,
-            "{decisions} decisions, {carrying} carrying"
+            decisions > 1000 && carrying > 0 && crossable > 0,
+            "{decisions} decisions, {carrying} carrying, {crossable} trunk crossings offered"
         );
 
         // The control: food beside a free-jawed head -- on whichever side
