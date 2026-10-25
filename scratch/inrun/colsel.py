@@ -59,6 +59,15 @@ EXTRA = [x for x in EXTRA if not x.startswith('distramp=')]
 if DISTRAMP and len(DISTRAMP) == 3:
     DISTRAMP = DISTRAMP + (110,)
 dist_now = DISTRAMP[0] if DISTRAMP else None
+# tramp=START:STARVED:MIN (teacher lane, 2026-10-25): with patches=T:LO:HI, ramp how often the training heap moves
+# instead of how far it is. T starts at START frames; a round whose median starved is STARVED or fewer multiplies it by
+# 0.8 (never below MIN), one over 3 x STARVED divides it by 0.8 (never above START). The garden keeps the job's own
+# patches=. **Why**: on moving food the standard pool dies out even with the heap 20-40 columns out (3 of 4 test
+# worlds), starving beside 300+ cells of stored food it never eats -- the moves kill it, not the distance. A heap that
+# moves rarely at first is the gentlest way to make eating the store pay.
+TRAMP = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('tramp=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('tramp=')]
+move_t = TRAMP[0] if TRAMP else None
 WEAN = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('wean=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('wean=')]
 def wean_p(r):
@@ -330,7 +339,10 @@ SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
 # Job lines cannot set colsel's environment on the VM, so both ride as args: `scaleopen=1`, `nestneed=A,B,F`.
 SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
 SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
-EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed='))]
+# shapeopen=1 (teacher lane, 2026-10-25): +shape reads rooms from the nest's open cells only (roomshape.OPEN_ONLY):
+# with stored food counted as space, nest1's best "rooms" colony (85) was a lumpy food pile with 17 open cells.
+roomshape.OPEN_ONLY = 'shapeopen=1' in EXTRA
+EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed=', 'shapeopen='))]
 
 
 def nest_scale(rdir, nest):
@@ -585,12 +597,23 @@ if R0:
     spool = st0.get('spool', spool)
     spool_hist = st0.get('spool_hist', {})
     dist_now = st0.get('dist_now', dist_now)
+    move_t = st0.get('move_t', move_t)
 for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
+        # distramp= with patches=T:LO:HI (teacher lane, 2026-10-25; owner: food "farther from the nest (ideally still
+        # always moving)"): the ramp moves the moving heap's range instead, patches=T:max(20, D/2):D for this round's
+        # D, so training food keeps jumping while it walks outward on the colonies' starvation. The garden keeps the
+        # job's own patches= (the far test). **Why**: nest4-1025 trained straight on patches=20000:40:120 and no arm
+        # improved; trained colonies starved 110-280 a run there against the hand-built ant's 11.
+        if TRAMP:
+            cr = [f'patches={move_t}:{x.split("=", 1)[1].split(":", 1)[1]}' if x.startswith('patches=') else x for x in cr]
+        if DISTRAMP:
+            cr = [f'patches={x.split("=", 1)[1].split(":")[0]}:{max(20, dist_now // 2)}:{dist_now}' if x.startswith('patches=') else x
+                  for x in cr]
         if HEAPS:
             draw = lambda k: HEAPS[0] + 5 * random.Random(c * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
             cr = [f'dist={draw(0)}' if x.startswith('dist=') else x for x in cr] + [f'near={draw(1)}']
@@ -687,6 +710,14 @@ for r in range(R0, R):
         elif med > 3 * DISTRAMP[2]:
             dist_now = max(DISTRAMP[0], dist_now - DISTRAMP[1])
         print(f'round {r}: median starved {med}, food distance next round {dist_now}', flush=True)
+    if TRAMP:
+        st = sorted(res[c][2] if res[c] else 10**9 for c in cols)
+        med = st[len(st) // 2]
+        if med <= TRAMP[1]:
+            move_t = max(TRAMP[2], int(move_t * 0.8))
+        elif med > 3 * TRAMP[1]:
+            move_t = min(TRAMP[0], int(move_t / 0.8))
+        print(f'round {r}: median starved {med}, food moves every {move_t} frames next round', flush=True)
     for c in cols:
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
@@ -698,7 +729,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'spool': spool, 'spool_hist': spool_hist},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'move_t': move_t, 'spool': spool, 'spool_hist': spool_hist},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)

@@ -436,3 +436,38 @@ is stored food**: open room stays 75-110 cells in every arm. The weaned rules ca
 nest (16/16 against `hcasedrop`) and cost food. **Next, nest2:** `nestcount` now reports `nest_open` (open cells of
 the flooded nest: hand-built ant 1,025, colonies 8 and 10 3-16, nest1's colonies 2-64), and `scaleopen=1` scores the
 gate's case on it with `nestneed=6,3,1`. Arms `opengate` / `opengatewean`, controls nest1's gated arms (cached).
+
+**The rooms score counts stored food as space** (replay https://claude.ai/artifact/1MgsAwA6bprQ1o73HaCs6B). nest1
+`heapsgate` colony 9 (r23 garden, rooms score 85, the arm's best) is a food pile with 17 open nest cells; the
+hand-built ant on the same world scores 36 on 732. `roomshape.OPEN_ONLY` / colsel `shapeopen=1` reads rooms from the
+cells that are not stored food: colony 9 -> 0, colonies 8 and 10 0-1, hand-built ant 19-100.
+
+**nest2** (`scaleopen=1 nestneed=6,3,1`: the size gate on open nest cells; controls nest1's gated arms, cached).
+Open nest cells in the training maps, median r7 / r15 / r23 (pictures https://claude.ai/artifact/7PtyjnZKCrGeCNpUAJusqt):
+
+| arm | open r7 | r15 | r23 | garden nest r23 | food home | crater |
+|---|---|---|---|---|---|---|
+| opengate | 4 | 6 | 6 | 76 (smaller 31/32) | 21,668 | 8 |
+| heapsgate (control) | 7 | 6 | 15 | 424 | 21,037 | 7 |
+| opengatewean (rules r6-r20) | 42 | 168 | 50 (more 24/8) | 666 (bigger 24/5) | 12,880 (lower 20/9) | 13 |
+| heapsgatewean (control) | 38 | 28 | 26 | 464 | 15,964 | 6 |
+
+The open-room score alone fails; with the old rules on, open room at r15 is six times the control's and loses two
+thirds as the rules come off. On world 9099 the trained colony brings home 8x the hand-built ant's food (27,165
+deliveries against 3,323) and burns most of it; its store only grows (18 -> 472 cells) while the hand-built ant's
+stays 5-41 and ends at 6. **nest3** (the same arm weaned 8:40 over 48 rounds) was stopped 25 minutes in: the owner
+(19:09Z) ruled the garden's food far too close, and asked for it farther and always moving, and for replays after most
+runs.
+
+**nest4** (`patches=20000:40:120` in training and garden: one heap 40-120 columns out on a random side, moving every
+20,000 frames; 48 rounds; replays https://claude.ai/artifact/8SCJ54UxXuWroAWGgtShy6). **No arm improved.** Garden
+starved per run (median, r15-r47) 220-276 for the no-rules control, 144-244 with the rules weaned 8:40, 110-211 with
+that and `shapeopen=1`, against the hand-built ant's 11 on world 21099; 5, 9 and 15 of 32 colonies dead at r47. The
+rules arms dig open nests (training open median up to 291 and 308) and die out as the rules go. The best survivors
+hoard: the rooms arm's colony 21 keeps 83 ants with 40 starved in a 640-cell nest of which 87 cells are open and 655
+cells of food lie in it. **Why:** colony 10 on `patches=20000:20:40` and `20000:30:60` (worlds 1099, 2099) died out
+in 3 of 4 runs, starving 258-522 ants beside 175-315 cells of stored food that it never ate (store 350 -> 317 while
+the colony died, frames 140k-180k): the moves kill the trained ant, not the distance. The brood lane found the same on
+2026-10-23 (starving ants at home touching crumbs chose Walk 200 of 214 times). **Next, nest5:** the garden keeps the
+far moving food; in training the heap first moves every 200,000 frames, and `tramp=200000:50:20000` shrinks that by
+x0.8 each round the median colony starves 50 or fewer. `trampcrutch` adds `PP_HOMEEAT=1.0`, weaned r8-r28.
