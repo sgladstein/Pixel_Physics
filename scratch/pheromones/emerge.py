@@ -23,6 +23,8 @@ columns off; emergence = that gap growing over generations, in free and not in d
   [EVALS=1] seeds per colony per generation, scores averaged (the review's fix: one seed predicts the next at r=0.23)
   [SCORE=both|stored] stored food + nest cells, or stored food only (nest cells let a 4-ant huddle win the 1st run)
   [ZERO=LO-HI] zero these genome slots in the founder (2375-2409: the B emit row, for the re-evolve check)
+  [FILL=SIGMA] after ZERO, give every zeroed slot a small random weight N(0, SIGMA) (seeded): the operator's
+  add events almost never land on the one input a signal needs, so start the row dense and let sigma tune it
   [CHAN=alarm|B] the channel the listening replays deafen and shift; [ALARM=train|frozen] PP_MIND_ALARM
   e.g. python3 scratch/pheromones/emerge.py /tmp/em free 16 200 100000 assets/minds/std_pool.txt P=4
 
@@ -37,7 +39,7 @@ import nestcount  # noqa: E402
 
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT, ARM, N, GENS, FRAMES, FOUNDER = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM')
+OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL')
 opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in OPTS)}
 EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in OPTS]
 P, EVERY, LISTEN, SEED = int(opts.get('P', 4)), int(opts.get('EVERY', 10)), int(opts.get('LISTEN', 4)), int(opts.get('SEED', 1))
@@ -70,6 +72,9 @@ def founder_raw():
         f.write(f'genome {head[3]} {head[4]}\n')
         lo, hi = (int(x) for x in ZERO.split('-')) if ZERO else (1, 0)
         f.writelines(f'{i} {w}\n' for i, w in sorted(m.items()) if float(w) != 0.0 and not lo <= i <= hi)
+        if 'FILL' in opts:
+            fr = random.Random(SEED * 31 + 7)
+            f.writelines(f'{i} {fr.gauss(0.0, float(opts["FILL"])):.6f}\n' for i in range(lo, hi + 1))
     return fp
 
 
