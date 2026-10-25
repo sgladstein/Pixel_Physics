@@ -68,8 +68,8 @@ impl Arm {
 /// Every hand-set number in one place, printed on the seat's help card.
 #[derive(Clone, Debug)]
 pub struct Knobs {
-    /// A follower within this many cells (Chebyshev) of the leader's head is
-    /// in contact.
+    /// A follower whose head is within this many cells (Chebyshev) of any
+    /// cell of the leader's body is in contact ([`contact_gap`]).
     pub contact: i32,
     /// Past this gap for `break_frames` frames, contact is broken.
     pub break_gap: i32,
@@ -879,5 +879,303 @@ pub fn steer_cascade_leaders(world: &mut World) {
         let at = head(world, leader);
         let dir = if wait { None } else { at.zip(target).and_then(|(a, b)| toward(a, b)) };
         force(world, leader, dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! On the demo's own box with the trained ant (`demo_scout.ron`,
+    //! `set_new_ant(true)`): a claim checked on the hand-built ant does not
+    //! transfer to a mind ant (`how-the-ant-works` s16).
+    use super::*;
+    use crate::lab::Lab;
+    use crate::sim::steer::{self, ForcedPick};
+
+    const PATCH: Patch = Patch { x: 248, r: 10 };
+
+    fn box_at(frames: u64) -> Lab {
+        let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout.ron ships");
+        let mut lab = Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.set_new_ant(true);
+        while lab.world.frame < frames {
+            lab.tick_for_harness();
+        }
+        lab
+    }
+
+    fn arm(lab: &mut Lab, arm: Arm) {
+        let mut t = Tandems::new(arm, Some(PATCH));
+        t.knobs.pause_chance = 0.0;
+        lab.world.tandem = Some(Box::new(t));
+    }
+
+    /// A minded ant on the surface and the nearest sister she can reach, the
+    /// first such pair in id order.
+    fn pair_up(world: &World, reach: i32) -> Option<(OrganismId, OrganismId)> {
+        let mut ids = world.live_organism_ids();
+        ids.sort_unstable();
+        ids.into_iter().filter(|&id| crate::sim::creature::mind::has(world, id)).find_map(|id| {
+            let h = head(world, id)?;
+            let top = world.room_surface_at(h.0)?;
+            if h.1 > top + 1 {
+                return None;
+            }
+            candidates(world, id, reach).first().map(|&f| (id, f))
+        })
+    }
+
+    fn lead(world: &mut World, id: OrganismId, dir: Option<(i8, i8)>) {
+        steer::force(world, id, ForcedPick { dir, verb: None, once: false });
+    }
+
+    fn failed(world: &World) -> u64 {
+        world.minds.as_ref().map_or(0, |m| m.counts.failed)
+    }
+
+    /// Every cell's material and owner, and every live body's head.
+    fn digest(world: &World) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+        let b = world.bounds().expect("the box sets bounds");
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = world.get(x, y);
+                mix(u64::from(c.material.0));
+                mix(u64::from(c.organism_id()));
+            }
+        }
+        for id in world.live_organism_ids() {
+            if let Some((x, y)) = head(world, id) {
+                mix(u64::from(id) ^ ((x as u64) << 20) ^ ((y as u64) << 40));
+            }
+        }
+        h
+    }
+
+    /// **Off is off**: no tandem state and an armed module with no pair leave
+    /// the box byte-identical; a live pair does not (the positive control,
+    /// without which "identical" could mean the module never ran at all).
+    #[test]
+    fn an_armed_module_with_no_pair_changes_nothing() {
+        let run = |mode: u8| {
+            let mut lab = box_at(600);
+            if mode >= 1 {
+                arm(&mut lab, Arm::Scout);
+            }
+            if mode == 2 {
+                let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+                start_pair(&mut lab.world, l, f, false, false);
+            }
+            for _ in 0..300 {
+                lab.tick_for_harness();
+            }
+            digest(&lab.world)
+        };
+        let (off, idle, live) = (run(0), run(1), run(2));
+        assert_eq!(off, idle, "an armed module with no pair moved the box");
+        assert_ne!(off, live, "a live pair changed nothing: the digest is blind or the module never ran");
+    }
+
+    /// **She follows by touch, behind and not on top**: a leader walked east
+    /// for 900 frames is followed, the pupil in contact (gap <= break) on
+    /// nearly every Following frame, at rest only beside the body, and every
+    /// pick the pair forced was a pick the body could act on.
+    #[test]
+    fn a_pupil_follows_her_leader_by_touch() {
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Scout);
+        let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+        start_pair(&mut lab.world, l, f, false, false);
+        let (l0, f0) = (head(&lab.world, l).unwrap(), head(&lab.world, f).unwrap());
+        let failed0 = failed(&lab.world);
+        let (mut near, mut following, mut gaps) = (0u32, 0u32, [0u32; 8]);
+        for _ in 0..900 {
+            // The seat's own leash (`lab::demo::scout::frame`): the leader is held while her pupil lags three
+            // cells or more, or stops. Unheld, a quicker leader outwalks a slower pupil in 150 frames.
+            let hold = lab.world.tandem.as_deref().and_then(|t| t.pair_of(f)).is_some_and(|p| {
+                !matches!(p.phase, Phase::Following) || contact_gap(&lab.world, f, l).is_none_or(|g| g >= 3)
+            });
+            lead(&mut lab.world, l, (!hold).then_some((1, 0)));
+            lab.tick_for_harness();
+            let t = lab.world.tandem.as_deref().unwrap();
+            let Some(p) = t.pair_of(f) else { break };
+            if matches!(p.phase, Phase::Following) {
+                let g = contact_gap(&lab.world, f, l).expect("both alive");
+                following += 1;
+                gaps[(g as usize).min(7)] += 1;
+                near += u32::from(g <= t.knobs.break_gap);
+            }
+        }
+        let (l1, f1) = (head(&lab.world, l).unwrap_or(l0), head(&lab.world, f).unwrap_or(f0));
+        assert!(l1.0 - l0.0 >= 15, "the leader did not get anywhere ({l0:?} -> {l1:?}); the test needs a walk");
+        assert!(l1.0 - f1.0 <= 6, "the pupil did not keep up: leader {l0:?}->{l1:?}, pupil {f0:?}->{f1:?}, gaps {gaps:?}");
+        assert!(following > 300, "the pair left Following early ({following} frames), gaps {gaps:?}");
+        assert!(near * 10 >= following * 9, "contact on only {near} of {following} Following frames, gaps {gaps:?}");
+        assert_eq!(failed(&lab.world), failed0, "a forced pick the body could not act on");
+    }
+
+    fn paused_pair(leader_walks: bool) -> Tandems {
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Scout);
+        let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+        start_pair(&mut lab.world, l, f, false, false);
+        let frame = lab.world.frame;
+        let t = lab.world.tandem.as_mut().unwrap();
+        t.pairs[0].met = 1;
+        t.pairs[0].phase = Phase::Tell { until: frame + t.knobs.tell_frames, pause_for: 75, landmark: true };
+        for _ in 0..240 {
+            lead(&mut lab.world, l, leader_walks.then_some((1, 0)));
+            lab.tick_for_harness();
+        }
+        *lab.world.tandem.take().unwrap()
+    }
+
+    /// **A stop is the leader's to keep**: standing through a pupil's stop at
+    /// a landmark, she learns it and follows on; walking on through it, the
+    /// run breaks. The same pair, the same stop, only the leader differs.
+    #[test]
+    fn walking_through_a_stop_breaks_the_run_and_waiting_keeps_it() {
+        let kept = paused_pair(false);
+        let p = kept.pairs.first().expect("a waited-for pupil is still in her run");
+        assert!(matches!(p.phase, Phase::Following), "after the stop she should follow again, is {:?}", p.phase);
+        assert_eq!((p.learned, kept.counts.landmarks_learned), (1, 1), "the landmark was not learned");
+        let broke = paused_pair(true);
+        let lost = broke.pairs.first().is_none_or(|p| matches!(p.phase, Phase::Lost { .. }));
+        assert!(lost, "a pupil left behind at her stop is not searching or released: {:?}", broke.pairs.first().map(|p| p.phase));
+        assert_eq!(broke.counts.landmarks_learned, 0);
+    }
+
+    /// **The search finds a leader who waits**: a pupil lost a few cells
+    /// short sweeps the ground, first the way she was going (as `tick` sets
+    /// it), and touches her again.
+    #[test]
+    fn a_lost_pupil_sweeps_and_finds_a_leader_who_waits() {
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Scout);
+        let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+        start_pair(&mut lab.world, l, f, false, false);
+        // The pupil stops for good; the leader walks eight cells on, then stands.
+        let frame = lab.world.frame;
+        lab.world.tandem.as_mut().unwrap().pairs[0].phase = Phase::Pausing { until: frame + 100_000, landmark: false };
+        let l0 = head(&lab.world, l).unwrap();
+        while head(&lab.world, l).is_some_and(|h| h.0 < l0.0 + 8) && lab.world.frame < frame + 900 {
+            lead(&mut lab.world, l, Some((1, 0)));
+            lab.tick_for_harness();
+        }
+        let fat = head(&lab.world, f).expect("alive");
+        let now = lab.world.frame;
+        lab.world.tandem.as_mut().unwrap().pairs[0].phase = Phase::Lost { since: now, centre: fat, leg: 0, east: true };
+        let sweep = lab.world.tandem.as_ref().unwrap().knobs.sweep_frames;
+        for _ in 0..sweep + 30 {
+            lead(&mut lab.world, l, None);
+            lab.tick_for_harness();
+        }
+        let t = lab.world.tandem.as_deref().unwrap();
+        assert!(t.counts.recontacts >= 1, "the sweep never touched a standing leader {} cells off", head(&lab.world, l).map_or(0, |h| h.0 - fat.0));
+    }
+
+    /// **Refusals are graded by hunger**: too weak refuses outright, and from
+    /// there the willing share only falls as she fills.
+    #[test]
+    fn the_accept_chance_falls_as_she_fills() {
+        let k = Knobs::default();
+        assert_eq!(accept_chance(&k, k.weak - 0.01), None);
+        let mut last = f32::INFINITY;
+        for i in 0..=100 {
+            let s = k.weak + (1.0 - k.weak) * i as f32 / 100.0;
+            let p = accept_chance(&k, s).expect("not weak");
+            assert!(p <= last + 1e-6, "accept chance rose from {last} to {p} at sense {s}");
+            assert!((0.0..=1.0).contains(&p));
+            last = p;
+        }
+        assert!(accept_chance(&k, k.weak).unwrap() > accept_chance(&k, 0.99).unwrap());
+    }
+
+    /// **Arm B's column is capped and gives up**: a call fills at most
+    /// `max_pairs`, and a column that never gets there is released on its
+    /// timeout, not kept for ever.
+    #[test]
+    fn the_column_is_capped_and_times_out() {
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Column);
+        {
+            let k = &mut lab.world.tandem.as_mut().unwrap().knobs;
+            (k.weak, k.accept_hi, k.accept_lo, k.accept_full, k.call_reach, k.max_pairs, k.column_timeout) = (0.0, 1.0, 1.0, 1.0, 40, 3, 300);
+        }
+        let (l, _) = pair_up(&lab.world, 40).expect("a leader with sisters in reach");
+        assert!(matches!(tap(&mut lab.world, l), TapResult::Accepted(_)));
+        let t = lab.world.tandem.as_deref().unwrap();
+        assert_eq!(t.pairs.len(), 3, "the call ignored its cap (or found too few sisters for the test)");
+        assert!(t.pairs.iter().all(|p| p.column));
+        for _ in 0..360 {
+            lead(&mut lab.world, l, None);
+            lab.tick_for_harness();
+        }
+        let t = lab.world.tandem.as_deref().unwrap();
+        assert!(t.pairs.is_empty(), "the column outlived its timeout");
+        assert_eq!(t.counts.started, 3);
+    }
+
+    /// **The cascade is per trip home, from the patch, by a taught ant**:
+    /// one delivery is one roll; a delivery remembered elsewhere, or by an
+    /// ant nobody taught, is none.
+    #[test]
+    fn the_cascade_rolls_once_per_trip_home_from_the_patch() {
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Scout);
+        while !lab.world.frame.is_multiple_of(30) {
+            lab.tick_for_harness();
+        }
+        let (taught, sister) = pair_up(&lab.world, 3).expect("an ant with a sister in tap reach");
+        let untaught = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&i| i != taught && i != sister && crate::sim::creature::mind::has(&lab.world, i))
+            .min()
+            .expect("a third ant");
+        {
+            let t = lab.world.tandem.as_mut().unwrap();
+            t.knobs.cascade_c = 1.0;
+            (t.knobs.weak, t.knobs.accept_hi, t.knobs.accept_lo, t.knobs.accept_full) = (0.0, 1.0, 1.0, 1.0);
+            t.tree.insert(taught, 0);
+        }
+        let frame = lab.world.frame;
+        for (id, x) in [(taught, PATCH.x), (untaught, PATCH.x)] {
+            lab.world.organism_mut(id).unwrap().last_food = Some((x, 150, frame));
+        }
+        watch_trips(&mut lab.world); // first sight: nothing to compare with
+        lab.world.organism_mut(taught).unwrap().life.trip_deliveries += 1;
+        lab.world.organism_mut(untaught).unwrap().life.trip_deliveries += 1;
+        watch_trips(&mut lab.world);
+        let c = lab.world.tandem.as_deref().unwrap().counts.clone();
+        assert_eq!((c.patch_trips, c.tree_trips, c.cascade_runs), (2, 1, 1), "{c:?}");
+        // Remembered outside the patch: a trip, but not the patch's.
+        lab.world.organism_mut(taught).unwrap().last_food = Some((PATCH.x - 100, 150, frame));
+        lab.world.organism_mut(taught).unwrap().life.trip_deliveries += 1;
+        watch_trips(&mut lab.world);
+        let c2 = lab.world.tandem.as_deref().unwrap().counts.clone();
+        assert_eq!((c2.patch_trips, c2.tree_trips, c2.cascade_runs), (2, 1, 1), "{c2:?}");
+    }
+
+    /// **Same seed, same run**: the module's draws are keyed streams, not a
+    /// shared generator.
+    #[test]
+    fn a_run_repeats_exactly() {
+        let run = || {
+            let mut lab = box_at(600);
+            let mut t = Tandems::new(Arm::Scout, Some(PATCH));
+            t.knobs.pause_chance = 1.0 / 20.0;
+            lab.world.tandem = Some(Box::new(t));
+            let (l, f) = pair_up(&lab.world, 6).expect("pair");
+            start_pair(&mut lab.world, l, f, false, false);
+            for _ in 0..600 {
+                lead(&mut lab.world, l, Some((1, 0)));
+                lab.tick_for_harness();
+            }
+            (format!("{:?}", lab.world.tandem.as_ref().unwrap().counts), head(&lab.world, f), digest(&lab.world))
+        };
+        assert_eq!(run(), run());
     }
 }
