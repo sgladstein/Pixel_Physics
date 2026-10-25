@@ -143,3 +143,76 @@ The lab default change ("trained ant by default", held patch) ships once a pool 
   - Screen at 32 × 16 before 64 × 48.
   - Name the deciding measure before launch.
   - Extinct colonies count as 0.
+
+## 2026-10-24 evening: graded far sense, nest scaling, and a new founder
+
+**plantwean5** (std_pool on the planted bed, pile cap stepped on extinctions, 64 × 32): never weaned below a pile of
+20; every step to 15 put 36-45 of 64 colonies out. At cap 20 the common garden got *worse* over the run: alive
+(extinct as 0) 69.5 at r3 → 59 at r31, nest 160 → 141.5, extinct 13 → 17. Selection on the planted bed did not teach
+the pool to live on plants. Not carried forward.
+
+**farfood3b** (one founder, far64z; 32 colonies × 24 rounds; common garden every 8 rounds; food ramped from 80
+columns). The deciding measures were named before launch.
+
+| Arm | Food ramp reached | Lab case r23 | CG r23 nest | CG r23 starved | CG r23 nest ÷ needed |
+|---|---|---|---|---|---|
+| logsense (`PP_HOMEVEC=log:40`) | 100 | 1,183 | 127 | 43.5 | 0.115 |
+| nosense (`PP_HOMEVEC=off`) | 110 | 1,292 | 181.5 | 103 | 0.168 |
+| logscale (log:40 + `+scale`) | 90 | 869 | 318 | 24 | 0.225 |
+
+- **Sense:** no far sense beat graded on the lab case in 21 of 32 pairs, which is not significant. In lab boxes the
+  two arms' best colonies were level. Graded stays, per the owner's ruling, and is now the default (`log:40`).
+- **Nest scaling:** it did what it was asked. Nest ÷ needed was higher in 30 of 32 pairs, nest 318 vs 127 (29/3),
+  and the garden starved fewer. But the lab case fell in 30 of 32 pairs, and in lab boxes its colonies did worse at
+  150-200 columns. Adding a case thins the pressure on the others. Not the founder; to be retried with the lab case
+  weighted, or once laying is learned.
+
+**Lab boxes, best balanced colonies** (alive at 15k frames after landing, 1 tank, seeds 1/2):
+
+| Colony | Fruit 100 | Provisions 100 | Fruit 150 | Provisions 150 | Fruit 200 |
+|---|---|---|---|---|---|
+| logsense c12 | 117/109 | 193/190 | 110/95 | 189/232 | 31/43 |
+| logsense c22 | 131/140 | 269/279 | 106/117 | 241/257 | 54/53 |
+| nosense c4 | 128/136 | 265/205 | 102/101 | 226/278 | 58/71 |
+| logscale c13 | 120/93 | 161/166 | 57/66 | 123/106 | 3/2 |
+| far64 (the playtest build) | 113/118 | 182/221 | 17/36 | | |
+| hand-built ant | 169/194 | 219/219 | 127/159 | 124/173 | 114/132 |
+
+**Ratchet turn:** std_pool = logsense colony 12. Its lab survival is close to the best, and its nest is 409 cells
+with crater 0 (c22's is 214), against the arm's median of 127. The lab now opens on the trained ant (`-- oldant` for
+the hand-built one). Food 150 columns out is now survived at about the hand-built ant's level; 200 is still short.
+
+## 2026-10-24 night: learned laying finds no brake; the cap stays
+
+**laygene2** (32 colonies x 24 rounds, from logsense c12, `lex+spoil+crater+shape+lab`, food ramped from 100
+columns, scent soft ceiling and graded hunger on in every arm). The owner asked whether laying should balance
+through training rather than by rule. Three arms: `lg` (laying gene on, the training cap weaned away by
+`capwean`), `lgctl` (laying gene off, cap kept), `lgkeep` (laying gene on, cap kept).
+
+- **It did not balance.** With the cap weaned, colonies grow to 160-200 ants and starve about 850-1,050 ants a
+  round; the garden nest halves (144 against 317 with the cap kept). On the lab case `lg` beat `lgctl` in only 13
+  of 19 pairs, and no colony learned to lay less when food ran short. **Overturned:** "the genome will find the
+  brake if we let it". The lay gate's senses are local only (owner, 17:13Z: no colony-wide store sense), and with
+  those the selection never found one. The training cap stays; the laying gene stays on underneath it.
+- **lgkeep, best balanced colonies, garden round 23** (nest / nest-to-needed / starved / crater): c9 481/.39/65/19,
+  c6 665/.42/93/8, c8 536/.37/47/2, c17 570/.43/60/9. The current pool on the same garden: 409/.31/53/0.
+
+**Lab boxes** (as above, both sense fixes on for every row):
+
+| Colony | Fruit 100 | Provisions 100 | Fruit 150 | Provisions 150 | Fruit 200 |
+|---|---|---|---|---|---|
+| lgkeep c9 | 112/96 | 219/215 | 109/102 | 204/205 | 47/30 |
+| lgkeep c6 | 39/106 | 201/196 | 94/82 | 201/207 | 24/15 |
+| lgkeep c8 | 114/111 | 233/212 | 111/129 | 187/196 | 9/37 |
+| lgkeep c17 | 121/118 | 211/250 | 105/91 | 175/185 | 19/27 |
+| logsense c12 (current pool) | 153/173 | 232/217 | 115/108 | 173/194 | 23/19 |
+
+The current pool with the two fixes off: fruit 100 132/109, fruit 150 104/94, provisions 150 142/188, fruit 200
+37/44. So the fixes cost the trained ant nothing in the box and help it at 100 and provisions 150.
+
+**Defaults:** `PP_SCENT_SOFTCAP` and `PP_HUNGRY_GRADED` are now on by default (owner, 17:35Z: on unless there is
+uncertainty); `=0` gives the old behaviour. The soft ceiling is a world switch, so the hand-built ant's scent
+changes too; its tests stay green.
+
+**Ratchet turn:** std_pool = lgkeep colony 8: lab survival level with the current pool, nest 536 cells against 409,
+crater 2, fewest starved of the four. Fruit 200 columns out is still the hand-built ant's (114/132 against 9/37).

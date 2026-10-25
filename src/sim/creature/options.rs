@@ -471,10 +471,17 @@ pub fn switch_on_value(v: &str) -> bool {
 /// (80:60, 100:100 or off: 28-134 alive against 0-2). The dead zone within `R` was a guard for copying the come-home
 /// lesson onto a forager without it leaking into foraging near home; colony selection does not copy. Encoded as `R` =
 /// NaN, read by [`far_ramp`].
+///
+/// **The default since farfood3b (teacher lane, 2026-10-24 19:00Z) is `log:40`.** Owner: "I prefer the graded option
+/// unless it is significantly worse and cannot be trained to be better." Measured on one founder (far64z, its far
+/// links dropped), 32 colonies x 24 rounds each, food ramped from 80 columns: graded against no far sense at all, the
+/// lab case at round 23 was 1,183 vs 1,292 (11 of 32 colonies higher, n.s.), and the common garden starved 43.5 vs 103.
+/// In lab boxes the two arms' best colonies were level (fruit 150 columns out: 95-117 alive graded, 101-142 none;
+/// hand-built ant 127-159). `40:30` stays reachable for an old pool: `PP_HOMEVEC=40:30`.
 pub fn home_vec() -> Option<(f32, f32)> {
     static V: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "40:30".to_string());
+        let v = std::env::var("PP_HOMEVEC").unwrap_or_else(|_| "log:40".to_string());
         if !switch_on_value(&v) {
             return None;
         }
@@ -504,10 +511,14 @@ pub fn home_dir() -> bool {
     })
 }
 
-/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED=1`, [`f::HUNGRY`] graded ([`describe`]). Off by default.
+/// SCRATCH (sense-cap audit, 2026-10-24): `PP_HUNGRY_GRADED`, [`f::HUNGRY`] graded ([`describe`]). **On by default
+/// since laygene2** (teacher lane, 2026-10-24; owner: "the default should be on unless there is uncertainty"): the
+/// colonies selected with it on (laygene2's lgkeep arm) are the standard pool, and the previous pool, never trained
+/// with it, lived as well or better with it on in lab boxes (fruit 150 columns out 108-115 alive against 94-104).
+/// `PP_HUNGRY_GRADED=off` is the one-bit feature.
 fn hungry_graded() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PP_HUNGRY_GRADED").is_ok_and(|v| switch_on_value(&v)))
+    *ON.get_or_init(|| switch_on("PP_HUNGRY_GRADED"))
 }
 
 /// [`home_vec`]'s distance: 0 within `r` of home, rising linearly to 1 at `r + w`, 1 beyond; or, for `log:S` (`r` NaN),
@@ -1386,8 +1397,12 @@ mod tests {
                         o.target
                     );
                     for (k, &v) in o.feats.iter().enumerate() {
+                        // The graded far sense (`PP_HOMEVEC=log:S`, the default since farfood3b) is uncapped by
+                        // the owner's choice, so `LAST_FOOD` = cosine x ln(1 + d / S) passes 1 past ~70 columns
+                        // (1.25 at 100); 4.6 at 4,096 columns, so 6 bounds any world.
+                        let lim = if k == f::LAST_FOOD { 6.0 } else { 1.0 };
                         assert!(
-                            v.is_finite() && (-1.0..=1.0).contains(&v),
+                            v.is_finite() && (-lim..=lim).contains(&v),
                             "frame {f} ant {id}: {} = {v} on {:?}",
                             feature_names()[k],
                             o.verb

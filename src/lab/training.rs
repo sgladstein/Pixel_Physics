@@ -70,7 +70,12 @@ pub const H1: &str = include_str!("../../assets/minds/h1.raw.txt");
 /// its best colony's carry replaces it. History: brood1ctl colony 7 round 31
 /// (from hcs, rules weaned; garden nest 377, crater 3, starved 3, rooms 14) ->
 /// stdcheck stdoff colony 27 round 15 (from that pool, rules off from round 0;
-/// garden nest 530, crater 3, starved 6, rooms 44).
+/// garden nest 530, crater 3, starved 6, rooms 44) -> farfood2 ramp2far colony 64 round 23 (food ramped 45 -> 80
+/// columns, far sense 100:100) with its far-sense links dropped -> farfood3b logsense colony 12 round 23 (food ramped
+/// 80 -> 100 columns, graded far sense `log:40`, now the default; garden nest 409, crater 0, starved 53; lab box with
+/// fruit 150 columns out 95-110 alive, where this pool's first version starved to 0 beyond 100) -> laygene2 lgkeep
+/// colony 8 round 23 (from that pool, laying gene on with the training cap kept, scent soft ceiling and graded hunger
+/// on, food ramped from 100 columns; garden nest 536, crater 2, starved 47; lab box level with the previous pool).
 pub const STD_POOL: &str = include_str!("../../assets/minds/std_pool.txt");
 
 /// [`STD_POOL`]'s members as genomes this build runs: each one whole, its own
