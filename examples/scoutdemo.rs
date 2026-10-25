@@ -16,52 +16,22 @@
 //! `rude=1` is the positive control for the pauses: a leader who walks on
 //! through every stop must break runs that a waiting leader keeps.
 
+use pixel_physics::lab::demo::{scout, Demo, DemoSeat};
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::cell::OrganismId;
-use pixel_physics::sim::steer;
-use pixel_physics::sim::tandem::{self, Arm, Patch, Phase, TapResult, Tandems};
+use pixel_physics::sim::steer::{self, SteerInput, SteerRole};
+use pixel_physics::sim::tandem::{self, Arm, Phase, TapResult};
 use pixel_physics::sim::world::World;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
 }
 
-const NEST_X: i32 = 128;
-const HEAP_X: i32 = 248;
-/// Where the scripted player taps: by the near trickle (column 153), where foragers gather and the surface east is
-/// open. A tap inside a tunnel jammed leader and pupil in the first run, and the spoil and food piled over the
-/// mound boxed a scripted walker in for 9,000 frames in the second.
-const TAP_X: i32 = 160;
+use scout::{BODY_X as TAP_X, HEAP_X, NEST_X};
 
 fn head(world: &World, id: OrganismId) -> Option<(i32, i32)> {
     world.organism(id).and_then(|s| s.chain.first().copied())
-}
-
-fn ants(world: &World) -> Vec<OrganismId> {
-    let Some(ant) = world.species.id_of("ant") else { return Vec::new() };
-    world.live_organism_ids().into_iter().filter(|&i| world.organism(i).is_some_and(|s| s.species == ant)).collect()
-}
-
-/// The player's body: an adult on the surface within 25 columns of the tap
-/// spot whose decision interval is the colony's commonest (review 8),
-/// nearest the spot first.
-fn pick_player(world: &World) -> Option<OrganismId> {
-    let ant = world.species.id_of("ant")?;
-    let def = world.species.creature_shared(ant)?;
-    let ids = ants(world);
-    let interval = |id| pixel_physics::sim::creature::organism_tick_interval(world, id, &def);
-    let mut counts = std::collections::BTreeMap::new();
-    for &id in &ids {
-        *counts.entry(interval(id)).or_insert(0) += 1;
-    }
-    let modal = counts.into_iter().max_by_key(|&(_, n)| n)?.0;
-    ids.into_iter()
-        .filter(|&id| interval(id) == modal)
-        .filter_map(|id| head(world, id).filter(|h| world.room_surface_at(h.0).is_some_and(|top| h.1 <= top + 1)).map(|h| ((h.0 - TAP_X).abs(), id)))
-        .filter(|&(d, _)| d <= 25)
-        .min()
-        .map(|(_, id)| id)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,22 +64,52 @@ fn main() {
     while lab.world.frame < start {
         lab.tick_for_harness();
     }
-    let alive0 = ants(&lab.world).len();
-    let mut t = Tandems::new(arm, Some(Patch { x: HEAP_X, r: 10 }));
+    let alive0 = scout::ants(&lab.world).len();
+    // **The seat's own start**, so this run and `--bin lab -- demo=scout` begin the same way: the seat's
+    // tandem set-up, the seat's choice of body, the worker's role (her colony keeps its own breeding rule),
+    // and the seat's overlays and panel in every captured frame.
+    scout::start_tandems(&mut lab.world, arm, c);
+    let mut demo = Demo::new(DemoSeat::Scout);
+    let mut args = std::collections::BTreeMap::new();
+    args.insert("arm".to_string(), arm.letter().to_string());
     if let Some(c) = c {
-        t.knobs.cascade_c = c;
+        args.insert("c".to_string(), c.to_string());
     }
-    lab.world.tandem = Some(Box::new(t));
-    let Some(player) = pick_player(&lab.world) else {
+    let mut seat = scout::ScoutDemo::from_args(&args, seed);
+    seat.started = true;
+    seat.alive_at_start = alive0;
+    demo.scout = Some(seat);
+    demo.args = args;
+    lab.demo = Some(demo);
+    lab.world.death_log = Some(Vec::new());
+    let Some(player) = scout::pick_body(&lab.world) else {
         println!("no player body: {alive0} ants alive at {start}");
         return;
     };
-    // The headless player is led through the same slot her pupils are (`steer::force`), not `steer::mark`:
-    // marking would put her colony on the queen rule, which freezes its breeding (until the queen seat's
-    // `SteerRole::Worker` lands), and that would confound "alive at the end".
+    // Driven through the keys exactly as the window drives her (`SteerInput`), not `steer::force`.
+    steer::mark_with(&mut lab.world, player, Some(SteerInput::default()), SteerRole::Worker);
     println!("hand-over at {}: {alive0} ants alive, player #{player}", lab.world.frame);
 
+    // **Capture** (`gif=1 out=x.gif shot=N zoom=Z`): the seat's own frame, the camera on the player, one shot
+    // every `shot` frames, through `lab.draw` exactly as `labgif` does.
+    let gif = arg::<u8>("gif").unwrap_or(0) == 1;
+    let out: String = arg("out").unwrap_or_else(|| format!("target/scoutdemo-{}-s{seed}.gif", arm.letter()));
+    let shot: u64 = arg("shot").unwrap_or(60);
+    let zoom: i32 = arg("zoom").unwrap_or(2);
+    let (full_w, full_h) = (pixel_physics::lab::WIDTH, pixel_physics::lab::HEIGHT);
+    if gif {
+        // The welcome card a fresh lab opens on would sit over every shot.
+        lab.show_help = false;
+        for _ in 1..zoom {
+            lab.renderer.adjust_zoom(1);
+        }
+    }
+    let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
+    let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    let mut shots: Vec<image::RgbaImage> = Vec::new();
+
     let mut plan = Plan::Home;
+    let mut refusals: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     let mut tap_tries = 0u32;
     let mut leads_done = 0u32;
     let mut gaps = [0u64; 8];
@@ -120,14 +120,14 @@ fn main() {
     while lab.world.frame < end {
         let w = &mut lab.world;
         let Some(at) = head(w, player) else {
-            println!("frame {}: the player died", w.frame);
+            let cause = w.death_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == player)).map(|r| r.cause);
+            println!("frame {}: the player died ({cause:?})", w.frame);
             break;
         };
         let pairs: Vec<_> = w.tandem.as_ref().unwrap().pairs.iter().filter(|p| p.leader == player).cloned().collect();
         for p in &pairs {
-            if let Some(f) = head(w, p.follower) {
-                let g = (f.0 - at.0).abs().max((f.1 - at.1).abs()) as usize;
-                gaps[g.min(7)] += 1;
+            if let Some(g) = tandem::contact_gap(w, p.follower, player) {
+                gaps[(g as usize).min(7)] += 1;
             }
         }
         let dir: Option<(i8, i8)> = match plan {
@@ -153,7 +153,12 @@ fn main() {
             Plan::Tapping => {
                 if w.frame.is_multiple_of(30) {
                     tap_tries += 1;
-                    match tandem::tap(w, player) {
+                    let r = tandem::tap(w, player);
+                    *refusals.entry(format!("{:?}", r).split('(').next().unwrap_or("").to_string() + &match r {
+                        TapResult::Refused(_, why) => format!(" {why:?}"),
+                        _ => String::new(),
+                    }).or_insert(0u32) += 1;
+                    match r {
                         TapResult::Accepted(_) => plan = Plan::Leading,
                         _ if tap_tries > 20 => plan = Plan::Leading,
                         _ => {}
@@ -170,12 +175,14 @@ fn main() {
                     // A patient leader stands while any pupil lags, stops or searches; a rude one never does.
                     let wait = !rude
                         && pairs.iter().any(|p| {
-                            let g = head(w, p.follower).map_or(99, |f| (f.0 - at.0).abs().max((f.1 - at.1).abs()));
+                            let g = tandem::contact_gap(w, p.follower, player).unwrap_or(99);
                             !matches!(p.phase, Phase::Following) || g >= 3
                         });
                     if wait {
                         None
-                    } else if (at.0 - HEAP_X).abs() <= 4 {
+                    } else if at.0 >= HEAP_X - 8 {
+                        // She stops at the near edge of the heap, not on it: the heap's next drop lands on
+                        // whoever stands in it, and a body under it has no option but to turn round.
                         None
                     } else {
                         Some(((HEAP_X - at.0).signum() as i8, 0))
@@ -187,13 +194,15 @@ fn main() {
         let hungry = w.organism(player).is_some_and(|s| s.energy < 1_500.0);
         let food_near = w.materials.id_of("provisions").is_some_and(|f| (-3..=3).any(|dx| (-3..=3).any(|dy| w.get(at.0 + dx, at.1 + dy).material == f)));
         let eat = hungry && food_near;
-        if trace && w.frame == start + 600 {
-            for y in at.1 - 6..=at.1 + 3 {
-                let row: String = (at.0 - 10..=at.0 + 10)
+        if std::env::var("SCOUT_MAP").ok().and_then(|v| v.parse::<u64>().ok()) == Some(w.frame) {
+            for y in at.1 - 8..=at.1 + 3 {
+                let row: String = (at.0 - 14..=at.0 + 14)
                     .map(|x| {
                         let c = w.get(x, y);
                         if (x, y) == at {
                             '@'
+                        } else if c.organism_id() != 0 {
+                            'a'
                         } else if c.is_empty() {
                             '.'
                         } else {
@@ -204,7 +213,7 @@ fn main() {
                 println!("    {y}: {row}");
             }
             let st = w.organism(player).unwrap();
-            println!("    chain {:?} flight {:?} forced {:?}", st.chain, st.flight.is_some(), w.mind_force.get(&player).map(|f| f.pick));
+            println!("    chain {:?}", st.chain);
             let ant = w.species.id_of("ant").unwrap();
             let def = w.species.creature_shared(ant).unwrap();
             let mut opts = Vec::new();
@@ -223,7 +232,7 @@ fn main() {
         let goal = match plan {
             Plan::Home => TAP_X,
             Plan::Tapping => NEST_X,
-            Plan::Leading => HEAP_X,
+            Plan::Leading => HEAP_X - 8,
         };
         let dist = (goal - at.0).abs();
         if dir.is_none() || dist < best_dist || goal != last_goal {
@@ -241,22 +250,27 @@ fn main() {
         // Boxed in for a while (provisions and spoil pile over the nest mound), she digs her way out, as a player
         // pressing G would.
         let boxed = dir.is_some() && w.frame.saturating_sub(moved_at) > 200;
-        let verb = if eat {
-            Some(pixel_physics::sim::creature::options::Verb::PickUp)
-        } else if boxed {
-            Some(pixel_physics::sim::creature::options::Verb::Dig)
-        } else {
-            None
-        };
-        steer::force(w, player, steer::ForcedPick { dir, verb, once: false });
+        if let Some(st) = w.steered.as_mut() {
+            st.input = Some(SteerInput { dir, eat, dig: boxed && !eat, ..SteerInput::default() });
+        }
         lab.tick_for_harness();
+        if gif && (lab.world.frame - start).is_multiple_of(shot) {
+            if let Some((hx, hy)) = head(&lab.world, player) {
+                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+            }
+            let mut full = vec![0u8; (full_w * full_h * 4) as usize];
+            lab.draw(&mut full, 60.0);
+            if let Some(img) = image::RgbaImage::from_raw(full_w, full_h, full) {
+                shots.push(img);
+            }
+        }
         if (lab.world.frame - start).is_multiple_of(every) {
             let t = lab.world.tandem.as_ref().unwrap();
             let knows = t.lessons.len();
             println!(
                 "f{} alive {} plan {:?} | {:?} | know {} income/min {} | gaps0-7 {:?}",
                 lab.world.frame,
-                ants(&lab.world).len(),
+                scout::ants(&lab.world).len(),
                 plan,
                 t.counts,
                 knows,
@@ -265,6 +279,24 @@ fn main() {
             );
         }
     }
+    if gif {
+        let delay_ms = arg::<u64>("delay").unwrap_or(80).max(1);
+        let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
+        let n = shots.len();
+        let frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
+        match std::fs::File::create(&out) {
+            Ok(file) => {
+                let mut enc = image::codecs::gif::GifEncoder::new(file);
+                let _ = enc.set_repeat(image::codecs::gif::Repeat::Infinite);
+                if let Err(e) = enc.encode_frames(frames) {
+                    eprintln!("scoutdemo: gif encode failed: {e}");
+                }
+                println!("gif: {n} shots, one every {shot} frames, {delay_ms} ms each, zoom {zoom} -> {out}");
+            }
+            Err(e) => eprintln!("scoutdemo: cannot write {out}: {e}"),
+        }
+    }
+    println!("tap outcomes: {refusals:?}");
     let t = lab.world.tandem.as_ref().unwrap();
-    println!("END arm={} seed={seed} rude={rude}: leads {leads_done} alive {}->{} {:?}", arm.letter(), alive0, ants(&lab.world).len(), t.counts);
+    println!("END arm={} seed={seed} rude={rude}: leads {leads_done} alive {}->{} {:?}", arm.letter(), alive0, scout::ants(&lab.world).len(), t.counts);
 }

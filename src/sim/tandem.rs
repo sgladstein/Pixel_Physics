@@ -344,6 +344,17 @@ fn gap(a: (i32, i32), b: (i32, i32)) -> i32 {
     (a.0 - b.0).abs().max((a.1 - b.1).abs())
 }
 
+/// **How far the follower's head is from her leader's body** -- any cell of
+/// it, not her head. A follower touches her leader's gaster, not her face:
+/// measured head to head, a pupil pressed against the tail of a leader facing
+/// away reads as three cells off, and the first played run deadlocked on
+/// exactly that (the pupil "closing" a gap she could not close, the leader
+/// held until she did, 2,000 frames). `None` if either is dead.
+pub fn contact_gap(world: &World, follower: OrganismId, leader: OrganismId) -> Option<i32> {
+    let f = head(world, follower)?;
+    world.organism(leader)?.chain.iter().map(|&c| gap(f, c)).min()
+}
+
 fn toward(from: (i32, i32), to: (i32, i32)) -> Option<(i8, i8)> {
     let d = ((to.0 - from.0).signum() as i8, (to.1 - from.1).signum() as i8);
     (d != (0, 0)).then_some(d)
@@ -657,11 +668,14 @@ pub fn tick(world: &mut World) {
                 p.crumbs.pop_front();
             }
         }
-        let g = gap(fat, lat);
+        let g = contact_gap(world, p.follower, p.leader).unwrap_or_else(|| gap(fat, lat));
         let stepped = fat != p.last_at;
         p.last_at = fat;
-        // Arrival.
-        if patch.is_some_and(|pt| pt.holds_column(fat.0)) && food_within(world, fat, k.arrive_reach) {
+        // Arrival: in the patch, and either food in reach or her leader stopped here for a second. The second
+        // clause is the leader's word that this is the place: the heap is eaten down between drops, and in the
+        // first played run a pupil stood in the patch with her leader for 1,800 frames, never "arriving",
+        // because the food in reach had gone home in other ants' crops.
+        if patch.is_some_and(|pt| pt.holds_column(fat.0)) && (food_within(world, fat, k.arrive_reach) || p.leader_still > 60) {
             world.tandem.as_mut().expect("checked").pairs[i] = p;
             release(world, i, true);
             continue;
