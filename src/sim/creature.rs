@@ -7995,7 +7995,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // regardless -- old age, wounds, crossings, flight above, and the fall,
     // the bill, digestion and birth inside -- stays the same. Nobody has a
     // mind in the game, so this is one `Option` read per tick there.
-    if world.minds.is_some() && mind::has(world, organism) {
+    //
+    // **Except the body a keyboard holds** (seat demos, 2026-10-25): the
+    // five `steer::` hooks live on the hand-built path below, and `mind::tick`
+    // reads none of them, so a trained lab ant marked as the player's body
+    // would ignore every key. While the keyboard drives her she takes this
+    // path -- her outputs are the keys' anyway (`steered_outputs`) -- and
+    // above the steering cap (`input` `None`) her mind drives her again.
+    // **The queen's body only** (`SteerRole::Queen`, an ant): she lays on L
+    // and digs and packs by slice 0's tested hooks, which the mind has no
+    // verb for. Every other steered mind body -- the scout seat's worker, the
+    // enemy seat's centipede -- stays in `mind::tick`, where the forced pick
+    // (`steer::take_forced`) drives it, so a worker body keeps her sisters'
+    // rules. Nobody steered: one more `Option` read.
+    if world.minds.is_some()
+        && mind::has(world, organism)
+        && !(crate::sim::steer::input_of(world, organism).is_some()
+            && world.steered.as_ref().is_some_and(|s| s.role == crate::sim::steer::SteerRole::Queen)
+            && world.organism(organism).is_some_and(|s| world.species.get(s.species).name == "ant"))
+    {
         // SCRATCH (foraging-loop thread): `PP_SHADOW=1`, the mind watches and the old ant acts.
         if !mind::scratch_log::shadow_on() {
             // SCRATCH (dig-scoring thread, 2026-10-22): `PP_OLDLAB=1`, the old ant labels this tick's state in a clone
@@ -23040,14 +23058,15 @@ fn breeding_regime() -> BreedingRegime {
 }
 
 /// **The breeding rule for one colony**: `queen` for the player's colony
-/// (`steer`), so her daughters hold back while she lives wherever she
+/// (`steer`, when she wears the queen's role -- a `SteerRole::Worker` body
+/// leaves her colony's rule alone), so her daughters hold back while she lives wherever she
 /// roams -- under the shipped `graded`, a queen more than
 /// `PIXEL_PHYSICS_BREEDING_RADIUS` cells from them lets them lay at the full
 /// bar -- and [`breeding_regime`] for every other colony, which is the whole
 /// of the off path.
 fn regime_of_colony(world: &World, colony: u32) -> BreedingRegime {
     match world.steered.as_ref() {
-        Some(s) if s.colony == colony => BreedingRegime::Queen,
+        Some(s) if s.colony == colony && s.role == crate::sim::steer::SteerRole::Queen => BreedingRegime::Queen,
         _ => breeding_regime(),
     }
 }

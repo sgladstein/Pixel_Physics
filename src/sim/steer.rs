@@ -103,10 +103,29 @@ impl SteerInput {
     }
 }
 
+/// **Which body the player wears** (seat demos, 2026-10-25,
+/// `Reports/teaching-the-colony-2026-10-25/` and the shared board's
+/// `steered-ant.md`). The queen seat and the lone-scout seat both drive an
+/// ordinary ant; they differ only in the breeding rule her colony runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SteerRole {
+    /// The founding queen: her colony runs the queen rule (slice 0's only
+    /// role, and still what [`mark`] gives).
+    #[default]
+    Queen,
+    /// One worker among many (the scout seat): her colony keeps its own
+    /// breeding rule. Still no old age -- the owner's ruling is about the
+    /// player's body, not the queen's (*"My player shouldn't die of old
+    /// age"*, 2026-10-11).
+    Worker,
+}
+
 /// The one body the player drives, and the rules that come with it.
 #[derive(Clone, Debug)]
 pub struct Steered {
     pub id: OrganismId,
+    /// Queen or worker: only `regime_of_colony` reads it.
+    pub role: SteerRole,
     /// With `id`, the body's identity: a dead ant's id is never matched to
     /// another body by accident.
     pub born_frame: u64,
@@ -142,6 +161,12 @@ impl Steered {
 /// whatever her id), and records her colony for the queen rule. Returns
 /// `false`, changing nothing, if `id` is not a live organism.
 pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> bool {
+    mark_with(world, id, input, SteerRole::Queen)
+}
+
+/// [`mark`] with the role named: [`SteerRole::Worker`] leaves her colony's
+/// breeding rule alone.
+pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, role: SteerRole) -> bool {
     let Some(state) = world.organism_mut(id) else {
         return false;
     };
@@ -149,6 +174,7 @@ pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> boo
     let (born_frame, colony) = (state.born_frame, state.colony);
     world.steered = Some(Steered {
         id,
+        role,
         born_frame,
         colony,
         input,
@@ -178,6 +204,13 @@ pub fn grant(world: &mut World, joules: f32) -> f32 {
     state.energy += joules;
     world.book(colony, crate::sim::world::Account::Granted, f64::from(joules));
     joules
+}
+
+/// **The steered body, if she is alive**: what a seat's own module reads to
+/// find her each tick (`world.organism(id)` for where she is).
+pub fn steered_id(world: &World) -> Option<OrganismId> {
+    let s = world.steered.as_ref()?;
+    is_steered(world, s.id).then_some(s.id)
 }
 
 /// **Is `organism` the steered body?** `false` with nobody steered, which is
@@ -481,6 +514,7 @@ mod tests {
                 Some(None) => {
                     lab.world.steered = Some(Steered {
                         id: OrganismId::MAX,
+                        role: SteerRole::Queen,
                         born_frame: 0,
                         colony: u32::MAX,
                         input: Some(held),
@@ -731,6 +765,49 @@ mod tests {
         let (with, without) = (run(true), run(false));
         assert_eq!(without, 0, "the raider bit {without} times with B never pressed: its mind is still choosing");
         assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
+    }
+
+    /// **A trained (mind) ant marked as the queen's body obeys the keys**
+    /// (seat demos, 2026-10-25; the queen role only -- a worker body stays
+    /// in `mind::tick`). The lab opens on the trained pool, and
+    /// `mind::tick` reads no steer hook, so without the hand-off in
+    /// `creature_tick` the keys did nothing to her: `used` stayed at its
+    /// default because `take_input` was never reached. Watched red with the
+    /// `input_of(..).is_none()` term taken out of that branch.
+    #[test]
+    fn a_keyboard_drives_a_mind_ant() {
+        use crate::lab::scenario::{Placement, Scenario};
+        let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+        for e in &mut sc.timeline {
+            if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                e.at = 200;
+            }
+        }
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.set_new_ant(true);
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let mut ids = lab.world.live_organism_ids();
+        ids.sort();
+        let id = *ids
+            .iter()
+            .find(|&&i| crate::sim::creature::mind::has(&lab.world, i))
+            .expect("test setup: no ant has a mind");
+        let held = SteerInput {
+            dir: Some((1, 0)),
+            ..Default::default()
+        };
+        assert!(mark_with(&mut lab.world, id, Some(held), SteerRole::Queen));
+        assert_eq!(steered_id(&lab.world), Some(id));
+        for _ in 0..600 {
+            lab.tick_for_harness();
+        }
+        // `used` first: with the hand-off taken out she does not take the
+        // keys, and (measured) also dies inside the 600 frames.
+        assert_eq!(lab.world.steered.as_ref().map(|s| s.used), Some(held), "the mind ant never took the keys");
+        assert!(lab.world.organism(id).is_some(), "test setup: the steered ant died");
     }
 
     #[test]
