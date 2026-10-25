@@ -276,3 +276,10 @@ keeps only the in-run loop). Measure named before launch: garden median nest, r7
 what slows it. The erosion is inside the round, where children are bred from the best-scoring ants, and the
 standard in-run score pays a delivery 7 times (`w_deliver=7`) what it pays a nest cut (`w_dig` 1). Next:
 **erosion2** raises `w_dig` to 3 and 7 against a fresh control.
+
+**erosion2** (the same setup, `w_dig` 1 / 3 / 7): paying a nest cut more inside the round does not stop the erosion.
+Garden median nest r7 -> r15 -> r23: control 446 -> 394 -> 280, `w_dig=3` 467 -> 318 -> 204, `w_dig=7` 491 -> 487 ->
+184. The lab case fell (`w_dig=7` ahead of the control in 1 of 32 pairs). The control matched erosion1's exactly on
+a later main. Carried ants' live links stayed at ~1,950 in every arm (the standard pool's member 0: 1,947), so the
+brain is not being pruned. **Next, erosion3:** the same control against food held 25 columns out (`dist=25`, no
+ramp). Every batch that eroded trained on far food (100+ columns); colsel10 at 25 columns grew its nest r31 -> r47.
