@@ -767,8 +767,9 @@ mod tests {
         assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
     }
 
-    /// **A trained (mind) ant marked as the player's body obeys the keys**
-    /// (seat demos, 2026-10-25). The lab opens on the trained pool, and
+    /// **A trained (mind) ant marked as the queen's body obeys the keys**
+    /// (seat demos, 2026-10-25; the queen role only -- a worker body stays
+    /// in `mind::tick`). The lab opens on the trained pool, and
     /// `mind::tick` reads no steer hook, so without the hand-off in
     /// `creature_tick` the keys did nothing to her: `used` stayed at its
     /// default because `take_input` was never reached. Watched red with the
@@ -798,7 +799,7 @@ mod tests {
             dir: Some((1, 0)),
             ..Default::default()
         };
-        assert!(mark_with(&mut lab.world, id, Some(held), SteerRole::Worker));
+        assert!(mark_with(&mut lab.world, id, Some(held), SteerRole::Queen));
         assert_eq!(steered_id(&lab.world), Some(id));
         for _ in 0..600 {
             lab.tick_for_harness();
