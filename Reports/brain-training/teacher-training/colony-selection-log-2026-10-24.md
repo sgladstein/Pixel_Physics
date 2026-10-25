@@ -379,3 +379,10 @@ after=15000, seeds 1-4, grant=1, mean headcount: the hand-built ant 68.1 / 69.3 
 (the trained ant bites a plant at the same rate starving or fat), and no case in training has asked for it. A run
 costs ~28 s against ~5 s for a far-food box. **Next, herbs1:** control against `lab_herbs` added to the lab case,
 alone and with `drop`.
+
+**herbs1** (the control against `lab_herbs` added to the summed lab case, alone and with `drop`): the herb bed did not
+move. Each arm's 32 r23 carries in `lab_herbs` (labsurvive, seed = colony, after=15000, mean headcount): control
+median 16.9, `herbs` 21.0 (ahead in 15 of 32), `herbsdrop` 17.5 (16 of 32); in `lab_far200_fruit` 64.9, 63.2, 61.9.
+Gardens: `herbs` r23 nest 326 vs 383 (bigger 17/32) and starved 23 vs 6; `herbsdrop` even. The control matched
+door1's to the digit (deterministic). **Why nothing moved:** ~17 ants on herbs is a sliver of a sum the far-food boxes
+(~65 each) set. **Next, herbs2:** `labcase=lab_herbs` (new colsel arg), the herb bed as a lexicase case of its own.
