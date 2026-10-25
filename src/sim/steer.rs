@@ -51,6 +51,11 @@
 //! by the slice-0 comparison against main in the report: every `deeptrace`
 //! output byte-identical, at one thread and at four.
 //!
+//! **A body with a mind** (the trained ant, the spider, the centipede)
+//! returns into `mind::tick` before any of the five hooks; there the keyboard
+//! picks the mind's option instead ([`ForcedPick`], [`take_forced`],
+//! [`choose`]), and [`force`] lets a module lead any mind body the same way.
+//!
 //! **Not `World::player`** -- that is the gnome (`sim::player`).
 
 use crate::sim::cell::OrganismId;
