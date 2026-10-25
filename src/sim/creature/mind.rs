@@ -2528,6 +2528,10 @@ fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): 
     if their_colony == colony {
         return false;
     }
+    // A sated predator does not kill (`CreatureDef::handling`): no room in the crop for this cell, no bite.
+    if super::handling_on(def) && !crop.is_none_or(|c| c.material == cell.material && c.worth() + c.unit <= organism_crop_capacity(world, organism, def)) {
+        return false;
+    }
     let gut = super::gut_of(world, organism, def);
     let damage = crate::sim::contest::bite_progress(gut.bite, super::armour_at(world, cell));
     world.creature_stats.contests += 1;

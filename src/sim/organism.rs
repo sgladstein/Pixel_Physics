@@ -4195,6 +4195,21 @@ pub struct CreatureDef {
     /// for it.
     #[serde(default)]
     pub nectar_only: bool,
+    /// **A meal takes as long as the gut takes** -- a predator's handling time. On, the Eat choice
+    /// (`eat_lunch_now`) cannot finish a cell faster than `digest_rate`, and a mind's bite
+    /// (`mind::attack`) does not land while the crop has no room for what it would kill: a sated animal
+    /// neither gorges nor kills for nothing. Off, as every species but the spider, Eat finishes the cell
+    /// at once.
+    ///
+    /// **Why** (lone predator thread, 2026-10-25, `Reports/lone-predator-2026-10-24.md` stage four): with
+    /// Eat finishing each kill at once, two spiders let into a lab nest became 28 in 6,000 frames, one bite
+    /// an ant, and wiped the colony in every run that bred (21 of 24); a breeding bar 2x and 4x as high did
+    /// not stop it. Paced alone (lab_mid_fruit, 1-2 spiders x 3 seeds) the colony lived 5 of 6 but the
+    /// spiders killed 7x what they ate (408 kills, 55 swallowed); the sated rule alone changed nothing (4 of
+    /// 6 wiped); both together the colony lived 6 of 6, every kill was eaten, and spiders peaked at 1-5.
+    /// `PIXEL_PHYSICS_HANDLING=off` opts out ([`crate::sim::creature::handling_on`]).
+    #[serde(default)]
+    pub handling: bool,
     /// **How long an animal of this kind lives, in frames -- the median.**
     ///
     /// `0` is immortal, which is every species' default and the behaviour
@@ -4612,6 +4627,7 @@ impl CreatureDef {
             traffic_defer_max,
             eats_kin,
             nectar_only,
+            handling,
             life_half_life,
             scent_spread,
             scent_drift,
@@ -4742,6 +4758,8 @@ impl CreatureDef {
             // A switch, not a length: scaling a body does not change what
             // its mouth will open.
             nectar_only: *nectar_only,
+            // A switch, as `nectar_only`.
+            handling: *handling,
             // **A span of real time, so x 1 -- and that is a claim about
             // the hazard, not an assumption.** A supersampled animal decides
             // `k` times as often, so a per-tick chance passed through
