@@ -1,0 +1,50 @@
+// The colony mind stake bed (colony-mind seat, 2026-10-25; NOT in assets/: the seat found no demo to ship, see
+// `colony-mind-verdict.md`. Load it with PIXEL_PHYSICS_LAB_SCENARIOS=Reports/teaching-the-colony-2026-10-25/colony-mind;
+// `Reports/teaching-the-colony-2026-10-25/seat-colony-mind.md` and the seat's plan).
+//
+// `steady_income`'s box and colony -- 52 ants at column 256, no plants, rain off, 40 cells of provisions 30 columns
+// east every 1,000 frames -- **with the income switched off for 15,000 frames in every 35,000: a famine**. The
+// trained colony already booms and busts on steady income (step 0: 9 -> 230 -> 80 ants, 2 of 8 seeds extinct by
+// 150,000 frames); the famines make that the stake the player's two channels (the food trail, the shared stomach)
+// are measured against. The famine length is a first guess to be set by the plan's stake step.
+(
+    name: "demo_mind",
+    title: "THE COLONY'S VOICE",
+    question: "Food comes and goes: can a hand on the colony's food trail and shared stomach carry it through the famines?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+        (at: 6000, every: 1000, until: 25000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 41000, every: 1000, until: 60000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 76000, every: 1000, until: 95000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 111000, every: 1000, until: 130000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 146000, every: 1000, until: 165000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 181000, every: 1000, until: 200000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 216000, every: 1000, until: 235000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 251000, every: 1000, until: 270000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 286000, every: 1000, until: 305000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 321000, every: 1000, until: 340000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 356000, every: 1000, until: 375000, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 391000, every: 1000, until: 410000, what: Heap(material: "provisions", x: 286, cells: 40)),
+    ],
+    horizon: 600000,
+)

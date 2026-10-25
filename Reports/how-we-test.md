@@ -134,7 +134,10 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 - **Plain `deliveries`** counts every put-down at home, including crumbs lifted
   inside the nest and set straight back (4–12x the real figure). Use
   **`trip_deliveries`** (`labforage trip_deliveries=`, census `tripD`) or pile
-  refills.
+  refills. **The mind's own `MindCounts::delivered` is the same trap**: a
+  louder food trail at the door once read as "+43% food home" on it and was
+  noise on `trip_deliveries` (more handling at the door, no more food;
+  `Reports/teaching-the-colony-2026-10-25/colony-mind-verdict.md`).
 - **Raw larvae starved** falls whenever eggs fall. Use **larvae starved per egg**.
 - **Total cuts.** 80–85% of nest cuts are re-digs of soil already moved. Count
   **new-ground cuts**.
