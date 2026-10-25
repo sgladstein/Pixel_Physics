@@ -11276,7 +11276,8 @@ foragers) becomes worth learning.
 
 **How to reach it.** In the lab, click the COLONY chip until it reads
 CENTIPEDE and stock it with the COLONY tool, as the spider. Every centipede
-in a box gets a mind from `assets/minds/centipede_pool.txt` within 16 frames.
+in a box gets a mind from the trained raider pool
+(`assets/minds/centipede_pool.txt`) within 16 frames.
 Training and lab tests take it by name: `predtrain species=centipede`,
 `spiderlab species=centipede`, `inrun spider_species=centipede`.
 
@@ -11300,9 +11301,11 @@ Training and lab tests take it by name: `predtrain species=centipede`,
   the same cell down and picking it up again.
 
 **Known limits.**
-- **It does not raid on purpose yet.** Eight rounds of training on four
-  lines did not beat the untrained hunter mind, and in the lab the one
-  population that lived held the surface beside the colony rather than
-  entering the nest.
+- **It does not raid on purpose yet.** The shipped pool (trained line
+  hunter-2) is the only one of four that makes a population in most lab
+  boxes (4 of 6 runs; the untrained hunter 0), and it can eat a colony out
+  (2 of 6). But it does it by ambushing foragers in heaps on the surface;
+  none was seen in the shaft. Training pays for food, and the food walks
+  past the door.
 
 The write-up and the numbers: `Reports/nest-raider-2026-10-25.md`.

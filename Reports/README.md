@@ -2897,7 +2897,9 @@ drift that two of these documents still reflect.**
   a raider is paid in training for what it digests, not what it swallows (7,300
   swallows against 37 cells bitten). Training on four lines did not beat the
   untrained hunter mind; in the lab the one population that lived held the
-  surface, not the nest. RAIDER_POOL_LINE
+  surface, not the nest. The lab pool was chosen in the lab: trained line
+  hunter-2 is the only one of four that took hold in most boxes (4 of 6; ate the
+  colony out in 2), by ambushing foragers on the surface, not by raiding.
 - [brood-in-training-2026-10-24.md](brood-in-training-2026-10-24.md) — **breeding in
   the training bed, and why the nest still fills with food, 2026-10-24.** `inrun`
   now lays real brood by default (`brood=lay`, `lay_cap=48:8`), with selection's
