@@ -1,8 +1,9 @@
 # Evolvable pheromones: what the scents mean, a better B, and an emergence test (2026-10-25)
 
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
-**finished.** Decode done; B fade 0.25 rejected under selection (§5); the emergence test found no convention
-that beats deafness, so the palette stays parked (§7). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+**reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
+first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run is in progress (§9.5). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -30,6 +31,11 @@ the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJY
 - **Emergence test** (§7): with the unused alarm channel opened to evolution under colony-level selection, the best
   brains came to rely on it, but the colonies got worse than in the deaf control (median 9 against 284), and the run
   lost its last good lineage. No convention that beats deafness formed, so the palette stays parked.
+- **Not a dead end** (§9, owner asked 15:00Z): an independent review found the first test could not have passed
+  (the alarm plane reaches ~3 cells, food sits 30-110 away), and that the free arm's reliance was real
+  information, not a level. Deleting today's food trail and letting evolution rebuild it **fails from a zero
+  start (2 of 2) and works from a small random start**: in ~40 generations the rebuilt trail is laid only by
+  laden ants and colonies that hear it beat deaf ones 4/4. The blocker was search, not the idea.
 
 ## 1. The physics today
 
@@ -248,7 +254,7 @@ The test the review asked for (E2), built on the conditions the robot-colony stu
   says unprotected standard mutation is itself heavy; colony selection holds it off in the deaf arm.
 - **Verdict for the owner's rule** (palette only if a convention forms): **no convention formed; the palette stays
   parked.**
-- **If retried** (not recommended now): a founder that does not yet read the channel (zero its alarm read weights),
+- **If retried** (done, §9 -- the follow-ups repaired these and more): a founder that does not yet read the channel (zero its alarm read weights),
   two or more seeds per evaluation so one extinction cannot erase the best lineage, 32+ colonies, and replicate runs
   per arm. About 4x this run's cost.
 
@@ -268,6 +274,87 @@ The test the review asked for (E2), built on the conditions the robot-colony stu
 | `examples/molecules.rs` | one walk of trail per molecule, both laws, at five ages |
 | `scratch/pheromones/emerge.py` | the emergence test's generation driver (§7) |
 | `scratch/pheromones/storeeat.py` | per-class store eating, churn, deliveries and digging from `events.csv` |
+| `PP_SCENT_CONST=CH:V,...` | the mind reads that plane as one constant level everywhere: separates information from level (§9.1) |
+| `PIXEL_PHYSICS_ALARM_GROUND=RHO:DIFFUSE` | the third plane on the ground law at that fade and blend instead of the air-law call (§9.5) |
+| `emerge.py EVALS= SCORE= ZERO= FILL= CHAN= ALARM=` | seeds per colony, score, zero/dense-start an emit row, which channel the replays deafen, alarm row open or frozen |
 
 `PP_SCENT_BLIND=1` (older) zeroes only the head scent inputs, not the per-option features or the dig head, and so
 is a **partial** blinding; use `PP_SCENT_DEAF=all` for a listening test.
+
+## 9. Follow-ups: is this a dead end? (owner asked 2026-10-25 15:00Z)
+
+The owner asked for an independent review and a straight answer, preferring to continue. The review (a fresh
+sub-agent reading the code, this report and the run data) said **the first test was a dead end by construction,
+but the line is not**, and named three defects, each of which the follow-ups below either confirmed or repaired:
+
+1. **The channel could not reach the food.** The alarm plane spreads on the air law and an ant's own call carries
+   about 3 cells (§1); food sits 30-110 columns from the door. Nothing worth saying could be said on it.
+2. **One seed per evaluation was noise.** A colony's score on one seed predicts its score on the next at r = 0.23,
+   so ranking 16 colonies on one seed each mostly ranked luck, and one bad draw erased the best lineage (gen 128).
+3. **The score paid for a huddle.** Stored food + nest cells let a four-ant colony that dug and sat score well.
+
+### 9.1 What the free arm's best ant actually learned (gen-49 colony 4, `scratchpad nx/`)
+
+- **The reliance was information, not a level.** Read alarm as a constant everywhere (new switch
+  `PP_SCENT_CONST=alarm:V`), at any level from 0.005 to 0.4, and 5-8 of 8 colonies go extinct; read 40 columns off,
+  8 of 8; reading the real map, 0 of 8. Its ants were using *where* the scent was, not a bias it set.
+- **It is social, not private.** In a chimera (half the founders silent on alarm), silent hatchlings survive as
+  well as emitters (24% vs 19%), but an all-silent colony dies like a deaf one (7 of 8 extinct). The scent is a
+  shared map that free-riders can read.
+- **Decode** (`PP_MIND_LOG_EMITS`, mean emit strength, founder -> gen 49): A turned into a laden trail (empty ants
+  away from home 0.544 -> 0.176, laden 0.647 -> 0.587); alarm became the empty-searching mark (0.384 -> 0.508).
+  So the run did evolve a division of labour between two scents; it just did not pay at the colony level.
+
+### 9.2 Does today's food trail pay on the patch bed?
+
+On the emergence bed (one heap that moves every 20,000 frames), deafening the founder to B costs stored food
+231 -> 128, lower on 12 of 16 seeds. So there is something worth saying on this bed, and B is saying it.
+
+### 9.3 Check 3: rebuild the deleted food trail (default start) -- failed, 2 of 2
+
+The founder's B emit row (slots 2375-2409) zeroed and left to mutation, readers intact, alarm row frozen;
+2 seeds per evaluation, score = stored food only, 16 colonies x 50 generations. Without its B row the founder
+stores 131 vs 231 and goes extinct on 8 of 16 seeds vs 1, so the prize for rebuilding it is large.
+
+- Replicate 1: colonies whose ants laid any B scored *lower* (median 133 vs 158), and the best genome never laid B.
+- Replicate 2 (runner thread): listening gap 0 at the end.
+
+The mutation operator's add events (4 per child, anywhere in 3,285 slots) almost never land on the one input a
+laden-only emitter needs, and a random emitter is noise every nestmate hears, so it is selected out. **The
+failure is search, not value.**
+
+### 9.4 Check 3b: the same, from a dense random start -- passed (1 replicate)
+
+Same as 9.3, but the zeroed row starts with every weight `N(0, 0.05)` (`emerge.py FILL=0.05`), so sigma
+mutations can tune what is already wired. Best colony's mean B laid, by 10-generation block:
+13,671 -> 5,982 -> 456 -> 18,363 -> 122,836: first the noise is selected out, then a useful emitter grows.
+
+| best genome | normal beat deaf-to-B | normal beat B-read-40-off | stored, normal / deaf (4 seeds) |
+|---|---|---|---|
+| gen 39 | 4/4 | | 143/130, 250/9, 204/135, 153/52 |
+| gen 49 | 4/4 | 4/4 | 262/214, 230/188, 306/212, 236/197 |
+
+Decode of the gen-49 best (mind log, mean B emit): **laden 0.248 (away 0.309, at the nest 0.016), empty 0.000.**
+The dense-start founder emitted 0.012 laden / 0.016 empty; the original trained founder 0.365 / 0.007. So
+evolution rebuilt a **laden-only food trail that colonies listen to**, in about 40 generations, once the row
+started dense. Grafted back onto the original founder alone it does worse than the original row (stored 205 vs
+231, 5 vs 1 extinct of 16): it is co-adapted with the rest of the gen-49 genome, as expected.
+
+**Lesson for the ant line:** an emit row opened to unprotected add-mutation from zero will not find a
+state-conditioned signal in tens of generations; a dense small-weight start will. Keep the alarm row frozen on
+the ant line until a run like 9.5 says otherwise.
+
+### 9.5 The new-channel run (in progress)
+
+Check 3b rebuilt a signal whose *readers already existed*. The owner's question is whether ants invent a new one.
+Set-up, repairing all three defects:
+
+- **A channel that reaches**: `PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05` puts the third plane on the ground law at
+  B's fade and the lab's thin-trail blend -- a fixed molecule, so the one-physics rule holds. On the founder at
+  the start it changes nothing that matters (stored 191.5 vs 196.5 on the air law, 8 seeds), so any gap that grows
+  is new.
+- **A dense random emitter** on that channel (alarm row zeroed, `FILL=0.05`), open to mutation (`ALARM=train`).
+- **2 seeds per evaluation, score = stored food only.**
+- **Free vs deaf**, 16 colonies x 150 generations, replicate 1 started 2026-10-25 ~18:10Z in this lane's container.
+
+Results will be added here.

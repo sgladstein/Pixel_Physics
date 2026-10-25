@@ -6051,7 +6051,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it, food carried home falls by about 60%.
 
 - [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
-  ants evolve their own scents (owner's ask, 2026-10-25): finished; B stays at 0.03 and the palette stays parked.** A planned
+  ants evolve their own scents (owner's ask, 2026-10-25): reopened 15:00Z; B stays at 0.03, palette parked, a deleted food trail re-evolves from a dense start (§9), new-channel run in progress.** A planned
   palette of fixed molecules picked by a gene is parked after
   [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
   in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
@@ -6061,8 +6061,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the nest and homecoming foragers graze the store instead of digging (traced per ant), but under selection it
   loses (nest 501 -> 214 cells, more starving). The emergence test (clonal colonies, colony-level selection, moving
   food, alarm channel opened to mutation): the best brains came to rely on alarm but scored far below the deaf
-  control (median colony 9 vs 284), so no convention formed. Switches: `PP_SCENT_DEAF`,
-  `PP_SCENT_SHIFT`, `PIXEL_PHYSICS_A_DIFFUSE`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
+  control (median colony 9 vs 284), so no convention formed. Follow-ups (§9): that test could not pass (the alarm
+  plane reaches ~3 cells, food 30-110 away), its reliance was real map information (constant levels kill 5-8/8),
+  and the deleted B emit row is not rebuilt from zero (2/2) but is rebuilt laden-only, listened to 4/4, from a
+  dense random start in ~40 generations. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`,
+  `PIXEL_PHYSICS_A_DIFFUSE`, `PIXEL_PHYSICS_ALARM_GROUND`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their

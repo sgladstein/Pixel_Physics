@@ -268,6 +268,18 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   emitters gives exactly the deaf result when ants are the only readers and
   writers of a plane, so a "silent" arm is a wasted arm
   (evolvable-pheromones-2026-10-25 §4).
+- **A deaf colony that dies may be missing a level, not a message.** Deaf reads
+  0, which also moves every bias the weights were tuned around. Before calling
+  a scent "information", read it as a constant at several levels
+  (**`PP_SCENT_CONST=CH:V`**): if every level dies too, the ants used *where*
+  the scent was (alarm on the free arm's best: 5-8/8 extinct at any level, 0/8
+  on the real map; evolvable-pheromones-2026-10-25 §9.1).
+- **An emit row evolved from zero tests the mutation operator, not the
+  signal.** Add events almost never land on the one input a state-conditioned
+  emitter needs: a deleted food-trail row was not rebuilt from zero (2 of 2),
+  but was rebuilt laden-only in ~40 generations from a dense `N(0, 0.05)` start
+  (`emerge.py FILL=`). Start an evolving emit row dense, and give its run a
+  deaf arm (evolvable-pheromones-2026-10-25 §9.3-9.4).
 - **A scripted player's "did N" is a request until the run reads back what
   happened.** A harness that asked to carry 10 ants lifted about 6, because
   the ants nearest the nest were stacked on one another and the carry refuses
