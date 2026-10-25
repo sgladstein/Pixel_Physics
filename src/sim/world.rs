@@ -4344,6 +4344,12 @@ pub struct World {
     /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
     /// which is the gnome.
     pub steered: Option<crate::sim::steer::Steered>,
+    /// **Bodies with a mind that another module leads** (`steer::force`),
+    /// by id: each one's next decision takes the named option instead of
+    /// its mind's. Empty unless a demo sets an entry, and empty is one
+    /// `is_empty` read per mind decision (`steer::take_forced`). The
+    /// steered body's own keyboard never needs an entry.
+    pub mind_force: std::collections::BTreeMap<OrganismId, crate::sim::steer::Forced>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -7484,6 +7490,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             steered: None,
+            mind_force: Default::default(),
             feed_log: None,
             bite_log: None,
             food_log: None,

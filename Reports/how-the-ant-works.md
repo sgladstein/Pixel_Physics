@@ -1954,6 +1954,19 @@ and `steer.rs`.
   make her a nurse again); and the `queen` breeding rule for her colony at both
   laying checks (`regime_of_colony`), the process regime for every other.
 - **A raised reserve** goes in through `steer::grant`, booked as `Granted`.
+- **An ant with a mind** (the trained ant, the lab's default; also the spider
+  and the centipede) never reaches the five hooks: `creature_tick` returns into
+  `mind::tick` first. There the keyboard works by **picking the mind's option**
+  (2026-10-25, `steer::take_forced`, `steer::choose`): the mind decides as
+  ever, then the pick is replaced by an option from the same list, so only a
+  legal option is forced. A held direction takes the nearest Walk within 90
+  degrees, else a chain's TurnAround, else (held level into a wall) the walk
+  straight up, else Rest; B, G, E, Q and F take Attack, Dig, PickUp (else
+  Eat), Drop and Feed nearest the direction. Memory and the pull follow the
+  forced verb. A module can lead any mind body the same way through
+  `World::mind_force` (`steer::force`, `unforce`; a `once` entry is spent by
+  one decision), which the scout seat's tandem follower uses. Empty and with
+  nobody steered, two reads per decision.
 
 ## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
 
