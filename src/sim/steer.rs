@@ -126,6 +126,19 @@ pub struct Steered {
     pub id: OrganismId,
     /// Queen or worker: only `regime_of_colony` reads it.
     pub role: SteerRole,
+    /// **Whether the body may have young** (enemy seat, 2026-10-25): `true`
+    /// from [`mark`] and [`mark_with`]; a seat that sets it `false` stops the
+    /// body budding or laying (`try_bud`'s first check). The player's
+    /// centipede: a raider that eats well buds raiders above its bar, and in
+    /// the plan review's run 2 raiders became 72, which is no longer the
+    /// player against the colony.
+    pub may_breed: bool,
+    /// **What the body's last forced decision did** (`mind::tick`, a body with
+    /// a mind only): the verb the keys asked for (`None`: a direction or
+    /// nothing), the verb carried out, and whether its act succeeded -- so a
+    /// seat can say *why* a key did nothing (a full crop refuses a bite inside
+    /// the act, after the option was offered and picked).
+    pub last_act: Option<LastAct>,
     /// With `id`, the body's identity: a dead ant's id is never matched to
     /// another body by accident.
     pub born_frame: u64,
@@ -175,6 +188,8 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
     world.steered = Some(Steered {
         id,
         role,
+        may_breed: true,
+        last_act: None,
         born_frame,
         colony,
         input,
@@ -336,6 +351,26 @@ impl From<SteerInput> for ForcedPick {
             None
         };
         ForcedPick { dir: input.dir, verb, once: false }
+    }
+}
+
+/// [`Steered::last_act`]'s row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LastAct {
+    pub frame: u64,
+    pub asked: Option<crate::sim::creature::options::Verb>,
+    pub done: crate::sim::creature::options::Verb,
+    pub ok: bool,
+}
+
+/// **May `organism` have young?** `false` only for the steered body when a
+/// seat said so ([`Steered::may_breed`]). One `Option` read with nobody
+/// steered.
+#[inline]
+pub fn may_breed(world: &World, organism: OrganismId) -> bool {
+    match world.steered.as_ref() {
+        Some(s) if !s.may_breed => !is_steered(world, organism),
+        _ => true,
     }
 }
 
@@ -515,6 +550,8 @@ mod tests {
                     lab.world.steered = Some(Steered {
                         id: OrganismId::MAX,
                         role: SteerRole::Queen,
+                        may_breed: true,
+                        last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,
                         input: Some(held),
@@ -765,6 +802,36 @@ mod tests {
         let (with, without) = (run(true), run(false));
         assert_eq!(without, 0, "the raider bit {without} times with B never pressed: its mind is still choosing");
         assert!(with > 0, "held B among the founders for 600 frames and the raider never bit");
+    }
+
+    /// **`Steered::may_breed` false stops the player's body budding** (the
+    /// enemy seat's raider: in the feasibility run two raiders became 72).
+    /// Paired with the same placement left `true`, which must bud, or the
+    /// test proves nothing about the flag.
+    #[test]
+    fn a_body_marked_not_to_breed_does_not_bud() {
+        use crate::lab::scenario::Scenario;
+        let run = |may_breed: bool| -> usize {
+            let sc = Scenario::load("steady_income").expect("steady_income ships");
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            let centipede = lab.world.species.id_of("centipede").expect("centipede ships");
+            let minds = crate::lab::training::predator_minds("centipede").expect("the raider's lab pool ships");
+            let x = lab.world.bounds().map_or(100, |b| (b.min_x + b.max_x) / 2);
+            // Four tanks against a two-tank threshold: due to bud at once.
+            let id = crate::train::predator::place_predator(&mut lab.world, "centipede", x, None, minds[0].clone(), 4.0).expect("a centipede lands");
+            assert!(mark_with(&mut lab.world, id, Some(SteerInput::default()), SteerRole::Worker));
+            if let Some(s) = lab.world.steered.as_mut() {
+                s.may_breed = may_breed;
+            }
+            for _ in 0..1500 {
+                lab.tick_for_harness();
+            }
+            lab.world.live_organism_ids().into_iter().filter(|&i| lab.world.organism(i).is_some_and(|s| s.species == centipede)).count()
+        };
+        let (barred, free) = (run(false), run(true));
+        assert!(free > 1, "the control never budded ({free} centipedes): the test cannot see the flag");
+        assert_eq!(barred, 1, "a raider marked not to breed became {barred}");
     }
 
     /// **A trained (mind) ant marked as the queen's body obeys the keys**
