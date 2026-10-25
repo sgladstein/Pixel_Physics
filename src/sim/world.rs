@@ -6605,6 +6605,20 @@ pub struct World {
     /// (`Reports/plant-trainer-plan-2026-10-19.md` §5.4). Founding only: a
     /// bred seed inherits its parent's alleles whatever this says.
     pub founder_variant_chance: f32,
+    /// **The pool founders are drawn from** (`plant_pool`): a founder of a
+    /// species the pool holds is given the next genome from its list when
+    /// it germinates (`plant::found_from_pool`), so a sown bed starts from a selected
+    /// population rather than the species file (bed selection,
+    /// `Reports/plant-community-2026-10-20/m2/bedsel/`). **Empty here and
+    /// set by the lab box** (`LabBox::plant_pool`, on by default since
+    /// 2026-10-24): the pool was selected in that box, and the outdoor
+    /// world's forests have not been measured under it.
+    pub plant_pool: Option<std::sync::Arc<super::plant_pool::PlantPool>>,
+    /// The next pool genome per species: the founder count so far, so a
+    /// bed's founders walk the list in germination order (deterministic).
+    pub plant_pool_next: std::collections::BTreeMap<u16, usize>,
+    /// Founders given a pool genome: its did-it-fire count.
+    pub plant_pool_founded: u64,
     /// **How deep a heap of waiting seed may stand before the seed on top
     /// leaves the slice** (A6 of `Reports/plant-community-plan-2026-10-20.md`;
     /// `plant::seed_pile_below`). 0 is off: seed stacks as it always has.
@@ -7708,6 +7722,9 @@ impl World {
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
             param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
+            plant_pool: None,
+            plant_pool_next: std::collections::BTreeMap::new(),
+            plant_pool_founded: 0,
             seed_pile_depth: 0,
             bud_break_reserve: false,
             shade_plasticity: true,

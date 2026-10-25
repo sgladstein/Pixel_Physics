@@ -1104,6 +1104,13 @@ the review (§12), **M1 runs in this order**:
    against shipped 2.56 (better on 8, worse on none), all four on 8 of 16
    against 1, and the creeper alive on 16 of 16 against 2. A random-pick
    control gains part of that. This is the trainer the rungs were not.
+   **The pool in the lab, 2026-10-25**: the lab box founds every tree,
+   shrub, herb and creeper from it (`assets/plant_pools/roles4.ron`,
+   `LabBox::plant_pool`). With seed settling and scald on the gain is
+   2.62 -> 3.12 roles a bed (creeper alive 2 -> 5 of 8). With the colony
+   (12 paired seeds x 500k): plants 96 -> 135, leaf -10%, ants 150 -> 115
+   (smaller on 8 of 12), survival unchanged. Default asked of the owner.
+   Next: a pool bred with the colony in the bed.
 
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with

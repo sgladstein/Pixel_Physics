@@ -2809,6 +2809,45 @@ pub(crate) fn stamp_origin(world: &mut World, organism_id: OrganismId, x: i32, y
     }
 }
 
+/// **A founder of a pooled species takes a genome from the pool**
+/// (`World::plant_pool`) instead of the positional draws below: the next
+/// individual in germination order, written exactly as `plant_m0
+/// mode=bedsel` wrote the founders the pool was judged on, and marked
+/// inherited. Returns whether it did.
+///
+/// **Here, at germination, and not where the seed is planted** -- for the
+/// reason the draws below are here. A lab rack clones one planted box and
+/// gives each copy its own seed *afterwards* (`lab::batch`: "after the
+/// clone, so it reaches the copy's future"), and a rebuilt record plants
+/// under the run's own seed: a genome written at planting saw the box's
+/// seed in both cases, so the rack's copies were one world and a rebuild
+/// was not its record (`a_batch_fills_the_rack_with_different_worlds` and
+/// `a_rebuilt_record_reproduces_its_run_exactly` went red on it). The world
+/// seed picks where in the list the walk starts and is mixed, with the
+/// position, into the lineage seed, so the genome is the pool's while
+/// which individual and how it develops move with the seed, as a
+/// founder's draws did before the pool.
+fn found_from_pool(world: &mut World, organism_id: OrganismId, x: i32, y: i32) -> bool {
+    let Some(species) = world.organism(organism_id).map(|s| s.species) else {
+        return false;
+    };
+    let seed = world.seed;
+    let Some((g, k)) = world.plant_pool.as_ref().and_then(|pool| {
+        let genomes = pool.by_species.get(&world.species.get(species).name).filter(|g| !g.is_empty())?;
+        let k = world.plant_pool_next.get(&species.0).copied().unwrap_or(0);
+        let start = rng::stream(seed, u64::from(species.0), POOL_SALT, 0).below(genomes.len() as u32) as usize;
+        Some((genomes[(start + k) % genomes.len()], k))
+    }) else {
+        return false;
+    };
+    world.plant_pool_next.insert(species.0, k + 1);
+    let lineage = g.lineage ^ rng::stream(seed, x as u64, y as u64, POOL_SALT).next_u64();
+    world.set_organism_genotype(organism_id, g.draws, g.alleles, g.params, lineage);
+    world.set_organism_fates(organism_id, g.fates);
+    world.plant_pool_founded += 1;
+    true
+}
+
 pub fn seed_genotype(world: &mut World, organism_id: OrganismId, x: i32, y: i32) {
     // **An inherited genome is not redrawn.** This function keys on where
     // a seed came to rest, which is right for one a scene or the player
@@ -2817,6 +2856,9 @@ pub fn seed_genotype(world: &mut World, organism_id: OrganismId, x: i32, y: i32)
     // leave a population that breeds but does not inherit. See
     // `set_seed`.
     if world.organism(organism_id).is_some_and(|s| s.inherited) {
+        return;
+    }
+    if found_from_pool(world, organism_id, x, y) {
         return;
     }
     let world_seed = world.seed;
@@ -4410,6 +4452,10 @@ const SEED_LAUNCH_SALT: u64 = 0x5468_726F_7721_5F5F;
 /// against a control run, and a salt collision would make the control a
 /// different world rather than the same one without deaths.
 const LIFE_HAZARD_SALT: u64 = 0x4F_6C64_5F41_6765;
+
+/// Salt for which pool individual a founder starts from and for the mix
+/// into its lineage seed (`found_from_pool`, `World::plant_pool`).
+const POOL_SALT: u64 = 0x506C_616E_7450_6F6F;
 
 /// **How often a seed's production rule takes a point mutation.**
 ///
