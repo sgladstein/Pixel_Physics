@@ -18,6 +18,8 @@
 //! default (`door`) walks straight at the nearest door. `land=` is the
 //! demo's own (how far from the door the raider is set down). `drawcost`
 //! prints what the seat's view costs `Lab::draw`, in microseconds.
+//! `respawn` presses R after each death and plays on, one `SEASON` line a
+//! raider life; `mutate=0` turns the demo's birth mutation off (the control).
 //!
 //! The autopilot is deliberately dumb and the same for both brains: walk to
 //! the nearest door, hold down and dig until the head is three rows under
@@ -126,6 +128,8 @@ fn main() {
     let mut landed_at: Option<u64> = None;
     let mut start_cells: Option<usize> = None;
     let drawcost = flag("drawcost");
+    let respawn = flag("respawn");
+    let frames: u64 = arg("frames").unwrap_or(u64::MAX);
     let mut cost: Vec<(u64, u64)> = Vec::new();
 
     loop {
@@ -142,15 +146,33 @@ fn main() {
             );
         }
         let Some(t0) = landed_at else {
+            // `warm=` past `frames=`: the colony alone, no raider (the control
+            // for anything the raider is supposed to cause).
+            if lab.world.frame >= frames {
+                break;
+            }
             lab.tick_for_harness();
             if lab.world.frame.is_multiple_of(5000) {
-                println!("warm frame={} ants={}", lab.world.frame, ants(&lab.world).len());
+                let mutants = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).map_or(0, |e| e.mutants);
+                println!("warm frame={} ants={} mutants={mutants}", lab.world.frame, ants(&lab.world).len());
             }
             continue;
         };
         let now = lab.world.frame;
-        if now >= t0 + after || e.ended.is_some_and(|(f, _)| now > f + 300) {
+        if now >= t0 + after || !respawn && e.ended.is_some_and(|(f, _)| now > f + 300) {
             break;
+        }
+        // `respawn`: R 300 frames after each death, as a player would, so one
+        // run plays season after season against the same colony.
+        if respawn && e.ended.is_some_and(|(f, _)| now == f + 300) {
+            lab.demo_key(DemoKey::Letter('R'), true);
+            state = if skulk { State::Stalk } else { State::Approach };
+            state_since = now;
+            home_x = None;
+            start_cells = None;
+            kills_seen = 0;
+            taken_seen = 0;
+            last_head = None;
         }
         let body = e
             .raider
@@ -348,6 +370,34 @@ fn main() {
         ants(&lab.world).len(),
         lab.world.creature_stats.trip_deliveries - e.trips_at_landing,
     );
+    // One line a season (each raider life), then the one still running.
+    let mut seasons = e.seasons.clone();
+    if e.ended.is_none() {
+        seasons.push(pixel_physics::lab::demo::enemy::Season {
+            frames: lab.world.frame.saturating_sub(e.landed.unwrap_or(lab.world.frame)),
+            kills: e.kills,
+            bites_taken: e.bites_taken,
+            contact: e.contact,
+            cells_lost: e.cells_lost.len(),
+            mutants: e.mutants - e.mutants_at_landing,
+        });
+    }
+    for (i, s) in seasons.iter().enumerate() {
+        println!(
+            "SEASON seed={seed} brain={} mutate={} n={} frames={} kills={} taken={} contact={} rate={:.2} cells_lost={} mutants={}",
+            if oldant { "hand-built" } else { "trained" },
+            e.mutating,
+            i + 1,
+            s.frames,
+            s.kills,
+            s.bites_taken,
+            s.contact,
+            s.bite_rate(),
+            s.cells_lost,
+            s.mutants
+        );
+    }
+    println!("MUTANTS total={} ants_end={}", e.mutants, ants(&lab.world).len());
     if let Some(path) = gif {
         let delay = image::Delay::from_numer_denom_ms(every as u32 * 1000, 60);
         let frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();

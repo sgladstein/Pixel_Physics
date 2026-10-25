@@ -32,6 +32,12 @@ EXTRA = sys.argv[7:]
 # make foraging harder by moving the food farther, and switch its location so ants don't learn where the pile is).
 # The common garden keeps the first. A plain dist=N in EXTRA overrides the default 25 everywhere.
 DISTS = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('dists=')), None)
+# heaps=LO:HI (teacher lane, 2026-10-25; owner: "should we always just be randomly moving the distance ... so the ants
+# never just learn one location?"): each colony-round draws the east heap's distance and the west heap's (inrun near=)
+# independently, in steps of 5 from LO to HI. The garden keeps BASE_DIST for both. **Why**: from the ramp on, every
+# heap sat 100-120 columns out, and on the herb bed the trained ants walk away from food at the nest.
+HEAPS = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('heaps=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('heaps=')]
 EXTRA = [x for x in EXTRA if not x.startswith('dists=')]
 BASE_DIST = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('dist=')), DISTS[0] if DISTS else '25')
 EXTRA = [x for x in EXTRA if not x.startswith('dist=')]
@@ -297,6 +303,12 @@ LAB = 'lab' in EXTRA_CASES
 # vote among many, without weighting the lexicase (which keeps "No weights").
 LABGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('labgate=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('labgate=')]
+# scalegate=Q (teacher lane, 2026-10-25; owner: the nest is "one of the biggest issues"): a donor must also have a nest
+# scale (`+scale`'s nest / what the colony needs, v[17]) at or above the Q-th percentile of the round's donors, applied
+# after labgate=. **Why**: as one lexicase vote among ten, nest size loses to food; labgate= made lab survival stick
+# the same way, and widebed1's scalegate arm (+scale with labgate=50) dug 220 against 165.
+SCALEGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('scalegate=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('scalegate=')]
 assert LABGATE is None or LAB, 'labgate= needs +lab'
 # +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
 # end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
@@ -310,6 +322,15 @@ assert LABGATE is None or LAB, 'labgate= needs +lab'
 # for selection to act on. The cap keeps a colony from buying the case with a huge empty bowl over feeding.
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
+# scaleopen=1 / SCALE_OPEN=1 (teacher lane, 2026-10-25): score only the nest's OPEN cells against the need. nest1-1025's scalegate
+# grew the nest 116 -> 424 cells over random food distances, but the gain was stored food: open room stayed 66-112 cells
+# in every arm (food 342-666) and the hand-built ant keeps ~1,100 open. With food out of the numerator, a stored cell
+# costs the room it fills, so a colony keeps the case by digging around its store (a second room) or storing less.
+# Use with NEST_NEED's F at 1 (an aisle per stored cell), not 2: the food is already charged once in the numerator.
+# Job lines cannot set colsel's environment on the VM, so both ride as args: `scaleopen=1`, `nestneed=A,B,F`.
+SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
+SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
+EXTRA = [x for x in EXTRA if not x.startswith(('scaleopen=', 'nestneed='))]
 
 
 def nest_scale(rdir, nest):
@@ -361,6 +382,9 @@ def lab_alive(c, r, carry_c, scens=None):
     return tot
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
+# near=N (inrun's home-side heap) is training only: the garden keeps both heaps at BASE_DIST, so an arm's gardens are
+# the same worlds as its control's (teacher lane, 2026-10-25).
+CGC = [a for a in CGC if not a.startswith('near=')]
 CGC = with_p(CGC, 0.0) if WEAN else CGC
 CGC = with_capp(CGC, 0.0) if CAPWEAN else CGC
 os.makedirs(OUT, exist_ok=True)
@@ -426,7 +450,8 @@ def result(rdir, frames):
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
             n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
-            roomshape.score(rdir) if n else 0.0, killed, slay, nest_scale(rdir, n.get('nest', 0)) if n else 0.0)
+            roomshape.score(rdir) if n else 0.0, killed, slay,
+            nest_scale(rdir, n.get('nest_open' if SCALE_OPEN else 'nest', 0)) if n else 0.0)
 
 
 def ranks(vals, higher_better=True):
@@ -566,6 +591,9 @@ for r in range(R0, R):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
         cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
+        if HEAPS:
+            draw = lambda k: HEAPS[0] + 5 * random.Random(c * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
+            cr = [f'dist={draw(0)}' if x.startswith('dist=') else x for x in cr] + [f'near={draw(1)}']
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
         cr = spider_args(with_spiders(with_cap(cr), r), f'{OUT}/c{c}/r{r}/spiders')
@@ -607,6 +635,10 @@ for r in range(R0, R):
             lv = sorted(res[c][18] for c in donors)
             bar = lv[min(len(lv) - 1, int(len(lv) * LABGATE / 100))]
             donors = [c for c in donors if res[c][18] >= bar] or donors
+        if SCALEGATE is not None and len(donors) > 1:
+            sv = sorted(res[c][17] for c in donors)
+            bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
+            donors = [c for c in donors if res[c][17] >= bar] or donors
         for i, b in enumerate(order[half:][::-1]):  # worst first
             if not donors:
                 break

@@ -35,6 +35,11 @@ fn main() {
     // the ants are (median and 90th-percentile columns from the colony's first nest site, empty ants beyond 100 and
     // 150 columns, ants carrying food). Unset: no line, the run unchanged.
     let probe: u64 = arg("probe").unwrap_or(0);
+    // `trace=N` (Teacher lane, 2026-10-25): every N frames after landing, one `TRACE` line per ant -- frames since
+    // landing, its id, energy, lifetime bites, what its crop holds, and how far the nearest plant-owned cell is
+    // (Chebyshev, within 12; 99 = none). Built to ask why trained founders starve beside herbs (`lab_herbs`: the
+    // hand-built ant keeps ~65, the trained pool ~17) one ant at a time. Unset: no line, the run unchanged.
+    let trace: u64 = arg("trace").unwrap_or(0);
     let founders: String = arg("founders").expect("founders=LIST|std|old");
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| panic!("scenario {name}: {e}"));
     if let Some(sd) = arg::<u64>("seed") {
@@ -112,6 +117,9 @@ fn main() {
         if probe > 0 && landed.is_some_and(|l| f > l && (f - l).is_multiple_of(probe)) {
             probe_line(&lab, f - landed.unwrap());
         }
+        if trace > 0 && landed.is_some_and(|l| f > l && (f - l).is_multiple_of(trace)) {
+            trace_lines(&lab, f - landed.unwrap());
+        }
         if landed.is_some_and(|l| f >= l + after) || (landed.is_none() && f >= limit) {
             break;
         }
@@ -159,4 +167,31 @@ fn probe_line(lab: &pixel_physics::lab::Lab, since: u64) {
     d.sort();
     let q = |p: f64| d.get(((d.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(-1);
     println!("PROBE since={since} ants={} b_sum={b_sum:.2} b_cells={b_cells} col_med={} col_p90={} empty_past100={far100} empty_past150={far150} laden={laden}", d.len(), q(0.5), q(0.9));
+}
+
+/// The `trace=` lines ([`main`]): one per ant.
+fn trace_lines(lab: &pixel_physics::lab::Lab, since: u64) {
+    let w = &lab.world;
+    let sp = w.species.id_of("ant");
+    let plant_owned = |x: i32, y: i32| {
+        let oid = w.get(x, y).organism_id();
+        oid != 0 && w.organism(oid).is_some_and(|o| w.species.get(o.species).creature.is_none())
+    };
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id).filter(|s| Some(s.species) == sp && s.brood.is_none()) else { continue };
+        let Some(&(hx, hy)) = s.chain.first() else { continue };
+        let mut pd = 99;
+        'r: for d in 0..=12i32 {
+            for dy in -d..=d {
+                for dx in -d..=d {
+                    if dx.abs().max(dy.abs()) == d && plant_owned(hx + dx, hy + dy) {
+                        pd = d;
+                        break 'r;
+                    }
+                }
+            }
+        }
+        let crop = s.crop.as_ref().map(|c| w.materials.get(c.material).name.clone()).unwrap_or_default();
+        println!("TRACE {since} {id} {:.1} {} {pd} {hx} {hy} {crop}", s.energy, s.life.bites);
+    }
 }
