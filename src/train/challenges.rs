@@ -2705,6 +2705,11 @@ pub mod colony_bed {
         let mut e = Scarce { ants: 1, frames: 1, drip: 1, every: 1, game_walk: false, brake: None, dist: (40, 40), steps: false, fed: false, dig: true }.mind_emits();
         // SCRATCH (lone predator thread): `PP_MIND_ALARM=off` keeps the alarm emit shut with the bite on.
         e[2] |= creature::options::attack_on() && std::env::var("PP_MIND_ALARM").map_or(true, |v| v != "off");
+        // SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_MIND_ALARM=train` opens the alarm emit row to mutation
+        // without the bite. **Why**: on the bed the alarm row is outside `slots()`, so a pool's alarm emission is a
+        // frozen leftover (std_pool lays ~690k units a 200k round, mostly empty ants away from home, and deafening it
+        // moves nothing: decode, 2026-10-25). The emergence test needs that free channel free to evolve.
+        e[2] |= std::env::var("PP_MIND_ALARM").is_ok_and(|v| v == "train");
         e
     }
 
