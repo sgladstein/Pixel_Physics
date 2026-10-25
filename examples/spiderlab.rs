@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example spiderlab -- \
-//!     scenario=lab_mid_fruit pool=DIR spiders=4 frames=400000 seed=1 [every=5000] [out=DIR] [ant=old|std] [delay=20000]
+//!     scenario=lab_mid_fruit pool=DIR spiders=4 frames=400000 seed=1 [every=5000] [out=DIR] [ant=old|std] [delay=20000] [snap=F1,F2 out=DIR]
 //! ```
 //!
 //! Prints one row per `every` frames (`frame, spiders, ants, spider births, spider deaths by cause, ants killed`)
@@ -30,28 +30,39 @@ fn main() {
     // `delay=`: frames after the first ant stands before the spiders land. Set down beside a colony still landing,
     // they ate it before it had a nest: every one of 18 first runs (2 boxes x 1/2/4 spiders x 3 seeds) wiped it.
     let delay: u64 = arg("delay").unwrap_or(20_000);
-    let pool: String = arg("pool").expect("pool=DIR of spider .raw.txt");
+    // `pool=lab`: the lab game's own spider pool (`lab::training::spider_minds`), the one a hand-stocked spider gets.
+    let pool: String = arg("pool").expect("pool=DIR of spider .raw.txt, or pool=lab");
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| panic!("scenario {name}: {e}"));
     if let Some(sd) = arg::<u64>("seed") {
         sc.bed.seed = sd;
     }
     let seed = sc.bed.seed;
-    let mut files: Vec<_> = std::fs::read_dir(&pool)
-        .unwrap_or_else(|e| panic!("pool={pool}: {e}"))
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.to_string_lossy().ends_with(".raw.txt"))
-        .collect();
+    let mut files: Vec<std::path::PathBuf> = if pool == "lab" {
+        Vec::new()
+    } else {
+        std::fs::read_dir(&pool)
+            .unwrap_or_else(|e| panic!("pool={pool}: {e}"))
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.to_string_lossy().ends_with(".raw.txt"))
+            .collect()
+    };
     files.sort();
-    assert!(!files.is_empty(), "pool={pool}: no .raw.txt");
-    let minds: Vec<_> = files
-        .iter()
-        .map(|p| {
-            let text = std::fs::read_to_string(p).unwrap();
-            pixel_physics::train::predator::spider_mind(&train::parse_genome(&text, pixel_physics::sim::creature::mind::GENOME_LEN, &p.display().to_string()))
-        })
-        .collect();
+    let minds: Vec<_> = if pool == "lab" {
+        pixel_physics::lab::training::spider_minds()
+    } else {
+        files
+            .iter()
+            .map(|p| {
+                let text = std::fs::read_to_string(p).unwrap();
+                pixel_physics::train::predator::spider_mind(&train::parse_genome(&text, pixel_physics::sim::creature::mind::GENOME_LEN, &p.display().to_string()))
+            })
+            .collect()
+    };
+    assert!(!minds.is_empty(), "pool={pool}: no .raw.txt");
     // Each mind's breeding genes (`NN.body.txt`, `predator::BREEDING`): here they act, for spiders breed by the game.
-    let bodies: Vec<Option<[f32; 2]>> = files.iter().map(|p| pixel_physics::train::predator::read_breeding(p)).collect();
+    let bodies: Vec<Option<[f32; 2]>> = if files.is_empty() { vec![None; minds.len()] } else { files.iter().map(|p| pixel_physics::train::predator::read_breeding(p)).collect() };
+    // `snap=F1,F2,...` with `out=DIR`: the lab's own picture of the box at those frames, `DIR/snap_FRAME.png`.
+    let snaps: Vec<u64> = arg::<String>("snap").map(|v| v.split(',').map(|f| f.parse().expect("snap=F1,F2,...")).collect()).unwrap_or_default();
     println!("spiderlab scenario={name} seed={seed} spiders={n} pool={pool} ({} minds) frames={frames}", minds.len());
     let mut lab = pixel_physics::lab::Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
@@ -125,6 +136,17 @@ fn main() {
             }
         }
         let f = w.frame;
+        if snaps.contains(&f) {
+            if let Some(d) = arg::<String>("out") {
+                let (pw, ph) = (pixel_physics::lab::WIDTH, pixel_physics::lab::HEIGHT);
+                let mut buf = vec![0u8; (pw * ph * 4) as usize];
+                lab.show_help = false;
+                lab.draw(&mut buf, 60.0);
+                let heads: Vec<(i32, i32)> = pixel_physics::train::predator::of_species(&lab.world, spider).iter().filter_map(|&id| lab.world.organism(id).and_then(|s| s.chain.first().copied())).collect();
+                println!("snap {f}: spider heads {heads:?}");
+                image::RgbaImage::from_raw(pw, ph, buf).expect("a frame").save(std::path::Path::new(&d).join(format!("snap_{f}.png"))).unwrap();
+            }
+        }
         let s = count(&lab, "spider");
         peak = peak.max(s);
         if f.is_multiple_of(every) {

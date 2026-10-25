@@ -102,6 +102,34 @@ pub fn std_pool() -> Vec<Vec<f32>> {
     pool
 }
 
+/// **The lab's spider** (owner, 2026-10-25: "add spider to the actual lab game so I can play test it"): the trained
+/// spider pool, each member a whole mind (zeros left out; no member a delta of another, unlike [`STD_POOL`]). Source and
+/// numbers in the file's header. Every spider in a lab box without a mind gets one of these
+/// (`Lab::give_spider_minds`); a spider born there inherits its parent's.
+pub const SPIDER_POOL: &str = include_str!("../../assets/minds/spider_pool.txt");
+
+/// [`SPIDER_POOL`]'s members as spider minds: each cut to the spider's verbs and silent
+/// (`train::predator::spider_mind`).
+pub fn spider_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
+    let mut lines = SPIDER_POOL.lines().filter(|l| !l.starts_with('#'));
+    let head = lines.next().expect("spider_pool: header");
+    let mut h = head.split_whitespace();
+    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "spider_pool: {head:?}");
+    let len: usize = h.next().and_then(|n| n.parse().ok()).expect("spider_pool: genome length");
+    assert_eq!(len, creature::mind::GENOME_LEN, "spider_pool: genome length");
+    let mut pool: Vec<Vec<f32>> = Vec::new();
+    for l in lines {
+        if l.starts_with("member ") {
+            pool.push(vec![0.0; len]);
+            continue;
+        }
+        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("spider_pool: {l:?} is not `slot value`"));
+        let g = pool.last_mut().expect("spider_pool: a slot before the first member");
+        g[i.parse::<usize>().expect("spider_pool slot")] = w.parse().expect("spider_pool value");
+    }
+    pool.iter().map(|g| crate::train::predator::spider_mind(g)).collect()
+}
+
 /// A saved genome made fit for this build's dig head: its own head kept when
 /// heads evolve (`PP_DIGHEAD_EVOLVE`, on by default) and it carries one of
 /// the side head's shape, the side head's added when it carries none or one
