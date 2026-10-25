@@ -6048,6 +6048,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   against its own start matched the control call on 9 of 18 measures, 3 backwards) but a fresh control rarely added
   information: reuse cached controls, garden every 8 rounds (together ~28%), 32 colonies catch every large effect.
 
+- [brain-training/research/creatures-1996-lessons-2026-10-25.md](brain-training/research/creatures-1996-lessons-2026-10-25.md) —
+  **what the 1996 game *Creatures* (Steve Grand's Norns) can teach the ant (research only).** The verb-then-target
+  split, drives as senses and one machinery per species are already in rev 3; the missing idea is learning in a life,
+  from reward made by a need going down, plus instincts stored in the genome as lessons replayed in sleep. Ranked: a
+  last-food memory (rev 3's unbuilt *must*), one reward-trained unit per ant with its rate gene at 0 (bit-identical, so
+  it can ship on), a "bored" drive for idle fed ants, then instincts and a reward/punish player verb. Warns off
+  Creatures 2's reward-imbalance collapse. Sources read through search summaries only.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
