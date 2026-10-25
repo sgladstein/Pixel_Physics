@@ -212,6 +212,12 @@ fn land_raider(lab: &mut Lab) -> Option<OrganismId> {
     if let Some(s) = lab.world.steered.as_mut() {
         s.may_breed = false;
     }
+    // A full crop does not stop the player's bite (owner's playtest, 2026-10-25): the swallow is
+    // skipped and the cell still comes off. `fullbite=0` puts the sated rule back, for the A/B.
+    let full = lab.demo.as_ref().and_then(|d| d.args.get("fullbite")).is_none_or(|v| v != "0");
+    if let Some(s) = lab.world.steered.as_mut() {
+        s.bites_when_full = full;
+    }
     lab.world.encounter_log = Some(Default::default());
     let (trips, ants) = (lab.world.creature_stats.trip_deliveries, live_ants(&lab.world));
     let state = lab.world.organism(id)?;
@@ -473,7 +479,7 @@ pub fn after_tick(lab: &mut Lab) {
     if let Some(a) = last_act.filter(|a| a.frame > e.last_act_read) {
         e.last_act_read = a.frame;
         let why = match a.asked {
-            Some(Verb::Attack) if a.done == Verb::Attack && !a.ok => Some(if crop_full { "YOUR GUT IS FULL -- SPIT A CELL (Q) OR WAIT" } else { "THEIR PLATE HELD" }),
+            Some(Verb::Attack) if a.done == Verb::Attack && !a.ok => Some("THEIR PLATE HELD"),
             Some(Verb::Attack) if a.done != Verb::Attack => Some("NOTHING TO BITE AT YOUR HEAD"),
             Some(Verb::Dig) if a.done != Verb::Dig => Some(if spoil { "JAWS FULL -- PUT THE CRUMB DOWN (Q)" } else { "NOTHING YOUR JAW CAN CUT THERE" }),
             Some(Verb::PickUp) if a.done != Verb::PickUp && a.done != Verb::Eat => Some(if crop_full { "YOUR GUT IS FULL" } else { "NO FLESH IN REACH" }),

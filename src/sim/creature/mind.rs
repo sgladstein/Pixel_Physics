@@ -2748,7 +2748,9 @@ fn attack(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): 
         return false;
     }
     // A sated predator does not kill (`CreatureDef::handling`): no room in the crop for this cell, no bite.
-    if super::handling_on(def) && !crop.is_none_or(|c| c.material == cell.material && c.worth() + c.unit <= organism_crop_capacity(world, organism, def)) {
+    // Unless it is a seat's player body that may bite full (`steer::bites_when_full`): then the cell
+    // comes off unswallowed (`room` below is still false).
+    if super::handling_on(def) && !crate::sim::steer::bites_when_full(world, organism) && !crop.is_none_or(|c| c.material == cell.material && c.worth() + c.unit <= organism_crop_capacity(world, organism, def)) {
         return false;
     }
     let gut = super::gut_of(world, organism, def);
@@ -4874,6 +4876,34 @@ mod tests {
             );
             assert_eq!(reach(&w) > 0, !crate::sim::creature::handling_on(&def), "{species}: whether a living ant pays a birth");
         }
+    }
+
+    /// **A seat's player body bites on with a full crop, and nothing else does** (enemy seat, owner's playtest
+    /// 2026-10-25, `steer::Steered::bites_when_full`): the centipede's crop held three ant cells and every bite after
+    /// the first kill needed a spit. The control is the same centipede, full and unmarked, refused by the sated rule;
+    /// the marked one takes the cell off without swallowing it.
+    #[test]
+    fn a_full_player_raider_bites_on_and_swallows_nothing() {
+        let (mut w, me, ant) = beside_an_ant("centipede");
+        let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+        assert!(crate::sim::creature::handling_on(&def), "the centipede lost its sated rule");
+        give(&mut w, me, Arc::new(MindGenome::new(blank(crate::train::predator::RAIDER_VERBS))));
+        let h = head_of(&w, me);
+        let t = w.organism(ant).expect("ant").chain.iter().copied().find(|&(x, y)| (x - h.0).abs() <= 1 && (y - h.1).abs() <= 1).expect("the ant beside the head");
+        let cell = w.get(t.0, t.1);
+        let worth = food_value(&w, cell);
+        while w.organism(me).and_then(|s| s.crop).is_none_or(|c| c.worth() + c.unit <= organism_crop_capacity(&w, me, &def)) {
+            crop_take(&mut w, me, cell.material, cell.shade, worth, None);
+        }
+        let full = w.organism(me).and_then(|s| s.crop).expect("crop").worth();
+        assert!(!attack(&mut w, me, &def, t), "a full raider bit with nobody steering it");
+        crate::sim::steer::mark_with(&mut w, me, Some(crate::sim::steer::SteerInput::default()), crate::sim::steer::SteerRole::Worker);
+        assert!(!attack(&mut w, me, &def, t), "a steered raider bit full without the seat's leave");
+        w.steered.as_mut().expect("steered").bites_when_full = true;
+        assert!(attack(&mut w, me, &def, t), "the player's full raider was refused");
+        assert_ne!(w.get(t.0, t.1).material, cell.material, "the bitten cell is still there");
+        let after = w.organism(me).and_then(|s| s.crop).expect("crop").worth();
+        assert!((after - full).abs() < 1e-3, "a full crop swallowed: {full} -> {after}");
     }
 
     /// **The raider shoves through stored food it cannot eat, and through nothing else** (nest raider thread,
