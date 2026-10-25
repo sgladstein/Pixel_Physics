@@ -5762,6 +5762,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
   bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
 
+- [keeper-seat-demo-2026-10-25.md](keeper-seat-demo-2026-10-25.md) — **the keeper seat's playable demo
+  (`demo=keeper`): you are a hand over the box, and carrying trained ants to far food is a real, graded verb.**
+  Listening off, against nobody carried: station visits +52 for 10 carried and +105 for ~17 (10/12 seeds each),
+  and a bigger colony at 30k (120, 146, 168 ants). The labelled scripted "listening" (the recall head, PR #907)
+  adds +12 to +89 visits. The meal copy is neutral (copy 0 = 0.5). Untaught colonies find the station on their own,
+  so the contrast is graded. Tracing taught ants: 67-70% of their time laden, 97-98% Walk when empty, and a stray
+  bite used to erase a lesson for good (now it sleeps). Corrects "carrying changes nothing" (the scripted hand lifted
+  6 of 10: stacked ants). Instrument `examples/keeperdemo.rs`; film and chart on an Artifact page.
+
 - [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
   play-as-an-ant game's slice 0: the body the player drives, switched off,
   and three numbers.** `sim::steer` is off-identical to main. A trail laid by
