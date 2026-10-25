@@ -125,7 +125,7 @@ not the one the owner asked for.
 *Correction, 2026-10-25.* The first version of this paragraph said the raiders sat in two heaps 75 and 85 columns
 either side of the door. It was read from a crop of the box (columns 136-376) that held no raider at all: the two
 heaps are lab_mid_fruit's fruit bushes, drawn in their own many-coloured palette. A count of predator-red pixels in
-that GIF reads 0 in every frame; over the whole box it reads 83-140 cells' worth, all east of column 427. **Count
+that GIF reads 0 in every frame; over the whole box it reads 74-140 raider cells, all east of column 427. **Count
 the predator's colour in a crop before describing where it is**: a picture with none of it in shows nothing.
 
 ## Where it goes next
