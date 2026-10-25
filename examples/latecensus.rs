@@ -217,6 +217,7 @@ fn main() {
     // borne, fruit dropped -- is read with nothing eating it.
     let no_colony: bool = arg::<u32>("no_colony").unwrap_or(0) != 0;
     let sample_every: u64 = arg("sample").unwrap_or(20_000);
+    let mister: bool = arg::<u8>("mister").unwrap_or(0) != 0;
     let scenario_name: String = arg("scenario").unwrap_or_else(|| "played_bed".to_string());
     let mut scenario = Scenario::load(&scenario_name).unwrap_or_else(|e| {
         eprintln!("scenario {scenario_name}: {e}");
@@ -227,7 +228,7 @@ fn main() {
     }
     let spec = scenario.bed.clone();
     println!(
-        "latecensus: scenario={} seed={} frames={frames} sample={sample_every} band={BAND} threads={}",
+        "latecensus: scenario={} seed={} frames={frames} sample={sample_every} band={BAND} mister={mister} threads={}",
         scenario.name,
         spec.seed,
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".into())
@@ -470,6 +471,14 @@ fn main() {
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            // `mister=1`: the lab's mister as the game runs it
+            // (`lab::tick_world` calls `rain::tick` after the step). Off by
+            // default so every earlier log of this harness stays comparable:
+            // without it the box has no mister even where its scenario's
+            // `rain` says Light, `labshot`'s divergence in `instruments.md`.
+            if mister {
+                pixel_physics::lab::rain::tick(&mut world, &spec, spec.rain);
+            }
         }
     }
     let st = world.creature_stats;
