@@ -1093,6 +1093,25 @@ the review (§12), **M1 runs in this order**:
    lab game the ants' food on the bed is 18% smaller and the colony itself
    unchanged (12 paired seeds).
 
+   **Bed selection, 2026-10-24** (owner: what does the ants' in-colony
+   training teach the plants? `Reports/plant-community-2026-10-20/m2/bedsel/`).
+   Four lessons carried over: train in the place the plant lives, select
+   whole beds on their weakest role rather than any summed score, run long
+   enough to reach the closed canopy, keep a pool. `plant_m0 mode=bedsel`:
+   8 fresh beds a round, heredity on, the top half's leafiest plants found
+   the next round. After 8 rounds of 150,000 frames the pool, judged on 16
+   fresh paired beds at 450,000 with heredity off, keeps 3.44 roles a bed
+   against shipped 2.56 (better on 8, worse on none), all four on 8 of 16
+   against 1, and the creeper alive on 16 of 16 against 2. A random-pick
+   control gains part of that. This is the trainer the rungs were not.
+   **The pool in the lab, 2026-10-25**: the lab box founds every tree,
+   shrub, herb and creeper from it (`assets/plant_pools/roles4.ron`,
+   `LabBox::plant_pool`). With seed settling and scald on the gain is
+   2.62 -> 3.12 roles a bed (creeper alive 2 -> 5 of 8). With the colony
+   (12 paired seeds x 500k): plants 96 -> 135, leaf -10%, ants 150 -> 115
+   (smaller on 8 of 12), survival unchanged. Default asked of the owner.
+   Next: a pool bred with the colony in the bed.
+
 7a. **Detour, owner 2026-10-21: the bed has to look like plants.** *"Every
    bed in these images looks crazy. It's a pile of water and seeds with
    some green in."* Counted on screen (`plant_m0 shots=`, the `SCREEN`

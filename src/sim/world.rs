@@ -6605,6 +6605,20 @@ pub struct World {
     /// (`Reports/plant-trainer-plan-2026-10-19.md` §5.4). Founding only: a
     /// bred seed inherits its parent's alleles whatever this says.
     pub founder_variant_chance: f32,
+    /// **The pool founders are drawn from** (`plant_pool`): a founder of a
+    /// species the pool holds is given the next genome from its list when
+    /// it germinates (`plant::found_from_pool`), so a sown bed starts from a selected
+    /// population rather than the species file (bed selection,
+    /// `Reports/plant-community-2026-10-20/m2/bedsel/`). **Empty here and
+    /// set by the lab box** (`LabBox::plant_pool`, on by default since
+    /// 2026-10-24): the pool was selected in that box, and the outdoor
+    /// world's forests have not been measured under it.
+    pub plant_pool: Option<std::sync::Arc<super::plant_pool::PlantPool>>,
+    /// The next pool genome per species: the founder count so far, so a
+    /// bed's founders walk the list in germination order (deterministic).
+    pub plant_pool_next: std::collections::BTreeMap<u16, usize>,
+    /// Founders given a pool genome: its did-it-fire count.
+    pub plant_pool_founded: u64,
     /// **How deep a heap of waiting seed may stand before the seed on top
     /// leaves the slice** (A6 of `Reports/plant-community-plan-2026-10-20.md`;
     /// `plant::seed_pile_below`). 0 is off: seed stacks as it always has.
@@ -6645,16 +6659,27 @@ pub struct World {
     /// because it is not short of carbon. A no-op for any plant with no
     /// tolerance, which is every shipped species.
     ///
-    /// **Off by default** until the owner has seen it; see
-    /// `Reports/plant-community-2026-10-20/m2/shade-scald/`.
+    /// **On by default since 2026-10-24** (owner's standing rule: a
+    /// feature ships on unless measured harm). On today's four-role bed (8
+    /// paired seeds x 450,000) it is bit-identical to off -- no shipped
+    /// species carries tolerance, so it never fires -- and it is the price
+    /// that keeps tolerance from coming free once tolerance can evolve
+    /// (`plant_m0 mode=bedsel`). See
+    /// `Reports/plant-community-2026-10-20/m2/shade-scald/` and
+    /// `.../m2/shade-seedling/README.md` §8.
     pub shade_scald: bool,
     /// **A seedling's shoot tip too poor to grow waits instead of retiring**
     /// (`plant::organism_tick`'s `Grow` carbon gate), while the plant's
     /// leaves earn nothing -- i.e. before its first leaf. Off, a seedling in
     /// deep shade retires its only tip after four poor ticks and dies with
     /// its seed carbon unspent; the understory under a closed canopy is
-    /// empty partly for that reason. Off by default until measured
-    /// (`Reports/plant-community-2026-10-20/m2/shade-scald/`).
+    /// empty partly for that reason. **Off: measured harm, 2026-10-24**
+    /// (`.../m2/shade-seedling/README.md` §8, four-role bed, 8 paired seeds x
+    /// 450,000): alone it moves roles a bed 2.62 -> 2.75 (inside the spread)
+    /// but darkens the floor (columns under 2% light 17% -> 26%) and shifts
+    /// leaf to the trees (+46%, shrub -38%); with `seedling_reserves` and
+    /// `seed_settles` on as well, roles a bed fall to 2.38. The residents'
+    /// seedlings use it more than the understory's do.
     pub seedling_waits: bool,
     /// Tip visits held by `seedling_waits`: its did-it-fire count.
     pub seedling_waits_held: u64,
@@ -6663,7 +6688,9 @@ pub struct World {
     /// seed until its first leaf. Off, the frontier is funded only from
     /// income, so a seedling that cannot earn before it has a leaf never
     /// builds one: its seed carbon levels out across the body below the
-    /// price of a step. Off by default until measured.
+    /// price of a step. **Off: measured harm, 2026-10-24**, the same as
+    /// `seedling_waits` and on the same runs: roles a bed 2.75 (inside the
+    /// spread), floor under 2% light 17% -> 25%, tree leaf +19%, shrub -39%.
     pub seedling_reserves: bool,
     /// Allocations funded that way: its did-it-fire count.
     pub seedling_reserves_drawn: u64,
@@ -6696,7 +6723,11 @@ pub struct World {
     /// a dead leaf or deadwood trades places with it now and then, and a
     /// shoot tip heaves the loose column lying on it. The parked
     /// `PIXEL_PHYSICS_SEED_SETTLE` (2026-10-17), narrowed and re-tested under
-    /// a closed stand. Off by default until measured.
+    /// a closed stand. **On by default since 2026-10-24** (owner's standing
+    /// rule): on the four-role bed (8 paired seeds x 450,000) roles a bed
+    /// 2.62 -> 2.88 (3 beds better, 1 worse), the floor's light unchanged
+    /// (17% of columns under 2%), tree leaf +18%, shrub -36% --
+    /// `.../m2/shade-seedling/README.md` §8.
     pub seed_settles: bool,
     /// **Old age reads plant time** (`plant::step_organisms`' old-age roll):
     /// the hazard's age is `OrganismState::plant_frames` and each roll covers
@@ -7691,10 +7722,14 @@ impl World {
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
             param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
+            plant_pool: None,
+            plant_pool_next: std::collections::BTreeMap::new(),
+            plant_pool_founded: 0,
             seed_pile_depth: 0,
             bud_break_reserve: false,
             shade_plasticity: true,
-            shade_scald: false,
+            // `PIXEL_PHYSICS_SHADE_SCALD=0` is the engine before 2026-10-24.
+            shade_scald: std::env::var("PIXEL_PHYSICS_SHADE_SCALD").as_deref() != Ok("0"),
             seedling_waits: false,
             seedling_waits_held: 0,
             seedling_reserves: false,
@@ -7703,7 +7738,8 @@ impl World {
             nutrient_by_root: super::plant::nutrient_by_root_default(),
             adventitious_roots: 0,
             dieback_roots_kept: 0,
-            seed_settles: false,
+            // `PIXEL_PHYSICS_SEED_SETTLE=0` is the engine before 2026-10-24.
+            seed_settles: std::env::var("PIXEL_PHYSICS_SEED_SETTLE").as_deref() != Ok("0"),
             // `PIXEL_PHYSICS_OLD_AGE_CLOCK=ticks` is the way back to the
             // clock before 2026-10-23 (with the new lifespans).
             old_age_plant_time: std::env::var("PIXEL_PHYSICS_OLD_AGE_CLOCK").as_deref() != Ok("ticks"),
