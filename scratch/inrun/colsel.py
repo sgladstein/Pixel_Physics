@@ -361,6 +361,9 @@ def lab_alive(c, r, carry_c, scens=None):
     return tot
 C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
+# near=N (inrun's home-side heap) is training only: the garden keeps both heaps at BASE_DIST, so an arm's gardens are
+# the same worlds as its control's (teacher lane, 2026-10-25).
+CGC = [a for a in CGC if not a.startswith('near=')]
 CGC = with_p(CGC, 0.0) if WEAN else CGC
 CGC = with_capp(CGC, 0.0) if CAPWEAN else CGC
 os.makedirs(OUT, exist_ok=True)
