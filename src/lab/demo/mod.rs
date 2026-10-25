@@ -218,12 +218,16 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
 }
 
 /// **Whether a seat routes a body letter itself** (`E Q F G B L T`) rather
-/// than handing it to the steered body. No seat takes one yet: a seat that
-/// does adds its arm here and routes the letter in `demo_key` beside
-/// `queen::seat_key`.
+/// than handing it to the steered body. A seat that does adds its arm here
+/// and routes the letter in `demo_key` beside `queen::seat_key`.
+///
+/// The guest seat takes `B` (kill a larva) and `E` (eat a corpse): the
+/// rove's own bite and eat would kill a worker, which is not a beggar's verb.
 pub fn seat_takes(seat: DemoSeat, c: char) -> bool {
-    let _ = (seat, c);
-    false
+    match seat {
+        DemoSeat::Guest => guest::takes(c),
+        _ => false,
+    }
 }
 
 /// The one-line key reminder each seat shows on `H` and at start.
@@ -413,17 +417,6 @@ impl Lab {
             DemoSeat::Guest => guest::frame(self),
             _ => {}
         }
-    }
-}
-
-/// **A body-layer letter the seat takes for its own verb** (`E Q F G B L`
-/// otherwise go to the body as slice 0's verbs): the guest seat's `B` kills
-/// a larva and its `E` eats a corpse, because the rove's own mouth would
-/// kill a worker, which is not a beggar's verb.
-pub fn seat_takes(seat: DemoSeat, c: char) -> bool {
-    match seat {
-        DemoSeat::Guest => guest::takes(c),
-        _ => false,
     }
 }
 
