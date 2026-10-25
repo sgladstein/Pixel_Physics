@@ -1,0 +1,42 @@
+CHRONICLE OF lab_far200_fruit
+SEED 3  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_FOOD_TRAIL=lay,read,window=700,noreturn, PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    51     0     0    125     94013 |        0   88646       0      0      0       0    5367     0 |     0     1     0     0    1    193     18      56 |     14     7     43      3    2 |  129/129  355/383      0    114 | 1792894923      0     55 |     0     0    0     60     0      0 |     801     22     0    17     3644     0     0     0     0     0     1     39 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 3 cells, 2 rows high | larder priced at gut -0.800 (mean over living animals) | dug below ground: 37 cells -- open 20, ants in it 7, roots 0, other plant 0, water 0, soil back 3, other 7 | empty below ground nobody dug: 1
+        brood now: 3 eggs, 0 larvae (0 hungry), 1 pupae | under ground 4, median 6 rows down, 4 within 4 columns of the door | so far: 4 laid, 1 to larvae, 1 to pupae, 0 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 1390, crop 0, nursed 0, shared 179, upkeep burned 1, starved to corpse 0 | larva ticks hungry 1, nursed 0 (0%), crop fed 0 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 35 open cells under ground, deepest 8 rows | biggest room 18 cells (3 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 5 / 0 / 23 / 23 animals, 0 / 0 / 0 / 4 under their start energy, mean fill 5.23 / 0.00 / 4.00 / 2.10
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 0 | old age 0 / 0 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 96, hungry out pulls 31, crop down holds 0, digs refused away from the digger's face 49, digs turned to a face 7, spoil kept inside 237 / held below 0 / dumped 15 / lifted 0 (out 0), lean dropped 0 | foraging: 34 trips, 18 returns, 159 pickups, 56 drops, 562 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   129     0     0    100     76925 |        0   75459       0      0      0       0    1466     0 |    84     7     0     2    5   2010    259    1495 |    115     5     81     26   10 |  129/129  358/383      0     97 | 1792894925      1    172 |     0     0    0     60     0      0 |   16794   1214   191   305    35564     0     0     0     0     0     5    222 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (358/383) | mound (packed above surface): 26 cells, 10 rows high | larder priced at gut -0.800 (mean over living animals) | dug below ground: 185 cells -- open 111, ants in it 30, roots 0, other plant 0, water 0, soil back 3, other 41 | empty below ground nobody dug: 9
+        brood now: 7 eggs, 35 larvae (35 hungry), 1 pupae | under ground 43, median 11 rows down, 43 within 4 columns of the door | so far: 127 laid, 120 to larvae, 85 to pupae, 84 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 45888, crop 7404, nursed 5225, shared 52872, upkeep burned 2119, starved to corpse 0 | larva ticks hungry 4188, nursed 433 (10%), crop fed 29 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 191 open cells under ground, deepest 16 rows | biggest room 145 cells (38 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 16 / 0 / 46 / 67 animals, 7 / 0 / 2 / 3 under their start energy, mean fill 1.47 / 0.00 / 2.72 / 2.81
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 2 | old age 0 / 2 / 3 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 3572, hungry out pulls 1464, crop down holds 0, digs refused away from the digger's face 1734, digs turned to a face 348, spoil kept inside 8803 / held below 0 / dumped 241 / lifted 24 (out 0), lean dropped 0 | foraging: 318 trips, 84 returns, 1807 pickups, 1495 drops, 14109 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.26, reproduce_at -0.13, pace +0.21, curvature_radius +0.10, digest_rate +0.20 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F   9370  THE RUSSET LINE ENDED WITH ITS FOUNDER
+F  10845  THE YUCCA LINE ENDED WITH ITS FOUNDER
+F  12005  THE FICUS LINE ENDED WITH ITS FOUNDER
+F  14505  THE ROWAN LINE ENDED WITH ITS FOUNDER
+F  16950  KARST NUMBERS 10
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 129 ALIVE. 4 OF ITS FOUNDING LINES HAVE ENDED. 5 OLD AGE, 2 KILLED.
+THE RUSSET LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F9370. OLD AGE.
+THE YUCCA LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F10845. OLD AGE.
+THE FICUS LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F12005. KILLED.
+THE ROWAN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14505. KILLED.
+
+COUNTS: ACTION 1, BORN 84 (ANIMALS 84, PLANTS 0), DIED 7 (ANIMALS 7, PLANTS 0), FIRST FED 120, LINE ENDED 4, LINE MILESTONE 1 | LINES ENDED 4 | LINEAGES CLAIMED 52 | LOG DROPPED 0

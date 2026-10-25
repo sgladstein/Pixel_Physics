@@ -1,0 +1,58 @@
+CHRONICLE OF lab_far200_fruit
+SEED 3  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    45     0     0    104     76359 |        0   68182       0      0      0       0    8177     0 |     1     8     0     7    1     33     99      49 |     13    47    274     53    2 |  129/129  363/383      0     88 | 1792895373      1     52 |     0     0    0     60     0      0 |       0      0     0     0      273     0     0     0     0     0     1     47 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 95% (363/383) | mound (packed above surface): 53 cells, 2 rows high | larder priced at gut -0.797 (mean over living animals) | dug below ground: 96 cells -- open 60, ants in it 3, roots 0, other plant 0, water 0, soil back 15, other 18 | empty below ground nobody dug: 0
+        brood now: 2 eggs, 1 larvae (1 hungry), 3 pupae | under ground 4, median 5 rows down, 6 within 4 columns of the door | so far: 7 laid, 5 to larvae, 4 to pupae, 1 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 4368, crop 113, nursed 238, shared 326, upkeep burned 7, starved to corpse 0 | larva ticks hungry 11, nursed 1 (9%), crop fed 3 | brood carried 0, spread 0, nurse seeks 0 | lays declined 27, births denied for room 0
+        rooms: 27 open cells under ground, deepest 7 rows | biggest room 10 cells (3 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 1 / 0 / 21 / 23 animals, 0 / 0 / 0 / 1 under their start energy, mean fill 5.77 / 0.00 / 5.30 / 6.22
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 7 | old age 0 / 0 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 0, hungry out pulls 0, crop down holds 0, digs refused away from the digger's face 0, digs turned to a face 0, spoil kept inside 0 / held below 0 / dumped 98 / lifted 0 (out 0), lean dropped 0 | foraging: 9 trips, 17 returns, 469 pickups, 294 drops, 153 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   148     0     0    124     94008 |        0   90847       0      0      0       0    3162     0 |   117    21     5    12    4    308    330     390 |     27   117    600    147    5 |  129/129  367/383      0    117 | 1792895377      4    184 |     0     0    0     60     0      0 |       0      0     0     0     2450     0     0     0     0     0     4    332 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 96% (367/383) | mound (packed above surface): 147 cells, 5 rows high | larder priced at gut -0.799 (mean over living animals) | dug below ground: 227 cells -- open 143, ants in it 0, roots 0, other plant 1, water 0, soil back 52, other 31 | empty below ground nobody dug: 1
+        brood now: 4 eggs, 28 larvae (28 hungry), 4 pupae | under ground 24, median 5 rows down, 35 within 4 columns of the door | so far: 153 laid, 149 to larvae, 121 to pupae, 117 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 54568, crop 58990, nursed 11703, shared 11327, upkeep burned 1656, starved to corpse 0 | larva ticks hungry 3269, nursed 83 (3%), crop fed 179 | brood carried 0, spread 0, nurse seeks 0 | lays declined 7556, births denied for room 0
+        rooms: 54 open cells under ground, deepest 8 rows | biggest room 29 cells (18 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 0 / 2 / 12 / 134 animals, 0 / 0 / 0 / 3 under their start energy, mean fill 0.00 / 5.71 / 4.77 / 5.80
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 5 | killed 0 / 0 / 12 | old age 0 / 1 / 3 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 0, hungry out pulls 0, crop down holds 0, digs refused away from the digger's face 0, digs turned to a face 0, spoil kept inside 0 / held below 0 / dumped 329 / lifted 0 (out 0), lean dropped 0 | foraging: 108 trips, 160 returns, 1481 pickups, 978 drops, 1740 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.12, digest_rate +0.20 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F      0  ANT BRAIN: NEW
+F   7005  THE HEATHER LINE ENDED WITH ITS FOUNDER
+F   7505  THE ELM LINE ENDED WITH ITS FOUNDER
+F   7505  THE MOSS LINE ENDED WITH ITS FOUNDER
+F   7505  THE FINCH LINE ENDED WITH ITS FOUNDER
+F   7505  THE YUCCA LINE ENDED WITH ITS FOUNDER
+F   7505  THE ROWAN LINE ENDED WITH ITS FOUNDER
+F   8005  THE OLIVE LINE ENDED WITH ITS FOUNDER
+F   9370  THE RUSSET LINE ENDED WITH ITS FOUNDER
+F  13310  THE LICHEN LINE ENDED WITH ITS FOUNDER
+F  13505  THE GYPSUM LINE ENDED WITH ITS FOUNDER
+F  14505  THE KIWI LINE ENDED WITH ITS FOUNDER
+F  17305  QUINOA NUMBERS 10
+F  17730  MAPLE NUMBERS 10
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 148 ALIVE. 11 OF ITS FOUNDING LINES HAVE ENDED. 12 KILLED, 5 STARVED, 4 OLD AGE.
+THE HEATHER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7005. KILLED.
+THE ELM LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE MOSS LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE FINCH LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE YUCCA LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE ROWAN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE OLIVE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F8005. KILLED.
+THE RUSSET LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F9370. OLD AGE.
+THE LICHEN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13310. STARVED.
+THE GYPSUM LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13505. KILLED.
+THE KIWI LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14505. KILLED.
+
+COUNTS: ACTION 2, BORN 117 (ANIMALS 117, PLANTS 0), DIED 21 (ANIMALS 21, PLANTS 0), LINE ENDED 11, LINE MILESTONE 2 | LINES ENDED 11 | LINEAGES CLAIMED 52 | LOG DROPPED 0

@@ -1,0 +1,40 @@
+CHRONICLE OF lab_far200_fruit
+SEED 4  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_FOOD_TRAIL=lay,read,giveup,window=700, PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    51     0     0    108     81428 |        0   77760       0      0      0       0    3668     0 |     0     1     0     1    0    171     19      52 |     24    11     44      5    2 |  129/129  356/383      0    100 | 1792894931      0     54 |     0     0    0     60     0      0 |     834     13     0     4     2579     0     0     0     0     0     0     31 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (356/383) | mound (packed above surface): 5 cells, 2 rows high | larder priced at gut -0.800 (mean over living animals) | dug below ground: 42 cells -- open 32, ants in it 6, roots 0, other plant 0, water 0, soil back 2, other 2 | empty below ground nobody dug: 3
+        brood now: 1 eggs, 1 larvae (1 hungry), 0 pupae | under ground 2, median 9 rows down, 2 within 4 columns of the door | so far: 2 laid, 1 to larvae, 0 to pupae, 0 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 0, nursed 0, shared 0, upkeep burned 0, starved to corpse 0 | larva ticks hungry 1, nursed 0 (0%), crop fed 0 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 41 open cells under ground, deepest 10 rows | biggest room 21 cells (1 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 3 / 2 / 17 / 29 animals, 0 / 0 / 0 / 9 under their start energy, mean fill 3.65 / 4.15 / 3.76 / 1.97
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 1 | old age 0 / 0 / 0 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 147, hungry out pulls 35, crop down holds 0, digs refused away from the digger's face 65, digs turned to a face 6, spoil kept inside 356 / held below 0 / dumped 18 / lifted 0 (out 0), lean dropped 0 | foraging: 35 trips, 17 returns, 141 pickups, 52 drops, 554 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   115     0     0    108     84355 |        0   84355       0      0      0       0       0     0 |    69     6     0     2    4   2121    335    1676 |    165     7     93     39    7 |  129/129  356/383      0    108 | 1792894933      4    145 |     0     0    0     60     0      0 |   22148    610   182    88    46051     0     0     0     0     0     4    197 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (356/383) | mound (packed above surface): 39 cells, 7 rows high | larder priced at gut -0.804 (mean over living animals) | dug below ground: 226 cells -- open 160, ants in it 41, roots 0, other plant 0, water 0, soil back 1, other 24 | empty below ground nobody dug: 12
+        brood now: 0 eggs, 27 larvae (27 hungry), 1 pupae | under ground 27, median 12 rows down, 28 within 4 columns of the door | so far: 97 laid, 97 to larvae, 70 to pupae, 69 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 39025, crop 1242, nursed 4868, shared 42311, upkeep burned 791, starved to corpse 0 | larva ticks hungry 1539, nursed 335 (22%), crop fed 10 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 236 open cells under ground, deepest 16 rows | biggest room 179 cells (24 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 26 / 2 / 44 / 43 animals, 10 / 0 / 1 / 1 under their start energy, mean fill 1.25 / 1.86 / 3.52 / 2.67
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 2 | old age 0 / 2 / 2 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 5418, hungry out pulls 1132, crop down holds 0, digs refused away from the digger's face 2778, digs turned to a face 201, spoil kept inside 12404 / held below 0 / dumped 319 / lifted 36 (out 0), lean dropped 0 | foraging: 329 trips, 76 returns, 1944 pickups, 1676 drops, 19894 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.26, reproduce_at -0.13, pace +0.19, curvature_radius +0.10, digest_rate +0.19 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F   7005  THE KIWI LINE ENDED WITH ITS FOUNDER
+F  14480  THE NICKEL LINE ENDED WITH ITS FOUNDER
+F  16360  OPAL NUMBERS 10
+F  18400  THE TIN LINE ENDED WITH ITS FOUNDER
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 115 ALIVE. 3 OF ITS FOUNDING LINES HAVE ENDED. 4 OLD AGE, 2 KILLED.
+THE KIWI LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7005. KILLED.
+THE NICKEL LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14480. OLD AGE.
+THE TIN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F18400. OLD AGE.
+
+COUNTS: ACTION 1, BORN 69 (ANIMALS 69, PLANTS 0), DIED 6 (ANIMALS 6, PLANTS 0), FIRST FED 114, LINE ENDED 3, LINE MILESTONE 1 | LINES ENDED 3 | LINEAGES CLAIMED 52 | LOG DROPPED 0

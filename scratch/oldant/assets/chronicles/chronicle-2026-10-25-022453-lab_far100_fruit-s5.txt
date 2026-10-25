@@ -1,0 +1,39 @@
+CHRONICLE OF lab_far100_fruit
+SEED 5  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far100_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_CHOOSER=on, PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    51     0     0    105     81712 |        0   81712       0      0      0       0       0     0 |     1     2     1     0    1     84     10      36 |     20     8     34      2    1 |  129/129  355/383      0    105 | 1792895093      0     61 |     0     0    0     60     0      0 |    1673     15     0     8     3531     0     0     0     0     0     1     23 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 2 cells, 1 rows high | larder priced at gut -0.801 (mean over living animals) | dug below ground: 36 cells -- open 24, ants in it 1, roots 0, other plant 0, water 0, soil back 4, other 7 | empty below ground nobody dug: 4
+        brood now: 0 eggs, 8 larvae (8 hungry), 0 pupae | under ground 7, median 5 rows down, 8 within 4 columns of the door | so far: 9 laid, 9 to larvae, 1 to pupae, 1 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 375, nursed 0, shared 913, upkeep burned 41, starved to corpse 0 | larva ticks hungry 83, nursed 0 (0%), crop fed 2 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 34 open cells under ground, deepest 8 rows | biggest room 21 cells (6 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 0 / 0 / 33 / 18 animals, 0 / 0 / 14 / 18 under their start energy, mean fill 0.00 / 0.00 / 2.37 / 0.54
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 1 | killed 0 / 0 / 0 | old age 0 / 0 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 59, hungry out pulls 6, crop down holds 0, digs refused away from the digger's face 34, digs turned to a face 3, spoil kept inside 579 / held below 0 / dumped 6 / lifted 0 (out 0), lean dropped 0 | foraging: 14 trips, 6 returns, 69 pickups, 36 drops, 183 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000    51     0     0    104     81020 |        0   81020       0      0      0       0       0     0 |     4     5     2     0    3    226     43      94 |     40     6     51      9    3 |  129/129  355/383      0    104 | 1792895094      0     65 |     0     0    0     60     0      0 |   19445     85     0   192    28088     0     0     0     0     0     3     60 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 9 cells, 3 rows high | larder priced at gut -0.802 (mean over living animals) | dug below ground: 65 cells -- open 44, ants in it 7, roots 0, other plant 0, water 0, soil back 2, other 12 | empty below ground nobody dug: 2
+        brood now: 0 eggs, 12 larvae (12 hungry), 0 pupae | under ground 11, median 6 rows down, 12 within 4 columns of the door | so far: 16 laid, 16 to larvae, 4 to pupae, 4 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 991, nursed 1484, shared 5808, upkeep burned 1082, starved to corpse 0 | larva ticks hungry 2165, nursed 103 (5%), crop fed 5 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 65 open cells under ground, deepest 10 rows | biggest room 41 cells (10 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 4 / 2 / 44 / 1 animals, 2 / 0 / 19 / 0 under their start energy, mean fill 1.11 / 1.10 / 2.17 / 7.50
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 2 | killed 0 / 0 / 0 | old age 0 / 2 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 502, hungry out pulls 139, crop down holds 0, digs refused away from the digger's face 127, digs turned to a face 24, spoil kept inside 4913 / held below 0 / dumped 34 / lifted 5 (out 0), lean dropped 0 | foraging: 57 trips, 20 returns, 170 pickups, 94 drops, 1443 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.22, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR100_FRUIT
+F   8510  THE WARBLER LINE ENDED WITH ITS FOUNDER
+F   9865  THE THISTLE LINE ENDED WITH ITS FOUNDER
+F  13760  THE LEAD LINE ENDED WITH ITS FOUNDER
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 51 ALIVE. 3 OF ITS FOUNDING LINES HAVE ENDED. 3 OLD AGE, 2 STARVED.
+THE WARBLER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F8510. STARVED.
+THE THISTLE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F9865. OLD AGE.
+THE LEAD LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13760. STARVED.
+
+COUNTS: ACTION 1, BORN 4 (ANIMALS 4, PLANTS 0), DIED 5 (ANIMALS 5, PLANTS 0), FIRST FED 37, LINE ENDED 3 | LINES ENDED 3 | LINEAGES CLAIMED 52 | LOG DROPPED 0

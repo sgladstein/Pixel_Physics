@@ -1,0 +1,40 @@
+CHRONICLE OF lab_far200_fruit
+SEED 7  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_FOOD_TRAIL=lay,read,giveup,window=700, PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    51     0     0    119     91867 |        0   89424       0      0      0       0    2443     0 |     0     1     0     0    1    203     11      78 |     18    13     35      1    2 |  129/129  355/383      0    115 | 1792894934      0     52 |     0     0    0     60     0      0 |     631     16     0     4     2651     0     0     0     0     0     1     40 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 1 cells, 2 rows high | larder priced at gut -0.800 (mean over living animals) | dug below ground: 35 cells -- open 30, ants in it 5, roots 0, other plant 0, water 0, soil back 0, other 0 | empty below ground nobody dug: 1
+        brood now: 1 eggs, 0 larvae (0 hungry), 0 pupae | under ground 0, median 0 rows down, 1 within 4 columns of the door | so far: 1 laid, 0 to larvae, 0 to pupae, 0 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 0, nursed 0, shared 0, upkeep burned 0, starved to corpse 0 | larva ticks hungry 0, nursed 0 (0%), crop fed 0 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 34 open cells under ground, deepest 8 rows | biggest room 19 cells (0 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 2 / 3 / 22 / 24 animals, 0 / 0 / 0 / 3 under their start energy, mean fill 4.66 / 4.39 / 3.96 / 2.00
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 0 | old age 0 / 1 / 0 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 71, hungry out pulls 30, crop down holds 0, digs refused away from the digger's face 17, digs turned to a face 4, spoil kept inside 221 / held below 0 / dumped 8 / lifted 0 (out 0), lean dropped 0 | foraging: 39 trips, 19 returns, 171 pickups, 78 drops, 399 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   134     0     0    103     79174 |        0   78674       0      0      0       0     500     0 |    90     8     0     3    5   2138    255    1619 |    115     3     74     20    8 |  129/129  358/383      0    102 | 1792894937      1    171 |     0     0    0     60     0      0 |   20859    989   251   315    40457     0     0     0     0     0     5    252 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (358/383) | mound (packed above surface): 20 cells, 8 rows high | larder priced at gut -0.793 (mean over living animals) | dug below ground: 175 cells -- open 109, ants in it 35, roots 0, other plant 0, water 0, soil back 2, other 29 | empty below ground nobody dug: 9
+        brood now: 0 eggs, 26 larvae (26 hungry), 6 pupae | under ground 32, median 12 rows down, 32 within 4 columns of the door | so far: 122 laid, 122 to larvae, 96 to pupae, 90 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 57316, crop 6553, nursed 6509, shared 55362, upkeep burned 1461, starved to corpse 0 | larva ticks hungry 2862, nursed 460 (16%), crop fed 25 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 181 open cells under ground, deepest 16 rows | biggest room 137 cells (28 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 19 / 2 / 56 / 57 animals, 2 / 0 / 1 / 1 under their start energy, mean fill 1.20 / 1.42 / 2.58 / 2.78
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 3 | old age 0 / 1 / 4 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 3600, hungry out pulls 1984, crop down holds 0, digs refused away from the digger's face 1757, digs turned to a face 247, spoil kept inside 8470 / held below 0 / dumped 245 / lifted 21 (out 0), lean dropped 0 | foraging: 323 trips, 91 returns, 1935 pickups, 1619 drops, 16007 nest visits
+        traits (mean over the colony's animals): gut_bias -0.79, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F   7155  THE HEATHER LINE ENDED WITH ITS FOUNDER
+F  11505  THE ELDER LINE ENDED WITH ITS FOUNDER
+F  13945  EMBER NUMBERS 10
+F  15505  THE DELUGE LINE ENDED WITH ITS FOUNDER
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 134 ALIVE. 3 OF ITS FOUNDING LINES HAVE ENDED. 5 OLD AGE, 3 KILLED.
+THE HEATHER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7155. OLD AGE.
+THE ELDER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F11505. KILLED.
+THE DELUGE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F15505. KILLED.
+
+COUNTS: ACTION 1, BORN 90 (ANIMALS 90, PLANTS 0), DIED 8 (ANIMALS 8, PLANTS 0), FIRST FED 127, LINE ENDED 3, LINE MILESTONE 1 | LINES ENDED 3 | LINEAGES CLAIMED 52 | LOG DROPPED 0

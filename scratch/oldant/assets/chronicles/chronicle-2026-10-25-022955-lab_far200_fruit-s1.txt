@@ -1,0 +1,50 @@
+CHRONICLE OF lab_far200_fruit
+SEED 1  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    51     0     0    128     97189 |        0   90202       0      0      0       0    6988     0 |     0     1     0     1    0    137     14      34 |     16     8     42      4    1 |  129/129  355/383      0    116 | 1792895395      0     54 |     0     0    0     60     0      0 |     784     34     0     8     3345     0     0     0     0     0     0     22 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 4 cells, 1 rows high | larder priced at gut -0.800 (mean over living animals) | dug below ground: 38 cells -- open 23, ants in it 7, roots 0, other plant 0, water 0, soil back 1, other 7 | empty below ground nobody dug: 1
+        brood now: 2 eggs, 0 larvae (0 hungry), 0 pupae | under ground 2, median 6 rows down, 2 within 4 columns of the door | so far: 2 laid, 0 to larvae, 0 to pupae, 0 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 0, nursed 0, shared 0, upkeep burned 0, starved to corpse 0 | larva ticks hungry 0, nursed 0 (0%), crop fed 0 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 36 open cells under ground, deepest 11 rows | biggest room 9 cells (2 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 3 / 0 / 19 / 29 animals, 0 / 0 / 0 / 9 under their start energy, mean fill 4.84 / 0.00 / 4.27 / 1.62
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 1 | old age 0 / 0 / 0 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 108, hungry out pulls 31, crop down holds 0, digs refused away from the digger's face 51, digs turned to a face 2, spoil kept inside 282 / held below 0 / dumped 13 / lifted 0 (out 0), lean dropped 0 | foraging: 41 trips, 14 returns, 110 pickups, 34 drops, 517 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   112     0     0    150    114502 |        0  112672       0      0      0       0    1830     0 |    70    10     0     2    8   1779    290    1376 |    128    11     83     30    7 |  129/129  356/383      0    146 | 1792895397      2    136 |     0     0    0     60     0      0 |   17448    591   133   170    36823     0     0     0     0     0     8    176 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (356/383) | mound (packed above surface): 30 cells, 7 rows high | larder priced at gut -0.793 (mean over living animals) | dug below ground: 196 cells -- open 132, ants in it 44, roots 0, other plant 0, water 0, soil back 2, other 18 | empty below ground nobody dug: 7
+        brood now: 2 eggs, 15 larvae (15 hungry), 4 pupae | under ground 19, median 13 rows down, 21 within 4 columns of the door | so far: 91 laid, 89 to larvae, 74 to pupae, 70 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 46439, crop 3810, nursed 4872, shared 35682, upkeep burned 1069, starved to corpse 0 | larva ticks hungry 2087, nursed 351 (17%), crop fed 14 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 202 open cells under ground, deepest 16 rows | biggest room 153 cells (16 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 28 / 0 / 44 / 40 animals, 3 / 0 / 5 / 0 under their start energy, mean fill 1.47 / 0.00 / 3.01 / 3.23
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 2 | old age 0 / 3 / 5 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 3988, hungry out pulls 889, crop down holds 0, digs refused away from the digger's face 1949, digs turned to a face 241, spoil kept inside 9320 / held below 0 / dumped 278 / lifted 27 (out 0), lean dropped 0 | foraging: 292 trips, 73 returns, 1624 pickups, 1377 drops, 14360 nest visits
+        traits (mean over the colony's animals): gut_bias -0.79, birth_grant -0.28, reproduce_at -0.14, pace +0.22, curvature_radius +0.10, digest_rate +0.20 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F   9505  THE SIROCCO LINE ENDED WITH ITS FOUNDER
+F  10670  THE PEAT LINE ENDED WITH ITS FOUNDER
+F  10895  THE BASALT LINE ENDED WITH ITS FOUNDER
+F  11680  THE DAISY LINE ENDED WITH ITS FOUNDER
+F  12630  THE SPRUCE LINE ENDED WITH ITS FOUNDER
+F  13450  THE YEW LINE ENDED WITH ITS FOUNDER
+F  14950  THE NEBULA LINE ENDED WITH ITS FOUNDER
+F  16005  THE LOESS LINE ENDED WITH ITS FOUNDER
+F  18640  GULL NUMBERS 10
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 112 ALIVE. 8 OF ITS FOUNDING LINES HAVE ENDED. 8 OLD AGE, 2 KILLED.
+THE SIROCCO LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F9505. KILLED.
+THE PEAT LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F10670. OLD AGE.
+THE BASALT LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F10895. OLD AGE.
+THE DAISY LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F11680. OLD AGE.
+THE SPRUCE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F12630. OLD AGE.
+THE YEW LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13450. OLD AGE.
+THE NEBULA LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14950. OLD AGE.
+THE LOESS LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F16005. KILLED.
+
+COUNTS: ACTION 1, BORN 70 (ANIMALS 70, PLANTS 0), DIED 10 (ANIMALS 10, PLANTS 0), FIRST FED 92, LINE ENDED 8, LINE MILESTONE 1 | LINES ENDED 8 | LINEAGES CLAIMED 52 | LOG DROPPED 0

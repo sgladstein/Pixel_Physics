@@ -1,0 +1,71 @@
+CHRONICLE OF lab_far200_fruit
+SEED 7  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far200_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    41     0     0    106     73731 |        0   63671       0      0      0       0   10060     0 |     1    12    10     1    1     32     96      43 |      9    49    308     54    1 |  129/129  360/383      0     82 | 1792895389      0     47 |     0     0    0     60     0      0 |       0      0     0     0      234     0     0     0     0     0     1     42 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 94% (360/383) | mound (packed above surface): 54 cells, 1 rows high | larder priced at gut -0.799 (mean over living animals) | dug below ground: 100 cells -- open 58, ants in it 5, roots 0, other plant 0, water 0, soil back 20, other 17 | empty below ground nobody dug: 0
+        brood now: 3 eggs, 1 larvae (1 hungry), 0 pupae | under ground 0, median 0 rows down, 4 within 4 columns of the door | so far: 5 laid, 2 to larvae, 1 to pupae, 1 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 571, crop 600, nursed 307, shared 237, upkeep burned 3, starved to corpse 0 | larva ticks hungry 6, nursed 2 (33%), crop fed 1 | brood carried 0, spread 0, nurse seeks 0 | lays declined 6, births denied for room 0
+        rooms: 28 open cells under ground, deepest 7 rows | biggest room 7 cells (0 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 2 / 0 / 16 / 23 animals, 0 / 0 / 0 / 0 under their start energy, mean fill 5.46 / 0.00 / 5.05 / 5.81
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 10 | killed 0 / 0 / 1 | old age 0 / 0 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 0, hungry out pulls 0, crop down holds 0, digs refused away from the digger's face 0, digs turned to a face 0, spoil kept inside 0 / held below 0 / dumped 96 / lifted 0 (out 0), lean dropped 0 | foraging: 9 trips, 12 returns, 450 pickups, 315 drops, 132 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000   134     0     0     73     55939 |        0   54003       0      0      0       0    1936     0 |   109    27    14    11    2    293    320     336 |     26   111    594    143    3 |  129/129  366/383      0     69 | 1792895393      8    166 |     0     0    0     60     0      0 |       0      0     0     0     1962     0     0     0     0     0     2    311 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 96% (366/383) | mound (packed above surface): 143 cells, 3 rows high | larder priced at gut -0.806 (mean over living animals) | dug below ground: 218 cells -- open 136, ants in it 4, roots 0, other plant 0, water 0, soil back 50, other 28 | empty below ground nobody dug: 1
+        brood now: 1 eggs, 26 larvae (26 hungry), 2 pupae | under ground 19, median 5 rows down, 28 within 4 columns of the door | so far: 138 laid, 137 to larvae, 111 to pupae, 109 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 41194, crop 62900, nursed 8369, shared 9959, upkeep burned 1583, starved to corpse 0 | larva ticks hungry 3131, nursed 63 (2%), crop fed 187 | brood carried 0, spread 0, nurse seeks 0 | lays declined 2774, births denied for room 0
+        rooms: 48 open cells under ground, deepest 8 rows | biggest room 27 cells (14 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 0 / 0 / 28 / 106 animals, 0 / 0 / 1 / 3 under their start energy, mean fill 0.00 / 0.00 / 4.58 / 6.23
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 1 / 13 | killed 0 / 0 / 11 | old age 0 / 1 / 1 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 0, hungry out pulls 0, crop down holds 0, digs refused away from the digger's face 0, digs turned to a face 0, spoil kept inside 0 / held below 0 / dumped 319 / lifted 0 (out 0), lean dropped 0 | foraging: 104 trips, 157 returns, 1508 pickups, 940 drops, 1394 nest visits
+        traits (mean over the colony's animals): gut_bias -0.81, birth_grant -0.29, reproduce_at -0.13, pace +0.22, curvature_radius +0.08, digest_rate +0.21 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR200_FRUIT
+F      0  ANT BRAIN: NEW
+F   6985  THE SILT LINE ENDED WITH ITS FOUNDER
+F   7145  THE ZEPHYR LINE ENDED WITH ITS FOUNDER
+F   7155  THE HEATHER LINE ENDED WITH ITS FOUNDER
+F   7180  THE BRONZE LINE ENDED WITH ITS FOUNDER
+F   7190  THE COMET LINE ENDED WITH ITS FOUNDER
+F   7480  THE PETREL LINE ENDED WITH ITS FOUNDER
+F   7505  THE MAPLE LINE ENDED WITH ITS FOUNDER
+F   7565  THE ORIOLE LINE ENDED WITH ITS FOUNDER
+F   7720  THE LIME LINE ENDED WITH ITS FOUNDER
+F   7875  THE TOWHEE LINE ENDED WITH ITS FOUNDER
+F   7985  THE GABBRO LINE ENDED WITH ITS FOUNDER
+F   7985  THE RAVEN LINE ENDED WITH ITS FOUNDER
+F  13005  THE HERON LINE ENDED WITH ITS FOUNDER
+F  13505  THE SCREE LINE ENDED WITH ITS FOUNDER
+F  14505  THE ISOBAR LINE ENDED WITH ITS FOUNDER
+F  16285  OAK NUMBERS 10
+F  17415  TALC NUMBERS 10
+F  17505  THE BRIAR LINE ENDED WITH ITS FOUNDER
+F  18035  FROST NUMBERS 10
+F  18780  GALE NUMBERS 10
+F  19445  VETCH NUMBERS 10
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 134 ALIVE. 16 OF ITS FOUNDING LINES HAVE ENDED. 14 STARVED, 11 KILLED, 2 OLD AGE.
+THE SILT LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F6985. STARVED.
+THE ZEPHYR LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7145. STARVED.
+THE HEATHER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7155. OLD AGE.
+THE BRONZE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7180. STARVED.
+THE COMET LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7190. STARVED.
+THE PETREL LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7480. STARVED.
+THE MAPLE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7505. KILLED.
+THE ORIOLE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7565. STARVED.
+THE LIME LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7720. STARVED.
+THE TOWHEE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7875. STARVED.
+THE GABBRO LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7985. STARVED.
+THE RAVEN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F7985. STARVED.
+THE HERON LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13005. KILLED.
+THE SCREE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13505. KILLED.
+THE ISOBAR LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14505. KILLED.
+THE BRIAR LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F17505. KILLED.
+
+COUNTS: ACTION 2, BORN 109 (ANIMALS 109, PLANTS 0), DIED 27 (ANIMALS 27, PLANTS 0), LINE ENDED 16, LINE MILESTONE 5 | LINES ENDED 16 | LINEAGES CLAIMED 52 | LOG DROPPED 0

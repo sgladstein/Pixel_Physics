@@ -1,0 +1,53 @@
+CHRONICLE OF lab_far100_fruit
+SEED 2  FOUNDERS 0 OF GRASS  COLONIES 0  FRAMES 20000  DIAL 1X
+BUILD 53f8c550 OF 2026-10-24  RELEASE  BINARY labsurvive  BOX 512X320  SOIL 80  LAMPS 15 AT SPACING 33  SCENARIO lab_far100_fruit
+DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED
+SWITCHES: PIXEL_PHYSICS_CHOOSER=on, PIXEL_PHYSICS_LAB_SCENARIOS=/home/user/Pixel_Physics/scratch/oldant/scen
+
+CENSUS
+  frame  ants plnts  bank edible  worth(J) |    leafJ  fruitJ  littrJ  seedJ  crpsJ  flowrJ  otherJ flwrs |  born  died strvd killd othr   eats   digs  delivs | roofed   pit  pack<  pack^  mnd | bare/band bare/out   pcIn  pcOut |       wall  awake  sites | ach/f req/f    x dispHz  debt   skip |   dRoll  dDown  dDnX  dRfX   atNest sCarr  pipS  pipN sLost  ownK oldag  tripD | ticks ca_sweep liquid_b chunk_bo   player active_s particle    field pheromon
+  10000    53     0     0    106     82185 |        0   82185       0      0      0       0       0     0 |     1     0     0     0    0     71      7      11 |     13     0     36      2    2 |  129/129  355/383      0    106 | 1792895092      0     72 |     0     0    0     60     0      0 |    1523     15     2     0     5005     0     0     0     0     0     0     11 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 2 cells, 2 rows high | larder priced at gut -0.797 (mean over living animals) | dug below ground: 33 cells -- open 13, ants in it 2, roots 0, other plant 0, water 0, soil back 1, other 17 | empty below ground nobody dug: 0
+        brood now: 5 eggs, 14 larvae (14 hungry), 0 pupae | under ground 18, median 4 rows down, 19 within 4 columns of the door | so far: 20 laid, 15 to larvae, 1 to pupae, 1 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 221, nursed 65, shared 1180, upkeep burned 77, starved to corpse 0 | larva ticks hungry 155, nursed 2 (1%), crop fed 1 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 31 open cells under ground, deepest 9 rows | biggest room 14 cells (10 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 1 / 0 / 30 / 22 animals, 1 / 0 / 13 / 22 under their start energy, mean fill 0.99 / 0.00 / 2.19 / 0.55
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 0 / 0 | killed 0 / 0 / 0 | old age 0 / 0 / 0 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 42, hungry out pulls 8, crop down holds 0, digs refused away from the digger's face 16, digs turned to a face 2, spoil kept inside 690 / held below 0 / dumped 4 / lifted 1 (out 0), lean dropped 0 | foraging: 17 trips, 5 returns, 53 pickups, 11 drops, 163 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.27, reproduce_at -0.14, pace +0.21, curvature_radius +0.11, digest_rate +0.20 | all 28 in census.csv
+  20000    53     0     0    107     82729 |        0   80754       0      0      0       0    1974     0 |    11    10     6     1    3    214     61      73 |     51     9     65     16    6 |  129/129  355/383      0    104 | 1792895093      0     68 |     0     0    0     60     0      0 |   22248    130    12   155    34659     0     0     0     0     0     3     43 |    --       --       --       --       --       --       --       --       --
+        bare ground: nest band 100% (129/129) vs outside 93% (355/383) | mound (packed above surface): 16 cells, 6 rows high | larder priced at gut -0.799 (mean over living animals) | dug below ground: 92 cells -- open 60, ants in it 4, roots 0, other plant 0, water 0, soil back 14, other 14 | empty below ground nobody dug: 0
+        brood now: 0 eggs, 14 larvae (14 hungry), 0 pupae | under ground 14, median 8 rows down, 14 within 4 columns of the door | so far: 25 laid, 25 to larvae, 11 to pupae, 11 hatched, 0 larvae starved (0% of eggs laid), 0 lost, 0 hatches denied
+        brood fed (J): ate 0, crop 1521, nursed 1268, shared 11051, upkeep burned 1453, starved to corpse 0 | larva ticks hungry 2906, nursed 132 (5%), crop fed 7 | brood carried 0, spread 0, nurse seeks 0 | lays declined 0, births denied for room 0
+        rooms: 77 open cells under ground, deepest 11 rows | biggest room 50 cells (12 brood in it) | other rooms of 30+ cells: 0
+        the colony by place (under / mound inside / mound top / afield): 2 / 11 / 37 / 3 animals, 1 / 2 / 4 / 3 under their start energy, mean fill 1.01 / 1.48 / 1.45 / 0.77
+        the colony's deaths by place (under / near the nest / afield): starved 0 / 1 / 5 | killed 0 / 0 / 1 | old age 0 / 3 / 0 | other 0 / 0 / 0
+        nest plan fired: soil way pulls 530, hungry out pulls 191, crop down holds 0, digs refused away from the digger's face 252, digs turned to a face 31, spoil kept inside 5020 / held below 0 / dumped 53 / lifted 12 (out 0), lean dropped 0 | foraging: 54 trips, 15 returns, 149 pickups, 73 drops, 1871 nest visits
+        traits (mean over the colony's animals): gut_bias -0.80, birth_grant -0.28, reproduce_at -0.14, pace +0.21, curvature_radius +0.10, digest_rate +0.21 | all 28 in census.csv
+
+F      0  REBUILT FROM SCENARIO LAB_FAR100_FRUIT
+F  10005  THE PULSAR LINE ENDED WITH ITS FOUNDER
+F  13700  THE BREEZE LINE ENDED WITH ITS FOUNDER
+F  13710  THE GORSE LINE ENDED WITH ITS FOUNDER
+F  14270  THE CATKIN LINE ENDED WITH ITS FOUNDER
+F  14295  THE SEDGE LINE ENDED WITH ITS FOUNDER
+F  14345  THE BRACKEN LINE ENDED WITH ITS FOUNDER
+F  14375  THE BASALT LINE ENDED WITH ITS FOUNDER
+F  15420  THE HERON LINE ENDED WITH ITS FOUNDER
+F  15890  THE EMBER LINE ENDED WITH ITS FOUNDER
+F  17870  THE INDIGO LINE ENDED WITH ITS FOUNDER
+
+LEGENDS
+THE ANT 1 COLONY (ANIMAL) 53 ALIVE. 10 OF ITS FOUNDING LINES HAVE ENDED. 6 STARVED, 3 OLD AGE, 1 KILLED.
+THE PULSAR LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F10005. KILLED.
+THE BREEZE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13700. STARVED.
+THE GORSE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F13710. OLD AGE.
+THE CATKIN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14270. STARVED.
+THE SEDGE LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14295. STARVED.
+THE BRACKEN LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14345. STARVED.
+THE BASALT LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F14375. STARVED.
+THE HERON LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F15420. STARVED.
+THE EMBER LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F15890. OLD AGE.
+THE INDIGO LINE (ANIMAL) ENDED WITH ITS FOUNDER. FOUNDED F6000, PEAK 1 LIVING, ENDED F17870. OLD AGE.
+
+COUNTS: ACTION 1, BORN 11 (ANIMALS 11, PLANTS 0), DIED 10 (ANIMALS 10, PLANTS 0), FIRST FED 39, LINE ENDED 10 | LINES ENDED 10 | LINEAGES CLAIMED 52 | LOG DROPPED 0
