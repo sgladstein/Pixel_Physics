@@ -471,3 +471,47 @@ the colony died, frames 140k-180k): the moves kill the trained ant, not the dist
 2026-10-23 (starving ants at home touching crumbs chose Walk 200 of 214 times). **Next, nest5:** the garden keeps the
 far moving food; in training the heap first moves every 200,000 frames, and `tramp=200000:50:20000` shrinks that by
 x0.8 each round the median colony starves 50 or fewer. `trampcrutch` adds `PP_HOMEEAT=1.0`, weaned r8-r28.
+
+**nest5** (the move ramp, 32 rounds): **failed before it started.** The median colony starved 99-285 ants a round
+with the heap never moving, so `tramp` never shortened the interval, and the garden on far moving food showed no gain
+over nest4. `trampcrutch` (`PP_HOMEEAT` weaned r8-r28) was no better. A hunger probe (`PP_HUNGRYPROBE=1`, ants under
+a quarter tank every 250 frames; replays https://claude.ai/artifact/HYDeKaY32fzLUdudCkFG3i) put 338 of 438 sightings
+of colony 7's hungry ants in the outer 16 columns of the bed, the east wall included, 300 columns from the door.
+
+## 2026-10-25 night: trained ants cannot come home; a teacher that turns them for home in time
+
+**Why they die at the walls** (nest5 colony 7 replayed on world 21099, `trace=100`; the brain's own choices logged at
+the walls with `PP_COPY_LOG`). 72 of 106 starved ants reached a wall while fat (median 13 tanks) and stayed there a
+median 36,000 frames. At the wall the walk scores sit at +-0.99 whatever the home sense reads (`f::HOME` +-0.78,
+`f::LAST_FOOD` +-1.34 between the step away and the step into the wall): of 1,469 decisions, 504 stepped away, 536
+into the wall and 403 along it. The ant has no "go back"; at 300 columns a random walk home outlasts any tank. With
+food 25 columns out this never cost anything, which is why nothing selected against it. The starvation trace of
+2026-10-22 found the same of the hand-built ant (`/mnt/project-files/starve-trace/`): 50-62% of its starvation deaths
+walked out fat and starved at the walls.
+
+**The ceiling** (`PP_HOMEFAR`, the come-home teacher, acting on every decision it labels, `PP_CARRY=1`, with
+`PP_CARRY_HUNGRY=2 PP_CARRY_HUNGRYONLY=1 PP_CARRY_OUT=0 PP_CARRY_STORE=1`; colony 10's carry, `patches=20000:40:120`,
+worlds 21099-24099, 200,000 frames). Each step was found by tracing the dead of the step before:
+
+| teacher | starved per world | alive at end |
+|---|---|---|
+| none | 217 / 381 / 476 / 145 | 23 / 0 / 37 / 0 |
+| home under 4 tanks (`PP_HOMEFAR_HUNGRY=1`, R 40) | 24 each: founders start at 3 tanks, so never leave | 0 |
+| home under 2 tanks, R 40 | 125 / 138 / 303 / 217 | 70 / 75 / 61 / 62 |
+| empty and past 130 columns (the old rule) | 119 / 274 / 396 / 354 | 70 / 0 / 36 / 23 |
+| home under 1 + 0.012 x columns tanks (`PP_HOMEFAR_FUEL`), R 1 | 104 / 144 / 184 / 51 | 70 / 65 / 35 / 71 |
+| + a hungry ant in a pit climbs or cuts out | 91 / 145 / 144 / 82 | 59 / 66 / 68 / 64 |
+| + a hungry pellet holder puts it down and goes home | 50 / 108 / 123 / 129 | 66 / 68 / 72 / 65 |
+| + turn round rather than step into its own tail | **14 / 24 / 31 / 25** | **76 / 71 / 73 / 75** |
+
+The hand-built ant on world 21099: 11 starved, 80 alive. What each row fixed: at a flat 2 tanks an ant 300 columns
+out turned with ~165 columns of fuel and died on the way; fuel 0.025 was too timid (founders turned back before any
+heap, all 24 died); the older hungry rule walked pellet holders *away* from home; ants sat in two-cell pits dug where
+a heap had been, the home side packed; and one stood on one cell 2,500 frames because the only nearer step was its own
+tail. The nest stays tiny with the teacher on (open 2-14 cells): this fixes feeding, not digging. Films:
+https://claude.ai/artifact/Y2ERy6mXkeZYxZ7sg5KDYY.
+
+**nest6** (the nest on far food that holds still, `heaps=40:120`) was stopped an hour in for **nest7**: the same three
+nest4 arms' shape with the teacher weaned instead (`wean=8:40` now also rewrites `PP_CARRY`, the teacher's share; the
+garden runs it at 0 and the lab strips it): `hctl` (no teacher), `hwean`, `hweanrules` (+ the old roof and room rules
+on the same schedule). Judged with the teacher off.

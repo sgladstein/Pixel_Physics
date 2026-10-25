@@ -74,8 +74,16 @@ def wean_p(r):
     return 1.0 if r <= WEAN[0] else max(0.0, 1.0 - (r - WEAN[0]) / max(1, WEAN[1] - WEAN[0]))
 # The same schedule weans the brood lane's home-eat crutch (setenv PP_HOMEEAT, 2026-10-23): PP_HOMEEAT_P rides along,
 # and is read only when PP_HOMEEAT is set.
+# And the come-home teacher (setenv PP_CARRY=q with PP_HOMEFAR_HUNGRY, teacher lane 2026-10-25): its q IS the share of
+# decisions it takes over, so the schedule rewrites PP_CARRY itself. Acting at q=1 on the c10 pool with food far and
+# moving, it took starvation from 145-476 a run to 14-31; the garden runs at q=0, so a colony is judged on its own feet.
 def with_p(args, p):
-    return [f'{x},PP_BODYRULES_P={p:.3f},PP_HOMEEAT_P={p:.3f}' if x.startswith('setenv=') else x for x in args]
+    def one(x):
+        if not x.startswith('setenv='):
+            return x
+        kv = [f'PP_CARRY={p:.3f}' if k.startswith('PP_CARRY=') else k for k in x[len('setenv='):].split(',')]
+        return 'setenv=' + ','.join(kv) + f',PP_BODYRULES_P={p:.3f},PP_HOMEEAT_P={p:.3f}'
+    return [one(x) for x in args]
 # capwean=R0:R1 (brood lane, 2026-10-24; owner: brood rules should "just balance through training"): inrun's size
 # brake lay_cap is a scaffold too -- the lab has none, and far64 boomed there to ~710 ants and starved 817 in 10k frames.
 # Each round gets lay_cap_p=p on wean_p's shape (1 up to round R0, linear to 0 at R1); the common garden runs at
@@ -380,7 +388,7 @@ LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
 LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split('=', 1) for kv in x[len('setenv='):].split(','))
-           if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT'))}
+           if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT', 'PP_CARRY', 'PP_HOMEFAR'))}
 
 
 def lab_alive(c, r, carry_c, scens=None):
