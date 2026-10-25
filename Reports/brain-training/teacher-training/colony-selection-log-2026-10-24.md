@@ -405,3 +405,34 @@ against 3.5, worse in 8/8). No clean win, so colony 10 stays the standard ant.
 **Next, fw1:** the standard pool carries 0 on every last-food weight (the keeper and scout seats both found the
 memory reading into nothing), so selection never tried it. `fwseed05` / `fwseed15` draw each member's 16 `f::FOOD_WAY`
 weights N(0, 0.5) / N(0, 1.5) and change nothing else; run on herbs2's build so `hcasedrop` is the control.
+
+**fw1** (`fwseed05` / `fwseed15`, control `hcasedrop`, same build and garden worlds): **failed.** r23 gardens:
+starved 26.5 and 29 against 10 (more in 26/32 and 24/31 paired by colony), `fwseed05`'s food home 10,442 against
+15,824 (lower 27/32), `fwseed15`'s nest 305 against 480 (smaller 20/31); `lab_herbs` medians 148 and 112 tenths
+against 178. A random last-food memory is a cost the pool pays before selection can find a use for it. Not carried.
+
+**The nest, owner's ranking (2026-10-25 15:05Z): too small, then a crater for a mouth, then one room.** First
+looked at, not measured: colony 8 and colony 10 against the hand-built ant on the same 4 garden worlds (food 100
+out, 200k frames; pictures https://claude.ai/artifact/7CykXk4N8PiKzo1BEomvVz). The trained nest is one pit packed
+with stored food: open cells below ground 70-150 against 980-1,250, stored food 430-630 against 25-65 (stock.csv
+`nest_food` 398 against 48), and the open room stays flat all game while the store grows. `nestcount`'s `nest`
+counts the food as room, which is why the earlier size numbers (316-545 against 1,116-1,384) undersold the gap.
+
+**nest1** (from `std_pool`; `heaps=20:120` draws each food heap's distance per colony-round, owner: "randomly moving
+the distance from the food"; `heapsgate` adds `scalegate=50`; `heapsgatewean` adds the old ant's roof and room rules,
+`PP_BODYRULES=both`, weaned over rounds 6-20 and off in every garden and lab case, owner asked 15:15Z). r23 gardens
+(median nest / food home / starved / rooms score), `hcasedrop` as the reference:
+
+| arm | nest | food home | starved | rooms | open room, r23 training maps | stored food |
+|---|---|---|---|---|---|---|
+| heaps | 116 | 21,908 | 4.5 | 0 | 75 | 342 |
+| heapsgate | 424 | 21,037 | 6 | 19 | 88 | 544 |
+| heapsgatewean | 464 | 15,964 | 8.5 | 18.5 | 97 | 666 |
+| hcasedrop | 480 | 15,824 | 10 | 3 | 110 | 491 |
+
+Random distances alone shrink the nest by three quarters (smaller than `hcasedrop` in 31/32) while food home rises
+(29/32). The gate buys it back (bigger than `heaps` in 31/32) and raises the rooms score (17/3), but **what it grows
+is stored food**: open room stays 75-110 cells in every arm. The weaned rules came out level with the gate alone on
+nest (16/16 against `hcasedrop`) and cost food. **Next, nest2:** `nestcount` now reports `nest_open` (open cells of
+the flooded nest: hand-built ant 1,025, colonies 8 and 10 3-16, nest1's colonies 2-64), and `scaleopen=1` scores the
+gate's case on it with `nestneed=6,3,1`. Arms `opengate` / `opengatewean`, controls nest1's gated arms (cached).
