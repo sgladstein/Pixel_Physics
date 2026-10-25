@@ -1,0 +1,98 @@
+// **The nest raider** (nest raider thread, 2026-10-25; owner: new predators
+// with different behaviours, "the nest raider first"). The spider
+// (`spider.ron`) cannot follow an ant home: its rigid 3x2 body does not fit
+// the colony's two-wide shaft, so the nest is a refuge and the surface is its
+// hunting ground. This one is built to go in. It is the predator that makes
+// nest defence -- guards at the door, alarm in the tunnels -- worth learning.
+//
+// Its behaviour is a mind (`creature::mind`, the ant's design) on the
+// raider's verbs (`train::predator::RAIDER_VERBS`: the spider's, and Dig and
+// Put Down for the shove), trained the spider's way (`examples/predtrain.rs
+// species=centipede`); the instincts
+// below are only the fallback for one placed with no mind, and are the
+// spider's. **Every rule it lives by is the world's**: the bite is the game's
+// bite, flesh goes into the crop as the ingest takes it, and the crop digests
+// at the gut's pace (`handling`).
+//
+// **Why these numbers.** Set against the ant and the spider, not yet
+// measured, and labelled as such:
+//
+// - **`Chain(5)`: one cell wide, five long, a following chain.** It fits any
+//   tunnel an ant fits and follows its head round every corner, as
+//   `ant_long`'s `Chain(6)` does (blocked 2-12% of its moves against 25-43%
+//   for a rigid body; `creature.rs`). Five, not more, because a longer chain
+//   pays idle per cell for length that only shows on screen.
+// - **It cannot dig the ground: `dig_force: 0.5`**, below soil's 0.8 and a
+//   packed lining's 0.95, the spider's jaw. It must come in by the door, so
+//   a guard at the door has something to guard. The same jaw is its bite
+//   (`bite_force` defaults to `dig_force`), above the ant's flesh at 0.25:
+//   one bite takes a cell.
+// - **But it shoves through stored food it cannot eat**
+//   (`digs_inedible_food`): a trained colony packs its chambers with crumbs
+//   (0.2) and lives inside them, and without this the nest was closed to it.
+//   Its mind cuts the crumb ahead and packs it behind its tail (the ants'
+//   own pack move), so the store is moved, never lost. Owner's call, asked
+//   2026-10-25.
+// - **`tick_interval: 5`**, between the ant's 6 and the spider's 4: it gains
+//   on an ant in a tunnel, slowly, so an ant ahead of it in a straight run
+//   can still reach a branch.
+// - **`start_energy: 1600`, idle 0.03 and move 0.08 a cell**: the spider's
+//   prices on a five-cell body, about 6,000 frames of steady walking on a
+//   full tank and 50,000 standing still.
+// - **`sight_range: 24`**, short beside the spider's 64: a centipede hunts
+//   by touch and antenna. Under `PIXEL_PHYSICS_MIND_SIGHT` the nearest prey
+//   it can see is read on the mind's home senses; soil stops the rays, so
+//   underground it sees along a tunnel and into a chamber, not through rock.
+// - **`handling: true`**: a meal takes the gut's time and a full centipede
+//   does not bite. Without it the spider, inside a lab nest, went from two to
+//   23 in 1,500 frames and ate the colony (`Reports/lone-predator-2026-10-24
+//   .md`, stage four) -- and a nest raider lives exactly where that happened.
+(
+    name: "centipede",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+    creature: Some((
+        body: Chain(5),
+        tick_interval: 5,
+        life_half_life: 40000,
+        start_energy: 1600.0,
+        idle_cost_per_cell: 0.03,
+        move_cost_per_cell: 0.08,
+        // A bite is jaw work, priced as a cut (`mind::attack`'s bill).
+        dig_cost_in_moves: 6.0,
+        // The spider's: a link a thousandth of the idle bill.
+        synapse_fraction: 0.00000009,
+        // Equal to `materials/centipede.ron`'s `food_energy`.
+        body_energy: 300.0,
+        // Three cells of ant, the spider's stomach.
+        crop_capacity: 1440.0,
+        armour_fraction: 5.859e-06,
+        digest_fraction: 0.01515,
+        digest_rate: 3.3,
+        // A carnivore gut (`traits[0]`), and a scent of its own, far from the
+        // ant's (0, 0, 0), the beetle's (0.8, 0.8, 0.8) and the spider's
+        // (-0.8, 0.8, -0.8).
+        traits: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, -0.8, -0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        // The spider's ratio to its tank: two tanks, about three ants.
+        reproduce_threshold: 3200.0,
+        handling: true,
+        digs_inedible_food: true,
+        mutation_rate: 0.0031548,
+        force_fraction: 0.000015625,
+        dig_force: 0.5,
+        sight_range: 24,
+        sight_fraction: 0.0000000079047218,
+        sensor_offset: 6,
+        instincts: [
+            (Bias, Move, 2.0),
+            (Stillness, Move, 1.5),
+            (FoodAdjacent, Move, -2.0),
+            (FoodAdjacent, Feed, 2.0),
+            (TempAboveAmb, Turn, -0.8),
+            (PreyBearing, Turn, -2.5),
+        ],
+    )),
+)

@@ -25,7 +25,7 @@
 //!
 //! **Spiders on the bed** (lone predator thread, stage two, 2026-10-24; off by default: no `spiders=` is the bed
 //! bit for bit): `spiders=POOL:N [spider_start=0] [spider_gap=2000] [spider_grants=1] [spider_far=30] [ant_bite=0]
-//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=total|life]` keeps N spiders
+//! [spider_mut=PM:SIGMA:EVENTS[:ELITE]] [spider_out=DIR] [spider_score=total|life] [spider_species=spider|centipede]` keeps N spiders
 //! (`assets/species/spider.ron`) with minds from POOL -- a directory of `.raw.txt` (`examples/predtrain.rs`'s
 //! `rN/pool`), one `.raw.txt`, or a preset (`hunter`) -- on the bed, each placed at a column at least `spider_far`
 //! from the door and replaced `spider_gap` frames after it dies, by the pool's next mind in turn. The pool does not
@@ -492,6 +492,8 @@ type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64, bool, [f32; 2]);
 /// and `spider_out=DIR` writes every placement's genome and score, from which colsel's `spiderevo=` picks the next
 /// round's pool.
 struct Spiders {
+    /// `spider_species=`: `spider` (default) or the nest raider `centipede`.
+    species: String,
     pool: Vec<Arc<creature::mind::MindGenome>>,
     /// The pool's genomes as read, the parents of `spider_mut`'s placements.
     raw: Vec<Vec<f32>>,
@@ -537,7 +539,8 @@ impl Spiders {
         let spec = arg(a, "spiders")?;
         let (pool, n) = spec.rsplit_once(':').expect("spiders=POOL:N");
         let n: usize = n.parse().expect("spiders=POOL:N");
-        let verbs = pixel_physics::train::predator::VERBS;
+        let species = arg(a, "spider_species").unwrap_or("spider").to_string();
+        let verbs = pixel_physics::train::predator::verbs_for(&species);
         let (genomes, bodies): (Vec<Vec<f32>>, Vec<Option<[f32; 2]>>) = if std::path::Path::new(pool).is_dir() {
             let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(pool).unwrap().filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.to_string_lossy().ends_with(".raw.txt")).collect();
             files.sort();
@@ -552,7 +555,9 @@ impl Spiders {
             (vec![creature::mind::preset(pool, verbs).unwrap_or_else(|| panic!("spiders={pool}: not a directory, a .raw.txt or a preset"))], vec![None])
         };
         assert!(!genomes.is_empty(), "spiders={pool}: no .raw.txt in it");
-        let sp = w.species.id_of("spider").expect("spider in the species table");
+        // `spider_species=centipede`: the nest raider (2026-10-25) in the spider's place, on every rule above, with its
+        // own verbs (`predator::verbs_for`).
+        let sp = w.species.id_of(&species).unwrap_or_else(|| panic!("spider_species={species}: not in the species table"));
         let ant = w.species.id_of("ant").expect("ant");
         // The pool is fixed: no spider breeds or ages out, as on predtrain's bed.
         let mut def = w.species.get(sp).creature.clone().expect("spider is a creature");
@@ -561,14 +566,15 @@ impl Spiders {
         w.species.set_creature(sp, def);
         let num = |k: &str, d: f64| arg(a, k).map_or(d, |v| v.parse().unwrap());
         Some(Spiders {
-            pool: genomes.iter().map(|g| pixel_physics::train::predator::spider_mind(g)).collect(),
+            species: species.clone(),
+            pool: genomes.iter().map(|g| pixel_physics::train::predator::mind_for(&species, g)).collect(),
             raw: genomes.clone(),
             bodies,
             brng: train::Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xB0D1),
             mutate: arg(a, "spider_mut").map(|v| {
                 let p: Vec<&str> = v.split(':').collect();
                 assert!(p.len() == 3 || p.len() == 4, "spider_mut=PM:SIGMA:EVENTS[:ELITE]");
-                let slots = creature::mind::trainable(pixel_physics::train::predator::VERBS, pixel_physics::train::predator::EMITS);
+                let slots = creature::mind::trainable(verbs, pixel_physics::train::predator::EMITS);
                 (p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap(), slots)
             }),
             elite: arg(a, "spider_mut").and_then(|v| v.split(':').nth(3)).map_or(0.0, |e| e.parse().expect("spider_mut ELITE")),
@@ -611,19 +617,19 @@ impl Spiders {
             let (genome, mind, mutant) = match &self.mutate {
                 Some((pm, sigma, events, slots)) if !elite => {
                     let child = neutral_mutate(&self.raw[g], slots, *pm, *sigma, *events, None, &mut self.rng);
-                    let m = pixel_physics::train::predator::spider_mind(&child);
+                    let m = pixel_physics::train::predator::mind_for(&self.species, &child);
                     (child, m, true)
                 }
                 _ => (self.raw[g].clone(), self.pool[g].clone(), false),
             };
-            let Some(id) = pixel_physics::train::predator::place_spider(w, x, self.colony, mind, self.grants) else {
+            let Some(id) = pixel_physics::train::predator::place_predator(w, &self.species, x, self.colony, mind, self.grants) else {
                 self.due[k] = frame + 100; // no footing there: try another column shortly
                 continue;
             };
             // The breeding genes ride with the mind: the pool mind's own (the species' if it has none), stepped as a
             // birth would step them when the placement is a mutant.
             let parent = self.bodies[g].or_else(|| pixel_physics::train::predator::breeding_of(w, id)).unwrap_or_default();
-            let genes = if mutant { pixel_physics::train::predator::mutate_breeding(w, parent, || self.brng.unit()) } else { parent };
+            let genes = if mutant { pixel_physics::train::predator::mutate_breeding_of(w, &self.species, parent, || self.brng.unit()) } else { parent };
             pixel_physics::train::predator::set_breeding(w, id, genes);
             self.log.push((id, g, genome, frame, None, 0.0, mutant, genes));
             self.next += 1;

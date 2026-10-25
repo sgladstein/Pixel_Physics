@@ -4210,6 +4210,18 @@ pub struct CreatureDef {
     /// `PIXEL_PHYSICS_HANDLING=off` opts out ([`crate::sim::creature::handling_on`]).
     #[serde(default)]
     pub handling: bool,
+    /// **Food this gut cannot eat is only loose ground to its jaws** -- a mind may cut it and pack it behind the tail
+    /// (`creature::options::diggable`), as it would cut soil. Off, every species but the centipede: a mind's Dig
+    /// never takes a cell of food, for the reason `diggable` records (a second way to carry food).
+    ///
+    /// **Why** (nest raider thread, 2026-10-25): a trained colony packs its chambers solid with stored crumbs
+    /// (`crumbs.ron`, a 0.2 powder) and lives inside them, so a raider that could not cut a cell of food it would
+    /// never eat found no way into the nest at all, and against the colony headed for the lab it was a second
+    /// spider at the door. The centipede's jaw (0.5) still cannot cut soil (0.8) or a packed lining (0.95): it
+    /// shoves through the larder, not the walls, and the cell goes back down where its tail was, worth and all
+    /// (the whole `Cell` rides in the pellet).
+    #[serde(default)]
+    pub digs_inedible_food: bool,
     /// **How long an animal of this kind lives, in frames -- the median.**
     ///
     /// `0` is immortal, which is every species' default and the behaviour
@@ -4628,6 +4640,7 @@ impl CreatureDef {
             eats_kin,
             nectar_only,
             handling,
+            digs_inedible_food,
             life_half_life,
             scent_spread,
             scent_drift,
@@ -4760,6 +4773,8 @@ impl CreatureDef {
             nectar_only: *nectar_only,
             // A switch, as `nectar_only`.
             handling: *handling,
+            // A switch, as `nectar_only`.
+            digs_inedible_food: *digs_inedible_food,
             // **A span of real time, so x 1 -- and that is a claim about
             // the hazard, not an assumption.** A supersampled animal decides
             // `k` times as often, so a per-tick chance passed through
@@ -8317,6 +8332,10 @@ const EMBEDDED: &[&str] = &[
     // trained by births and culls among predators (`examples/predtrain.rs`).
     // Placed by nothing in the game yet; its material is `spider.ron`.
     include_str!("../../assets/species/spider.ron"),
+    // **The nest raider** (2026-10-25): the second predator, a five-cell chain
+    // that fits the ants' shaft and hunts inside the nest. Its material is
+    // `centipede.ron`.
+    include_str!("../../assets/species/centipede.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

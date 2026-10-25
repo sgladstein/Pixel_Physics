@@ -848,8 +848,15 @@ type Described = ((i32, i32), [f32; FEATURES]);
 /// carry it in the jaws undigested, and its put-down counted no delivery
 /// (actions audit, confirmed by the review's probe): a second way to carry
 /// food. The game ant's own cut is untouched.
+///
+/// **Unless the species digs what it cannot eat** (`CreatureDef::digs_inedible_food`, the centipede, nest raider
+/// thread, 2026-10-25): then food this gut would not take ([`diet_yield`] at or under the eating bar) is ground
+/// like any other, so a carnivore can shove through a colony's store of crumbs. Never a cell of a living
+/// organism, and never food it could eat: that is still the pick-up's.
 pub(super) fn diggable(world: &World, def: &CreatureDef, organism: OrganismId, cell: crate::sim::cell::Cell) -> bool {
-    world.materials.get(cell.material).food_energy <= 0.0 && jaw_can_cut(world, def, organism, cell)
+    let not_food = world.materials.get(cell.material).food_energy <= 0.0
+        || (def.digs_inedible_food && cell.organism_id() == 0 && diet_yield(world, cell, gut_of(world, organism, def).bias) <= EAT_YIELD_THRESHOLD);
+    not_food && jaw_can_cut(world, def, organism, cell)
 }
 
 /// **Whether `(x, y)` is part of a hole**: dug at or below the ground as

@@ -14,7 +14,7 @@
 //! cargo run --release --example predtrain -- out=DIR [seed=1] [rounds=6] [frames=100000] [preds=12] [ants=30]
 //!     [sel=score|random|off] [judge=1000] [min_age=6000] [turn=20000] [keep=8] [grants=1] [kid_grants=1]
 //!     [kpm=0.03] [ksigma=1] [kevents=10] [start_events=20] [founder=PATH|hunter] [pool=DIR] [lo=6] [hi=16] [cooldown=4000]
-//!     [frames_out=0] [step=game|harness]
+//!     [frames_out=0] [step=game|harness] [species=spider|centipede] [warm=0] [far=30]
 //!
 //! Sets `PIXEL_PHYSICS_MIND_ATTACK=on` itself (the Attack act, `creature::options::attack_on`).
 //!
@@ -38,7 +38,7 @@ use pixel_physics::sim::material;
 use pixel_physics::sim::organism::{DeathCause, SpeciesId};
 use pixel_physics::sim::World;
 use pixel_physics::train::challenges::colony_bed;
-use pixel_physics::train::predator::{self, ground, of_species, spider_mind, EMITS, VERBS};
+use pixel_physics::train::predator::{self, ground, of_species, EMITS};
 use pixel_physics::train::{self, Rng};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -91,11 +91,17 @@ impl Who {
 
 /// A column for a spider: anywhere on the bed at least 30 columns from the nest's door, so nobody is founded on the
 /// colony.
-fn spider_column(rng: &mut Rng) -> i32 {
+///
+/// `far=` moves the 30 (nest raider thread): `far=0` sets every predator down within 6 columns of the door, the raid
+/// without the walk to find it.
+fn spider_column(rng: &mut Rng, far: i32) -> i32 {
     let bw = colony_bed::SIZE.0;
+    if far == 0 {
+        return colony_bed::NEST - 6 + rng.below(13) as i32;
+    }
     loop {
         let x = 8 + rng.below((bw - 16) as usize) as i32;
-        if (x - colony_bed::NEST).abs() >= 30 {
+        if (x - colony_bed::NEST).abs() >= far {
             return x;
         }
     }
@@ -124,7 +130,12 @@ fn write_frame(w: &World, path: &std::path::Path, ant: SpeciesId, spider: Specie
             } else if c.material == material::EMPTY {
                 '.'
             } else if ground(w, x, y) {
-                '#'
+                // Soil `#`; any other ground by its name's first letter (a nest is dug ground and its lining).
+                if w.materials.get(c.material).name == "soil" {
+                    '#'
+                } else {
+                    w.materials.get(c.material).name.chars().next().unwrap_or('?')
+                }
             } else {
                 '.'
             });
@@ -133,53 +144,9 @@ fn write_frame(w: &World, path: &std::path::Path, ant: SpeciesId, spider: Specie
     }
 }
 
-/// **One picture of the bed**: every cell in its material's colour, the sky a pale blue, and a red ring for 120
-/// frames where an ant was killed -- a one-cell event is unreadable without one.
-fn picture(w: &World, (x0, y0, cw, ch): (i32, i32, i32, i32), scale: u32, kills: &[(u64, (i32, i32))], frame: u64, ant: SpeciesId, spider: SpeciesId) -> image::RgbaImage {
-    let mut img = image::RgbaImage::new(cw as u32 * scale, ch as u32 * scale);
-    for cy in 0..ch {
-        for cx in 0..cw {
-            let c = w.get(x0 + cx, y0 + cy);
-            let o = c.organism_id();
-            let sp = (o != 0).then(|| w.organism(o).map(|s| s.species)).flatten();
-            let rgb = if c.material == material::EMPTY {
-                [178, 204, 226]
-            } else if sp == Some(spider) {
-                [150, 40, 160]
-            } else if sp == Some(ant) {
-                [20, 16, 14]
-            } else {
-                let pal = &w.materials.get(c.material).palette;
-                if pal.is_empty() {
-                    [128, 128, 128]
-                } else {
-                    let p = pal[c.shade as usize % pal.len()];
-                    [p[0], p[1], p[2]]
-                }
-            };
-            for py in 0..scale {
-                for px in 0..scale {
-                    img.put_pixel(cx as u32 * scale + px, cy as u32 * scale + py, image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
-                }
-            }
-        }
-    }
-    for &(t, (kx, ky)) in kills {
-        let age = frame.saturating_sub(t) as f32 / 120.0;
-        let r = (scale as f32 * (2.0 + 3.0 * age)) as i64;
-        let (cx, cy) = (((kx - x0) as i64 * scale as i64) + scale as i64 / 2, ((ky - y0) as i64 * scale as i64) + scale as i64 / 2);
-        for k in 0..64 {
-            let a = k as f32 / 64.0 * std::f32::consts::TAU;
-            let (px, py) = (cx + (r as f32 * a.cos()) as i64, cy + (r as f32 * a.sin()) as i64);
-            if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
-                img.put_pixel(px as u32, py as u32, image::Rgba([230, 30, 30, 255]));
-            }
-        }
-    }
-    img
-}
-
 struct Cfg {
+    /// `species=`: the predator, `spider` (default) or the nest raider `centipede`.
+    species: String,
     seed: u64,
     frames: u64,
     preds: usize,
@@ -198,6 +165,10 @@ struct Cfg {
     hi: usize,
     cooldown: u64,
     frames_out: u64,
+    /// `warm=`: frames the colony has the bed alone before the predators land.
+    warm: u64,
+    /// `far=`: the fewest columns from the door a predator is set down (0: at the door).
+    far: i32,
     game: bool,
     /// `gif=R:START:END:EVERY` -- round R's frames START..END, one picture every EVERY frames, into rR/round.gif.
     gif: Option<(usize, u64, u64, u64)>,
@@ -228,24 +199,56 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
         .collect();
     let (mut round, mut w, sc): (Round, World, _) = Round::found(r, seed, &mix, &s);
     let ant = w.species.id_of("ant").expect("ant");
-    let spider = w.species.id_of("spider").expect("spider in the species table");
+    let spider = w.species.id_of(&cfg.species).unwrap_or_else(|| panic!("species={}: not in the species table", cfg.species));
     let mut def = w.species.get(spider).creature.clone().expect("spider is a creature");
     def.reproduce_threshold = 1.0e30;
     def.life_half_life = 0;
     w.species.set_creature(spider, def);
     let ant_minds = training::new_ant_minds();
     let (colony, anchor) = of_species(&w, ant).first().and_then(|&i| w.organism(i)).map(|st| (st.colony, st.forage_anchor)).expect("a colony");
-    let slots = mind::trainable(VERBS, EMITS);
+    let slots = mind::trainable(predator::verbs_for(&cfg.species), EMITS);
+    let mut particles = pixel_physics::sim::ParticleSystem::new();
+    let mut blasts = pixel_physics::sim::explosion::Blasts::new();
+    let tuning = pixel_physics::sim::player::Tuning::default();
+    // `warm=N` (nest raider thread, 2026-10-25): the colony alone on the bed for N frames before any predator lands,
+    // held at its headcount as below, so it has dug a nest to raid. Without it a round starts on the bed's bare
+    // founding hole: 30,000 frames in, the colony stood in one-cell pockets round the door and a raider had nowhere
+    // to go in. The spider never needed one -- it hunts the surface.
+    let mut warm_refills = 0u64;
+    for fr in 1..=cfg.warm {
+        w.cut_log.get_or_insert_with(Vec::new).clear();
+        w.food_log.get_or_insert_with(Vec::new);
+        w.digest_log.get_or_insert_with(Vec::new);
+        w.death_log.get_or_insert_with(Vec::new).clear();
+        if cfg.game {
+            pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &round.bed, Some(&sc));
+        } else {
+            pixel_physics::sim::update::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+            w.step_pheromones();
+        }
+        round.after_step(&mut w, &s);
+        if fr % 500 == 0 {
+            for _ in of_species(&w, ant).len()..cfg.ants {
+                let mind = ant_minds[warm_refills as usize % ant_minds.len()].clone();
+                if predator::hatch_ant(&mut w, colony, anchor, colony_bed::NEST, 12, mind, 3.0).is_some() {
+                    warm_refills += 1;
+                }
+            }
+        }
+    }
+    let t0 = w.frame;
     let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5151);
     let mut book: BTreeMap<OrganismId, Who> = BTreeMap::new();
     let mut hall: Vec<(u64, Who)> = Vec::new();
     let mut pred_colony: Option<u32> = None;
     for k in 0..cfg.preds {
         let f = &founders[k % founders.len()];
-        let x = spider_column(&mut rng);
-        if let Some(id) = predator::place_spider(&mut w, x, pred_colony, spider_mind(&f.genome), cfg.grants) {
+        let x = spider_column(&mut rng, cfg.far);
+        if let Some(id) = predator::place_predator(&mut w, &cfg.species, x, pred_colony, predator::mind_for(&cfg.species, &f.genome), cfg.grants) {
             pred_colony = pred_colony.or_else(|| w.organism(id).map(|s| s.colony));
-            book.insert(id, Who { born: 0, credit: 0.0, family: f.tag.clone(), gen: 0, genome: f.genome.clone(), last_kid: 0, kids: 0 });
+            book.insert(id, Who { born: t0, credit: 0.0, family: f.tag.clone(), gen: 0, genome: f.genome.clone(), last_kid: 0, kids: 0 });
         }
     }
     let mut sel = std::io::BufWriter::new(std::fs::File::create(dir.join("sel.csv")).unwrap());
@@ -257,9 +260,6 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     let mut kills_seen: Vec<(u64, (i32, i32))> = Vec::new();
     let mut last_at: BTreeMap<OrganismId, (i32, i32)> = BTreeMap::new();
-    let mut particles = pixel_physics::sim::ParticleSystem::new();
-    let mut blasts = pixel_physics::sim::explosion::Blasts::new();
-    let tuning = pixel_physics::sim::player::Tuning::default();
     let ants_killed0 = w.minds.as_ref().map_or(0, |m| m.counts.kills);
     for fr in 1..=cfg.frames {
         w.cut_log.get_or_insert_with(Vec::new).clear();
@@ -323,7 +323,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
         }
         if let Some((gr, g0, g1, ge)) = cfg.gif {
             if gr == r && fr >= g0 && fr <= g1 && (fr - g0) % ge == 0 {
-                shots.push(picture(&w, cfg.crop, cfg.scale, &kills_seen, frame, ant, spider));
+                shots.push(predator::picture(&w, cfg.crop, cfg.scale, &kills_seen, frame, ant, spider));
             }
         }
         if cfg.frames_out > 0 && fr % cfg.frames_out == 0 {
@@ -384,8 +384,8 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
                     continue;
                 }
                 let child = neutral_mutate(&p.genome, &slots, cfg.kpm, cfg.ksigma, cfg.kevents, &mut rng);
-                let x = spider_column(&mut rng);
-                if let Some(id) = predator::place_spider(&mut w, x, pred_colony, spider_mind(&child), cfg.kid_grants) {
+                let x = spider_column(&mut rng, cfg.far);
+                if let Some(id) = predator::place_predator(&mut w, &cfg.species, x, pred_colony, predator::mind_for(&cfg.species, &child), cfg.kid_grants) {
                     let links = child[mind::FIRST_LINK..].iter().filter(|v| **v != 0.0).count();
                     writeln!(births_f, "{frame},{id},{},{},{},{},{links},{v:.3}", pid.unwrap_or(0), p.family, p.gen + 1, if pid.is_some() { "birth" } else { "hall" }).unwrap();
                     book.insert(id, Who { born: frame, credit: 0.0, family: p.family.clone(), gen: p.gen + 1, genome: child, last_kid: 0, kids: 0 });
@@ -434,12 +434,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
         .unwrap();
     }
     if !shots.is_empty() {
-        let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(80));
-        let frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
-        let file = std::fs::File::create(dir.join("round.gif")).unwrap();
-        let mut enc = image::codecs::gif::GifEncoder::new(file);
-        enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
-        enc.encode_frames(frames).unwrap();
+        predator::save_gif(shots, &dir.join("round.gif"), 80);
     }
     // ---- the round's pool: the best living, then the hall, at the score they ended on.
     let frame = w.frame;
@@ -483,7 +478,7 @@ fn main() {
     creature::mutation_off_for_measuring();
     let a: Vec<String> = std::env::args().skip(1).collect();
     let known = [
-        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool",
+        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool", "species", "warm", "far",
     ];
     for x in &a {
         let k = x.split('=').next().unwrap_or("");
@@ -491,6 +486,7 @@ fn main() {
     }
     let num = |k: &str, d: f64| arg(&a, k).map_or(d, |v| v.parse().unwrap_or_else(|_| panic!("{k}={v}: not a number")));
     let cfg = Cfg {
+        species: arg(&a, "species").unwrap_or("spider").to_string(),
         seed: num("seed", 1.0) as u64,
         frames: num("frames", 100_000.0) as u64,
         preds: num("preds", 12.0) as usize,
@@ -514,6 +510,8 @@ fn main() {
         hi: num("hi", 16.0) as usize,
         cooldown: num("cooldown", 4000.0) as u64,
         frames_out: num("frames_out", 0.0) as u64,
+        warm: num("warm", 0.0) as u64,
+        far: num("far", 30.0) as i32,
         gif: arg(&a, "gif").map(|v| {
             let p: Vec<u64> = v.split(':').map(|x| x.parse().expect("gif=R:START:END:EVERY")).collect();
             assert_eq!(p.len(), 4, "gif=R:START:END:EVERY");
@@ -549,14 +547,14 @@ fn main() {
             .collect()
     });
     let base = match arg(&a, "founder") {
-        Some(name) if !name.contains('/') && !name.ends_with(".txt") => mind::preset(name, predator::VERBS).unwrap_or_else(|| panic!("founder={name}: no such preset")),
+        Some(name) if !name.contains('/') && !name.ends_with(".txt") => mind::preset(name, predator::verbs_for(&cfg.species)).unwrap_or_else(|| panic!("founder={name}: no such preset")),
         Some(p) => {
             let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("founder={p}: {e}"));
             train::parse_genome(&text, mind::GENOME_LEN, p)
         }
-        None => mind::blank(VERBS),
+        None => mind::blank(predator::verbs_for(&cfg.species)),
     };
-    let slots = mind::trainable(VERBS, EMITS);
+    let slots = mind::trainable(predator::verbs_for(&cfg.species), EMITS);
     let mut rng = Rng(cfg.seed ^ 0xF00D);
     let start_events = num("start_events", 20.0) as usize;
     let mut founders: Vec<Founder> = if let Some(p) = pool { p } else { (0..cfg.preds)

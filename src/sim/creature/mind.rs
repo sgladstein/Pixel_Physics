@@ -4259,6 +4259,81 @@ mod tests {
         }
     }
 
+    /// One `species` animal and one ant side by side on the ground of a small box: (world, animal, ant).
+    fn beside_an_ant(species: &str) -> (World, OrganismId, OrganismId) {
+        let mut w = crate::lab::scene::LabBox {
+            founders: 0,
+            colonies: 0,
+            width: 128,
+            height: 96,
+            ground_y: 60,
+            soil_depth: 30,
+            ..crate::lab::scene::LabBox::default()
+        }
+        .build();
+        let gy = (0..96).find(|&y| y > 10 && w.get(64, y).material != crate::sim::material::EMPTY).expect("ground");
+        let place = |w: &mut World, x: i32, name: &str| match crate::sim::creature::plant_creature_seed(w, x, gy - 1, name).map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no {name} placed: {other:?}"),
+        };
+        let animal = place(&mut w, 60, species);
+        let ant = place(&mut w, 62, "ant");
+        (w, animal, ant)
+    }
+
+    /// **A predator with handling time cannot pay for a child out of living prey** (nest raider thread,
+    /// 2026-10-25): `try_bud`'s second mouth (`provisions_in_reach`) counted every living ant cell round the head as
+    /// food in reach and took it whole, so a centipede landed at a lab door budded three times in 23 frames. With
+    /// `handling` a living animal's cell is not a provision. **The positive control is the beetle**, a carnivore
+    /// without handling: the same ant beside it is still counted, so the census can see a living ant at all.
+    #[test]
+    fn a_predator_with_handling_cannot_pay_a_birth_with_living_prey() {
+        for (species, handles) in [("centipede", true), ("spider", true), ("beetle", false)] {
+            let (w, me, ant) = beside_an_ant(species);
+            let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+            assert_eq!(def.handling, handles, "{species}: the arms of this test moved");
+            let gut = crate::sim::creature::gut_of(&w, me, &def);
+            let ant_cells: Vec<(i32, i32)> = w.organism(ant).expect("ant").chain.clone();
+            // Bring the ant into reach of the head, whatever the two bodies' shapes.
+            let reach = |w: &World| {
+                let (hx, hy) = head_of(w, me);
+                crate::sim::creature::provisions_in_reach(w, hx, hy, gut).filter(|&(_, x, y)| ant_cells.contains(&(x, y))).count()
+            };
+            let (hx, hy) = head_of(&w, me);
+            assert!(
+                ant_cells.iter().any(|&(x, y)| (x - hx).abs() <= 1 && (y - hy).abs() <= 1),
+                "{species}: the ant is not in reach of the head at {:?} ({ant_cells:?})",
+                (hx, hy)
+            );
+            assert_eq!(reach(&w) > 0, !crate::sim::creature::handling_on(&def), "{species}: whether a living ant pays a birth");
+        }
+    }
+
+    /// **The raider shoves through stored food it cannot eat, and through nothing else** (nest raider thread,
+    /// 2026-10-25, `CreatureDef::digs_inedible_food`): a centipede's jaws may cut a cell of crumbs, which its
+    /// carnivore gut will not take, but not soil (0.8 against its 0.5 jaw), and the cut keeps the crumb's worth in
+    /// the pellet. An ant, which eats crumbs, still may not dig them: food is its pick-up's.
+    #[test]
+    fn the_raider_shoves_through_crumbs_it_cannot_eat_and_nothing_else() {
+        let (mut w, me, ant) = beside_an_ant("centipede");
+        let def = w.species.get(w.organism(me).expect("placed").species).creature.clone().expect("creature");
+        let adef = w.species.get(w.organism(ant).expect("placed").species).creature.clone().expect("creature");
+        assert!(def.digs_inedible_food && !adef.digs_inedible_food);
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs");
+        let (hx, hy) = head_of(&w, me);
+        let t = DIRS.iter().map(|&(dx, dy)| (hx + dx, hy + dy)).find(|&(x, y)| w.get(x, y).material != crate::sim::material::EMPTY && w.get(x, y).organism_id() == 0).expect("ground beside the head");
+        w.set(t.0, t.1, Cell::new(w.materials.id_of("soil").expect("soil"), 0));
+        assert!(!options::diggable(&w, &def, me, w.get(t.0, t.1)), "the raider's jaw cut soil");
+        let crumb = Cell::new(crumbs, 0).with_aux(400);
+        w.set(t.0, t.1, crumb);
+        assert!(options::diggable(&w, &def, me, w.get(t.0, t.1)), "the raider cannot cut crumbs");
+        assert!(!options::diggable(&w, &adef, ant, w.get(t.0, t.1)), "an ant may dig food");
+        give(&mut w, me, Arc::new(MindGenome::new(blank(crate::train::predator::RAIDER_VERBS))));
+        assert!(dig(&mut w, me, &def, t), "the cut");
+        let pellet = w.organism(me).and_then(|s| s.spoil).expect("the crumb in the jaws");
+        assert_eq!((pellet.cell.material, pellet.cell.aux()), (crumbs, 400), "the crumb's worth was not kept");
+    }
+
     /// **The soil verbs move soil by the world's rules**: a cut takes the
     /// cell into the jaws as a pellet and empties it; full jaws cannot cut
     /// again; the pellet goes down only where it will stand

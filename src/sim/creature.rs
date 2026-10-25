@@ -10906,6 +10906,9 @@ pub(super) struct Gut {
     /// **chooses**, not only what it succeeds at, or `adjacent_food` keeps
     /// offering a leaf every tick to a mouth that will not take one.
     nectar_only: bool,
+    /// `handling_on(def)`: a living animal is not a provision this gut's
+    /// birth may be paid from ([`provision_at`]); see that line for why.
+    handling: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
     ///
@@ -11281,6 +11284,7 @@ pub(super) fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> 
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
         nectar_only: def.nectar_only,
+        handling: handling_on(def),
         bite: bite_force_of(def, &traits, world.trait_reach),
     }
 }
@@ -11888,6 +11892,22 @@ fn provision_at(world: &World, px: i32, py: i32, gut: Gut) -> Option<(f32, i32, 
         // the pollinator design's §2.2 arithmetic assumed when it costed a
         // bud at "about ten flowers above upkeep".
         if gut.nectar_only {
+            return None;
+        }
+        // **And for a predator with handling time, a living animal is prey,
+        // not a provision** (nest raider thread, 2026-10-25) -- the same
+        // second mouth, found a third time. `try_bud` counted every living
+        // ant cell round the head as food in reach and its shortfall loop
+        // took them whole, so a predator standing in a crowd paid for a
+        // child out of the crowd: no bite, no crop, none of `handling`'s
+        // pace. Measured on lab_mid_fruit (seed 1, one centipede landed at
+        // the door at frame 36,000): **three buds in the first 23 frames**,
+        // each child 800 J, from a parent landed on 1,600 J against a 3,200
+        // J bar. A bitten-off cell, a corpse, a fruit still count; a cell of
+        // a living animal is taken by the bite or not at all. Gated on
+        // `handling` so every species without it is bit-identical
+        // (`PIXEL_PHYSICS_HANDLING=off` restores the old rule with the rest).
+        if gut.handling && cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|s| world.species.get(s.species).creature.is_some()) {
             return None;
         }
         let yielded = diet_yield(world, cell, gut.bias);
