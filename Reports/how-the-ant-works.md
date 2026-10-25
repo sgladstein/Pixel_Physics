@@ -1967,6 +1967,19 @@ and `steer.rs`.
   `World::mind_force` (`steer::force`, `unforce`; a `once` entry is spent by
   one decision), which the scout seat's tandem follower uses. Empty and with
   nobody steered, two reads per decision.
+- **A trained (mind) ant takes the hand-built path while a keyboard holds
+  her** (2026-10-25, seat demos). `mind::tick` reads none of the five hooks,
+  and the lab gives every ant a mind, so `creature_tick` sends an ant whose
+  `input` is `Some` down the hand-built path instead; her eggs still carry
+  her mind (`try_bud` copies it), and with `input` `None` (above the
+  steering cap) her mind drives her again. **Ants only**: another species
+  with a mind falls through to `mind::tick`.
+- **Two roles** (`steer::SteerRole`, `steer::mark_with`): `Queen`, what
+  `mark` gives, runs the `queen` rule for her colony; `Worker` (the scout
+  seat's body) leaves her colony's rule alone. Both skip old age.
+- **The lab drives her through `lab::demo`** (`demo=<seat>`): arrows steer,
+  the slice-0 letters act, and the camera follows. With no demo the lab never
+  marks anyone.
 
 ## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
 
