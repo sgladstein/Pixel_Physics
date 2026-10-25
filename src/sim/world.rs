@@ -4439,6 +4439,11 @@ pub struct World {
     /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
     /// game: no ant has one, and the tick reads this once to know.
     pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
+    /// **The recall head** (`creature::recall`): a scripted gain by which a
+    /// mind ant's remembered food place tilts its walk, and the meal copy
+    /// that passes the place on. `None` in the shipped lab and game; set by
+    /// the seat demos (`demo=keeper`) or `PIXEL_PHYSICS_RECALL_GAIN`.
+    pub recall: Option<crate::sim::creature::recall::Recall>,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
     /// `None` follows the environment, which is on unless set to `anywhere`; a field for
@@ -7511,6 +7516,7 @@ impl World {
             targets: None,
             option_shadow: false,
             minds: None,
+            recall: crate::sim::creature::recall::Recall::from_env(),
             bud_at_nest: None,
             dig_roof: None,
             food_door: None,
