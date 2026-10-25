@@ -1,0 +1,41 @@
+// DEMO: the lone scout (`demo=scout`; Reports/teaching-the-colony-2026-10-25/scout-demo/plan-v2.md).
+//
+// The trained colony lands at column 128 at frame 200 and is kept alive by a
+// near trickle of provisions 25 columns east (10 cells every 1,000 frames); a
+// rich heap is laid 120 columns east and topped up every 6,000 frames. Step 0
+// census (4 seeds, 18k-54k frames): no seed went extinct with this trickle,
+// one fell to 12 ants; unled ants within 20 columns of the far heap were 0-12,
+// so the heap exists but is not a route. Most of the landing cohort starves in
+// its first 2,000 frames (44 of 52 on seed 1), so the demo warms up to frame
+// 18,000 before handing the player her body.
+(
+    name: "demo_scout",
+    title: "DEMO: LONE SCOUT",
+    question: "Can one worker teach her sisters the way to a far heap, one at a time, by touch?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 200, every: 0, until: 0, what: Colony(species: "ant", x: 128, count: 52)),
+        (at: 200, every: 1000, until: 0, what: Heap(material: "provisions", x: 153, cells: 10)),
+        (at: 200, every: 6000, until: 0, what: Heap(material: "provisions", x: 248, cells: 120)),
+    ],
+    horizon: 600000,
+)

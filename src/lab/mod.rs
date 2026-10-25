@@ -4918,6 +4918,12 @@ pub fn tick_world(
     spec: &scene::LabBox,
     scenario: Option<&scenario::Scenario>,
 ) {
+    // **Tandem runs, before the step**, so this tick's decisions read fresh forced picks (`sim::tandem`; off is
+    // one `Option` read).
+    if world.tandem.is_some() {
+        crate::sim::tandem::tick(world);
+        crate::sim::tandem::steer_cascade_leaders(world);
+    }
     frame::step(world, particles, blasts, player::PlayerInput::default(), player_tuning);
     // **Immediately after `frame::step`, per `scenario::tick_timeline`'s own
     // doc on why that ordering is the timing contract.** Cheap when there is
