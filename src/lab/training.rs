@@ -88,6 +88,7 @@ pub fn std_pool() -> Vec<Vec<f32>> {
     let mut h = head.split_whitespace();
     assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "std_pool: {head:?}");
     let len: usize = h.next().and_then(|n| n.parse().ok()).expect("std_pool: genome length");
+    let layout = pool_layout(head);
     let mut pool: Vec<Vec<f32>> = Vec::new();
     for l in lines {
         if l.starts_with("member ") {
@@ -98,8 +99,17 @@ pub fn std_pool() -> Vec<Vec<f32>> {
         let g = pool.last_mut().expect("std_pool: a slot before the first member");
         g[i.parse::<usize>().expect("std_pool slot")] = w.parse().expect("std_pool value");
     }
-    pool.iter_mut().for_each(fit_head);
+    for g in pool.iter_mut() {
+        creature::mind::enter_last_food(g, layout);
+        fit_head(g);
+    }
     pool
+}
+
+/// **The layout a pool file's header names** (`pool 30 genome 3285 layout=4`, carried from its members' files by
+/// `scratch/inrun/mkpool.py`), `None` when it names none: what [`creature::mind::enter_last_food`] reads.
+fn pool_layout(head: &str) -> Option<u32> {
+    head.split_whitespace().find_map(|t| t.strip_prefix("layout=")).map(|n| n.parse().expect("pool header: layout"))
 }
 
 /// **The lab's spider** (owner, 2026-10-25: "add spider to the actual lab game so I can play test it"): the trained
@@ -117,6 +127,7 @@ pub fn spider_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
     assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "spider_pool: {head:?}");
     let len: usize = h.next().and_then(|n| n.parse().ok()).expect("spider_pool: genome length");
     assert_eq!(len, creature::mind::GENOME_LEN, "spider_pool: genome length");
+    let layout = pool_layout(head);
     let mut pool: Vec<Vec<f32>> = Vec::new();
     for l in lines {
         if l.starts_with("member ") {
@@ -127,6 +138,9 @@ pub fn spider_minds() -> Vec<std::sync::Arc<creature::mind::MindGenome>> {
         let g = pool.last_mut().expect("spider_pool: a slot before the first member");
         g[i.parse::<usize>().expect("spider_pool slot")] = w.parse().expect("spider_pool value");
     }
+    pool.iter_mut().for_each(|g| {
+        creature::mind::enter_last_food(g, layout);
+    });
     pool.iter().map(|g| crate::train::predator::spider_mind(g)).collect()
 }
 

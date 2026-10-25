@@ -518,7 +518,38 @@ fn newly_live() -> Vec<usize> {
 /// older and converted once ([`split_pick_up`]); a marked one is not.
 /// Layouts 1-3 are [`GENOME_LEN_V1`], [`GENOME_LEN_V2`] and today's length
 /// before step 1 ([`pad`]).
-pub const LAYOUT: u32 = 4;
+///
+/// **Layout 5** (2026-10-25) is layout 4 with `f::FOOD_WAY` live: the same
+/// length and slots, but a file marked 4 or older has its weights on that
+/// slot zeroed as it is read ([`enter_last_food`]), so the last-food memory
+/// enters every older pool at weight 0.
+pub const LAYOUT: u32 = 5;
+
+/// **The last-food memory enters an older genome at weight 0**
+/// (`options::last_food`): with the memory on and `layout` older than 5 (or
+/// unmarked), every scorer unit's weight on `f::FOOD_WAY` is set to 0, and
+/// the count of links cut is returned. The slot was `f::BUILDING`, which
+/// nothing wrote, so those weights moved no choice and drifted freely (23
+/// of the standard pool's 30 members carry one, member 0 six); left in
+/// place they would act on the new sense at random the moment it reads.
+/// A layout-5 file keeps them: they were selected with the memory on.
+/// Every reader of a saved mind calls this (`train::load_mind`, the lab's
+/// pools, `inrun`'s founders, `labsurvive`), riders past [`GENOME_LEN`]
+/// untouched.
+pub fn enter_last_food(g: &mut [f32], layout: Option<u32>) -> usize {
+    if options::last_food().is_none() || layout.is_some_and(|l| l >= 5) {
+        return 0;
+    }
+    let mut cut = 0;
+    for u in 0..UNITS {
+        let k = S_FEAT + u * FEATURES + options::f::FOOD_WAY;
+        if g[k] != 0.0 {
+            g[k] = 0.0;
+            cut += 1;
+        }
+    }
+    cut
+}
 
 /// **A genome saved before Pick up had its own act, as one that has it**
 /// (fix plan step 1; review of the actions audit, fix 1). Until then Eat
@@ -999,7 +1030,11 @@ fn lay_vetoes(g: &mut [f32]) -> Vec<String> {
 /// **Inputs nothing writes yet**, 0 on every option: the building scent
 /// (it comes with a building emit) and the way back to the last food (a
 /// body memory not kept yet). A weight on one moves nothing and is billed
-/// every tick.
+/// every tick. **Both are written now, by default** (noted 2026-10-25,
+/// not changed here): the building slot holds the last-food memory
+/// (`options::f::FOOD_WAY`, which [`enter_rung`] spares while it is on),
+/// and the last-food slot the far-from-home sense (`options::home_vec`),
+/// which a rung entry that cuts unread links still cuts.
 const UNWRITTEN: [usize; 2] = [options::f::BUILDING, options::f::LAST_FOOD];
 
 /// **Links that can never move a decision, zeroed** (R11,
@@ -1049,8 +1084,12 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
             .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS);
         kill(g, fan_in, &mut cut[0]);
     }
+    // The building slot holds the last-food memory while that is on
+    // (`options::f::FOOD_WAY`): written, so not cut.
+    let food_way = options::last_food().is_some();
     for u in 0..UNITS {
-        kill(g, UNWRITTEN.map(|k| S_FEAT + u * FEATURES + k), &mut cut[1]);
+        let unwritten = UNWRITTEN.into_iter().filter(|&k| !(food_way && k == options::f::FOOD_WAY));
+        kill(g, unwritten.map(|k| S_FEAT + u * FEATURES + k), &mut cut[1]);
     }
     for v in Verb::ALL.into_iter().filter(|v| !verbs.contains(v)).map(|v| v as usize) {
         let job = JOB + v * J_IN;
@@ -2659,6 +2698,7 @@ fn pick_up(
         return false;
     }
     let at_home = food_at_home(world, organism, def, hx, hy);
+    let frame = world.frame;
     let seed = plant::seed_survives_bite(world, fx, fy, draw);
     let worth = match seed {
         plant::SeedBite::SurvivedBare => food_value(world, bite) * plant::seed_provision_fraction(world, fx, fy),
@@ -2691,6 +2731,9 @@ fn pick_up(
             state.trip_cells = 0;
         }
         if !at_home {
+            // The last-food memory (`options::last_food`): kept whether or not
+            // the memory is read, so turning it off changes no choice.
+            state.last_food = Some((fx, fy, frame));
             state.foraged = true;
             state.trip_load = true;
             state.since_trip = 0;
@@ -4080,6 +4123,112 @@ mod tests {
         assert!(st.spoil.is_some(), "the cut's own pellet is not in the jaws");
         assert_eq!(w.get(tail.0, tail.1).material, soil, "the old pellet is not where the tail was");
         assert_eq!(w.minds.as_ref().expect("minds").counts.packed, 1, "the pack was not counted");
+    }
+
+    /// **The last-food memory reaches the options, graded and fading**
+    /// (`options::last_food`): with a spot remembered east of the head, a
+    /// step east reads `f::FOOD_WAY` above 0 and a step west below it, by
+    /// the same cosine; the reading falls as the memory ages and is exactly
+    /// 0 with nothing remembered. The specificity half: an ant that
+    /// remembers nothing reads 0 on every option, so a weight on the slot
+    /// moves no choice until a pick-up.
+    #[test]
+    fn the_last_food_memory_points_each_option_back_to_the_food() {
+        let fade = options::last_food().expect("the last-food memory is on by default");
+        let (mut w, def, ids) = mind_box();
+        let id = ids[0];
+        let head = head_of(&w, id);
+        let read = |w: &World| {
+            let mut opts = Vec::new();
+            options::build(w, id, &def, &mut opts);
+            let walk = |dx: i32| {
+                opts.iter()
+                    .find(|o| o.verb == Verb::Walk && o.target.0 - head.0 == dx && o.target.1 == head.1)
+                    .map(|o| o.feats[options::f::FOOD_WAY])
+            };
+            (opts.iter().map(|o| o.feats[options::f::FOOD_WAY].abs()).fold(0.0, f32::max), walk(1), walk(-1))
+        };
+        assert_eq!(read(&w).0, 0.0, "an ant that remembers no food reads the slot");
+        w.organism_mut(id).expect("alive").last_food = Some((head.0 + 60, head.1, w.frame));
+        let (_, east, west) = read(&w);
+        let (east, west) = (east.expect("a step east on flat ground"), west.expect("a step west"));
+        let want = (1.0 + 60.0 / options::LAST_FOOD_SCALE).ln();
+        assert!((east - want).abs() < 1e-4, "east {east} against ln(1 + 60/40) {want}");
+        assert!((west + want).abs() < 1e-4, "west {west} is not the mirror of east");
+        // Remembered `fade` frames ago: half as strong.
+        w.organism_mut(id).expect("alive").last_food = Some((head.0 + 60, head.1, w.frame.saturating_sub(fade as u64)));
+        let old = read(&w).1.expect("a step east");
+        if w.frame >= fade as u64 {
+            assert!((old - want / 2.0).abs() < 1e-4, "a memory {fade} frames old reads {old}, not half of {want}");
+        } else {
+            assert!(old < east, "an older memory reads no weaker: {old} against {east}");
+        }
+    }
+
+    /// **The last-food memory enters an older genome at weight 0, and a new
+    /// one keeps what evolution put there** (`enter_last_food`): a file
+    /// marked layout 4, or unmarked, loses every scorer unit's weight on
+    /// the slot and nothing else; layout 5 is untouched.
+    #[test]
+    fn the_last_food_slot_is_zeroed_only_in_genomes_saved_before_it() {
+        let mut g: Vec<f32> = (0..GENOME_LEN).map(|k| ((k * 37) % 11) as f32 / 10.0 - 0.5).collect();
+        let slots: Vec<usize> = (0..UNITS).map(|u| S_FEAT + u * FEATURES + options::f::FOOD_WAY).collect();
+        for &k in &slots {
+            g[k] = 0.7;
+        }
+        let mut kept = g.clone();
+        assert_eq!(enter_last_food(&mut kept, Some(LAYOUT)), 0);
+        assert_eq!(kept, g, "a genome saved with the memory lost links");
+        for layout in [Some(4), None] {
+            let mut old = g.clone();
+            assert_eq!(enter_last_food(&mut old, layout), UNITS, "layout {layout:?}: links cut");
+            for k in 0..GENOME_LEN {
+                let want = if slots.contains(&k) { 0.0 } else { g[k] };
+                assert_eq!(old[k], want, "layout {layout:?}: slot {k} moved");
+            }
+        }
+    }
+
+    /// **The positive and negative control for the memory as something a
+    /// brain can use** (Creatures research thread, idea 1; for the teacher
+    /// lane): the same walking mind, with and without one scorer unit that
+    /// weighs `f::FOOD_WAY`, remembering a spot 40 columns east on flat
+    /// ground. Wired, it walks there; with that one link cut it does not --
+    /// so a pool that never wires the slot is not evidence the sense is
+    /// dead, and one that does has something to find. Prints both, as the
+    /// trip-2-against-trip-1 numbers a wired pool should show.
+    #[test]
+    fn a_mind_wired_to_the_last_food_memory_walks_back_to_it() {
+        let run = |wired: bool| -> i32 {
+            let (mut w, _def, ids) = mind_box();
+            let mut g = blank(&[Verb::Walk]);
+            if wired {
+                g[S_FEAT + options::f::FOOD_WAY] = 8.0;
+                g[S_OUT] = 4.0;
+            }
+            let g = Arc::new(MindGenome::new(g));
+            for &id in &ids {
+                give(&mut w, id, g.clone());
+            }
+            let id = ids[0];
+            let start = head_of(&w, id);
+            let spot = (start.0 + 40, start.1);
+            w.organism_mut(id).expect("alive").last_food = Some((spot.0, spot.1, w.frame));
+            for _ in 0..600 {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+                if w.organism(id).is_none() {
+                    break;
+                }
+            }
+            w.organism(id).and_then(|s| s.chain.first()).map_or(start.0, |h| h.0) - start.0
+        };
+        let (wired, cut) = (run(true), run(false));
+        println!("columns walked towards the remembered food in 600 frames: wired {wired}, link cut {cut}");
+        assert!(wired >= 25, "a mind wired to the memory got {wired} of 40 columns towards it");
+        assert!(wired - cut >= 15, "wired {wired} against cut {cut}: the memory moved the walk too little");
     }
 
     fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
