@@ -276,6 +276,13 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   105 (10 of 12 seeds). Print the count of each act that actually happened
   (`keeperdemo`'s `carried=`) beside every result, and pick targets the act
   can take (`creature::can_carry`) (keeper-seat-demo-2026-10-25).
+- **A per-member score in a lab colony measures the ant's id, not its mind, unless
+  the member order is shuffled.** The lab hands ant `id` the member `id % n`, and
+  which founders live through the thin start follows the id: on `steady_income`
+  members 6-25 lost both founders by ~1,100 frames on all 16 unshuffled runs,
+  while a copy of member 7 under another label foraged normally. Shuffle labels
+  per seed (`queen_m0 shuffle=1`) and compare against a label-permutation null
+  (`Reports/teaching-the-colony-2026-10-25/queen-seat-demo.md`, M0a).
 
 ## 5. Tools, by question
 

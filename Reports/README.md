@@ -5761,6 +5761,25 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   moves trained ants (sharing -95%, hunger spread doubled, 16/16 seeds), with no payoff; a louder food trail read as
   "+43% food home" on `MindCounts::delivered` and was noise on `trip_deliveries`; no player policy moved a famine
   bed's 14/16 extinctions. Instruments `examples/mindprobe.rs`, `scripts/mindprobe_cmp.py`, `scripts/mindstake.py`.
+  **Queen seat demo: first playable** ([`queen-seat-demo.md`](teaching-the-colony-2026-10-25/queen-seat-demo.md),
+  2026-10-25, `demo=queen`): the player is the founding queen and the colony's only layer. Each egg of hers draws a
+  father from the 30 shipped minds. P makes the next egg a wild (3x) or feral (10x) mutant that founds a coloured
+  line, Y keeps a line for 5 eggs, and a 6,000-frame hold lapses to worker laying if she stops. Measured first: the
+  30 minds barely differ (M0a), while at feral width 17 of 20 mutants are visibly broken foragers and 2 are jewels
+  (M0b). Lab colonies' founder deaths follow the ant's id, not its mind. Review, plans and data in `queen/`.
+  **Enemy seat: a playable raider demo** ([`enemy-seat-demo.md`](teaching-the-colony-2026-10-25/enemy-seat-demo.md),
+  2026-10-25; feasibility review, plan, plan review and plan v2 in `teaching-the-colony-2026-10-25/enemy/`):
+  `demo=enemy` puts the player in the shipped centipede against a dug-in colony. Of the design's Raider, Range and Pit
+  only the Raider is buildable today. Over 36 scripted runs (`examples/enemyhunt.rs`) the door is defended (12/12
+  raids die on the mound, both brains); stalking lone foragers from 70 columns out, the trained colony kills the
+  raider on 4 of 6 seeds and the hand-built one never does. The colony fights back but cannot learn within a session.
+
+- [guest-seat-demo-2026-10-25.md](guest-seat-demo-2026-10-25.md) — **the guest seat demo (`demo=guest`): you are a
+  rove beetle living off the colony by smelling like it.** Ants judge a registered visitor on a graded smell ladder
+  (walk on, antennate, display, nip; the head is bitten last); rub, soak, beg, kill a larva, eat a corpse; the
+  disguise fades. 12 seeds x 60 s: a raw guest is killed on 11 of 12, a disguised one on 5 of 12 and fed on 11 of 12;
+  colony food runs unchanged. Off-identical everywhere else. Its feasibility review, plan, plan review and revised
+  plan are in `guest-seat-demo-2026-10-25/`.
 
 - [keeper-seat-demo-2026-10-25.md](keeper-seat-demo-2026-10-25.md) — **the keeper seat's playable demo
   (`demo=keeper`): you are a hand over the box, and carrying trained ants to far food is a real, graded verb.**

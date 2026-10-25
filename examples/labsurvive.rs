@@ -55,9 +55,19 @@ fn main() {
     }
     match founders.as_str() {
         "old" => {}
-        "std" => {
-            lab.set_new_ant(true);
-        }
+        "std" => match arg::<usize>("member") {
+            // `member=K` (queen seat, 2026-10-25): the shipped pool's member K alone, every ant thinking with it --
+            // a common garden of the pool, which asks whether choosing *whose* mind an egg carries can change what a
+            // colony does. Unset: the whole pool, as before.
+            Some(k) => {
+                let all = training::new_ant_minds();
+                println!("std member {k} of {}", all.len());
+                lab.set_new_ant_pool(vec![all[k].clone()]);
+            }
+            None => {
+                lab.set_new_ant(true);
+            }
+        },
         list => {
             let minds: Vec<_> = list
                 .split(',')
@@ -109,12 +119,14 @@ fn main() {
     let w = &lab.world;
     let births = w.creature_stats.births;
     println!(
-        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={}",
+        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={} digs={} deliveries={}",
         count(&lab),
         lived as f64 / after.max(1) as f64,
         w.deaths_by_cause[starved] - s0,
         landed.map_or(-1, |l| l as i64),
-        w.frame
+        w.frame,
+        w.creature_stats.digs,
+        w.creature_stats.deliveries
     );
 }
 

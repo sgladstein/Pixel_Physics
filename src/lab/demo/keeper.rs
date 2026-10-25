@@ -294,14 +294,9 @@ fn ensure_recall(lab: &mut Lab) {
     }
 }
 
-/// **After the demo's scenario loads**: rebuild on `seed=` if one was asked
-/// for, then run the warm-up with nobody watching.
+/// **After the demo's scenario loads** (the launcher has already applied
+/// `seed=`): run the warm-up with nobody watching.
 pub fn on_start(lab: &mut Lab) {
-    let seed = lab.demo.as_ref().and_then(|d| d.args.get("seed")).map(|v| v.parse::<u64>().unwrap_or_else(|_| panic!("demo=keeper: seed={v:?}")));
-    if let (Some(seed), Some(mut sc)) = (seed, lab.scenario.clone()) {
-        sc.bed.seed = seed;
-        lab.load_scenario(sc);
-    }
     let warmup = keeper(lab).map_or(0, |k| k.warmup);
     for _ in 0..warmup {
         lab.tick_for_harness();

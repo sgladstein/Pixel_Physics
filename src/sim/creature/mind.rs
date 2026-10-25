@@ -2340,6 +2340,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
+            // **An ant held on a visitor takes the one option the ladder
+            // left it** (`guest::force_options`): a Rest while it inspects,
+            // one Walk away after a display. Cut here, before the context
+            // and the scoring, so the draw, the bills, the memory and the
+            // reschedule all run as for any decision. One `Option` read off.
+            if world.visitors.is_some() {
+                super::guest::force_options(world, organism, &mut opts);
+            }
             // `at_nest` was read above at `(x, y)`; since then only the
             // colony odour was blended and no fall happened, so no cell
             // moved (ant cost review A4, 2026-10-22).
@@ -2605,6 +2613,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         if let Some((opt, emits, n)) = decided {
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_ACT);
             let did = act(world, organism, def, opt, &mut draw);
+            // **What the player's key did** (`steer::Steered::last_act`), for a seat
+            // to say why a key changed nothing. Only for a forced decision.
+            if let Some(f) = forced {
+                let frame = world.frame;
+                if let Some(s) = world.steered.as_mut().filter(|s| s.id == organism) {
+                    s.last_act = Some(crate::sim::steer::LastAct { frame, asked: f.verb, done: opt.verb, ok: did });
+                }
+            }
             // **Feeding is mandible to mandible, priced as the game prices
             // a share** (`creature_tick`'s jaw bill): the same work whoever
             // decided it, from the bank or the crop.

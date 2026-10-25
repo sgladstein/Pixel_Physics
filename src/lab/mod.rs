@@ -4931,6 +4931,11 @@ pub fn tick_world(
     // is its own due-gate on `World::frame` and returns 0 immediately for
     // `Rain::Off`. The shipped default is Light, not off.
     rain::tick(world, spec, spec.rain);
+    // **The guest seat's visit** (`creature::guest::tick`): fade, soak and the
+    // guest's pressed verbs. One `Option` read with no visitor registered.
+    if world.visitors.is_some() {
+        crate::sim::creature::guest::tick(world);
+    }
 }
 
 #[cfg(test)]

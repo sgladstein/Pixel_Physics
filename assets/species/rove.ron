@@ -1,0 +1,66 @@
+// **The guest: a rove beetle the size of a worker** (guest seat demo,
+// `Reports/teaching-the-colony-2026-10-25/seat-guest.md`; plan in the
+// seat-demos folder, `guest/plan-v1.md`). The player's body in
+// `demo=guest`, and nowhere else: not on the lab's animal chip, never given a
+// mind (`Lab::give_new_ant_minds` touches species `ant` only).
+//
+// **The ant's body, not the beetle's.** The shipped beetle is a 2x2 rigid
+// block and a grown nest is galleries one or two cells wide (step 0,
+// `examples/guestprobe.rs nestlook=1`), so a beetle cannot follow a nurse
+// into the brood chamber, which is the whole seat. A chain and the ant's
+// walk constants put it wherever an ant can go, by the same body rules.
+// **Three cells, one more than the ant**: the ladder's nip takes the rear
+// cell first and the head last, so three cells is nine nips from landing to
+// death, and the cells left are the player's health bar (at two, the first
+// GIF's rove died inside a second of landing on a crowded mound).
+//
+// **A carnivore's gut** (`traits.0 = 1.0`, the beetle's): the lab's crumbs,
+// fruit and provisions are plant food it cannot use, so it eats only what
+// ants give it (the beg) and what it takes from the brood pile. A corpse is
+// flesh, so it can scavenge the colony's dead, as real rove beetles do.
+//
+// **Scent authored at the beetle's (0.8, 0.8, 0.8)**, but the demo sets it on
+// landing to a fixed distance from the host nest's odour, because a
+// colony's odour lands wherever `scent_spread` put its founders (step 0
+// measured nests from (-0.76, 0.66, 0.73) to (0.48, -0.94, -0.92)) and a fixed
+// authored point would be family on one seed and a stranger on the next.
+// No drift and no spread: it never breeds.
+(
+    name: "rove",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+    creature: Some((
+        body: Chain(3),
+        tick_interval: 6,
+        // **No old age**: the steered body skips the roll anyway (`steer`),
+        // and 0 keeps it off when nobody steers it.
+        life_half_life: 0,
+        // The ant's tank: about 2-3 minutes of 1x play with nothing fed,
+        // which is the pressure that sends you begging.
+        start_energy: 200.0,
+        idle_cost_per_cell: 0.05,
+        move_cost_per_cell: 0.125,
+        dig_cost_in_moves: 6.0,
+        synapse_fraction: 0.0000022222222,
+        body_energy: 480.0,
+        crop_capacity: 2880.0,
+        armour_fraction: 0.0001,
+        digest_fraction: 0.01515,
+        digest_rate: 3.3,
+        traits: (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.8, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        // Never buds: one guest, played.
+        reproduce_threshold: 1000000000.0,
+        mutation_rate: 0.0,
+        force_fraction: 0.000025,
+        dig_force: 1.0,
+        sensor_offset: 6,
+        // The body is always steered in the demo (an empty input stands
+        // still); this is only what it does if nobody holds it.
+        instincts: [
+            (Bias, Move, -4.0),
+        ],
+    )),
+)

@@ -418,6 +418,17 @@ fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize
     c
 }
 
+/// **One genome mutated the way the TRAINING page mutates a child**
+/// ([`neutral_mutate`] over [`colony_bed::slots`]), from a `seed` the caller
+/// keys (the queen demo's wild egg keys it on the child and the frame, so it
+/// touches no shared stream). `g` is a flat genome as [`std_pool`] gives it,
+/// dig head and lay gate included: rebuild a mind with [`colony_bed::mind`],
+/// never from `MindGenome::w`, which has the lay gate stripped off.
+pub fn mutate_genome(g: &[f32], pm: f32, sigma: f32, events: usize, seed: u64) -> Vec<f32> {
+    let mut rng = Rng(seed);
+    neutral_mutate(g, &colony_bed::slots(), pm, sigma, events, &mut rng)
+}
+
 /// One ant's ledger (the harness's `Who`).
 #[derive(Clone, Debug)]
 pub struct Who {

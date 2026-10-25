@@ -4344,6 +4344,10 @@ pub struct World {
     /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
     /// which is the gnome.
     pub steered: Option<crate::sim::steer::Steered>,
+    /// **The visitors the colony judges by smell** (`creature::guest`, the
+    /// guest seat demo): `None` in every world but `demo=guest`, and then
+    /// every guest hook is one `Option` read.
+    pub visitors: Option<crate::sim::creature::guest::Visitors>,
     /// **Bodies with a mind that another module leads** (`steer::force`),
     /// by id: each one's next decision takes the named option instead of
     /// its mind's. Empty unless a demo sets an entry, and empty is one
@@ -4436,6 +4440,10 @@ pub struct World {
     /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
     /// game: no ant has one, and the tick reads this once to know.
     pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
+    /// **Whose mind an egg carries** (`sim::fathers`, seat demos): `None`
+    /// unless a demo fills it, and then an egg of a colony with a store may
+    /// carry a drawn father's mind rather than its layer's.
+    pub fathers: Option<Box<crate::sim::fathers::Fathers>>,
     /// **The recall head** (`creature::recall`): a scripted gain by which a
     /// mind ant's remembered food place tilts its walk, and the meal copy
     /// that passes the place on. `None` in the shipped lab and game; set by
@@ -7495,6 +7503,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             steered: None,
+            visitors: None,
             mind_force: Default::default(),
             feed_log: None,
             bite_log: None,
@@ -7512,6 +7521,7 @@ impl World {
             targets: None,
             option_shadow: false,
             minds: None,
+            fathers: None,
             recall: crate::sim::creature::recall::Recall::from_env(),
             bud_at_nest: None,
             dig_roof: None,
