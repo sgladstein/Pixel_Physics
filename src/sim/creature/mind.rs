@@ -1803,7 +1803,7 @@ fn context_at(
         _ => adjacent_nest(world, hx, hy, def),
     };
     v[c::AT_NEST] = f32::from(u8::from(home));
-    let scents = EMIT_CHANNELS.map(|ch| world.pheromone_at(ch, hx, hy) as f32 / pheromone::Scent::MAX as f32);
+    let scents = EMIT_CHANNELS.map(|ch| options::mind_scent(world, ch, hx, hy));
     // SCRATCH (teacher lane): `PP_SCENT_BLIND=1` reads every trail as 0, to see whether a mind uses them.
     static BLIND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let scents = if *BLIND.get_or_init(|| std::env::var("PP_SCENT_BLIND").is_ok_and(|v| v == "1")) { [0.0; 3] } else { scents };
@@ -3066,7 +3066,7 @@ fn lay(
     };
     for (e, &s) in emits.iter().enumerate() {
         let amount = (s * pheromone::DEPOSIT as f32) as pheromone::Scent;
-        if amount > 0 {
+        if amount > 0 && !options::scent_silent(EMIT_CHANNELS[e]) {
             world.deposit_pheromone(EMIT_CHANNELS[e], hx, hy, amount);
             if let Some(m) = world.minds.as_mut() {
                 m.counts.laid[e] += f64::from(s);
@@ -6083,6 +6083,13 @@ pub mod scratch_log {
             at.0, at.1, o.verb as usize, o.target.0, o.target.1,
             last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
         ) + &format!(",{}", f(&o.feats)));
+        // SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_MIND_LOG_EMITS=1` adds an `E` row per decision with
+        // the three emit strengths (A, B, alarm), joined to its `M` row by seed, frame and id -- the signalling
+        // census: what each emission depends on. A row of its own so every `M` parser keeps its layout.
+        static EMITS: OnceLock<bool> = OnceLock::new();
+        if *EMITS.get_or_init(|| std::env::var("PP_MIND_LOG_EMITS").is_ok_and(|v| v == "1")) {
+            line(format!("E,{seed},{frame},{id},{}", f(&d.emits)));
+        }
         // SCRATCH (teacher-training measurement 2): every Walk, Dig and Drop option, not only the chosen one, so a
         // copier can see the whole choice. Per option `verb tx ty brain_score|k:v k:v` with only nonzero features.
         let all: Vec<String> = opts
