@@ -1532,6 +1532,26 @@ fn larva_starves(world: &mut World, organism: OrganismId, (x, y): (i32, i32), ba
     world.free_brood(organism);
 }
 
+/// **A larva killed where it lies** (the guest seat's rove, `creature::guest::
+/// kill_larva`): [`larva_starves`]'s corpse, holding the larva's bank, plus
+/// an alarm cried at it. The killer gains nothing here; eating the corpse is
+/// a separate bite, so the larva's energy is booked once (review of the
+/// guest plan, finding 5). `false`, changing nothing, unless `organism` is a
+/// living larva on `(x, y)`.
+pub(crate) fn larva_eaten(world: &mut World, organism: OrganismId, (x, y): (i32, i32)) -> bool {
+    let is_larva = world.organism(organism).and_then(|s| s.brood).is_some_and(|b| b.stage == BroodStage::Larva);
+    if !is_larva || world.get(x, y).organism_id() != organism {
+        return false;
+    }
+    let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+    let colony = world.colony_of(organism);
+    larva_starves(world, organism, (x, y), bank, colony);
+    // Booked as a starving larva is, then taken back off that counter.
+    world.creature_stats.larvae_starved -= 1;
+    creature::cry_alarm_at(world, x, y);
+    true
+}
+
 /// **A pupa becomes an adult on or beside its own cell**, if the body fits
 /// within `HATCH_REACH`. The cell is cleared first so the head can take it,
 /// and put back if the body cannot be laid anywhere. Returns the adult's
@@ -1851,6 +1871,35 @@ mod tests {
         assert_eq!(w.get(x, y).material, corpse);
         assert_eq!(w.get(x, y).aux(), 300);
         assert_eq!(w.creature_stats.brood_corpse_j, 300.0);
+    }
+
+    /// **A larva killed by the guest seat leaves a corpse worth what it held,
+    /// booked once** (`larva_eaten`, guest seat plan v2, finding 5): the bank
+    /// goes into the corpse and nowhere else, so the live identity stays shut,
+    /// and the kill is not a starvation. The positive control is the second
+    /// call: the cell is a corpse now, not a larva, and nothing happens.
+    #[test]
+    fn a_larva_killed_by_a_guest_leaves_a_corpse_worth_its_bank_booked_once() {
+        let (mut w, ant, def) = bed(true);
+        let block = def.brood.clone().expect("brood");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+        let egg = the_egg(&w);
+        w.frame = block.egg_frames;
+        let sites = brood_tick(&mut w, &site);
+        let (x, y) = (sites[0].x, sites[0].y);
+        let bank = w.organism(egg).expect("a larva").energy;
+        assert!(bank > 0.0, "test setup: the larva holds nothing");
+        let g0 = gap(&w);
+        assert!(larva_eaten(&mut w, egg, (x, y)), "the kill");
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        assert_eq!(w.get(x, y).material, corpse);
+        assert!((f32::from(w.get(x, y).aux()) - bank).abs() <= 1.0, "corpse aux {} for a bank of {bank}", w.get(x, y).aux());
+        assert!((w.creature_stats.brood_corpse_j - f64::from(bank)).abs() < 1.0, "corpse joules {}", w.creature_stats.brood_corpse_j);
+        assert_eq!(w.creature_stats.larvae_starved, 0, "a kill was booked as a starvation");
+        assert!(w.organism(egg).is_none(), "the killed larva's slot was not released");
+        assert!((gap(&w) - g0).abs() < 1.0, "the kill moved the live identity by {}", gap(&w) - g0);
+        assert!(!larva_eaten(&mut w, egg, (x, y)), "a corpse was killed again");
+        assert!(w.pheromone_at(crate::sim::pheromone::Channel::Alarm, x, y) > 0, "no alarm cried at the kill");
     }
 
     /// **Switched off, a species with a brood block buds a whole adult**,
