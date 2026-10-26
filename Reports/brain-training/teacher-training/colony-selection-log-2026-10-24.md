@@ -596,3 +596,43 @@ against colony 13:
 Colony 13 stays the founder. Replays (c19, colony 13, hand-built, world 19099):
 https://claude.ai/artifact/6R8cj4dx6dizbYCydqPmqi. **Next, nest9** (`jobs/nest9.txt`): control, `PP_SHARP_MAX=2`
 and `PP_SHARP_MAX=1` from colony 13, to see whether selection can re-tune with graded choices visible.
+
+## 2026-10-26: the sharpness batch (nest9) gains nothing; the copy at 1x stalls too
+
+nest9 from colony 13, 48 rounds: `sctl` (byte-identical garden to nest8's `gctl`: same seeds, same build, so
+selection is deterministic), `PP_SHARP_MAX=2`, `PP_SHARP_MAX=1`. Garden r47: control 68 alive, 311 starved, nest 446,
+crater 93, open-room score 0.63; 2x 61, 332, 364, 128, 0.26, food home 4,282 against 3,184; 1x 55, 268, 382, 143,
+0.15. The four colonies that starved least on their own world (75-109) were ordinary over 8 worlds (starved
+224-318 against 240, open nest 171-250 against 398). Replays: https://claude.ai/artifact/WZWLZEvuNivcHrHQ6TF2XK.
+Copying the come-home teacher at 1x (fit 6, labels relogged at 1x): agreement 0.30 -> 0.46, the plateau of fits
+1-5, starved 253 against 296 at 1x, food home -22%, 3 of 8 colonies thinned below 15. **Pinned scores were not
+the binding limit.**
+
+## 2026-10-26: a "home, when low" sense; the lesson sticks and starvation falls ~5x
+
+`PP_HOMELOW=k` writes, on every Walk option, +1 for a step towards home's column, -1 away, 0 along, times
+`clamp(1 - e / (1 + k x columns from home), 0, 1)`, e in sensed tanks: the teacher's fuel gate as a graded reading,
+0 for a fed ant. Fitting only its 16 unit weights (`homefit feat=18`) to the teacher's labels on colony 13's own
+runs: agreement 0.28 -> 0.79 at hold KL 0.0006, against 0.40-0.63 at KL ~0.2 for every fit on existing links.
+
+**Two traps on the way.** (1) The slot is `f::BUILDING`, which is `f::FOOD_WAY`, the last-food memory, on by
+default: the first fits' weights read the food way wherever the sense was not written, and that pool delivered
+nothing in 30k frames with the sense off. `PP_HOMELOW` now asserts `PP_LASTFOOD=off`. (2) Ungated, both far lab
+boxes died (52 of 52 starved, every seed): ants land there at 0.4-0.9 tanks, so every one read "low" at once and
+walked home to an empty nest. `PP_HOMELOW_STORE=1` reads 0 while no nest store holds food.
+
+Clean fit, `PP_LASTFOOD=off PP_HOMELOW=0.006 PP_HOMELOW_STORE=1`, teacher off, against colony 13 as shipped:
+
+| | alive | starved | food home | open nest | crater | rooms (open) | died out |
+|---|---|---|---|---|---|---|---|
+| colony 13, worlds 1007-8007 | 71.5 | 240 | 4,112 | 398 | 23 | 32.5 | 0 |
+| sense, worlds 1007-8007 | 78 | 43.5 (8/8 lower) | 4,890 | 378 | 6.5 | 31.5 | 0 |
+| colony 13, worlds 9007-16007 | 70.5 | 247 | 3,874 | 359 | 45 | 33 | 2 |
+| sense, worlds 9007-16007 | 79 (8/8) | 44 | 5,039 (8/8) | 470 | 40 | 39.5 | 0 |
+
+Colony 13 with `PP_LASTFOOD=off` alone starved 297.5, so the gain is the sense. k=0.012 lost 2 of 8 colonies
+(founders turned home before reaching far food); 0.006 none. Lab (`labsurvive after=15000`, 4 seeds, mean alive):
+far mix 110 vs 102, fruit 70 vs 69, herbs 18 vs 13. World 13099 (colony 13's own garden world) died out with the
+sense, not yet traced. Pool: `assets/minds/homelow_pool.txt`. Replays:
+https://claude.ai/artifact/JA6kxgzwxmxy4EoaEqir5B. **Next, nest10** (`jobs/nest10.txt`): nest training from that
+pool with the sense on.
