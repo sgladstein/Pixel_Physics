@@ -178,9 +178,11 @@ kills on the bed happened.
 **Without the smell the shipped raider raids.** Its population grows out at the far edge of the box (59-204 at the
 peak in the three boxes where it took hold), and that crowd comes into the chambers 50,000-150,000 frames after
 landing: seed 3, 208,000-232,000 frames, raiders fill the chambers and the shaft, raider cells under the ground in the
-picture rising 1 -> 164 (`/mnt/project-files/predator/nest-raider/lab-deep-raid-seed3.gif`). With the smell, two or a
-few raiders go straight to the door while they are still few, and are killed there or empty the colony from the
-mouth (`lab-smell-door-seed2.gif`: 0 raider cells under the ground in any of 141 frames); the crowd never forms. The
+picture rising 1 -> 164 (`/mnt/project-files/predator/nest-raider/lab-deep-raid-seed3.gif`). With the smell, the raiders
+head for the door from the start: where they are few they are killed there (shipped pool, peaks 2-46), and where they
+breed they crowd the mound and kill at the mouth without going down (`lab-smell-door-seed2.gif`, the nestpay-10
+line-2 pool, 59 raiders at the peak: 0 raider cells under the ground in any of 141 frames from 40,000 to 82,000, the
+colony gone by 90,000). The
 bed could not show this: it lands 4 raiders for 30,000 frames on a 256-wide box, so it can only reward the few at the
 door. **The smell ships off** (`options::nest_smell_on` records the harm), the trained pools are kept
 (`/mnt/project-files/predator/nest-raider/pool-smell-*`) and not shipped, and the lab keeps the hunter-2 pool.
