@@ -659,3 +659,46 @@ None beats the start clearly, so it stays the founder. Selection keeps the habit
 home lesson, a "nest too small for the colony" sense read by the Dig job; it needs a slot (no free option feature
 or context input remains), so it waits on the layout decision. Replays:
 https://claude.ai/artifact/8bfwRq2tQWYEiZnBmS6ZS5.
+
+## 2026-10-26: why the trained nest is small, and the "way out" sense for soil haulers
+
+**Where the room goes** (homelow_pool with the sense on, 8 worlds; the nest flooded from the door): the ant cuts
+~1,000 nest cells, and crumbs (half-eaten fruit put down, `assets/materials/crumbs.ron`) fill a median ~616 of them;
+open ~381. The hand-built ant (world 13007): 1,438 open, 9 crumbs. The `spoil_in` count (~360, "soil let go inside")
+is mostly not soil left in the nest: every release is the mind's own Drop by a fed ant, and about two thirds are at
+row 0 of the door column, where the world clears soil (`PP_MIND_DOOR_OPEN=drop` keeps the clear).
+
+**Choosing to dig is not the bottleneck.** Underground with empty jaws and a cut in reach, the ant picks Dig 2% of the
+time (25 of 1,504 logged decisions): the Dig job's sum is about -6.3 (bias -5.65, hidden units -4.23, a negative
+weight on the best cut's score). Two hand-set pushes on that job both failed:
+
+| push (8 worlds vs homelow_pool) | open nest | cells cut | crater | starved |
+|---|---|---|---|---|
+| none | 378 | 1,046 | 6.5 | 43.5 |
+| Dig job's depth weight 1.65 -> 5 / 9 / 14 | 364 / 404 / 263 | ~1,080 | 37-40 | 38-56 |
+| + `k` x food cells in reach, k = 4 / 8 / 12 (not landed) | 282 / 159 / 158 | ~1,050 | 44-96 | 40-61 |
+
+At k=8 the ant underground picked Dig at 30% of its chances, not 2%, and the cuts still rose only 7%: **hauling
+is the bottleneck**. Half of all underground decisions belong to an ant carrying a soil pellet, and a third of its
+steps go deeper (world 13007, ~166 decisions per pellet removed).
+
+**`PP_SOILWAY=1`** (options.rs, scratch, needs `PP_HOMELOW`) writes home-low's slot on a pellet carrier's Walk
+options inside a nest: +1 for a step nearer the door along `NestWay`, -1 for a step deeper, +1 for a step out. It
+reuses the 16 weights fitted for home-low (both mean "this step heads home, and it matters now"); nothing was refitted.
+
+| 16 worlds, far moving food (medians) | open nest | crumbs | cut | crater | starved | alive | food home |
+|---|---|---|---|---|---|---|---|
+| homelow_pool, worlds 1-8 | 378 | 616 | 1,046 | 6.5 | 43.5 | 78 | 4,890 |
+| + way out, worlds 1-8 | 644 | 486 | 1,273 | 60 | 30.5 | 79 | 3,918 |
+| homelow_pool, worlds 9-16 | 470 | 554 | 1,077 | 40 | 44 | 79 | 5,039 |
+| + way out, worlds 9-16 | 546 | 474 | 1,180 | 123 | 43.5 | 78.5 | 3,976 |
+
+The open nest was bigger in 12 of 16 worlds and the cuts more in 15 of 16, but the crater was bigger in 13 of 16.
+Shallow cuts (0-7 rows) did not rise. The one cavern widens at the bottom (cuts 16+ rows deep: 1,051 against
+843 per world) and its top slumps into a funnel. Replays: https://claude.ai/artifact/CdtFxitcZ9yau316uAV2hP.
+
+**nest11** (3feb590a): colony selection from homelow_pool with the way-out sense on, `swctl` and `swshape` (the
+analogues of nest10's `hlctl`/`hlshape`), 48 rounds. More colonies died out in training than in nest10 (7-26 of 32
+alive per round in swctl, against 22-32). Garden r47: crater 103-173 against nest10's 38-45, nest no bigger. The
+four best colonies, 8 worlds against the starting pool with the sense on, were all worse. Open nest 231-582
+against 644, and cuts 630-1,000 against 1,273. Selection did not trade the crater away; it bred digging out.
