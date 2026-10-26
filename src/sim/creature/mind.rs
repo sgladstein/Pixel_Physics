@@ -4850,6 +4850,34 @@ mod tests {
         (w, animal, ant)
     }
 
+    /// **The raider smells the nest from across the box** (nest raider thread, 2026-10-26; off by default,
+    /// `options::nest_smell_on`): a centipede 50 columns from a founded colony, no ant in its 24-cell eye, smells the
+    /// nest's door with the switch on, and with `smells_nest` cleared or the switch off smells nothing. The eye saw
+    /// no prey (`sensed_home` reads no home with the switch at its default), so the door came from the smell.
+    #[test]
+    fn the_raider_smells_the_nest_from_across_the_box() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, width: 160, height: 96, ground_y: 60, soil_depth: 30, ..crate::lab::scene::LabBox::default() }.build();
+        let door = w.nest_sites.first().map(|s| (s.x, s.surface)).expect("a founded colony has a nest site");
+        let x = if door.0 > 80 { door.0 - 50 } else { door.0 + 50 };
+        let gy = (0..96).find(|&y| y > 10 && w.get(x, y).material != crate::sim::material::EMPTY).expect("ground");
+        let me = match crate::sim::creature::plant_creature_seed(&mut w, x, gy - 1, "centipede").map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no centipede placed: {other:?}"),
+        };
+        let st = w.organism(me).expect("placed").clone();
+        let mut def = w.species.get(st.species).creature.clone().expect("creature");
+        let (hx, hy) = *st.chain.first().expect("a head");
+        assert_eq!(options::smelt_nest_if(true, &w, &def, hx, hy), Some(door), "smelt");
+        assert_eq!(options::smelt_nest_if(false, &w, &def, hx, hy), None, "switch off");
+        if !options::nest_smell_on() {
+            let (home, reads) = options::sensed_home(&w, me, &def, &st);
+            assert!(reads > 0, "the eye was cast");
+            assert_eq!(home, None, "the eye sees no prey, and the smell is off by default");
+        }
+        def.smells_nest = false;
+        assert_eq!(options::smelt_nest_if(true, &w, &def, hx, hy), None, "a species without the smell");
+    }
+
     /// **A predator with handling time cannot pay for a child out of living prey** (nest raider thread,
     /// 2026-10-25): `try_bud`'s second mouth (`provisions_in_reach`) counted every living ant cell round the head as
     /// food in reach and took it whole, so a centipede landed at a lab door budded three times in 23 frames. With

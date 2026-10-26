@@ -115,7 +115,8 @@ The four outcomes are a spread rather than a switch: died out early (seeds 1, 6)
 33 raiders at 120,000 frames, 112 of them killed by ants in the next 30,000), a cycle for the whole run beside the
 colony (seed 4: 10 raiders and 205 ants at the end), and a boom that ate the colony and then starved (seeds 2, 5).
 
-**And it still does not raid.** The seed-3 boom filmed over the whole box, 100,000 to 126,000 frames
+**It does not raid early.** *(Overturned for long runs the next day: see* Round two*. The paragraph stands for
+the window it describes.)* The seed-3 boom filmed over the whole box, 100,000 to 126,000 frames
 (`/mnt/project-files/predator/nest-raider/lab-boom-seed3-wholebox.gif`): the raiders live on the surface against
 the east wall, at columns 428-507, 170-250 columns from the door at 256, and eat the foragers that range out that
 far. None is in the shaft or a chamber in any frame. The trained pool makes a population by keeping its distance
@@ -128,17 +129,74 @@ heaps are lab_mid_fruit's fruit bushes, drawn in their own many-coloured palette
 that GIF reads 0 in every frame; over the whole box it reads 74-140 raider cells, all east of column 427. **Count
 the predator's colour in a crop before describing where it is**: a picture with none of it in shows nothing.
 
+## Round two, 2026-10-26: training it to go in, a nest smell, and the lab overturning both
+
+Owner, asked for next steps: the recommended one was to train it to go in.
+
+**Paying for nest kills** (`predtrain nestpay=K`): an ant killed under the ground pays the nearest raider head
+(within 6 cells) K ant cells' worth on top of digestion. **The first cut paid on bites and was farmed**:
+`LifeCounters::bites` counts every pickup into the crop, so a raider that puts a crop cell down underground and picks
+it up again "bites in the nest" -- 42,000 bites a round, 6,900 of them in the nest, against about 350 ants killed.
+Thrown out; a death is the one thing a raider cannot repeat. Batch 2 (shipped pool as founders, 4 arms x 2 seeds x
+16 rounds of 100,000, warm 60,000), judged on 6 fresh beds, 4 raiders, 30,000 frames, ants killed in the nest:
+
+| landed | shipped | no bonus | nestpay 3 | nestpay 10 |
+|---|---|---|---|---|
+| at the door (`far=0`) | 160 | 46, 87 | 149, 177 | 36, 137 |
+| 30 columns out (`far=30`) | 6 | 3, 4 | 6, 8 | 8, 5 |
+
+Nothing beats the founder, and from 30 columns out no mind finds the nest: its eye (24 cells) stops at soil, and
+nothing else tells it where the nest is.
+
+**A nest smell** (`CreatureDef::smells_nest`, the centipede; `PIXEL_PHYSICS_NEST_SMELL=on`): with no ant in its eye,
+its home senses point at the nearest nest door, from anywhere, with no cap (through the home senses, as sight is, so
+no genome moves). On the bed it does what it was built for. The shipped pool with it, landed 30 columns out: 102 ants
+killed over 6 beds (30 without), 13 in the nest (6). Batch 3, all with the smell, landed 30 out unless marked:
+
+| pool | 6 judging beds, nest kills | 12 fresh beds, nest kills | wins against shipped+smell, 12 beds |
+|---|---|---|---|
+| shipped + smell | 13 | 35 | -- |
+| no bonus, r8 | 23 | 33 | 4 won, 4 lost |
+| nestpay 10, line 1, r8 | 181 | **191** | **11 won, 1 lost** |
+| nestpay 10, line 2, r15 | 141 | **81** | **12 won, 0 lost** |
+
+Two pools picked on the first six beds held on twelve they were not picked on. On the bed, smell plus nest pay
+works.
+
+**In the lab it does the opposite.** `spiderlab`, lab_mid_fruit (the hand-built ant), 2 raiders landed 30 columns
+out, 300,000 frames, the same 6 boxes, every kill's place logged (`PP_KILLLOG`). "Deep" is more than two cells under
+its column's surface: the first two rows are the mound's flanks and the shaft's mouth, where most "in the nest"
+kills on the bed happened.
+
+| arm | ants killed | at the mouth | deep | deep, per box | raiders' peak | colonies eaten |
+|---|---|---|---|---|---|---|
+| **shipped, smell off** | **3,698** | 571 | **538** | 5, 76, 266, 183, 0, 8 | 2-204 | 2 |
+| shipped, smell on | 1,630 | 199 | 78 | 5, 26, 7, 14, 0, 26 | 2-46 | 3 |
+| nestpay 10 line 1, smell on | 1,505 | 97 | 64 | 3, 6, 32, 4, 18, 1 | 2-10 | 0 |
+| nestpay 10 line 2, smell on | 2,071 | 312 | 75 | 0, 13, 31, 15, 0, 16 | 2-59 | 4 |
+
+**Without the smell the shipped raider raids.** Its population grows out at the far edge of the box (59-204 at the
+peak in the three boxes where it took hold), and that crowd comes into the chambers 50,000-150,000 frames after
+landing: seed 3, 208,000-232,000 frames, raiders fill the chambers and the shaft, raider cells under the ground in the
+picture rising 1 -> 164 (`/mnt/project-files/predator/nest-raider/lab-deep-raid-seed3.gif`). With the smell, two or a
+few raiders go straight to the door while they are still few, and are killed there or empty the colony from the
+mouth (`lab-smell-door-seed2.gif`: 0 raider cells under the ground in any of 141 frames); the crowd never forms. The
+bed could not show this: it lands 4 raiders for 30,000 frames on a 256-wide box, so it can only reward the few at the
+door. **The smell ships off** (`options::nest_smell_on` records the harm), the trained pools are kept
+(`/mnt/project-files/predator/nest-raider/pool-smell-*`) and not shipped, and the lab keeps the hunter-2 pool.
+
+The earlier *it does not raid* was true of the window it was read from (100,000-126,000 frames, seed 3, on the
+build before #887) and is wrong as a description of the raider. A boom at the far wall is how its raids start.
+
 ## Where it goes next
 
-- **Train it to go in.** Nothing in training pays for the nest: credit is food digested, and the door is where the
-  food walks past. The bed already counts kills in the nest (`predtrain`'s round line); paying a kill there more than
-  one on the surface, or landing raiders inside the nest (`far=0` puts them at the door, not in it), is the next
-  batch. The bed's best in-nest killers were the untrained minds (16-17 of their kills), so it is a selection
-  problem, not a body one.
-- **Keep elitism.** No line beat its founder, as with the spider; the next batch should carry the best minds
-  through unchanged.
-- **The ants' side** is the Teacher lane's: a colony that can lose its larder to something inside the nest is a
-  defence case it has not had. `inrun spider_species=centipede` puts the raider on the colony bed.
+- **The ants' side** is the Teacher lane's: the lab raider now empties chambers once its numbers build, a defence
+  case the colony has not had. `inrun spider_species=centipede` puts the raider on the colony bed.
+- **Train predators where they will live.** A training bed that lands a few raiders for a short round rewards the
+  few at the door; the raid is a crowd's. Selecting raider pools on lab boxes (`spiderlab`, a long run, deep kills
+  from `PP_KILLLOG`) is the honest test, and costs about an hour of four cores for 24 boxes.
+- **The trained ant's nest** (std_pool since c87fd03c digs open rooms) has not met the raider in a lab box; every lab
+  number here is the hand-built ant's.
 
 ## Reproduce
 
@@ -151,4 +209,7 @@ PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example 
 PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example spiderlab -- scenario=lab_mid_fruit \
     species=centipede pool=lab spiders=2 frames=136000 seed=3 delay=30000 gif=112000:136000:150 crop=136,110,240,110 out=DIR
 python3 scratch/inrun/mkpredpool.py POOL_DIR assets/minds/centipede_pool.txt "header" ...   # a pool dir as the lab pool
+cargo run --release --example predtrain -- out=DIR species=centipede pool=POOL sel=score rounds=16 frames=100000 warm=60000 far=30 nestpay=10 seed=1
+PP_KILLLOG=1 [PIXEL_PHYSICS_NEST_SMELL=on] PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example spiderlab -- \
+    scenario=lab_mid_fruit pool=POOL species=centipede spiders=2 frames=300000 seed=3 delay=30000 2> kills.txt   # nest_kills= in RESULT
 ```

@@ -106,7 +106,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11186 |
 | [Spider status — a trained predator in the box, and a meal that takes time](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) | 11255 |
 | [Nest raider status — a centipede that fits the ants' shaft](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) | 11292 |
-| [Lone scout status — you lead a sister to food by touch, and she goes back](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) | 11336 |
+| [Lone scout status — you lead a sister to food by touch, and she goes back](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) | 11338 |
 
 ### Milestones, in numeric order
 
@@ -183,7 +183,7 @@ your time goes, not a rule about what you may read.
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7875 |
 | **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11186 |
 | **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 9371 |
-| **playing one ant: the seat demos** | lab | [Lone scout status](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) 11336 |
+| **playing one ant: the seat demos** | lab | [Lone scout status](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) 11338 |
 | **the spider: a trained predator, and a meal that takes time** | engine | [Spider status](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) 11255, [Nest raider status](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) 11292 |
 
 <!-- END GENERATED TOC -->
@@ -11323,13 +11323,15 @@ Training and lab tests take it by name: `predtrain species=centipede`,
   the same cell down and picking it up again.
 
 **Known limits.**
-- **It does not raid on purpose yet.** The shipped pool (trained line
-  hunter-2) is the only one of four that makes a population in most lab
-  boxes (4 of 6 runs; the untrained hunter 0), and it can eat a colony out
-  (2 of 6). But it does it from the far end of the box, on the surface
-  170-250 columns from the door, eating the foragers that range out that
-  far; none was seen in the shaft. Training pays for food, and nothing pays
-  for going in.
+- **It raids once there are many of them.** The shipped pool (trained line
+  hunter-2) makes a population in most lab boxes, at first out at the far
+  edge of the box eating foragers; where it builds (59-204 raiders), the
+  crowd comes into the chambers 50,000-150,000 frames after landing (538
+  ants killed deep in the nest over six boxes), and it can eat a colony out
+  (2 of 6). A few raiders alone do not go in.
+- **A nest smell exists and is off** (`PIXEL_PHYSICS_NEST_SMELL=on`): it
+  sends the few to the door early, where they die, and cut deep raids in
+  the lab from 538 to 78.
 
 The write-up and the numbers: `Reports/nest-raider-2026-10-25.md`.
 
