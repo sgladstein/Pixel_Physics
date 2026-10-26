@@ -122,6 +122,7 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     let mut kills_seen: Vec<(u64, (i32, i32))> = Vec::new();
     let mut last_at: std::collections::HashMap<u32, (i32, i32)> = Default::default();
+    let mut nest_kills = 0u64;
     let mut landed: Option<u64> = None;
     // Graded, over the samples since the spiders were set down: how often both kinds were alive (`coexist`, the
     // sustainability the owner asked about), and the mean of each headcount.
@@ -177,18 +178,30 @@ fn main() {
             if r.species == ant_sp && r.cause == DeathCause::Killed {
                 if let Some(&at) = last_at.get(&r.id) {
                     kills_seen.push((r.frame, at));
+                    // Killed under the ground: a raid (`nest_kills` in the RESULT line).
+                    let top = pixel_physics::train::predator::surface(w, at.0);
+                    if at.1 > top {
+                        nest_kills += 1;
+                    }
+                    if std::env::var("PP_KILLLOG").is_ok() {
+                        eprintln!("kill f{} at {:?} surface {top}", r.frame, at);
+                    }
                 }
             }
         }
         let f = w.frame;
+        // Every ant's head every frame once predators are in, so a kill has a place (its body is gone by the time the
+        // death log is read).
+        if placed > 0 {
+            last_at.clear();
+            for id in pixel_physics::train::predator::of_species(w, ant_sp) {
+                if let Some(h) = w.organism(id).and_then(|s| s.chain.first().copied()) {
+                    last_at.insert(id, h);
+                }
+            }
+        }
         if let Some((g0, g1, ge)) = gif {
             if f + 1 >= g0 && f <= g1 {
-                last_at.clear();
-                for id in pixel_physics::train::predator::of_species(w, ant_sp) {
-                    if let Some(h) = w.organism(id).and_then(|s| s.chain.first().copied()) {
-                        last_at.insert(id, h);
-                    }
-                }
                 kills_seen.retain(|(t, _)| f.saturating_sub(*t) < 120);
                 if f >= g0 && (f - g0).is_multiple_of(ge) {
                     shots.push(pixel_physics::train::predator::picture(w, crop, scale, &kills_seen, f, ant_sp, spider));
@@ -239,7 +252,7 @@ fn main() {
     // than at the gut's rate).
     let mc = lab.world.minds.as_ref().map(|m| (m.counts.bites, m.counts.kills, m.counts.flesh, m.counts.ate)).unwrap_or_default();
     println!(
-        "RESULT spiders={} peak={peak} placed={placed} births={births} starved={} killed={} old={} ants={} ants_killed={} coexist={:.2} spider_mean={:.1} ant_mean={:.1} mind_bites={} mind_kills={} mind_flesh={} mind_ate={}",
+        "RESULT spiders={} peak={peak} placed={placed} births={births} starved={} killed={} old={} ants={} ants_killed={} coexist={:.2} spider_mean={:.1} ant_mean={:.1} mind_bites={} mind_kills={} mind_flesh={} mind_ate={} nest_kills={nest_kills}",
         count(&lab, &species),
         deaths[DeathCause::Starved.index()],
         deaths[DeathCause::Killed.index()],

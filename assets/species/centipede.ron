@@ -31,8 +31,13 @@
 //   (`digs_inedible_food`): a trained colony packs its chambers with crumbs
 //   (0.2) and lives inside them, and without this the nest was closed to it.
 //   Its mind cuts the crumb ahead and packs it behind its tail (the ants'
-//   own pack move), so the store is moved, never lost. Owner's call, asked
-//   2026-10-25.
+//   own pack move), so the store is moved, never lost. Owner's call,
+//   2026-10-25: yes.
+// - **It can smell the nest** (`smells_nest`, only under
+//   `PIXEL_PHYSICS_NEST_SMELL=on`): with no ant in its eye, its home senses
+//   point at the nearest nest door. Off by default: it helps on a training
+//   bed and costs deep raids in the lab, 538 -> 78 over six boxes (nest
+//   raider thread, 2026-10-26).
 // - **`tick_interval: 5`**, between the ant's 6 and the spider's 4: it gains
 //   on an ant in a tunnel, slowly, so an ant ahead of it in a straight run
 //   can still reach a branch.
@@ -80,6 +85,8 @@
         reproduce_threshold: 3200.0,
         handling: true,
         digs_inedible_food: true,
+        // Under PIXEL_PHYSICS_NEST_SMELL=on only (`nest_smell_on`).
+        smells_nest: true,
         // A lost tail grows back out of a meal (`regrow_tail`; the enemy seat's
         // hit and run, 2026-10-25).
         regrows: true,

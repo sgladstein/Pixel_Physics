@@ -4222,6 +4222,18 @@ pub struct CreatureDef {
     /// (the whole `Cell` rides in the pellet).
     #[serde(default)]
     pub digs_inedible_food: bool,
+    /// **It smells the nearest nest from anywhere in the box** (`creature::options::sensed_home`): with no prey in
+    /// its eye, a mind's home senses point at the nearest nest site's door. Off, every species but the centipede,
+    /// and **for the centipede only under `PIXEL_PHYSICS_NEST_SMELL=on`** -- off by default for a measured harm in
+    /// the lab (`options::nest_smell_on`).
+    ///
+    /// **Why** (nest raider thread, 2026-10-26): the raider senses ants by sight (24 cells, stopped by soil) and by
+    /// the shared trail scent, and nothing told it where the nest was. Landed 30 columns from the door, every mind
+    /// tried -- the shipped pool, the untrained presets, pools trained with in-nest kills paid ten times over --
+    /// killed 3-8 ants inside the nest over six test beds, against 36-177 set down at the door. A raid the raider
+    /// never stumbles into cannot be selected for.
+    #[serde(default)]
+    pub smells_nest: bool,
     /// **A lost tail grows back** (`creature::regrow_tail`): a `Chain` body short of its plan, its wounds healed and
     /// its bank above a full tank (`start_energy`) plus a cell's stamp, grows one cell behind its tail every
     /// [`crate::sim::creature::REGROW_FRAMES`], paying the stamp (`body_energy`) out of the bank. Off, every
@@ -4652,6 +4664,7 @@ impl CreatureDef {
             nectar_only,
             handling,
             digs_inedible_food,
+            smells_nest,
             regrows,
             life_half_life,
             scent_spread,
@@ -4787,6 +4800,8 @@ impl CreatureDef {
             handling: *handling,
             // A switch, as `nectar_only`.
             digs_inedible_food: *digs_inedible_food,
+            // A switch, as `nectar_only`.
+            smells_nest: *smells_nest,
             // A switch, as `nectar_only`.
             regrows: *regrows,
             // **A span of real time, so x 1 -- and that is a claim about

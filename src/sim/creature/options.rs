@@ -545,11 +545,44 @@ pub fn sensed_home(world: &World, organism: OrganismId, def: &CreatureDef, st: &
         if let Some(&(hx, hy)) = st.chain.first() {
             let (seen, reads) = super::sighted(world, hx, hy, organism, def);
             if reads > 0 {
-                return (seen.prey.map(|s| (s.x, s.y)), reads);
+                return (seen.prey.map(|s| (s.x, s.y)).or_else(|| smelt_nest(world, def, hx, hy)), reads);
             }
         }
     }
     ((!world.home_blind).then_some(st.forage_anchor), 0)
+}
+
+/// **The nest a raider smells** ([`CreatureDef::smells_nest`], `PIXEL_PHYSICS_NEST_SMELL=on`; **off by default**):
+/// the door of the nearest nest site -- its column, on the ground row it was founded on -- from anywhere in the box,
+/// `None` for any other species, with no nest, or with the switch off. Read only when the eye saw no prey, so prey in
+/// sight still wins, and through the home senses for the reason [`sight_on`] gives (a new input would move every
+/// genome's weights). **No range and no cap**: what tells near from far is the home distance itself, as for every
+/// home (owner's preference for a graded sense, 2026-10-24).
+pub fn smelt_nest(world: &World, def: &CreatureDef, hx: i32, hy: i32) -> Option<(i32, i32)> {
+    smelt_nest_if(nest_smell_on(), world, def, hx, hy)
+}
+
+/// [`smelt_nest`] with the switch passed in, so a test can read both sides in one process.
+pub fn smelt_nest_if(on: bool, world: &World, def: &CreatureDef, hx: i32, hy: i32) -> Option<(i32, i32)> {
+    if !on || !def.smells_nest {
+        return None;
+    }
+    world.nest_sites.iter().map(|s| (s.x, s.surface)).min_by_key(|&(x, y)| (x - hx).pow(2) + (y - hy).pow(2))
+}
+
+/// `PIXEL_PHYSICS_NEST_SMELL`: **off unless `on`**. Reaches only a species with `smells_nest` (the centipede).
+///
+/// **Off by default for a measured harm** (nest raider thread, 2026-10-26). On fresh 256-wide training beds the smell
+/// is what lets a raider landed 30 columns out reach the nest at all (6 beds: 13 ants killed in it against 6), and
+/// pools trained with it and `predtrain nestpay=10` beat the shipped pool on 23 of 24 fresh beds. **In the lab it
+/// does the opposite.** `spiderlab`, lab_mid_fruit, 2 raiders, 300,000 frames, 6 boxes, kills more than two cells
+/// under the surface: the shipped pool **538 with the smell off, 78 with it on**; the two trained pools 64 and 75.
+/// Off, the raiders stay out at the far edge and breed to 59-204, and that crowd comes into the chambers
+/// 50,000-150,000 frames after landing; on, two or a few go straight to the door, die there or empty it from the
+/// mouth, and never become a crowd. The lab is the game, so the lab decides.
+pub fn nest_smell_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SMELL").is_ok_and(|v| v.trim() == "on"))
 }
 
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`

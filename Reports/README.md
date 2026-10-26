@@ -2899,7 +2899,12 @@ drift that two of these documents still reflect.**
   untrained hunter mind; in the lab the one population that lived held the
   surface, not the nest. The lab pool was chosen in the lab: trained line
   hunter-2 is the only one of four that took hold in most boxes (4 of 6; ate the
-  colony out in 2), by ambushing foragers on the surface, not by raiding.
+  colony out in 2). **Round two, 2026-10-26**: paying nest kills in training
+  (`predtrain nestpay=`; paying *bites* was farmed) and a nest smell
+  (`PIXEL_PHYSICS_NEST_SMELL`, off) won on the training bed (23 of 24 fresh beds)
+  and lost in the lab, where the shipped raider without the smell raids deepest
+  (538 ants killed deep in the chambers over 6 boxes, against 64-78): its crowd
+  builds at the far edge and then comes in; a few sent early die at the door.
 - [colony-vs-colony-2026-10-24.md](colony-vs-colony-2026-10-24.md) — **two trained
   colonies on one bed, 2026-10-24/25 (owner: "are we ready to start exploring
   colony vs colony combat?").** `examples/rivalbed.rs` founds two `std_pool`
