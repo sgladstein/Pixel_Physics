@@ -3,8 +3,33 @@
 *Brain-design review thread, 2026-10-26, at the owner's request (16:10Z: "review our original brain design ... then
 adversarially review your new reported issue and suggestion and come up with a plan"). Reviews
 [`brain-cannot-combine-senses-2026-10-26.md`](brain-cannot-combine-senses-2026-10-26.md) (the Teacher lane, PR #932).
-**Status: review and plan; the plan's step 1 is an owner decision.** Experiments are offline fits and mutation searches
+**Status: review and plan; step 1 (the gate, layout 6) approved by the owner 18:23Z; step 2 failed on the standard
+harness, see the correction below.** Experiments are offline fits and mutation searches
 on two freshly logged worlds of colony 13, plus a world check; scripts and logs in §8. Pictures: [results page](https://claude.ai/artifact/WNBXM8rgXW7M5iovFkXoK5).*
+
+> **Correction, the same evening (18:45Z), from the Teacher lane's step-2 check and three more search seeds.** Two
+> results below do not hold as first written:
+>
+> - **The gated come-home brain fails on the standard harness.** On the Teacher lane's 16 worlds it lost 6 colonies
+>   (the home-low pool 0, colony 13 1), and in the owner's far lab boxes every founder starved (52 of 52, 0
+>   deliveries) where the home-low pool lives. Every gated ant that starved in the dead worlds died within 4
+>   columns of home: hungry ants ran home to a nest with no store yet. The teacher whose labels it copied fired
+>   only when the nest had a store (`PP_CARRY_STORE=1`), and nothing in the ant's context or memory says whether it
+>   does, so the gate learned "low, so go home" without the condition. My four worlds filled their store early,
+>   which is why they passed (the Teacher lane reran `world.sh`: 2007, 4007, 8007 live, 13007 dies). Where it lives
+>   it is good (starved 2-19 against the instinct's 19-74), and in the herb box it beats the instinct (alive 67-121
+>   against 19-77). **The lesson is: a gate can only switch on what the ant can sense.** The home-low instinct has
+>   the same guard by hand (`PP_HOMELOW_STORE=1`), added because its ungated form killed the far boxes the same way.
+> - **A blind mutation search from zero found the gated lesson on 1 seed of 3** (P(label) 0.52, 0.30, 0.30 at
+>   hold weight 10; the ungated unit 0.29 and 0.30). So the gate makes the lesson something the brain can hold (from
+>   a taught start, 0.87 at a hold of 0.04), but selection alone rarely finds it from nothing; teaching has to put it
+>   there. The legal smooth gate, `1 + squash`, found 0.53 at a hold of 0.075 on its one seed, as well as the clamp's
+>   best: §5's "worse than useless at closing" is about the weight it needs to shut, not about whether a search finds
+>   it.
+>
+> What still holds: the leak (an additive unit cannot be off), the corrections to PR #932, and the gate as the
+> mechanism. The owner chose to build it (layout 6, on by default; 18:23Z). The plan's step 2 now needs a sense
+> of "food at home" (the Teacher lane's proposal, with the owner) before the come-home lesson can be retaught.
 
 ## 1. In plain words
 
@@ -126,7 +151,7 @@ was 0.96 in every arm, so the job head is not the limit; the step choice is.** S
 
 "Fresh" zeroes scorer unit 8 (context, feature and **verb** rows, output; its output weight is −0.64, so removing it
 costs a hold of 0.017). Ungated arms train its context row, feature row and output (80 slots); gated arms its feature
-row, output and a 35-slot gate row (`mind::GATE`, scratch, read only by `homefit`). Feature 18 is never trained in
+row, output and a 35-slot gate row (then a scratch side table, `mind::GATE`; since layout 6 the genome's own). Feature 18 is never trained in
 the plain-senses arms. Mutation search (`es=`): 8,000 children, one slot moved by the in-run step (sd 1) each, kept if
 the loss on a fixed 3,000 + 3,000 rows is no worse: a proxy for "can mutation plus selection find it", free of any
 step budget but also free of the world's noise. Hold weight 1 (the Teacher lane's default) or 10.
@@ -174,7 +199,7 @@ A clamp's flat edges stop a gradient fit (rows 8-9, gradient, strong hold), whic
 mutation search and a hand-laid start, as the brain trains.
 
 **World check** (teacher off, far moving food, 200,000 frames, worlds 1007-4007, the 30 members each given the fitted
-unit 8, the gate rows read from `PP_GATE_FILE`):
+unit 8, the gate rows read from a side file, `PP_GATE_FILE`, in the scratch build):
 
 | Pool | Starved, worlds 1007 / 2007 / 3007 / 4007 | Starved, total | Food home, total | Alive at the end |
 |---|---|---|---|---|
@@ -244,7 +269,7 @@ the Teacher lane's, as owner of the one ant line.
 |---|---|---|---|
 | **0** | **Correct the record**: `dead-ends.md`'s homefit entry ("re-test never on the existing links"; "the general lesson is to give a graded habit a sense that is 0 outside the state it is for") points here; the report's §2-3 claims carry the verdicts of §4 | docs only | this review (done in this PR) |
 | **1** | **Build the clamp gate as layout 6**: `gate_u = clamp(1 + A_u·[context, memory, 1], 0, 2)` multiplying unit `u`'s feature sum; 16 × 35 slots appended after `HID_OUT`; header-versioned loader; skipped when a unit's gate row is all zero; slots open to mutation and to structural adds in `inrun`. **Default on** (owner rule): it is identity at zero, so "on" means present and trainable | every shipped pool byte-identical (guard test, put the fault back to see it go red); worst frame within noise in `ascii` and `antcost` | brain code: Teacher lane or a build thread |
-| **2** | **Teach come-home into a gated unit from plain senses** (energy, the graded far sense, `f::HOME`), from the hand-laid start of §5 refined by mutation search, the copy applied to the pool. **First pass done here on 4 worlds** (107 starved against the instinct's 177); can run today on the scratch `PP_GATE_FILE` | 16 worlds and the owner's lab box, teacher off, far moving food: starvation within the home-low pool's spread, food home no lower, open nest no smaller, no colony lost | Teacher lane |
+| **2** | **Teach come-home into a gated unit from plain senses** (energy, the graded far sense, `f::HOME`), from the hand-laid start of §5 refined by mutation search, the copy applied to the pool. First pass here on 4 worlds (107 starved against the instinct's 177); **failed the Teacher lane's 16 worlds and the lab box** (6 colonies lost, every far-box founder starved at home) because no input says whether the nest has a store: needs a "food at home" sense first (correction above) | 16 worlds and the owner's lab box, teacher off, far moving food: starvation within the home-low pool's spread, food home no lower, open nest no smaller, no colony lost | Teacher lane |
 | **3** | **Selection with the gate open**: one batch from that pool (and one from colony 13 with gates at zero) against a matched control, 32 × 48, far moving food | starvation falling across rounds in the gated arm, judged by tracing the individuals that starved, not only the garden medians | Teacher lane |
 | **4** | **Retire the instincts**: `PP_HOMELOW` off for good; `PP_SOILWAY` replaced by a plain always-on "way to the door along the nest" feature on every Walk, for the gate to switch on with `c::SPOIL` | the learned version matches the instinct's 16-world numbers (open nest, starved) | Teacher lane |
 | **5** | **Use the gate for the open problems** that hit the same wall: "nest too small, so dig" (the Dig job), the dig head's cell choice, the job head's hand-laid hidden units | each by its own lesson and world check | later |
@@ -264,21 +289,22 @@ the Teacher lane's, as owner of the one ant line.
 
 ## 8. Reproducing
 
-The scripts, the hand-laid gate start (`init_gate.txt`), the winning fit of unit 8 (`unit8_gated_fit.raw.txt`) and
-its gate rows (`gate_GI.txt`, for `PP_GATE_FILE`) are in [`brain-design-review-2026-10-26/`](brain-design-review-2026-10-26/);
-the two copy logs (~1 GB each) are not kept. `split.py` turns `assets/minds/std_pool.txt` into one sparse file per
-member, `mkarm.py FIT OUT [GATE]` writes the 30-member pool with unit 8 replaced, `gateinit.py` least-squares the
-gate onto the teacher's fuel rule, `probe.py` is the linear probe. To rebuild:
+**Since layout 6 the gate rows live in the genome** (`mind::gate_row`), so the side file and the scratch switches the
+review ran on (`mind::GATE`, `PP_GATE_FILE`, `PP_GATE_FORM`, at `ed9dd21`) are gone, and the data files below are
+kept in layout 6. The scripts, the hand-laid gate start (`init_gate.txt`, today's slots) and the winning fit of unit
+8 (`unit8_gated_fit.raw.txt`, gate row included) are in
+[`brain-design-review-2026-10-26/`](brain-design-review-2026-10-26/); `gate_GI.txt` is that fit's gate rows as the
+scratch side file read them (index over 16 x 35), and `to_layout6.py` converts a genome from the scratch build. The
+two copy logs (~1 GB each) are not kept. `split.py` turns `assets/minds/std_pool.txt` into one sparse file per
+member, `mkarm.py FIT OUT` writes the 30-member pool in layout 6 with unit 8 replaced by the fit's, `gateinit.py`
+least-squares the gate onto the teacher's fuel rule, `probe.py` is the linear probe. To rebuild:
 
 - **Logs**: `examples/inrun founders=<colony 13's 30 members, feature 18 zeroed>:1,... seed=32007 frames=150000
   patches=20000:40:120 sel=off` with `PP_LASTFOOD=off PP_HOMELOW=0.012 PP_CARRY=0 PP_CARRY_HUNGRY=2
   PP_CARRY_HUNGRYONLY=1 PP_CARRY_OUT=0 PP_CARRY_STORE=1 PP_HOMEFAR=1 PP_HOMEFAR_HUNGRY=1 PP_HOMEFAR_FUEL=0.012
   PP_BED_W=448 PP_COPY_LOG=... PP_COPY_SAMPLE=40:4`; again at 33007.
-- **Fits** (`examples/homefit.rs`, this PR's options): `unit=8 rows=all|feat drop=18 [fresh=1] [gate=1] [init=FILE]
-  [es=8000 batch=3000] [lr=0.5] [wkeep=10]`; `PP_GATE_FORM=squash` for the squash gate. Row numbers in §5 map to
-  these flags one to one.
-- **World check**: the fitted unit 8 rows copied into every member, `PP_GATE_FILE` for the gate rows (scratch, read by
-  `mind::decide` only when set), worlds 1007-4007, teacher off.
-
-The scratch code (`mind::GATE`, `PP_GATE_FILE`, `PP_GATE_FORM`, homefit's `rows`/`fresh`/`gate`/`init`/`es`) is
-inert unless set: the game and training never read it.
+- **Fits** (`examples/homefit.rs`): `unit=8 rows=all|feat drop=18 [fresh=1] [gate=1] [init=FILE] [es=8000
+  batch=3000] [lr=0.5] [wkeep=10]`. Row numbers in §5 map to these flags one to one. The squash-gate arm ran on the
+  scratch build's `PP_GATE_FORM=squash`, which layout 6 does not keep.
+- **World check**: `mkarm.py unit8_gated_fit.raw.txt pool_GI`, then `world.sh` over the pool's members, worlds
+  1007-4007, teacher off. (Then: the same pool with the gate rows in a side file; the decisions are the same.)

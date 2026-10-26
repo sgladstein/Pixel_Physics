@@ -30,8 +30,6 @@ struct Row {
 }
 
 const K: f32 = 0.05; // mind's PICK_FLOOR
-/// The genome's own length when `gate=1` appends gate rows past it; 0 otherwise.
-static BASE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn cw(ws: &[f32]) -> Vec<f32> {
     let b: Vec<f32> = ws.iter().map(|&s| (K + s.max(0.0)).powi(2)).collect();
@@ -41,9 +39,6 @@ fn cw(ws: &[f32]) -> Vec<f32> {
 
 /// The probability of each option under `g`, or None when the brain has nothing to choose.
 fn probs(g: &[f32], r: &Row) -> Option<Vec<f32>> {
-    // SCRATCH (brain-design review, `gate=1`): weights past the genome are the scorer units' context gates.
-    let base = BASE.load(std::sync::atomic::Ordering::Relaxed);
-    mind::GATE.with(|gt| *gt.borrow_mut() = (base > 0 && g.len() > base).then(|| g[base..].to_vec()));
     let mut state = MindState::default();
     state.mem.copy_from_slice(&r.mem);
     state.last_verb = r.last;
@@ -127,6 +122,9 @@ fn main() {
     let text = std::fs::read_to_string(&start).unwrap();
     let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap();
     let mut g = train::parse_genome(&text, len, &start);
+    // A start saved before the context gates gains them at zero (`mind::enter_gate`), so slots are today's.
+    mind::enter_gate(&mut g, train::genome_text_layout(&text, &start));
+    let len = g.len();
     let g0 = g.clone();
     // `wide=1` (with `unit=U`): the unit's whole context and feature rows move, not just its home links -- the
     // narrow set plateaued at P(label) ~0.41 on the fitted ant's own situations (DAgger round 1, 2026-10-26).
@@ -143,7 +141,7 @@ fn main() {
     // SCRATCH (brain-design review, 2026-10-26): `rows=all|feat` (with `unit=U`) trains only that unit -- `all` its
     // context and feature rows, `feat` its feature row -- and its output weight; `fresh=1` first zeroes the unit's
     // context, feature and verb rows (the KL hold stays on the start as loaded, so the fit must rebuild what the unit
-    // did); `gate=1` appends a context gate per unit ([`mind::GATE`]) and trains unit U's gate row too.
+    // did); `gate=1` trains unit U's context gate row too (`mind::gate_row`).
     if let (Some(u), Some(rows)) = (unit, arg("rows")) {
         let r = mind::unit_rows(u);
         slots = if rows == "feat" { r[r.len() - FEATURES..].to_vec() } else { r.clone() };
@@ -165,13 +163,10 @@ fn main() {
         eprintln!("unit {u}: zeroed (fresh)");
     }
     if let (Some(u), true) = (unit, arg("gate").is_some_and(|v| v == "1")) {
-        BASE.store(g.len(), std::sync::atomic::Ordering::Relaxed);
-        let b = g.len();
-        g.extend(std::iter::repeat_n(0.0, mind::UNITS * mind::GATE_IN));
-        slots.extend((0..mind::GATE_IN).map(|i| b + u * mind::GATE_IN + i));
-        eprintln!("unit {u}: gated ({})", std::env::var("PP_GATE_FORM").unwrap_or("clamp".into()));
+        slots.extend(mind::gate_row(u));
+        eprintln!("unit {u}: gated");
     }
-    // `init=PATH` (lines `slot value`, slots counted over the genome and any gate rows past it): set these weights
+    // `init=PATH` (lines `slot value`, today's slots, gate rows included): set these weights
     // after `fresh` and `gate`, so a fit or search can start from a hand-laid solution.
     if let Some(p) = arg("init") {
         for l in std::fs::read_to_string(&p).unwrap().lines().filter(|l| !l.is_empty()) {
@@ -190,7 +185,16 @@ fn main() {
     eprintln!("training {} slots", slots.len());
     // `ref=G`: the genome unlabelled rows are held to (default the start). A refit from an earlier fit's genome, on
     // that fit's own situations, keeps the ORIGINAL ant's choices there rather than the earlier fit's leak.
-    let g_ref = arg("ref").map_or_else(|| g0.clone(), |r| train::parse_genome(&std::fs::read_to_string(&r).unwrap(), len, &r));
+    let g_ref = arg("ref").map_or_else(
+        || g0.clone(),
+        |r| {
+            let t = std::fs::read_to_string(&r).unwrap();
+            let mut h = train::parse_genome(&t, train::genome_text_len(&t, &r), &r);
+            mind::enter_gate(&mut h, train::genome_text_layout(&t, &r));
+            assert_eq!(h.len(), len, "ref= {r}: not the start's shape");
+            h
+        },
+    );
     let p_ref: Vec<Option<Vec<f32>>> = keep.par_iter().map(|r| probs(&g_ref, r)).collect();
 
     let loss = |g: &[f32], li: &[usize], ki: &[usize]| -> (f32, f32) {

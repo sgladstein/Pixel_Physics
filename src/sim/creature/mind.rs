@@ -176,7 +176,7 @@ const S_CTX: usize = RATE + MEMORY;
 /// connections must not touch it (`train::mutate`).
 pub const FIRST_LINK: usize = S_CTX;
 /// **Which scorer unit a slot feeds**, if it is one of a unit's inputs
-/// (context and memory, option features, verb), and [`scorer_output`] that
+/// (context and memory, option features, verb, its gate), and [`scorer_output`] that
 /// unit's output weight: a unit's inputs move a score only through it
 /// (`train::no_prune_mask`, review of the `noprune=` design, 2026-10-21).
 pub fn scorer_unit(slot: usize) -> Option<usize> {
@@ -184,8 +184,14 @@ pub fn scorer_unit(slot: usize) -> Option<usize> {
         s if (S_CTX..S_FEAT).contains(&s) => Some((s - S_CTX) / S_IN),
         s if (S_FEAT..S_VERB).contains(&s) => Some((s - S_FEAT) / FEATURES),
         s if (S_VERB..S_OUT).contains(&s) => Some((s - S_VERB) / VERBS),
+        s if (GATE..GENOME_LEN).contains(&s) => Some((s - GATE) / GATE_IN),
         _ => None,
     }
+}
+/// Scorer unit `u`'s context gate row ([`GATE`]): its weights on context, memory and the bias.
+pub fn gate_row(u: usize) -> std::ops::Range<usize> {
+    assert!(u < UNITS, "scorer unit {u}: there are {UNITS}");
+    GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN
 }
 /// The output weight of scorer unit `u` ([`scorer_unit`]).
 pub fn scorer_output(u: usize) -> usize {
@@ -257,8 +263,27 @@ const HID: usize = EMIT + EMITS * E_IN;
 const H_IN: usize = CONTEXT + MEMORY + 1;
 /// Each job's weight on each hidden unit, one row of [`HIDDEN`] per verb.
 const HID_OUT: usize = HID + HIDDEN * H_IN;
+/// **Each scorer unit's context gate** (layout 6, owner 2026-10-26): one row per unit over this decision's context,
+/// memory and a bias, `y`, and the unit's per-option part -- its feature sum -- is multiplied by
+/// `clamp(1 + y, 0, 2)` ([`gate`]). **Why**: a scorer unit is a sum, so the ant's own state (hunger, a load, how far
+/// out) reaches a score only as a constant added to every option, and a unit that should be *off* -- a fed ant
+/// ignoring the way home -- still adds its saturated level to every option and every job. A lesson copied into an
+/// ungated unit reached the come-home teacher only by moving fed ants' choices 0.6-0.9 nats, and under a hold that
+/// kept them still it learned nothing (0.30 from 0.28); a gated unit reading only energy, the far sense and the home
+/// bearing reached 0.87 at a hold of 0.04, and on four far-food worlds starved 107 ants against the hand-built
+/// home-low sense's 177 and colony 13's 1,107 (`Reports/brain-training/research/brain-design-review-2026-10-26.md`).
+/// **Why a clamp**: exactly 1 at all-zero weights, so every genome saved before it scores bit for bit as it did; it
+/// shuts exactly at `y = -1`, where `1 + squash` (the legal smooth form) needs `y = -9` to reach a tenth and the
+/// proposed `1 + tanh` reads a transcendental, which nothing a decision reads may do (module doc). Its flat edges
+/// give a gradient fit nothing to follow, which is why it was tested by mutation search, as the brain trains.
+/// Appended last, as the hidden units were, so every earlier slot keeps its index ([`enter_gate`]).
+const GATE: usize = HID_OUT + VERBS * HIDDEN;
+/// A gate row's inputs: context, memory and a bias, the per-decision row's shape ([`S_IN`]).
+pub const GATE_IN: usize = CONTEXT + MEMORY + 1;
 /// The whole genome.
-pub const GENOME_LEN: usize = HID_OUT + VERBS * HIDDEN;
+pub const GENOME_LEN: usize = GATE + UNITS * GATE_IN;
+/// **A genome saved before the context gates** (layouts 4-5; 2,797 slots): today's, cut short at [`GATE`].
+pub const GENOME_LEN_V5: usize = GATE;
 /// **Features per option before `f::LINED` and `f::ROOF_DROP`** (PR 2).
 const FEATURES_V2: usize = 43;
 /// **Context inputs before `c::ROOF_CUT` and `c::HOLE_DROP`** (PR 2).
@@ -269,7 +294,7 @@ const GREW: usize =
     UNITS * (FEATURES - FEATURES_V2) + (CONTEXT - CONTEXT_V2) * (UNITS + VERBS + MEMORY + EMITS + HIDDEN);
 /// **A genome saved with the job head's hidden units, before PR 2**
 /// (2,669 slots).
-pub const GENOME_LEN_V2: usize = GENOME_LEN - GREW;
+pub const GENOME_LEN_V2: usize = GENOME_LEN_V5 - GREW;
 /// **...and one saved before them** (2026-10-18; 2,333 slots): the hidden
 /// units were appended last, so it is a V2 genome cut short. [`pad`]
 /// reads it as one whose hidden units are all zero, which run exactly as
@@ -322,6 +347,8 @@ pub struct MindGenome {
 
 impl MindGenome {
     pub fn new(mut w: Vec<f32>) -> MindGenome {
+        // A genome from before the context gates gains them at zero ([`enter_gate`]), riders kept.
+        enter_gate(&mut w, None);
         // SCRATCH (brood lane): an evolvable lay gate rides last (`PP_LAYGENE`), so it comes off before the head.
         let hl = scratch_log::head_evolve().unwrap_or(0);
         let lay = if laygene_on() && w.len() == GENOME_LEN + hl + LAY_LEN {
@@ -399,6 +426,9 @@ struct ScorerPlan {
     /// every lane's weight on it (zero where its unit does not weigh it,
     /// and in every lane past `units`).
     feats: Vec<(usize, [f32; UNITS])>,
+    /// `(lane, unit)` for every lane whose unit has a gate weight that is not zero ([`GATE`]): empty in every genome
+    /// saved before the gates, which then scores exactly as it did.
+    gated: Vec<(usize, usize)>,
 }
 
 impl ScorerPlan {
@@ -412,7 +442,8 @@ impl ScorerPlan {
             .filter(|&i| units.iter().any(|&u| g[S_FEAT + u * FEATURES + i] != 0.0))
             .map(|i| (i, std::array::from_fn(|k| units.get(k).map_or(0.0, |&u| g[S_FEAT + u * FEATURES + i]))))
             .collect();
-        ScorerPlan { units, feats }
+        let gated = units.iter().enumerate().filter(|&(_, &u)| gated(g, u)).map(|(k, &u)| (k, u)).collect();
+        ScorerPlan { units, feats, gated }
     }
 
     /// Every unit and every weight, zeros included: the sum as [`decide`]
@@ -420,8 +451,15 @@ impl ScorerPlan {
     #[cfg(test)]
     fn dense(g: &[f32]) -> ScorerPlan {
         let feats = (0..FEATURES).map(|i| (i, std::array::from_fn(|u| g[S_FEAT + u * FEATURES + i]))).collect();
-        ScorerPlan { units: (0..UNITS).collect(), feats }
+        // Gated exactly when the sparse plan is (a live unit with a gate weight), so both take the same sum.
+        let gated = (0..UNITS).filter(|&u| g[S_OUT + u] != 0.0 && gated(g, u)).map(|u| (u, u)).collect();
+        ScorerPlan { units: (0..UNITS).collect(), feats, gated }
     }
+}
+
+/// Whether scorer unit `u` has a gate weight that is not zero ([`GATE`]).
+fn gated(g: &[f32], u: usize) -> bool {
+    g[GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN].iter().any(|&w| w != 0.0)
 }
 
 /// The first `N` lanes' sums for one option: each lane from its `start`,
@@ -444,6 +482,8 @@ fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNIT
 /// share one**; a named-block file is the real fix when that stops holding
 /// (review-brain-architecture.md F9). An older one picks exactly as it did:
 ///
+/// - **Before the context gates** ([`GENOME_LEN_V5`]) it gains them, all
+///   zero, which [`decide`] skips ([`enter_gate`]).
 /// - **Before the job head had hidden units** ([`GENOME_LEN_V1`]) it gains
 ///   them, all zero, which [`decide`] skips.
 /// - **Before PR 2** ([`GENOME_LEN_V1`] and [`GENOME_LEN_V2`]) each scorer
@@ -462,9 +502,13 @@ fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNIT
 ///   input goes live (ladder lane, `dig-rung-design.md` 9, PR 2 item 1:
 ///   25 and 10 such live links in `col30-s11-seed33`). It is
 ///   [`enter_dig`]'s `c::SPOIL` reasoning, done once, for every start.
-pub fn pad(g: Vec<f32>) -> Option<Vec<f32>> {
+pub fn pad(mut g: Vec<f32>) -> Option<Vec<f32>> {
     match g.len() {
         GENOME_LEN => Some(g),
+        GENOME_LEN_V5 => {
+            enter_gate(&mut g, None);
+            Some(g)
+        }
         GENOME_LEN_V1 | GENOME_LEN_V2 => {
             let mut v = vec![0.0; GENOME_LEN];
             for (w, to) in g.iter().zip(v2_slots()) {
@@ -546,7 +590,36 @@ fn newly_live() -> Vec<usize> {
 /// length and slots, but a file marked 4 or older has its weights on that
 /// slot zeroed as it is read ([`enter_last_food`]), so the last-food memory
 /// enters every older pool at weight 0.
-pub const LAYOUT: u32 = 5;
+///
+/// **Layout 6** (2026-10-26) appends the scorer units' context gates ([`GATE`]), [`UNITS`] x [`GATE_IN`] slots after
+/// the job head's hidden units, so the core grows from [`GENOME_LEN_V5`] to [`GENOME_LEN`] and every rider (the dig
+/// head, the lay gate) moves along by that much. A file marked 5 or older, or unmarked, gains them at zero as it is
+/// read ([`enter_gate`]), which scores exactly as it did.
+pub const LAYOUT: u32 = 6;
+
+/// **A genome saved before the context gates, in today's layout** ([`GATE`]): its [`GENOME_LEN_V5`] core gains the
+/// gate rows at zero, inserted before any rider (the dig head, the lay gate), so every slot keeps its meaning and it
+/// scores exactly as it did; `true` when it did. Old or new is told by `layout` where the file names one (older than
+/// 6 is old) and by length where it does not: every layout-5 length, riders included (at most [`GENOME_LEN_V5`] plus
+/// a 482-slot head and the [`LAY_LEN`] gate), is shorter than today's bare core, so a length in
+/// `GENOME_LEN_V5..GENOME_LEN` is old and nothing else is. A V1 or V2 genome is [`pad`]'s, not this.
+/// **Every reader of a saved mind calls this before it splits the riders off** (`train::load_mind`, the lab's pools,
+/// `inrun`'s founders, `labsurvive`), and [`MindGenome::new`] calls it on anything it is handed, so an example that
+/// builds a mind straight from an old file runs it as saved.
+pub fn enter_gate(g: &mut Vec<f32>, layout: Option<u32>) -> bool {
+    let old_len = (GENOME_LEN_V5..GENOME_LEN).contains(&g.len());
+    match layout {
+        Some(l) if l >= 6 => {
+            assert!(!old_len, "a genome marked layout {l} is {} slots, shorter than this layout's core {GENOME_LEN}", g.len());
+            false
+        }
+        _ if old_len => {
+            g.splice(GENOME_LEN_V5..GENOME_LEN_V5, std::iter::repeat_n(0.0, GENOME_LEN - GENOME_LEN_V5));
+            true
+        }
+        _ => false,
+    }
+}
 
 /// **The last-food memory enters an older genome at weight 0**
 /// (`options::last_food`): with the memory on and `layout` older than 5 (or
@@ -633,13 +706,14 @@ pub fn blank(verbs: &[Verb]) -> Vec<f32> {
 
 /// **The slots the rig may move**: every weight but the switches of verbs
 /// the arena does not allow (held off) and the rows of scents it bans (held
-/// at 0). A switch the arena allows is trainable: mutation can turn a verb
-/// off, and back on.
+/// at 0), and the context gates under `PP_GATE=off` ([`gate_on`]). A switch
+/// the arena allows is trainable: mutation can turn a verb off, and back on.
 pub fn trainable(verbs: &[Verb], emits: [bool; EMITS]) -> Vec<usize> {
     (0..GENOME_LEN)
         .filter(|&i| match i {
             i if i < SHARP => verbs.contains(&Verb::ALL[i - SWITCH]),
             i if (EMIT..HID).contains(&i) => emits[(i - EMIT) / E_IN],
+            i if i >= GATE => gate_on(),
             _ => true,
         })
         .collect()
@@ -1093,7 +1167,8 @@ const UNWRITTEN: [usize; 2] = [options::f::BUILDING, options::f::LAST_FOOD];
 /// `probes/prune_dead.py` cut them by hand and fetch and trail stayed
 /// byte-identical). Cut:
 ///
-/// * a scorer unit whose output weight is 0: its whole fan-in;
+/// * a scorer unit whose output weight is 0: its whole fan-in, its gate
+///   row included;
 /// * an input nothing writes ([`UNWRITTEN`]), on every scorer unit;
 /// * a verb the rung never offers: the scorer's weight on it, its job's
 ///   reads (not its offset: a ban lifted later brings the verb back at the
@@ -1101,7 +1176,8 @@ const UNWRITTEN: [usize; 2] = [options::f::BUILDING, options::f::LAST_FOOD];
 ///   [`QUIET`]'s reason), its weights on the hidden units, and memory's
 ///   read of "it was chosen";
 /// * a hidden unit no job reads, and a memory unit nothing but itself
-///   reads, until none is left: clearing one can leave another unread.
+///   reads (a scorer unit's gate is a reader), until none is left:
+///   clearing one can leave another unread.
 ///
 /// **Left alone**: inputs constant only in today's arenas (`c::SPOIL` out
 /// of soil, the larva senses where nothing hatches), since which arenas a
@@ -1127,7 +1203,8 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
     for u in unread {
         let fan_in = (S_CTX + u * S_IN..S_CTX + (u + 1) * S_IN)
             .chain(S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES)
-            .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS);
+            .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS)
+            .chain(gate_row(u));
         kill(g, fan_in, &mut cut[0]);
     }
     // The building slot holds the last-food memory while that is on
@@ -1155,7 +1232,7 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
         }
         for m in 0..MEMORY {
             let at = CONTEXT + m;
-            let read = (0..UNITS).any(|u| g[S_CTX + u * S_IN + at] != 0.0)
+            let read = (0..UNITS).any(|u| g[S_CTX + u * S_IN + at] != 0.0 || g[GATE + u * GATE_IN + at] != 0.0)
                 || (0..VERBS).any(|v| g[JOB + v * J_IN + at] != 0.0)
                 || (0..HIDDEN).any(|h| g[HID + h * H_IN + at] != 0.0)
                 || (0..EMITS).any(|e| emits[e] && g[EMIT + e * E_IN + at] != 0.0)
@@ -1387,8 +1464,8 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
     Some(g)
 }
 
-/// **Which slots cross over together**: one scorer unit's whole fan-in and
-/// its output weight; one job row; one memory row with its rate; one emit
+/// **Which slots cross over together**: one scorer unit's whole fan-in, its
+/// gate and its output weight; one job row; one memory row with its rate; one emit
 /// row; one job hidden unit's fan-in with its weight into every job; each
 /// switch and bound on its own. The rig takes each group whole
 /// from one parent, as it takes today's brain's output rows.
@@ -1406,9 +1483,11 @@ pub fn crossover_group(slot: usize) -> usize {
         s if s < EMIT => UNIT_BASE + 100 + (s - MEM) / M_IN,
         s if s < HID => UNIT_BASE + 400 + (s - EMIT) / E_IN,
         s if s < HID_OUT => UNIT_BASE + 500 + (s - HID) / H_IN,
+        s if s < GATE => UNIT_BASE + 500 + (s - HID_OUT) % HIDDEN,
+        // A scorer unit's gate crosses with the unit it gates.
+        s if s < GENOME_LEN => UNIT_BASE + (s - GATE) / GATE_IN,
         // SCRATCH (dig-scoring thread): an evolvable dig head (`PP_DIGHEAD_EVOLVE`) crosses whole, from one parent
-        s if s >= GENOME_LEN => UNIT_BASE + 900,
-        s => UNIT_BASE + 500 + (s - HID_OUT) % HIDDEN,
+        _ => UNIT_BASE + 900,
     }
 }
 
@@ -1421,7 +1500,7 @@ pub fn describe(g: &[f32]) -> String {
         .collect();
     let live = |a: usize, b: usize| g[a..b].iter().filter(|v| v.abs() >= W_EPS).count();
     format!(
-        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {}, job {}, memory {}, emit {}, job hidden {} (of {})",
+        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {} gate {}, job {}, memory {}, emit {}, job hidden {} (of {})",
         on.join(","),
         sharpness(g),
         pull(g),
@@ -1429,10 +1508,11 @@ pub fn describe(g: &[f32]) -> String {
         live(S_FEAT, S_VERB),
         live(S_VERB, S_OUT),
         live(S_OUT, JOB),
+        live(GATE, GENOME_LEN),
         live(JOB, MEM),
         live(MEM, EMIT),
         live(EMIT, HID),
-        live(HID, GENOME_LEN),
+        live(HID, GATE),
         GENOME_LEN - S_CTX,
     )
 }
@@ -2079,37 +2159,27 @@ pub fn decide(
 /// How many options [`decide_planned`] lists on the stack.
 const STACK_OPTS: usize = 48;
 
-/// SCRATCH (brain-design review, 2026-10-26): inputs to one scorer unit's **context gate** -- context, memory and a
-/// bias, the per-decision row's shape ([`S_IN`]).
-pub const GATE_IN: usize = CONTEXT + MEMORY + 1;
-thread_local! {
-    /// SCRATCH (brain-design review, 2026-10-26): **an offline test of the Teacher lane's context-gated scorer units**
-    /// (`Reports/brain-training/research/brain-cannot-combine-senses-2026-10-26.md` §5), set only by
-    /// `examples/homefit.rs gate=1`; `None` everywhere else, so nothing in the game or training reads it. When set
-    /// ([`UNITS`] x [`GATE_IN`] weights), unit `u`'s option part is multiplied by `gate_u` = `clamp(1 + y, 0, 2)`
-    /// (`PP_GATE_FORM=clamp`, the default) or `1 + squash(y)` (`squash`), `y` the gate row times context, memory and
-    /// a bias: identity at all-zero weights. **Why not the report's `1 + tanh`**: no transcendental in anything a
-    /// decision reads (module doc), and `squash` keeps the slow tail that makes a gate cost big weights.
-    pub static GATE: RefCell<Option<Vec<f32>>> = const { RefCell::new(None) };
+/// **Whether the context gates are trainable** ([`GATE`]): on unless `PP_GATE=off`. Off, [`trainable`] leaves the gate
+/// rows out, so a child's mutation draws exactly as it did before them (the slots a structural event picks from are
+/// the layout-5 set) and a run from a layout-5 pool reproduces one made before the gates. Scoring is the same either
+/// way: a gate row that is all zero is never read, and one that is not is a link the genome evolved or was given.
+pub fn gate_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("PP_GATE").is_ok_and(|v| v == "off" || v == "0"))
 }
-/// SCRATCH (brain-design review): `PP_GATE_FILE=path` (lines `index value` over [`UNITS`] x [`GATE_IN`]) gives every
-/// mind these gates in the world, for a world check of an offline gated fit; read when [`GATE`] is unset.
-fn gate_file() -> Option<&'static Vec<f32>> {
-    static G: std::sync::OnceLock<Option<Vec<f32>>> = std::sync::OnceLock::new();
-    G.get_or_init(|| {
-        let p = std::env::var("PP_GATE_FILE").ok()?;
-        let mut v = vec![0.0; UNITS * GATE_IN];
-        for l in std::fs::read_to_string(&p).expect("PP_GATE_FILE").lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
-            let (i, w) = l.split_once(' ').expect("PP_GATE_FILE: `index value`");
-            v[i.parse::<usize>().unwrap()] = w.parse().unwrap();
-        }
-        Some(v)
-    })
-    .as_ref()
-}
-fn gate_squash() -> bool {
-    static F: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *F.get_or_init(|| std::env::var("PP_GATE_FORM").is_ok_and(|v| v == "squash"))
+
+/// **Scorer unit `u`'s gate for one decision** ([`GATE`]): `clamp(1 + y, 0, 2)`, `y` its row over this decision's
+/// context, memory and bias, summed in that order.
+fn gate(g: &[f32], u: usize, ctx: &[f32; CONTEXT], mem: &[f32; MEMORY]) -> f32 {
+    let row = &g[GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN];
+    let mut y = row[GATE_IN - 1];
+    for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+        y += w * x;
+    }
+    for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(mem) {
+        y += w * x;
+    }
+    (1.0 + y).clamp(0.0, 2.0)
 }
 
 /// [`decide`] with the scorer's plan built once per genome
@@ -2148,23 +2218,13 @@ fn decide_planned(
     let start: [[f32; UNITS]; VERBS] =
         std::array::from_fn(|v| std::array::from_fn(|k| plan.units.get(k).map_or(0.0, |&u| pre[u] + g[S_VERB + u * VERBS + v])));
     let narrow = plan.units.len() <= UNITS / 2;
-    // SCRATCH (brain-design review): each lane's context gate ([`GATE`]), once a decision; `None` in the game.
-    let gates: Option<[f32; UNITS]> = GATE.with(|gt| {
-        gt.borrow().as_ref().or(gate_file()).map(|gw| {
-            std::array::from_fn(|k| {
-                plan.units.get(k).map_or(1.0, |&u| {
-                    let row = &gw[u * GATE_IN..(u + 1) * GATE_IN];
-                    let mut y = row[GATE_IN - 1];
-                    for (w, x) in row[..CONTEXT].iter().zip(ctx) {
-                        y += w * x;
-                    }
-                    for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(&state.mem) {
-                        y += w * x;
-                    }
-                    if gate_squash() { 1.0 + squash(y) } else { (1.0 + y).clamp(0.0, 2.0) }
-                })
-            })
-        })
+    // Each gated lane's gate, once a decision ([`GATE`]); a genome with no gate weight takes the sum as it always did.
+    let gates: Option<[f32; UNITS]> = (!plan.gated.is_empty()).then(|| {
+        let mut gk = [1.0f32; UNITS];
+        for &(k, u) in &plan.gated {
+            gk[k] = gate(g, u, ctx, &state.mem);
+        }
+        gk
     });
     for (o, opt) in opts.iter().enumerate() {
         if !on(opt.verb) {
@@ -2175,6 +2235,8 @@ fn decide_planned(
         // Every unit's sum at once, each over its terms in their order
         // ([`ScorerPlan`]).
         let z = if let Some(gk) = &gates {
+            // A gated genome: each lane's feature sum on its own, scaled by its gate, then added to its
+            // per-decision part (an ungated lane's gate is 1).
             let f = score_lanes::<UNITS>(&[0.0; UNITS], &plan.feats, &opt.feats);
             std::array::from_fn(|k| start[v][k] + gk[k] * f[k])
         } else if narrow {
@@ -3457,6 +3519,59 @@ mod tests {
     /// whole units switched off at the output), random contexts, memories
     /// and option lists, every decision's pick, scores, jobs, emits and new
     /// memory match the dense sum bit for bit, a zero's sign aside.
+    /// **Every shipped pool decides bit for bit as it did before the context gates** (layout 6, [`GATE`]): the
+    /// standard pool, the spider pool and the centipede pool, each member over 300 random decisions (context, memory
+    /// and 1-20 options drawn from one stream), hashed over every score, job, emit, memory unit and pick. The hash was
+    /// taken on `main` at 4a66f56, the build before the gates; a pool that gained them at zero must give it again.
+    /// **Put the fault back**: scoring every genome through the gated path (`gates` always `Some`, every gate 1)
+    /// moves the hash, because a lane's feature sum is then rounded on its own before its per-decision part is added.
+    #[test]
+    fn shipped_pools_decide_as_they_did_before_the_gates() {
+        let mut minds: Vec<Vec<f32>> = crate::lab::training::std_pool().into_iter().map(|g| g[..GENOME_LEN].to_vec()).collect();
+        minds.extend(crate::lab::training::spider_minds().iter().map(|m| m.w.clone()));
+        minds.extend(crate::lab::training::centipede_minds().iter().map(|m| m.w.clone()));
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |x: u64| {
+            h ^= x;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        };
+        let mut decided = 0;
+        for (m, g) in minds.iter().enumerate() {
+            let mut r = rng::stream(17, m as u64, 0, 7);
+            for trial in 0..300u64 {
+                let ctx: [f32; CONTEXT] = std::array::from_fn(|_| r.unit_f32() * 2.0 - 1.0);
+                let mut state = MindState::default();
+                for x in state.mem.iter_mut() {
+                    *x = r.unit_f32() * 2.0 - 1.0;
+                }
+                let opts: Vec<Opt> = (0..1 + (r.unit_f32() * 20.0) as usize)
+                    .map(|k| Opt {
+                        verb: Verb::ALL[(r.unit_f32() * VERBS as f32) as usize % VERBS],
+                        target: (k as i32, 0),
+                        feats: std::array::from_fn(|_| if r.unit_f32() < 0.5 { 0.0 } else { r.unit_f32() * 2.0 - 1.0 }),
+                    })
+                    .collect();
+                let mut draw = rng::stream(5, m as u64, trial, RNG_SLOT_MIND);
+                let Some(d) = decide(g, &ctx, &opts, &mut state, &mut draw) else {
+                    eat(u64::MAX);
+                    continue;
+                };
+                decided += 1;
+                eat(d.pick as u64);
+                d.scores.iter().for_each(|s| eat(s.to_bits() as u64));
+                d.jobs.iter().for_each(|j| eat(j.map_or(7, |j| j.to_bits() as u64)));
+                d.emits.iter().for_each(|e| eat(e.to_bits() as u64));
+                state.mem.iter().for_each(|x| eat(x.to_bits() as u64));
+            }
+        }
+        assert!(decided > minds.len() * 200, "too few decisions: {decided} over {} minds", minds.len());
+        println!("minds {} decided {decided} hash {h:#018x}", minds.len());
+        assert_eq!(h, GOLDEN_PRE_GATE, "a shipped pool decides differently from the build before the context gates");
+    }
+
+    /// [`shipped_pools_decide_as_they_did_before_the_gates`]'s hash on `main` at 4a66f56, before the gates.
+    const GOLDEN_PRE_GATE: u64 = 0x318b_65b1_5e53_a2b8;
+
     #[test]
     fn the_sparse_scorer_decides_exactly_as_the_dense_one() {
         let same = |a: f32, b: f32| a.to_bits() == b.to_bits() || (a == 0.0 && b == 0.0);
@@ -3469,6 +3584,10 @@ mod tests {
                 if r.unit_f32() < density {
                     *w = r.unit_f32() * 4.0 - 2.0;
                 }
+            }
+            // Half the genomes ungated, as every genome saved before the gates is ([`GATE`]): both sums are held.
+            if trial % 2 == 0 {
+                g[GATE..GENOME_LEN].fill(0.0);
             }
             for v in Verb::ALL {
                 g[SWITCH + v as usize] = if r.unit_f32() < 0.8 { 1.0 } else { -1.0 };
@@ -3625,7 +3744,7 @@ mod tests {
     /// Every slot PR 2 added: no slot of an older genome lands there.
     fn grown() -> Vec<usize> {
         let old: std::collections::HashSet<usize> = v2_slots().into_iter().collect();
-        (0..GENOME_LEN).filter(|k| !old.contains(k)).collect()
+        (0..GENOME_LEN_V5).filter(|k| !old.contains(k)).collect()
     }
 
     /// `g` as [`pad`] would leave it: what it zeroes zeroed, each unit's
@@ -3704,6 +3823,56 @@ mod tests {
         let v1 = pad(old[..GENOME_LEN_V1].to_vec()).expect("a V1 genome pads");
         assert_eq!(&v1[..HID], &g[..HID]);
         assert!(v1[HID..].iter().all(|w| *w == 0.0));
+    }
+
+    /// **A genome saved before the context gates reads into today's layout** ([`enter_gate`]): the gate rows enter
+    /// at zero between its core and its riders, so every core weight and every rider keeps its meaning; a bare core
+    /// pads the same way ([`pad`]); a file marked layout 6 is left as it is, and one marked 6 at an old length is
+    /// refused. Then the gate itself: shut (`y = -1`) its unit adds exactly nothing but its per-decision part, as if
+    /// its feature row were empty; half open, the scores move (the positive control).
+    #[test]
+    fn a_genome_from_before_the_gates_gains_them_at_zero_and_a_shut_gate_silences_its_unit() {
+        let old: Vec<f32> = (0..GENOME_LEN_V5 + 482 + LAY_LEN).map(|i| (i % 97) as f32 + 1.0).collect();
+        let mut g = old.clone();
+        assert!(enter_gate(&mut g, Some(5)));
+        assert_eq!(g.len(), GENOME_LEN + 482 + LAY_LEN);
+        assert_eq!(&g[..GATE], &old[..GENOME_LEN_V5], "the core keeps every slot");
+        assert!(g[GATE..GENOME_LEN].iter().all(|w| *w == 0.0), "the gates enter at zero");
+        assert_eq!(&g[GENOME_LEN..], &old[GENOME_LEN_V5..], "the riders keep their order");
+        let mut unmarked = old.clone();
+        assert!(enter_gate(&mut unmarked, None));
+        assert_eq!(unmarked, g, "an unmarked file is told by its length");
+        let mut h = g.clone();
+        assert!(!enter_gate(&mut h, Some(6)), "a layout-6 genome is not padded again");
+        assert_eq!(h, g);
+        assert_eq!(pad(old[..GENOME_LEN_V5].to_vec()).as_deref(), Some(&g[..GENOME_LEN]));
+        assert!(std::panic::catch_unwind(|| enter_gate(&mut old[..GENOME_LEN_V5].to_vec(), Some(6))).is_err());
+
+        // One live unit, so its lane is the only one the gate can move.
+        let mut g = blank(&[Verb::Walk, Verb::Rest]);
+        for f in 0..FEATURES {
+            g[S_FEAT + f] = ((f * 31 % 17) as f32 / 8.0) - 1.0;
+        }
+        // `walks` differ only in this feature.
+        g[S_FEAT + options::f::SCENT + 4] = 1.5;
+        g[S_CTX] = 0.3;
+        g[S_OUT] = 2.0;
+        let mut empty = g.clone();
+        empty[S_FEAT..S_FEAT + FEATURES].fill(0.0);
+        let ctx: [f32; CONTEXT] = std::array::from_fn(|i| i as f32 / CONTEXT as f32);
+        let scores = |g: &[f32]| {
+            let mut state = MindState::default();
+            let mut draw = rng::stream(1, 2, 3, RNG_SLOT_MIND);
+            decide(g, &ctx, &walks(), &mut state, &mut draw).expect("walks decide").scores
+        };
+        let mut shut = g.clone();
+        shut[GATE + GATE_IN - 1] = -1.0;
+        assert_eq!(scores(&shut), scores(&empty), "a shut gate leaves its unit's per-decision part alone");
+        let mut half = g.clone();
+        half[GATE + GATE_IN - 1] = -0.5;
+        assert_ne!(scores(&half), scores(&g), "a half-open gate moves the scores");
+        assert_ne!(scores(&half), scores(&empty));
+        assert_eq!(MindGenome::new(half).live, MindGenome::new(g).live + 1, "a gate weight is a link, billed");
     }
 
     /// **The job head's hidden units cost a genome saved before them
@@ -3869,10 +4038,11 @@ mod tests {
                 g[HID_OUT + v * HIDDEN + h] = 0.0;
             }
         }
-        // Memory 9 is read only by unit 5 and hidden 7, so it goes once they have.
+        // Memory 9 is read only by unit 5 (its context row and its gate) and hidden 7, so it goes once they have.
         let m = 9;
         for u in (0..UNITS).filter(|&u| u != 5) {
             g[S_CTX + u * S_IN + CONTEXT + m] = 0.0;
+            g[GATE + u * GATE_IN + CONTEXT + m] = 0.0;
         }
         for v in 0..VERBS {
             g[JOB + v * J_IN + CONTEXT + m] = 0.0;
@@ -5293,11 +5463,11 @@ mod tests {
 
     #[test]
     fn the_layout_adds_up_and_crosses_in_whole_rows() {
-        assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN);
+        assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN + UNITS * GATE_IN);
         assert_eq!(
-            (GENOME_LEN_V1, GENOME_LEN_V2, GENOME_LEN),
-            (2333, 2669, 2797),
-            "saved genomes are 2,333 slots before the hidden units, 2,669 before PR 2's features"
+            (GENOME_LEN_V1, GENOME_LEN_V2, GENOME_LEN_V5, GENOME_LEN),
+            (2333, 2669, 2797, 3357),
+            "saved genomes are 2,333 slots before the hidden units, 2,669 before PR 2's features, 2,797 before the gates"
         );
         let mut groups: Vec<usize> = (0..GENOME_LEN).map(crossover_group).collect();
         groups.dedup();
@@ -5315,10 +5485,14 @@ mod tests {
             crossover_group(S_FEAT + 2 * FEATURES + 1)
         );
         assert_eq!(crossover_group(S_VERB + 2 * VERBS), crossover_group(S_OUT + 2));
+        // ...and its gate with them.
+        assert_eq!(crossover_group(GATE + 2 * GATE_IN + 7), crossover_group(S_OUT + 2));
+        assert_ne!(crossover_group(GATE + 2 * GATE_IN), crossover_group(GATE + 3 * GATE_IN));
         let t = trainable(&[Verb::Walk, Verb::Rest], [false, true, false]);
         assert!(t.contains(&(SWITCH + Verb::Walk as usize)) && !t.contains(&(SWITCH + Verb::Dig as usize)));
         assert!(t.contains(&(EMIT + E_IN)) && !t.contains(&EMIT) && !t.contains(&(EMIT + 2 * E_IN)));
-        assert!(t.contains(&HID) && t.contains(&(GENOME_LEN - 1)), "the job hidden units are not an emit row");
+        assert!(t.contains(&HID) && t.contains(&(GATE - 1)), "the job hidden units are not an emit row");
+        assert_eq!(t.contains(&GATE), gate_on(), "the gates are trainable unless PP_GATE=off");
         assert_eq!(
             MindGenome::new(blank(&Verb::ALL)).live,
             0,
