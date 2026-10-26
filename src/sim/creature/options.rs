@@ -553,11 +553,44 @@ pub fn sensed_home(world: &World, organism: OrganismId, def: &CreatureDef, st: &
         if let Some(&(hx, hy)) = st.chain.first() {
             let (seen, reads) = super::sighted(world, hx, hy, organism, def);
             if reads > 0 {
-                return (seen.prey.map(|s| (s.x, s.y)), reads);
+                return (seen.prey.map(|s| (s.x, s.y)).or_else(|| smelt_nest(world, def, hx, hy)), reads);
             }
         }
     }
     ((!world.home_blind).then_some(st.forage_anchor), 0)
+}
+
+/// **The nest a raider smells** ([`CreatureDef::smells_nest`], `PIXEL_PHYSICS_NEST_SMELL=on`; **off by default**):
+/// the door of the nearest nest site -- its column, on the ground row it was founded on -- from anywhere in the box,
+/// `None` for any other species, with no nest, or with the switch off. Read only when the eye saw no prey, so prey in
+/// sight still wins, and through the home senses for the reason [`sight_on`] gives (a new input would move every
+/// genome's weights). **No range and no cap**: what tells near from far is the home distance itself, as for every
+/// home (owner's preference for a graded sense, 2026-10-24).
+pub fn smelt_nest(world: &World, def: &CreatureDef, hx: i32, hy: i32) -> Option<(i32, i32)> {
+    smelt_nest_if(nest_smell_on(), world, def, hx, hy)
+}
+
+/// [`smelt_nest`] with the switch passed in, so a test can read both sides in one process.
+pub fn smelt_nest_if(on: bool, world: &World, def: &CreatureDef, hx: i32, hy: i32) -> Option<(i32, i32)> {
+    if !on || !def.smells_nest {
+        return None;
+    }
+    world.nest_sites.iter().map(|s| (s.x, s.surface)).min_by_key(|&(x, y)| (x - hx).pow(2) + (y - hy).pow(2))
+}
+
+/// `PIXEL_PHYSICS_NEST_SMELL`: **off unless `on`**. Reaches only a species with `smells_nest` (the centipede).
+///
+/// **Off by default for a measured harm** (nest raider thread, 2026-10-26). On fresh 256-wide training beds the smell
+/// is what lets a raider landed 30 columns out reach the nest at all (6 beds: 13 ants killed in it against 6), and
+/// pools trained with it and `predtrain nestpay=10` beat the shipped pool on 23 of 24 fresh beds. **In the lab it
+/// does the opposite.** `spiderlab`, lab_mid_fruit, 2 raiders, 300,000 frames, 6 boxes, kills more than two cells
+/// under the surface: the shipped pool **538 with the smell off, 78 with it on**; the two trained pools 64 and 75.
+/// Off, the raiders stay out at the far edge and breed to 59-204, and that crowd comes into the chambers
+/// 50,000-150,000 frames after landing; on, two or a few go straight to the door, die there or empty it from the
+/// mouth, and never become a crowd. The lab is the game, so the lab decides.
+pub fn nest_smell_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SMELL").is_ok_and(|v| v.trim() == "on"))
 }
 
 /// **Whether an option feels how warm its target is** (`f::WARMTH`): on by default; `PIXEL_PHYSICS_MIND_WARMTH=off`
@@ -638,6 +671,26 @@ pub fn home_vec() -> Option<(f32, f32)> {
 /// 10 columns -- which is where the maze thread's trail rule 2 ("stay on the trail, step outward") has to know which
 /// way is out; its copies dithered (back-steps on 59% of sideways steps against 45%). A genome's live links on the
 /// slot must be zeroed first (hA1 has 11). Unset: nothing is written, byte-identical.
+/// `PP_HOMELOW=k` (see the option builder): the "home, when low" sense's fuel rate, read once.
+pub fn home_low() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let k = std::env::var("PP_HOMELOW").ok().map(|v| v.parse().expect("PP_HOMELOW"));
+        assert!(k.is_none() || (std::env::var("PP_BOTTOM").is_err() && std::env::var("PP_HOMEDIR").is_err()), "PP_HOMELOW, PP_BOTTOM and PP_HOMEDIR all write f::BUILDING");
+        // `f::BUILDING` is `f::FOOD_WAY`, the last-food memory, on by default. Sharing it, a fit's weights read the
+        // food way wherever this sense is not written (non-Walk options, the store gate shut): the first fitted pool
+        // delivered nothing in 30k frames with this switch unset (world 1007), against colony 13's 1,080.
+        assert!(k.is_none() || last_food().is_none(), "PP_HOMELOW writes f::BUILDING, which holds the last-food memory: set PP_LASTFOOD=off");
+        k
+    })
+}
+
+/// `PP_HOMELOW_STORE=1`: the "home, when low" sense reads 0 while no nest store holds food.
+pub fn home_low_store() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_HOMELOW_STORE").is_ok_and(|v| v == "1"))
+}
+
 pub fn home_dir() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
@@ -1027,6 +1080,27 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         let low = super::mind::scratch_log::cavity_low(world, organism, head, r);
         for o in out.iter_mut().filter(|o| o.verb == Verb::Dig) {
             o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
+        }
+    }
+    // SCRATCH (teacher lane, 2026-10-26): `PP_HOMELOW=k`, "home, when low", on every Walk option's unwritten
+    // `f::BUILDING` slot: +1 for a step towards home's column, -1 away, 0 along, times how far the tank is below
+    // what the walk home costs, `1 - e / (1 + k x columns from home)` clamped to [0, 1] (e in sensed tanks, as `c::ENERGY`; the
+    // come-home teacher's fuel gate, `PP_HOMEFAR_FUEL`, at the same k). 0 for a fed ant at any distance, so a weight
+    // on it cannot move a fed forager. Why: copying the teacher into the existing home links plateaued at ~45%
+    // agreement however many weights moved or how sharp the scores were (fits 1-6, colony-selection log 2026-10-26);
+    // the hunger-by-distance interaction has to be built by a gate the scorer barely has, and here it is one weight.
+    if let Some(k) = home_low() {
+        let e = world.organism(organism).map_or(0.0, |s| s.energy) / def.sensed_tank.unwrap_or(def.start_energy).max(1.0);
+        // `PP_HOMELOW_STORE=1`: only while some nest's store holds food (`NestWay::store_cells`). Ungated, a lab box
+        // died to a colony (lab_far_mix, 4 of 4 seeds, 52 of 52 starved, no delivery): founders land at 0.4-0.9 sensed
+        // tanks, so every one read "low" from the first step and walked home to a nest with nothing in it.
+        let stocked = !home_low_store() || world.nest_ways.iter().any(|w| !w.store_cells.is_empty());
+        if let Some(nx) = world.nest_sites.iter().map(|s| s.x).min_by_key(|x| (x - head.0).abs()).filter(|_| stocked) {
+            let low = (1.0 - e / (1.0 + k * (head.0 - nx).abs() as f32)).clamp(0.0, 1.0);
+            let way = (nx - head.0).signum();
+            for o in out.iter_mut().filter(|o| o.verb == Verb::Walk) {
+                o.feats[f::BUILDING] = ((o.target.0 - head.0).signum() * way) as f32 * low;
+            }
         }
     }
     DESCRIBED.set(described);

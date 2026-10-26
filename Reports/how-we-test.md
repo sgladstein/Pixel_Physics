@@ -253,6 +253,18 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   `try_bud`'s provisions counted ant cells round the head (3 births in 23
   frames for one centipede); spider lab results judged on births from before
   the nest raider PR are not comparable with later ones.
+- **`LifeCounters::bites` is every pickup into the crop, not a bite of prey.**
+  A raider dropping and re-picking one crop cell counted 42,000 "bites" a round
+  against ~350 ants killed (nest raider, 2026-10-26). Pay or judge a predator on
+  deaths (`death_log`, cause Killed), never on `bites`.
+- **A predator's training bed can rank the opposite way to the lab.** Four
+  raiders for 30,000 frames on a 256-wide bed reward the few that reach the
+  door; in a 300,000-frame lab box the raid is a crowd's. A nest smell and pools
+  trained with it won 23 of 24 beds and cut deep raids in the lab 538 -> 64-78.
+  Judge a predator in the lab, over a long run.
+- **"Killed under the surface" is mostly the mound and the shaft's mouth.**
+  Count deep kills (more than two cells under the column's surface; `spiderlab`
+  with `PP_KILLLOG`) when the question is whether a predator went in.
 - **A trained ant that starves faster than the old ant may be paying for its
   brain, not missing a rule.** Every live link is billed per tick at the
   hand-built ant's price: `std_pool`'s ~1,900 links cost 0.85 J a tick against

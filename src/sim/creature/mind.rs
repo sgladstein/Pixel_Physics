@@ -192,6 +192,29 @@ pub fn scorer_output(u: usize) -> usize {
     assert!(u < UNITS, "scorer unit {u}: there are {UNITS}");
     S_OUT + u
 }
+/// SCRATCH (teacher lane, 2026-10-26): every weight of scorer unit `u` -- its context row and its feature row.
+pub fn unit_rows(u: usize) -> Vec<usize> {
+    (0..S_IN).map(|i| S_CTX + u * S_IN + i).chain((0..FEATURES).map(|i| S_FEAT + u * FEATURES + i)).collect()
+}
+/// SCRATCH (teacher lane, 2026-10-26): the slots a come-home lesson may train (`examples/homefit.rs`). Every link
+/// from the far-from-home sense -- context `c::D_SCENT + 2` into the scorer's units, the job rows and the hidden units,
+/// and option feature `f::LAST_FOOD` into the units: the far-home-sense thread's allow-list of 2026-10-22, rebuilt for
+/// this layout -- and, with `unit`, that scorer unit's energy and bias inputs, its `f::HOME` and `f::LAST_FOOD`
+/// features and its output weight, so a unit can gate the home pull on the tank. Both inputs read 0 at the door, so
+/// what the lesson changes is how an ant away from home walks.
+pub fn home_lesson_slots(unit: Option<usize>) -> Vec<usize> {
+    let far = c::D_SCENT + 2;
+    let mut v: Vec<usize> = (0..UNITS).map(|u| S_FEAT + u * FEATURES + options::f::LAST_FOOD).collect();
+    v.extend((0..UNITS).map(|u| S_CTX + u * S_IN + far));
+    v.extend((0..VERBS).map(|j| JOB + j * J_IN + far));
+    v.extend((0..HIDDEN).map(|h| HID + h * H_IN + far));
+    if let Some(u) = unit {
+        v.extend([S_CTX + u * S_IN + c::ENERGY, S_CTX + u * S_IN + CONTEXT + MEMORY, S_FEAT + u * FEATURES + options::f::HOME, S_OUT + u]);
+    }
+    v.sort_unstable();
+    v.dedup();
+    v
+}
 const S_IN: usize = CONTEXT + MEMORY + 1;
 /// The scorer's per-option part: the option's features into each unit...
 const S_FEAT: usize = S_CTX + UNITS * S_IN;
@@ -1414,8 +1437,17 @@ pub fn describe(g: &[f32]) -> String {
     )
 }
 
+/// SCRATCH (teacher lane, 2026-10-26): `PP_SHARP_MAX=x` lowers the sharpness ceiling from 4. Every trained genome
+/// sits past the top (the forager seed set `g[SHARP] = 3.0`, colony 13's 60 genomes read 5.3-6.7), so the gene is
+/// neutral to mutation and 80% of walk scores are past +-0.95: in 72% of decisions every step is a flat "no" and the
+/// draw among them is near-uniform, so a graded leaning (home as the tank drops) cannot move a pick and selection
+/// cannot see it. Recomputed from logged scores (copy log, colony 13, world 32007): pinned 80% at 4x, 62% at 2x, 31%
+/// at 1x, 4% at 0.5x. Colony 13 at 2x on 8 far-moving worlds: starved 257 vs 240, open nest 350 vs 398; at 1x:
+/// starved 296, open 178 -- it lives, but its constants were calibrated at 4x.
 fn sharpness(g: &[f32]) -> f32 {
-    (1.0 + g[SHARP]).clamp(0.25, 4.0)
+    static MAX: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let max = *MAX.get_or_init(|| std::env::var("PP_SHARP_MAX").ok().map_or(4.0, |v| v.parse().expect("PP_SHARP_MAX")));
+    (1.0 + g[SHARP]).clamp(0.25, max.max(0.25))
 }
 
 fn pull(g: &[f32]) -> f32 {
@@ -4848,6 +4880,34 @@ mod tests {
         let animal = place(&mut w, 60, species);
         let ant = place(&mut w, 62, "ant");
         (w, animal, ant)
+    }
+
+    /// **The raider smells the nest from across the box** (nest raider thread, 2026-10-26; off by default,
+    /// `options::nest_smell_on`): a centipede 50 columns from a founded colony, no ant in its 24-cell eye, smells the
+    /// nest's door with the switch on, and with `smells_nest` cleared or the switch off smells nothing. The eye saw
+    /// no prey (`sensed_home` reads no home with the switch at its default), so the door came from the smell.
+    #[test]
+    fn the_raider_smells_the_nest_from_across_the_box() {
+        let mut w = crate::lab::scene::LabBox { founders: 4, colonies: 1, width: 160, height: 96, ground_y: 60, soil_depth: 30, ..crate::lab::scene::LabBox::default() }.build();
+        let door = w.nest_sites.first().map(|s| (s.x, s.surface)).expect("a founded colony has a nest site");
+        let x = if door.0 > 80 { door.0 - 50 } else { door.0 + 50 };
+        let gy = (0..96).find(|&y| y > 10 && w.get(x, y).material != crate::sim::material::EMPTY).expect("ground");
+        let me = match crate::sim::creature::plant_creature_seed(&mut w, x, gy - 1, "centipede").map(|s| s.kind) {
+            Some(crate::sim::scheduler::ActiveKind::Creature { organism }) => organism,
+            other => panic!("no centipede placed: {other:?}"),
+        };
+        let st = w.organism(me).expect("placed").clone();
+        let mut def = w.species.get(st.species).creature.clone().expect("creature");
+        let (hx, hy) = *st.chain.first().expect("a head");
+        assert_eq!(options::smelt_nest_if(true, &w, &def, hx, hy), Some(door), "smelt");
+        assert_eq!(options::smelt_nest_if(false, &w, &def, hx, hy), None, "switch off");
+        if !options::nest_smell_on() {
+            let (home, reads) = options::sensed_home(&w, me, &def, &st);
+            assert!(reads > 0, "the eye was cast");
+            assert_eq!(home, None, "the eye sees no prey, and the smell is off by default");
+        }
+        def.smells_nest = false;
+        assert_eq!(options::smelt_nest_if(true, &w, &def, hx, hy), None, "a species without the smell");
     }
 
     /// **A predator with handling time cannot pay for a child out of living prey** (nest raider thread,
