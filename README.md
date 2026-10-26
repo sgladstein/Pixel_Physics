@@ -11393,8 +11393,8 @@ this decision's context and memory whose `clamp(1 + y, 0, 2)` multiplies
 the unit's feature sum (`mind::GATE`, `mind::gate`). Before it, the ant's
 own state (hunger, a load, how far out it is) reached a step's score only
 as a constant added to every option, so a unit taught "go home when low"
-also pulled fed ants home. `GENOME_LEN` grows from 2,797 to 3,357; the dig
-head and lay gate ride after it.
+also pulled fed ants home. `GENOME_LEN` grows from 2,797 to 3,357 (3,609
+with layout 7's reach rows, below); the dig head and lay gate ride after it.
 
 **What holds:**
 - **Every saved pool decides bit for bit as before.** A file marked layout
@@ -11415,8 +11415,26 @@ head and lay gate ride after it.
 come-home teacher) starved colonies at a nest with no store on the standard
 16 worlds: nothing the ant senses says whether there is food at home, so a
 gate cannot switch on it. Memory could hold it (a self-weight above 1 makes
-a unit a latch) but never sees what the options were, only what the ant
-did. Whether memory should read each verb's best target is with the owner.
-Python copiers that assert `GENOME_LEN == 2797` read layout-5 files only.
+a unit a latch) but never saw what the options were, only what the ant
+did -- which is what layout 7 changes, below. Python copiers that assert
+`GENOME_LEN == 2797` read layout-5 files only.
+
+**Layout 7: memory sees what each action could reach** (owner,
+2026-10-26 22:20Z, in preference to a hand-made "food at home" sense).
+Every memory unit gains one weight per verb on that verb's reach this
+decision, `(best + 1) / 2` of its best-scoring target and 0 when it has
+none (`mind::REACH_MEM`, `mind::reach_mem_row`); every scorer unit's gate
+gains the same row over the *last* decision's reach (`mind::REACH_GATE`,
+`MindState::reach`), because this decision's best targets are scored by
+the units the gate scales. 108 + 144 slots after the gates: `GENOME_LEN`
+3,357 -> 3,609. A file marked 6 or older gains them at zero and decides
+bit for bit as before (the same guard, unchanged hash); a reach weight is
+added only where it is not zero. Trainable by default; `PP_REACH=off`
+leaves them out of mutation, as `PP_GATE=off` does the gates. Frame
+cost: none measurable -- the shipped pool in the played lab box ran
+37.9 / 36.3 s on layout 6 and 37.1 / 35.8 s on layout 7, with the same
+result line (153 alive, 0 starved, 257 deliveries). A harness
+that rebuilds a mind's state from a log row (`homefit`, `copyreplay`)
+starts each row at reach 0, so it cannot judge a gate's reach row.
 
 Report: `Reports/brain-training/research/brain-design-review-2026-10-26.md`.
