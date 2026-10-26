@@ -6180,6 +6180,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   with no goal. Ranked for the lab: a pool that survives the box first, then a reward/punish verb, ant biographies and
   marked deaths, a job icon over a selected ant, visible genetics, and sharing lines with player-made goals.
 
+- [brain-training/research/brain-cannot-combine-senses-2026-10-26.md](brain-training/research/brain-cannot-combine-senses-2026-10-26.md) —
+  **the trained ant's brain cannot combine two senses, and a proposed fix (proposed; under adversarial review).** The
+  step scorer is additive in the ant's own state, so hunger or a load can change which step wins only through unit
+  saturation, and measured, that path is shut: 75% of unit sums are past slope 0.1 and hunger moves no unit off its
+  flat (median slope 0.023 fed vs 0.022 hungry). Copies of the come-home teacher plateaued at 0.40-0.46 while the
+  same lesson on a pre-combined input fit to 0.79 at once, so `PP_HOMELOW`/`PP_SOILWAY` are named as instincts.
+  Proposal: a context gate per scorer unit (identity at zero weights), with a four-step test plan and questions for
+  the review.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
