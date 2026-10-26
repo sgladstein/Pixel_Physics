@@ -630,6 +630,26 @@ pub fn home_vec() -> Option<(f32, f32)> {
 /// 10 columns -- which is where the maze thread's trail rule 2 ("stay on the trail, step outward") has to know which
 /// way is out; its copies dithered (back-steps on 59% of sideways steps against 45%). A genome's live links on the
 /// slot must be zeroed first (hA1 has 11). Unset: nothing is written, byte-identical.
+/// `PP_HOMELOW=k` (see the option builder): the "home, when low" sense's fuel rate, read once.
+pub fn home_low() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let k = std::env::var("PP_HOMELOW").ok().map(|v| v.parse().expect("PP_HOMELOW"));
+        assert!(k.is_none() || (std::env::var("PP_BOTTOM").is_err() && std::env::var("PP_HOMEDIR").is_err()), "PP_HOMELOW, PP_BOTTOM and PP_HOMEDIR all write f::BUILDING");
+        // `f::BUILDING` is `f::FOOD_WAY`, the last-food memory, on by default. Sharing it, a fit's weights read the
+        // food way wherever this sense is not written (non-Walk options, the store gate shut): the first fitted pool
+        // delivered nothing in 30k frames with this switch unset (world 1007), against colony 13's 1,080.
+        assert!(k.is_none() || last_food().is_none(), "PP_HOMELOW writes f::BUILDING, which holds the last-food memory: set PP_LASTFOOD=off");
+        k
+    })
+}
+
+/// `PP_HOMELOW_STORE=1`: the "home, when low" sense reads 0 while no nest store holds food.
+pub fn home_low_store() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_HOMELOW_STORE").is_ok_and(|v| v == "1"))
+}
+
 pub fn home_dir() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
@@ -1019,6 +1039,27 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
         let low = super::mind::scratch_log::cavity_low(world, organism, head, r);
         for o in out.iter_mut().filter(|o| o.verb == Verb::Dig) {
             o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
+        }
+    }
+    // SCRATCH (teacher lane, 2026-10-26): `PP_HOMELOW=k`, "home, when low", on every Walk option's unwritten
+    // `f::BUILDING` slot: +1 for a step towards home's column, -1 away, 0 along, times how far the tank is below
+    // what the walk home costs, `1 - e / (1 + k x columns from home)` clamped to [0, 1] (e in sensed tanks, as `c::ENERGY`; the
+    // come-home teacher's fuel gate, `PP_HOMEFAR_FUEL`, at the same k). 0 for a fed ant at any distance, so a weight
+    // on it cannot move a fed forager. Why: copying the teacher into the existing home links plateaued at ~45%
+    // agreement however many weights moved or how sharp the scores were (fits 1-6, colony-selection log 2026-10-26);
+    // the hunger-by-distance interaction has to be built by a gate the scorer barely has, and here it is one weight.
+    if let Some(k) = home_low() {
+        let e = world.organism(organism).map_or(0.0, |s| s.energy) / def.sensed_tank.unwrap_or(def.start_energy).max(1.0);
+        // `PP_HOMELOW_STORE=1`: only while some nest's store holds food (`NestWay::store_cells`). Ungated, a lab box
+        // died to a colony (lab_far_mix, 4 of 4 seeds, 52 of 52 starved, no delivery): founders land at 0.4-0.9 sensed
+        // tanks, so every one read "low" from the first step and walked home to a nest with nothing in it.
+        let stocked = !home_low_store() || world.nest_ways.iter().any(|w| !w.store_cells.is_empty());
+        if let Some(nx) = world.nest_sites.iter().map(|s| s.x).min_by_key(|x| (x - head.0).abs()).filter(|_| stocked) {
+            let low = (1.0 - e / (1.0 + k * (head.0 - nx).abs() as f32)).clamp(0.0, 1.0);
+            let way = (nx - head.0).signum();
+            for o in out.iter_mut().filter(|o| o.verb == Verb::Walk) {
+                o.feats[f::BUILDING] = ((o.target.0 - head.0).signum() * way) as f32 * low;
+            }
         }
     }
     DESCRIBED.set(described);
