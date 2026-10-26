@@ -336,6 +336,14 @@ pub fn mind_scent(world: &World, ch: Channel, x: i32, y: i32) -> f32 {
     world.pheromone_at(ch, x + dx, y) as f32 / pheromone::Scent::MAX as f32
 }
 
+/// SCRATCH (evolvable-pheromones lane, 2026-10-26): `PP_EMIT_FREE=1` makes a mind ant's scent deposits cost
+/// nothing. **The control that prices a signal**: a colony that evolved to emit heavily pays its bill in moves
+/// every decision, and a replay with the bill waived says how much of a gap between two arms is that bill.
+pub fn emit_free() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_EMIT_FREE").is_ok_and(|v| v == "1"))
+}
+
 /// SCRATCH (evolvable-pheromones lane, 2026-10-25): `PP_SCENT_CONST=alarm:0.05` makes a mind ant read that plane
 /// as one constant level everywhere and always. **The control that separates information from presence**: a
 /// colony that dies deaf might need the *level* (a bias its weights were tuned around) rather than what the map

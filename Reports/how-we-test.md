@@ -292,6 +292,12 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   but was rebuilt laden-only in ~40 generations from a dense `N(0, 0.05)` start
   (`emerge.py FILL=`). Start an evolving emit row dense, and give its run a
   deaf arm (evolvable-pheromones-2026-10-25 §9.3-9.4).
+- **A signal that colonies rely on is not a signal that pays.** The listening gap
+  (hearing vs deaf, the same genome) grew to 14/16 and 20/20 in both new-channel
+  runs while the deaf arm's evolved best out-foraged the free arm's 1.4-2.2x.
+  Judge an emergence run by **each arm's best on shared seeds, each in its own
+  condition**, with the deaf best also replayed hearing; the listening gap only
+  says the signal carries information (evolvable-pheromones-2026-10-25 §9.5).
 - **A scripted player's "did N" is a request until the run reads back what
   happened.** A harness that asked to carry 10 ants lifted about 6, because
   the ants nearest the nest were stacked on one another and the carry refuses

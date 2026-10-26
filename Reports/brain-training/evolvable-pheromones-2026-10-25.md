@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run is in progress (§9.5). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies by 1.4-2.2x, and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; parking the line is recommended (owner's call pending). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -36,6 +36,10 @@ the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJY
   information, not a level. Deleting today's food trail and letting evolution rebuild it **fails from a zero
   start (2 of 2) and works from a small random start**: in ~40 generations the rebuilt trail is laid only by
   laden ants and colonies that hear it beat deaf ones 4/4. The blocker was search, not the idea.
+- **The real test** (§9.5-9.7, owner approved 2026-10-25 19:06Z): on a fresh channel that reaches the food, two
+  replicates of 150 generations each invented real signals (a "searching" mark; a traffic map) that their colonies
+  came to depend on, yet deaf controls foraged 1.4-2.2x better, and opening the channel to a good forager cost it
+  13%. Signals emerge; foraging does not improve. Not the emission bill.
 
 ## 1. The physics today
 
@@ -275,6 +279,7 @@ The test the review asked for (E2), built on the conditions the robot-colony stu
 | `scratch/pheromones/emerge.py` | the emergence test's generation driver (§7) |
 | `scratch/pheromones/storeeat.py` | per-class store eating, churn, deliveries and digging from `events.csv` |
 | `PP_SCENT_CONST=CH:V,...` | the mind reads that plane as one constant level everywhere: separates information from level (§9.1) |
+| `PP_EMIT_FREE=1` | mind ants' scent deposits cost nothing: prices a signal (§9.5) |
 | `PIXEL_PHYSICS_ALARM_GROUND=RHO:DIFFUSE` | the third plane on the ground law at that fade and blend instead of the air-law call (§9.5) |
 | `emerge.py EVALS= SCORE= ZERO= FILL= CHAN= ALARM=` | seeds per colony, score, zero/dense-start an emit row, which channel the replays deafen, alarm row open or frozen |
 
@@ -355,6 +360,73 @@ Set-up, repairing all three defects:
   is new.
 - **A dense random emitter** on that channel (alarm row zeroed, `FILL=0.05`), open to mutation (`ALARM=train`).
 - **2 seeds per evaluation, score = stored food only.**
-- **Free vs deaf**, 16 colonies x 150 generations, replicate 1 started 2026-10-25 ~18:10Z in this lane's container.
+- **Free vs deaf**, 16 colonies x 150 generations, 2 replicates (seed 1 in this lane's container from 17:45Z;
+  seed 2 on two runner threads). Finished 2026-10-26 ~02:30Z. Data: `/mnt/project-files/evolvable-pheromones/newchan/`.
 
-Results will be added here.
+**Result: signals emerged in both replicates, and in both they lost to deafness.**
+
+Median colony score (stored food) by 25-generation block, with the best genome's listening replays (hearing beat
+deaf to the new channel / beat it read 40 columns off):
+
+| run | g0-24 | g25-49 | g50-74 | g75-99 | g100-124 | g125-149 | hearing > deaf, g100+ |
+|---|---|---|---|---|---|---|---|
+| free, rep 1 | 122 | 154 | 199 | 147 | 159 | 182 | 14/16 |
+| deaf, rep 1 | 139 | 302 | 387 | 406 | 408 | 441 | (native: deaf) |
+| free, rep 2 | 208 | 216 | 243 | 264 | 308 | 362 | 20/20 |
+| deaf, rep 2 | 170 | 270 | 341 | 352 | 376 | 404 | (native: deaf) |
+
+Head-to-head, each arm's best genome (free g149 c00; deaf g129 c00 for rep 1, g149 c00 for rep 2) on 16 shared
+seeds, stored food median, extinct of 16:
+
+| | free best, hearing | ...deaf | ...read 40 off | ...constant 0.02 | ...constant 0.10 | deaf best, deaf | deaf best, hearing |
+|---|---|---|---|---|---|---|---|
+| rep 1 | 224, 1 | 122, 7 (14/16 lower) | 159, 3 (12/16) | 148, 6 (14/16) | 60, 9 (11/16) | **497**, 1 (16/16 higher) | 471, 0 |
+| rep 2 | 334, 2 | 22, 2 (14/16 lower) | 67, 7 (16/16) | 43, 2 (15/16) | | **478**, 0 (15/16 higher) | 475, 0 |
+
+- **The signals are real.** Every control that removes what the map says while keeping the channel (deaf, misplaced,
+  flattened to a constant at either level) costs the free arm's best colony 2x to 15x its food, on 11-16 of 16
+  seeds. At the start the same founder showed no such reliance.
+- **The two replicates invented different conventions** (`PP_MIND_LOG_EMITS` census, seed 700, mean emit on the
+  new channel). Rep 1: an **"I'm empty / searching" mark**, emitted by empty ants 0.65 against 0.12 when laden
+  (the same meaning run 1's alarm drifted to, §9.1), the mirror of B. Rep 2: emitted by everyone, everywhere
+  (0.73-0.89 in every state), so its information is *where ants are*: a second traffic map like A. The
+  dense-start founder emitted 0.007.
+- **They lost anyway, by 1.4x to 2.2x, 15-16 of 16 seeds.** The deaf arm's evolved best does not care whether it
+  hears (471-475 hearing vs 478-497 deaf), so the gap is not deafness helping; it is what the two populations did
+  with 150 generations of search.
+- **It is not the cost of emitting.** The free best lays about twice the deaf best's scent; replayed with the bill
+  waived (new switch `PP_EMIT_FREE=1`, off = bit-identical, checked on 16 seeds), rep 1's free best stores 229 vs
+  224 and the deaf best 473. The bill is ~2% of the gap.
+- **Reading:** once nestmates read a channel, every emit mutation changes every listener's input, so the free arm's
+  selection is spent holding a convention together, and the colony comes to depend on it (deaf costs it more than it
+  ever gained). The deaf arm spends the same search on foraging. The signal is a crutch, not a tool -- the same
+  verdict as §7, now with a channel that reaches, two seeds per evaluation, a food-only score and two replicates.
+
+### 9.6 The add-on test -- failed
+
+The last open question: can a signal add on top of a colony that already forages well? Founder = rep 2's deaf best
+(478) with the new channel's emit row reset dense (`N(0, 0.05)`), free vs deaf, 16 colonies x 60 generations
+(seed 3), then each arm's g59 best on the same 16 seeds (stored food median, extinct of 16):
+
+| founder (deaf) | free best, hearing | free best, deaf | deaf best |
+|---|---|---|---|
+| 478, 0 | 410, 0 (below the founder 16/16) | 417, 0 (hearing higher 7/16) | **499**, 0 (above free 13/16) |
+
+- **No signal formed** (hearing vs deaf 7/16 at the end, and 2/4 in the last listening replays), and the free arm
+  ended **below its own founder on every seed**. The deaf arm held its level and edged up.
+- So opening a channel to a colony that already forages well cost it 13% of its food in 60 generations and bought
+  nothing. Together with 9.5 (and §7), four runs on this bed agree: under colony selection on this patch bed, a
+  signal channel that every nestmate hears is a burden on evolution, whether it ends up relied on (9.5) or not (9.6).
+
+### 9.7 Verdict
+
+- **Emergent signals: yes.** A fresh channel acquires real, information-bearing conventions within ~100
+  generations, and different runs invent different ones (a searching mark, a traffic map).
+- **Better foraging: no.** In every run the deaf control forages better (1.4-2.2x from the founder, 1.2x from an
+  evolved forager), and the gap is not the cost of emitting.
+- **For the ant line**: keep the alarm emit row frozen and the third plane on its shipped air law; the gene-chosen
+  palette stays parked. Switches stay off: `PIXEL_PHYSICS_ALARM_GROUND`, `PP_SCENT_CONST`, `PP_EMIT_FREE`.
+- **What could change this** (the conditions the rejection depends on): a bed where one ant's private knowledge is
+  worth more to nestmates than their own search (food that is rare, brief and far, so most foragers never find it
+  alone); a reader that is protected from emit mutations while a convention forms (a separate, slower-mutating
+  emitter); or selection over many more generations than 150. None of these is cheap.

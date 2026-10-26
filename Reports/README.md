@@ -6061,7 +6061,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it, food carried home falls by about 60%.
 
 - [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
-  ants evolve their own scents (owner's ask, 2026-10-25): reopened 15:00Z; B stays at 0.03, palette parked, a deleted food trail re-evolves from a dense start (§9), new-channel run in progress.** A planned
+  ants evolve their own scents (owner's ask, 2026-10-25): signals emerge but do not pay: B stays at 0.03, palette parked, emit rows stay frozen (§9.7).** A planned
   palette of fixed molecules picked by a gene is parked after
   [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
   in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
@@ -6074,7 +6074,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   control (median colony 9 vs 284), so no convention formed. Follow-ups (§9): that test could not pass (the alarm
   plane reaches ~3 cells, food 30-110 away), its reliance was real map information (constant levels kill 5-8/8),
   and the deleted B emit row is not rebuilt from zero (2/2) but is rebuilt laden-only, listened to 4/4, from a
-  dense random start in ~40 generations. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`,
+  dense random start in ~40 generations. On a fresh ground-law channel (2 x 150 generations) colonies invented real
+  signals they came to depend on (deaf/misplaced/constant cost 2-15x food), yet deaf controls foraged 1.4-2.2x better,
+  not because of the emission bill; opening the channel to a good forager cost it 13%. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`, `PP_EMIT_FREE`,
   `PIXEL_PHYSICS_A_DIFFUSE`, `PIXEL_PHYSICS_ALARM_GROUND`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
 
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
