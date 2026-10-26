@@ -3312,7 +3312,7 @@ fn lay(
             }
         }
     }
-    if def.emit_cost_in_moves <= 0.0 {
+    if def.emit_cost_in_moves <= 0.0 || options::emit_free() {
         return 0.0;
     }
     let cost = def.move_cost_per_cell * body_cells * def.emit_cost_in_moves * total;
