@@ -429,6 +429,7 @@ TOPICS = {
     ],
     "colony training in the box, and the new ant": [
         "Colony training status — the new ant in the box, and selection you can watch",
+        "Brain gate status — a scorer unit the ant's own state can switch off",
     ],
     "the held world — the third game, and time you carry": [
         "Held world status — the third game, and time you carry in a circle",

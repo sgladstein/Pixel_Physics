@@ -57,11 +57,18 @@ use std::sync::Arc;
 /// evolved dig head's slots under `PP_DIGHEAD_EVOLVE` (a later round's founders keep their heads).
 fn load_founder(p: &str) -> Vec<f32> {
     let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
-    let len = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(creature::mind::GENOME_LEN);
-    let len = if creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on() { len } else { creature::mind::GENOME_LEN };
-    let mut g = train::parse_genome(&text, len, p);
+    let saved = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok());
+    let riders = creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on();
+    let layout = train::genome_text_layout(&text, p);
+    // Read at its saved length, so a founder from before the context gates gains them at zero before its riders
+    // (`mind::enter_gate`); with no riders read, cut to the bare core.
+    let mut g = train::parse_genome(&text, saved.unwrap_or(creature::mind::GENOME_LEN), p);
+    creature::mind::enter_gate(&mut g, layout);
+    if !riders {
+        g.truncate(creature::mind::GENOME_LEN);
+    }
     // A founder saved before the last-food memory meets it at weight 0 (`mind::enter_last_food`).
-    creature::mind::enter_last_food(&mut g, train::genome_text_layout(&text, p));
+    creature::mind::enter_last_food(&mut g, layout);
     g
 }
 
@@ -69,6 +76,7 @@ fn load_founder(p: &str) -> Vec<f32> {
 fn spider_file(text: &str, name: &str) -> Vec<f32> {
     let mut g = train::parse_genome(text, creature::mind::GENOME_LEN, name);
     creature::mind::enter_last_food(&mut g, train::genome_text_layout(text, name));
+    // Its gate rows were read where a layout-5 file has none: zero, as `mind::enter_gate` would leave them.
     g
 }
 

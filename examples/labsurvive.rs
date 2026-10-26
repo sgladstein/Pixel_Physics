@@ -81,6 +81,7 @@ fn main() {
                     let p = p.split_once('@').map_or(p, |(p, _)| p);
                     let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("genome file {p}: {e}"));
                     let mut g = train::parse_genome(&text, train::genome_text_len(&text, p), p);
+                    pixel_physics::sim::creature::mind::enter_gate(&mut g, train::genome_text_layout(&text, p));
                     pixel_physics::sim::creature::mind::enter_last_food(&mut g, train::genome_text_layout(&text, p));
                     training::fit_head(&mut g);
                     train::challenges::colony_bed::mind(&g)

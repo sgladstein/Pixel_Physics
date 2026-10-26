@@ -100,6 +100,7 @@ pub fn std_pool() -> Vec<Vec<f32>> {
         g[i.parse::<usize>().expect("std_pool slot")] = w.parse().expect("std_pool value");
     }
     for g in pool.iter_mut() {
+        creature::mind::enter_gate(g, layout);
         creature::mind::enter_last_food(g, layout);
         fit_head(g);
     }
@@ -107,7 +108,8 @@ pub fn std_pool() -> Vec<Vec<f32>> {
 }
 
 /// **The layout a pool file's header names** (`pool 30 genome 3285 layout=4`, carried from its members' files by
-/// `scratch/inrun/mkpool.py`), `None` when it names none: what [`creature::mind::enter_last_food`] reads.
+/// `scratch/inrun/mkpool.py`), `None` when it names none: what [`creature::mind::enter_last_food`] and
+/// [`creature::mind::enter_gate`] read.
 fn pool_layout(head: &str) -> Option<u32> {
     head.split_whitespace().find_map(|t| t.strip_prefix("layout=")).map(|n| n.parse().expect("pool header: layout"))
 }
@@ -151,7 +153,10 @@ fn predator_pool(text: &str, species: &str) -> Vec<std::sync::Arc<creature::mind
     let mut h = head.split_whitespace();
     assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "{species} pool: {head:?}");
     let len: usize = h.next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{species} pool: genome length"));
-    assert_eq!(len, creature::mind::GENOME_LEN, "{species} pool: genome length");
+    assert!(
+        [creature::mind::GENOME_LEN, creature::mind::GENOME_LEN_V5].contains(&len),
+        "{species} pool: genome length {len}"
+    );
     let layout = pool_layout(head);
     let mut pool: Vec<Vec<f32>> = Vec::new();
     for l in lines {
@@ -164,6 +169,7 @@ fn predator_pool(text: &str, species: &str) -> Vec<std::sync::Arc<creature::mind
         g[i.parse::<usize>().expect("pool slot")] = w.parse().expect("pool value");
     }
     pool.iter_mut().for_each(|g| {
+        creature::mind::enter_gate(g, layout);
         creature::mind::enter_last_food(g, layout);
     });
     pool.iter().map(|g| crate::train::predator::mind_for(species, g)).collect()

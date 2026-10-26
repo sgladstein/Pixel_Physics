@@ -15,7 +15,7 @@ y=np.where(T>0, T-1, -1.5)   # gate = clamp(1+y,0,2): off states pushed past the
 sw=np.sqrt(W); w,*_=np.linalg.lstsq(X*sw[:,None], y*sw, rcond=None)
 g=np.clip(1+X@w,0,2)
 print("rows",len(T),"corr(gate,target) %.3f"%np.corrcoef(g,T)[0,1], "gate on off-states: mean %.3f, share >0.1: %.3f"%(g[T==0].mean(), (g[T==0]>0.1).mean()), "gate on on-states mean %.3f"%g[T>0].mean())
-U=8; base=3285
+U=8; base=2797   # layout 6: the gate rows start right after the 2,797-slot core
 with open(sys.argv[1],'w') as f:
     for i,v in enumerate(w):
         f.write(f"{base+U*35+i} {v:.6f}\n")

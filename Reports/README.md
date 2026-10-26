@@ -6198,7 +6198,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   under a hold it learns nothing. The report's plateau was its step size and its home-low comparison was circular.
   A clamp gate (not `1 + tanh`, which is illegal) reached 0.87 at a hold of 0.04 and, in four far-food worlds,
   starved 107 against the home-low instinct's 177 and colony 13's 1,107; with the gate removed the same weights kill
-  every founder. Plan: build the gate as layout 6, default on, then teach and select with it.
+  every founder. **Corrected the same evening**: on the standard 16 worlds and the lab box it starved colonies at a
+  nest with no store (no input says whether there is food at home), and blind search found it on 1 seed of 3. Plan:
+  the gate as layout 6, default on (owner approved), then a "food at home" sense before the lesson is retaught.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1

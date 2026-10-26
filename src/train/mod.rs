@@ -277,7 +277,11 @@ fn load_mind(ch: &dyn Challenge, start: &str, enter: bool) -> Vec<f32> {
 /// layout and, with `enter`, into `ch`'s rung. The bans are the caller's.
 fn mind_from_text(ch: &dyn Challenge, start: &str, text: &str, enter: bool) -> Vec<f32> {
     let len = genome_text_len(text, start);
-    let mut g = mind::pad(parse_genome(text, len, start)).unwrap_or_else(|| {
+    let layout = genome_text_layout(text, start);
+    let mut parsed = parse_genome(text, len, start);
+    // Saved before the context gates: they enter at zero (`mind::enter_gate`).
+    mind::enter_gate(&mut parsed, layout);
+    let mut g = mind::pad(parsed).unwrap_or_else(|| {
         panic!(
             "{start}: a genome of {len} slots is not a mind ({}; {} saved before the job's hidden units, {} before PR 2's features); start= blank|rest|follower|persist|forager|<mind file>",
             mind::GENOME_LEN,
@@ -288,7 +292,6 @@ fn mind_from_text(ch: &dyn Challenge, start: &str, text: &str, enter: bool) -> V
     // Saved before Pick up had its own act: once, whether it is
     // trained from or scored, so a champion runs as it was trained
     // to pick up (fix plan step 1).
-    let layout = genome_text_layout(text, start);
     match layout {
         None => {
             mind::split_pick_up(&mut g);
@@ -601,14 +604,15 @@ pub enum Start {
 
 /// Write a genome sparse: a header line, then `slot value` for every non-zero
 /// slot. A champion with forty live weights is forty lines, not 12,416. A
-/// mind's header names its layout (`genome 2797 layout=4`,
+/// mind's header names its layout (`genome 3357 layout=6`,
 /// [`mind::LAYOUT`]), so a reader knows whether it was saved before Pick up
 /// had its own act; a binary from before the mark refuses the file rather
 /// than read it as its own. **An unmarked file is read as old and converted**
 /// (review of PR 724, N3), so a mind file written by hand, or in
 /// `brainfit`'s one-per-line form, needs `layout=4` in its header or its
 /// Pick up row is overwritten by Eat's -- and `layout=5` to keep its links
-/// on the last-food slot (`mind::enter_last_food`).
+/// on the last-food slot (`mind::enter_last_food`). A file marked 5 or older
+/// gains the context gates at zero as it is read (`mind::enter_gate`).
 pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
     let mut s = if is_mind(g.len()) {
         format!("genome {} layout={}\n", g.len(), mind::LAYOUT)
@@ -2326,6 +2330,10 @@ mod tests {
     /// ([`Settings::no_prune`]): 40 children of a fixed mind genome, half its
     /// slots live, at prune 0.3 / grow 0.1, hash to the value recorded on
     /// `main` before the list existed (`fingerprint` of each child, folded).
+    /// Re-recorded at layout 6 (3,357 slots; was `0x9a95_a9d9_bd2d_24b6` at
+    /// 2,797): the gate rows lengthened the test genome, and `mutate`'s body
+    /// did not change in that commit, so the new value is the same draws over
+    /// more slots, not a moved draw.
     #[test]
     fn an_empty_no_prune_list_mutates_as_before() {
         let n = mind::GENOME_LEN;
@@ -2337,7 +2345,7 @@ mod tests {
             let c = mutate(&g, &slots, 0.03, 0.3, 0.3, 0.1, &[], &mut rng);
             h = h.rotate_left(7) ^ fingerprint(&c);
         }
-        assert_eq!(h, 0x9a95_a9d9_bd2d_24b6, "an empty list must leave every draw as it was");
+        assert_eq!(h, 0xe8df_ee07_3c06_e641, "an empty list must leave every draw as it was");
     }
 
     /// **An arena that pays for pruning two slots**: fit is minus their
