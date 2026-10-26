@@ -2079,6 +2079,39 @@ pub fn decide(
 /// How many options [`decide_planned`] lists on the stack.
 const STACK_OPTS: usize = 48;
 
+/// SCRATCH (brain-design review, 2026-10-26): inputs to one scorer unit's **context gate** -- context, memory and a
+/// bias, the per-decision row's shape ([`S_IN`]).
+pub const GATE_IN: usize = CONTEXT + MEMORY + 1;
+thread_local! {
+    /// SCRATCH (brain-design review, 2026-10-26): **an offline test of the Teacher lane's context-gated scorer units**
+    /// (`Reports/brain-training/research/brain-cannot-combine-senses-2026-10-26.md` §5), set only by
+    /// `examples/homefit.rs gate=1`; `None` everywhere else, so nothing in the game or training reads it. When set
+    /// ([`UNITS`] x [`GATE_IN`] weights), unit `u`'s option part is multiplied by `gate_u` = `clamp(1 + y, 0, 2)`
+    /// (`PP_GATE_FORM=clamp`, the default) or `1 + squash(y)` (`squash`), `y` the gate row times context, memory and
+    /// a bias: identity at all-zero weights. **Why not the report's `1 + tanh`**: no transcendental in anything a
+    /// decision reads (module doc), and `squash` keeps the slow tail that makes a gate cost big weights.
+    pub static GATE: RefCell<Option<Vec<f32>>> = const { RefCell::new(None) };
+}
+/// SCRATCH (brain-design review): `PP_GATE_FILE=path` (lines `index value` over [`UNITS`] x [`GATE_IN`]) gives every
+/// mind these gates in the world, for a world check of an offline gated fit; read when [`GATE`] is unset.
+fn gate_file() -> Option<&'static Vec<f32>> {
+    static G: std::sync::OnceLock<Option<Vec<f32>>> = std::sync::OnceLock::new();
+    G.get_or_init(|| {
+        let p = std::env::var("PP_GATE_FILE").ok()?;
+        let mut v = vec![0.0; UNITS * GATE_IN];
+        for l in std::fs::read_to_string(&p).expect("PP_GATE_FILE").lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+            let (i, w) = l.split_once(' ').expect("PP_GATE_FILE: `index value`");
+            v[i.parse::<usize>().unwrap()] = w.parse().unwrap();
+        }
+        Some(v)
+    })
+    .as_ref()
+}
+fn gate_squash() -> bool {
+    static F: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *F.get_or_init(|| std::env::var("PP_GATE_FORM").is_ok_and(|v| v == "squash"))
+}
+
 /// [`decide`] with the scorer's plan built once per genome
 /// ([`MindGenome::plan`]) rather than once a call: what [`tick`] runs.
 fn decide_planned(
@@ -2115,6 +2148,24 @@ fn decide_planned(
     let start: [[f32; UNITS]; VERBS] =
         std::array::from_fn(|v| std::array::from_fn(|k| plan.units.get(k).map_or(0.0, |&u| pre[u] + g[S_VERB + u * VERBS + v])));
     let narrow = plan.units.len() <= UNITS / 2;
+    // SCRATCH (brain-design review): each lane's context gate ([`GATE`]), once a decision; `None` in the game.
+    let gates: Option<[f32; UNITS]> = GATE.with(|gt| {
+        gt.borrow().as_ref().or(gate_file()).map(|gw| {
+            std::array::from_fn(|k| {
+                plan.units.get(k).map_or(1.0, |&u| {
+                    let row = &gw[u * GATE_IN..(u + 1) * GATE_IN];
+                    let mut y = row[GATE_IN - 1];
+                    for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+                        y += w * x;
+                    }
+                    for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(&state.mem) {
+                        y += w * x;
+                    }
+                    if gate_squash() { 1.0 + squash(y) } else { (1.0 + y).clamp(0.0, 2.0) }
+                })
+            })
+        })
+    });
     for (o, opt) in opts.iter().enumerate() {
         if !on(opt.verb) {
             continue;
@@ -2123,7 +2174,10 @@ fn decide_planned(
         debug_assert!(opt.feats.iter().all(|x| x.is_finite()), "a feature that is not finite: {:?}", opt.verb);
         // Every unit's sum at once, each over its terms in their order
         // ([`ScorerPlan`]).
-        let z = if narrow {
+        let z = if let Some(gk) = &gates {
+            let f = score_lanes::<UNITS>(&[0.0; UNITS], &plan.feats, &opt.feats);
+            std::array::from_fn(|k| start[v][k] + gk[k] * f[k])
+        } else if narrow {
             score_lanes::<{ UNITS / 2 }>(&start[v], &plan.feats, &opt.feats)
         } else {
             score_lanes::<UNITS>(&start[v], &plan.feats, &opt.feats)
