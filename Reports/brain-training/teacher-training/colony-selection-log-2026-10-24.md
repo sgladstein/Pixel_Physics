@@ -515,3 +515,36 @@ https://claude.ai/artifact/Y2ERy6mXkeZYxZ7sg5KDYY.
 nest4 arms' shape with the teacher weaned instead (`wean=8:40` now also rewrites `PP_CARRY`, the teacher's share; the
 garden runs it at 0 and the lab strips it): `hctl` (no teacher), `hwean`, `hweanrules` (+ the old roof and room rules
 on the same schedule). Judged with the teacher off.
+
+**nest7** (48 rounds, far moving food; replays https://claude.ai/artifact/Q7w3bV8voybduVpourMBLF). Garden medians at
+r47, missing colonies counted as dead:
+
+| arm | alive | starved | nest | crater | colonies dead |
+|---|---|---|---|---|---|
+| `hctl` | 58 | 241 | 93 | 12 | 12 |
+| `hwean` (teacher weaned r8-r40) | 0 | 218 | 108 | 15 | 19 |
+| `hweanrules` (+ old rules weaned) | 66.5 | 289 | 617 | 138 | 4 |
+
+**The weaned teacher did not stick**: once it was off, colonies starved as the control's did and more died out.
+Selection has nothing to pick between: the walk scores are saturated (above), so a small change in how the brain
+weighs home changes almost no choice. The habit has to be written into the weights (a copy), not selected for.
+**The rules arm grew nests round after round** (garden nest 199 at r7 to 617 at r47), most of them cratered. Its
+colony 13 is the exception: world 13099, 85 alive, 162 starved, nest 947 cells of which 386 open, crater 17, open
+rooms score 29 (hand-built ant there: 86, 1, 1,085 open, crater 1, 80).
+
+## 2026-10-26: colony 13 becomes the standard ant
+
+Paired against the previous pool (price25b colony 10) on 8 fresh worlds (1007-8007), food far and moving,
+everything off:
+
+| | alive | starved | food home | nest | open | crater | rooms (open) |
+|---|---|---|---|---|---|---|---|
+| colony 13, median | 71.5 | 240 | 4,112 | 821 | 398 | 23 | 32.5 |
+| previous pool, median | 10 | 428 | 5,790 | 194 | 16.5 | 29 | 0 |
+| colony 13 higher in | 7/8 | 2/8 | 2/8 | 8/8 | 8/8 | 5/8 | 8/8 |
+
+Lab boxes (labsurvive after=15000, seeds 1-4, mean headcount): far mix 102 vs 128 (worse), fruit 200 69 vs 62, herbs
+12.8 vs 15.9. It is the first trained pool with a real open nest and rooms with every crutch off, and it keeps
+colonies alive on far moving food; it carries less food home and is a fifth worse in the far-mix box.
+`assets/minds/std_pool.txt` is now its carry (`mkpool.py`). **Next, nest8:** from this pool, no scaffold against the
+old rules weaned again r8-r40, with and without `shapeopen=1`.
