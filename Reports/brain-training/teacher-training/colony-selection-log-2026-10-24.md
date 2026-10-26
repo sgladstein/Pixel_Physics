@@ -636,3 +636,26 @@ far mix 110 vs 102, fruit 70 vs 69, herbs 18 vs 13. World 13099 (colony 13's own
 sense, not yet traced. Pool: `assets/minds/homelow_pool.txt`. Replays:
 https://claude.ai/artifact/JA6kxgzwxmxy4EoaEqir5B. **Next, nest10** (`jobs/nest10.txt`): nest training from that
 pool with the sense on.
+
+## 2026-10-26: nest batch 10, the come-home habit survives selection
+
+nest10 from `homelow_pool` with the sense on (`PP_LASTFOOD=off PP_HOMELOW=0.006 PP_HOMELOW_STORE=1`), 48 rounds:
+`hlctl` (control), `hlshape` (+`shapeopen=1`), `hlrulesrooms` (old rules weaned + open-room shape). Garden r47
+(medians): control 80 alive, **41 starved** (nest8's control from colony 13: 311), nest 757, crater 38; shape 78, 56,
+683, 45; rules+rooms 79, 72, 437, **183**. The habit held in every round (garden starved 32-77 in the two plain arms).
+The four best colonies by open room, 16 worlds against the starting pool:
+
+| colony | alive | starved | food home | open nest | crater | rooms (open) |
+|---|---|---|---|---|---|---|
+| homelow_pool | 79 | 43.5 | 4,944 | 392 | 9 | 32 |
+| hlctl c10 | 77.5 | 41 | 5,071 | 439 | 32 | 40 |
+| hlctl c2 | 84.5 | 41 | 5,043 | 452 | 44 | 32 |
+| hlshape c31 | 78 | 58.5 | 4,166 | 523 (9/16 higher) | 32 | 30.5 |
+| hlshape c18 | 78 | 55 | 4,310 | 462 | 67 | 55.8 |
+
+None beats the start clearly, so it stays the founder. Selection keeps the habit but does not grow the nest:
+48 rounds moved open room by at most a third, and the hand-built ant keeps 1,000-1,400. The dig thread's finding
+(the old ant's labels: *which* cell is worth ~nothing, the gain is *when* to dig) suggests the same cure as the come-
+home lesson, a "nest too small for the colony" sense read by the Dig job; it needs a slot (no free option feature
+or context input remains), so it waits on the layout decision. Replays:
+https://claude.ai/artifact/8bfwRq2tQWYEiZnBmS6ZS5.
