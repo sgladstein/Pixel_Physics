@@ -686,6 +686,11 @@ pub fn home_low() -> Option<f32> {
 }
 
 /// `PP_HOMELOW_STORE=1`: the "home, when low" sense reads 0 while no nest store holds food.
+pub fn soil_way() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PP_SOILWAY").is_ok_and(|v| v == "1"))
+}
+
 pub fn home_low_store() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PP_HOMELOW_STORE").is_ok_and(|v| v == "1"))
@@ -1100,6 +1105,20 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
             let way = (nx - head.0).signum();
             for o in out.iter_mut().filter(|o| o.verb == Verb::Walk) {
                 o.feats[f::BUILDING] = ((o.target.0 - head.0).signum() * way) as f32 * low;
+            }
+        }
+    }
+    // SCRATCH (teacher lane, 2026-10-26): `PP_SOILWAY=1` (with `PP_HOMELOW`) writes the same slot for an ant carrying a
+    // soil pellet inside a nest: +1 on a step that brings it nearer the door along the nest's own way
+    // (`NestWay::at`) or out of the nest, -1 on one that takes it deeper, 0 level. **Why the home-low slot**: both
+    // say "this step heads home, and it matters now", so the 16 weights fitted for home-low are a hauler's too.
+    // Underground, half the trained ant's decisions are a pellet carrier's, a third of whose steps go deeper (world
+    // 13007): hauling, not the choice to dig, holds the nest to ~1,000 cuts (a Dig-job push from 2% to 30% of
+    // chances added 7% cuts).
+    if home_low().is_some() && soil_way() && world.organism(organism).is_some_and(|s| s.spoil.as_ref().is_some_and(|p| !p.store)) {
+        if let Some((way, here)) = world.nest_ways.iter().find_map(|w| w.at(head.0, head.1).map(|d| (w, d))) {
+            for o in out.iter_mut().filter(|o| o.verb == Verb::Walk) {
+                o.feats[f::BUILDING] = way.at(o.target.0, o.target.1).map_or(1.0, |d| (i32::from(here) - i32::from(d)).signum() as f32);
             }
         }
     }
