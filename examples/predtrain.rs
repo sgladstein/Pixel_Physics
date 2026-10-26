@@ -14,7 +14,7 @@
 //! cargo run --release --example predtrain -- out=DIR [seed=1] [rounds=6] [frames=100000] [preds=12] [ants=30]
 //!     [sel=score|random|off] [judge=1000] [min_age=6000] [turn=20000] [keep=8] [grants=1] [kid_grants=1]
 //!     [kpm=0.03] [ksigma=1] [kevents=10] [start_events=20] [founder=PATH|hunter] [pool=DIR] [lo=6] [hi=16] [cooldown=4000]
-//!     [frames_out=0] [step=game|harness] [species=spider|centipede] [warm=0] [far=30] [credit=swallow|digest]
+//!     [frames_out=0] [step=game|harness] [species=spider|centipede] [warm=0] [far=30] [credit=swallow|digest] [nestpay=0]
 //!
 //! Sets `PIXEL_PHYSICS_MIND_ATTACK=on` itself (the Attack act, `creature::options::attack_on`).
 //!
@@ -172,6 +172,13 @@ struct Cfg {
     /// `credit=swallow|digest`: what pays a predator. Default `digest` for a species that can put food down (the
     /// raider), `swallow` for the spider, as stage one scored it.
     by_digest: bool,
+    /// `nestpay=K`: an ant killed under the ground (in the nest) pays the predator whose head is nearest it, within 6
+    /// cells, K ant cells' worth on top of what it digests (default 0). Credit is food, and the food walks past the
+    /// door: the shipped raider pool made its living at the far wall of a lab box and never went in (nest raider
+    /// thread, 2026-10-26). **Not paid on bites**: `life.bites` counts every pickup into the crop, so a crop cell put
+    /// down and picked up again underground is a "bite in the nest" -- the first cut paid on it and a 16-round batch
+    /// logged 42,000 bites (6,900 in the nest) against 350 ants killed. A death is the one thing a raider cannot repeat.
+    nestpay: f64,
     game: bool,
     /// `gif=R:START:END:EVERY` -- round R's frames START..END, one picture every EVERY frames, into rR/round.gif.
     gif: Option<(usize, u64, u64, u64)>,
@@ -264,6 +271,9 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     let mut kills_seen: Vec<(u64, (i32, i32))> = Vec::new();
     let mut last_at: BTreeMap<OrganismId, (i32, i32)> = BTreeMap::new();
     let (mut deaths_killed, mut deaths_in_nest) = (0u64, 0u64);
+    // `nestpay=`: the in-nest kills a predator was paid for.
+    let mut nest_paid = 0u64;
+    let ant_cell = w.materials.get(w.materials.id_of("ant").expect("ant material")).food_energy as f64 / 100.0;
     let ants_killed0 = w.minds.as_ref().map_or(0, |m| m.counts.kills);
     for fr in 1..=cfg.frames {
         w.cut_log.get_or_insert_with(Vec::new).clear();
@@ -310,6 +320,16 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
                     deaths_killed += 1;
                     if at.1 > predator::surface(&w, at.0) {
                         deaths_in_nest += 1;
+                        // The killer is not booked anywhere, so the nearest predator head pays for it.
+                        let near = book
+                            .keys()
+                            .filter_map(|&id| w.organism(id).and_then(|s| s.chain.first()).map(|&(hx, hy)| ((hx - at.0).abs().max((hy - at.1).abs()), id)))
+                            .filter(|&(d, _)| d <= 6)
+                            .min();
+                        if let Some(b) = near.and_then(|(_, id)| book.get_mut(&id)) {
+                            b.credit += cfg.nestpay * ant_cell;
+                            nest_paid += 1;
+                        }
                     }
                 }
             }
@@ -472,7 +492,7 @@ fn run_round(r: usize, founders: &[Founder], cfg: &Cfg, dir: &std::path::Path) -
     let m = w.minds.as_ref().map(|m| m.counts).unwrap_or_default();
     let mean_links = if pool.is_empty() { 0.0 } else { pool.iter().map(|(_, b)| b.genome[mind::FIRST_LINK..].iter().filter(|v| **v != 0.0).count() as f64).sum::<f64>() / pool.len() as f64 };
     let line = format!(
-        "round {r} seed {seed}: spiders alive {} births {births} culls {culls} starved {starved} | ants killed {} flesh cells {} corpse cells {} | ants alive {} refills {ant_refills} | pool best {:.3} mean {:.3} links {mean_links:.0} | bites {} | ant deaths killed {deaths_killed}, in the nest {deaths_in_nest}",
+        "round {r} seed {seed}: spiders alive {} births {births} culls {culls} starved {starved} | ants killed {} flesh cells {} corpse cells {} | ants alive {} refills {ant_refills} | pool best {:.3} mean {:.3} links {mean_links:.0} | bites {} | ant deaths killed {deaths_killed}, in the nest {deaths_in_nest} | nest kills paid {nest_paid}",
         book.len(),
         m.kills - ants_killed0,
         m.flesh,
@@ -499,7 +519,7 @@ fn main() {
     creature::mutation_off_for_measuring();
     let a: Vec<String> = std::env::args().skip(1).collect();
     let known = [
-        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool", "species", "warm", "far", "credit",
+        "seed", "rounds", "frames", "preds", "ants", "sel", "judge", "min_age", "turn", "keep", "grants", "kid_grants", "kpm", "ksigma", "kevents", "start_events", "founder", "lo", "hi", "cooldown", "out", "frames_out", "step", "gif", "crop", "scale", "pool", "species", "warm", "far", "credit", "nestpay",
     ];
     for x in &a {
         let k = x.split('=').next().unwrap_or("");
@@ -533,6 +553,7 @@ fn main() {
         frames_out: num("frames_out", 0.0) as u64,
         warm: num("warm", 0.0) as u64,
         far: num("far", 30.0) as i32,
+        nestpay: num("nestpay", 0.0),
         by_digest: match arg(&a, "credit") {
             Some("digest") => true,
             Some("swallow") => false,
