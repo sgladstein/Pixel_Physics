@@ -1727,10 +1727,11 @@ Read once per process from the environment. The default is what ships.
      a floor of 0.05 on scores shifted to 0..1. Then its 12 memory units
      update (`mind::remembered`) from the context, the best and mean score
      over every option, the verb chosen, the memory before, and -- since
-     layout 7, 2026-10-26 -- **what each verb could reach**: `(best + 1) /
-     2` of that verb's best target, 0 when it has none (`mind::reach`,
-     `mind::REACH_MEM`), so a unit can latch "there was food to take
-     here". The gates read the same per-verb reach from the decision
+     layout 7, 2026-10-26 -- **what each verb could reach**: 0 when the
+     verb has no target, else 0.25 plus up to 0.75 by its best target's
+     score (`mind::reach`, `mind::REACH_FLOOR`, `mind::REACH_MEM`), so a
+     unit can latch "there was food to take here" -- `PickUp`'s, since
+     `Eat`'s only target is the ant's own crop. The gates read the same per-verb reach from the decision
      before (`MindState::reach`, `mind::REACH_GATE`). Older pools enter
      both rows at zero and decide bit for bit as before; open to mutation
      unless `PP_REACH=off`.

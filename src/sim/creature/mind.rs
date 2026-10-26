@@ -292,8 +292,8 @@ const GATE: usize = HID_OUT + VERBS * HIDDEN;
 /// A gate row's inputs: context, memory and a bias, the per-decision row's shape ([`S_IN`]).
 pub const GATE_IN: usize = CONTEXT + MEMORY + 1;
 /// **What each verb could reach, into memory** (layout 7, owner 2026-10-26 22:20Z): one row per memory unit, one
-/// weight per verb, over this decision's [`reach`] -- `(best + 1) / 2` of the verb's best-scoring target, 0 when it
-/// has none. **Why**: memory read the context, the best and mean score over *every* option and the verb just chosen,
+/// weight per verb, over this decision's [`reach`] -- 0.25 for having a target at all, plus up to 0.75 by how well
+/// its best target scores; 0 when it has none. **Why**: memory read the context, the best and mean score over *every* option and the verb just chosen,
 /// and nothing per verb, so "there was food to take at home" was not something it could hold. The come-home lesson
 /// copied into a gated unit starved every far lab box at the door (hungry ants ran home to an empty nest), and the
 /// owner ruled against a hand-made "food at home" sense in favour of the general one: the brain already scores what
@@ -2239,13 +2239,20 @@ pub fn reach_on() -> bool {
     *ON.get_or_init(|| !std::env::var("PP_REACH").is_ok_and(|v| v == "off" || v == "0"))
 }
 
-/// **What each verb could reach this decision** ([`REACH_MEM`]): its best target's score moved onto 0..1,
-/// `(best + 1) / 2`, and 0 for a verb with no target (or one switched off). **Why that scale**: a verb with nothing to do and
-/// one whose every target scores -1 both read 0, so "is there something here worth doing" is one number, and a
-/// weight on it adds nothing for a verb that is absent.
+/// **What each verb could reach this decision** ([`REACH_MEM`]): 0 for a verb with no target (or one switched off),
+/// and for one with a target `REACH_FLOOR + (1 - REACH_FLOOR) * (best + 1) / 2`, 0.25 to 1 by its best target's score.
+/// **Why a floor** (Teacher lane, 2026-10-26, from colony 13's home-low copy log, world 13007, 10.6k decisions at the
+/// nest): `best[PickUp]` at the nest is bimodal (q10 -0.987, median 0.96), and 28% of the at-nest decisions that had
+/// food in reach scored it near -1 -- almost all fed ants. Without a floor those read as an empty larder, so a fed
+/// ant's one look at a full store would teach its memory "nothing at home". With it, "there is something here" and
+/// "it is worth doing now" are both on one number: present is never under 0.25, absent is exactly 0. A weight on an
+/// absent verb adds nothing. (`Eat`'s only target is the ant's own crop and scores 0, so its reach says "I am carrying
+/// food", not "food is here": the larder is `PickUp`'s.)
 fn reach(best: &[f32; VERBS]) -> [f32; VERBS] {
-    std::array::from_fn(|v| if best[v] == f32::NEG_INFINITY { 0.0 } else { (best[v] + 1.0) / 2.0 })
+    std::array::from_fn(|v| if best[v] == f32::NEG_INFINITY { 0.0 } else { REACH_FLOOR + (1.0 - REACH_FLOOR) * (best[v] + 1.0) / 2.0 })
 }
+/// What a verb with any target reaches at the least ([`reach`]).
+pub const REACH_FLOOR: f32 = 0.25;
 
 /// **Scorer unit `u`'s gate for one decision** ([`GATE`]): `clamp(1 + y, 0, 2)`, `y` its row over this decision's
 /// context, memory and bias, summed in that order, and its reach row over the last decision's [`reach`]
@@ -3973,7 +3980,7 @@ mod tests {
 
     /// **Layout 7: what each verb could reach, into memory and the gates** ([`REACH_MEM`], [`REACH_GATE`]). A layout-6
     /// file gains both blocks at zero between its core and its riders, marked or (bare) unmarked, and one marked 7 at
-    /// a layout-6 length is refused. Then the inputs: memory reads this decision's reach -- `(best + 1) / 2`, 0 for a
+    /// a layout-6 length is refused. Then the inputs: memory reads this decision's reach -- 0.25 to 1 by best target, 0 for a
     /// verb with no target -- and the gate the last decision's, so the first decision of a fresh ant scores as if the
     /// row were empty and the second does not (the positive controls).
     #[test]
@@ -4004,8 +4011,10 @@ mod tests {
         };
         let mut state = MindState::default();
         let d = run(&g, &mut state);
-        assert_eq!(state.reach[Verb::Walk as usize], (d.scores[0].max(d.scores[1]) + 1.0) / 2.0, "its best target, on 0..1");
-        assert_eq!(state.reach[Verb::Rest as usize], (d.scores[3] + 1.0) / 2.0);
+        let on = |s: f32| REACH_FLOOR + (1.0 - REACH_FLOOR) * (s + 1.0) / 2.0;
+        assert_eq!(state.reach[Verb::Walk as usize], on(d.scores[0].max(d.scores[1])), "its best target, over the floor");
+        assert_eq!(state.reach[Verb::Rest as usize], on(d.scores[3]));
+        assert_eq!(reach(&std::array::from_fn(|v| if v == 0 { -1.0 } else { f32::NEG_INFINITY }))[0], REACH_FLOOR, "a target scored -1 is still there");
         assert_eq!(state.reach[Verb::TurnAround as usize], 0.0, "a verb switched off reaches nothing");
         assert_eq!(state.reach[Verb::Dig as usize], 0.0, "nor does one with no target");
         // Memory: unit 3 weighs what Walk could reach.

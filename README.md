@@ -11422,8 +11422,11 @@ did -- which is what layout 7 changes, below. Python copiers that assert
 **Layout 7: memory sees what each action could reach** (owner,
 2026-10-26 22:20Z, in preference to a hand-made "food at home" sense).
 Every memory unit gains one weight per verb on that verb's reach this
-decision, `(best + 1) / 2` of its best-scoring target and 0 when it has
-none (`mind::REACH_MEM`, `mind::reach_mem_row`); every scorer unit's gate
+decision: 0 when it has no target, else 0.25 plus up to 0.75 by how well
+its best target scores (`mind::reach`, `mind::REACH_FLOOR`; the floor so
+a fed ant that scores a full larder "no" does not read it as empty, from
+the Teacher lane's copy log), via `mind::REACH_MEM` and
+`mind::reach_mem_row`; every scorer unit's gate
 gains the same row over the *last* decision's reach (`mind::REACH_GATE`,
 `MindState::reach`), because this decision's best targets are scored by
 the units the gate scales. 108 + 144 slots after the gates: `GENOME_LEN`
