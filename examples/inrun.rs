@@ -60,7 +60,7 @@ fn load_founder(p: &str) -> Vec<f32> {
     let saved = text.strip_prefix("genome ").and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok());
     let riders = creature::mind::scratch_log::head_evolve().is_some() || creature::mind::laygene_on();
     let layout = train::genome_text_layout(&text, p);
-    // Read at its saved length, so a founder from before the context gates gains them at zero before its riders
+    // Read at its saved length, so a founder from before the context gates or the reach rows gains them at zero before its riders
     // (`mind::enter_gate`); with no riders read, cut to the bare core.
     let mut g = train::parse_genome(&text, saved.unwrap_or(creature::mind::GENOME_LEN), p);
     creature::mind::enter_gate(&mut g, layout);
@@ -76,7 +76,7 @@ fn load_founder(p: &str) -> Vec<f32> {
 fn spider_file(text: &str, name: &str) -> Vec<f32> {
     let mut g = train::parse_genome(text, creature::mind::GENOME_LEN, name);
     creature::mind::enter_last_food(&mut g, train::genome_text_layout(text, name));
-    // Its gate rows were read where a layout-5 file has none: zero, as `mind::enter_gate` would leave them.
+    // Its gate and reach rows were read where an older file has none: zero, as `mind::enter_gate` would leave them.
     g
 }
 

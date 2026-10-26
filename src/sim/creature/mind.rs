@@ -184,7 +184,8 @@ pub fn scorer_unit(slot: usize) -> Option<usize> {
         s if (S_CTX..S_FEAT).contains(&s) => Some((s - S_CTX) / S_IN),
         s if (S_FEAT..S_VERB).contains(&s) => Some((s - S_FEAT) / FEATURES),
         s if (S_VERB..S_OUT).contains(&s) => Some((s - S_VERB) / VERBS),
-        s if (GATE..GENOME_LEN).contains(&s) => Some((s - GATE) / GATE_IN),
+        s if (GATE..REACH_MEM).contains(&s) => Some((s - GATE) / GATE_IN),
+        s if (REACH_GATE..GENOME_LEN).contains(&s) => Some((s - REACH_GATE) / VERBS),
         _ => None,
     }
 }
@@ -192,6 +193,16 @@ pub fn scorer_unit(slot: usize) -> Option<usize> {
 pub fn gate_row(u: usize) -> std::ops::Range<usize> {
     assert!(u < UNITS, "scorer unit {u}: there are {UNITS}");
     GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN
+}
+/// Memory unit `m`'s weights on what each verb could reach ([`REACH_MEM`]), in verb order.
+pub fn reach_mem_row(m: usize) -> std::ops::Range<usize> {
+    assert!(m < MEMORY, "memory unit {m}: there are {MEMORY}");
+    REACH_MEM + m * VERBS..REACH_MEM + (m + 1) * VERBS
+}
+/// Scorer unit `u`'s gate weights on what each verb could reach at the last decision ([`REACH_GATE`]), in verb order.
+pub fn reach_gate_row(u: usize) -> std::ops::Range<usize> {
+    assert!(u < UNITS, "scorer unit {u}: there are {UNITS}");
+    REACH_GATE + u * VERBS..REACH_GATE + (u + 1) * VERBS
 }
 /// The output weight of scorer unit `u` ([`scorer_unit`]).
 pub fn scorer_output(u: usize) -> usize {
@@ -280,10 +291,26 @@ const HID_OUT: usize = HID + HIDDEN * H_IN;
 const GATE: usize = HID_OUT + VERBS * HIDDEN;
 /// A gate row's inputs: context, memory and a bias, the per-decision row's shape ([`S_IN`]).
 pub const GATE_IN: usize = CONTEXT + MEMORY + 1;
+/// **What each verb could reach, into memory** (layout 7, owner 2026-10-26 22:20Z): one row per memory unit, one
+/// weight per verb, over this decision's [`reach`] -- 0.25 for having a target at all, plus up to 0.75 by how well
+/// its best target scores; 0 when it has none. **Why**: memory read the context, the best and mean score over *every* option and the verb just chosen,
+/// and nothing per verb, so "there was food to take at home" was not something it could hold. The come-home lesson
+/// copied into a gated unit starved every far lab box at the door (hungry ants ran home to an empty nest), and the
+/// owner ruled against a hand-made "food at home" sense in favour of the general one: the brain already scores what
+/// each verb could do, and memory may now keep it. Added only where a weight is not zero, so every genome saved
+/// before it remembers bit for bit as it did.
+const REACH_MEM: usize = GATE + UNITS * GATE_IN;
+/// **...and into each scorer unit's gate** ([`GATE`]): one row per unit, one weight per verb, over the [`reach`] of the
+/// ant's *previous* decision (`MindState::reach`). The last one, because this decision's best targets are scored by
+/// the very units the gate scales -- a gate reading them would be a loop; memory, which updates after the pick, reads
+/// this decision's.
+const REACH_GATE: usize = REACH_MEM + MEMORY * VERBS;
 /// The whole genome.
-pub const GENOME_LEN: usize = GATE + UNITS * GATE_IN;
+pub const GENOME_LEN: usize = REACH_GATE + UNITS * VERBS;
 /// **A genome saved before the context gates** (layouts 4-5; 2,797 slots): today's, cut short at [`GATE`].
 pub const GENOME_LEN_V5: usize = GATE;
+/// **A genome saved before the reach rows** (layout 6; 3,357 slots): today's, cut short at [`REACH_MEM`].
+pub const GENOME_LEN_V6: usize = REACH_MEM;
 /// **Features per option before `f::LINED` and `f::ROOF_DROP`** (PR 2).
 const FEATURES_V2: usize = 43;
 /// **Context inputs before `c::ROOF_CUT` and `c::HOLE_DROP`** (PR 2).
@@ -347,7 +374,7 @@ pub struct MindGenome {
 
 impl MindGenome {
     pub fn new(mut w: Vec<f32>) -> MindGenome {
-        // A genome from before the context gates gains them at zero ([`enter_gate`]), riders kept.
+        // A genome from before the context gates or the reach rows gains them at zero ([`enter_gate`]), riders kept.
         enter_gate(&mut w, None);
         // SCRATCH (brood lane): an evolvable lay gate rides last (`PP_LAYGENE`), so it comes off before the head.
         let hl = scratch_log::head_evolve().unwrap_or(0);
@@ -459,7 +486,7 @@ impl ScorerPlan {
 
 /// Whether scorer unit `u` has a gate weight that is not zero ([`GATE`]).
 fn gated(g: &[f32], u: usize) -> bool {
-    g[GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN].iter().any(|&w| w != 0.0)
+    g[gate_row(u)].iter().chain(&g[reach_gate_row(u)]).any(|&w| w != 0.0)
 }
 
 /// The first `N` lanes' sums for one option: each lane from its `start`,
@@ -505,7 +532,7 @@ fn score_lanes<const N: usize>(start: &[f32; UNITS], feats: &[(usize, [f32; UNIT
 pub fn pad(mut g: Vec<f32>) -> Option<Vec<f32>> {
     match g.len() {
         GENOME_LEN => Some(g),
-        GENOME_LEN_V5 => {
+        GENOME_LEN_V5 | GENOME_LEN_V6 => {
             enter_gate(&mut g, None);
             Some(g)
         }
@@ -595,29 +622,46 @@ fn newly_live() -> Vec<usize> {
 /// the job head's hidden units, so the core grows from [`GENOME_LEN_V5`] to [`GENOME_LEN`] and every rider (the dig
 /// head, the lay gate) moves along by that much. A file marked 5 or older, or unmarked, gains them at zero as it is
 /// read ([`enter_gate`]), which scores exactly as it did.
-pub const LAYOUT: u32 = 6;
+///
+/// **Layout 7** (2026-10-26) appends what each verb could reach, into memory ([`REACH_MEM`]) and into the gates
+/// ([`REACH_GATE`]): [`MEMORY`] x [`VERBS`] and [`UNITS`] x [`VERBS`] slots after the gates, the core growing from
+/// [`GENOME_LEN_V6`] to [`GENOME_LEN`]. A file marked 6 or older, or unmarked, gains them at zero ([`enter_gate`]).
+pub const LAYOUT: u32 = 7;
 
-/// **A genome saved before the context gates, in today's layout** ([`GATE`]): its [`GENOME_LEN_V5`] core gains the
-/// gate rows at zero, inserted before any rider (the dig head, the lay gate), so every slot keeps its meaning and it
-/// scores exactly as it did; `true` when it did. Old or new is told by `layout` where the file names one (older than
-/// 6 is old) and by length where it does not: every layout-5 length, riders included (at most [`GENOME_LEN_V5`] plus
-/// a 482-slot head and the [`LAY_LEN`] gate), is shorter than today's bare core, so a length in
-/// `GENOME_LEN_V5..GENOME_LEN` is old and nothing else is. A V1 or V2 genome is [`pad`]'s, not this.
+/// **A genome saved before the context gates or the reach rows, in today's layout** ([`GATE`], [`REACH_MEM`]): its
+/// core gains every block appended since, at zero, inserted before any rider (the dig head, the lay gate), so every
+/// slot keeps its meaning and it scores exactly as it did; `true` when it did. Old or new is told by `layout` where
+/// the file names one (5 or older gains both, 6 the reach rows) and by length where it does not: every layout-5
+/// length, riders included (at most [`GENOME_LEN_V5`] plus a 482-slot head and the [`LAY_LEN`] gate), is shorter than
+/// a layout-6 bare core, so `GENOME_LEN_V5..GENOME_LEN_V6` is layout 5; and a length in `GENOME_LEN_V6..GENOME_LEN`
+/// is layout 6 (bare, or with the lay gate). **An unmarked layout-6 genome with a dig head is not told apart** from
+/// a layout-7 one by length (3,839-3,845 against 3,609-4,097): every file `train::save_genome` writes is marked, so
+/// it reaches here unmarked only from code that built it, which builds today's. A V1 or V2 genome is [`pad`]'s.
 /// **Every reader of a saved mind calls this before it splits the riders off** (`train::load_mind`, the lab's pools,
 /// `inrun`'s founders, `labsurvive`), and [`MindGenome::new`] calls it on anything it is handed, so an example that
 /// builds a mind straight from an old file runs it as saved.
 pub fn enter_gate(g: &mut Vec<f32>, layout: Option<u32>) -> bool {
-    let old_len = (GENOME_LEN_V5..GENOME_LEN).contains(&g.len());
-    match layout {
-        Some(l) if l >= 6 => {
-            assert!(!old_len, "a genome marked layout {l} is {} slots, shorter than this layout's core {GENOME_LEN}", g.len());
-            false
+    let n = g.len();
+    // The core length the genome was saved with, where it is older than today's.
+    let saved = match layout {
+        Some(l) if l >= 7 => {
+            assert!(n >= GENOME_LEN, "a genome marked layout {l} is {n} slots, shorter than this layout's core {GENOME_LEN}");
+            None
         }
-        _ if old_len => {
-            g.splice(GENOME_LEN_V5..GENOME_LEN_V5, std::iter::repeat_n(0.0, GENOME_LEN - GENOME_LEN_V5));
+        Some(6) => {
+            assert!(n >= GENOME_LEN_V6, "a genome marked layout 6 is {n} slots, shorter than that layout's core {GENOME_LEN_V6}");
+            Some(GENOME_LEN_V6)
+        }
+        _ if (GENOME_LEN_V5..GENOME_LEN_V6).contains(&n) => Some(GENOME_LEN_V5),
+        None if (GENOME_LEN_V6..GENOME_LEN).contains(&n) => Some(GENOME_LEN_V6),
+        _ => None,
+    };
+    match saved {
+        Some(at) => {
+            g.splice(at..at, std::iter::repeat_n(0.0, GENOME_LEN - at));
             true
         }
-        _ => false,
+        None => false,
     }
 }
 
@@ -691,6 +735,9 @@ fn verb_links(v: Verb) -> Vec<std::ops::Range<usize>> {
         let k = MEM + m * M_IN + CONTEXT + 2 + v;
         k..k + 1
     }));
+    // What the verb could reach, into memory and the gates: 0 while it has no target.
+    out.extend((0..MEMORY).map(|m| REACH_MEM + m * VERBS + v..REACH_MEM + m * VERBS + v + 1));
+    out.extend((0..UNITS).map(|u| REACH_GATE + u * VERBS + v..REACH_GATE + u * VERBS + v + 1));
     out
 }
 
@@ -706,14 +753,17 @@ pub fn blank(verbs: &[Verb]) -> Vec<f32> {
 
 /// **The slots the rig may move**: every weight but the switches of verbs
 /// the arena does not allow (held off) and the rows of scents it bans (held
-/// at 0), and the context gates under `PP_GATE=off` ([`gate_on`]). A switch
+/// at 0), the context gates under `PP_GATE=off` ([`gate_on`]) and the reach rows under `PP_REACH=off` ([`reach_on`];
+/// the gates' reach rows under either). A switch
 /// the arena allows is trainable: mutation can turn a verb off, and back on.
 pub fn trainable(verbs: &[Verb], emits: [bool; EMITS]) -> Vec<usize> {
     (0..GENOME_LEN)
         .filter(|&i| match i {
             i if i < SHARP => verbs.contains(&Verb::ALL[i - SWITCH]),
             i if (EMIT..HID).contains(&i) => emits[(i - EMIT) / E_IN],
-            i if i >= GATE => gate_on(),
+            i if (GATE..REACH_MEM).contains(&i) => gate_on(),
+            i if (REACH_MEM..REACH_GATE).contains(&i) => reach_on(),
+            i if i >= REACH_GATE => gate_on() && reach_on(),
             _ => true,
         })
         .collect()
@@ -722,7 +772,8 @@ pub fn trainable(verbs: &[Verb], emits: [bool; EMITS]) -> Vec<usize> {
 /// **Every slot that serves verb `v` alone**: its switch, its job row
 /// (context, memory, best target, constant), its row from the hidden units,
 /// each scorer unit's weight on it, and each memory unit's weight on "this
-/// verb was just chosen". Nothing else reads them, so in a world where `v`
+/// verb was just chosen" and on what the verb could reach (memory's and the gates').
+/// Nothing else reads them, so in a world where `v`
 /// never has a target they cannot change a single decision.
 pub fn verb_slots(v: Verb) -> Vec<usize> {
     let v = v as usize;
@@ -731,6 +782,8 @@ pub fn verb_slots(v: Verb) -> Vec<usize> {
     out.extend(HID_OUT + v * HIDDEN..HID_OUT + (v + 1) * HIDDEN);
     out.extend((0..UNITS).map(|u| S_VERB + u * VERBS + v));
     out.extend((0..MEMORY).map(|m| MEM + m * M_IN + CONTEXT + 2 + v));
+    out.extend((0..MEMORY).map(|m| REACH_MEM + m * VERBS + v));
+    out.extend((0..UNITS).map(|u| REACH_GATE + u * VERBS + v));
     out
 }
 
@@ -1204,7 +1257,8 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
         let fan_in = (S_CTX + u * S_IN..S_CTX + (u + 1) * S_IN)
             .chain(S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES)
             .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS)
-            .chain(gate_row(u));
+            .chain(gate_row(u))
+            .chain(reach_gate_row(u));
         kill(g, fan_in, &mut cut[0]);
     }
     // The building slot holds the last-food memory while that is on
@@ -1220,7 +1274,9 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
             .map(|u| S_VERB + u * VERBS + v)
             .chain(job..job + CONTEXT + MEMORY + 1)
             .chain((0..HIDDEN).map(|h| HID_OUT + v * HIDDEN + h))
-            .chain((0..MEMORY).map(|m| MEM + m * M_IN + CONTEXT + 2 + v));
+            .chain((0..MEMORY).map(|m| MEM + m * M_IN + CONTEXT + 2 + v))
+            .chain((0..MEMORY).map(|m| REACH_MEM + m * VERBS + v))
+            .chain((0..UNITS).map(|u| REACH_GATE + u * VERBS + v));
         kill(g, reads, &mut cut[2]);
     }
     loop {
@@ -1238,7 +1294,7 @@ fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] 
                 || (0..EMITS).any(|e| emits[e] && g[EMIT + e * E_IN + at] != 0.0)
                 || (0..MEMORY).any(|r| r != m && g[MEM + r * M_IN + CONTEXT + 2 + VERBS + m] != 0.0);
             if !read {
-                again |= kill(g, MEM + m * M_IN..MEM + (m + 1) * M_IN, &mut cut[3]);
+                again |= kill(g, (MEM + m * M_IN..MEM + (m + 1) * M_IN).chain(reach_mem_row(m)), &mut cut[3]);
             }
         }
         if !again {
@@ -1465,7 +1521,7 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
 }
 
 /// **Which slots cross over together**: one scorer unit's whole fan-in, its
-/// gate and its output weight; one job row; one memory row with its rate; one emit
+/// gate and its output weight; one job row; one memory row with its rate and its reach row; one emit
 /// row; one job hidden unit's fan-in with its weight into every job; each
 /// switch and bound on its own. The rig takes each group whole
 /// from one parent, as it takes today's brain's output rows.
@@ -1484,8 +1540,10 @@ pub fn crossover_group(slot: usize) -> usize {
         s if s < HID => UNIT_BASE + 400 + (s - EMIT) / E_IN,
         s if s < HID_OUT => UNIT_BASE + 500 + (s - HID) / H_IN,
         s if s < GATE => UNIT_BASE + 500 + (s - HID_OUT) % HIDDEN,
-        // A scorer unit's gate crosses with the unit it gates.
-        s if s < GENOME_LEN => UNIT_BASE + (s - GATE) / GATE_IN,
+        // A scorer unit's gate crosses with the unit it gates, and a reach row with the memory unit or gate it feeds.
+        s if s < REACH_MEM => UNIT_BASE + (s - GATE) / GATE_IN,
+        s if s < REACH_GATE => UNIT_BASE + 100 + (s - REACH_MEM) / VERBS,
+        s if s < GENOME_LEN => UNIT_BASE + (s - REACH_GATE) / VERBS,
         // SCRATCH (dig-scoring thread): an evolvable dig head (`PP_DIGHEAD_EVOLVE`) crosses whole, from one parent
         _ => UNIT_BASE + 900,
     }
@@ -1500,7 +1558,7 @@ pub fn describe(g: &[f32]) -> String {
         .collect();
     let live = |a: usize, b: usize| g[a..b].iter().filter(|v| v.abs() >= W_EPS).count();
     format!(
-        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {} gate {}, job {}, memory {}, emit {}, job hidden {} (of {})",
+        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {} gate {}, job {}, memory {}, emit {}, job hidden {}, reach {} (of {})",
         on.join(","),
         sharpness(g),
         pull(g),
@@ -1508,11 +1566,12 @@ pub fn describe(g: &[f32]) -> String {
         live(S_FEAT, S_VERB),
         live(S_VERB, S_OUT),
         live(S_OUT, JOB),
-        live(GATE, GENOME_LEN),
+        live(GATE, REACH_MEM),
         live(JOB, MEM),
         live(MEM, EMIT),
         live(EMIT, HID),
         live(HID, GATE),
+        live(REACH_MEM, GENOME_LEN),
         GENOME_LEN - S_CTX,
     )
 }
@@ -1609,6 +1668,9 @@ pub struct MindState {
     /// SCRATCH (brood lane, 2026-10-24): joules nestmates have fed this ant lately and the frame that sum was last
     /// brought up to date, for the lay gate's "fed" sense ([`lay_bar_scale`]; written only under `PP_LAYGENE`).
     pub fed: (f32, u64),
+    /// What each verb could reach at the last decision ([`reach`]), for the gates' reach rows ([`REACH_GATE`]); 0
+    /// before the first. A harness that rebuilds a state from a log row must set it from the ant's previous row.
+    pub reach: [f32; VERBS],
 }
 
 impl Default for MindState {
@@ -1618,6 +1680,7 @@ impl Default for MindState {
             last_verb: None,
             last: None,
             fed: (0.0, 0),
+            reach: [0.0; VERBS],
         }
     }
 }
@@ -2168,9 +2231,33 @@ pub fn gate_on() -> bool {
     *ON.get_or_init(|| !std::env::var("PP_GATE").is_ok_and(|v| v == "off" || v == "0"))
 }
 
+/// **Whether the reach rows are trainable** ([`REACH_MEM`], [`REACH_GATE`]): on unless `PP_REACH=off`, which leaves
+/// them out of [`trainable`] as `PP_GATE=off` does the gates, so a run from a layout-6 pool draws as it did before
+/// them. Scoring is the same either way: a reach weight that is 0 is never added.
+pub fn reach_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("PP_REACH").is_ok_and(|v| v == "off" || v == "0"))
+}
+
+/// **What each verb could reach this decision** ([`REACH_MEM`]): 0 for a verb with no target (or one switched off),
+/// and for one with a target `REACH_FLOOR + (1 - REACH_FLOOR) * (best + 1) / 2`, 0.25 to 1 by its best target's score.
+/// **Why a floor** (Teacher lane, 2026-10-26, from colony 13's home-low copy log, world 13007, 10.6k decisions at the
+/// nest): `best[PickUp]` at the nest is bimodal (q10 -0.987, median 0.96), and 28% of the at-nest decisions that had
+/// food in reach scored it near -1 -- almost all fed ants. Without a floor those read as an empty larder, so a fed
+/// ant's one look at a full store would teach its memory "nothing at home". With it, "there is something here" and
+/// "it is worth doing now" are both on one number: present is never under 0.25, absent is exactly 0. A weight on an
+/// absent verb adds nothing. (`Eat`'s only target is the ant's own crop and scores 0, so its reach says "I am carrying
+/// food", not "food is here": the larder is `PickUp`'s.)
+fn reach(best: &[f32; VERBS]) -> [f32; VERBS] {
+    std::array::from_fn(|v| if best[v] == f32::NEG_INFINITY { 0.0 } else { REACH_FLOOR + (1.0 - REACH_FLOOR) * (best[v] + 1.0) / 2.0 })
+}
+/// What a verb with any target reaches at the least ([`reach`]).
+pub const REACH_FLOOR: f32 = 0.25;
+
 /// **Scorer unit `u`'s gate for one decision** ([`GATE`]): `clamp(1 + y, 0, 2)`, `y` its row over this decision's
-/// context, memory and bias, summed in that order.
-fn gate(g: &[f32], u: usize, ctx: &[f32; CONTEXT], mem: &[f32; MEMORY]) -> f32 {
+/// context, memory and bias, summed in that order, and its reach row over the last decision's [`reach`]
+/// ([`REACH_GATE`]).
+fn gate(g: &[f32], u: usize, ctx: &[f32; CONTEXT], mem: &[f32; MEMORY], last_reach: &[f32; VERBS]) -> f32 {
     let row = &g[GATE + u * GATE_IN..GATE + (u + 1) * GATE_IN];
     let mut y = row[GATE_IN - 1];
     for (w, x) in row[..CONTEXT].iter().zip(ctx) {
@@ -2179,7 +2266,38 @@ fn gate(g: &[f32], u: usize, ctx: &[f32; CONTEXT], mem: &[f32; MEMORY]) -> f32 {
     for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(mem) {
         y += w * x;
     }
+    for (w, x) in g[reach_gate_row(u)].iter().zip(last_reach) {
+        if *w != 0.0 {
+            y += w * x;
+        }
+    }
     (1.0 + y).clamp(0.0, 2.0)
+}
+
+/// **The memory a decision writes** ([`MEM`]): each unit from the context, the best and mean option score, the verb
+/// carried out, the memory before, and -- where a weight is not zero, so a genome without them writes bit for bit as
+/// it did -- what each verb could reach ([`REACH_MEM`]), then blended with its old value at its rate.
+fn remembered(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], all_best: f32, all_mean: f32, verb: Verb, reach: &[f32; VERBS]) -> [f32; MEMORY] {
+    let mut fresh = [0.0f32; MEMORY];
+    for (m, slot) in fresh.iter_mut().enumerate() {
+        let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
+        let mut sum =
+            row[M_IN - 1] + row[CONTEXT] * all_best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
+        for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+            sum += w * x;
+        }
+        for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
+            sum += w * x;
+        }
+        for (w, x) in g[reach_mem_row(m)].iter().zip(reach) {
+            if *w != 0.0 {
+                sum += w * x;
+            }
+        }
+        let r = rate(g, m);
+        *slot = r * mem0[m] + (1.0 - r) * squash(sum);
+    }
+    fresh
 }
 
 /// [`decide`] with the scorer's plan built once per genome
@@ -2222,7 +2340,7 @@ fn decide_planned(
     let gates: Option<[f32; UNITS]> = (!plan.gated.is_empty()).then(|| {
         let mut gk = [1.0f32; UNITS];
         for &(k, u) in &plan.gated {
-            gk[k] = gate(g, u, ctx, &state.mem);
+            gk[k] = gate(g, u, ctx, &state.mem, &state.reach);
         }
         gk
     });
@@ -2349,25 +2467,10 @@ fn decide_planned(
     }
     let pick = targets[pick_i];
 
-    // Memory, from what the ant felt, saw and chose.
-    let mut fresh = [0.0f32; MEMORY];
-    for (m, slot) in fresh.iter_mut().enumerate() {
-        let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
-        let mut sum =
-            row[M_IN - 1] + row[CONTEXT] * all_best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
-        for (w, x) in row[..CONTEXT].iter().zip(ctx) {
-            sum += w * x;
-        }
-        for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY]
-            .iter()
-            .zip(&state.mem)
-        {
-            sum += w * x;
-        }
-        let r = rate(g, m);
-        *slot = r * state.mem[m] + (1.0 - r) * squash(sum);
-    }
-    state.mem = fresh;
+    // Memory, from what the ant felt, saw, could have done and chose.
+    let reach = reach(&best);
+    state.mem = remembered(g, ctx, &state.mem, all_best, all_mean, verb, &reach);
+    state.reach = reach;
     state.last_verb = Some(verb);
 
     // What it lays alongside.
@@ -3843,7 +3946,7 @@ mod tests {
         assert!(enter_gate(&mut unmarked, None));
         assert_eq!(unmarked, g, "an unmarked file is told by its length");
         let mut h = g.clone();
-        assert!(!enter_gate(&mut h, Some(6)), "a layout-6 genome is not padded again");
+        assert!(!enter_gate(&mut h, Some(LAYOUT)), "a genome of this layout is not padded again");
         assert_eq!(h, g);
         assert_eq!(pad(old[..GENOME_LEN_V5].to_vec()).as_deref(), Some(&g[..GENOME_LEN]));
         assert!(std::panic::catch_unwind(|| enter_gate(&mut old[..GENOME_LEN_V5].to_vec(), Some(6))).is_err());
@@ -3873,6 +3976,67 @@ mod tests {
         assert_ne!(scores(&half), scores(&g), "a half-open gate moves the scores");
         assert_ne!(scores(&half), scores(&empty));
         assert_eq!(MindGenome::new(half).live, MindGenome::new(g).live + 1, "a gate weight is a link, billed");
+    }
+
+    /// **Layout 7: what each verb could reach, into memory and the gates** ([`REACH_MEM`], [`REACH_GATE`]). A layout-6
+    /// file gains both blocks at zero between its core and its riders, marked or (bare) unmarked, and one marked 7 at
+    /// a layout-6 length is refused. Then the inputs: memory reads this decision's reach -- 0.25 to 1 by best target, 0 for a
+    /// verb with no target -- and the gate the last decision's, so the first decision of a fresh ant scores as if the
+    /// row were empty and the second does not (the positive controls).
+    #[test]
+    fn a_layout_6_genome_gains_the_reach_rows_at_zero_and_memory_reads_what_each_verb_could_reach() {
+        let old: Vec<f32> = (0..GENOME_LEN_V6 + 482 + LAY_LEN).map(|i| (i % 89) as f32 + 1.0).collect();
+        let mut g = old.clone();
+        assert!(enter_gate(&mut g, Some(6)));
+        assert_eq!(g.len(), GENOME_LEN + 482 + LAY_LEN);
+        assert_eq!(&g[..REACH_MEM], &old[..GENOME_LEN_V6], "the core keeps every slot");
+        assert!(g[REACH_MEM..GENOME_LEN].iter().all(|w| *w == 0.0), "the reach rows enter at zero");
+        assert_eq!(&g[GENOME_LEN..], &old[GENOME_LEN_V6..], "the riders keep their order");
+        assert_eq!(pad(old[..GENOME_LEN_V6].to_vec()).as_deref(), Some(&g[..GENOME_LEN]), "a bare layout-6 core pads");
+        let mut lay = old[..GENOME_LEN_V6 + LAY_LEN].to_vec();
+        assert!(enter_gate(&mut lay, None), "an unmarked layout-6 core with its lay gate is told by its length");
+        assert_eq!(&lay[GENOME_LEN..], &old[GENOME_LEN_V6..GENOME_LEN_V6 + LAY_LEN]);
+        assert!(std::panic::catch_unwind(|| enter_gate(&mut old[..GENOME_LEN_V6].to_vec(), Some(7))).is_err());
+
+        let mut g = blank(&[Verb::Walk, Verb::Rest]);
+        for f in 0..FEATURES {
+            g[S_FEAT + f] = ((f * 31 % 17) as f32 / 8.0) - 1.0;
+        }
+        g[S_FEAT + options::f::SCENT + 4] = 1.5;
+        g[S_OUT] = 2.0;
+        let ctx: [f32; CONTEXT] = std::array::from_fn(|i| i as f32 / CONTEXT as f32);
+        let run = |g: &[f32], state: &mut MindState| {
+            let mut draw = rng::stream(1, 2, 3, RNG_SLOT_MIND);
+            decide(g, &ctx, &walks(), state, &mut draw).expect("walks decide")
+        };
+        let mut state = MindState::default();
+        let d = run(&g, &mut state);
+        let on = |s: f32| REACH_FLOOR + (1.0 - REACH_FLOOR) * (s + 1.0) / 2.0;
+        assert_eq!(state.reach[Verb::Walk as usize], on(d.scores[0].max(d.scores[1])), "its best target, over the floor");
+        assert_eq!(state.reach[Verb::Rest as usize], on(d.scores[3]));
+        assert_eq!(reach(&std::array::from_fn(|v| if v == 0 { -1.0 } else { f32::NEG_INFINITY }))[0], REACH_FLOOR, "a target scored -1 is still there");
+        assert_eq!(state.reach[Verb::TurnAround as usize], 0.0, "a verb switched off reaches nothing");
+        assert_eq!(state.reach[Verb::Dig as usize], 0.0, "nor does one with no target");
+        // Memory: unit 3 weighs what Walk could reach.
+        let mut m = g.clone();
+        m[reach_mem_row(3).start + Verb::Walk as usize] = 2.0;
+        let mut ms = MindState::default();
+        run(&m, &mut ms);
+        assert_ne!(ms.mem[3], state.mem[3], "memory reads what a verb could reach");
+        assert_eq!(ms.mem[2], state.mem[2]);
+        let mut rest = m.clone();
+        rest[reach_mem_row(3).start + Verb::Walk as usize] = 0.0;
+        rest[reach_mem_row(3).start + Verb::Dig as usize] = 2.0;
+        let mut rs = MindState::default();
+        run(&rest, &mut rs);
+        assert_eq!(rs.mem[3].to_bits(), state.mem[3].to_bits(), "a verb with no target adds nothing");
+        // The gate: unit 0's reach row on Walk, read from the last decision.
+        let mut gated = g.clone();
+        gated[reach_gate_row(0).start + Verb::Walk as usize] = -0.5;
+        let (mut a, mut b) = (MindState::default(), MindState::default());
+        assert_eq!(run(&gated, &mut a).scores, run(&g, &mut b).scores, "a fresh ant's last reach is 0");
+        assert_ne!(run(&gated, &mut a).scores, run(&g, &mut b).scores, "the next decision reads it");
+        assert_eq!(MindGenome::new(gated).live, MindGenome::new(g).live + 1, "a reach weight is a link, billed");
     }
 
     /// **The job head's hidden units cost a genome saved before them
@@ -4162,8 +4326,10 @@ mod tests {
         for (i, w) in old.iter_mut().enumerate().skip(S_CTX) {
             *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
         }
-        // Saved before step 1: Pick up banned, its links drifted.
+        // Saved before step 1: Pick up banned, its links drifted; and long before the reach rows, which a file that
+        // old enters at zero ([`enter_gate`]) -- so they are not split.
         old[SWITCH + Verb::PickUp as usize] = -1.0;
+        old[REACH_MEM..GENOME_LEN].fill(0.0);
         let (eat, pick) = (Verb::Eat as usize, Verb::PickUp as usize);
         let mut new = old.clone();
         split_pick_up(&mut new);
@@ -5463,11 +5629,15 @@ mod tests {
 
     #[test]
     fn the_layout_adds_up_and_crosses_in_whole_rows() {
-        assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN + UNITS * GATE_IN);
         assert_eq!(
-            (GENOME_LEN_V1, GENOME_LEN_V2, GENOME_LEN_V5, GENOME_LEN),
-            (2333, 2669, 2797, 3357),
-            "saved genomes are 2,333 slots before the hidden units, 2,669 before PR 2's features, 2,797 before the gates"
+            GENOME_LEN,
+            EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN + UNITS * GATE_IN + MEMORY * VERBS + UNITS * VERBS
+        );
+        assert_eq!(
+            (GENOME_LEN_V1, GENOME_LEN_V2, GENOME_LEN_V5, GENOME_LEN_V6, GENOME_LEN),
+            (2333, 2669, 2797, 3357, 3609),
+            "saved genomes are 2,333 slots before the hidden units, 2,669 before PR 2's features, 2,797 before the \
+             gates, 3,357 before the reach rows"
         );
         let mut groups: Vec<usize> = (0..GENOME_LEN).map(crossover_group).collect();
         groups.dedup();
@@ -5488,11 +5658,16 @@ mod tests {
         // ...and its gate with them.
         assert_eq!(crossover_group(GATE + 2 * GATE_IN + 7), crossover_group(S_OUT + 2));
         assert_ne!(crossover_group(GATE + 2 * GATE_IN), crossover_group(GATE + 3 * GATE_IN));
+        // A reach row travels with the memory unit or gate it feeds.
+        assert_eq!(crossover_group(REACH_MEM + 3 * VERBS + 1), crossover_group(RATE + 3));
+        assert_eq!(crossover_group(REACH_GATE + 2 * VERBS + 8), crossover_group(S_OUT + 2));
         let t = trainable(&[Verb::Walk, Verb::Rest], [false, true, false]);
         assert!(t.contains(&(SWITCH + Verb::Walk as usize)) && !t.contains(&(SWITCH + Verb::Dig as usize)));
         assert!(t.contains(&(EMIT + E_IN)) && !t.contains(&EMIT) && !t.contains(&(EMIT + 2 * E_IN)));
         assert!(t.contains(&HID) && t.contains(&(GATE - 1)), "the job hidden units are not an emit row");
         assert_eq!(t.contains(&GATE), gate_on(), "the gates are trainable unless PP_GATE=off");
+        assert_eq!(t.contains(&REACH_MEM), reach_on(), "memory's reach rows are trainable unless PP_REACH=off");
+        assert_eq!(t.contains(&REACH_GATE), gate_on() && reach_on());
         assert_eq!(
             MindGenome::new(blank(&Verb::ALL)).live,
             0,
@@ -5518,29 +5693,17 @@ mod tests {
 /// the player's body depends on it.
 pub(crate) fn remember_done(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY], opts: &[Opt], scores: &[f32], verb: Verb) -> [f32; MEMORY] {
     let on = |v: Verb| v.acts() && g[SWITCH + v as usize] > 0.0;
-    let (mut best, mut sum, mut n) = (f32::NEG_INFINITY, 0.0f32, 0u32);
+    let (mut best, mut per_verb, mut sum, mut n) = (f32::NEG_INFINITY, [f32::NEG_INFINITY; VERBS], 0.0f32, 0u32);
     for (o, op) in opts.iter().enumerate() {
         if on(op.verb) {
             best = best.max(scores[o]);
+            per_verb[op.verb as usize] = per_verb[op.verb as usize].max(scores[o]);
             sum += scores[o];
             n += 1;
         }
     }
     let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
-    let mut fresh = [0.0f32; MEMORY];
-    for (m, slot) in fresh.iter_mut().enumerate() {
-        let row = &g[MEM + m * M_IN..MEM + (m + 1) * M_IN];
-        let mut s = row[M_IN - 1] + row[CONTEXT] * best + row[CONTEXT + 1] * all_mean + row[CONTEXT + 2 + verb as usize];
-        for (w, x) in row[..CONTEXT].iter().zip(ctx) {
-            s += w * x;
-        }
-        for (w, x) in row[CONTEXT + 2 + VERBS..CONTEXT + 2 + VERBS + MEMORY].iter().zip(mem0) {
-            s += w * x;
-        }
-        let r = rate(g, m);
-        *slot = r * mem0[m] + (1.0 - r) * squash(s);
-    }
-    fresh
+    remembered(g, ctx, mem0, best, all_mean, verb, &reach(&per_verb))
 }
 
 pub mod scratch_log {
