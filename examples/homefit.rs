@@ -30,6 +30,8 @@ struct Row {
 }
 
 const K: f32 = 0.05; // mind's PICK_FLOOR
+/// The genome's own length when `gate=1` appends gate rows past it; 0 otherwise.
+static BASE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn cw(ws: &[f32]) -> Vec<f32> {
     let b: Vec<f32> = ws.iter().map(|&s| (K + s.max(0.0)).powi(2)).collect();
@@ -39,6 +41,9 @@ fn cw(ws: &[f32]) -> Vec<f32> {
 
 /// The probability of each option under `g`, or None when the brain has nothing to choose.
 fn probs(g: &[f32], r: &Row) -> Option<Vec<f32>> {
+    // SCRATCH (brain-design review, `gate=1`): weights past the genome are the scorer units' context gates.
+    let base = BASE.load(std::sync::atomic::Ordering::Relaxed);
+    mind::GATE.with(|gt| *gt.borrow_mut() = (base > 0 && g.len() > base).then(|| g[base..].to_vec()));
     let mut state = MindState::default();
     state.mem.copy_from_slice(&r.mem);
     state.last_verb = r.last;
@@ -135,6 +140,46 @@ fn main() {
         slots.sort_unstable();
         slots.dedup();
     }
+    // SCRATCH (brain-design review, 2026-10-26): `rows=all|feat` (with `unit=U`) trains only that unit -- `all` its
+    // context and feature rows, `feat` its feature row -- and its output weight; `fresh=1` first zeroes the unit's
+    // context, feature and verb rows (the KL hold stays on the start as loaded, so the fit must rebuild what the unit
+    // did); `gate=1` appends a context gate per unit ([`mind::GATE`]) and trains unit U's gate row too.
+    if let (Some(u), Some(rows)) = (unit, arg("rows")) {
+        let r = mind::unit_rows(u);
+        slots = if rows == "feat" { r[r.len() - FEATURES..].to_vec() } else { r.clone() };
+        slots.push(mind::scorer_output(u));
+        // `drop=F`: never train option feature F of the unit (18, `PP_HOMELOW`'s slot, so a plain-senses arm cannot
+        // read the instinct the logs carry).
+        if let Some(f) = arg("drop").map(|f| f.parse::<usize>().unwrap()) {
+            let s = r[r.len() - FEATURES + f];
+            slots.retain(|&x| x != s);
+        }
+    }
+    if let (Some(u), true) = (unit, arg("fresh").is_some_and(|v| v == "1")) {
+        // Every slot that feeds the unit -- its context, feature AND verb rows (`mind::scorer_unit`): a verb row left
+        // live is a per-verb constant that the unit's output weight carries into every score as that weight grows.
+        for s in (0..mind::GENOME_LEN).filter(|&s| mind::scorer_unit(s) == Some(u)) {
+            g[s] = 0.0;
+        }
+        g[mind::scorer_output(u)] = 0.0;
+        eprintln!("unit {u}: zeroed (fresh)");
+    }
+    if let (Some(u), true) = (unit, arg("gate").is_some_and(|v| v == "1")) {
+        BASE.store(g.len(), std::sync::atomic::Ordering::Relaxed);
+        let b = g.len();
+        g.extend(std::iter::repeat_n(0.0, mind::UNITS * mind::GATE_IN));
+        slots.extend((0..mind::GATE_IN).map(|i| b + u * mind::GATE_IN + i));
+        eprintln!("unit {u}: gated ({})", std::env::var("PP_GATE_FORM").unwrap_or("clamp".into()));
+    }
+    // `init=PATH` (lines `slot value`, slots counted over the genome and any gate rows past it): set these weights
+    // after `fresh` and `gate`, so a fit or search can start from a hand-laid solution.
+    if let Some(p) = arg("init") {
+        for l in std::fs::read_to_string(&p).unwrap().lines().filter(|l| !l.is_empty()) {
+            let (i, w) = l.split_once(' ').unwrap();
+            g[i.parse::<usize>().unwrap()] = w.parse().unwrap();
+        }
+        eprintln!("init: {p}");
+    }
     if let Some(u) = unit {
         let o = mind::scorer_output(u);
         eprintln!("unit {u}: output weight {} (seeded 0.1 if 0)", g[o]);
@@ -189,8 +234,58 @@ fn main() {
         }
         return;
     }
-    eprintln!("start: label loss {l0:.4} keep KL {k0:.4} P(label) {:.4}", agree(&g));
+    // SCRATCH (brain-design review): P(label) = P(a labelled option's verb) x P(the labelled target | that verb), so a
+    // plateau can be read as the job head's or the step scorer's.
+    let verb_split = |g: &[f32]| -> String {
+        let (mut pv, mut pl, mut n) = (0.0f32, 0.0f32, 0usize);
+        for r in &lab {
+            let Some(p) = probs(g, r) else { continue };
+            let l = r.label.as_ref().unwrap();
+            let vs: Vec<Verb> = l.iter().filter_map(|&o| r.opts.get(o).map(|x| x.verb)).collect();
+            pv += (0..r.opts.len()).filter(|&o| vs.contains(&r.opts[o].verb)).map(|o| p[o]).sum::<f32>();
+            pl += l.iter().map(|&o| p.get(o).copied().unwrap_or(0.0)).sum::<f32>();
+            n += 1;
+        }
+        format!("P(label's verb) {:.4}, P(label) {:.4}, P(label | verb) {:.4}", pv / n as f32, pl / n as f32, pl / pv.max(1e-9))
+    };
+    eprintln!("start: label loss {l0:.4} keep KL {k0:.4} P(label) {:.4}; {}", agree(&g), verb_split(&g));
 
+    // SCRATCH (brain-design review, 2026-10-26): `es=N` -- instead of the gradient fit, a (1+1) mutation search on the
+    // same loss over a FIXED batch (`batch` rows of each group, so a child is judged on the rows its parent was): each
+    // child moves `es_k` of the trained slots by `sigma` x the in-run step (uniform, sd 1), and is kept if no worse.
+    // A proxy for "can mutation plus selection find this lesson in these slots", free of any optimiser step budget.
+    if let Some(n) = arg("es").map(|v| v.parse::<usize>().unwrap()) {
+        let (k, sigma) = (num("es_k", 1.0) as usize, num("sigma", 1.0) as f32);
+        let mut trng = train::Rng(num("seed", 1.0) as u64 ^ 0x5EED);
+        let li: Vec<usize> = (0..batch.min(lab.len())).collect();
+        let ki: Vec<usize> = (0..batch.min(keep.len())).collect();
+        let f = |g: &[f32]| {
+            let (l, k) = loss(g, &li, &ki);
+            l + wkeep * k
+        };
+        let mut best = f(&g);
+        let mut kept = 0;
+        for it in 1..=n {
+            let mut c = g.clone();
+            for _ in 0..k {
+                let s = slots[trng.below(slots.len())];
+                c[s] = (c[s] + sigma * trng.step()).clamp(-40.0, 40.0);
+            }
+            let fc = f(&c);
+            if fc <= best {
+                (g, best) = (c, fc);
+                kept += 1;
+            }
+            if it % (n / 10).max(1) == 0 {
+                let (l, kl) = loss(&g, &all_l, &all_k);
+                eprintln!("es {it}: kept {kept} label loss {l:.4} keep KL {kl:.4} P(label) {:.4}", agree(&g));
+            }
+        }
+        train::save_genome(std::path::Path::new(&out), &g).unwrap();
+        let big = slots.iter().map(|&s| g[s].abs()).fold(0.0f32, f32::max);
+        eprintln!("es trained weights: largest |w| {big:.2}; {}", verb_split(&g));
+        return;
+    }
     let (mut m, mut v) = (vec![0.0f32; slots.len()], vec![0.0f32; slots.len()]);
     let (b1, b2) = (0.9f32, 0.999f32);
     for step in 1..=steps {
@@ -223,6 +318,11 @@ fn main() {
             train::save_genome(std::path::Path::new(&out), &g).unwrap();
         }
     }
-    let moved: Vec<String> = slots.iter().filter(|&&s| g[s] != g0[s]).map(|&s| format!("{s}:{:.3}->{:.3}", g0[s], g[s])).collect();
+    let w0 = |s: usize| g0.get(s).copied().unwrap_or(0.0);
+    let moved: Vec<String> = slots.iter().filter(|&&s| g[s] != w0(s)).map(|&s| format!("{s}:{:.3}->{:.3}", w0(s), g[s])).collect();
+    let big = slots.iter().map(|&s| g[s].abs()).fold(0.0f32, f32::max);
+    let mut mags: Vec<f32> = slots.iter().map(|&s| g[s].abs()).filter(|&x| x > 0.0).collect();
+    mags.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    eprintln!("trained weights: largest |w| {big:.2}, median {:.2}, over {} slots; {}", mags.get(mags.len() / 2).copied().unwrap_or(0.0), slots.len(), verb_split(&g));
     eprintln!("moved {} slots: {}", moved.len(), moved.join(" "));
 }

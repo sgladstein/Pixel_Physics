@@ -1,0 +1,6 @@
+#!/bin/bash
+# logrun.sh SEED : colony 13 (slot-18 weights zeroed), come-home teacher labelling only, copy log
+# Run from a scratch work dir holding c13/ (split.py of assets/minds/std_pool.txt, feature 18 zeroed), runs/, fits/.
+S=$1; D=$(pwd)/runs/w$S; mkdir -p $D
+env PP_LASTFOOD=off PP_HOMELOW=0.012 PP_CARRY=0 PP_CARRY_HUNGRY=2 PP_CARRY_HUNGRYONLY=1 PP_CARRY_OUT=0 PP_CARRY_STORE=1  PP_HOMEFAR=1 PP_HOMEFAR_HUNGRY=1 PP_HOMEFAR_FUEL=0.012 PP_BED_W=448 PP_COPY_LOG=$D/copy.log PP_COPY_SAMPLE=40:4 RAYON_NUM_THREADS=1  $(git rev-parse --show-toplevel)/target/release/examples/inrun founders=c13/m00.raw.txt:1,c13/m01.raw.txt:1,c13/m02.raw.txt:1,c13/m03.raw.txt:1,c13/m04.raw.txt:1,c13/m05.raw.txt:1,c13/m06.raw.txt:1,c13/m07.raw.txt:1,c13/m08.raw.txt:1,c13/m09.raw.txt:1,c13/m10.raw.txt:1,c13/m11.raw.txt:1,c13/m12.raw.txt:1,c13/m13.raw.txt:1,c13/m14.raw.txt:1,c13/m15.raw.txt:1,c13/m16.raw.txt:1,c13/m17.raw.txt:1,c13/m18.raw.txt:1,c13/m19.raw.txt:1,c13/m20.raw.txt:1,c13/m21.raw.txt:1,c13/m22.raw.txt:1,c13/m23.raw.txt:1,c13/m24.raw.txt:1,c13/m25.raw.txt:1,c13/m26.raw.txt:1,c13/m27.raw.txt:1,c13/m28.raw.txt:1,c13/m29.raw.txt:1 seed=$S frames=150000 patches=20000:40:120 sel=off out=$D/run > $D/run.log 2>&1
+echo done $S $?

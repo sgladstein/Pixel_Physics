@@ -314,6 +314,21 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   per seed (`queen_m0 shuffle=1`) and compare against a label-permutation null
   (`Reports/teaching-the-colony-2026-10-25/queen-seat-demo.md`, M0a).
 
+- **A teacher copy's agreement means nothing without its hold.** Today's
+  scorer unit 8 "reached" 0.91 agreement with the come-home teacher by moving
+  fed ants' choices 0.83 nats; held to 0.01 it reached 0.30, from 0.28. Report
+  every copy as the pair (P(label), hold KL on unlabelled decisions) and
+  compare arms at a matched hold (brain-design-review-2026-10-26 §5).
+- **Before calling an input a sense, measure its overlap with the teacher's
+  labels.** `PP_HOMELOW` was non-zero on 98% of the decisions the come-home
+  teacher labels and 0.02% of the rest: it is the teacher's rule, so a fit to
+  it is a fit to the answer and says nothing about whether the brain can
+  combine senses (same report, §4).
+- **A "fresh" scorer unit is zero in its context, feature *and* verb rows.**
+  A verb row left live is a per-verb constant that the unit's output weight
+  carries into every score; it made a hand-laid gate look like it leaked
+  (hold 0.53 instead of 0.017) and cost one full set of arms.
+
 ## 5. Tools, by question
 
 | Question | Tool |

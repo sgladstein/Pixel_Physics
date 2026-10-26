@@ -6181,13 +6181,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   marked deaths, a job icon over a selected ant, visible genetics, and sharing lines with player-made goals.
 
 - [brain-training/research/brain-cannot-combine-senses-2026-10-26.md](brain-training/research/brain-cannot-combine-senses-2026-10-26.md) —
-  **the trained ant's brain cannot combine two senses, and a proposed fix (proposed; under adversarial review).** The
+  **the trained ant's brain cannot combine two senses, and a proposed fix (proposed; reviewed, see the next entry).** The
   step scorer is additive in the ant's own state, so hunger or a load can change which step wins only through unit
   saturation, and measured, that path is shut: 75% of unit sums are past slope 0.1 and hunger moves no unit off its
   flat (median slope 0.023 fed vs 0.022 hungry). Copies of the come-home teacher plateaued at 0.40-0.46 while the
   same lesson on a pre-combined input fit to 0.79 at once, so `PP_HOMELOW`/`PP_SOILWAY` are named as instincts.
   Proposal: a context gate per scorer unit (identity at zero weights), with a four-step test plan and questions for
-  the review.
+  the review. **Reviewed in `brain-design-review-2026-10-26.md`**: the gate holds up (as a clamp); the plateau and the
+  home-low comparison do not.
+
+- [brain-training/research/brain-design-review-2026-10-26.md](brain-training/research/brain-design-review-2026-10-26.md) —
+  **the brain-design review: why the brain is built as it is, what the work since showed, and an adversarial test of
+  the "cannot combine two senses" report (review and plan; layout 6 is an owner decision).** Rev 3 never designed a
+  multiplicative path, and the 10-18 review fixed the AND limit only in the job head. The real defect: an additive
+  unit cannot be off, so a come-home unit reaches the teacher only by moving fed ants' choices 0.6-0.9 nats, and
+  under a hold it learns nothing. The report's plateau was its step size and its home-low comparison was circular.
+  A clamp gate (not `1 + tanh`, which is illegal) reached 0.87 at a hold of 0.04 and, in four far-food worlds,
+  starved 107 against the home-low instinct's 177 and colony 13's 1,107; with the gate removed the same weights kill
+  every founder. Plan: build the gate as layout 6, default on, then teach and select with it.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
