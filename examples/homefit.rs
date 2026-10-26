@@ -125,7 +125,11 @@ fn main() {
     let g0 = g.clone();
     // `wide=1` (with `unit=U`): the unit's whole context and feature rows move, not just its home links -- the
     // narrow set plateaued at P(label) ~0.41 on the fitted ant's own situations (DAgger round 1, 2026-10-26).
-    let mut slots = mind::home_lesson_slots(unit);
+    // `feat=F`: only option feature F's weight in every scorer unit (e.g. 18, `PP_HOMELOW`'s "home, when low").
+    let mut slots = match arg("feat").map(|f| f.parse::<usize>().unwrap()) {
+        Some(f) => (0..mind::UNITS).map(|u| mind::unit_rows(u)[mind::unit_rows(u).len() - FEATURES + f]).collect(),
+        None => mind::home_lesson_slots(unit),
+    };
     if let (Some(u), true) = (unit, arg("wide").is_some_and(|v| v == "1")) {
         slots.extend(mind::unit_rows(u));
         slots.sort_unstable();
