@@ -6210,6 +6210,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   nest with no store (no input says whether there is food at home), and blind search found it on 1 seed of 3. Plan:
   the gate as layout 6, default on (owner approved), then a "food at home" sense before the lesson is retaught.
 
+- [brain-training/research/latch-landscape-2026-10-27.md](brain-training/research/latch-landscape-2026-10-27.md) —
+  **can selection reach the hand-laid "home had food" memory step by step? No: a knock-out landscape (measurement and
+  recommendation).** Ten one-weight changes to the Teacher lane's latch on 16 worlds each: every piece is
+  necessary, half strength acts like removal, and breaking the set input (an off memory unit reads -1, so its
+  balanced pair turns the latch on everywhere) loses 13-14 of 16 colonies. Controls: gate shut by hand, links free.
+  Recommends teach-then-protect now, and a write-gated memory (holds by default) as an off-by-default prototype.
+
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
   tank against the founders' 3, so most newcomers starve about 1.1k frames in (median life 1.1k against 55k for founders);
