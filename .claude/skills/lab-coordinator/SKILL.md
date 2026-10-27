@@ -70,36 +70,43 @@ find peer coordinators. An untagged session is one nobody can route to.
 
 **Always pass `model:` explicitly. Never let a lane inherit yours.** Three
 workers once silently inherited a premium tier and ran $25–71 each inside
-ninety minutes. With Fable at twice Opus, a Fable coordinator spawning
+ninety minutes. With Fable at 2.5 times Opus, a Fable coordinator spawning
 inheriting lanes is that accident with a bigger multiplier.
+
+Published first-party rates, checked 2026-10-27 (`claude-api` skill, cached
+2026-10-06). Opus 5.5 replaced Opus 5 at a lower rate, which moved Fable from
+twice Opus to 2.5 times.
 
 | | input $/MTok | output $/MTok |
 |---|---|---|
 | Fable 5.1 `claude-fable-5-1` | $10.00 | $50.00 |
-| Opus 5 `claude-opus-5` | $5.00 | $25.00 |
-| Sonnet 5 `claude-sonnet-5` | $2.00 | $10.00 |
-| Haiku 4.5 `claude-haiku-4-5` | $1.00 | $5.00 |
+| Opus 5.5 `claude-opus-5-5` | $4.00 | $20.00 |
+| Sonnet 5.5 `claude-sonnet-5-5` | $2.00 | $10.00 |
+| Haiku 5.5 `claude-haiku-5-5` | $0.10 | $0.50 |
+
+Haiku 5.5's rate is for prompts up to 100K tokens ($0.50 / $2.50 beyond).
 
 **Choose on stakes, not on rate.** The premium is proportional to run length,
 and run length is *inversely* related to how much of the lane's value is in its
 thinking — so the expensive tier is nearly free exactly where it might matter:
 
 One tier step, priced on two real round-30 lanes — the premium to run a lane
-on **Fable rather than Opus**:
+on **Fable rather than Opus** (round 30 ran on Opus 5; the Opus column is
+repriced here at Opus 5.5's rate, so the token counts are round 30's):
 
-| lane shape | round-30 lane | Opus | Fable | premium |
+| lane shape | round-30 lane | Opus 5.5 | Fable | premium |
 |---|---|---|---|---|
-| a design report | two soils | ~$11 | $22 | **~$11** |
-| a 12-seed sweep | anthill | $105 | ~$210 | **~$105** |
+| a design report | two soils | ~$9 | $22 | **~$13** |
+| a 12-seed sweep | anthill | ~$84 | ~$210 | **~$126** |
 
-Eleven dollars against a report that sets a round's direction is not a cost
-decision. A hundred and five against a sweep Opus demonstrably got right is a
-different question. (These assume equal token counts at a different rate,
+Thirteen dollars against a report that sets a round's direction is not a cost
+decision. A hundred and twenty-six against a sweep Opus demonstrably got right
+is a different question. (These assume equal token counts at a different rate,
 which is not measured — a more capable model may think longer or arrive
 sooner.)
 
-- **Opus 5 is the default.** Anything not obviously covered below.
-- **Down to Sonnet 5 only when being wrong is cheap *and loud*** — the lane has
+- **Opus 5.5 is the default.** Anything not obviously covered below.
+- **Down to Sonnet 5.5 only when being wrong is cheap *and loud*** — the lane has
   an acceptance test it runs itself and a bad result shows in minutes. UI work,
   a bounded instrument, a mechanical pass. Its one recorded refusal: **Sonnet
   refuses a brief dense in genetics vocabulary** on a `[bio]` classifier.
@@ -115,10 +122,12 @@ sooner.)
   sum nobody had priced, sent reproduction to zero, and **every gate stayed
   green but one**. Three architectural levers ranked "very high" on silhouette
   all fired and none moved a pixel. Rough bound: take it when the lane is short
-  enough that doubling it costs under ~$25.
-- **Haiku 4.5 for in-process lookups only, never a lane.** Its 200K context
-  against this repo's ~25k-token always-loaded files (~78k with a default sub-agent's tool schemas) leaves little room, and zero
-  Haiku lanes have run — a limit, not a finding.
+  enough that the 2.5x costs under ~$25 extra.
+- **Haiku 5.5 for in-process lookups only, never a lane.** Zero Haiku lanes
+  have run here — a limit, not a finding. Haiku 5.5 has a 1M context (Haiku
+  4.5's 200K was the old reason), so what is untested is the judgement, not the
+  room; at a fortieth of Opus's rate a paired trial on a mechanical lane would
+  be cheap to run.
 
 **The vendor's rule is "start on Opus, escalate to Fable when your evals fall
 short", and it assumes a cheap retry we do not have.** Their retry is one eval

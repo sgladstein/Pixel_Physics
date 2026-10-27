@@ -20,7 +20,7 @@ by name.
 | `settings.json` | the shared project baseline: the SessionStart hook, and the permission allow/deny/ask lists |
 | `rules/` | gotchas scoped to one part of the tree, loaded **only** when a matching file is read — see below |
 | `agents/data-analyst.md` | an **opt-in** sub-agent type for data work: only Bash, Read, Write, Edit, Grep and Glob, so it starts at ~41k tokens against ~78k for a default agent, keeps `CLAUDE.md`, and can write checkpoint files, which `Explore` cannot. Used only when a spawner names it (`Reports/agent-strategy.md` §4); owner's yes, 2026-09-27 |
-| `skills/review/` | the owner's visual review queue — post a rendered artifact, collect a verdict later |
+| `skills/review/` | **retired** (owner, 2026-10-21): the old visual review queue, kept as a record. Pictures now go on an Artifact page linked in the thread |
 | `skills/lab-coordinator/` | running a lab round: spawning lanes, which model each gets, how to reach one, when a message is worth a lane's turn |
 | `workflows/` | multi-agent harnesses, including the ten-agent census that produced `Reports/dead-ends.md` |
 
@@ -106,12 +106,12 @@ if a future CLI regresses them, the selftest is what will say so.
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~10,532 tokens** — `CLAUDE.md` at 42,129 B / 600 lines, bytes/4.0. Ceiling 12,000 (1,468 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~10,407 tokens** — `CLAUDE.md` at 41,628 B / 592 lines, bytes/4.0. Ceiling 12,000 (1,593 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~105,320 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~104,070 tokens before any of them reads source.
 
 Consulted by lookup, paid unconditionally: 31% (~3,222 tokens) across Method, Gotchas, Conventions. Reachable target ~9,950, set when their worked cases moved out on 2026-09-30; the ceiling holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-10-05 x2, 2026-10-03 x2, 2026-10-01 x1, 2026-09-30 x1, 2026-09-27 x2. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-10-27 x1, 2026-10-25 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->

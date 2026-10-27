@@ -137,11 +137,15 @@ against an Opus lane at $105. The published rates say the opposite:
 | model | id | input $/MTok | output $/MTok |
 |---|---|---|---|
 | Fable 5.1 | `claude-fable-5-1` | **$10.00** | **$50.00** |
-| Opus 5 | `claude-opus-5` | $5.00 | $25.00 |
-| Sonnet 5 | `claude-sonnet-5` | $2.00 | $10.00 |
-| Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 |
+| Opus 5.5 | `claude-opus-5-5` | $4.00 | $20.00 |
+| Sonnet 5.5 | `claude-sonnet-5-5` | $2.00 | $10.00 |
+| Haiku 5.5 | `claude-haiku-5-5` | $0.10 | $0.50 |
 
-**Fable is twice Opus per token.** Those two lanes were cheap because they were
+*(Rates re-checked 2026-10-27. Round 30 ran on Opus 5 at $5 / $25, when Fable
+was twice Opus; Opus 5.5 replaced it at a lower rate. Haiku 5.5's rate is for
+prompts up to 100K tokens.)*
+
+**Fable is 2.5 times Opus per token.** Those two lanes were cheap because they were
 short and read little — one design report each — while the anthill lane ran a
 12-seed paired sweep. **What the invoice measured was run length, not model
 rate**, which is this repo's own *ask what your number counts* trap, walked
@@ -150,7 +154,7 @@ by how much each lane will **measure**; model rate is second order. Round 30
 totalled about **$294** across seven lanes.
 
 **Anthropic's own guidance runs the other way from the bullet above**, and is
-worth knowing before anyone reaches for Fable: start on **Opus 5** for most
+worth knowing before anyone reaches for Fable: start on **Opus 5.5** for most
 workloads, and move *up* to Fable 5.1 only for demanding reasoning or
 long-horizon agentic work, or when Opus at higher effort has already been
 measured falling short. Fable is the escalation tier.
@@ -165,11 +169,11 @@ assumes.
 **Standing rule, unchanged and now more load-bearing: every spawn passes
 `model:` explicitly.** `CLAUDE.md`'s *never inherited from the coordinator*
 was written after three workers silently inherited a premium tier and ran
-$25–71 each in ninety minutes. With Fable at twice Opus, a Fable coordinator
+$25–71 each in ninety minutes. With Fable at 2.5 times Opus, a Fable coordinator
 spawning inheriting lanes is that accident with a bigger multiplier.
 
 **What would settle the two open questions** — whether Sonnet is adequate for
-report-shaped work, and whether Fable is ever worth 2x here — is a paired run
+report-shaped work, and whether Fable is ever worth 2.5x here — is a paired run
 of the *same* brief shape at two models. Model is confounded with task shape
 in every row of the table above: the Fable lanes were short design work and
 the Opus lanes were long measurement work, so the invoice cannot separate them.

@@ -1,9 +1,17 @@
 ---
 name: review
-description: Show the owner a rendered artifact and get a judgement back — images, before/after pairs, blind A/B comparisons, or frame sequences — via the shared review queue. Use when a change is judge-by-eye ("does this look right", "which of these reads as real breakage", "is this satisfying in motion"), when you need a verdict that tests cannot give, or when you are about to claim something looks better. Also use to retrieve verdicts on cards you posted earlier, possibly in a previous session.
+description: RETIRED (owner, 2026-10-21) — do not post to the review queue. Pictures, GIFs and blind A/B comparisons for the owner go on an Artifact page linked in the thread (CLAUDE.md, Getting the owner's judgement). Kept only as the record of how the old queue worked.
 ---
 
-# The review queue
+# The review queue — retired
+
+> **Retired by the owner on 2026-10-21. Do not post cards.** Put pictures and
+> GIFs on an Artifact page and link it in the thread, with the event count
+> beside each picture; a blind A/B is one page with the options labelled A and
+> B. Chat attachments do not reach the owner (2026-10-25). The rules are in
+> `CLAUDE.md` under *Getting the owner's judgement*. What follows is kept as the
+> record of the old queue; its data lives on the `review-queue` branch.
+
 
 This repo's method says *look before you measure* and *verify live before
 declaring done*, and its ethos says the thing has to **feel satisfying** — none
