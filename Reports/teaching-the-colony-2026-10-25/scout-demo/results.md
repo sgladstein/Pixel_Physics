@@ -99,3 +99,14 @@ Mean tick 0.79 / 0.86 ms with the module on against 0.81 / 0.84 off (seeds
 - The pull is scripted. A heritable "how much to listen" rider, so selection
   can tune it, is the keeper seat's next step and the honest route to
   shipping it.
+
+## The first-look page
+
+[`first-look.html`](first-look.html) is the page the owner was shown on
+2026-10-25 (arm A against arm B on seed 1). Its two GIFs are not kept (4.4 MB
+each); they regenerate exactly with
+`cargo run --release --example scoutdemo -- arm=A seed=1 frames=6000 every=3000 gif=1 shot=40 zoom=6 delay=70 out=scout.gif`
+and the same with `arm=B out=column.gif`. They were rendered before the recall
+head and the search fix landed, so today's run will differ. The owner's verdict
+on the question it asked (do her stops read as checking the way, or as the game
+stalling?) was still outstanding at the hand-off.

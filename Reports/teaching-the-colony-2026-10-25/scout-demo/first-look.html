@@ -1,0 +1,102 @@
+<title>Lone Scout, First Look</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+/* Layout: one reading column; the two clips side by side on wide screens, stacked on phones; counters as a plain table under them. */
+:root {
+  --bg: #f5f3ee; --fg: #23211c; --muted: #6b665b; --rule: #d8d3c7;
+  --scout: #2f8a3c; --column: #3d6fb0; --panel: #ebe7de;
+  --body: "Source Serif 4", Georgia, serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17171a; --fg: #e8e5dd; --muted: #a29d91; --rule: #34333a;
+  --scout: #6fd07c; --column: #86aee8; --panel: #212126; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #17171a; --fg: #e8e5dd; --muted: #a29d91; --rule: #34333a;
+  --scout: #6fd07c; --column: #86aee8; --panel: #212126; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 17px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 48px; }
+main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
+.prose { max-width: 66ch; display: grid; gap: 12px; }
+h1 { font: 600 1.9rem/1.2 var(--body); margin: 0; text-wrap: balance; }
+h2 { font: 600 1.25rem/1.3 var(--body); margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.eyebrow { font: 600 0.75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.clips { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figure img { width: 100%; image-rendering: pixelated; border: 1px solid var(--rule); background: #000; }
+figcaption { font-size: .95rem; color: var(--muted); }
+figcaption b { color: var(--fg); }
+.tag { font: 600 .8rem/1 var(--mono); letter-spacing: .05em; }
+.a { color: var(--scout); } .b { color: var(--column); }
+.key { background: var(--panel); padding: 14px 16px; display: grid; gap: 6px; font-size: .95rem; }
+.key div { display: flex; gap: 10px; align-items: baseline; }
+.sw { width: 12px; height: 12px; flex: none; border: 1px solid var(--rule); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font: 0.88rem/1.4 var(--mono); font-variant-numeric: tabular-nums; min-width: 520px; }
+th, td { padding: 6px 12px; border-bottom: 1px solid var(--rule); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+thead th { color: var(--muted); font-weight: 600; }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.ask { border-left: 3px solid var(--scout); padding-left: 14px; }
+</style>
+
+<main>
+  <div class="prose">
+    <span class="eyebrow">Lone scout seat · rough look · seed 1, the same colony in both clips</span>
+    <h1>You are one worker. You lead sisters to a far heap, one at a time, by touch.</h1>
+    <p>The colony is a trained one, hungry, with a little food near the nest and a big heap far to the east. You pick a sister, tap her, and walk. She follows with her head on your back, stops now and then to look around, and you have to stop with her or she loses you. When she reaches the heap she has been shown the way.</p>
+    <p>The left clip is that. The right clip is the design you turned down, given equal terms: you call, and every willing sister nearby falls in behind you and never stops or strays. Same box, same colony, same player script, 6,000 frames each (about 100 seconds at 1×), one shot every 40 frames.</p>
+  </div>
+
+  <div class="clips">
+    <figure>
+      <img src="scout.gif" alt="Arm A, the scout: the white player ant walks east with one green pupil close behind, stopping when the pupil stops.">
+      <figcaption><span class="tag a">A · THE SCOUT</span><br>4 sisters led, <b>4 arrived, 0 lost</b>. 11 taps, 7 refused ("not now" 6, "well fed" 1). 10 landmarks learned on the way.</figcaption>
+    </figure>
+    <figure>
+      <img src="column.gif" alt="Arm B, the column: the white player ant walks east with several green followers in a line behind her.">
+      <figcaption><span class="tag b">B · THEY FOLLOW YOU</span><br>12 sisters led, <b>9 arrived, 0 lost</b> (3 timed out). 29 sisters asked, 17 refused ("well fed").</figcaption>
+    </figure>
+  </div>
+
+  <div class="key">
+    <span class="eyebrow">What the marks mean</span>
+    <div><span class="sw" style="background:#fff"></span>You (white, with a ring).</div>
+    <div><span class="sw" style="background:#50e65a"></span>A sister being led, with a pip over her: green in touch, amber stopping, grey searching. White ticks on the pip are landmarks she has learned.</div>
+    <div><span class="sw" style="background:#ff961e"></span>A sister who has been shown the heap (brighter means a better lesson).</div>
+    <div><span class="sw" style="background:#78c8ff"></span>Dotted line: who taught whom. A red cross over a sister means she refused.</div>
+  </div>
+
+  <div class="prose">
+    <h2>The counts</h2>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Over the 6,000 frames after you hatch</th><th class="a">A scout</th><th class="b">B column</th></tr></thead>
+      <tbody>
+        <tr><td>Sisters led / arrived / lost</td><td>4 / 4 / 0</td><td>12 / 9 / 0</td></tr>
+        <tr><td>Know the heap at the end</td><td>4</td><td>8</td></tr>
+        <tr><td>Food carried home afterwards by those sisters</td><td>2 trips</td><td>6 trips</td></tr>
+        <tr><td>Colony at hatch → end</td><td>94 → 86</td><td>94 → 107</td></tr>
+        <tr><td>Time a pupil spent touching you (gap 0–1 / 2 / 3+ cells)</td><td>16% / 78% / 6%</td><td>25% / 70% / 5%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <h2>What this does not show yet</h2>
+    <ul>
+      <li><b>A taught sister does not go back on her own yet.</b> Today's trained ants ignore their memory of where food was (that weight is zeroed in the pool), so being shown the heap changes nothing after the first trip. The keeper seat is building the piece that makes a trained ant act on a remembered place; until it lands, the "trips home afterwards" row is luck, and B wins it by leading more ants.</li>
+      <li><b>One seed.</b> The colony booms and busts on its own, so 94 → 86 against 94 → 107 is not a result. Paired runs over four seeds come next.</li>
+      <li><b>The cascade</b> (sisters you taught teaching others) has not fired in any run yet.</li>
+      <li>This is the binary's own seat, played by a script that walks, taps and waits. Fixed today on the way: the pupil touching your tail used to count as three cells away and froze you both; pupils never "arrived" once the heap was eaten down; and the heap's next drop buried the player when she stood on it.</li>
+    </ul>
+  </div>
+
+  <div class="prose ask">
+    <h2>One question</h2>
+    <p>Watching the left clip: do the stops read as her checking the way, something you would wait for, or as the game stalling? That decides whether I keep pauses this frequent (about one every 50 of her steps, each lasting 1 to 1.5 seconds) or thin them out before you play it.</p>
+  </div>
+</main>
