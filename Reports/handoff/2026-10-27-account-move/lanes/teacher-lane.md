@@ -27,7 +27,7 @@ round ~50 (elite2).
 **This lane's held-out exam:** trained brains die out in 3 of the game's 8 boxes, where the hand-built ant thrives.
 Windfall rots before slow trained ants reach it; corpse is never offered to a mind ant at its gut.
 
-## clean1 result (done 19:12Z; logged in PR #955)
+## clean1 result (done 19:12Z; logged in PR #955, merged 0cecdde)
 
 No arm starves less than k3 (`elite=1 kpm=0.003`) at round 47. Colony selection alone (kdec) sold the nest for food
 (open nest 27 vs 512 held out). No arm changes the game's lab boxes. Every arm collapses to one founder colony.
@@ -57,7 +57,22 @@ deleted; the full job tgzs stay in bucket `runs/clean1/`.
    case's *need* (`nest_scale`, colsel.py ~line 390). There, more crumbs make a nest look too small, which penalises
    crumbing rather than rewarding it. A crumb does fill a cell, so cells may be the right unit for space. Decide that
    before switching the case to `larder.csv` *_kj, and check every other lane's score that counts stored cells as food.
-7. **Owner item 3, a standing practice:** a replay of each batch's winner plus traces of the ants that starved.
+7. **Can the brain copy the hand-built ant in the game's boxes?** (owner asked for this 2026-10-27 21:01Z, after
+   clean1). Give it its own thread in the new account. It tells apart the two remaining explanations for why trained
+   brains die in two_larders, scattered_larder and feast_and_famine (4-5 lived vs the hand-built ant's 34-147):
+   - if the brain can copy the hand-built ant there and then survives, the brain is capable, and the problem is what
+     training offers and selects for (env1, write1);
+   - if it can't copy it, the brain's design is the bottleneck.
+
+   **Method:**
+   - Label the hand-built ant's verb choices in those boxes (`PP_MIND_LOG` gives each decision's options and features)
+     and fit a pool to them with the teacher/copy tools (`homefit`/`copyreplay`, Teacher-lane lessons).
+   - Report each copy as (P(label), hold KL) per `how-we-test.md` §4.
+   - Then run the copied pool in the same boxes with the exam (`scratch/inrun/exam.py`, `BOXES=two_larders,...`), paired
+     against std_pool and the hand-built ant.
+   - Try layout 8 (`PP_WRITE=on`) as well as the default. Note the hand-built ant uses separate forage code for corpse,
+     so leave corpse boxes out or label them separately.
+8. **Owner item 3, a standing practice:** a replay of each batch's winner plus traces of the ants that starved.
 
 ## Owner decisions still pending
 

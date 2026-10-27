@@ -7,8 +7,51 @@ behind on the old account. This folder is everything from those places that shou
 This is **information, not instructions**. It records what was done, what was learned, what was planned, the working
 practices the owner set in chat, and what was still open. Decide what to do next from it; don't run it as a to-do list.
 
-Main was `6a58114` when this was written; lane notes and PR states were refreshed at about 20:00Z. Where a number appears here, the report it came from is named. Re-measure
+Main was `6a58114` when this was written; lane notes and PR states were refreshed at about 20:00Z, and the PF4 and copy-test entries added at 21:10Z. Where a number appears here, the report it came from is named. Re-measure
 before quoting anything that predates a change to the standard pool or the brain layout.
+
+## Still running at the move
+
+**Pheromones positive control (PF4).** This was the only experiment still running when the hand-off was written.
+- **Where:** the pheromone thread's own container (4 cores), not the VM. Output goes to that session's scratchpad
+  (`pf4/{free,deaf}/`), which the new account cannot see.
+- **Timing:** started 19:12Z 2026-10-27. At 21:03Z it was at generation 20 of 40 in both arms, about 5.5 minutes a
+  generation. It hit the 2-hour background-job limit at 21:10Z (free arm at generation 22, deaf at 20) and was
+  resumed at 21:12Z. Evolution was then due about 23:10Z and the garden judging about 23:40Z.
+- **What it tests:** scents A **and** B are deafened in both arms. A trail on the third scent plane is then worth what
+  the founder's two scents are worth together (PF2: 2,324 vs 641 food delivered). The question is whether the
+  evolution set-up can find a signal when one clearly pays.
+  - Set-up: 16 colonies x 40 generations x 2 worlds, `SCORE=home`, `HARNESS=2`, seed 41.
+  - Full design: `Reports/brain-training/evolvable-pheromones-2026-10-25.md` §9.11.
+- **Pass bar (fixed before the run):**
+  - at generation 40, the free arm's garden stage-B value is at least 1.5x the deaf arm's;
+  - the free arm's best genome meets criteria 2 and 3 of §9.10.
+
+  A fail means E4 (the main free-vs-deaf test) cannot find a smaller prize, so the operator or the run length must be
+  fixed first. E4 itself still needs the owner's go-ahead.
+- **Where results land:** if the pheromone session was still alive, it lands them itself through a merge-desk PR:
+  - report §9.12 in the pheromone report;
+  - `gens.csv` files, `garden.json` and the best genomes under `Reports/data/evolvable-pheromones-2026-10-27/pf4/`.
+
+  **If §9.12 is not in the report, PF4 never landed and must be re-run.**
+- **Re-run** (about 17 core-hours; `emerge.py` resumes from the last finished generation). From the repo root, once
+  per arm (`ARM` = `free`, then `deaf`):
+
+  ```
+  cargo build --release --example inrun
+  BIN=target/release/examples/inrun PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 \
+    python3 scratch/pheromones/emerge.py OUT/ARM ARM 16 40 100000 assets/minds/std_pool.txt P=4 SEED=41 EVALS=2 \
+    SCORE=home MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train \
+    EVERY=10 LISTEN=4 HARNESS=2
+  ```
+
+  Then judge it, with the same environment variables:
+
+  ```
+  python3 scratch/pheromones/garden.py OUT/garden free=OUT/free deaf=OUT/deaf DEAFALSO=A,B
+  ```
+
+  `scripts/pf4_run.sh` in the data folder has the old session's absolute paths baked in. Use the form above instead.
 
 ## What is in this folder
 
@@ -193,6 +236,14 @@ These are proposals, mostly with a recommendation, none of them started unless t
   5. decide whether corpse belongs in `food=all`;
   6. switch scale-case food from cells to kJ;
   7. a replay plus starvation traces for every batch.
+  8. **can the brain copy the hand-built ant in the game's lab boxes?** (owner, 2026-10-27 21:01Z, after clean1; meant to
+     get its own thread in the new account). Trained brains die in two_larders, scattered_larder and feast_and_famine.
+     This test separates the two remaining explanations:
+     - if a pool fitted to the hand-built ant's choices there survives, the brain is capable, and training's
+       environment and selection are the problem (env1, write1);
+     - if it cannot copy it, the brain's design is the bottleneck.
+
+     Method: to-do 7 in `lanes/teacher-lane.md`.
 
   Further out (Teacher plan, 10-22):
   - harder foraging: farther and moving food, judged at an unseen distance;
@@ -224,9 +275,9 @@ recommendation for each.
 
 | thread | state | open |
 |---|---|---|
-| Teacher lane | working | env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (after clean1, the lane recommends yes to both: `elite=1` plus `kpm=0.003`). clean1 logged in PR #955 |
+| Teacher lane | working | the copy test ("can the brain copy the hand-built ant in the lab boxes", owner 21:01Z: own thread); env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (after clean1, the lane recommends yes to both: `elite=1` plus `kpm=0.003`). clean1 logged in PR #955 |
 | Merge desk | working | merged #945-#953 by 19:40Z; #944 and #955 (clean1) were still with it. Procedure: `lanes/merge-desk.md` |
-| Evolvable pheromones | blocked on owner | **(owner)**: whether and where to run E4. E3 was stopped (it ranked on cells). PR #944 |
+| Evolvable pheromones | blocked on owner; **PF4 running** | PF4 positive control due ~23:40Z (see "Still running at the move"). **(owner)**: whether and where to run E4, after PF4. E3 was stopped (it ranked on cells). PR #944 merged |
 | Brood and breeding | blocked on owner | **(owner)**: how to stop the nest packing with crumbs (a selection case is recommended). **(owner)**: the nest-worker caste, acceptable starvation, a training headcount cap. PR #952 |
 | Plant community plan | blocked on owner | **(owner)**: plant food or the understory (understory recommended). **(owner)**: ship the seed-trained shrub and herb (yes, after a lab check) |
 | Rootless surviving plants | review ready | **(owner)**: build "pale hungry leaves" (recommended yes). PR #945 |
