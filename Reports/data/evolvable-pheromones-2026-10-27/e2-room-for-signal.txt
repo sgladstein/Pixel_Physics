@@ -1,0 +1,8 @@
+D2_far       epochs  65 unfound  5  first find    124 fr  finder lag   6271 fr  finders/epoch   42  lost searchers   56%
+D2_fast      epochs 320 unfound  1  first find     24 fr  finder lag   1835 fr  finders/epoch   19  lost searchers   65%
+D2_fastfar   epochs 280 unfound 26  first find     19 fr  finder lag   1595 fr  finders/epoch   19  lost searchers   57%
+D2_today     epochs  80 unfound  0  first find     34 fr  finder lag   5891 fr  finders/epoch   47  lost searchers   62%
+fnd_far      epochs  65 unfound 20  first find    414 fr  finder lag   5655 fr  finders/epoch   34  lost searchers   82%
+fnd_fast     epochs 320 unfound 19  first find    169 fr  finder lag   1520 fr  finders/epoch   12  lost searchers   90%
+fnd_fastfar  epochs 300 unfound 128  first find     52 fr  finder lag   1245 fr  finders/epoch   13  lost searchers   75%
+fnd_today    epochs  80 unfound  5  first find    179 fr  finder lag   6448 fr  finders/epoch   36  lost searchers   86%

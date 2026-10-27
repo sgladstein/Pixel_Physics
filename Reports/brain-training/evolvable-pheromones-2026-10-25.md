@@ -471,3 +471,21 @@ out-of-nest ants outside the door-to-heap corridor after a nestmate has already 
 evolved deaf best on every bed (today's 62%), 75-90% for the founder; other finders reach the heap a median 5,900
 frames after the first on today's bed. The review's bar (>= 25% on some bed) passes on today's bed, so the bed is
 not the blocker. Caveat: no positive control yet (a colony with a perfect signal), so this is an upper bound.
+
+**The plan from here** (the review's, adjusted by E1/E2; every bar fixed before the run, comparisons paired with a
+sign test):
+
+| Step | Question | Cost | Pass bar | On fail |
+|---|---|---|---|---|
+| E3 | Do the harness fixes speed selection up? Deaf arm only, `HARNESS=1` vs `2`, seeds 31/32, 40 generations (`scripts/e3_run.sh` in the data folder) | ~3.5 h on 4 cores | >= 1.5x gain per 10 generations, judged on a common garden of each run's elite (`gNNN/c00`) at g10/20/30/40 | revisit before E4 |
+| E4 | The decisive test: free vs deaf on today's bed, `HARNESS=2`, 6 replicates x 16 colonies x 60 generations, `EVALS=3`, gentle operator `MUT=0.013:0.25:1` | ~240 core-hours | free beats deaf in 6/6 replicates on a common garden of each replicate's top 4 (p = 0.031), and the free best loses >= 20% deaf on >= 12/16 worlds | close the third channel; record the dead end with bed, operator and replicates |
+| E5 (optional) | Do evolved signals on A and B beat frozen ones? 4 replicates, evolvable vs frozen emit rows | ~160 core-hours | evolvable wins 4/4 | signals stay a demonstration |
+
+**State at the account move (2026-10-27 18:30Z).** E3 was running and a second independent review, of E4's
+readiness (environment, scent set-up, harness, statistical power), had been started at the owner's request
+("This is a very resource heavy test. Are we confident..."). E4 was **not approved** and should not run before that
+review's open points are settled. Known gaps the lane named itself: E2 has no positive control; the gentle operator
+has never run a full evolution; the bed has not been checked against the training-environment review
+(`teacher-training/training-environment-review-2026-10-27.md`: harness-only rules, 40-row floor, no windfall); the
+founder is `std_pool` (layout 5), not the current ratchet pool or the gated layouts 6-8. Data, genomes and scripts:
+`Reports/data/evolvable-pheromones-2026-10-27/`.
