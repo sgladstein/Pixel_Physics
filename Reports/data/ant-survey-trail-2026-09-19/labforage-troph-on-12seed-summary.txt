@@ -1,0 +1,8 @@
+troph-on: 12 seeds
+  f   3600: alive per seed [52, 51, 50, 46, 52, 47, 52, 50, 49, 51, 52, 51]  median 51.0 p10 47 p90 52 colonies alive 12/12  E10/50/90 med 20/66/112  shares med 218
+  f   4500: alive per seed [50, 36, 44, 39, 39, 37, 47, 30, 36, 42, 44, 40]  median 39.5 p10 36 p90 44 colonies alive 12/12  E10/50/90 med 13/64/96  shares med 248
+  f   9000: alive per seed [8, 26, 12, 25, 11, 12, 36, 6, 8, 22, 6, 17]  median 12.0 p10 6 p90 25 colonies alive 12/12  E10/50/90 med 47/110/228  shares med 292
+  f  30600: alive per seed [5, 11, 14, 19, 6, 3, 30, 3, 5, 11, 6, 6]  median 6.0 p10 3 p90 14 colonies alive 12/12  E10/50/90 med 218/376/598  shares med 364
+  f  60300: alive per seed [7, 11, 11, 11, 4, 0, 14, 4, 5, 5, 5, 9]  median 6.0 p10 4 p90 11 colonies alive 11/12  E10/50/90 med 209/384/720  shares med 503
+  f  90000: alive per seed [4, 9, 10, 4, 4, 0, 9, 3, 3, 4, 3, 10]  median 4.0 p10 3 p90 9 colonies alive 11/12  E10/50/90 med 236/434/668  shares med 554
+  f 149400: alive per seed [4, 11, 4, 14, 2, 0, 2, 23, 1, 2, 0, 3]  median 2.5 p10 0 p90 11 colonies alive 10/12  E10/50/90 med 241/406/576  shares med 637
