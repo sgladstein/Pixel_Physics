@@ -324,6 +324,21 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   teacher labels and 0.02% of the rest: it is the teacher's rule, so a fit to
   it is a fit to the answer and says nothing about whether the brain can
   combine senses (same report, §4).
+- **Alive at 200,000 frames is not alive.** The shipped pool was alive in 15 of
+  16 garden worlds at 200k and 0 of 16 at 600k on the same bed, with nothing
+  changed (the hand-built ant kept 14). Run a long twin (`frames=600000`; it
+  matches the 200k run exactly up to 200k) before calling a pool viable, and
+  quote colonies alive at 600k
+  (`teacher-training/training-environment-review-2026-10-27.md` §1).
+- **A training bed that differs from the game is a hidden arm.** Before
+  trusting a garden, list what the harness sets that the game does not:
+  `lay_cap`, `PP_MIND_DOOR_OPEN=drop`, no old age (`colony_in` zeroes
+  `life_half_life`; `oldage=40000` restores it), `grants=3`, 40 rows of soil,
+  only provisions and fruit as food. Each was measured to cost the pool in
+  the game (same report, §2-3). A lab box that fails while the garden passes
+  usually differs in food: check the box's materials first.
+- **`plants=… rain=R` never rains on the harness step.** Use `tick=lab
+  labrain=R` (same report, §4).
 - **A "fresh" scorer unit is zero in its context, feature *and* verb rows.**
   A verb row left live is a per-verb constant that the unit's output weight
   carries into every score; it made a hand-laid gate look like it leaked
