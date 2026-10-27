@@ -1,0 +1,97 @@
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index cd440def..dcdc0576 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1804,6 +1804,33 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+             }
+             // SCRATCH (teacher-training ceiling test): the hand-written teacher's three calls (`scratch_log::teach`).
+             let mut redrawn: Option<Vec<Opt>> = None;
++            // SCRATCH (dig-scoring thread, 2026-10-22; owner: "refusal as a teacher makes sense"): `PP_RIMVETO=N`
++            // refuses a cut of ground (not spoil) fewer than N rows below the frozen datum within `PP_RIMVETO_R`
++            // (default 20) columns of `PP_RIMVETO_X` (default 128): when the brain picks one, every such Dig option is
++            // taken off and it redraws from the rest, deep cuts included. The crater's teacher, for copying; the
++            // 2026-10-21 version (`PP_STORE_VERB=dig`, inrun-wt) took off every Dig and is not this.
++            if let Some((n, nx, nr)) = scratch_log::rimveto() {
++                let rim = |o: &Opt| scratch_log::rim_cut(world, o, n, nx, nr);
++                if let Some(i) = d.as_ref().map(|d| d.pick) {
++                    if rim(&opts[i]) {
++                        let allowed: Vec<Opt> = opts.iter().copied().filter(|o| !rim(o)).collect();
++                        if !allowed.is_empty() {
++                            mind.state.mem = mem0;
++                            mind.state.last_verb = last0;
++                            let mut again = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND + 1002);
++                            if let Some(d2) = decide(&mind.genome.w, &ctx, &allowed, &mut mind.state, &mut again) {
++                                d = Some(d2);
++                                redrawn = Some(allowed);
++                                static V: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
++                                let k = V.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
++                                if k % 1000 == 0 {
++                                    eprintln!("PP_RIMVETO refusals {k}");
++                                }
++                            }
++                        }
++                    }
++                }
++            }
+             if scratch_log::teach_on() {
+                 if let Some((pick, jobs, scores0)) = d.as_ref().map(|d| (d.pick, d.jobs, d.scores.clone())) {
+                     let own_verb = opts[pick].verb;
+@@ -3940,6 +3967,26 @@ pub mod scratch_log {
+         })
+         .as_ref()
+     }
++    /// SCRATCH (teacher lane, 2026-10-22): `PP_RIMVETO=N` with `PP_RIMVETO_X` / `PP_RIMVETO_R`, read once (the dig
++    /// thread's first cut read the environment on every decision).
++    pub fn rimveto() -> Option<(i32, i32, i32)> {
++        static V: OnceLock<Option<(i32, i32, i32)>> = OnceLock::new();
++        *V.get_or_init(|| {
++            let n = std::env::var("PP_RIMVETO").ok()?.parse::<i32>().ok()?;
++            let nx = std::env::var("PP_RIMVETO_X").ok().and_then(|v| v.parse().ok()).unwrap_or(128);
++            let nr = std::env::var("PP_RIMVETO_R").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
++            Some((n, nx, nr))
++        })
++    }
++    /// The refusal's test: a Dig of ground (not spoil) fewer than `n` rows below the frozen datum within `nr` columns
++    /// of `nx`. One function for the acting veto and the copy log's label, so the two cannot drift apart.
++    pub fn rim_cut(world: &World, o: &Opt, n: i32, nx: i32, nr: i32) -> bool {
++        let (tx, ty) = o.target;
++        o.verb == Verb::Dig
++            && (tx - nx).abs() <= nr
++            && world.room_surface_at(tx).is_some_and(|s| ty >= s && ty - s < n)
++            && Some(world.get(tx, ty).material) != world.materials.id_of("spoil")
++    }
+     pub fn copy_on() -> bool {
+         copy_out().is_some()
+     }
+@@ -4034,13 +4081,20 @@ pub mod scratch_log {
+         // deepest open row of the cavity the head stands in, flooded through open cells (empty, or this ant's own
+         // body) within Chebyshev R of the head -- what an ant feels by touch and gravity: is there open space lower
+         // than the cell it is about to cut? `-` for other verbs.
++        // SCRATCH (teacher lane, 2026-10-22): the crater refusal's label as a 17th field (the 16th, `-` here, is the
++        // foraging-loop thread's teacher label): the option indices `PP_RIMVETO` would take off, a pure function of
++        // the state, written whatever the brain picked; `-` when none or the refusal is off.
++        let refused = rimveto().map_or_else(|| "-".to_string(), |(n, nx, nr)| {
++            let r: Vec<String> = (0..opts.len()).filter(|&i| rim_cut(world, &opts[i], n, nx, nr)).map(|i| i.to_string()).collect();
++            if r.is_empty() { "-".to_string() } else { r.join(";") }
++        });
+         let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
+         let bottom: Vec<String> = opts
+             .iter()
+             .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+             .collect();
+         cline(&format!(
+-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{}",
++            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},-,{}",
+             world.frame,
+             at.0,
+             at.1,
+@@ -4051,7 +4105,8 @@ pub mod scratch_log {
+             f(ctx),
+             f(mem0),
+             all.join(";"),
+-            bottom.join(";")
++            bottom.join(";"),
++            refused
+         ));
+     }
+     pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];

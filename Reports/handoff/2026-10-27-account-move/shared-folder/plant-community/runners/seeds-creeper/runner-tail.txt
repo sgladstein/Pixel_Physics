@@ -1,0 +1,63 @@
+fatal: couldn't find remote ref claude/project-thread-uodokv
+fatal: --unshallow on a complete repository does not make sense
+== seeds-creeper: creeper on rung 4, seed 1
+-- score
+final set (18 beds): champion 3.8164 control 3.8982 start 3.8504
+champion - control: mean -0.0818 +/-0.1937, ahead on 9, behind on 6
+-- random
+final set (18 beds): champion 3.9829 control 3.8982 start 3.8504
+champion - control: mean +0.0847 +/-0.3570, ahead on 4, behind on 10
+-- check (rung 4, 8 layouts, beside each other role)
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.89 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    89 p50    96 p75   103 cv 0.20 
+             own score 3.00 seeds set p25 4 p50 5 mean 5.0 | neighbour score 3.00 end shoot p50  1661 flowered 0/8 alive 8/8
+             hold score 4.25 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    99 p50   129 p75   138 cv 0.29 
+             own score 3.00 seeds set p25 2 p50 5 mean 4.5 | neighbour score 3.00 end shoot p50  1558 flowered 0/8 alive 8/8
+             hold score 3.89 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   137 p50   155 p75   162 cv 0.20 
+             own score 3.00 seeds set p25 4 p50 5 mean 5.2 | neighbour score 3.00 end shoot p50  1609 flowered 0/8 alive 8/8
+             hold score 4.28 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   105 p50   127 p75   145 cv 0.20 
+             own score 3.00 seeds set p25 2 p50 2 mean 2.8 | neighbour score 3.00 end shoot p50  1715 flowered 0/8 alive 8/8
+             hold score 4.16 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.50 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    90 p50    97 p75    98 cv 0.17 
+             own score 3.00 seeds set p25 6 p50 15 mean 12.0 | neighbour score 3.01 end shoot p50   391 flowered 8/8 alive 8/8
+             hold score 4.19 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   107 p50   115 p75   137 cv 0.19 
+             own score 3.00 seeds set p25 9 p50 10 mean 10.2 | neighbour score 2.84 end shoot p50   356 flowered 8/8 alive 8/8
+             hold score 2.80 | neighbour under the floor 3/8 (kept p25 0.15) under a tenth 3/8
+    /tmp/m2-seeds-creeper-nauM/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   134 p50   147 p75   153 cv 0.18 
+             own score 3.00 seeds set p25 13 p50 14 mean 14.4 | neighbour score 3.01 end shoot p50   308 flowered 8/8 alive 8/8
+             hold score 2.88 | neighbour under the floor 3/8 (kept p25 0.15) under a tenth 3/8
+    /tmp/m2-seeds-creeper-nauM/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   112 p50   127 p75   130 cv 0.21 
+             own score 3.00 seeds set p25 4 p50 6 mean 7.4 | neighbour score 3.02 end shoot p50   438 flowered 8/8 alive 8/8
+             hold score 3.15 | neighbour under the floor 3/8 (kept p25 0.76) under a tenth 2/8
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.62 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    88 p50    91 p75    91 cv 0.23 
+             own score 3.00 seeds set p25 8 p50 10 mean 10.0 | neighbour score 3.79 end shoot p50   238 flowered 7/8 alive 8/8
+             hold score 4.19 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   115 p50   137 p75   142 cv 0.30 
+             own score 3.00 seeds set p25 9 p50 10 mean 9.8 | neighbour score 3.95 end shoot p50   271 flowered 8/8 alive 8/8
+             hold score 4.17 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   139 p50   149 p75   163 cv 0.24 
+             own score 3.00 seeds set p25 10 p50 12 mean 11.4 | neighbour score 3.86 end shoot p50   198 flowered 8/8 alive 8/8
+             hold score 4.20 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    90 p50   148 p75   149 cv 0.25 
+             own score 3.00 seeds set p25 3 p50 6 mean 6.6 | neighbour score 3.74 end shoot p50   218 flowered 7/8 alive 7/8
+             hold score 3.53 | neighbour under the floor 1/8 (kept p25 1.00) under a tenth 1/8
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 1.28 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    90 p50   102 p75   113 cv 0.18 
+             own score 3.00 seeds set p25 16 p50 18 mean 16.9 | neighbour score 3.00 end shoot p50    78 flowered 0/8 alive 8/8
+             hold score 4.27 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/start.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   118 p50   136 p75   141 cv 0.25 
+             own score 3.00 seeds set p25 12 p50 14 mean 12.4 | neighbour score 2.99 end shoot p50    76 flowered 0/8 alive 8/8
+             hold score 4.18 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   141 p50   151 p75   154 cv 0.20 
+             own score 3.00 seeds set p25 14 p50 16 mean 15.2 | neighbour score 3.00 end shoot p50    85 flowered 0/8 alive 8/8
+             hold score 4.24 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+    /tmp/m2-seeds-creeper-nauM/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   109 p50   135 p75   140 cv 0.20 
+             own score 3.00 seeds set p25 8 p50 8 mean 10.2 | neighbour score 3.00 end shoot p50    80 flowered 0/8 alive 8/8
+             hold score 4.18 | neighbour under the floor 0/8 (kept p25 1.00) under a tenth 0/8
+RUNNER DONE

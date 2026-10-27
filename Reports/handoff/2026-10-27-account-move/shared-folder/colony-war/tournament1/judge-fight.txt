@@ -1,0 +1,4 @@
+pool 0 /tmp/claude-0/-home-user-Pixel-Physics/0849b493-0a74-5ff7-a459-f6a00eae7ae9/scratchpad/tour/fight/r15/p3m0/save/west
+  won 12/12 | lived share 0.56 | nest 5726 vs 492 | food home 498 vs 4796 | kills 46 vs 23 | died out 0 vs 0
+pool 1 /tmp/claude-0/-home-user-Pixel-Physics/0849b493-0a74-5ff7-a459-f6a00eae7ae9/scratchpad/tour/fight/r15/p4m1/save/east
+  won 12/12 | lived share 0.55 | nest 4983 vs 511 | food home 718 vs 4646 | kills 39 vs 16 | died out 0 vs 0

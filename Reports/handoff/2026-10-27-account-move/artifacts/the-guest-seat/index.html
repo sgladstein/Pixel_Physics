@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>The Guest Seat</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; the two GIFs side by side as a paired comparison, stacking on a phone. */
+:root {
+  --bg: #f6f3ee;
+  --panel: #ece6dc;
+  --fg: #231d17;
+  --muted: #6b5f52;
+  --amber: #a4511e;      /* the rove's own colour */
+  --good: #2f7a43;
+  --bad: #b3322a;
+  --line: #d6cdbf;
+  --display: "Fraunces", Georgia, serif;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17130f; --panel: #221c16; --fg: #eee6da; --muted: #a99a88; --amber: #e0894a;
+    --good: #6cc685; --bad: #ef6f62; --line: #3a3027; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17130f; --panel: #221c16; --fg: #eee6da; --muted: #a99a88; --amber: #e0894a;
+  --good: #6cc685; --bad: #ef6f62; --line: #3a3027; color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+}
+main { max-width: 980px; margin: 0 auto; display: grid; gap: 34px; }
+.prose { max-width: 68ch; }
+h1 { font-family: var(--display); font-weight: 600; font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0 0 10px; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 24px; margin: 0 0 10px; text-wrap: balance; }
+p { margin: 0 0 12px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); margin-bottom: 8px; }
+code, .mono { font-family: var(--mono); font-size: .9em; }
+.run { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: var(--mono); font-size: 13px; white-space: pre; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figure img { width: 100%; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 4px; background: #111; }
+figcaption { display: grid; gap: 4px; }
+figcaption b { font-size: 17px; }
+.count { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.count .bad { color: var(--bad); font-weight: 600; } .count .good { color: var(--good); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.glyph { font-family: var(--mono); font-weight: 600; font-size: 15px; display: inline-block; min-width: 1.4em; text-align: center; border-radius: 3px; background: #15120f; padding: 0 4px; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 18px; }
+.key { display: flex; gap: 10px; align-items: baseline; }
+kbd { font-family: var(--mono); font-size: 13px; font-weight: 600; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 6px; background: var(--panel); min-width: 1.6em; text-align: center; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.note { color: var(--muted); font-size: 14px; }
+</style>
+
+<main>
+  <header class="prose">
+    <div class="eyebrow">Seat demo · guest · built and playable</div>
+    <h1>You are a beetle living off an ant colony by smelling like it</h1>
+    <p>The guest seat of the six seat demos. Ants judge you by how far your smell is from family, on a graded ladder: they walk on, stop and inspect, flare and back off, or bite. Rub workers and lie in the nest to take its smell, beg for food, and keep the disguise up, because it fades. Smell wrong and you lose your body a cell at a time.</p>
+    <div class="run">cargo run --release --bin lab -- demo=guest</div>
+    <p class="note" style="margin-top:8px">Off everywhere else: the normal lab, training and every other world run cell for cell as before. Branch <code>claude/project-thread-rdj55n</code>.</p>
+  </header>
+
+  <section>
+    <h2>Same colony, same landing, two players</h2>
+    <p class="prose">Seed 1, the first 60 seconds after the rove lands at the nest (25 seconds for the raw guest), played by a script pressing the demo's own keys. The ring round the rove is its smell: red stranger, amber doubtful, green family. A mark over an ant is what it just decided.</p>
+    <div class="pair">
+      <figure>
+        <img src="raw.gif" alt="A rove beetle lands beside the ant mound with a red ring; ants around it show red X marks as they bite, and it dies within twelve seconds." loading="lazy">
+        <figcaption>
+          <b>Raw: walks in and presses nothing</b>
+          <span class="count">ants bit it <span class="bad">11 times</span> in 12 s · 3 cells lost · <span class="bad">dead at 0:12</span> · fed 0</span>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="beggar.gif" alt="The same landing; the rove rubs ants, its ring turns from red to green, ants show yellow question marks and blue stars, then green plus marks as they feed it." loading="lazy">
+        <figcaption>
+          <b>Disguised: soaks, rubs for 20 s, then begs</b>
+          <span class="count">smell 1.50 → 0.12 in 20 s · <span class="good">0 bites in 60 s</span> · <span class="good">fed 20 times (600 J)</span> · 63 inspected, 28 flared</span>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the marks mean</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Mark</th><th>The ant</th><th>What it costs you</th></tr></thead>
+        <tbody>
+          <tr><td>none</td><td>walks on</td><td>nothing</td></tr>
+          <tr><td><span class="glyph" style="color:#ffe63c">?</span></td><td>stops and holds on you for 1.5 s</td><td>time</td></tr>
+          <tr><td><span class="glyph" style="color:#ff8c1e">!</span></td><td>flares, backs off, leaves a puff of alarm</td><td>the next ant there is stricter</td></tr>
+          <tr><td><span class="glyph" style="color:#ff2828">X</span></td><td>lunges and bites</td><td>three bites take a body cell; the head goes last</td></tr>
+          <tr><td><span class="glyph" style="color:#50f064">+</span></td><td>gives you food when you beg</td><td></td></tr>
+          <tr><td><span class="glyph" style="color:#aaaaaa">-</span></td><td>has nothing to spare</td><td></td></tr>
+          <tr><td><span class="glyph" style="color:#78c8ff">*</span></td><td>was groomed by you</td><td>her smell moved a little toward yours</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your keys</h2>
+    <div class="keys">
+      <div class="key"><kbd>←↑→↓</kbd><span>move</span></div>
+      <div class="key"><kbd>R</kbd><span>rub the ant beside you</span></div>
+      <div class="key"><kbd>P</kbd><span>soak in the nest's smell, on or off</span></div>
+      <div class="key"><kbd>Y</kbd><span>beg for food</span></div>
+      <div class="key"><kbd>B</kbd><span>kill a larva beside you</span></div>
+      <div class="key"><kbd>E</kbd><span>eat a corpse</span></div>
+      <div class="key"><kbd>J</kbd><span>jump</span></div>
+      <div class="key"><kbd>H</kbd><span>help line · <kbd>Tab</kbd> camera follow</span></div>
+    </div>
+    <p class="note" style="margin-top:10px">The box is steady income's with the trained colony. The clock runs fast while the colony grows (about 25 s on this machine), then drops to normal speed when you land. A new beetle lands 3 s after one dies. The ledger grades your life: cuckoo (lived on gifts), thief (on the dead), predator (on the brood).</p>
+  </section>
+
+  <section>
+    <h2>Twelve colonies, not one</h2>
+    <p class="prose">Every seed, 60 s after landing, both scripts. The disguise is what keeps the guest alive, and feeding it does not change how much food the colony brings home.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>Killed on</th><th>Deaths</th><th>Bites (median)</th><th>Fed on</th><th>Food runs, raw / disguised</th></tr></thead>
+        <tbody>
+          <tr><td><b>Raw</b></td><td class="mono">11 of 12</td><td class="mono">29</td><td class="mono">30.5</td><td class="mono">0 of 12</td><td class="mono" rowspan="2">2,846 / 2,877 · 2,313 / 2,405 · 2,335 / 2,257 · 3,009 / 2,929 (within noise)</td></tr>
+          <tr><td><b>Disguised</b></td><td class="mono">5 of 12</td><td class="mono">6</td><td class="mono">5.5</td><td class="mono">11 of 12</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:8px">The disguised guest's ants use every rung (walk on, inspect, flare, bite); the raw guest's almost only bite. On one seed the guest never reached the ants in either arm.</p>
+  </section>
+
+  <section class="prose">
+    <h2>Worth judging by eye</h2>
+    <ul>
+      <li>Whether a raw guest dies too fast or too slow (about 12 s on seed 1).</li>
+      <li>Whether begging is too generous: the disguised beetle went from 200 to 700 J in a minute.</li>
+      <li>Whether the 1.5 s inspect and 1 s flare read as ants making up their minds.</li>
+      <li>The larva kill works and is tested, but is not in these clips: the script's walk does not reach the brood chamber.</li>
+    </ul>
+  </section>
+</main>
+
+</body></html>

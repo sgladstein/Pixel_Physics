@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Rooms Colony Replay</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two film strips stacked, each a video then four cross-sections, numbers under each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--food:#a87a0c;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--food:#e3b53c;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--food:#e3b53c;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:32px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:21px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:12px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.4 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;max-width:724px;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+figure{margin:0;display:flex;flex-direction:column;gap:5px;min-width:0} figure img{width:100%;height:auto;image-rendering:pixelated;border-radius:2px}
+figcaption{display:flex;flex-wrap:wrap;gap:2px 10px;font:12.5px/1.3 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums}
+figcaption b,.w{color:var(--fg)} .f{color:var(--food)}
+.key{display:flex;flex-wrap:wrap;gap:6px 16px;font:13px var(--mono);color:var(--mute)} .key span{display:inline-flex;gap:6px;align-items:center} .key i{width:12px;height:12px;display:inline-block}
+.note{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · nest batch 1 · 25 Oct 2026</span>
+<h1>The rooms are lobes of stored food</h1>
+<p>You asked to see the colony behind the rooms result. The 19 was the batch's median room score, not a count of rooms. This is the batch's best colony on that score, colony 9 of the size-gate arm. It scored 85, higher than the hand-built ant on the same world (36). Its replay shows why: the "rooms" are lobes of a food pile, with about 30 open cells in the whole nest.</p>
+<p class="mute">Both films are the same garden world (seed 9099, food 25 columns out, 200,000 frames, one frame every 50), replayed exactly: colony 9 reproduces its batch numbers to the cell. The video is the game's own renderer; the strips below it recolour the same nest so stored food stands out.</p>
+<div class="key"><span><i style="background:#0e0c0a"></i>open tunnel and room</span><span><i style="background:#f0d250"></i>stored food</span><span><i style="background:#e29646"></i>loose spoil</span><span><i style="background:#7a5c3e"></i>soil</span><span><i style="background:#5ac85a"></i>ants</span></div>
+</div>
+<section class="ant"><h2>Trained colony 9, size-gate arm, round 23</h2>
+<p class="stats"><b>128</b> ants alive · food home <b>24,725</b> · starved <b>7</b> · nest <b>470</b> cells, of which <b>17</b> open · crater 6 · room score 85</p>
+<video src="c9.mp4" controls muted loop playsinline preload="metadata"></video>
+<div class="tiles"><figure><img src="run_50k.png" alt="" width="360" height="240"><figcaption><span class="w">50k frames</span><span><b>28</b> open</span><span class="f">264 food</span></figcaption></figure><figure><img src="run_100k.png" alt="" width="360" height="240"><figcaption><span class="w">100k frames</span><span><b>40</b> open</span><span class="f">386 food</span></figcaption></figure><figure><img src="run_150k.png" alt="" width="360" height="240"><figcaption><span class="w">150k frames</span><span><b>34</b> open</span><span class="f">481 food</span></figcaption></figure><figure><img src="run_200k.png" alt="" width="360" height="240"><figcaption><span class="w">200k frames</span><span><b>32</b> open</span><span class="f">606 food</span></figcaption></figure></div></section>
+<section class="ant"><h2>Hand-built ant, same world</h2>
+<p class="stats"><b>97</b> ants alive · nest <b>863</b> cells, of which <b>732</b> open · crater 0 · room score 36</p>
+<video src="old.mp4" controls muted loop playsinline preload="metadata"></video>
+<div class="tiles"><figure><img src="old_50k.png" alt="" width="360" height="240"><figcaption><span class="w">50k frames</span><span><b>358</b> open</span><span class="f">15 food</span></figcaption></figure><figure><img src="old_100k.png" alt="" width="360" height="240"><figcaption><span class="w">100k frames</span><span><b>603</b> open</span><span class="f">42 food</span></figcaption></figure><figure><img src="old_150k.png" alt="" width="360" height="240"><figcaption><span class="w">150k frames</span><span><b>637</b> open</span><span class="f">50 food</span></figcaption></figure><figure><img src="old_200k.png" alt="" width="360" height="240"><figcaption><span class="w">200k frames</span><span><b>733</b> open</span><span class="f">29 food</span></figcaption></figure></div></section>
+<div class="note"><h2>What this changes</h2>
+<p>The room score reads the shape of the nest with stored food counted as space, so a lumpy food pile scores as several rooms. That is the same blind spot that let the size gate grow food instead of room. Batch 2, running now, scores open room only. The room score needs the same fix before it can be trusted, and I will make that change next.</p></div>
+</main>
+</body></html>

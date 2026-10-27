@@ -1,0 +1,5 @@
+started 2026-10-22T01:26:21Z name=hold-from-herb species=herb seed=1 host=vm cores=4
+built 2026-10-22T01:29:34Z
+score run done 2026-10-22T01:53:31Z
+random run done 2026-10-22T02:17:28Z
+finished 2026-10-22T02:19:21Z

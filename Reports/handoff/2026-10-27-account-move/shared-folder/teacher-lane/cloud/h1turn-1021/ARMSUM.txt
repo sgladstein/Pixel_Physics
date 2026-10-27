@@ -1,0 +1,6 @@
+rand30   seeds 64: food/seed     488  starved/seed   716  extinct 32 (rounds [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4])  healthy 30 | food per round r0:80(n64) r1:84(n52) r2:116(n45) r3:187(n39) r4:134(n36) r5:136(n32)
+z15      seeds 64: food/seed    8360  starved/seed   303  extinct 35 (rounds [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3])  healthy 28 | food per round r0:122(n64) r1:823(n38) r2:1826(n34) r3:3888(n31) r4:5199(n29) r5:5607(n29)
+z30      seeds 64: food/seed    6857  starved/seed   480  extinct 21 (rounds [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 4])  healthy 42 | food per round r0:137(n64) r1:595(n55) r2:1141(n50) r3:2042(n45) r4:2668(n44) r5:3047(n43)
+z60      seeds 64: food/seed    5158  starved/seed   359  extinct 29 (rounds [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 4])  healthy 34 | food per round r0:118(n64) r1:307(n54) r2:814(n46) r3:1796(n38) r4:2603(n36) r5:3047(n35)
+
+[exited with code 0]

@@ -1,0 +1,1 @@
+plantrain: start=/home/user/Pixel_Physics/assets/species/creeper.ron control=creeper groups=shape,leaf pop=16 gens=16 keep=0.25 layouts=6 holdout=6 final=8 sigma=0.9 genes=8 seed=1 select=Random teeth=true width=96 frames=40000 every=250 mutation_off=true n_est=20 k_seed=24 size_floor=55 rung=grow stations=bright out=/tmp/m2-creeper-l0V5/random

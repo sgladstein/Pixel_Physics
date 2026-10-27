@@ -1,0 +1,108 @@
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 9b1d1802..4754ab67 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1472,7 +1472,8 @@ pub fn context(
+     let Some(&(hx, hy)) = st.chain.first() else {
+         return (v, [0.0; 5]);
+     };
+-    let e = (st.energy / def.start_energy.max(f32::EPSILON)).max(0.0);
++    let tank = def.sensed_tank.unwrap_or(def.start_energy);
++    let e = (st.energy / tank.max(f32::EPSILON)).max(0.0);
+     v[c::ENERGY] = e / (1.0 + e);
+     let cap = organism_crop_capacity(world, organism, def);
+     v[c::CROP] = st.crop.map_or(0.0, |cr| {
+diff --git a/src/sim/organism.rs b/src/sim/organism.rs
+index 1df8391e..963feb01 100644
+--- a/src/sim/organism.rs
++++ b/src/sim/organism.rs
+@@ -3532,6 +3532,17 @@ pub struct CreatureDef {
+     /// Frames between decisions.
+     pub tick_interval: u64,
+     pub start_energy: f32,
++    /// **The joules the mind's energy sense reads as one full tank**, when
++    /// that is not `start_energy` (`None`, every authored species). The
++    /// training arenas rescale `start_energy` to their budget so the bills
++    /// keep their size (`train::challenges::budget_to`: fetch and trail
++    /// 1e9, soil 2,400), and the sense divided by it read a flat 0.5 in
++    /// fetch and trail and 0.5 -> 0.2 while digging, where the colony and
++    /// the game read the real tank (0.75-0.95). A lesson keyed on hunger
++    /// then fired all through the soil arena (hungry-lesson thread,
++    /// 2026-10-21; owner's go). `budget_to` keeps the authored budget here.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub sensed_tank: Option<f32>,
+     /// Charged every tick regardless of what the creature does, **per cell
+     /// of the body the animal still has**.
+     ///
+@@ -4572,6 +4583,7 @@ impl CreatureDef {
+             body,
+             tick_interval,
+             start_energy,
++            sensed_tank,
+             idle_cost_per_cell,
+             move_cost_per_cell,
+             dig_cost_in_moves,
+@@ -4667,6 +4679,8 @@ impl CreatureDef {
+             // material's `penetration_resistance`, which does not move with
+             // resolution either.
+             start_energy: *start_energy,
++            // The same joules as `start_energy`, passed through with it.
++            sensed_tank: *sensed_tank,
+             synapse_fraction: *synapse_fraction,
+ 
+             // ---- a rate charged per cell *read* per decision: / (k x time) ----
+diff --git a/src/train/challenges.rs b/src/train/challenges.rs
+index f736a816..17a51d2a 100644
+--- a/src/train/challenges.rs
++++ b/src/train/challenges.rs
+@@ -1796,12 +1796,20 @@ fn is_ground(w: &World, x: i32, y: i32) -> bool {
+ 
+ /// **Rescale a species to a finite budget**, every standing bill kept at
+ /// what it is at the authored budget ([`never_starve`] is this at 1e9).
++/// **The energy sense keeps the authored tank** (`CreatureDef::sensed_tank`):
++/// the budget is the bills' unit, not what one tank feels like, so an ant
++/// here feels its bank against the same tank as in the colony and the game.
++/// Before 2026-10-22 it read a flat 0.5 in fetch and trail; copy v2 on
++/// reliab's soil worlds, priced before the change: 10.71 -> 10.12 full
++/// loads (-0.58 +- 0.32), fetch 19.83 -> 19.76, so brains trained before it
++/// want a re-check.
+ fn budget_to(def: &mut organism::CreatureDef, joules: f32) {
+     assert!(
+         joules.is_finite() && joules > 0.0,
+         "a budget of {joules} J: every bill priced as a fraction of it would be infinite, or free"
+     );
+     let authored = def.start_energy;
++    def.sensed_tank.get_or_insert(authored);
+     def.start_energy = joules;
+     let k = authored / def.start_energy;
+     def.synapse_fraction *= k;
+@@ -4010,6 +4018,29 @@ mod tests {
+         }
+     }
+ 
++    /// **An arena's budget does not move what a full tank feels like**
++    /// ([`budget_to`], `CreatureDef::sensed_tank`): a soil ant on 2,400 J
++    /// and a fed one on 1e9 feel their bank against the species' authored
++    /// tank, as the colony and the game do. Put the fault back (the sense
++    /// over `start_energy`) and both read exactly 0.5.
++    #[test]
++    fn an_arena_budget_leaves_the_energy_sense_on_the_authored_tank() {
++        let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
++        for budget in [Some(2400.0), None] {
++            let soil = Soil { ants: 1, frames: 1, step: 4, shaft: 8, budget, foot: true, step_near: 0.0, nest: false };
++            let (w, _, sp, full) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
++            let def = w.species.get(sp).creature.clone().expect("creature");
++            let tank = def.sensed_tank.expect("budget_to keeps the authored tank");
++            assert!(tank > 0.0 && tank < full, "{budget:?}: authored {tank} under the budget {full}");
++            let id = ants_of(&w, sp)[0];
++            let (ctx, _) = creature::mind::context(&w, id, &def, &creature::mind::MindState::default(), &[]);
++            let e = full / tank;
++            let want = e / (1.0 + e);
++            assert!((ctx[creature::mind::c::ENERGY] - want).abs() < 1e-6, "{budget:?}: reads {} for a bank of {full} on a tank of {tank}", ctx[creature::mind::c::ENERGY]);
++            assert!(ctx[creature::mind::c::ENERGY] > 0.9, "{budget:?}: a full ant feels full, not 0.5");
++        }
++    }
++
+     /// **The soil arena's world never rolls a pellet** ([`hold_training_world`]):
+     /// its world reads `spoil_roll` 0 whatever the process says; the control,
+     /// the same bed built plainly, leaves it to the process (`None`).

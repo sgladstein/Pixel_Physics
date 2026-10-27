@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Moving Food Replays</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column of three films, each headed by its colony and a line of counts */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · replays · 25 Oct 2026</span>
+<h1>The same world with the food far away and moving</h1>
+<p>You said the food in the last replay sat far too close. These three runs use the test world I am switching to: one food heap, 40 to 120 columns from the door on a random side, jumping somewhere new every 20,000 frames. Same world for all three: seed 21099, 200,000 frames, the whole bed in view.</p>
+<p class="mute">The trained colonies do much worse here than in the old close-food test. Colony 21, from today's best batch, keeps an open nest and a small store but starves 300 ants and opens a crater. Today's standard ant packs its nest with food again and ends with 23 ants. The hand-built ant keeps 80 ants and over 1,100 open nest cells.</p>
+</div>
+<section class="ant"><h2>Trained colony 21, nest batch 2 (old rules + open-room score), round 23</h2>
+<p class="stats"><b>48</b> ants alive · <b>300</b> starved · food deliveries 1,667 · nest <b>250</b> cells, <b>210</b> open · crater 180 · stored food 29</p>
+<video src="c21.mp4" controls muted loop playsinline preload="metadata" poster="c21_end.png"></video></section><section class="ant"><h2>Colony 10, today’s standard ant</h2>
+<p class="stats"><b>23</b> ants alive · <b>217</b> starved · food deliveries 6,350 · nest <b>145</b> cells, <b>5</b> open · crater 5 · stored food 307</p>
+<video src="c10.mp4" controls muted loop playsinline preload="metadata" poster="c10_end.png"></video></section><section class="ant"><h2>Hand-built ant</h2>
+<p class="stats"><b>80</b> ants alive · <b>11</b> starved · food deliveries 1,285 · nest <b>1,235</b> cells, <b>1,139</b> open · crater 4 · stored food 11</p>
+<video src="old.mp4" controls muted loop playsinline preload="metadata" poster="old_end.png"></video></section>
+</main>
+</body></html>

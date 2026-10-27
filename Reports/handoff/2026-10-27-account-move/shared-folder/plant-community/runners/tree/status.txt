@@ -1,0 +1,5 @@
+started 2026-10-21T21:35:58Z name=tree species=tree stations=bright seed=1 host=vm cores=4
+built 2026-10-21T21:39:39Z
+score run done 2026-10-21T21:55:21Z
+random run done 2026-10-21T22:10:46Z
+finished 2026-10-21T22:15:42Z

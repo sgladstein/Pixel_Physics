@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Teacher Phase-Out Batch</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict, a four-world table, then the two films with counts above each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tbl{overflow-x:auto} table{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:520px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right} th[scope=row]{text-align:left;font-weight:500} thead th{color:var(--mute);font-weight:400}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · nest batch 5 · 26 Oct 2026</span>
+<h1>Phasing the teacher out did not teach the ants to come home, but it grew one real nest</h1>
+<p>Batch 5 trained 32 colonies per arm for 48 rounds on far food that moves every 20,000 frames. The come-home teacher was on at first and phased out by round 40. All test runs had it off. Once it was gone, the ants starved as much as the control: selection did not keep the habit. More colonies died out than in the control.</p>
+<p>The arm that also phased out the old dig rules is different. Its nests grew round after round, from 199 cells at round 7 to 617 at round 47, and its colonies stopped dying out (4 of 32 at the end, against 12 for the control). Its best colony, below, has the biggest open nest a trained colony has dug with every crutch off, with a small mouth rather than a crater. Most of that arm's colonies still have big craters, and they still starve as many ants as the control.</p>
+</div>
+<div class="tbl"><table><thead><tr><th>arm, last test round (median of 32)</th><th>alive</th><th>starved</th><th>nest cells</th><th>crater</th><th>colonies dead</th></tr></thead><tbody>
+<tr><th scope="row">No teacher</th><td>58</td><td>241</td><td>93</td><td>12</td><td>12</td></tr>
+<tr><th scope="row">Teacher phased out</th><td>0</td><td>218</td><td>108</td><td>15</td><td>19</td></tr>
+<tr><th scope="row">Teacher + old rules phased out</th><td>66.5</td><td>289</td><td>617</td><td>138</td><td>4</td></tr>
+</tbody></table></div>
+<section class="ant"><h2>Teacher + old rules phased out, colony 13 (best nest)</h2>
+<p class="stats">world 13099 · <b>85</b> alive · <b>162</b> starved · food deliveries 4,546 · nest <b>947</b> cells, <b>386</b> open · crater 17 · rooms score 29</p>
+<video src="hweanrules13.mp4" controls muted loop playsinline preload="metadata" poster="hweanrules13_end.png"></video></section>
+<section class="ant"><h2>Hand-built ant, same world</h2>
+<p class="stats">world 13099 · <b>86</b> alive · <b>1</b> starved · food deliveries 2,214 · nest <b>1,221</b> cells, <b>1,085</b> open · crater 1 · rooms score 80</p>
+<video src="old13.mp4" controls muted loop playsinline preload="metadata" poster="old13_end.png"></video></section>
+<section class="ant"><h2>Teacher phased out, colony 21 (best survivor)</h2>
+<p class="stats">world 21099 · <b>72</b> alive · <b>133</b> starved · food deliveries 7,043 · nest <b>138</b> cells, <b>20</b> open · crater 9</p>
+<video src="hwean21.mp4" controls muted loop playsinline preload="metadata" poster="hwean21_end.png"></video></section>
+<section class="ant"><h2>No teacher, colony 24 (best survivor)</h2>
+<p class="stats">world 24099 · <b>78</b> alive · <b>113</b> starved · food deliveries 15,695 · nest <b>125</b> cells, <b>7</b> open · crater 11</p>
+<video src="hctl24.mp4" controls muted loop playsinline preload="metadata" poster="hctl24_end.png"></video></section>
+<section class="ant"><h2>What I think this means</h2>
+<ol>
+<li>Selection cannot find "go home when low" by itself. The brain's step scores are saturated, so a small change to how it weighs home changes almost nothing it does, and selection has nothing to pick between. The habit has to be put into the weights directly: copy the teacher's choices into the brain, training only the home-sense weights (the recipe that worked for the far-from-home sense on 22 Oct), then judge with the teacher off.</li>
+<li>Colony 13 is worth keeping as a candidate for the nest. It needs a test over more worlds before it becomes the standard ant.</li>
+</ol></section>
+</main>
+
+</body></html>

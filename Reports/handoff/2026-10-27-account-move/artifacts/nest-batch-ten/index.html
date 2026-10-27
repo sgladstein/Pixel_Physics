@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Nest Batch Ten</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict, a four-world table, then the two films with counts above each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tbl{overflow-x:auto} table{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:520px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right} th[scope=row]{text-align:left;font-weight:500} thead th{color:var(--mute);font-weight:400}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · nest batch 10 · 26 Oct 2026</span>
+<h1>The come-home habit survives selection, but 48 rounds of nest training didn't grow the nest further</h1>
+<p>Batch 10 started from the new "home, when low" ant and trained nests for 48 rounds, 32 colonies per arm, on far food that moves. The habit held the whole way: the garden starved 41 ants per colony at the end, against 311 for batch 8's control from colony 13. Nests were bigger and craters smaller than batch 8's (757 cells and crater 38, against 446 and 93).</p>
+<p>But nothing beat the ant it started from. I tested the four best colonies over 16 worlds against it. The best for open nest dug 33% more open room (522 cells against 392, more in 9 of 16 worlds). It also starved a few more ants, brought home less food, and made bigger craters. So the new ant stays as it is, and the nest is still well short of the hand-built ant's.</p>
+</div>
+<div class="tbl"><table><thead><tr><th>16 worlds (medians)</th><th>alive</th><th>starved</th><th>food home</th><th>open nest</th><th>crater</th><th>rooms (open)</th></tr></thead><tbody>
+<tr><th scope="row">New ant (start of the batch)</th><td>79</td><td>43.5</td><td>4,944</td><td>392</td><td>9</td><td>32</td></tr>
+<tr><th scope="row">Control arm, colony 10</th><td>77.5</td><td>41</td><td>5,071</td><td>439</td><td>32</td><td>40</td></tr>
+<tr><th scope="row">Control arm, colony 2</th><td>84.5</td><td>41</td><td>5,043</td><td>452</td><td>44</td><td>32</td></tr>
+<tr><th scope="row">Open-room arm, colony 31</th><td>78</td><td>58.5</td><td>4,166</td><td>523</td><td>32</td><td>30.5</td></tr>
+<tr><th scope="row">Open-room arm, colony 18</th><td>78</td><td>55</td><td>4,310</td><td>462</td><td>67</td><td>55.8</td></tr>
+</tbody></table></div>
+<section class="ant"><h2>Open-room arm, colony 31, world 13007</h2>
+<p class="stats"><b>83</b> alive · <b>47</b> starved · food deliveries 4,165 · nest <b>1,053</b> cells, <b>549</b> open · crater 35 · rooms score 27</p>
+<video src="s31w13007.mp4" controls muted loop playsinline preload="metadata" poster="s31w13007_end.png"></video></section>
+<section class="ant"><h2>New ant ("home, when low"), same world</h2>
+<p class="stats"><b>79</b> alive · <b>19</b> starved · food deliveries 4,268 · nest <b>826</b> cells, <b>595</b> open · crater 175 · rooms score 86.5</p>
+<video src="new13007.mp4" controls muted loop playsinline preload="metadata" poster="new13007_end.png"></video></section>
+<section class="ant"><h2>Hand-built ant, same world</h2>
+<p class="stats"><b>81</b> alive · <b>5</b> starved · food deliveries 850 · nest <b>1,565</b> cells, <b>1,438</b> open · crater 0 · rooms score 43.5</p>
+<video src="old13007.mp4" controls muted loop playsinline preload="metadata" poster="old13007_end.png"></video></section>
+</main>
+
+</body></html>

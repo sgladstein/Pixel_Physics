@@ -1,0 +1,17 @@
+---
+name: teacher-children-1024
+description: Other lanes' deliveries to the Teacher lane from 2026-10-24 (parallel-merge guide, predator harness)
+metadata:
+  type: project
+---
+
+- Parallel-merge thread (23:18Z, PR #840, /mnt/project-files/parallel-merge/): union merge of disjoint lessons works (hcs+r4 food 431 vs 309, 22/24); averaging whole selected brains lands between parents; dig-only/forage-only islands fail. Candidate founder genomes/M_r4hcs.raw.txt (PP_HOMEVEC=40:30) to judge at colsel scale.
+
+**Why:** inputs that stack on the Teacher lane's founder. **How to apply:** see [[teacher-children-1023]], [[teacher-batches-1023-evening]].
+- **PR #849 merged 85e1cd8 (04:13Z 2026-10-24):** senses default-on (HOMEVEC 40:30, dh7 head embedded + gate + light + evolve, MIND_GRAZE), `=off` opt-outs; lab new ant = assets/minds/std_pool.txt (brood1ctl c7 r31 top 30); inrun STANDARD fills missing args (std=off old); colsel takes *pool.txt founder. See [[ratchet-founder]].
+- **broodplant1c done 05:10Z:** CG r31 bp1 (brood+plants, pile 30->20) 64/64 alive, starved 16, nest 259, crater 5; bp1pile 64/64, starved 2, nest 186, crater 4. nest_food 297 vs 260: still food bowls. nests-broodplant1.png; csv /mnt/project-files/brood/broodplant1/. Pull hit disk-full (scratchpad); deleted colsel18-23, inrun dirs.
+- **stdcheck**: first launch 05:13Z build-failed (compute branch deleted after #849 merged). Relaunched 05:21Z as stdcheck-1024b --ref main 85e1cd8 (chain3.sh, runvm-std2.log -> scratchpad/stdcheck), then plantwean3b-1024 from main (runvm-pw3b.log). ALWAYS launch from main after a merge; recreate the compute branch from main before new compute commits: pool rules-off from r0 (stdoff) vs weaned 4:12 (stdwean), 64x16. Then plantwean3 (std=off) via runvm-pw3.sh.
+- Brood lane 05:29Z: the packed bowl is the working larder (rotting crumbs -> 0/4 alive); neither breeding income nor lay cap empties it. Next ideas: colony case "starved while stored food nearby", or stop re-dropping part-eaten loads at home. Dead-ends PR #850.
+- **stdcheck result 06:45Z:** rules off from r0 holds: CG crater 2.5-4, nest 325->504, starved 2-6; beats weaned 41/64 paired nest. Ratchet turn 1: std_pool = stdoff c27 r15 (CG 530/3/6 rooms 44), PR #851 (head 123ba718, branch recreated from main c7057de9). nests-stdcheck.png. plantwean3b-1024 from main started 06:46Z (runvm-pw3b.log -> scratchpad/plantwean3; copy to /mnt/project-files/plant-food/plantwean3/).
+- **Lab die-off (owner playtest 07:13Z, herb_ant box, build c7057de9):** trained pool colonies starve within ~5k frames of landing beside 8.9 MJ fruit. Repro: scratch examples/newantlab.rs (uncommitted, compute tree): played_bed 41/42 starved by 2k frames after landing (old ant 0); 3-tank grant only delays (35/42). Cause: training = 3 tanks + provisions pile; lab = 1 tank, fruit/plants. Plan: lab-scenario garden as a colsel case. Lab-default-trained change built (bin/lab.rs + TRAINED/HAND-BUILT labels) but held until a pool survives the lab (owner chose "trained by default" 07:10Z).
+- **Lab die-off CAUSE (07:40Z):** labsurvive (examples/labsurvive.rs, uncommitted) on steady bed, no plants, food 2 heaps +-d: trained pool survives d<=50 (33-209 alive), ALL starve at d>=100 (2 seeds, fruit and provisions); old ant survives to 240. Fruit vs provisions at 25: ~60 vs ~200. 3 tanks barely matter. Training only ever had dist=25 on a 256-wide bed. Fix: wider bed, varied dist (25-200+), fruit mix, lab survival case. Scenarios in scratchpad/scen (PIXEL_PHYSICS_LAB_SCENARIOS).

@@ -6430,6 +6430,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   no supply line (739 starved against 8). On the playtest line ~11 of ~150
   cells a 1,000 frames reach the store; the low store belongs to the
   recruiting colony (fits `follow-food-home-2026-10-10`).
+- [handoff/2026-10-27-account-move/README.md](handoff/2026-10-27-account-move/README.md) — **the
+  master hand-off for the account move, 2026-10-27 (main 6a58114); start here.**
+  Written for a new account with only the repo, as information rather than
+  instructions: the week of 2026-10-20 to 10-27 by line (ant training and the
+  ratchet, nest, brood, pheromones, plants, predators, the six seat demos,
+  performance), the findings that cut across lines, the plans on the table,
+  every open item and unanswered owner decision by thread, the owner's working
+  practices that lived only in chat and memory, the Google Cloud and GitHub
+  setup (variable names only), and the state of every PR and branch. Beside it:
+  each active thread's own hand-off note (`lanes/`), a verbatim copy of the old
+  project memory, the project instructions, local copies of the picture pages,
+  the shared-folder files not otherwise in the repo, and the week's merged PRs.
+  Supersedes the 2026-10-07 and 2026-10-02 handoffs below for current state.
 - [handoff/teacher-lane-handoff-2026-10-21.md](handoff/teacher-lane-handoff-2026-10-21.md) — **the
   teacher lane's handoff (2026-10-21):** where the copier, its scratch Rust
   patch, every cited genome and the analysis scripts now live in the repo;

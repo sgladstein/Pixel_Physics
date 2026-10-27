@@ -1,0 +1,186 @@
+diff --git a/examples/plantrain.rs b/examples/plantrain.rs
+index 860932284..e4d81beec 100644
+--- a/examples/plantrain.rs
++++ b/examples/plantrain.rs
+@@ -223,10 +223,13 @@ fn rungs(m: &BTreeMap<String, String>) {
+                 let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len().max(1) as f32;
+                 let nbs: Vec<&arena::Census> = rows[0].iter().filter_map(|c| c.neighbour.as_deref()).collect();
+                 let nb_end = mean(nbs.iter().map(|c| c.end_shoot as f32).collect());
++                let nb_seeds = mean(nbs.iter().map(|c| c.seeds_set as f32).collect());
+                 score::Yardstick {
+                     own_end: mean(rows[0].iter().map(|c| c.end_shoot as f32).collect()),
++                    own_seeds: mean(rows[0].iter().map(|c| c.seeds_set as f32).collect()),
+                     nb_end,
+-                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end)).collect()),
++                    nb_seeds,
++                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end, nb_seeds)).collect()),
+                 }
+             });
+             for (sp, cs) in species.iter().zip(&rows) {
+@@ -265,10 +268,14 @@ fn rungs(m: &BTreeMap<String, String>) {
+                     let nb_end: Vec<f32> = nbs.iter().map(|c| c.end_shoot as f32).collect();
+                     let nb_flower = nbs.iter().filter(|c| c.first_flower.is_some()).count();
+                     let nb_alive = nbs.iter().filter(|c| c.founder_alive).count();
++                    let seeds: Vec<f32> = cs.iter().map(|c| c.seeds_set as f32).collect();
+                     println!(
+-                        "    {:<8} own score {:.2} | neighbour score {:.2} end shoot p50 {:>5.0} flowered {nb_flower}/{n} alive {nb_alive}/{n}",
++                        "    {:<8} own score {:.2} seeds set p25 {:.0} p50 {:.0} mean {:.1} | neighbour score {:.2} end shoot p50 {:>5.0} flowered {nb_flower}/{n} alive {nb_alive}/{n}",
+                         "",
+                         own.iter().sum::<f32>() / n.max(1) as f32,
++                        q(&seeds, 0.25),
++                        q(&seeds, 0.5),
++                        seeds.iter().sum::<f32>() / n.max(1) as f32,
+                         nb_score.iter().sum::<f32>() / nbs.len().max(1) as f32,
+                         q(&nb_end, 0.5)
+                     );
+diff --git a/src/train_plant/arena.rs b/src/train_plant/arena.rs
+index ccbc5079e..f0d3da434 100644
+--- a/src/train_plant/arena.rs
++++ b/src/train_plant/arena.rs
+@@ -301,6 +301,12 @@ pub struct Census {
+     pub shoot_at_first_flower: u32,
+     /// The founder held a fruit at some census.
+     pub fruited: bool,
++    /// Seeds the founder has set (`OrganismState::seeds_set`), at its last
++    /// census alive. The plan's step 5 is graded by this (§5), and rung 4
++    /// paid nothing for it: a herb trained there set a quarter of the shipped
++    /// herb's seed and died out of the mixed bed (2026-10-22,
++    /// `Reports/plant-community-2026-10-20/m2/community/`).
++    pub seeds_set: u32,
+     /// Plants of the founder's species, other than the founder, holding at
+     /// least `n_est` shoot cells at the end. In a one-species bed with
+     /// heredity off these are all the founder's line.
+@@ -444,6 +450,7 @@ impl Tracker {
+             c.shoot_at_first_flower = shoot;
+         }
+         c.fruited |= fruit > 0;
++        c.seeds_set = c.seeds_set.max(st.seeds_set);
+     }
+ 
+     fn finish(mut self, w: &World, spec: &BedSpec, others: &[OrganismId]) -> Census {
+diff --git a/src/train_plant/mod.rs b/src/train_plant/mod.rs
+index dacfffeb9..c14770df5 100644
+--- a/src/train_plant/mod.rs
++++ b/src/train_plant/mod.rs
+@@ -212,7 +212,7 @@ pub fn rung_scores(arms: &[Arm], base: u64, n: usize, s: &Settings, refs: &[scor
+         Rung::Grow | Rung::Hold => {
+             let mut out = vec![Vec::new(); arms.len()];
+             for (ci, spec) in rung_specs(s).into_iter().enumerate() {
+-                let y = refs.get(ci).copied().unwrap_or(score::Yardstick { own_end: 1.0, nb_end: 1.0, nb_score: 0.0 });
++                let y = refs.get(ci).copied().unwrap_or(score::Yardstick { own_end: 1.0, own_seeds: 1.0, nb_end: 1.0, nb_seeds: 1.0, nb_score: 0.0 });
+                 for (a, row) in census_all(arms, &layouts, &spec).iter().enumerate() {
+                     out[a].extend(row.iter().map(|c| match s.rung {
+                         Rung::Hold => score::hold_score(c, &s.constants, &y),
+@@ -272,8 +272,10 @@ pub fn grow_refs(control: &Arm, base: u64, n: usize, s: &Settings) -> Vec<score:
+             let own_end = mean(&row.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
+             let nbs: Vec<&Census> = row.iter().filter_map(|c| c.neighbour.as_deref()).collect();
+             let nb_end = mean(&nbs.iter().map(|c| c.end_shoot as f32).collect::<Vec<_>>());
+-            let nb_score = mean(&nbs.iter().map(|c| score::sized_score(c, &s.constants, nb_end)).collect::<Vec<_>>());
+-            score::Yardstick { own_end, nb_end, nb_score }
++            let own_seeds = mean(&row.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
++            let nb_seeds = mean(&nbs.iter().map(|c| c.seeds_set as f32).collect::<Vec<_>>());
++            let nb_score = mean(&nbs.iter().map(|c| score::sized_score(c, &s.constants, nb_end, nb_seeds)).collect::<Vec<_>>());
++            score::Yardstick { own_end, own_seeds, nb_end, nb_seeds, nb_score }
+         })
+         .collect()
+ }
+@@ -361,11 +363,11 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+     let refs = grow_refs(&control, holdout_base, s.holdout, s);
+     if !refs.is_empty() {
+         println!(
+-            "plantrain: {} yardsticks (the control's end shoot; under hold its neighbour's end shoot and score): {}",
++            "plantrain: {} yardsticks (the control's end shoot; under hold own end/seeds, the neighbour's end/seeds and score): {}",
+             s.rung.name(),
+             refs.iter()
+                 .enumerate()
+-                .map(|(ci, y)| if s.rung == Rung::Hold { format!("{} {:.0}/{:.0}/{:.2}", cell_name(s, ci), y.own_end, y.nb_end, y.nb_score) } else { format!("{} {:.1}", cell_name(s, ci), y.own_end) })
++                .map(|(ci, y)| if s.rung == Rung::Hold { format!("{} {:.0}/{:.1} {:.0}/{:.1}/{:.2}", cell_name(s, ci), y.own_end, y.own_seeds, y.nb_end, y.nb_seeds, y.nb_score) } else { format!("{} {:.1}", cell_name(s, ci), y.own_end) })
+                 .collect::<Vec<_>>()
+                 .join(", ")
+         );
+diff --git a/src/train_plant/score.rs b/src/train_plant/score.rs
+index d4c4710e3..ae21fd495 100644
+--- a/src/train_plant/score.rs
++++ b/src/train_plant/score.rs
+@@ -89,8 +89,8 @@ pub const GROW_CAP: f32 = 8.0;
+ /// neighbour kept at a quarter of its size halves the score, one smothered
+ /// to a twentieth all but zeroes it.
+ pub fn hold_score(c: &Census, k: &Constants, y: &Yardstick) -> f32 {
+-    let own = sized_score(c, k, y.own_end);
+-    let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end));
++    let own = sized_score(c, k, y.own_end, y.own_seeds);
++    let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end, y.nb_seeds));
+     (own - (y.nb_score - nb).max(0.0)).max(0.0) * neighbour_kept(c, y)
+ }
+ 
+@@ -131,20 +131,42 @@ pub fn size_frac(end_shoot: u32, reference: f32) -> f32 {
+ /// every one of them at 2.999 -- 55 cells and 1,900 read alike, and a
+ /// perennial could be ranked only by what it did to its neighbour. The end,
+ /// not the peak, so a plant that dies scores its death.
+-pub fn sized_score(c: &Census, k: &Constants, end_ref: f32) -> f32 {
+-    if !c.germinated || c.peak_shoot < k.n_est || c.first_flower.is_some() {
++///
++/// **And a plant that has set seed is paid its seed** (plan §5, step 5:
++/// "flowered and set seed, graded by seed count up to a cap"): 4 plus
++/// `seeds_set` against `seed_ref` on the same log scale, so the reference
++/// scores 4.32 and the step is full at `GROW_CAP` times it. `bed_score`
++/// paid that step only for seedlings established inside the bed, which in
++/// 40,000 frames almost never happens, so every seeding plant read alike:
++/// a herb trained on rung 4 set half the shipped herb's seed (10 against
++/// 13 beside a tree, 17 against 34 beside a herb) at the same score, and
++/// died out of the mixed bed on four seeds of six (2026-10-22,
++/// `Reports/plant-community-2026-10-20/m2/community/`). The size floor
++/// halves it as it halves `bed_score`'s steps.
++pub fn sized_score(c: &Census, k: &Constants, end_ref: f32, seed_ref: f32) -> f32 {
++    if !c.germinated || c.peak_shoot < k.n_est {
++        return bed_score(c, k);
++    }
++    if c.seeds_set > 0 {
++        let above = 4.0 + size_frac(c.seeds_set, seed_ref);
++        return if k.size_floor > 0 && c.first_flower.is_some() && c.shoot_at_first_flower < k.size_floor { 2.0 + (above - 2.0) * 0.5 } else { above };
++    }
++    if c.first_flower.is_some() {
+         return bed_score(c, k);
+     }
+     2.0 + size_frac(c.end_shoot, end_ref)
+ }
+ 
+ /// What rung 4 scores against, per bed kind (station and neighbour),
+-/// measured on the control: its own end shoot, its neighbour's end shoot
+-/// beside it, and that neighbour's [`sized_score`] there.
++/// measured on the control: its own end shoot and seed set, its neighbour's
++/// end shoot and seed set beside it, and that neighbour's [`sized_score`]
++/// there.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+ pub struct Yardstick {
+     pub own_end: f32,
++    pub own_seeds: f32,
+     pub nb_end: f32,
++    pub nb_seeds: f32,
+     pub nb_score: f32,
+ }
+ 
+@@ -249,7 +271,7 @@ mod tests {
+             ..Census::default()
+         };
+         let beside = |nb: Census| Census { neighbour: Some(Box::new(nb)), ..life(true) };
+-        let y = Yardstick { own_end: 200.0, nb_end: 200.0, nb_score: bed_score(&life(true), &k) };
++        let y = Yardstick { own_end: 200.0, nb_end: 200.0, nb_score: bed_score(&life(true), &k), ..Yardstick::default() };
+         let alone = bed_score(&life(true), &k);
+         assert_eq!(hold_score(&beside(life(true)), &k, &y), alone, "a neighbour as well off as beside the shipped species costs nothing");
+         let stunted = hold_score(&beside(life(false)), &k, &y);
+@@ -267,7 +289,13 @@ mod tests {
+         // the top of the step as `bed_score` pins it.
+         let tree = |end: u32| Census { end_shoot: end, peak_shoot: end, ..life(false) };
+         assert_eq!(bed_score(&tree(500), &k), bed_score(&tree(2_000), &k), "the defect: bed_score reads them alike");
+-        assert!(sized_score(&tree(2_000), &k, 1_000.0) > sized_score(&tree(500), &k, 1_000.0));
++        assert!(sized_score(&tree(2_000), &k, 1_000.0, 20.0) > sized_score(&tree(500), &k, 1_000.0, 20.0));
++        // A plant that sets seed is paid its seed, graded: twice the
++        // reference beats the reference beats half of it, and any seed beats
++        // a flower that set none.
++        let seeded = |n: u32| sized_score(&Census { seeds_set: n, shoot_at_first_flower: 100, ..life(true) }, &k, 200.0, 20.0);
++        assert!(seeded(40) > seeded(20) && seeded(20) > seeded(10) && seeded(10) > seeded(0), "{} {} {} {}", seeded(40), seeded(20), seeded(10), seeded(0));
++        assert!(seeded(1) > bed_score(&life(true), &k).min(4.0), "setting seed is above flowering");
+     }
+ 
+     #[test]

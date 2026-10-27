@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Sharpness Batch</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict, a four-world table, then the two films with counts above each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tbl{overflow-x:auto} table{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:520px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right} th[scope=row]{text-align:left;font-weight:500} thead th{color:var(--mute);font-weight:400}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · sharpness batch · 26 Oct 2026</span>
+<h1>Lowering the brain's sharpness did not teach the ants to come home in 48 rounds</h1>
+<p>The trained brain scores almost every step as a flat yes or no, because its sharpness has sat at the top of its range since the hand-built seed. So selection can't see a leaning, like "head home as the tank runs low". This batch lowered the ceiling to 2x and to 1x and let 32 colonies per arm re-tune for 48 rounds from colony 13, on far food that moves.</p>
+<p>It didn't work. Neither arm starved fewer ants than the control, and both dug smaller open nests with bigger craters. The one gain was food: at 2x, the best colony brought home 24% more food than colony 13 in all 8 test worlds. It still starved more ants and dug a smaller nest.</p>
+<p>Some colonies looked like breakthroughs in their own world (75-109 starved against about 300). Over 8 worlds they were ordinary. That was luck of the world, not a habit.</p>
+</div>
+<div class="tbl"><table><thead><tr><th>arm, last garden round (median)</th><th>alive</th><th>starved</th><th>nest cells</th><th>crater</th><th>open-room score</th><th>food home</th></tr></thead><tbody>
+<tr><th scope="row">Control (4x)</th><td>68</td><td>311</td><td>446</td><td>93</td><td>0.63</td><td>3,184</td></tr>
+<tr><th scope="row">Sharpness 2x</th><td>61</td><td>332</td><td>364</td><td>128</td><td>0.26</td><td>4,282</td></tr>
+<tr><th scope="row">Sharpness 1x</th><td>55</td><td>268</td><td>382</td><td>143</td><td>0.15</td><td>3,167</td></tr>
+</tbody></table></div>
+<section class="ant"><h2>Over 8 test worlds against colony 13 (medians)</h2>
+<div class="tbl"><table><thead><tr><th>colony</th><th>alive</th><th>starved</th><th>food home</th><th>open nest</th><th>crater</th></tr></thead><tbody>
+<tr><th scope="row">Colony 13 (standard, 4x)</th><td>71.5</td><td>240</td><td>4,112</td><td>398</td><td>23</td></tr>
+<tr><th scope="row">2x, colony 13</th><td>69.5</td><td>318</td><td>5,100</td><td>250</td><td>85</td></tr>
+<tr><th scope="row">2x, colony 28</th><td>66</td><td>315</td><td>4,045</td><td>196</td><td>165</td></tr>
+<tr><th scope="row">1x, colony 2</th><td>52.5</td><td>235</td><td>3,656</td><td>196</td><td>146</td></tr>
+<tr><th scope="row">1x, colony 21</th><td>48</td><td>224</td><td>3,562</td><td>171</td><td>177</td></tr>
+</tbody></table></div></section>
+<section class="ant"><h2>2x sharpness, colony 13 (most food), its own world</h2>
+<p class="stats">world 13099 · <b>88</b> alive · <b>76</b> starved · food deliveries 5,783 · nest <b>479</b> cells, <b>248</b> open · crater 137 · rooms score 17</p>
+<video src="s2c13.mp4" controls muted loop playsinline preload="metadata" poster="s2c13_end.png"></video></section>
+<section class="ant"><h2>Colony 13 (the standard ant), same world</h2>
+<p class="stats">world 13099 · <b>85</b> alive · <b>162</b> starved · food deliveries 4,546 · nest <b>947</b> cells, <b>386</b> open · crater 17 · rooms score 29</p>
+<video src="hweanrules13.mp4" controls muted loop playsinline preload="metadata" poster="hweanrules13_end.png"></video></section>
+<section class="ant"><h2>Hand-built ant, same world</h2>
+<p class="stats">world 13099 · <b>86</b> alive · <b>1</b> starved · food deliveries 2,214 · nest <b>1,221</b> cells, <b>1,085</b> open · crater 1 · rooms score 80</p>
+<video src="old13.mp4" controls muted loop playsinline preload="metadata" poster="old13_end.png"></video></section>
+<section class="ant"><h2>What I'm trying next</h2>
+<p>Sharpness alone doesn't make selection find the habit, but it might make the habit teachable. Copying the come-home teacher into the weights failed at 4x because the scores were pinned. I'm now repeating that copy at 1x, where only 31% of scores are pinned, and judging it on 8 worlds with the teacher off.</p></section>
+</main>
+
+</body></html>

@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Far Food Batch</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict and a small table, then one column of films with counts above each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tbl{overflow-x:auto} table{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:600px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right} th[scope=row]{text-align:left;font-weight:500} thead th{color:var(--mute);font-weight:400}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · nest batch 3 · 25 Oct 2026</span>
+<h1>Far, moving food is beyond the trained ant for now</h1>
+<p>Batch 3 trained and tested on the new food: one heap 40 to 120 columns out that moves every 20,000 frames. No arm got better. The median trained colony starves 110 to 280 ants a run, against 11 for the hand-built ant on the same world. The old-rules arms dig big open nests while the rules are on, then many colonies die out once they come off.</p>
+<p class="mute">The best colonies survive by hoarding. Colony 21 below keeps 83 ants with only 40 starved and a 640-cell nest, but 655 cells of that is stored food and only 87 is open. The hand-built ant has 1,139 open cells and stores 11.</p>
+</div>
+<div class="tbl"><table><thead><tr><th>arm (32 colonies, 48 rounds)</th><th>ants alive, r47 training (median)</th><th>starved per test run (medians, r15-r47)</th><th>open nest cells, r47</th><th>crater, training r23-r47</th><th>colonies dead at r47</th></tr></thead><tbody><tr><th scope="row">No-rules control</th><td>52</td><td>220-276</td><td>12-18</td><td>15-29</td><td>5 of 32</td></tr><tr><th scope="row">Old rules phased out slowly</th><td>10</td><td>144-244</td><td>130 (peak 291 at r23)</td><td>102-238</td><td>9 of 32</td></tr><tr><th scope="row">Slow phase-out + rooms score</th><td>3</td><td>110-211</td><td>232 (peak 308)</td><td>110-228</td><td>15 of 32</td></tr></tbody></table></div>
+<section class="ant"><h2>Old rules phased out slowly + rooms score, colony 21 (best survivor)</h2>
+<p class="stats"><b>83</b> ants alive · <b>40</b> starved · food deliveries 4,131 · nest <b>640</b> cells, <b>87</b> open · crater 17 · stored food 655</p>
+<video src="r21.mp4" controls muted loop playsinline preload="metadata" poster="r21_end.png"></video></section><section class="ant"><h2>Old rules phased out slowly + rooms score, colony 14</h2>
+<p class="stats"><b>76</b> ants alive · <b>114</b> starved · food deliveries 3,515 · nest <b>510</b> cells, <b>154</b> open · crater 47 · stored food 587</p>
+<video src="r14.mp4" controls muted loop playsinline preload="metadata" poster="r14_end.png"></video></section><section class="ant"><h2>No-rules control, colony 24</h2>
+<p class="stats"><b>51</b> ants alive · <b>232</b> starved · food deliveries 9,806 · nest <b>81</b> cells, <b>4</b> open · crater 10 · stored food 193</p>
+<video src="c24.mp4" controls muted loop playsinline preload="metadata" poster="c24_end.png"></video></section><section class="ant"><h2>Hand-built ant (same world, from the last page)</h2>
+<p class="stats"><b>80</b> ants alive · <b>11</b> starved · food deliveries 1,285 · nest <b>1,235</b> cells, <b>1,139</b> open · crater 4 · stored food 11</p>
+<video src="old.mp4" controls muted loop playsinline preload="metadata" poster="old_end.png"></video></section>
+<section class="ant"><h2>What I think this means</h2>
+<ol>
+<li>The nest can't be fixed before the ants can feed the colony on far food. Every arm that dug more starved more.</li>
+<li>Next is a moving-food ramp: the food still moves every 20,000 frames, but its distance starts near and goes out a step each time the colonies stop starving. That is how the earlier fixed-food ramp reached 120 columns.</li>
+<li>Stored food that just sits in the nest should count against a colony. The survivors here are hoarders.</li>
+</ol></section>
+</main>
+</body></html>

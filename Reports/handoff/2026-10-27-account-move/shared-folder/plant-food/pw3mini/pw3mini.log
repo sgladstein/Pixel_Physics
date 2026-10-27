@@ -1,0 +1,18 @@
+round 0: median starved 61, pile cap next round 45
+round 0 done: 8 passed the gate, 8 alive
+round 1: median starved 19, pile cap next round 45
+round 1 done: 7 passed the gate, 8 alive
+round 2: median starved 9, pile cap next round 40
+round 2 done: 7 passed the gate, 8 alive
+round 3: median starved 10, pile cap next round 35
+round 3 done: 8 passed the gate, 8 alive
+round 4: median starved 8, pile cap next round 30
+round 4 done: 8 passed the gate, 8 alive
+round 5: median starved 1, pile cap next round 25
+round 5 done: 8 passed the gate, 8 alive
+round 6: median starved 6, pile cap next round 20
+round 6 done: 8 passed the gate, 8 alive
+round 7: median starved 16, pile cap next round 20
+round 7 done: 8 passed the gate, 8 alive
+DONE
+COLSEL-EXIT 0

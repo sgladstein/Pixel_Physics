@@ -1,0 +1,1 @@
+plantrain: start=/home/user/Pixel_Physics/assets/species/shrub.ron control=shrub groups=shape,leaf pop=16 gens=16 keep=0.25 layouts=3 holdout=6 final=8 sigma=0.9 genes=8 seed=2 select=Score teeth=true width=96 frames=40000 every=250 mutation_off=true n_est=20 k_seed=24 size_floor=55 rung=grow stations=bright,dim out=/tmp/m2-shrub-seed2-eI17/score
