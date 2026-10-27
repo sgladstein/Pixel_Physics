@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies by 1.4-2.2x, and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; parking the line is recommended (owner's call pending). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8. Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -38,7 +38,7 @@ the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJY
   laden ants and colonies that hear it beat deaf ones 4/4. The blocker was search, not the idea.
 - **The real test** (§9.5-9.7, owner approved 2026-10-25 19:06Z): on a fresh channel that reaches the food, two
   replicates of 150 generations each invented real signals (a "searching" mark; a traffic map) that their colonies
-  came to depend on, yet deaf controls foraged 1.4-2.2x better, and opening the channel to a good forager cost it
+  came to depend on, yet deaf controls foraged better (1.4-2.2x best vs best; ~1.1-1.2x arm-level for replicate 2, §9.8), and opening the channel to a good forager cost it
   13%. Signals emerge; foraging does not improve. Not the emission bill.
 
 ## 1. The physics today
@@ -422,7 +422,7 @@ The last open question: can a signal add on top of a colony that already forages
 
 - **Emergent signals: yes.** A fresh channel acquires real, information-bearing conventions within ~100
   generations, and different runs invent different ones (a searching mark, a traffic map).
-- **Better foraging: no.** In every run the deaf control forages better (1.4-2.2x from the founder, 1.2x from an
+- **Better foraging: no.** In every run the deaf control forages better (best genome vs best: 1.4-2.2x, but see §9.8 -- n = 2, rep 2 ~1.2x and closing; from the founder, 1.2x from an
   evolved forager), and the gap is not the cost of emitting.
 - **For the ant line**: keep the alarm emit row frozen and the third plane on its shipped air law; the gene-chosen
   palette stays parked. Switches stay off: `PIXEL_PHYSICS_ALARM_GROUND`, `PP_SCENT_CONST`, `PP_EMIT_FREE`.
@@ -430,3 +430,44 @@ The last open question: can a signal add on top of a colony that already forages
   worth more to nestmates than their own search (food that is rare, brief and far, so most foragers never find it
   alone); a reader that is protected from emit mutations while a convention forms (a separate, slower-mutating
   emitter); or selection over many more generations than 150. None of these is cheap.
+
+### 9.8 Independent review, and the first two steps of its plan (2026-10-27)
+
+The owner did not want to stop (2026-10-27 15:03Z) and asked for a review and a better plan. Full write-up:
+https://claude.ai/artifact/Vt8E28wJ3A5vjSfSuYPXHX. The review (fresh sub-agent; code, all CSVs, 56 short runs) found
+**the line is not answered**, and corrected four claims above:
+
+- "1.4-2.2x on 15-16/16" is one genome per arm; at the arm level n = 2. Rep 2's population medians over g125-149
+  were 362 vs 404 (1.12x), its second-best free genome stores 399 vs the best's 338, so rep 2's gap is ~1.2x and
+  closing. Rep 1's is real.
+- The deaf arm is not a no-signal control: it evolves A and B, and its best relies on B (470 -> 380 deaf to B,
+  8/8). The result is "a third channel did not beat two evolvable ones".
+- "The deaf best is indifferent to hearing" proves nothing: it never uses the channel.
+- Listening tallies reuse the same 4 worlds at every checkpoint: the independent n is 4.
+
+Harness traps it found, fixed in `emerge.py` (`HARNESS=2` turns on the protocol changes; the bug fixes apply to
+both): a `.raw.txt` founder ignored ZERO/FILL; a resume duplicated `gens.csv` rows; elites carried no score history;
+an extinct colony scored 0 despite stored food; gen 0 had no unmutated founder; listening worlds never changed.
+
+**E1, where the mutation load comes from** (6 evolved genomes x 12 standard mutants split into their channel part
+and the rest, + 12 gentle mutants at sigma 0.25 / 1 event, 4 paired worlds; median mutant/parent food stored):
+
+| genome | parent | standard | channel part only | everything else | gentle |
+|---|---|---|---|---|---|
+| free rep 1 c00 | 211 | 0.67 | 1.08 | 0.74 | 1.02 |
+| free rep 1 c01 | 214 | 1.01 | 1.00 | 1.01 | 1.16 |
+| free rep 2 c00 | 396 | 0.50 | 0.72 | 0.54 | 0.70 |
+| deaf rep 1 c00 | 466 | 0.92 | 1.00 | 0.97 | 1.14 |
+| deaf rep 2 c00 | 485 | 0.87 | 1.00 | 0.88 | 0.98 |
+| deaf rep 2 c01 | 464 | 0.94 | 1.00 | 0.94 | 1.01 |
+
+Smelling genomes are more fragile, but mostly to mutations **outside** the scent links (2 of 3), consistent with
+a colony that runs on a map it lays itself: change behaviour anywhere and the map changes for everyone. The scent
+links themselves matter in 1 of 3. The gentle operator removes most of the load in 2 of 3 but misses its bar
+(>= 0.95 on all six).
+
+**E2, room for a signal** (founder and deaf rep 2 best, 16 worlds per bed; per food epoch, the share of empty
+out-of-nest ants outside the door-to-heap corridor after a nestmate has already found the heap): 56-65% for the
+evolved deaf best on every bed (today's 62%), 75-90% for the founder; other finders reach the heap a median 5,900
+frames after the first on today's bed. The review's bar (>= 25% on some bed) passes on today's bed, so the bed is
+not the blocker. Caveat: no positive control yet (a colony with a perfect signal), so this is an upper bound.
