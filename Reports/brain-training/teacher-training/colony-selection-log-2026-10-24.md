@@ -702,3 +702,64 @@ analogues of nest10's `hlctl`/`hlshape`), 48 rounds. More colonies died out in t
 alive per round in swctl, against 22-32). Garden r47: crater 103-173 against nest10's 38-45, nest no bigger. The
 four best colonies, 8 worlds against the starting pool with the sense on, were all worse. Open nest 231-582
 against 644, and cuts 630-1,000 against 1,273. Selection did not trade the crater away; it bred digging out.
+
+## 2026-10-26/27: the gated brain (layouts 6 and 7), a hand-laid "home had food" memory, and selection losing it
+
+Background: [`brain-cannot-combine-senses-2026-10-26.md`](../research/brain-cannot-combine-senses-2026-10-26.md) and
+its review [`brain-design-review-2026-10-26.md`](../research/brain-design-review-2026-10-26.md). Every row below is 16
+worlds (seeds s*1000+7), far moving food (`patches=20000:40:120`, `dist=25 grants=3 food=mix`, `PP_BED_W=448`,
+`PP_MIND_DOOR_OPEN=drop`), teacher off, medians; "lab" is `labsurvive` over `scratch/inrun/labscen`, `grant=1`, 3 seeds.
+
+**1. The review's gated come-home unit, alone, loses colonies.** Unit 8 refit from plain senses with a clamp gate (the
+review's data folder, scratch `PP_GATE_FILE`, `PP_LASTFOOD=off`): 6 of 16 colonies extinct (home-low instinct 0,
+colony 13 1). Where they lived, starvation was 2-19 against the instinct's 19-74. In the lab's far boxes every founder
+starved (52/52, 0 deliveries); in the herb box it did much better (alive 67-121 against 19-77). Traced over the first
+25k frames: every gated ant that starved died within 4 columns of home (41/41, 73/74, 53/57, 58/61), and hungry gated
+ants headed home at +7 to +9 columns per 100 frames, to a nest with no store yet. The instinct avoids it only through
+`PP_HOMELOW_STORE=1`. The ant had no input saying whether home holds food. The review's 4-world pass came from its
+harness (no founding grant, store filled early): its own `world.sh` keeps 2007, 4007 and 8007 alive.
+
+**2. Selection uses the gates (layout 6, `gate6`, 8d6fe613).** Colony selection from std_pool, gates trainable
+(`g6open`) against frozen (`PP_GATE=off`), 32 colonies x 48 rounds, nest11's cases without instincts. Garden r47, open vs
+frozen: alive 66 / 67.5, starved 304 / 311, food home 5,069 / 3,184, nest 133 / 446, crater 35 / 93. Every final
+open-arm genome carries ~30 gate links. Zeroing the gate slots of the two best colonies (16 worlds each) cut food home
+4,611 -> 3,052 (lower in 13/16) and 12,979 -> 2,630 (16/16), so the gates carry real foraging. But the rank-1 colony
+(c11) is a no-dig colony: nest 21, open 1.5. Its gates cut, it digs again (nest 302) and loses 6 colonies against 2.
+
+**3. A hand-laid "home had food" memory (layout 7).** Memory never sees option features, so food at home is invisible
+unless acted on; layout 7 (PR #935) gives memory and the gates each verb's reach. Built by hand
+(`scratchpad latch/mklatch_hb.py`, recorded in `scratch/inrun/genomes/latch_pool.txt`'s header) on colony 13's three
+least-used memory units (8, 11, 9), rate 0:
+- P = at the nest AND a PickUp target (Eat's only target is the crop, so the larder is PickUp's reach);
+- N = at the nest AND no PickUp target AND energy below ~0.37;
+- L = a flip-flop (self-weight 10, +15 from P, -15 from N, bias -2 so it starts "empty");
+- unit 8's gate gains +3·L and its bias -2.7.
+
+In world 2007, L was on in 81% of nest decisions with food in reach and 12% without; food in the field never set it.
+
+| arm (16 worlds) | lost | starved | food home | open nest | crater | rooms |
+|---|---|---|---|---|---|---|
+| home-low pool + instinct | 0 | 43.5 | 4,944 | 392 | 9 | 32 |
+| gate alone (G7) | 4 | 10.5 | 4,773 | 494 | 34 | 33 |
+| latch, reset whenever at the nest without food in reach | 0 | 222 | 4,585 | 517 | 103 | 67 |
+| latch, reset only when hungry, starts unset | 0 | 20.5 | 4,832 | 615 | 107 | 84 |
+| **latch, reset only when hungry, starts "empty"** | **0** | **45.5** | **4,865** | **532** | **88** | **76** |
+| latch units hijacked but unread | 9 | 52 | 172 | 68 | 39 | 8 |
+| colony 13 | 1 | 273 | 3,895 | 447 | 60 | 36 |
+
+The first latch reset itself at the door on every trip, so every hungry far ant read "empty". The unset start let the
+gate open in the lab's far boxes (46-52 of 52 starved). Starting "empty" fixed that: far_mix alive 203-223 (instinct
+198-229), far200_fruit 106-131 (111-138), herbs 15-34 (instinct 19-77). **The last row matches the instinct with no
+instinct input.** The crater is worse, and the hijacked units cost colony 13 something real (row 6).
+
+**4. Selection loses it (`latch1`, f0212d87).** From latch_pool (no instinct) against homelow_pool + instinct, same
+cases, 48 rounds. Garden starvation went 46 -> 265 -> 179 -> 231 -> 298 -> 311 across r7-r47 in the latch arm, while the
+instinct arm held 31-97. Nest fell in both arms (672 -> 143; 806 -> 539). The latch weights themselves mostly survived:
+the hunger threshold drifted (-60 -> -40), and by itself that costs little (starved 57 against 45.5). Unit 8's feature
+and gate rows moved (L1 14.5 and 8). **Putting unit 8 and the latch units back into the best evolved colony (c32)
+cut starvation 291.5 -> 29.5, lower in 16/16 worlds.** So the evolved remainder can still use the habit; selection
+lost it, and the instinct arm keeps it only because an input built from the answer cannot drift.
+
+Taken together: the brain can now *represent* "come home when low, if home has food" from plain senses, and that
+matches the instinct. Mutation-only colony selection did not *keep* it. Each of the last three nest batches also bred
+the nest smaller. Whatever trains the next pool has to protect a taught habit, or select on it, before it can refine it.
