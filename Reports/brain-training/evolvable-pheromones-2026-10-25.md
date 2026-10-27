@@ -422,7 +422,7 @@ The last open question: can a signal add on top of a colony that already forages
 
 - **Emergent signals: yes.** A fresh channel acquires real, information-bearing conventions within ~100
   generations, and different runs invent different ones (a searching mark, a traffic map).
-- **Better foraging: no.** In every run the deaf control forages better (best genome vs best: 1.4-2.2x, but see §9.8 -- n = 2, rep 2 ~1.2x and closing; from the founder, 1.2x from an
+- **Better foraging: no.** In every run the deaf control forages better (1.4-2.2x from the founder, best genome vs best -- see §9.8: n = 2, rep 2 ~1.2x and closing; 1.2x from an
   evolved forager), and the gap is not the cost of emitting.
 - **For the ant line**: keep the alarm emit row frozen and the third plane on its shipped air law; the gene-chosen
   palette stays parked. Switches stay off: `PIXEL_PHYSICS_ALARM_GROUND`, `PP_SCENT_CONST`, `PP_EMIT_FREE`.
