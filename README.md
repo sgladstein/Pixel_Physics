@@ -11457,7 +11457,12 @@ zero uses the old blend outright, so every saved pool (a file marked 7
 or older gains the rows at zero) remembers bit for bit as before -- the
 shipped-pool guard keeps its hash. **Off by default as a prototype**:
 mutation touches the rows only under `PP_WRITE=on`; a genome that
-carries one runs it either way. Frame cost: none measurable -- the
+carries one runs it either way. Rebuilt on one write-gated unit, the
+"home had food" memory works as well as the flip-flop (starved 40 vs
+45.5 on the 16 standard worlds), still works at half strength, and its
+one-weight form already beats no memory in 13 of 15 worlds
+(`Reports/brain-training/research/write-gate-2026-10-27.md`); whether
+selection finds it is the next run. Frame cost: none measurable -- the
 shipped pool in the played lab box ran 33.0 / 32.8 s on main and
 32.9 / 31.5 s with the write gates, with the same result line (153
 alive, 0 starved, 257 deliveries).

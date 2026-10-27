@@ -6210,6 +6210,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   nest with no store (no input says whether there is food at home), and blind search found it on 1 seed of 3. Plan:
   the gate as layout 6, default on (owner approved), then a "food at home" sense before the lesson is retaught.
 
+- [brain-training/research/write-gate-2026-10-27.md](brain-training/research/write-gate-2026-10-27.md) —
+  **a memory that writes and then holds: brain layout 8's write gate (prototype, off by default; measurement).**
+  Each memory unit gains a row that sets how far it moves each decision, so a unit can write at the nest and hold
+  through a trip. The "home had food" memory rebuilt on one gated unit starves 40 against the flip-flop's 45.5,
+  works at half strength, loses at most 2 of 16 colonies to any knock-out, and its one-weight form beats no memory
+  in 13 of 15 worlds -- a slope the flip-flop lacked. Next: a selection run with `PP_WRITE=on`.
 - [brain-training/research/latch-landscape-2026-10-27.md](brain-training/research/latch-landscape-2026-10-27.md) —
   **can selection reach the hand-laid "home had food" memory step by step? No: a knock-out landscape (measurement and
   recommendation).** Ten one-weight changes to the Teacher lane's latch on 16 worlds each: every piece is
