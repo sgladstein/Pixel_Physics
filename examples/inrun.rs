@@ -965,6 +965,14 @@ fn main() {
         def.digest_hunger_weight = v.parse().unwrap();
         w.species.set_creature(sp, def);
     }
+    // oldage=N (environment review, 2026-10-27): the ant's `life_half_life` for this run. The bed sets it to 0 (no old age,
+    // `inrun::colony_in`); the lab runs the species file's 40,000, so a colony there loses its founders to age and must
+    // breed to stay. `oldage=40000` is the lab's. Unset: the bed's 0, the run unchanged.
+    if let Some(v) = arg(&a, "oldage") {
+        let mut def = w.species.get(sp).creature.clone().expect("creature");
+        def.life_half_life = v.parse().expect("oldage=N frames");
+        w.species.set_creature(sp, def);
+    }
     // brood=lay (brood lane, 2026-10-23; the owner: "when an ant is ready to be born then its genome should be
     // selected from the selection step"): the game's own life cycle runs in the bed. A fed ant lays when its bank
     // reaches the brood block's bar (`try_bud`, exactly as in the lab: egg 120 J, a larva fed the rest of an adult's
@@ -1394,6 +1402,17 @@ fn main() {
         (f.parse().unwrap(), g.parse().unwrap())
     });
     let mut base_open: Option<i64> = None;
+    // tick=lab [labrain=R] (environment review, 2026-10-27): step the bed with the lab's own tick (`lab::tick_world`:
+    // `frame::step`, then the timeline, then the mister) instead of the harness's subset (`inrun::step`: the sweep,
+    // active sites, fields, scent). The subset leaves out liquid bodies, chunk bodies, particles and blasts, and the
+    // mister's `rain::tick` -- which also drains the box every tick even at Off. So a `plants=` bed's `rain=` never fell
+    // here. `labrain=R` is the mister's setting on the lab tick (`Rain::from_index`: 0 off, 1 light -- the lab's shipped
+    // default -- 2 steady, 3 heavy); default 0, the bed's own `rain` setting. Unset: the harness's step, the run unchanged.
+    let mut lab_tick = (arg(&a, "tick") == Some("lab")).then(|| {
+        let mut spec = sc.bed.clone();
+        spec.rain = pixel_physics::lab::rain::Rain::from_index(num("labrain", 0) as u8);
+        (spec, pixel_physics::sim::particle::ParticleSystem::new(), pixel_physics::sim::explosion::Blasts::new(), pixel_physics::sim::player::Tuning::default())
+    });
     // The datum and the ground below it at frame 0.
     let (bw, bh) = (inrun::bed_w(), 128i32); // the training bed (`bed_timed`; `PP_BED_W` widens it eastward)
     let surf: Vec<i32> = (0..bw).map(|x| inrun::surface(&w, &sc, x)).collect();
@@ -1477,7 +1496,11 @@ fn main() {
                 }
             }
         }
-        inrun::step(&mut w, &sc);
+        if let Some((spec, particles, blasts, tuning)) = lab_tick.as_mut() {
+            pixel_physics::lab::tick_world(&mut w, particles, blasts, tuning, spec, Some(&sc));
+        } else {
+            inrun::step(&mut w, &sc);
+        }
         if fr % every == 1 || every == 1 {
             let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
             // On a bed widened by PP_BED_W the west wall is still 128 out: a west heap that would fall past it is

@@ -1,0 +1,349 @@
+
+=== elite1/e3: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-4); passed dig gate median 31.0
+retest (kept-twice colonies, 90 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.48 [ 0.42, 0.53]
+   starved          0.21 [ 0.14, 0.27]
+   nestcuts_late    0.25 [ 0.19, 0.32]
+   nest             0.41 [ 0.35, 0.47]
+   spoil            0.12 [ 0.05, 0.18]
+   crater           0.22 [ 0.16, 0.29]
+   shape            0.01 [-0.06, 0.08]
+   scale            0.43 [ 0.38, 0.49]
+   lab              0.21 [ 0.15, 0.27]
+   lab2_lab_herbs   0.07 [ 0.00, 0.14]
+   ranksum          0.05 [-0.02, 0.11]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             10% | +0.15 -0.20
+   starved           13% | +0.40 +0.32
+   nestcuts_late     15% | +0.46 +0.67
+   nest              18% | +0.47 +0.78
+   spoil             12% | +0.35 +0.46
+   crater            10% | +0.28 -0.04
+   shape              3% | +0.00 -0.36
+   scale              5% | +0.18 +0.83
+   lab                7% | +0.24 +0.96
+   lab2_lab_herbs     6% | +0.18 +0.03
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   806 worse   712  median     +90.0  sign p=1.7e-02
+   starved         child better   698 worse   818  median      -7.0  sign p=2.2e-03
+   nestcuts_late   child better   667 worse   845  median     -16.5  sign p=5.2e-06
+   nest            child better   655 worse   859  median     -38.0  sign p=1.7e-07
+   spoil           child better   624 worse   831  median      -2.0  sign p=6.3e-08
+   crater          child better   769 worse   742  median      +2.0  sign p=5.0e-01
+   shape           child better   561 worse   433  median      +0.0  sign p=5.5e-05
+   scale           child better   640 worse   817  median      -0.0  sign p=3.9e-06
+   lab             child better   560 worse   953  median     -57.5  sign p=3.9e-24
+   lab2_lab_herbs  child better   772 worse   740  median      +2.0  sign p=4.3e-01
+luck: children take 49% of the top half (50% = no information)
+lineage (r95): founder lines left per colony median 2; founding pool members left 1; every ant shares one ancestor ant 7 rounds back
+
+=== elite1/e13: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-6); passed dig gate median 30.0
+retest (kept-twice colonies, 90 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.30 [ 0.24, 0.36]
+   starved          0.10 [ 0.04, 0.16]
+   nestcuts_late    0.08 [ 0.02, 0.14]
+   nest             0.21 [ 0.15, 0.27]
+   spoil            0.03 [-0.04, 0.10]
+   crater           0.19 [ 0.13, 0.26]
+   shape            0.09 [ 0.02, 0.16]
+   scale            0.34 [ 0.27, 0.40]
+   lab              0.42 [ 0.37, 0.48]
+   lab2_lab_herbs   0.00 [-0.06, 0.07]
+   ranksum          0.06 [ 0.00, 0.11]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             13% | +0.39 +0.06
+   starved           13% | +0.40 +0.27
+   nestcuts_late     16% | +0.53 +0.60
+   nest              19% | +0.59 +0.77
+   spoil             13% | +0.41 +0.52
+   crater            12% | +0.37 +0.02
+   shape              4% | +0.07 -0.30
+   scale              1% | +0.02 +0.75
+   lab                6% | +0.17 +0.84
+   lab2_lab_herbs     4% | +0.10 -0.01
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   722 worse   797  median     -78.5  sign p=5.8e-02
+   starved         child better   716 worse   796  median      -6.0  sign p=4.2e-02
+   nestcuts_late   child better   695 worse   818  median     -15.0  sign p=1.7e-03
+   nest            child better   629 worse   887  median     -49.5  sign p=3.7e-11
+   spoil           child better   656 worse   818  median      -2.0  sign p=2.7e-05
+   crater          child better   745 worse   765  median      -1.0  sign p=6.2e-01
+   shape           child better   609 worse   553  median      +0.0  sign p=1.1e-01
+   scale           child better   646 worse   742  median      +0.0  sign p=1.1e-02
+   lab             child better   468 worse  1038  median     -93.0  sign p=7.4e-50
+   lab2_lab_herbs  child better   772 worse   728  median      +4.0  sign p=2.7e-01
+luck: children take 46% of the top half (50% = no information)
+lineage (r95): founder lines left per colony median 3.0; founding pool members left 1; every ant shares one ancestor ant 7 rounds back
+
+=== elite1/ehl3: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-5); passed dig gate median 31.0
+retest (kept-twice colonies, 86 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.29 [ 0.22, 0.36]
+   starved          0.02 [-0.05, 0.09]
+   nestcuts_late    0.15 [ 0.08, 0.22]
+   nest             0.16 [ 0.09, 0.23]
+   spoil            0.02 [-0.05, 0.09]
+   crater           0.06 [-0.01, 0.12]
+   shape            0.03 [-0.03, 0.10]
+   scale            0.23 [ 0.17, 0.29]
+   lab              0.24 [ 0.17, 0.30]
+   lab2_lab_herbs  -0.05 [-0.12, 0.01]
+   ranksum          0.09 [ 0.01, 0.15]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8              6% | +0.11 -0.03
+   starved           10% | +0.32 +0.40
+   nestcuts_late     17% | +0.56 +0.81
+   nest              19% | +0.60 +0.83
+   spoil             11% | +0.32 +0.48
+   crater             8% | +0.21 -0.06
+   shape              4% | +0.07 -0.20
+   scale             12% | +0.41 +1.04
+   lab                9% | +0.26 +0.86
+   lab2_lab_herbs     6% | +0.17 +0.10
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   805 worse   714  median     +74.5  sign p=2.1e-02
+   starved         child better   734 worse   757  median      -0.0  sign p=5.7e-01
+   nestcuts_late   child better   640 worse   874  median     -24.0  sign p=2.0e-09
+   nest            child better   611 worse   908  median     -51.5  sign p=2.6e-14
+   spoil           child better   634 worse   849  median      -2.0  sign p=2.6e-08
+   crater          child better   796 worse   699  median      +2.0  sign p=1.3e-02
+   shape           child better   587 worse   610  median      +0.0  sign p=5.2e-01
+   scale           child better   615 worse   896  median      -0.1  sign p=5.1e-13
+   lab             child better   523 worse   986  median     -65.0  sign p=4.1e-33
+   lab2_lab_herbs  child better   811 worse   694  median     +20.0  sign p=2.8e-03
+luck: children take 48% of the top half (50% = no information)
+lineage (r95): founder lines left per colony median 3; founding pool members left 1; every ant shares one ancestor ant 22 rounds back
+
+=== self1/s3: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 3-5); passed dig gate median 28.0
+retest (kept-twice colonies, 73 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.42 [ 0.35, 0.49]
+   starved          0.15 [ 0.07, 0.23]
+   nestcuts_late    0.22 [ 0.14, 0.31]
+   nest             0.31 [ 0.22, 0.39]
+   spoil            0.13 [ 0.05, 0.21]
+   crater           0.22 [ 0.13, 0.30]
+   shape            0.10 [ 0.02, 0.17]
+   scale            0.36 [ 0.28, 0.44]
+   lab              0.27 [ 0.20, 0.35]
+   lab2_lab_herbs   0.01 [-0.08, 0.09]
+   ranksum          0.06 [-0.02, 0.14]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             12% | +0.21 -0.21
+   starved           12% | +0.32 +0.11
+   nestcuts_late     16% | +0.44 +0.61
+   nest              18% | +0.46 +0.75
+   spoil             12% | +0.34 +0.25
+   crater            11% | +0.30 -0.06
+   shape              4% | +0.07 -0.18
+   scale              2% | +0.03 +0.76
+   lab                6% | +0.14 +0.85
+   lab2_lab_herbs     6% | +0.13 +0.09
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   780 worse   737  median     +39.5  sign p=2.8e-01
+   starved         child better   737 worse   779  median      -3.0  sign p=2.9e-01
+   nestcuts_late   child better   777 worse   735  median      +4.0  sign p=2.9e-01
+   nest            child better   748 worse   769  median      -5.0  sign p=6.1e-01
+   spoil           child better   751 worse   736  median      -0.0  sign p=7.2e-01
+   crater          child better   745 worse   765  median      -1.0  sign p=6.2e-01
+   shape           child better   627 worse   607  median      +0.0  sign p=5.9e-01
+   scale           child better   653 worse   739  median      +0.0  sign p=2.3e-02
+   lab             child better   723 worse   748  median      +0.0  sign p=5.3e-01
+   lab2_lab_herbs  child better   741 worse   725  median      +0.0  sign p=7.0e-01
+luck: children take 52% of the top half (50% = no information)
+
+=== self1/s13: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-8); passed dig gate median 29.0
+retest (kept-twice colonies, 73 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.34 [ 0.26, 0.41]
+   starved          0.13 [ 0.04, 0.21]
+   nestcuts_late    0.10 [ 0.02, 0.18]
+   nest             0.25 [ 0.19, 0.32]
+   spoil            0.09 [ 0.01, 0.17]
+   crater           0.11 [ 0.03, 0.19]
+   shape            0.16 [ 0.08, 0.23]
+   scale            0.38 [ 0.30, 0.45]
+   lab              0.26 [ 0.20, 0.33]
+   lab2_lab_herbs   0.05 [-0.03, 0.14]
+   ranksum          0.03 [-0.05, 0.10]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             11% | +0.29 +0.00
+   starved           11% | +0.30 +0.08
+   nestcuts_late     16% | +0.44 +0.60
+   nest              16% | +0.45 +0.76
+   spoil             14% | +0.41 +0.45
+   crater            13% | +0.37 +0.23
+   shape              5% | +0.08 -0.21
+   scale              1% | +0.05 +0.62
+   lab                8% | +0.22 +0.90
+   lab2_lab_herbs     6% | +0.17 +0.14
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   761 worse   757  median      +4.5  sign p=9.4e-01
+   starved         child better   773 worse   742  median      +2.0  sign p=4.4e-01
+   nestcuts_late   child better   783 worse   729  median      +5.5  sign p=1.7e-01
+   nest            child better   746 worse   773  median      -4.0  sign p=5.0e-01
+   spoil           child better   786 worse   700  median      +1.0  sign p=2.7e-02
+   crater          child better   731 worse   785  median      -4.5  sign p=1.7e-01
+   shape           child better   634 worse   604  median      +0.0  sign p=4.1e-01
+   scale           child better   575 worse   695  median      +0.0  sign p=8.3e-04
+   lab             child better   714 worse   786  median      -9.0  sign p=6.7e-02
+   lab2_lab_herbs  child better   726 worse   769  median      -2.5  sign p=2.8e-01
+luck: children take 52% of the top half (50% = no information)
+
+=== self1/hl3: 96 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-5); passed dig gate median 31.0
+retest (kept-twice colonies, 84 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.32 [ 0.25, 0.39]
+   starved          0.02 [-0.06, 0.10]
+   nestcuts_late    0.11 [ 0.04, 0.18]
+   nest             0.19 [ 0.13, 0.26]
+   spoil           -0.02 [-0.09, 0.06]
+   crater           0.08 [ 0.01, 0.16]
+   shape           -0.06 [-0.13, 0.02]
+   scale            0.31 [ 0.24, 0.38]
+   lab              0.25 [ 0.18, 0.32]
+   lab2_lab_herbs   0.04 [-0.03, 0.11]
+   ranksum          0.02 [-0.04, 0.09]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8              6% | +0.06 -0.19
+   starved           10% | +0.27 +0.33
+   nestcuts_late     16% | +0.51 +0.60
+   nest              20% | +0.56 +0.68
+   spoil             12% | +0.30 +0.43
+   crater             7% | +0.19 -0.23
+   shape              4% | +0.05 -0.30
+   scale             10% | +0.32 +1.03
+   lab                8% | +0.26 +0.94
+   lab2_lab_herbs     7% | +0.19 +0.10
+child vs donor, same round (1520 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   713 worse   807  median     -72.5  sign p=1.7e-02
+   starved         child better   730 worse   758  median      -0.0  sign p=4.8e-01
+   nestcuts_late   child better   792 worse   724  median      +6.0  sign p=8.5e-02
+   nest            child better   749 worse   769  median      -4.0  sign p=6.3e-01
+   spoil           child better   648 worse   815  median      -1.0  sign p=1.4e-05
+   crater          child better   734 worse   778  median      -2.0  sign p=2.7e-01
+   shape           child better   489 worse   425  median      +0.0  sign p=3.7e-02
+   scale           child better   767 worse   727  median      +0.0  sign p=3.1e-01
+   lab             child better   809 worse   707  median     +14.0  sign p=9.5e-03
+   lab2_lab_herbs  child better   787 worse   727  median      +4.0  sign p=1.3e-01
+luck: children take 52% of the top half (50% = no information)
+
+=== drift1/llowmut: 48 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 3-5); passed dig gate median 30.0
+retest (kept-twice colonies, 33 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.34 [ 0.25, 0.42]
+   starved          0.18 [ 0.07, 0.29]
+   nestcuts_late    0.40 [ 0.28, 0.52]
+   nest             0.40 [ 0.28, 0.52]
+   spoil            0.19 [ 0.07, 0.30]
+   crater           0.28 [ 0.16, 0.40]
+   shape           -0.02 [-0.16, 0.10]
+   scale            0.44 [ 0.34, 0.54]
+   lab              0.33 [ 0.22, 0.45]
+   lab2_lab_herbs  -0.05 [-0.16, 0.05]
+   ranksum          0.06 [-0.08, 0.19]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8              7% | +0.08 -0.21
+   starved           13% | +0.37 +0.38
+   nestcuts_late     15% | +0.43 +0.88
+   nest              19% | +0.48 +0.83
+   spoil             13% | +0.35 +0.48
+   crater             8% | +0.17 -0.24
+   shape              3% | -0.02 -0.33
+   scale              9% | +0.29 +1.02
+   lab                7% | +0.23 +0.89
+   lab2_lab_herbs     6% | +0.15 +0.07
+child vs donor, same round (752 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   419 worse   333  median    +168.5  sign p=1.9e-03
+   starved         child better   359 worse   387  median      -2.5  sign p=3.2e-01
+   nestcuts_late   child better   416 worse   332  median     +18.0  sign p=2.4e-03
+   nest            child better   406 worse   346  median     +21.5  sign p=3.1e-02
+   spoil           child better   379 worse   345  median      +1.0  sign p=2.2e-01
+   crater          child better   381 worse   362  median      +1.0  sign p=5.1e-01
+   shape           child better   259 worse   330  median      +0.0  sign p=3.9e-03
+   scale           child better   398 worse   338  median      +0.0  sign p=3.0e-02
+   lab             child better   376 worse   368  median      +0.5  sign p=8.0e-01
+   lab2_lab_herbs  child better   429 worse   312  median     +21.0  sign p=2.0e-05
+luck: children take 55% of the top half (50% = no information)
+
+=== drift1/lnomut: 48 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 2-5); passed dig gate median 32.0
+retest (kept-twice colonies, 42 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.07 [-0.01, 0.15]
+   starved          0.04 [-0.07, 0.14]
+   nestcuts_late   -0.05 [-0.14, 0.04]
+   nest             0.03 [-0.07, 0.14]
+   spoil           -0.05 [-0.15, 0.04]
+   crater           0.06 [-0.04, 0.15]
+   shape            0.03 [-0.06, 0.12]
+   scale            0.09 [-0.01, 0.20]
+   lab             -0.05 [-0.16, 0.05]
+   lab2_lab_herbs  -0.05 [-0.14, 0.03]
+   ranksum          0.09 [-0.00, 0.19]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8              8% | +0.26 +0.01
+   starved           10% | +0.29 +0.50
+   nestcuts_late     15% | +0.50 +0.70
+   nest              20% | +0.61 +0.82
+   spoil             12% | +0.35 +0.58
+   crater            10% | +0.30 +0.08
+   shape              3% | +0.07 -0.37
+   scale             10% | +0.32 +1.01
+   lab                6% | +0.14 +0.97
+   lab2_lab_herbs     6% | +0.22 +0.01
+child vs donor, same round (752 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   382 worse   370  median     +10.5  sign p=6.9e-01
+   starved         child better   352 worse   392  median      -2.0  sign p=1.5e-01
+   nestcuts_late   child better   363 worse   389  median      -6.5  sign p=3.6e-01
+   nest            child better   343 worse   406  median     -20.0  sign p=2.3e-02
+   spoil           child better   389 worse   340  median      +1.0  sign p=7.5e-02
+   crater          child better   337 worse   412  median     -14.5  sign p=6.8e-03
+   shape           child better   233 worse   252  median      +0.0  sign p=4.1e-01
+   scale           child better   377 worse   352  median      +0.0  sign p=3.7e-01
+   lab             child better   344 worse   405  median     -10.5  sign p=2.8e-02
+   lab2_lab_herbs  child better   361 worse   387  median      -5.5  sign p=3.6e-01
+luck: children take 50% of the top half (50% = no information)
+
+=== world effect elite1/e3 ~ elite1/ehl3 (95 rounds): agreement of within-round colony ranks
+   home8            0.06
+   starved          0.05
+   nestcuts_late    0.03
+   nest             0.03
+   spoil           -0.05
+   crater           0.01
+   shape           -0.00
+   scale            0.04
+   lab              0.06
+   lab2_lab_herbs   0.62
+   ranksum          0.04
+   positive control: starvation retest over both arms pooled 0.66
+
+=== world effect elite1/e3 ~ self1/s3 (95 rounds): agreement of within-round colony ranks
+   home8            0.12
+   starved          0.20
+   nestcuts_late    0.07
+   nest             0.06
+   spoil           -0.01
+   crater           0.02
+   shape            0.00
+   scale            0.06
+   lab              0.05
+   lab2_lab_herbs   0.68
+   ranksum          0.12
+   positive control: starvation retest over both arms pooled 0.28
+
+=== world effect elite1/e3 ~ elite1/e13 (95 rounds): agreement of within-round colony ranks
+   home8            0.11
+   starved          0.20
+   nestcuts_late    0.08
+   nest             0.05
+   spoil            0.00
+   crater           0.03
+   shape            0.01
+   scale            0.03
+   lab              0.01
+   lab2_lab_herbs   0.68
+   ranksum          0.13
+   positive control: starvation retest over both arms pooled 0.20

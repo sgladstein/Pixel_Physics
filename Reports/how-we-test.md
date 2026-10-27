@@ -324,6 +324,21 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   teacher labels and 0.02% of the rest: it is the teacher's rule, so a fit to
   it is a fit to the answer and says nothing about whether the brain can
   combine senses (same report, §4).
+- **Alive at 200,000 frames is not alive.** The shipped pool was alive in 15 of
+  16 garden worlds at 200k and 0 of 16 at 600k on the same bed, with nothing
+  changed (the hand-built ant kept 14). Run a long twin (`frames=600000`; it
+  matches the 200k run exactly up to 200k) before calling a pool viable, and
+  quote colonies alive at 600k
+  (`teacher-training/training-environment-review-2026-10-27.md` §1).
+- **A training bed that differs from the game is a hidden arm.** Before
+  trusting a garden, list what the harness sets that the game does not:
+  `lay_cap`, `PP_MIND_DOOR_OPEN=drop`, no old age (`colony_in` zeroes
+  `life_half_life`; `oldage=40000` restores it), `grants=3`, 40 rows of soil,
+  only provisions and fruit as food. Each was measured to cost the pool in
+  the game (same report, §2-3). A lab box that fails while the garden passes
+  usually differs in food: check the box's materials first.
+- **`plants=… rain=R` never rains on the harness step.** Use `tick=lab
+  labrain=R` (same report, §4).
 - **A "fresh" scorer unit is zero in its context, feature *and* verb rows.**
   A verb row left live is a per-verb constant that the unit's output weight
   carries into every score; it made a hand-laid gate look like it leaked
@@ -389,6 +404,20 @@ the rule, and the Teacher lane adopted it the same day.
   an idea that does nothing a "significant" change about one time in five.
 - **Count extinct colonies in the garden** as alive 0, nest 0; the garden
   drops them, so its medians otherwise describe survivors only.
+- **Audit the selection, not only the outcome**: run
+  `python3 scratch/inrun/selaudit.py OUT/` on every finished colsel arm
+  ([selection review](brain-training/research/selection-review-2026-10-27.md),
+  2026-10-27). It reads colsel.csv alone and prints four things a garden
+  cannot show: how often a case repeats for the same colony in two worlds
+  (a case whose interval includes 0 is spending its vote on luck; room shape,
+  spoil and the herb box did, at elite1), each case's real share of the
+  survival vote, a child against its own donor in the same round (what one
+  mutating round does to each case; elite1: lab worse in 63-69% of pairs),
+  and the share of the kept half taken by children (50% = survival is blind).
+- **"No weights" is never literally true.** The kept half is a rank-sum, so
+  a goal weighs as many votes as it has correlated cases (the nest's six
+  cases took 63-71% at elite1), and percentile gates outweigh everything.
+  State the effective weights when a result depends on them.
 
 ## 8. Before you push
 

@@ -6046,6 +6046,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (`PP_DIGGATE_DOOR`, default-on: bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
   (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
 
+- [brain-training/teacher-training/training-environment-review-2026-10-27.md](brain-training/teacher-training/training-environment-review-2026-10-27.md) —
+  **is the ant training world set up properly? (owner's ask, 2026-10-27).** The physics is right, but the timescale,
+  the food and the rules are not. The shipped pool is alive in 15 of 16 garden worlds at 200k frames and in 0 of 16 at
+  600k on the same bed, where the hand-built ant keeps 14. Windfall is never offered in training: Two Larders' trained
+  colony lives only once its windfall and corpse become fruit and provisions (headcount 3.6-7.3 → 37-101, 8/8).
+  Harness-only rules (`lay_cap`, the door drop, no old age, three founding tanks) each cost the pool in the game;
+  together they make it starve 1,232 vs 284 (16/16). The physics shortcut is harmless. Every nest hits the bed's
+  40-row floor, and a planted bed's `rain=` never fell. `inrun` gains `oldage=` and `tick=lab labrain=`.
+
 - [brain-training/teacher-training/old-ant-rules-2026-10-25.md](brain-training/teacher-training/old-ant-rules-2026-10-25.md) —
   **opening the old ant to evolution (owner's ask, 2026-10-25): its rules, and what is still hard-coded on the trained
   ant.** The hand-built brain is ~50 weights, so there is nothing to transfer, and running it through colony selection
@@ -6137,6 +6146,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
   win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
 
+- [brain-training/research/selection-review-2026-10-27.md](brain-training/research/selection-review-2026-10-27.md) —
+  **selection review: how in-run ant selection and between-round colony selection balance.** Read from elite1, self1
+  and drift1 with `scratch/inrun/selaudit.py`. The survival order repeats from world to world at only 0.05-0.09 and
+  children take 46-49% of the kept half, so colony survival is mostly luck; the six nest cases carry 63-71% of the
+  vote and two median gates leave ~4 donors a round; one mutating, pay-ranked round makes a child worse than its own
+  donor on lab (63-69% of pairs) and nest, better on food; the whole population descends from one ant 7-22 rounds
+  back. Ranked fixes: cut the child round's damage, one case per goal with explicit weights, more families.
+
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
   lessons made in parallel onto hA1 (home sense, crater refusal) merged by slot union kept both: food 309 -> 431, 22 of
@@ -6201,6 +6218,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   every founder. **Corrected the same evening**: on the standard 16 worlds and the lab box it starved colonies at a
   nest with no store (no input says whether there is food at home), and blind search found it on 1 seed of 3. Plan:
   the gate as layout 6, default on (owner approved), then a "food at home" sense before the lesson is retaught.
+
+- [brain-training/research/write-gate-2026-10-27.md](brain-training/research/write-gate-2026-10-27.md) —
+  **a memory that writes and then holds: brain layout 8's write gate (prototype, off by default; measurement).**
+  Each memory unit gains a row that sets how far it moves each decision, so a unit can write at the nest and hold
+  through a trip. The "home had food" memory rebuilt on one gated unit starves 40 against the flip-flop's 45.5,
+  works at half strength, loses at most 2 of 16 colonies to any knock-out, and its one-weight form beats no memory
+  in 13 of 15 worlds -- a slope the flip-flop lacked. Next: a selection run with `PP_WRITE=on`.
+- [brain-training/research/latch-landscape-2026-10-27.md](brain-training/research/latch-landscape-2026-10-27.md) —
+  **can selection reach the hand-laid "home had food" memory step by step? No: a knock-out landscape (measurement and
+  recommendation).** Ten one-weight changes to the Teacher lane's latch on 16 worlds each: every piece is
+  necessary, half strength acts like removal, and breaking the set input (an off memory unit reads -1, so its
+  balanced pair turns the latch on everywhere) loses 13-14 of 16 colonies. Controls: gate shut by hand, links free.
+  Recommends teach-then-protect now, and a write-gated memory (holds by default) as an off-by-default prototype.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
