@@ -1,6 +1,6 @@
 # Why this engine has not produced emergent behaviour: a diagnosis (2026-10-14)
 
-*Landed 2026-10-27 from PR #701, unchanged. Written about the hand-built ant at `bb8a2151`, before the trained-brain and colony-selection line; read its creature-layer findings as history, its method and literature checks as current.*
+*Copied onto main 2026-10-27 from PR #701, unchanged. Written about the hand-built ant at `bb8a2151`, before the trained-brain and colony-selection line; read its creature-layer findings as history, its method and literature checks as current.*
 
 **Status: diagnosis; nothing built.** Read from the source at `bb8a2151` and
 from the record (`Reports/`, `wiki/`, git history). **§5 is measured**: 16

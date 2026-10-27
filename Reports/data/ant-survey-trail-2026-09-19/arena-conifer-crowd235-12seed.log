@@ -1,0 +1,29 @@
+creature_arena: species=ant arm=wire seeds=12 frames=24000 mirror=on padarm=off ants=52 founders=8 predators=0 plasticity=1 dev=[] hidden=[]
+active synapses billed per tick (synapse_fraction x eval_brain's W_EPS=0.01 rule): arm A 51, arm B 52  -- DIFFER by 1: this race bills the arms unequally regardless of what either wiring does. Pass padarm=on to equalise.
+
+ seed  A alive  B alive   B share  A cells  B cells  B cells%   A gen   B gen
+  founding grant lasts 12000 frames of doing nothing; this colony is founded at 0 and so gets 24000 of this 24000-frame run. The horizon outlasts the endowment, so an arm that never feeds must die inside it.
+    1        2        2     50.0%        4        4     50.0%       0       1   (lines surviving A 52 B 52)  threat sightings 0/0 (n/a)
+    2        5       10     66.7%       10       20     66.7%       0       1   (lines surviving A 52 B 52)  threat sightings 0/2227 (0.0%)
+    3        6        6     50.0%       12       12     50.0%       1       1   (lines surviving A 52 B 52)  threat sightings 0/602 (0.0%)
+    4       11        8     42.1%       22       16     42.1%       1       0   (lines surviving A 52 B 52)  threat sightings 0/76 (0.0%)
+    5        0        3    100.0%        0        6    100.0%       0       0   (lines surviving A 52 B 52)  threat sightings 0/0 (n/a)
+    6        0        2    100.0%        0        4    100.0%       0       1   (lines surviving A 52 B 52)  threat sightings 0/1272 (0.0%)
+    7        3        1     25.0%        6        2     25.0%       0       0   (lines surviving A 52 B 52)  threat sightings 0/0 (n/a)
+    8        2        1     33.3%        4        2     33.3%       1       0   (lines surviving A 52 B 52)  threat sightings 0/0 (n/a)
+    9        6        2     25.0%       12        4     25.0%       1       0   (lines surviving A 52 B 52)  threat sightings 0/0 (n/a)
+   10        2        5     71.4%        4       10     71.4%       0       1   (lines surviving A 52 B 52)  threat sightings 0/1250 (0.0%)
+   11        7        7     50.0%       14       14     50.0%       0       1   (lines surviving A 52 B 52)  threat sightings 0/281 (0.0%)
+   12        2        3     60.0%        4        6     60.0%       1       1   (lines surviving A 52 B 52)  threat sightings 0/1113 (0.0%)
+
+arm B share of animals: median 50.0%  (q1 42.1% q3 71.4%)  |  seeds below 50%: 4, above: 5, tied: 3
+
+arm B share of cells: median 50.0%  (q1 42.1% q3 71.4%)  |  seeds below 50%: 4, above: 5, tied: 3
+
+Read the seed count, not the median. The lab census spans 2.42x-3.12x on the world seed alone with no true effect present.
+
+threat sightings across all 12 seeds: 0 of 6821 sight casts saw a hunter -- duty cycle 0.0% ("how often the eye had a hunter to report", the quantity `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the sight radius from).
+  WHOLE BOX, NOT ONE ARM: both arms share sight=N's one eye, so this total cannot say which arm did the seeing -- only whether the sense saw anything all run. Read it against the per-seed table above: an arm whose A alive/B alive sits at zero could not have been the one looking.
+
+*** THREAT_SIGHTINGS IS ZERO ACROSS ALL 12 SEEDS (6821 sight casts made, not one of them found a hunter). ***
+*** No animal, on arm A or arm B, ever once saw something that could eat it. A threat-response arm (arm=wire wiring ThreatBearing/ThreatNear) raced against a bed reading this is a null about the BED, not about flight -- no eyes were open (pass sight=N) or nothing threatening was ever in view (pass predators=N). Nothing this run says about flight is interpretable. This is the positive control that §4a's race was run without. ***
