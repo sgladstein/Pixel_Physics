@@ -1815,6 +1815,12 @@ pub struct Minds {
 /// (the game) reads false; so does one with a single creature that walks by
 /// the game's rules, today's brain included.
 pub fn every_ant_has_one(world: &World) -> bool {
+    // SCRATCH (copy test, 2026-10-27): under `PP_SHADOW` / `PP_OLDLAB` the game ant acts (or labels in a clone), so it
+    // needs its ways in every harness, not only where the harness sets `build_ways` (inrun does; the lab did not, and a
+    // shadowed two_larders colony then lived 555 against the plain hand-built ant's 342 on seed 1).
+    if scratch_log::shadow_on() || scratch_log::oldlab_on() {
+        return false;
+    }
     let Some(m) = world.minds.as_ref().filter(|m| !m.is_empty() && !m.build_ways) else {
         return false;
     };
@@ -6716,6 +6722,12 @@ pub mod scratch_log {
         static K: OnceLock<u64> = OnceLock::new();
         let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
         rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64().is_multiple_of(k)
+    }
+    /// SCRATCH (copy test, 2026-10-27): `PP_OLDLAB_ALL=1`: the old ant labels every sampled decision of a mind ant
+    /// (DAgger over its whole program, for copying the hand-built ant into a mind), not only its dig states.
+    pub fn oldlab_all() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ALL").is_ok_and(|v| v == "1"))
     }
     /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
     pub fn oldlab_label_empty() -> bool {
