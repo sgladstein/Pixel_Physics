@@ -6046,6 +6046,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (`PP_DIGGATE_DOOR`, default-on: bit-identical on the bed); a nestmate's hunger is one bit that never fired in training
   (`PP_HUNGRY_GRADED`). Energy and warmth are exposure gaps, not caps. The far sense is the Teacher lane's.
 
+- [brain-training/teacher-training/training-environment-review-2026-10-27.md](brain-training/teacher-training/training-environment-review-2026-10-27.md) —
+  **is the ant training world set up properly? (owner's ask, 2026-10-27).** The physics is right, but the timescale,
+  the food and the rules are not. The shipped pool is alive in 15 of 16 garden worlds at 200k frames and in 0 of 16 at
+  600k on the same bed, where the hand-built ant keeps 14. Windfall is never offered in training: Two Larders' trained
+  colony lives only once its windfall and corpse become fruit and provisions (headcount 3.6-7.3 → 37-101, 8/8).
+  Harness-only rules (`lay_cap`, the door drop, no old age, three founding tanks) each cost the pool in the game;
+  together they make it starve 1,232 vs 284 (16/16). The physics shortcut is harmless. Every nest hits the bed's
+  40-row floor, and a planted bed's `rain=` never fell. `inrun` gains `oldage=` and `tick=lab labrain=`.
+
 - [brain-training/teacher-training/old-ant-rules-2026-10-25.md](brain-training/teacher-training/old-ant-rules-2026-10-25.md) —
   **opening the old ant to evolution (owner's ask, 2026-10-25): its rules, and what is still hard-coded on the trained
   ant.** The hand-built brain is ~50 weights, so there is nothing to transfer, and running it through colony selection
