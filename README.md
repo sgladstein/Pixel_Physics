@@ -11440,4 +11440,26 @@ result line (153 alive, 0 starved, 257 deliveries). A harness
 that rebuilds a mind's state from a log row (`homefit`, `copyreplay`)
 starts each row at reach 0, so it cannot judge a gate's reach row.
 
+**Layout 8: a memory unit can write and then hold** (owner, 2026-10-27,
+"prototype it, off by default"). A memory unit's one rate gene set both
+how fast it writes and how long it keeps, so the only way to hold a fact
+through a trip was a flip-flop -- a self-weight past 1 balanced against
+set and reset inputs -- and the knock-out landscape of the hand-laid
+"home had food" memory found no step-by-step path to one
+(`Reports/brain-training/research/latch-landscape-2026-10-27.md`). Each
+unit now has a **write gate** (`mind::WRITE`, `mind::write_row`): a row
+over the context, the memory before, each verb's reach and a bias, `y`,
+and the unit moves `z = clamp((1 - rate) + y, 0, 1)` of the way to its
+new value. Writing at the nest and holding away is then one weight on
+`c::AT_NEST` with the rate gene at its top. 12 x 44 slots after the
+reach rows: `GENOME_LEN` 3,609 -> 4,137. A unit whose write row is all
+zero uses the old blend outright, so every saved pool (a file marked 7
+or older gains the rows at zero) remembers bit for bit as before -- the
+shipped-pool guard keeps its hash. **Off by default as a prototype**:
+mutation touches the rows only under `PP_WRITE=on`; a genome that
+carries one runs it either way. Frame cost: none measurable -- the
+shipped pool in the played lab box ran 33.0 / 32.8 s on main and
+32.9 / 31.5 s with the write gates, with the same result line (153
+alive, 0 starved, 257 deliveries).
+
 Report: `Reports/brain-training/research/brain-design-review-2026-10-26.md`.
