@@ -829,3 +829,89 @@ down at the low rate and traded the nest away at the default rate. It is still s
 The instinct arm is the exception: its starvation rose even with elitism (38 -> 86) while food home climbed 70%. Kept
 colonies cannot drift, so that rise is selection choosing it: a colony's rank is summed over ~10 cases, and children
 with more food home outranked kept colonies that starved fewer. That is a trade in the cases, not drift.
+
+## 2026-10-27 (afternoon): more rounds stall; the pool is one family; a held-out exam; why the game's boxes kill trained ants
+
+Data for this section: [`colony-selection-log-2026-10-24/data-1027/`](colony-selection-log-2026-10-24/data-1027/) (garden
+`cg.csv` per arm of drift1, self1, elite1 and elite2; exam tables). Reviews it draws on, all on main: the selection review
+([`selection-review-2026-10-27.md`](../research/selection-review-2026-10-27.md), PR #939), the "home had food" landscape
+([`latch-landscape-2026-10-27.md`](../research/latch-landscape-2026-10-27.md), PR #940), the environment review (PR #941)
+and the write-gated memory (PR #942, layout 8).
+
+**`elite2`** (elite1's three arms carried to 192 rounds, resumed at r96). Garden r95 -> r191, Mann-Whitney:
+
+- std_pool kpm 0.003 + elite: flat. Starved 281 -> 257 (p = 0.8), food home 5,714 -> 6,466 (p = 0.04, not past 0.05/6).
+- std_pool default kpm + elite: food home rose 4,242 -> 5,416 (p = 7e-4), and starved rose with it, 219 -> 340 (p = 4e-5).
+- home-low + instinct + elite: flat (starved 86 -> 72, p = 0.4).
+
+Under this selection, progress stops around round 50. The selection review explains why. One round's colony rank
+barely repeats on a second world (0.05-0.09), and a mutated child is worse than its unmutated donor on lab survival
+in 63-69% of pairs.
+
+**The pool is one family** (`scratch/inrun/lineage.py`). In every lexicase arm of drift1, self1 and elite1, all 32
+colonies descend from **one** round-0 colony by round 7-15. At elite1's round 95, all 930 carried ants in an arm
+share one std_pool member as their family root (p16, p06, p04 by arm). Two colonies' best genomes differ in 22-68 of
+~2,000 live weights; two ants of one colony differ in 7-16. std_pool itself is nearly a clone: two of its members
+differ in a median **35** weights. The ratchet ("the best colony becomes the next founder") restarts every batch from
+one colony. This sits against the owner's "pool, not one brain" rule.
+
+**A held-out exam** (`scratch/inrun/exam.py`, `exam_cmp.py`). Nothing selection saw: garden worlds 500001-500016, and
+8 of the game's own boxes from `assets/lab_scenarios`, as shipped (no founding grant, 60,000 frames after landing,
+2 seeds). The 16-world harness this lane used until now (seeds s*1000+7) was colony s's round-7 training world.
+
+- Held-out garden, against std_pool, 16 paired worlds, sign test:
+  - elite1's e3 winner (c32): deliveries 5,807 vs 4,040 (15/16, p = 5e-4); starved 252 vs 262 (n.s.); open nest
+    361 vs 512 (3/16 better, p = 0.02).
+  - e13 winner (c7): deliveries 5,177 vs 4,040 (14/16, p = 0.004).
+  - home-low + instinct pool: starved 43.5 vs 262 (16/16, p = 3e-5).
+  - ehl3 winner (c5) against that instinct pool: deliveries 8,719 vs 4,629 (16/16), but starved 75 vs 43.5 (2/16
+    better, p = 0.004), open nest 223 vs 428 and rooms 9.5 vs 69 (1/16, p = 5e-4).
+- Game boxes: mean ants alive over the run:
+
+  | brain | two_larders | scattered_larder | feast_and_famine | played_bed | herb_first_colony | crowded_bench |
+  |---|---|---|---|---|---|---|
+  | hand-built ant | 147 | 37 | 34 | 162 | 113 | 419 |
+  | std_pool | 4 | 5 | 4 | 127 | 62 | 181 |
+  | trained winners and instinct pool | 4 | 4-5 | 4 | 105-140 | 48-106 | 84-188 |
+
+  far_larder and the_bank starve every brain (2-4). Every trained brain is below the hand-built ant on lived, alive
+  and deliveries over the 16 box-seeds (p <= 0.004).
+
+**Why the boxes kill trained ants.** The environment review found that 9 of the 36 shipped boxes feed on windfall or
+corpse, which training never offered. Swapping those foods in two_larders took the trained pool from 3.6-7.3 ants
+lived to 37-101 (8/8 seeds). This lane traced which part matters (`PP_MIND_LOG`, two_larders with windfall in both
+heaps against fruit and provisions at the same spots, seed 1, 2,500 frames):
+
+- **Windfall** reads as food (`f::FOOD`). A PickUp option existed in 104 of 34,031 decisions with windfall, against
+  1,120 of 35,894 with fruit. When there was one, the ants took it at a similar rate (32% vs 24%).
+- Windfall **rots**: `decays_into` soil, chance 0.15 dry and 0.7 damp per 200-frame tick, so a heap lasts about
+  1,300 frames dry. The trained ants hug the walls and the divider and arrive after it has gone. The lesson is a
+  fast search for short-lived food, not a windfall sense.
+- **Corpse** is never offered to a mind ant. PickUp needs `diet_yield` above the threshold at the ant's own gut, and
+  corpse's `food_class` +1 against a gut near -1 gives quality about 0. The hand-built ant's 1,557 "deliveries" in an
+  all-corpse box are unexplained: possibly separate forage code, or a gut that evolved in that box. Its put-down count
+  runs 4-12x real (`how-we-test.md`).
+
+**Also from the environment review:** the std_pool garden has 15/16 colonies alive at 200k but 0/16 at 600k on the
+same bed (hand-built ant 14/16), and training's harness-only rules (lay cap, the door ban, no old age, grants) each
+make the game harder than training. Lifting all of them at once kills every colony by 400k.
+
+**Built for the next batches** (all off by default; at bc8485fb on the lane branch):
+
+- colsel `refound_mut=PM:SIGMA:EVENTS` with `carry=random`: mutation happens once, when a colony is refounded.
+  `sel=` on the job line now reaches inrun.
+- One `seed_of()` for every world seed. The old sums collided from round 99.
+- `donor600=FRAMES[:Q]`: donors must also hold up in one long run.
+- inrun `food=all`: each moving heap draws provisions, fruit, windfall or corpse.
+
+**Still running at the time of writing:** `clean1` (jobs/clean1.txt, 32 x 48, seed 31). Its arms:
+
+- k3 (control);
+- kdec (colony selection only);
+- kgoal (one case per goal, gates 25);
+- kboth (kdec and kgoal together);
+- ktone (in-colony selection kept, mutation only at refounding);
+- kev1 (kevents=1).
+
+Round-23 garden: no arm clearly lower on starvation than k3 (kev1 248 vs 276, p = 0.04). kgoal and kboth lost
+nest (564 and 471 vs 872, p < 1e-3), as expected once nest has one vote instead of six.
