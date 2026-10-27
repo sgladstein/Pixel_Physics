@@ -5760,6 +5760,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   heritable priors, a day-one route, trained on moving food, on only if learners beat frozen ants.
   Full designs for the guest, colony mind, enemy and lone scout seats, each reviewed and revised:
   [`teaching-the-colony-2026-10-25/seats-overview.md`](teaching-the-colony-2026-10-25/seats-overview.md).
+  The six seat-demo threads' shared board (steps, shared engine pieces, last status), snapshot 2026-10-27:
+  [`teaching-the-colony-2026-10-25/seat-demos-board/`](teaching-the-colony-2026-10-25/seat-demos-board/README.md).
   **Colony mind seat: no standalone demo on today's trained ants**
   ([`colony-mind-verdict.md`](teaching-the-colony-2026-10-25/colony-mind-verdict.md), 2026-10-25): the design was
   checked against the hand-built ant, which the lab no longer runs; of its verbs only closing the shared stomach
