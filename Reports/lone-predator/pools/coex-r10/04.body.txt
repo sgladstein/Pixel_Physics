@@ -1,0 +1,1 @@
+birth_grant=0.042999193 reproduce_at=0.03602189

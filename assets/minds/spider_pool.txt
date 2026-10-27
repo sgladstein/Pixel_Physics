@@ -1,5 +1,5 @@
 # The lab's spider: the trained spider pool, one mind each, every member whole (unlike std_pool.txt, no member is a
-# delta of another), zeros left out. Source: /mnt/project-files/predator/pools/coex-r10 -- the co-evolution batch ce4
+# delta of another), zeros left out. Source: Reports/lone-predator/pools/coex-r10 -- the co-evolution batch ce4
 # arm coex (2026-10-25): 16 colonies x 10 rounds from std_pool with sight-h2 spiders evolving beside them, handling
 # time on, spider evolution held while a round's median colony lost more than 30 ants (spiderhold=30), and each
 # round's pool picked by how long its spiders lived beside a colony in a lab box (spiderlab=lab_mid_fruit:150000:2:8).

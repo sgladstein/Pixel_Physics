@@ -49,8 +49,8 @@ Judging: each line's last pool on 6 fresh beds (seeds 101-106), 4 spiders, no bi
   walk) and turned rest off. In the pictures the trained spiders wait at the nest door, where every forager passes.
 - **The crater nest is no refuge**: a blank spider walks into the training bed's open nest mouth.
 
-Pictures: `/mnt/project-files/predator/spider-hunt-paired.gif` (hunter above, a trained pool below, same bed).
-Pools: `/mnt/project-files/predator/pools/`.
+Pictures: `Reports/lone-predator/spider-hunt-paired.gif` (hunter above, a trained pool below, same bed).
+Pools: `Reports/lone-predator/pools/` (stage one's `score-1` and `score-8` kept; the other seeds' pools were not).
 
 ## Where it goes next
 
@@ -117,7 +117,7 @@ round-9 carry (fresh world, selection off, the same spider):
   is not it (corpse pick-up off moves garden food 1-13%), and one no-spider replicate cannot say whether it is the
   predator or the draw.
 
-Picture: `/mnt/project-files/predator/ants-kill-spider.gif` (ants yellow, spider red, food green): the colony
+Picture: `Reports/lone-predator/ants-kill-spider.gif` (ants yellow, spider red, food green): the colony
 kills a trained spider at its food pile.
 
 ## Stage three: spider sight, and the switches on by default (2026-10-24)
@@ -140,7 +140,7 @@ prey in sight reads as no home. The eye is billed as every eye is. Off, byte-ide
 The judged kills are bimodal (about 30 or 100-190 a bed); sight moves judgings into the high mode (10 of 24 against 2
 of 24). **A blind-trained pool loses from sight**: its home weights were learnt on the landing cell. Spiders saw an
 ant on 1-15% of ticks; ants are mostly underground. The sighted pool is `predator/pools/sight-h2` in the project
-files (seed 2's last pool). `/mnt/project-files/predator/spider-sight-paired.gif`: the same bed, sight above, none
+files (seed 2's last pool). `Reports/lone-predator/spider-sight-paired.gif`: the same bed, sight above, none
 below.
 
 **On by default** (owner, 17:34Z: "Everything should be on by default"): `PIXEL_PHYSICS_MIND_ATTACK` (the bite, the
@@ -200,7 +200,7 @@ colony line against the starting spider pool and against its arm's last evolved 
 Where it goes next: fix the spider side's selection (above) before spending a 64-colony VM batch on the arms race.
 The judge is `scratch/inrun/predjudge.py` (`S=` the folder holding the arms as `ce/coevo`, `ce/fixed`, `ce/sight`;
 `SIGHT=on COLS=founder,sight EVO=sight ORIG=.../sight-h2` for the sighted grid). The judged rows are in
-`/mnt/project-files/predator/coevo1/`.
+`Reports/lone-predator/data/`.
 
 **The elitism rerun: spiders that live long, not spiders that hunt.** `ce2`: the sighted line again (`sight-h2`,
 16 x 12 x 200k, local), now with `spider_mut=0.03:0.3:2:0.5` (half the placements the parent itself, the rest gentle
@@ -316,8 +316,31 @@ build, in which a predator with handling can no longer pay for a child out of li
 
 Four seeds is a first look, not a ranking of the arms. **Shipped**: the lab's spider pool
 (`assets/minds/spider_pool.txt`) is now `coex-r10`, the pool that lasts, so a playtest sees spiders hunt and breed
-rather than die in 4,000 frames. Pools: `/mnt/project-files/predator/pools/{coex-r10,evo-r10}`; the picture,
-`/mnt/project-files/predator/spider-coexist-lab.gif` (coex, seed 12, frames 30k-130k).
+rather than die in 4,000 frames. Pools: `Reports/lone-predator/pools/{coex-r10,evo-r10}`; the picture,
+`Reports/lone-predator/spider-coexist-lab.gif` (coex, seed 12, frames 30k-130k).
+
+## Where it stands (2026-10-27, moving to a new account)
+
+Everything above is on `main`; the thread's data that lived outside the repo is in `Reports/lone-predator/`:
+`pools/` (`score-1`, `score-8` stage one; `sight-h2` the sighted pool; `coex-r10`, `evo-r10` stage five, each mind's
+breeding genes in `NN.body.txt`), `data/` (the stage-three judged rows and colsel/common-garden csvs;
+`coevo2-elite-rows.csv` the elitism rerun's judging, `coevo2-total-rows.csv` the `spider_score=total` arm's), and the
+four GIFs named above. The lab's spider is `coex-r10` (`assets/minds/spider_pool.txt`).
+
+Open, in the order this thread would have taken them:
+- **Re-measure on today's build.** Batch `ce4` trained before the nest raider lane stopped a predator with handling
+  from paying for a child out of living prey in reach (#887; stage five's lab judging already ran on that build), and
+  before the Teacher lane cut every brain's bill to a quarter (`PIXEL_PHYSICS_LINK_PRICE` 0.25, `=1` the old bill).
+  Both move spider numbers; nothing here has been measured at the new link price.
+- **More seeds before ranking pools.** Stage five is four seeds; coexistence was seed-dependent (2 of 4).
+- **Breeding genes are not in the lab pool file**: a lab spider breeds at the species' bar, not its evolved one.
+- **The evo pool's colony died twice after 2-4 kills** in the lab (stage five); not explained.
+- **`spiderhold=` never fired** (median kills 7-16 against a hold at 30); a lower K is untested.
+- **Colony defence learning has not been shown** in any batch; the Teacher lane wanted a 64-colony defence run only
+  once spiders persist, which they now do on some seeds.
+- **Other predators** the owner liked: nest raider (its own thread, its own report), then ambush hunter, pack
+  hunter, jumping spider (the hopper's leap), wasp (real sustained flight; the flitter's flight is "a floaty jump"
+  in the owner's words, low priority). The owner agreed to hold those until the spider can coexist.
 
 ## Reproduce
 
@@ -327,5 +350,5 @@ cargo run --release --example predtrain -- out=DIR pool=DIR/r9/pool sel=off pred
 cargo run --release --example predtrain -- ... gif=0:3000:15000:30 crop=40,34,176,40 scale=4   # rN/round.gif
 # stage two: the batch's arms (ARGS = line 2 of scratch/inrun/jobs/broodplant1.txt from its 9th field; LEXSEED=2 for a replicate)
 CG_EVERY=5 python3 scratch/inrun/colsel.py OUT lex+spoil+crater+shape[+guard|+slay] 16 10 200000 scratch/inrun/genomes/hcs.raw.txt $ARGS \
-    spiders=/mnt/project-files/predator/pools/score-1:1 spider_gap=50000 spiderramp=100000:20000:10:2
+    spiders=Reports/lone-predator/pools/score-1:1 spider_gap=50000 spiderramp=100000:20000:10:2
 ```
