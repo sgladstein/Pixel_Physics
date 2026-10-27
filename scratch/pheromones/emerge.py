@@ -25,12 +25,15 @@ columns off; emergence = that gap growing over generations, in free and not in d
   [ZERO=LO-HI] zero these genome slots in the founder (2375-2409: the B emit row, for the re-evolve check)
   [FILL=SIGMA] after ZERO, give every zeroed slot a small random weight N(0, SIGMA) (seeded): the operator's
   add events almost never land on the one input a signal needs, so start the row dense and let sigma tune it
+  [HARNESS=2] the review's fixes (2026-10-27): gen 0 keeps the unmutated founder, an elite is ranked on the mean of
+  every score it has drawn, food stored counts even if the colony died out, listening worlds change per checkpoint
+  (resumes no longer duplicate rows, and ZERO/FILL now apply to a .raw.txt founder, in either harness)
   [CHAN=alarm|B] the channel the listening replays deafen and shift; [ALARM=train|frozen] PP_MIND_ALARM
   e.g. python3 scratch/pheromones/emerge.py /tmp/em free 16 200 100000 assets/minds/std_pool.txt P=4
 
 FOUNDER may be a .raw.txt or a pool file (member 0 is used). Resumes from the last complete generation.
 """
-import csv, os, random, shutil, subprocess, sys
+import csv, hashlib, json, os, random, shutil, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,13 +42,14 @@ import nestcount  # noqa: E402
 
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT, ARM, N, GENS, FRAMES, FOUNDER = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL')
+OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL', 'HARNESS')
 opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in OPTS)}
 EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in OPTS]
 P, EVERY, LISTEN, SEED = int(opts.get('P', 4)), int(opts.get('EVERY', 10)), int(opts.get('LISTEN', 4)), int(opts.get('SEED', 1))
 MUT = opts.get('MUT', '0.013:1.0:4')  # pm:sigma:events, the standard line's kpm / ksigma / kevents
 EVALS, SCORE, ZERO, CHAN = int(opts.get('EVALS', 1)), opts.get('SCORE', 'both'), opts.get('ZERO'), opts.get('CHAN', 'alarm')
 assert ARM in ('free', 'deaf', 'drift'), ARM
+H2 = opts.get('HARNESS', '1') == '2'
 assert SCORE in ('both', 'stored') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
 BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0'] + EXTRA
 ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', **({'PP_MIND_ALARM': 'train'} if opts.get('ALARM', 'train') == 'train' else {})}
@@ -55,21 +59,27 @@ os.makedirs(OUT, exist_ok=True)
 
 def founder_raw():
     if FOUNDER.endswith('.raw.txt'):
-        return FOUNDER
-    lines = [l for l in open(FOUNDER).read().split('\n') if l.strip() and not l.startswith('#')]
-    head = lines[0].split()
-    m, seen = {}, 0
-    for l in lines[1:]:
-        if l.startswith('member '):
-            seen += 1
-            if seen > 1:
-                break
-            continue
-        i, w = l.split()
-        m[int(i)] = w
+        lines = [l for l in open(FOUNDER).read().split('\n') if l.strip()]
+        header = lines[0]
+        m = {int(l.split()[0]): l.split()[1] for l in lines[1:]}
+        if not ZERO and 'FILL' not in opts:
+            return FOUNDER
+    else:
+        lines = [l for l in open(FOUNDER).read().split('\n') if l.strip() and not l.startswith('#')]
+        head = lines[0].split()
+        header = f'genome {head[3]} {head[4]}'
+        m, seen = {}, 0
+        for l in lines[1:]:
+            if l.startswith('member '):
+                seen += 1
+                if seen > 1:
+                    break
+                continue
+            i, w = l.split()
+            m[int(i)] = w
     fp = f'{OUT}/founder.raw.txt'
     with open(fp, 'w') as f:
-        f.write(f'genome {head[3]} {head[4]}\n')
+        f.write(header + '\n')
         lo, hi = (int(x) for x in ZERO.split('-')) if ZERO else (1, 0)
         f.writelines(f'{i} {w}\n' for i, w in sorted(m.items()) if float(w) != 0.0 and not lo <= i <= hi)
         if 'FILL' in opts:
@@ -115,7 +125,10 @@ def score(d):
                 r['layA'], r['layB'], r['layAl'] = float(t[1]), float(t[3]), float(t[5])
     except OSError:
         pass
-    r['score'] = (r['stored'] + (r['nest'] if SCORE == 'both' else 0)) if r['alive'] else 0
+    if H2:  # food stored counts even if the colony died out: removes the extinction cliff (review 2026-10-27)
+        r['score'] = r['stored'] + (r['nest'] if SCORE == 'both' and r['alive'] else 0)
+    else:
+        r['score'] = (r['stored'] + (r['nest'] if SCORE == 'both' else 0)) if r['alive'] else 0
     for fn in os.listdir(d):  # keep the small files only
         if fn.startswith(('map_f', 'ants_f', 'nestmap_f', 'occupants')) or fn in ('events.csv', 'births.csv', 'age30.csv'):
             os.remove(f'{d}/{fn}')
@@ -128,11 +141,21 @@ g0 = 0
 while os.path.exists(f'{OUT}/g{g0:03}/done'):
     g0 += 1
 print(f'emerge: arm {ARM}, {N} colonies, gens {g0}..{GENS - 1}, {FRAMES} frames, EVALS={EVALS} SCORE={SCORE} ZERO={ZERO} CHAN={CHAN} ALARM={opts.get("ALARM", "train")}, bed {" ".join(BED)}', flush=True)
+if g0 > 0:  # a resumed run re-writes the generation it stopped in: drop that generation's partial rows
+    for fn in (gens_csv, listen_csv):
+        if os.path.exists(fn):
+            L = open(fn).read().split('\n')
+            open(fn, 'w').write('\n'.join([L[0]] + [l for l in L[1:] if l.strip() and int(l.split(',')[0]) < g0]) + '\n')
+hist_json = f'{OUT}/hist.json'
+hist = json.load(open(hist_json)) if H2 and os.path.exists(hist_json) else {}
 if g0 == 0:
     os.makedirs(f'{OUT}/g000', exist_ok=True)
     base = founder_raw()
     for c in range(N):
-        mutant(base, f'{OUT}/g000/c{c:02}.raw.txt', SEED * 100000 + c)
+        if H2 and c == 0:  # gen 0 keeps one unmutated founder
+            shutil.copy(base, f'{OUT}/g000/c00.raw.txt')
+        else:
+            mutant(base, f'{OUT}/g000/c{c:02}.raw.txt', SEED * 100000 + c)
     with open(gens_csv, 'w') as f:
         f.write('gen,colony,parent,score,stored,nest,alive,starved,layA,layB,layAl\n')
     with open(listen_csv, 'w') as f:
@@ -151,7 +174,15 @@ for g in range(g0, GENS):
         for k in ('score', 'stored', 'nest', 'alive', 'starved'):
             r[k] = round(r[k])
     rng = random.Random(SEED * 7919 + g)
-    order = sorted(range(N), key=lambda c: (-res[c]['score'], c))
+    rank = [r['score'] for r in res]
+    if H2:  # an elite carries its score history: a lucky mutant must beat its running mean, not one draw
+        keys = [hashlib.sha1(open(gf, 'rb').read()).hexdigest()[:16] for gf in genomes]
+        for c, k in enumerate(keys):
+            hist.setdefault(k, []).append(res[c]['score'])
+            rank[c] = sum(hist[k]) / len(hist[k])
+        hist = {k: hist[k] for k in set(keys)}
+        json.dump(hist, open(hist_json, 'w'))
+    order = sorted(range(N), key=lambda c: (-rank[c], c))
     if ARM == 'drift':
         order = list(range(N))
         rng.shuffle(order)
@@ -165,16 +196,16 @@ for g in range(g0, GENS):
         ld = f'{gd}/listen'
         jobs = []
         for k in range(LISTEN):
-            s = 900000 + k
+            s = 900000 + k + (1000 * g if H2 else 0)  # HARNESS=2: fresh listening worlds per checkpoint
             jobs += [(s, 'normal', ENV), (s, 'deaf', {**ENV, 'PP_SCENT_DEAF': CHAN}), (s, 'shift', {**ENV, 'PP_SCENT_SHIFT': f'{CHAN}:40'})]
         with ThreadPoolExecutor(P) as ex:
             lr = list(ex.map(lambda j: run(genomes[best], j[0], f'{ld}/{j[1]}_s{j[0]}', j[2]), jobs))
         with open(listen_csv, 'a') as f:
             for k in range(LISTEN):
                 n, d, sh = lr[3 * k], lr[3 * k + 1], lr[3 * k + 2]
-                f.write(f"{g},c{best:02},{900000 + k},{n['score']},{d['score']},{sh['score']},{n['stored']},{d['stored']},{sh['stored']}\n")
+                f.write(f"{g},c{best:02},{900000 + k + (1000 * g if H2 else 0)},{n['score']},{d['score']},{sh['score']},{n['stored']},{d['stored']},{sh['stored']}\n")
     nd = f'{OUT}/g{g + 1:03}'
-    if g + 1 < GENS:
+    if True:  # always seed the next generation, so a finished run can be extended by raising GENS
         os.makedirs(nd, exist_ok=True)
         for k, c in enumerate(order[:2]):
             shutil.copy(genomes[c], f'{nd}/c{k:02}.raw.txt')
