@@ -523,3 +523,48 @@ not, and its first finding rewrites part of §9.5:
 - `emerge.py` now logs `kj, tank, deliver, churn, home` per colony, ranks on `SCORE=kj` or `SCORE=home` on request,
   and no longer double-counts a generation's scores on resume (`hist.json` entries carry their generation). E3 was
   stopped at generation 4 because it ranked on cells.
+
+### 9.10 The goal restated: communication, not foraging (owner, 2026-10-27 18:49Z)
+
+The owner: *"I am not sure that I said 'forage better' was our goal. The goal is if ants can develop their own
+pheromone signals to communicate information between ants (who have no other form of communications)... there
+does need to be a way to measure it."* Food delivered home is the guard measure (the owner's pick from the card;
+chosen, by the owner and by the lane, before the numbers below were computed).
+
+**What counts as communication** (the biology definition: a signal carries information about the sender and
+receivers act on it), as four measurable criteria:
+
+1. **Information:** what an ant lays depends on its state (laden or empty, has found food or not). Measure: the emit
+   census by state (`census_*.txt`); a convention needs a state ratio of at least 2x.
+2. **Response:** receivers act on it. Measure: the colony deaf to the channel loses >= 20% of food delivered on
+   >= 12/16 worlds.
+3. **Meaning:** it is the real map that matters, not a level the brain leans on. Measure: the map read 40 columns
+   off, and a constant level, each lose >= 20% on >= 12/16.
+4. **Social:** ants act on other ants' marks. Measure: the half-silent chimera (silent hatchlings survive as well as
+   emitters; an all-silent colony fails like a deaf one).
+
+**The new-channel runs scored this way** (each arm's best, 16 shared worlds, food delivered home, sign test against
+the free best hearing):
+
+| | Run 1 | Run 2 | Add-on (§9.6) |
+|---|---|---|---|
+| Free best, hearing | **2,514** | 1,010 | 1,060 |
+| ...deaf to the channel | 1,552 (lower 15/16, p = 0.001) | 347 (15/16, p = 0.001) | 1,230 (6/16) |
+| ...map 40 columns off | 1,968 (14/16, p = 0.004) | 466 (15/16, p = 0.001) | |
+| ...constant level 0.02 | 1,626 (13/16, p = 0.02) | 335 (15/16, p = 0.001) | |
+| Deaf arm's best | 1,405 (**lower than free 15/16, p = 0.001**) | 1,224 (higher than free 11/16, p = 0.21) | 1,656 (higher 14/16) |
+| Emit ratio by state | empty 0.65 vs laden 0.12 (5.4x) | 0.73-0.89 in every state | none formed |
+
+- **Run 1 meets criteria 1-3, and on food delivered home its signalling colony beats the deaf control 1.8x on 15/16
+  worlds.** The convention is an "I'm empty and still searching" mark. Cells (§9.5) and larder energy (§9.9) said
+  the opposite because this colony eats what it brings home (fed better and laid more eggs, per the readiness
+  review) instead of storing it. Criterion 4 was tested only on the first emergence test's alarm convention.
+- **Run 2 is a load-bearing map with little sender-state information** (criterion 1 fails), and forages level with
+  the deaf control. The add-on test formed nothing.
+- **Caveat:** three food measures have now been read on these runs (cells, kJ, delivered), so the run 1 result is one
+  replicate under the third measure looked at. It is a reason to run E4, not a result.
+
+**E4 redefined.** Same replicates (6 free + 6 deaf, fixed harness), but the question is *how often a convention that
+meets criteria 1-4 forms and holds*, with food delivered home (`emerge.py SCORE=home`) as both the selection score and
+a guard against the deaf arm. The readiness review's other fixes still apply (pinned binary, channel-weighted
+operator, 90 generations at EVALS=2, pre-registered garden script, PF4 positive control).
