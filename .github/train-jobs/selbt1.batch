@@ -1,0 +1,7 @@
+# Selection lane, 2026-10-27: first test of batch.yml. Short legs (25 min) so every kind of line pauses and resumes:
+# t1 is elite2's e13 arm at screening width (32 colonies) for 3 rounds, which also times one round on a runner.
+leg_minutes=25
+t1 colsel 31 lex+spoil+crater+shape+scale+lab 32 3 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1
+r_1 1 2 100000 score assets/minds/h1.raw.txt
+r_2 2 2 100000 score assets/minds/h1.raw.txt
+pf PP_GATE=off PP_REACH=off emerge free 8 3 50000 assets/minds/std_pool.txt P=4 SEED=41 EVALS=1 SCORE=home EVERY=10 LISTEN=2 HARNESS=2
