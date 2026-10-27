@@ -690,7 +690,18 @@ if R0:
     spool_hist = st0.get('spool_hist', {})
     dist_now = st0.get('dist_now', dist_now)
     move_t = st0.get('move_t', move_t)
+# DEADLINE (unix seconds; set by scripts/batch_run.sh, 2026-10-27): a GitHub runner stops at 6 h, so a leg ends
+# between rounds rather than inside one. A round that would not finish by DEADLINE at the slowest pace this leg has
+# seen is not started: the driver exits 75 with state.json at that round, and the next leg resumes there exactly as
+# after a preemption. Unset (the VM), it never fires.
+DEADLINE = float(os.environ.get('DEADLINE', '0'))
+import time
+t_round = 0.0
 for r in range(R0, R):
+    if DEADLINE and time.time() + 1.1 * t_round > DEADLINE:
+        print(f'PAUSED before round {r}: the slowest round so far took {t_round:.0f} s and the leg ends in {DEADLINE - time.time():.0f} s', flush=True)
+        sys.exit(75)
+    t_start = time.time()
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
@@ -842,6 +853,7 @@ for r in range(R0, R):
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)
+    t_round = max(t_round, time.time() - t_start)
 for d in prev_dirs.values():  # the last round keeps its genomes (the product) and gzips its log
     if os.path.exists(f'{d}/events.csv'):
         subprocess.run(['gzip', '-f', f'{d}/events.csv'])
