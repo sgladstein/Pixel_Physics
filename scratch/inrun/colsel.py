@@ -354,6 +354,17 @@ SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
 # (nest 596 -> 129 over 96 rounds); at kpm 0.003 std_pool improved nothing in 96 rounds; with no mutation every trait
 # held. inrun's `arg` takes the first match, so the zeros go in front of the job's own kpm.
 ELITE = os.environ.get('ELITE', '0') == '1' or 'elite=1' in EXTRA
+# refound_mut=PM:SIGMA:EVENTS and carry=random (teacher lane, 2026-10-27, from the selection review's arm (b), PR #939):
+# mutation happens once, when a child colony is refounded -- each of the donor's 30 carried genomes is written as one
+# size-neutral mutant (inrun's `mutate_to`) -- and nowhere else; run the job with kpm=0 kevents=0 and sel=random so
+# the round neither mutates nor selects inside the colony, and carry=random takes 30 of the round's ants blind instead
+# of the top 30 by ant score. Colony selection is then the only selection there is. **Why**: the review found a child
+# worse than its own unmutated donor in the same round on lab and nest in 57-69% of 1,520 pairs (control 54%), an
+# unmutated colony's order across two worlds agreeing only 0.05-0.09, and in-round breeding narrowing 24 lines to 2-3
+# per round (every ant at r95 descends from one ant 7 rounds back): the in-round score works against the colony cases.
+REFOUND_MUT = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('refound_mut=')), None)
+CARRY_RANDOM = 'carry=random' in EXTRA
+SEL_ARG = next((x for x in EXTRA if x.startswith('sel=')), 'sel=score')  # was hardwired: arg() takes the first match
 SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
 # shapeopen=1 (teacher lane, 2026-10-25): +shape reads rooms from the nest's open cells only (roomshape.OPEN_ONLY):
 # with stored food counted as space, nest1's best "rooms" colony (85) was a lumpy food pile with 17 open cells.
@@ -408,7 +419,7 @@ def lab_alive(c, r, carry_c, scens=None):
         m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
         tot += round(10 * float(m.group(1))) if m else 0  # tenths: whole ants rounded every early-dying colony to one value
     return tot
-C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', 'sel=score'] + EXTRA
+C = [f'frames={F}', f'dist={BASE_DIST}', 'spread=10', 'grants=3', 'window=4000', SEL_ARG] + EXTRA
 CGC = [a if not a.startswith('sel=') else 'sel=off' for a in C if not a.startswith('frames=')] + ['frames=200000']
 # near=N (inrun's home-side heap) is training only: the garden keeps both heaps at BASE_DIST, so an arm's gardens are
 # the same worlds as its control's (teacher lane, 2026-10-25).
@@ -428,6 +439,21 @@ def run(args, out):
     return out
 
 
+def mutate_carry(fs, b, r):
+    """refound_mut=: the founders string with every genome replaced by one mutant of it, written under OUT/c{b}/mut{r}."""
+    pm, sigma, ev = REFOUND_MUT.split(':')
+    d = f'{OUT}/c{b}/mut{r}'
+    os.makedirs(d, exist_ok=True)
+    out = []
+    for k, e in enumerate(fs.split(',')):
+        path, rest = e.split('@', 1)
+        dst = f'{d}/{k:02}.raw.txt'
+        subprocess.run([BIN, f'founders={path}:1', f'out={d}/tmp', f'mutate_to={dst}:{pm}:{sigma}:{ev}:{b * 1000003 + r * 101 + k}'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        out.append(f'{dst}@{rest}')
+    return ','.join(out)
+
+
 def carried(rdir):
     """rounds.sh's carry: top 30 by ant score, topped up to 30 requests by repeating."""
     idx = f'{rdir}/final/index.csv'
@@ -435,7 +461,11 @@ def carried(rdir):
         return None
     r = list(csv.DictReader(open(idx)))
     r.sort(key=lambda x: int(x['id']))  # index.csv is in HashMap order: sort first so ties keep a fixed order
-    r.sort(key=lambda x: (-float(x['score']), int(x['id'])))
+    if CARRY_RANDOM:
+        import zlib
+        random.Random(zlib.crc32(rdir.encode())).shuffle(r)
+    else:
+        r.sort(key=lambda x: (-float(x['score']), int(x['id'])))
     r = r[:30]
     n = len(r)
     if n == 0:
@@ -685,7 +715,7 @@ for r in range(R0, R):
             if not donors:
                 break
             d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
-            nxt[b], src[b] = carry[d], str(d)
+            nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
     for c in cols:
         v = res[c] or (0,) * (19 + len(LAB_CASES) if LAB else 18)
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
