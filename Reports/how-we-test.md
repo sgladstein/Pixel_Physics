@@ -389,6 +389,20 @@ the rule, and the Teacher lane adopted it the same day.
   an idea that does nothing a "significant" change about one time in five.
 - **Count extinct colonies in the garden** as alive 0, nest 0; the garden
   drops them, so its medians otherwise describe survivors only.
+- **Audit the selection, not only the outcome**: run
+  `python3 scratch/inrun/selaudit.py OUT/` on every finished colsel arm
+  ([selection review](brain-training/research/selection-review-2026-10-27.md),
+  2026-10-27). It reads colsel.csv alone and prints four things a garden
+  cannot show: how often a case repeats for the same colony in two worlds
+  (a case whose interval includes 0 is spending its vote on luck; room shape,
+  spoil and the herb box did, at elite1), each case's real share of the
+  survival vote, a child against its own donor in the same round (what one
+  mutating round does to each case; elite1: lab worse in 63-69% of pairs),
+  and the share of the kept half taken by children (50% = survival is blind).
+- **"No weights" is never literally true.** The kept half is a rank-sum, so
+  a goal weighs as many votes as it has correlated cases (the nest's six
+  cases took 63-71% at elite1), and percentile gates outweigh everything.
+  State the effective weights when a result depends on them.
 
 ## 8. Before you push
 
