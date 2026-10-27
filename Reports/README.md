@@ -790,7 +790,9 @@ by somebody about to try it on creatures.
   2.62 -> 2.88. `World::nutrient_by_root` then caps a plant's nutrient by
   how much root reaches soil against its foliage. The report ends with how
   realistic the nutrient model is against real plants, and six ranked
-  ideas (pale hungry leaves first).
+  ideas (pale hungry leaves first). **Idea 1 built and on, 2026-10-27**: a
+  hungry plant's leaves fade toward yellow-green in three steps, a rootless
+  one fully; render only, no measurable draw cost.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated

@@ -214,3 +214,51 @@ build price with root tips exempt, and the income multiplier.
 - 9 of 239 leafy plants still read rootless at 450k with the switch on. Most
   are plants on their way out, and a few herbs read water status 1.0. Not
   traced.
+
+## Pale hungry leaves: idea 1, built and on (2026-10-27)
+
+A plant's leaves fade toward yellow-green (`render::PALE_LEAF_TARGET`) in
+three steps as it loses income to nutrient shortage. The step is keyed on
+`plant::nutrient_hunger`, which is `1 -` the nutrient income multiplier, so
+it shows what the shortage costs the plant rather than the raw status (soil
+at status 0.5 is worth 0.95 of full income and draws as fed). Step edges at
+15%, 40% and 65% of income lost, pulled 0.3, 0.55 and 0.8 of the way to the
+target, with 0.04 of hysteresis so a plant on an edge does not flicker. A
+rootless plant reads status 0 under `roots_required` and so draws fully
+yellow. Render only: no rule reads a leaf's colour. On by default;
+`PIXEL_PHYSICS_PALE_LEAVES=0` is the old look.
+
+**How it keeps the dirty-rect skip.** `nutrient_status` is rewritten every
+organism tick with no cell write, so no chunk is dirtied when it moves. The
+renderer works out every plant's step once per draw, compares it with the
+step that world was last drawn at (per world: the lab draws other chambers'
+thumbnails through the same renderer), and unions only the leaf boxes of
+plants whose step moved into the dirty region. Guard:
+`a_plant_that_goes_hungry_repaints_with_no_cell_written`, checked to fail
+with those boxes left out.
+
+**Measured** (`labshot scenario=played_bed drawevery=1 drawfrom=440000`,
+seed 1, both arms one binary, `PIXEL_PHYSICS_PALE_LEAVES=0` against on;
+the world is identical, only the picture differs):
+
+| frame | leafy plants | step 0 / 1 / 2 / 3 | hunger p90 |
+|---|---|---|---|
+| 150,000 | 14 | 12 / 0 / 1 / 1 | 0.07 |
+| 300,000 | 10 | 9 / 0 / 0 / 1 | 0.18 |
+| 450,000 | 21 | 20 / 1 / 0 / 0 | 0.05 |
+
+One or two plants are pale at a time; the step-3 plants are rootless herbs.
+Draw cost over frames 440,000-450,000, drawn every frame: mean 7.096 ->
+7.162 ms (+0.9%), p99 11.98 -> 12.03 ms, pixels redrawn per frame 157,807 in
+both (this bed redraws almost the whole screen every frame anyway).
+`ascii`'s full-screen render stress scene, 8 alternating pairs on a loaded
+machine: worst render frame higher with pale leaves on 4 of 8 (sign test
+p = 1.0), medians 0.64 ms on against 0.71 ms off. Two full `ascii` passes per
+arm were too noisy to read: a scene the change cannot reach (CA + field, no
+drawing) read 119 ms against 16 ms on one pair and 1,342 against 15 on the
+other, three latecensus runs sharing the four cores.
+
+Pictures (each pair the same world and frame, old look then new): <https://claude.ai/artifact/WTLCb74bBWoiu8nKNvz9F9>, copies in `rootless-plants-2026-10-23/pale/` -- [the rootless herb](rootless-plants-2026-10-23/pale/herb_rootless_150k.png), [a herb at step 2](rootless-plants-2026-10-23/pale/herb_062_150k.png), [a tree at step 1](rootless-plants-2026-10-23/pale/tree_038_450k.png), and a stretch of the bed [before](rootless-plants-2026-10-23/pale/bed150_off.png) and [after](rootless-plants-2026-10-23/pale/bed150_on.png).
+`labshot` now prints a `pale leaves` census per stop with the hungriest
+plants' leaf boxes, and `latecensus` a `kinds` line (plants / leaf cells /
+pale plants per species).
