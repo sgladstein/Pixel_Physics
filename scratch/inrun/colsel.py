@@ -346,6 +346,14 @@ SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
 # Use with NEST_NEED's F at 1 (an aisle per stored cell), not 2: the food is already charged once in the numerator.
 # Job lines cannot set colsel's environment on the VM, so both ride as args: `scaleopen=1`, `nestneed=A,B,F`.
 SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
+# elite=1 (teacher lane, 2026-10-27): only a colony refounded last round (and every colony in round 0) breeds with the
+# job's mutation; a colony that kept its own place runs with kpm=0 kevents=0, so the top half is carried unchanged and
+# only the children that replace the bottom half vary -- the (mu+lambda) elitism a genetic algorithm uses against drift.
+# **Why**: drift1 and self1 (2026-10-27) found in-run mutation outruns colony selection. At the default kpm 0.013 a
+# hand-laid come-home latch decayed (garden starved 46 -> 311 in 48 rounds) and std_pool traded its nest for food
+# (nest 596 -> 129 over 96 rounds); at kpm 0.003 std_pool improved nothing in 96 rounds; with no mutation every trait
+# held. inrun's `arg` takes the first match, so the zeros go in front of the job's own kpm.
+ELITE = os.environ.get('ELITE', '0') == '1' or 'elite=1' in EXTRA
 SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
 # shapeopen=1 (teacher lane, 2026-10-25): +shape reads rooms from the nest's open cells only (roomshape.OPEN_ONLY):
 # with stored food counted as space, nest1's best "rooms" colony (85) was a lumpy food pile with 17 open cells.
@@ -595,9 +603,11 @@ def expand_pool(path):
 founders = {c: (expand_pool(G) if G.endswith('pool.txt') else [f'founders={G}:1', 'mutants=30:0.03:1.0:7']) for c in range(1, NCOL + 1)}
 prev_dirs = {}
 nest = {c: None for c in range(1, NCOL + 1)}
+fresh = {c: True for c in range(1, NCOL + 1)}  # elite=1: breeds with mutation this round (round 0: all)
 if R0:
     founders = {int(c): v for c, v in st0['founders'].items()}
     nest = {int(c): v for c, v in st0['nest'].items()}
+    fresh = {int(c): v for c, v in st0.get('fresh', {}).items()} or fresh
     prev_dirs = {int(c): v for c, v in st0['prev_dirs'].items()}
     rng.setstate((st0['rng'][0], tuple(st0['rng'][1]), st0['rng'][2]))
     cap_now = st0['cap_now']
@@ -628,6 +638,7 @@ for r in range(R0, R):
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
         cr = spider_args(with_spiders(with_cap(cr), r), f'{OUT}/c{c}/r{r}/spiders')
+        cr = ['kpm=0', 'kevents=0'] + cr if ELITE and not fresh[c] else cr
         return run(founders[c] + [f'seed={c if r == 0 else c * 1000 + r}'] + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
@@ -730,6 +741,7 @@ for r in range(R0, R):
         founders[c] = None if nxt[c] is None else [f'founders={nxt[c]}']
         home = int(src[c]) if src[c] else c
         nest[c] = f'{dirs[home]}/nestmap.txt' if home in dirs else None
+        fresh[c] = bool(src[c])
     # the round before is no longer referenced by any carry: drop its genomes and event log, keep its csv summaries
     for c, d in prev_dirs.items():
         shutil.rmtree(f'{d}/final', ignore_errors=True)
@@ -737,7 +749,7 @@ for r in range(R0, R):
             os.remove(f'{d}/events.csv')
     prev_dirs = dirs
     import json
-    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'move_t': move_t, 'spool': spool, 'spool_hist': spool_hist},
+    json.dump({'r': r + 1, 'founders': founders, 'nest': nest, 'prev_dirs': prev_dirs, 'rng': rng.getstate(), 'cap_now': cap_now, 'spider_at': spider_at, 'dist_now': dist_now, 'move_t': move_t, 'spool': spool, 'spool_hist': spool_hist, 'fresh': fresh},
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)

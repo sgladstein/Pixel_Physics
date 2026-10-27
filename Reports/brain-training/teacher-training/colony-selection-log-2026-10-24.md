@@ -790,3 +790,42 @@ instinct arm and the gate arms as well. It is not specific to the come-home habi
 same selection kept the habit, kept the nest, and lowered starvation further. The lab already had this
 measured for in-lab evolution (enemy seat, PR #917: training's rate killed 3 of 6 lab colonies, a tenth stayed
 within the off arm's spread).
+
+## 2026-10-27: a lower rate is not enough; keeping the best half unchanged is (`self1`, `elite1`)
+
+**`self1`** (88da3dc6): std_pool (no hand-laid habit), 32 colonies x 96 rounds, seed 31, gates and reach open. At a
+quarter of the mutation rate, nothing improved. Starvation went 292 -> 281 (p = 0.8), and both food home (4,168 -> 2,720)
+and the nest (663 -> 428) drifted down (p ~ 5e-6 each). At the default rate, food home rose 4,106 -> 7,852 (p = 1e-5),
+paid for with the nest: 596 -> 129 (p = 9e-9), late cuts 328 -> 71. The home-low + instinct pool at the low rate lost
+ground as well: starvation 46 -> 112 (p = 3e-5). drift1's latch pool held at the low rate only because it started at
+the answer.
+
+**`elite1`** (07c50df9) adds colsel's `elite=1`: a colony that kept its place last round runs with `kpm=0 kevents=0`.
+Only the children that replace the bottom half (and round 0) mutate, so the kept half is carried unchanged. This is
+the (mu + lambda) elitism a genetic algorithm uses against drift. Same seed, same pools, same cases as `self1`.
+
+| arm (garden, round 7 -> 95) | starved | food home | nest | crater | late cuts |
+|---|---|---|---|---|---|
+| std_pool, kpm 0.003 | 292 -> 281 | 4,168 -> 2,720 | 663 -> 428 | 103 -> 120 | 326 -> 262 |
+| std_pool, kpm 0.003, **elite** | 330 -> 281 (p = 2e-4) | 4,168 -> 5,714 (p = 1e-4) | 824 -> 776 (p = 0.4) | 76 -> 8 (p = 1e-4) | 372 -> 404 |
+| std_pool, default kpm | 244 -> 207 | 4,106 -> 7,852 | 596 -> 129 | 89 -> 14 | 328 -> 71 |
+| std_pool, default kpm, **elite** | 296 -> 219 (p = 6e-4) | 3,763 -> 4,242 (p = 0.1) | 626 -> 746 (p = 0.03) | 70 -> 31 (p = 0.008) | 316 -> 292 |
+| home-low + instinct, kpm 0.003 | 46 -> 112 | 4,814 -> 6,142 | 769 -> 556 | 29 -> 25 | 376 -> 296 |
+| home-low + instinct, kpm 0.003, **elite** | 38 -> 86 (p = 1e-7) | 4,945 -> 8,402 (p = 4e-9) | 870 -> 743 (p = 2e-4) | 22 -> 11 | 413 -> 352 |
+
+Medians over the garden's colonies (26-32 of 32). Each p is a Mann-Whitney test of the arm's own r7 against its r95.
+With four measures per arm the Bonferroni bar is 0.0125. At round 95, elite against non-elite at the low rate gives:
+
+- food home 5,714 vs 2,720, p = 2e-8;
+- nest 776 vs 428, p = 4e-6;
+- crater 8 vs 120, p = 6e-8;
+- starvation equal (281 vs 281, p = 0.6).
+
+**With the kept half protected, selection now moves the std_pool arms the right way on every case or holds them**:
+less starvation, more food home, the crater nearly gone, the nest kept. Without that protection, the same cases drifted
+down at the low rate and traded the nest away at the default rate. It is still slow, and it has not found come-home in
+96 rounds: std_pool starvation is 219-281 against the instinct pool's 38-86.
+
+The instinct arm is the exception: its starvation rose even with elitism (38 -> 86) while food home climbed 70%. Kept
+colonies cannot drift, so that rise is selection choosing it: a colony's rank is summed over ~10 cases, and children
+with more food home outranked kept colonies that starved fewer. That is a trade in the cases, not drift.
