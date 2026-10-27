@@ -49,6 +49,11 @@ pub const HOLD: u64 = 6_000;
 /// blind forage first.
 pub const RESERVE: f32 = 900.0;
 
+/// **The zoom she opens at**: 4 screen pixels a cell puts her chamber and
+/// the first galleries (about 128x80 cells) in the window, where an ant is
+/// a dozen pixels and its line colour can be told from the soil.
+pub const NEST_ZOOM: i32 = 4;
+
 /// How many eggs one Y keeps.
 pub const KEEP_EGGS: usize = 5;
 
@@ -212,6 +217,17 @@ fn arm(lab: &mut Lab) {
     // The stock in the ant's own brown, so a wild line's colour is the only
     // colour in the nest (the lab opens on BY COLONY, which golds them all).
     lab.renderer.creature_colour = crate::render::CreatureColour::Off;
+    // **In close on the nest** (hand-off to-do 1, 2026-10-27): at the box's
+    // own scale an ant is 2-3 pixels and a wild line's colour reads as a
+    // speck; the camera already follows her (`Demo::follow`), so only the
+    // scale is set here. `-` pulls back.
+    let bounds = lab.world.bounds();
+    for _ in 0..8 {
+        if lab.renderer.zoom >= NEST_ZOOM {
+            break;
+        }
+        lab.renderer.zoom_within(1, (super::super::WIDTH, super::super::HEIGHT), bounds);
+    }
     let frame = lab.world.frame;
     let q = state_mut(lab).expect("read above");
     q.ready = true;
@@ -250,7 +266,7 @@ pub fn seat_key(lab: &mut Lab, key: char) {
             let Some(store) = lab.world.fathers.as_mut().and_then(|f| f.colonies.get_mut(&colony)) else { return };
             store.wild = (store.wild + 1) % 3;
             let say = match store.wild {
-                1 => "NEXT EGG: WILD (MILD) -- A MUTATED MIND, A NEW LINE. P AGAIN FOR FERAL",
+                1 => "NEXT EGG: WILD -- A NEW LINE, ONE ANT UNLESS KEPT (Y). P AGAIN: FERAL",
                 2 => "NEXT EGG: FERAL -- A WIDE MUTATION: OFTEN BROKEN, NOW AND THEN A JEWEL. P AGAIN TO CANCEL",
                 _ => "NEXT EGG: ORDINARY",
             };
@@ -461,7 +477,11 @@ fn count(lab: &mut Lab, notes: &mut Vec<String>) {
         let alive = l.adults + l.brood > 0;
         if l.adults > 0 && !l.seen {
             l.seen = true;
-            notes.push(format!("THE FIRST {} ANT HATCHED -- WATCH WHAT IT DOES", l.name));
+            // Only she lays while she holds, so a wild line stays this one ant
+            // unless she is told to carry it (hand-off to-do 2): say so here,
+            // where the player first sees the ant. The ticker clips at about 72
+            // characters, so it is short.
+            notes.push(format!("FIRST {} ANT HATCHED -- KEEP THE LINE: LOOK-CLICK IT, THEN Y", l.name));
         }
         if !alive && !l.gone {
             l.gone = true;
@@ -566,6 +586,7 @@ mod tests {
         let id = steer::steered_id(&lab.world).expect("no queen bound after the landing");
         let q = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).expect("queen state");
         assert!(q.ready);
+        assert_eq!(lab.renderer.zoom, NEST_ZOOM, "the camera did not close in on her nest");
         let f = lab.world.fathers.as_ref().expect("no father store");
         let store = f.colonies.get(&q.colony).expect("no store for her colony");
         assert_eq!(store.fathers.len(), 30);
