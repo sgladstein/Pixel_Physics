@@ -981,3 +981,26 @@ judged on: the environment review's windfall gap and 200k horizon, and a brain t
 when low" (PR #940, write gate PR #942). **Recommendation:** keep k3's setup (`elite=1 kpm=0.003`) as the training
 default; do not adopt `refound_mut`/`carry=random`. `kevents=1` is harmless and may be kept. Next batches are env1
 (windfall in training, the long-run donor gate) and write1 (`PP_WRITE=on`), as planned.
+
+## 2026-10-27 (night): new account; training defaults; more than one family saved; the G1 baseline exam
+
+**Defaults (plan A1, the owner did not object).** colsel `elite=1` is now on unless a job says `elite=0`, and inrun's
+`STANDARD` mutation rate is `kpm=0.003` (was 0.013). Every batch since elite1 passed both by hand, so those batches
+are unchanged; a job file from before elite1 that relied on the old defaults now needs `elite=0 kpm=0.013` to repeat.
+
+**Pools for diversity** (`scratch/inrun/mkpool.py` from the bucket's `small/` copies; each file's header carries its
+held-out garden numbers): `assets/minds/elite1_e3c32_pool.txt`, `elite1_e13c7_pool.txt`, `elite1_ehl3c5_pool.txt`
+(needs the home-low instinct it was trained with) and `clean1_k3c23_pool.txt` (clean1's k3 rank 0 at r47). All four
+are layout 7 (genome 4097); std_pool is layout 5.
+
+**The launcher works from this account.** `vmproof-1027` (c4d-highcpu-8, ~5 minutes) started, built, ran an exam line,
+uploaded and pulled. A short SHA cannot be fetched by the VM (`g1base-1027` died on it); `runvm.sh` now expands it.
+`inrun_cloud.py` takes `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` lines, and `exam.py` takes `AFTER=`.
+
+**G1 baseline (`g1base2-1027`, launched 22:05Z, built at 4e4807a7 = main c67f37e1 + this lane's commits; the exam
+binary, labsurvive, is main's).** The bar G1 is judged on, measured before anything is trained against it. Brains:
+the hand-built ant, std_pool, and the four saved pools above except ehl3c5 (which needs an instinct). Boxes: the six
+where the hand-built ant lives (two_larders, scattered_larder, feast_and_famine, played_bed, herb_first_colony,
+crowded_bench), seeds 1-8, as shipped, **600,000 frames after landing**. **Deciding measures, named before the run:**
+ants alive at the end and starved, paired by box and seed against the hand-built ant, sign test per box. Results and
+the bar follow in the next section.
