@@ -1,0 +1,6 @@
+round 0 done: 29 passed the gate, 29 alive
+round 1 done: 29 passed the gate, 29 alive
+PAUSED before round 2: the slowest round so far took 493 s and the leg ends in 299 s
+resuming at round 2
+round 2 done: 31 passed the gate, 31 alive
+DONE

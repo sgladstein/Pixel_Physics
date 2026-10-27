@@ -1,0 +1,4 @@
+emerge: arm free, 8 colonies, gens 0..2, 50000 frames, EVALS=1 SCORE=home ZERO=None CHAN=alarm ALARM=train, bed sel=off frames=50000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 0: best 1941 median 943 alive 8/8 alarm laid median 143785 B laid max 37955
+gen 1: best 1538 median 1136 alive 8/8 alarm laid median 147541 B laid max 54958
+gen 2: best 1418 median 945 alive 8/8 alarm laid median 192004 B laid max 38854

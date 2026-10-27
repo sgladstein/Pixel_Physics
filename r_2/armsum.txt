@@ -1,0 +1,1 @@
+r        seeds 1: food/seed     199  starved/seed   246  extinct 0 (rounds [])  healthy 0  final nest score -112.5 pit 84.0 (n1) | food per round r0:62(n1) r1:137(n1)
