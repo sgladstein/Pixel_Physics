@@ -82,5 +82,7 @@ e13s colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 assets/minds/std_po
 - **`resume=1`** in a later push of the same batch carries on from that branch (more legs, or lines that failed).
   Without it a push starts afresh and replaces the branch.
 - The full folders, event logs included, are artifacts `full-batch-<batch>-leg<k>-<runner>`, kept 14 days.
+- **Timing** (selbt1, 2026-10-27; elite2's e13 line at 32 colonies): a 200k-frame round with the lab cases took
+  ~8 min on an EPYC 9V45 runner; the last round plus its garden took 25 min on an EPYC 7763 one (runners vary).
 - **Compute.** A hosted runner is 4 vCPUs on 2 physical cores. Screening size is 32 colonies x 16 rounds
   (`Reports/how-we-test.md` §7); a 64 x 48 confirmation belongs on the VM.
