@@ -776,7 +776,7 @@ three more ways:
 | arm, from latch_pool | garden starved r7 -> r47 | garden nest r7 -> r47 | colonies in the r47 garden |
 |---|---|---|---|
 | lexicase, in-run mutation `kpm=0.013` (the default; `latch1`) | 46 -> 311 | 672 -> 143 | 13 of 32 |
-| no colony selection (`plain`), default mutation | 174 (r7), 339 (r15), then extinct | 236 -> 223 | 3 by r15 |
+| no colony selection (`plain`), default mutation | 174 (r7), 339 (r15), then extinct | 236 (r7), 223 (r15) | 3 by r15 |
 | lexicase, mutation `kpm=0.003` | 51 -> 28 | 702 -> 700 | 32 |
 | lexicase, no mutation (`kpm=0 kevents=0`) | 37 -> 37 | 890 -> 890 | 32 |
 | home-low instinct, lexicase, default mutation (`latch1`) | 31 -> 71 | 806 -> 539 | 25 |
