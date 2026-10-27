@@ -915,3 +915,69 @@ make the game harder than training. Lifting all of them at once kills every colo
 
 Round-23 garden: no arm clearly lower on starvation than k3 (kev1 248 vs 276, p = 0.04). kgoal and kboth lost
 nest (564 and 471 vs 872, p < 1e-3), as expected once nest has one vote instead of six.
+
+## 2026-10-27 (evening): moving where mutation and selection happen does not lower starvation (`clean1`)
+
+**Question.** The selection review (PR #939) blamed three things for the stall: the in-colony ant score fighting the
+colony cases, child colonies damaged by mutation, and nest holding most of the lexicase vote. `clean1` tested a fix for
+each against the current setup, from std_pool, 32 colonies x 48 rounds, seed 31 (`scratch/inrun/jobs/clean1.txt`, built
+at bc8485fb). **Deciding measure, named before the run:** garden starvation at round 47 against k3 (Mann-Whitney over
+colonies), with nest as the guard. Then the held-out exam (`exam.py`) of each arm's rank-0 colony at round 47.
+
+| arm | what changes against k3 |
+|---|---|
+| k3 | control: `elite=1 kpm=0.003` (the elite1 setup) |
+| kev1 | one structural event per birth instead of four (`kevents=1`, the review's §5.1) |
+| ktone | in-colony selection kept; mutation only once, when a colony is refounded (`refound_mut`) |
+| kdec | colony selection only: no in-colony mutation or selection, random carry, `refound_mut` |
+| kgoal | one case per goal (`lex+crater+scale+lab`), lab and scale gates at 25 |
+| kboth | kdec and kgoal together |
+
+**Training garden** (median over colonies with a carry; 26-29 of 32 per arm at round 47; data `data-1027/clean1/`):
+
+| arm | starved r47 | vs k3 | nest r47 | vs k3 | starved r7 -> r47 | food home r7 -> r47 |
+|---|---|---|---|---|---|---|
+| k3 | 292 | | 814 | | 252 -> 292 (p = 0.8) | 4,347 -> 4,873 (p = 0.008) |
+| kev1 | 227 | p = 0.18 | 812 | p = 0.63 | 274 -> 227 (p = 0.05) | 4,346 -> 5,178 (p = 7e-4) |
+| ktone | 325 | p = 0.08 | 766 | p = 0.72 | 286 -> 325 (p = 0.04) | 4,224 -> 5,370 (p = 0.001) |
+| kdec | 260 | p = 0.59 | **403** | **p = 5e-5** | 300 -> 260 (p = 0.3) | 4,412 -> 4,082 (p = 0.7) |
+| kgoal | 264 | p = 0.36 | 740 | p = 0.25 | 310 -> 264 (p = 0.005) | 4,066 -> 4,587 (p = 0.04) |
+| kboth | 266 | p = 0.97 | **594** | **p = 4e-4** | 244 -> 266 (p = 0.3) | 4,697 -> 5,222 (p = 0.08) |
+
+No arm is lower than k3 on starvation at round 47. kev1 is the only arm that improved on its own start in both
+starvation and food with the nest held, but against k3 it is not significant. At round 23 kgoal and kboth had lost
+nest (564 and 471 vs 872, p < 1e-3); by round 47 kgoal had recovered it and kboth had not.
+
+**Held-out exam** (16 garden worlds 500001+, sign test paired by world; Bonferroni bar 0.007 over 7 measures; data
+`data-1027/exam/c1*`), each arm's rank-0 colony against k3's (c23):
+
+- kev1 (c6): starved 286 vs 267 (8/16), deliveries 5,470 vs 5,198 (9/16), nest 839 vs 964 (5/16). No difference.
+- ktone (c22): deliveries 6,318 vs 5,198 (13/16, p = 0.02), starved 314 vs 267 (3/16 better, p = 0.02), nest 762 vs
+  964 (2/16, p = 0.004).
+- **kdec (c5): deliveries 6,575 vs 5,198 (15/16, p = 5e-4), but nest 290 vs 964 (0/16, p = 3e-5); against std_pool,
+  open nest 27 vs 512 and rooms 0 vs 47 (0/16, p = 3e-5), alive 60 vs 71 (1/15, p = 0.001).** Colony selection alone
+  sold the digging for food.
+- kgoal (c5): starved 226 vs 267 (12/16, p = 0.08), deliveries 4,762 vs 5,198 (3/16, p = 0.02).
+- kboth (c17): nest 588 vs 964 (2/16, p = 0.004); against std_pool, open nest 106 vs 512 (0/16).
+- k3 itself against std_pool: deliveries 5,198 vs 4,040 (13/16, p = 0.02); nothing else moved.
+- The game's lab boxes: unchanged. Every clean1 winner lives 4-5 in two_larders, scattered_larder and
+  feast_and_famine, like std_pool, and no arm differs from k3 on lived (best kev1 11/14, p = 0.06).
+
+Only kdec's and kboth's nest losses, and kdec's deliveries gain, clear the Bonferroni bar.
+
+**Lineage** (`lineage.py`): every arm, random carry included, is down to one round-0 colony by round 15-31, as in elite1.
+
+**What it says.**
+
+1. Where mutation happens is not what holds starvation up. Moving it to refounding (ktone, kdec) or making each birth
+   gentler (kev1) left starvation where it was in 48 rounds.
+2. Taking the in-colony score out entirely (kdec) is worse than useless here. The in-colony score was carrying the
+   digging: without it the carried ants are random, and colony selection on its own let the nest go.
+3. Rebalancing the cases (kgoal) moved weight from nest to the other goals, as designed. On held-out worlds that came
+   out as slightly less starvation and fewer deliveries, neither significant.
+
+Together with elite2's stall, this points away from the selection mechanics and toward what the colony is offered and
+judged on: the environment review's windfall gap and 200k horizon, and a brain that has no stepwise path to "come home
+when low" (PR #940, write gate PR #942). **Recommendation:** keep k3's setup (`elite=1 kpm=0.003`) as the training
+default; do not adopt `refound_mut`/`carry=random`. `kevents=1` is harmless and may be kept. Next batches are env1
+(windfall in training, the long-run donor gate) and write1 (`PP_WRITE=on`), as planned.
