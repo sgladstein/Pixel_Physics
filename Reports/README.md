@@ -6137,6 +6137,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   food home and cut starvation by two thirds, but lost digging entirely because the colony score let a no-dig colony
   win; digging must be a gate. Also answers how the score should change over time (met rungs become gates).
 
+- [brain-training/research/selection-review-2026-10-27.md](brain-training/research/selection-review-2026-10-27.md) —
+  **selection review: how in-run ant selection and between-round colony selection balance.** Read from elite1, self1
+  and drift1 with `scratch/inrun/selaudit.py`. The survival order repeats from world to world at only 0.05-0.09 and
+  children take 46-49% of the kept half, so colony survival is mostly luck; the six nest cases carry 63-71% of the
+  vote and two median gates leave ~4 donors a round; one mutating, pay-ranked round makes a child worse than its own
+  donor on lab (63-69% of pairs) and nest, better on food; the whole population descends from one ant 7-22 rounds
+  back. Ranked fixes: cut the child round's damage, one case per goal with explicit weights, more families.
+
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
   lessons made in parallel onto hA1 (home sense, crater refusal) merged by slot union kept both: food 309 -> 431, 22 of
