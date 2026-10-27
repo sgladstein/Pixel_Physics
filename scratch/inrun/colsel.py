@@ -337,6 +337,18 @@ assert LABGATE is None or LAB, 'labgate= needs +lab'
 # Measured before it was built (farfood2 ramp2far r23, 64 colonies, A,B,F = 6,3,2): nest 75-396 cells for 64-93 ants
 # holding 210-483 food cells, 2.5 nest cells per ant, nest / NEED 0.08-0.32 -- every colony far under, with spread
 # for selection to act on. The cap keeps a colony from buying the case with a huge empty bowl over feeding.
+# donor600=FRAMES[:Q] (selection review + teacher lane, 2026-10-27; off by default): after labgate= and scalegate=, each
+# remaining donor candidate's carry also runs once for FRAMES frames in a fresh world (seed_of('long'), the garden's
+# args, selection off), and only candidates whose (alive at the end, mean alive over the run) is at or above the Q-th
+# percentile of the candidates' (default 50) stay donors. Logged to OUT/donor600.csv. **Why**: the environment review
+# (PR #941) found std_pool's garden 15/16 alive at 200k and 0/16 at 600k on the same bed, while the hand-built ant kept
+# 14/16 -- every judge here stops at 200k (the lab case at 15k after landing), so the late game cannot be selected for.
+# Only the ~4 post-gate candidates run, not all 32 colonies: about +37% compute a round at FRAMES=600000 against 3x.
+# Mean alive (stock.csv, every 1,000 frames) grades colonies that all die out before the end, where alive alone ties.
+# With ~4 candidates Q=50 keeps 2; widen the gates before it (labgate=25 scalegate=25) to keep more families. Check it
+# repeats (scratch/inrun/selaudit.py, or the log here) before trusting it as a gate.
+DONOR_LONG = next((tuple(float(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('donor600=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
 # scaleopen=1 / SCALE_OPEN=1 (teacher lane, 2026-10-25): score only the nest's OPEN cells against the need. nest1-1025's scalegate
@@ -424,6 +436,8 @@ def seed_of(kind, c, r=0, k=0):
         return c * 1000 + r * 10 + k if r < 100 else 20_000_000 + c * 10_000 + r * 10 + k
     if kind == 'labcase':
         return 30_000_000 + c * 100_000 + r * 100 + k
+    if kind == 'long':
+        return 40_000_000 + c * 1000 + r
     raise ValueError(kind)
 
 
@@ -469,6 +483,18 @@ def mutate_carry(fs, b, r):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         out.append(f'{dst}@{rest}')
     return ','.join(out)
+
+
+def long_alive(c, r, carry_c):
+    """donor600=: (alive at the end, mean alive) of one carry over DONOR_LONG[0] frames, selection off."""
+    args = [a for a in CGC if not a.startswith('frames=')] + [f'frames={int(DONOR_LONG[0])}']
+    d = run([f'founders={carry_c}', f'seed={seed_of("long", c, r)}'] + spider_args(with_spiders(with_cap(args), r)), f'{OUT}/long/r{r}/c{c}')
+    try:
+        al = [int(x['alive']) for x in csv.DictReader(open(f'{d}/stock.csv'))]
+    except OSError:
+        al = []
+    shutil.rmtree(d, ignore_errors=True)
+    return (al[-1], round(sum(al) / len(al), 2)) if al else (0, 0.0)
 
 
 def carried(rdir):
@@ -611,7 +637,7 @@ if os.path.exists(statep):
     import json
     st0 = json.load(open(statep))
     R0 = st0['r']
-    for fn in ('colsel.csv', 'cg.csv'):
+    for fn in ('colsel.csv', 'cg.csv', 'donor600.csv'):
         fp = f'{OUT}/{fn}'
         if os.path.exists(fp):
             rows = open(fp).read().splitlines(True)
@@ -619,6 +645,7 @@ if os.path.exists(statep):
     for c in range(1, NCOL + 1):
         shutil.rmtree(f'{OUT}/c{c}/r{R0}', ignore_errors=True)
     shutil.rmtree(f'{OUT}/cg/r{R0}', ignore_errors=True)
+    shutil.rmtree(f'{OUT}/long/r{R0}', ignore_errors=True)
     print(f'resuming at round {R0}', flush=True)
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
@@ -728,6 +755,21 @@ for r in range(R0, R):
             sv = sorted(res[c][17] for c in donors)
             bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
             donors = [c for c in donors if res[c][17] >= bar] or donors
+        if DONOR_LONG is not None and len(donors) > 1:
+            with ThreadPoolExecutor(P) as ex:
+                lv = dict(zip(donors, ex.map(lambda c: long_alive(c, r, carry[c]), donors)))
+            q = DONOR_LONG[1] if len(DONOR_LONG) > 1 else 50.0
+            srt = sorted(lv.values())
+            bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
+            kept = [c for c in donors if lv[c] >= bar] or donors
+            new_l = not os.path.exists(f'{OUT}/donor600.csv')
+            with open(f'{OUT}/donor600.csv', 'a') as f:
+                if new_l:
+                    f.write('round,colony,frames,alive_end,mean_alive,kept\n')
+                for c in donors:
+                    f.write(f'{r},{c},{int(DONOR_LONG[0])},{lv[c][0]},{lv[c][1]},{int(c in kept)}\n')
+            print(f'round {r}: donor600 ' + ' '.join(f'c{c}={lv[c][0]}/{lv[c][1]}' for c in donors) + f' -> {kept}', flush=True)
+            donors = kept
         for i, b in enumerate(order[half:][::-1]):  # worst first
             if not donors:
                 break
