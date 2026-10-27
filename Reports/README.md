@@ -6098,6 +6098,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   not because of the emission bill; opening the channel to a good forager cost it 13%. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`, `PP_EMIT_FREE`,
   `PIXEL_PHYSICS_A_DIFFUSE`, `PIXEL_PHYSICS_ALARM_GROUND`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
 
+- [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
+  **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
+  cells, nearly all part-eaten crumbs; in energy the second new-channel replicate is a tie (157 vs 158 kJ). Also: an
+  unpinned binary, too few generations for the gentle operator, a pass bar that sees only ~35% gains, no positive
+  control. Re-checked by the lane in the parent report §9.9.
 - [brain-training/research/q1-noisy-fitness-2026-10-21.md](brain-training/research/q1-noisy-fitness-2026-10-21.md) —
   **research lane, Q1: the GA's noisy fitness, and why most children are wrecks.** Pruning zeroes links whatever their
   size, and s171 keeps key decisions in 37 links above 5, so 28% of children lose one; prune only small links (arm A′,

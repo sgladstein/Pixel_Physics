@@ -1,0 +1,7 @@
+genome  parent | median mutant/parent stored ratio (extinct runs of 48)
+F1        211 | std 0.67 (9) | chan 1.08 (3) | other 0.74 (6) | gentle 1.02 (9)
+F1b       214 | std 1.01 (7) | chan 1.00 (4) | other 1.01 (5) | gentle 1.16 (3)
+F2        396 | std 0.50 (11) | chan 0.72 (5) | other 0.54 (11) | gentle 0.70 (1)
+D1        466 | std 0.92 (6) | chan 1.00 (0) | other 0.97 (7) | gentle 1.14 (1)
+D2        485 | std 0.87 (4) | chan 1.00 (0) | other 0.88 (4) | gentle 0.98 (0)
+D2b       464 | std 0.94 (2) | chan 1.00 (0) | other 0.94 (1) | gentle 1.01 (1)

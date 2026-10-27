@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8. Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -471,3 +471,138 @@ out-of-nest ants outside the door-to-heap corridor after a nestmate has already 
 evolved deaf best on every bed (today's 62%), 75-90% for the founder; other finders reach the heap a median 5,900
 frames after the first on today's bed. The review's bar (>= 25% on some bed) passes on today's bed, so the bed is
 not the blocker. Caveat: no positive control yet (a colony with a perfect signal), so this is an upper bound.
+
+**The plan from here** (the review's, adjusted by E1/E2; every bar fixed before the run, comparisons paired with a
+sign test):
+
+| Step | Question | Cost | Pass bar | On fail |
+|---|---|---|---|---|
+| E3 | Do the harness fixes speed selection up? Deaf arm only, `HARNESS=1` vs `2`, seeds 31/32, 40 generations (`scripts/e3_run.sh` in the data folder) | ~3.5 h on 4 cores | >= 1.5x gain per 10 generations, judged on a common garden of each run's elite (`gNNN/c00`) at g10/20/30/40 | revisit before E4 |
+| E4 | The decisive test: free vs deaf on today's bed, `HARNESS=2`, 6 replicates x 16 colonies x 60 generations, `EVALS=3`, gentle operator `MUT=0.013:0.25:1` | ~240 core-hours | free beats deaf in 6/6 replicates on a common garden of each replicate's top 4 (p = 0.031), and the free best loses >= 20% deaf on >= 12/16 worlds | close the third channel; record the dead end with bed, operator and replicates |
+| E5 (optional) | Do evolved signals on A and B beat frozen ones? 4 replicates, evolvable vs frozen emit rows | ~160 core-hours | evolvable wins 4/4 | signals stay a demonstration |
+
+**State at the account move (2026-10-27 18:30Z).** E3 was running and a second independent review, of E4's
+readiness (environment, scent set-up, harness, statistical power), had been started at the owner's request
+("This is a very resource heavy test. Are we confident..."). E4 was **not approved** and should not run before that
+review's open points are settled. Known gaps the lane named itself: E2 has no positive control; the gentle operator
+has never run a full evolution; the bed has not been checked against the training-environment review
+(`teacher-training/training-environment-review-2026-10-27.md`: harness-only rules, 40-row floor, no windfall); the
+founder is `std_pool` (layout 5), not the current ratchet pool or the gated layouts 6-8. Data, genomes and scripts:
+`Reports/data/evolvable-pheromones-2026-10-27/`.
+
+### 9.9 E4 readiness review: not ready, and the score counted crumbs (2026-10-27 evening)
+
+The owner asked before approving E4 whether the set-up was right (18:16Z). A second independent review
+([evolvable-pheromones-e4-readiness-2026-10-27.md](evolvable-pheromones-e4-readiness-2026-10-27.md)) found it was
+not, and its first finding rewrites part of §9.5:
+
+- **"Food stored" counted larder cells, and at frame 100k nearly all are part-eaten crumbs** (`larder.csv`:
+  `prov_cells` 0, the rest `crumb_cells`). Re-scored in energy by the lane (each arm's best, 16 shared worlds, the
+  §9.5 head-to-heads): **run 1 deaf 216 vs free 118 kJ (deaf higher 16/16, p < 0.001; cells said 497 vs 224);
+  run 2 deaf 157 vs free 158 kJ (free higher 7/16: a tie; cells said 478 vs 334).** The deaf arm's energy per
+  stored cell fell over evolution (0.55 -> 0.38 in run 1), so part of what selection found was smaller crumbs.
+  Run 1's loss stands at 1.8x; run 2 is no evidence either way.
+- **PF2, does a food trail pay on this bed for today's founder?** (`std_pool` member 0 as replaced on 10-26, third
+  row filled, 16 fresh worlds 7001-7016, data in `Reports/data/evolvable-pheromones-2026-10-27/pf2/`):
+
+  | Arm | Larder kJ | Food delivered home | Tank (mean) | Extinct |
+  |---|---|---|---|---|
+  | normal | 173 | 2,324 | 10.2 | 0/16 |
+  | deaf to B | 205 (higher 14/16, p = 0.004) | 2,164 (lower 10/16) | 6.3 | 2/16 |
+  | deaf to A and B | 48 (lower 15/16) | 641 | 0.0 | 12/16 |
+
+  The food trail keeps ants fed and alive; it does not raise what is stored, and raises deliveries ~7%. A stored-food
+  score cannot reward a new food trail on this bed, so E4 on stored food could only fail. **The owner was asked
+  what "forage better" should mean** (food delivered home, colony fed and alive, or larder energy).
+- The review's other blockers: the binary is not pinned (a fresh build makes the layout 6/7 gate and reach rows
+  mutable, ~40% of add events); 60 generations with the gentle operator barely moves the channel (it recommends
+  gentle off-channel and standard on the channel's own slots, and EVALS=2 x 90 generations for the same cost); the
+  6/6 bar detects only ~35% gains, so it proposes pass / dead end / inconclusive rules fixed in advance and a
+  committed garden script; and a positive control (PF4: B deafened in both arms, so the prize for a new trail is
+  B's whole value) before the big run.
+- `emerge.py` now logs `kj, tank, deliver, churn, home` per colony, ranks on `SCORE=kj` or `SCORE=home` on request,
+  and no longer double-counts a generation's scores on resume (`hist.json` entries carry their generation). E3 was
+  stopped at generation 4 because it ranked on cells.
+
+### 9.10 The goal restated: communication, not foraging (owner, 2026-10-27 18:49Z)
+
+The owner: *"I am not sure that I said 'forage better' was our goal. The goal is if ants can develop their own
+pheromone signals to communicate information between ants (who have no other form of communications)... there
+does need to be a way to measure it."* Food delivered home is the guard measure (the owner's pick from the card;
+chosen, by the owner and by the lane, before the numbers below were computed).
+
+**What counts as communication** (the biology definition: a signal carries information about the sender and
+receivers act on it), as four measurable criteria:
+
+1. **Information:** what an ant lays depends on its state (laden or empty, has found food or not). Measure: the emit
+   census by state (`census_*.txt`); a convention needs a state ratio of at least 2x.
+2. **Response:** receivers act on it. Measure: the colony deaf to the channel loses >= 20% of food delivered on
+   >= 12/16 worlds.
+3. **Meaning:** it is the real map that matters, not a level the brain leans on. Measure: the map read 40 columns
+   off, and a constant level, each lose >= 20% on >= 12/16.
+4. **Social:** ants act on other ants' marks. Measure: the half-silent chimera (silent hatchlings survive as well as
+   emitters; an all-silent colony fails like a deaf one).
+
+**The new-channel runs scored this way** (each arm's best, 16 shared worlds, food delivered home, sign test against
+the free best hearing):
+
+| | Run 1 | Run 2 | Add-on (§9.6) |
+|---|---|---|---|
+| Free best, hearing | **2,514** | 1,010 | 1,060 |
+| ...deaf to the channel | 1,552 (lower 15/16, p = 0.001) | 347 (15/16, p = 0.001) | 1,230 (6/16) |
+| ...map 40 columns off | 1,968 (14/16, p = 0.004) | 466 (15/16, p = 0.001) | |
+| ...constant level 0.02 | 1,626 (13/16, p = 0.02) | 335 (15/16, p = 0.001) | |
+| Deaf arm's best | 1,405 (**lower than free 15/16, p = 0.001**) | 1,224 (higher than free 11/16, p = 0.21) | 1,656 (higher 14/16) |
+| Emit ratio by state | empty 0.65 vs laden 0.12 (5.4x) | 0.73-0.89 in every state | none formed |
+
+- **Run 1 meets criteria 1-3, and on food delivered home its signalling colony beats the deaf control 1.8x on 15/16
+  worlds.** The convention is an "I'm empty and still searching" mark. Cells (§9.5) and larder energy (§9.9) said
+  the opposite because this colony eats what it brings home (fed better and laid more eggs, per the readiness
+  review) instead of storing it. Criterion 4 was tested only on the first emergence test's alarm convention.
+- **Run 2 is a load-bearing map with little sender-state information** (criterion 1 fails), and forages level with
+  the deaf control. The add-on test formed nothing.
+- **Caveat:** three food measures have now been read on these runs (cells, kJ, delivered), so the run 1 result is one
+  replicate under the third measure looked at. It is a reason to run E4, not a result.
+
+**E4 redefined.** Same replicates (6 free + 6 deaf, fixed harness), but the question is *how often a convention that
+meets criteria 1-4 forms and holds*, with food delivered home (`emerge.py SCORE=home`) as both the selection score and
+a guard against the deaf arm. The readiness review's other fixes still apply (pinned binary, channel-weighted
+operator, 90 generations at EVALS=2, pre-registered garden script, PF4 positive control).
+
+### 9.11 The review's fixes, and the positive control (2026-10-27, owner: "Are you working on the reviewers fixes and positive control?")
+
+- **Score:** `emerge.py SCORE=home` ranks on food delivered home; `kj, tank, deliver, churn, home` are logged for
+  every colony whatever ranks. Resume no longer double-counts a generation's scores.
+- **Operator:** `MUT=0.013:0.25:1 CHANMUT=0.013:1.0` = gentle mutation everywhere (E1: it removes most of the load in
+  5 of 6 genomes) plus the standard step on the channel's own live slots (its emit row and every link reading it:
+  177 slots, ~85 live in today's founder), so a forming convention moves at the old pace without the off-channel
+  damage.
+- **Binary pinned (PF5):** main at `09e338c` built with `PP_GATE=off PP_REACH=off` reproduces the lane's older binary
+  bit for bit (`stock.csv` and `larder.csv` md5 equal on 2 worlds x 30k frames, deaf to A and B) and writes identical
+  mutants, but in layout 8 (4,625 slots, indices moved). `emerge.py` maps the channel's layout-5 slots through the
+  binary itself (a probe genome converted by a zero-rate `mutate_to`), so `CHANMUT` hits the right slots in either
+  layout. **E4 runs on main with `PP_GATE=off PP_REACH=off`.**
+- **Judge pre-registered:** `scratch/pheromones/garden.py`, committed before any E4 run. Each run's last generation:
+  every genome on 4 fresh worlds, its top 4 on 8 more (seeds from 5,000,000, never a training or listening seed);
+  each free run's best then tested against criteria 1-3 of §9.10 (information: alarm emit differs >= 3x by sender
+  state with the higher >= 0.25, since a random N(0, 0.05) row already differs 2.5x at ~0.2; response, meaning:
+  deaf, map 40 columns off and constant 0.02 each lower on >= 12/16 by >= 20% in median). Verdict: SIGNALS FORM if
+  >= 3/6 free runs communicate and free/deaf food delivered (geometric mean over paired runs) >= 0.90; DEAD END if
+  0/6; otherwise INCONCLUSIVE, next step more replicates of the same harness.
+- **PF4, the positive control (running at the account move):** A **and** B deafened in both arms, so a trail on the
+  third plane is worth what the founder's two scents are worth together (PF2: 2,324 vs 641 food delivered, 12/16
+  extinct). The review proposed B alone; PF2 found B worth only ~7% of food delivered for today's founder, too small
+  a prize for a positive control. 16 colonies x 40 generations x 2 worlds, `SCORE=home`, the operator above,
+  `HARNESS=2`, seed 41, both arms (`scripts/pf4_run.sh` in the data folder). **Pass, fixed now:** at generation 40
+  the free arm's garden value (stage B, `garden.py ... DEAFALSO=A,B`) is >= 1.5x the deaf arm's, and the free best
+  meets criteria 2 and 3. If it fails, E4 cannot find a smaller prize: fix operator or length first.
+
+**The E4 command** (per replicate R = 1..6, both arms; then `garden.py` over all twelve):
+
+```
+BIN=target/release/examples/inrun PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 \
+  python3 scratch/pheromones/emerge.py OUT/ARM_R ARM 16 90 100000 assets/minds/std_pool.txt P=4 SEED=$((100+R)) \
+  EVALS=2 SCORE=home MUT=0.013:0.25:1 CHANMUT=0.013:1.0 ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train \
+  EVERY=10 LISTEN=4 HARNESS=2
+python3 scratch/pheromones/garden.py OUT/garden free=OUT/free_1,...,OUT/free_6 deaf=OUT/deaf_1,...,OUT/deaf_6
+```

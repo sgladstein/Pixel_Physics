@@ -1,0 +1,5 @@
+frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open,zone,zone_reach
+25000,9,218,5.95,85,1,0,50,4,0.070,1,0,0
+50000,0,242,13.50,87,0,0,87,3,0.155,1,0,0
+75000,0,242,14.00,86,0,0,86,3,0.163,1,0,0
+100000,0,242,14.00,86,0,0,86,3,0.163,1,0,0

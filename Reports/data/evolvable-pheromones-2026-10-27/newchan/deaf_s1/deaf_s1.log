@@ -1,0 +1,189 @@
+emerge: arm deaf, 16 colonies, gens 0..149, 100000 frames, EVALS=2 SCORE=stored ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 0: best 220 median 123 alive 16/16 alarm laid median 7002 B laid max 73862
+gen 1: best 249 median 165 alive 16/16 alarm laid median 7619 B laid max 75334
+gen 2: best 312 median 189 alive 16/16 alarm laid median 8629 B laid max 81264
+gen 3: best 286 median 164 alive 16/16 alarm laid median 6852 B laid max 76098
+gen 4: best 313 median 134 alive 16/16 alarm laid median 5612 B laid max 121940
+gen 5: best 287 median 147 alive 14/16 alarm laid median 7634 B laid max 126258
+gen 6: best 239 median 128 alive 16/16 alarm laid median 7804 B laid max 81484
+gen 7: best 258 median 106 alive 13/16 alarm laid median 17053 B laid max 77452
+gen 8: best 303 median 57 alive 12/16 alarm laid median 1993 B laid max 106766
+gen 9: best 290 median 86 alive 12/16 alarm laid median 53763 B laid max 76302
+gen 10: best 290 median 124 alive 12/16 alarm laid median 85198 B laid max 93200
+gen 11: best 317 median 126 alive 15/16 alarm laid median 67848 B laid max 88242
+gen 12: best 330 median 135 alive 15/16 alarm laid median 76431 B laid max 93234
+gen 13: best 316 median 116 alive 13/16 alarm laid median 43504 B laid max 82958
+gen 14: best 288 median 182 alive 15/16 alarm laid median 80165 B laid max 166410
+gen 15: best 304 median 126 alive 15/16 alarm laid median 48529 B laid max 87801
+gen 16: best 309 median 128 alive 15/16 alarm laid median 89527 B laid max 98274
+gen 17: best 276 median 172 alive 14/16 alarm laid median 29552 B laid max 90454
+gen 18: best 296 median 154 alive 16/16 alarm laid median 12640 B laid max 87804
+gen 19: best 318 median 123 alive 16/16 alarm laid median 49992 B laid max 106594
+gen 20: best 287 median 219 alive 16/16 alarm laid median 70770 B laid max 120908
+gen 21: best 293 median 136 alive 13/16 alarm laid median 78625 B laid max 99970
+Traceback (most recent call last):
+  File "/home/user/Pixel_Physics/scratch/pheromones/emerge.py", line 146, in <module>
+    flat = list(ex.map(lambda j: run(genomes[j[0]], SEED * 1000003 + g * 1000 + j[0] + 100 * j[1],
+                                     f'{gd}/r{j[0]:02}' + (f'_{j[1]}' if j[1] else ''), RUN_ENV),
+                       [(c, e) for c in range(N) for e in range(EVALS)]))
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 625, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 318, in _result_or_cancel
+    return fut.result(timeout)
+           ~~~~~~~~~~^^^^^^^^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 453, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 402, in __get_result
+    raise self._exception
+  File "/usr/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/home/user/Pixel_Physics/scratch/pheromones/emerge.py", line 146, in <lambda>
+    flat = list(ex.map(lambda j: run(genomes[j[0]], SEED * 1000003 + g * 1000 + j[0] + 100 * j[1],
+                                 ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                     f'{gd}/r{j[0]:02}' + (f'_{j[1]}' if j[1] else ''), RUN_ENV),
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/Pixel_Physics/scratch/pheromones/emerge.py", line 92, in run
+    return score(out)
+  File "/home/user/Pixel_Physics/scratch/pheromones/emerge.py", line 108, in score
+    r['starved'] = sum(1 for line in f if ',death,' in line and line.rstrip().split(',')[5] == '1')
+                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/Pixel_Physics/scratch/pheromones/emerge.py", line 108, in <genexpr>
+    r['starved'] = sum(1 for line in f if ',death,' in line and line.rstrip().split(',')[5] == '1')
+                                                                ~~~~~~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+emerge: arm deaf, 16 colonies, gens 20..149, 100000 frames, EVALS=2 SCORE=stored ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 20: best 287 median 219 alive 16/16 alarm laid median 101636 B laid max 120908
+gen 21: best 312 median 167 alive 15/16 alarm laid median 212677 B laid max 102338
+gen 22: best 344 median 132 alive 14/16 alarm laid median 160031 B laid max 117724
+gen 23: best 311 median 230 alive 15/16 alarm laid median 110692 B laid max 93128
+gen 24: best 310 median 215 alive 15/16 alarm laid median 104213 B laid max 84518
+gen 25: best 358 median 240 alive 16/16 alarm laid median 312990 B laid max 92994
+gen 26: best 342 median 264 alive 16/16 alarm laid median 190158 B laid max 91226
+gen 27: best 368 median 266 alive 15/16 alarm laid median 396790 B laid max 82466
+gen 28: best 353 median 230 alive 16/16 alarm laid median 373640 B laid max 82752
+gen 29: best 378 median 261 alive 16/16 alarm laid median 357245 B laid max 98892
+gen 30: best 392 median 220 alive 14/16 alarm laid median 211862 B laid max 101289
+gen 31: best 401 median 257 alive 15/16 alarm laid median 186196 B laid max 99901
+gen 32: best 412 median 288 alive 14/16 alarm laid median 168631 B laid max 106033
+gen 33: best 399 median 290 alive 16/16 alarm laid median 140030 B laid max 156182
+gen 34: best 412 median 307 alive 15/16 alarm laid median 80377 B laid max 122790
+gen 35: best 440 median 236 alive 15/16 alarm laid median 78104 B laid max 123046
+gen 36: best 343 median 246 alive 15/16 alarm laid median 54055 B laid max 170414
+gen 37: best 388 median 240 alive 16/16 alarm laid median 89225 B laid max 105696
+gen 38: best 395 median 211 alive 16/16 alarm laid median 233322 B laid max 111512
+gen 39: best 424 median 340 alive 15/16 alarm laid median 367114 B laid max 137650
+gen 40: best 466 median 392 alive 15/16 alarm laid median 361796 B laid max 161785
+gen 41: best 452 median 361 alive 13/16 alarm laid median 297657 B laid max 138364
+gen 42: best 451 median 416 alive 16/16 alarm laid median 346969 B laid max 115346
+gen 43: best 492 median 406 alive 14/16 alarm laid median 318503 B laid max 105476
+gen 44: best 451 median 370 alive 14/16 alarm laid median 327142 B laid max 103216
+gen 45: best 450 median 381 alive 14/16 alarm laid median 220970 B laid max 102066
+gen 46: best 494 median 379 alive 16/16 alarm laid median 364655 B laid max 109498
+gen 47: best 486 median 406 alive 15/16 alarm laid median 411002 B laid max 100996
+gen 48: best 481 median 391 alive 15/16 alarm laid median 457107 B laid max 103168
+gen 49: best 472 median 336 alive 16/16 alarm laid median 454711 B laid max 151452
+gen 50: best 488 median 424 alive 16/16 alarm laid median 503989 B laid max 102994
+gen 51: best 481 median 420 alive 15/16 alarm laid median 536406 B laid max 116212
+gen 52: best 465 median 402 alive 16/16 alarm laid median 443982 B laid max 113659
+gen 53: best 488 median 410 alive 15/16 alarm laid median 427249 B laid max 129195
+emerge: arm deaf, 16 colonies, gens 54..149, 100000 frames, EVALS=2 SCORE=stored ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 54: best 498 median 393 alive 15/16 alarm laid median 284544 B laid max 138078
+gen 55: best 452 median 400 alive 14/16 alarm laid median 281536 B laid max 112790
+gen 56: best 486 median 378 alive 16/16 alarm laid median 443319 B laid max 116763
+gen 57: best 498 median 376 alive 15/16 alarm laid median 519171 B laid max 148664
+gen 58: best 524 median 366 alive 16/16 alarm laid median 530442 B laid max 111186
+gen 59: best 511 median 374 alive 16/16 alarm laid median 378933 B laid max 131172
+gen 60: best 520 median 363 alive 15/16 alarm laid median 292610 B laid max 121008
+gen 61: best 496 median 408 alive 14/16 alarm laid median 243315 B laid max 102093
+gen 62: best 530 median 374 alive 15/16 alarm laid median 267275 B laid max 105564
+gen 63: best 528 median 406 alive 13/16 alarm laid median 285801 B laid max 192387
+gen 64: best 524 median 346 alive 14/16 alarm laid median 234858 B laid max 188428
+gen 65: best 478 median 415 alive 15/16 alarm laid median 231336 B laid max 170696
+gen 66: best 484 median 302 alive 13/16 alarm laid median 212252 B laid max 219920
+gen 67: best 494 median 362 alive 15/16 alarm laid median 259139 B laid max 185820
+gen 68: best 494 median 372 alive 15/16 alarm laid median 301254 B laid max 197485
+gen 69: best 489 median 404 alive 15/16 alarm laid median 299894 B laid max 117883
+gen 70: best 498 median 382 alive 14/16 alarm laid median 281570 B laid max 145458
+gen 71: best 498 median 378 alive 15/16 alarm laid median 289998 B laid max 141524
+gen 72: best 496 median 404 alive 16/16 alarm laid median 332863 B laid max 152838
+gen 73: best 467 median 243 alive 15/16 alarm laid median 241448 B laid max 119693
+gen 74: best 563 median 400 alive 14/16 alarm laid median 324483 B laid max 150888
+gen 75: best 507 median 402 alive 15/16 alarm laid median 337909 B laid max 132580
+gen 76: best 483 median 378 alive 12/16 alarm laid median 347219 B laid max 170346
+gen 77: best 528 median 432 alive 15/16 alarm laid median 356957 B laid max 184028
+gen 78: best 542 median 460 alive 14/16 alarm laid median 330503 B laid max 124462
+gen 79: best 551 median 470 alive 16/16 alarm laid median 335178 B laid max 136061
+gen 80: best 526 median 400 alive 16/16 alarm laid median 323218 B laid max 161368
+gen 81: best 554 median 441 alive 16/16 alarm laid median 325406 B laid max 208723
+gen 82: best 535 median 403 alive 12/16 alarm laid median 312780 B laid max 104659
+gen 83: best 542 median 450 alive 16/16 alarm laid median 380722 B laid max 132180
+gen 84: best 576 median 479 alive 16/16 alarm laid median 375816 B laid max 151680
+gen 85: best 567 median 441 alive 16/16 alarm laid median 389280 B laid max 134488
+gen 86: best 567 median 280 alive 13/16 alarm laid median 315603 B laid max 148428
+gen 87: best 559 median 380 alive 16/16 alarm laid median 303202 B laid max 119426
+gen 88: best 560 median 441 alive 16/16 alarm laid median 364777 B laid max 133396
+emerge: arm deaf, 16 colonies, gens 89..149, 100000 frames, EVALS=2 SCORE=stored ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 89: best 528 median 370 alive 15/16 alarm laid median 436506 B laid max 124863
+gen 90: best 504 median 430 alive 16/16 alarm laid median 443639 B laid max 149900
+gen 91: best 544 median 374 alive 15/16 alarm laid median 376815 B laid max 108228
+gen 92: best 530 median 370 alive 13/16 alarm laid median 470280 B laid max 122808
+gen 93: best 564 median 393 alive 14/16 alarm laid median 493115 B laid max 116877
+gen 94: best 539 median 400 alive 15/16 alarm laid median 524230 B laid max 132738
+gen 95: best 604 median 252 alive 16/16 alarm laid median 486779 B laid max 119080
+gen 96: best 540 median 282 alive 16/16 alarm laid median 475285 B laid max 150139
+gen 97: best 568 median 295 alive 15/16 alarm laid median 456110 B laid max 114050
+gen 98: best 556 median 482 alive 15/16 alarm laid median 490301 B laid max 106493
+gen 99: best 546 median 352 alive 14/16 alarm laid median 443588 B laid max 103678
+gen 100: best 566 median 462 alive 14/16 alarm laid median 444782 B laid max 117265
+gen 101: best 554 median 348 alive 15/16 alarm laid median 421288 B laid max 106944
+gen 102: best 558 median 418 alive 16/16 alarm laid median 453273 B laid max 119646
+gen 103: best 560 median 404 alive 16/16 alarm laid median 344179 B laid max 140984
+gen 104: best 564 median 378 alive 14/16 alarm laid median 357107 B laid max 133505
+gen 105: best 568 median 378 alive 16/16 alarm laid median 381992 B laid max 95729
+gen 106: best 558 median 455 alive 15/16 alarm laid median 327979 B laid max 126238
+gen 107: best 500 median 374 alive 14/16 alarm laid median 208577 B laid max 131042
+gen 108: best 512 median 350 alive 14/16 alarm laid median 150947 B laid max 126004
+gen 109: best 548 median 373 alive 14/16 alarm laid median 100052 B laid max 138964
+gen 110: best 481 median 318 alive 15/16 alarm laid median 25811 B laid max 67738
+gen 111: best 592 median 272 alive 14/16 alarm laid median 80160 B laid max 48072
+gen 112: best 581 median 436 alive 14/16 alarm laid median 100547 B laid max 40788
+gen 113: best 490 median 300 alive 14/16 alarm laid median 30683 B laid max 57124
+gen 114: best 542 median 445 alive 15/16 alarm laid median 98666 B laid max 58568
+gen 115: best 568 median 435 alive 15/16 alarm laid median 108098 B laid max 50879
+gen 116: best 631 median 440 alive 15/16 alarm laid median 84114 B laid max 39744
+gen 117: best 558 median 480 alive 15/16 alarm laid median 6484 B laid max 49800
+gen 118: best 562 median 415 alive 15/16 alarm laid median 2932 B laid max 79100
+gen 119: best 552 median 309 alive 13/16 alarm laid median 354 B laid max 65356
+gen 120: best 540 median 460 alive 16/16 alarm laid median 352 B laid max 77081
+gen 121: best 544 median 382 alive 14/16 alarm laid median 230 B laid max 60150
+gen 122: best 546 median 412 alive 14/16 alarm laid median 289 B laid max 83662
+emerge: arm deaf, 16 colonies, gens 123..149, 100000 frames, EVALS=2 SCORE=stored ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 123: best 532 median 254 alive 14/16 alarm laid median 518 B laid max 60695
+gen 124: best 540 median 404 alive 16/16 alarm laid median 679 B laid max 59110
+gen 125: best 526 median 398 alive 15/16 alarm laid median 554 B laid max 63302
+gen 126: best 518 median 350 alive 15/16 alarm laid median 286 B laid max 78972
+gen 127: best 526 median 442 alive 15/16 alarm laid median 253 B laid max 67972
+gen 128: best 535 median 412 alive 16/16 alarm laid median 215 B laid max 73900
+gen 129: best 502 median 336 alive 13/16 alarm laid median 514 B laid max 85398
+gen 130: best 552 median 427 alive 16/16 alarm laid median 271 B laid max 94372
+gen 131: best 505 median 382 alive 12/16 alarm laid median 655 B laid max 81733
+gen 132: best 529 median 436 alive 16/16 alarm laid median 1590 B laid max 95552
+gen 133: best 576 median 440 alive 15/16 alarm laid median 3335 B laid max 104389
+gen 134: best 496 median 428 alive 16/16 alarm laid median 1479 B laid max 103266
+gen 135: best 518 median 376 alive 16/16 alarm laid median 2358 B laid max 98560
+gen 136: best 540 median 441 alive 16/16 alarm laid median 2936 B laid max 97267
+gen 137: best 542 median 441 alive 16/16 alarm laid median 3796 B laid max 109239
+gen 138: best 539 median 451 alive 15/16 alarm laid median 3310 B laid max 96580
+gen 139: best 540 median 454 alive 16/16 alarm laid median 4256 B laid max 106048
+gen 140: best 576 median 450 alive 16/16 alarm laid median 3949 B laid max 121631
+gen 141: best 576 median 432 alive 15/16 alarm laid median 3435 B laid max 106750
+gen 142: best 534 median 408 alive 14/16 alarm laid median 2431 B laid max 159602
+gen 143: best 544 median 375 alive 16/16 alarm laid median 1654 B laid max 118279
+gen 144: best 566 median 420 alive 13/16 alarm laid median 1796 B laid max 123498
+gen 145: best 546 median 264 alive 13/16 alarm laid median 937 B laid max 125851
+gen 146: best 571 median 492 alive 16/16 alarm laid median 2391 B laid max 178804
+gen 147: best 570 median 454 alive 15/16 alarm laid median 2521 B laid max 116786
+gen 148: best 555 median 456 alive 16/16 alarm laid median 15140 B laid max 159266
+gen 149: best 534 median 492 alive 15/16 alarm laid median 2624 B laid max 102957
