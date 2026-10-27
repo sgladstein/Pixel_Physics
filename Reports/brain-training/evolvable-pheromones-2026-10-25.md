@@ -606,3 +606,31 @@ BIN=target/release/examples/inrun PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_G
   EVERY=10 LISTEN=4 HARNESS=2
 python3 scratch/pheromones/garden.py OUT/garden free=OUT/free_1,...,OUT/free_6 deaf=OUT/deaf_1,...,OUT/deaf_6
 ```
+
+### 9.12 PF4, the positive control: FAILED its pre-registered bar (2026-10-27 23:30Z)
+
+A and B deaf in both arms (§9.11), 16 colonies x 40 generations, food delivered home; judged by `garden.py` on fresh
+worlds (data: `Reports/data/evolvable-pheromones-2026-10-27/pf4/`, `garden.json`).
+
+| | Free (hears the third plane) | Deaf (no scent at all) |
+|---|---|---|
+| Garden value: top 4 x 8 fresh worlds, food delivered home | 1,981 | **3,569** |
+| Larder kJ / tank / extinct of 32 | 134 / 10.3 / 0 | 91 / 6.7 / 1 |
+| Median colony, generations 35-39 (training) | 1,635 | 2,934 |
+| Third plane laid per colony, generations 35-39 | ~80,800 | ~1,900 (stopped laying at ~gen 30) |
+
+- **Bar: free >= 1.5x deaf and the free best meets criteria 2 and 3. Result: 0.56x. Failed.** Per §9.11, E4 cannot
+  find a smaller prize with this harness; the operator, the length or something else must change first.
+- **The free best came close to communicating.** Information: emit 0.77 when empty at the nest vs 0.15 laden away
+  (3.1x, passes). On 16 fresh worlds (food delivered, normal 2,017): deaf to the channel 1,619 (lower 13/16, -19.7%:
+  misses the 20% bar), map 40 columns off 1,441 (13/16, -29%: passes), constant 0.02 1,648 (13/16, -18%: misses). So
+  a state-dependent signal the colony leans on did form in 40 generations, but it is worth ~20%, while losing the
+  channel entirely was worth 80%.
+- **The striking number is the deaf arm.** With no scent at all it went from the founder's ~641 (PF2, deaf to A and
+  B) to 3,569 food delivered: more than the founder delivers with both its scents (2,324). Its jump (median 1,564 ->
+  2,699 at generations 20-34) coincides with it silencing the plane it cannot read (laid 140,944 -> 1,232 per colony),
+  so **the emission bill may be far larger than §9.5's cell-scored check (`PP_EMIT_FREE`, 224 vs 229 cells)
+  suggested** -- unmeasured on food delivered. The free arm cannot silence without losing what its nestmates read.
+- **Next, if the line continues:** re-run this control with `PP_EMIT_FREE=1` in both arms (does the deaf arm's
+  advantage vanish when laying costs nothing?), and measure the bill directly: today's founder and the PF4 bests on
+  16 worlds with and without `PP_EMIT_FREE`, scored on food delivered.
