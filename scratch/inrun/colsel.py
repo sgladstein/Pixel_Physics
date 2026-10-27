@@ -365,7 +365,10 @@ SCALE_OPEN = os.environ.get('SCALE_OPEN', '0') == '1' or 'scaleopen=1' in EXTRA
 # hand-laid come-home latch decayed (garden starved 46 -> 311 in 48 rounds) and std_pool traded its nest for food
 # (nest 596 -> 129 over 96 rounds); at kpm 0.003 std_pool improved nothing in 96 rounds; with no mutation every trait
 # held. inrun's `arg` takes the first match, so the zeros go in front of the job's own kpm.
-ELITE = os.environ.get('ELITE', '0') == '1' or 'elite=1' in EXTRA
+# **Default on since 2026-10-27** (Teacher lane, plan A1 "unless you object", owner did not): elite1/elite2/clean1 all
+# ran it, and clean1's five alternatives (kev1, ktone, kdec, kgoal, kboth) found nothing that starved less (PR #955).
+# `elite=0` (or env ELITE=0) turns it off, for a batch that must match one from before the default changed.
+ELITE = os.environ.get('ELITE', '1') == '1' and 'elite=0' not in EXTRA
 # refound_mut=PM:SIGMA:EVENTS and carry=random (teacher lane, 2026-10-27, from the selection review's arm (b), PR #939):
 # mutation happens once, when a child colony is refounded -- each of the donor's 30 carried genomes is written as one
 # size-neutral mutant (inrun's `mutate_to`) -- and nowhere else; run the job with kpm=0 kevents=0 and sel=random so
