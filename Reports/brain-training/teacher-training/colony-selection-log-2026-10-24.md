@@ -763,3 +763,30 @@ lost it, and the instinct arm keeps it only because an input built from the answ
 Taken together: the brain can now *represent* "come home when low, if home has food" from plain senses, and that
 matches the instinct. Mutation-only colony selection did not *keep* it. Each of the last three nest batches also bred
 the nest smaller. Whatever trains the next pool has to protect a taught habit, or select on it, before it can refine it.
+
+## 2026-10-27: why selection lost the habit -- in-run mutation outruns it (`drift1`)
+
+The owner asked why selection would drop a good habit at all. In `latch1`, selection did prefer colonies that starved
+less: the half it kept starved a median 144 against 179 for the half it replaced, and the rank correlation between
+starvation and rank was positive in all four recent arms (+0.23 to +0.64). Colony starvation also repeats across worlds:
+13 evolved colonies on two fresh worlds, rank agreement +0.89. Yet garden starvation rose round after round in every
+arm, the instinct arm too (35 -> 82). No ramp was on. `drift1` (a88231d9) ran the same latch pool and the same cases
+three more ways:
+
+| arm, from latch_pool | garden starved r7 -> r47 | garden nest r7 -> r47 | colonies in the r47 garden |
+|---|---|---|---|
+| lexicase, in-run mutation `kpm=0.013` (the default; `latch1`) | 46 -> 311 | 672 -> 143 | 13 of 32 |
+| no colony selection (`plain`), default mutation | 174 (r7), 339 (r15), then extinct | 236 -> 223 | 3 by r15 |
+| lexicase, mutation `kpm=0.003` | 51 -> 28 | 702 -> 700 | 32 |
+| lexicase, no mutation (`kpm=0 kevents=0`) | 37 -> 37 | 890 -> 890 | 32 |
+| home-low instinct, lexicase, default mutation (`latch1`) | 31 -> 71 | 806 -> 539 | 25 |
+
+Mann-Whitney over the r47 gardens: starvation at `kpm=0.003` against the default, p = 6e-7; nest, p = 9e-6; its own
+r7 against r47, p = 0.003 (it *improved*); against the instinct arm at r47, p = 0.0004; against no mutation, p = 0.2
+(not distinguishable). **At the default rate a child carries ~26 changed weights (pm 0.013 over ~2,000 live links, sigma
+1.0) plus 4 structural events, and every birth in a 200k-frame round mutates. That load outruns what colony
+selection can repair, so every trait it does not re-select every round decays.** This is general: it bites the
+instinct arm and the gate arms as well. It is not specific to the come-home habit. At a quarter of the rate the
+same selection kept the habit, kept the nest, and lowered starvation further. The lab already had this
+measured for in-lab evolution (enemy seat, PR #917: training's rate killed 3 of 6 lab colonies, a tenth stayed
+within the off arm's spread).
