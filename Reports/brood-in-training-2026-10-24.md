@@ -4,7 +4,9 @@
 of food." Owner rulings in the thread: brood should work as it would in the full game, with the genome chosen by
 selection **at hatching**; reward food and brood kept apart, ideally in separate rooms; boom and bust is expected;
 "breeding should be on by default" (2026-10-24 00:47Z). The working plan and its adversarial review are a Claude Doc,
-https://claude.ai/artifact/D8oCnZn32kaD2AsV1b5uxR. This report is the record of what was built and measured.*
+https://claude.ai/artifact/D8oCnZn32kaD2AsV1b5uxR, landed as [`brood-plan-2026-10-23.md`](brood-plan-2026-10-23.md). This report is
+the record of what was built and measured. Data and pictures: [`brood-in-training-2026-10-24/`](brood-in-training-2026-10-24/);
+tools and the four carries: `scratch/inrun/brood/`.*
 
 ## What shipped
 

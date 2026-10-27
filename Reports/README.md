@@ -2898,6 +2898,14 @@ drift that two of these documents still reflect.**
   **Later the same day, learned laying**: a lay gate in the genome (`PP_LAYGENE`, on)
   raises the ant's own bar from what it senses where it stands, and colsel's `capwean=`
   fades `lay_cap`; a hold was only a delay, and no hand-set gate braked an uncapped bed.
+- [brood-plan-2026-10-23.md](brood-plan-2026-10-23.md) — **the brood lane's plan and
+  its adversarial review, 2026-10-23**, landed from the thread's doc. The design (the
+  game's own laying in the training bed, the genome chosen by selection at hatching),
+  the 9-arm pilot table (no brake, size cap, store and food brakes, egg placement), the
+  review's ten findings (one real bug, fixed), and the owner questions still open: the
+  hand-made nest-worker caste, starvation as regulation, a training cap near 50.
+  Superseded for current state by `brood-in-training-2026-10-24.md`; data and pictures
+  in `brood-in-training-2026-10-24/`.
 
 ## Worldgen and world  ·  `outdoor`
 
