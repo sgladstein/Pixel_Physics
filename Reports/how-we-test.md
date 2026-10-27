@@ -343,6 +343,11 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
   A verb row left live is a per-verb constant that the unit's output weight
   carries into every score; it made a hand-laid gate look like it leaked
   (hold 0.53 instead of 0.017) and cost one full set of arms.
+- **Food stored is counted in cells, and late in a round nearly every stored cell is a crumb.** Part-eaten
+  food put back keeps its cell but not its energy, so `nest_food + door_food` rewards breaking food up: a
+  scent-line head-to-head read 478 vs 334 cells and 157 vs 158 kJ. Score the larder from `larder.csv`
+  (`*_kj`), and log deliveries and tank beside it, since a trail can feed ants without filling the larder
+  (`evolvable-pheromones-2026-10-25.md` §9.9).
 
 ## 5. Tools, by question
 

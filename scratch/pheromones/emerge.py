@@ -21,7 +21,9 @@ columns off; emergence = that gap growing over generations, in free and not in d
 
   python3 scratch/pheromones/emerge.py OUT ARM N GENS FRAMES FOUNDER [P=4] [EVERY=10] [LISTEN=4] [extra inrun args...]
   [EVALS=1] seeds per colony per generation, scores averaged (the review's fix: one seed predicts the next at r=0.23)
-  [SCORE=both|stored] stored food + nest cells, or stored food only (nest cells let a 4-ant huddle win the 1st run)
+  [SCORE=both|stored|kj] stored food + nest cells, or stored food only (nest cells let a 4-ant huddle win the 1st run),
+  or the larder's energy in kJ (cells count part-eaten crumbs at full weight: rep 2's 478 vs 334 cells was 157 vs 158 kJ),
+  or food delivered home over the round (`home`); every one of these is logged in gens.csv whichever ranks
   [ZERO=LO-HI] zero these genome slots in the founder (2375-2409: the B emit row, for the re-evolve check)
   [FILL=SIGMA] after ZERO, give every zeroed slot a small random weight N(0, SIGMA) (seeded): the operator's
   add events almost never land on the one input a signal needs, so start the row dense and let sigma tune it
@@ -50,7 +52,7 @@ MUT = opts.get('MUT', '0.013:1.0:4')  # pm:sigma:events, the standard line's kpm
 EVALS, SCORE, ZERO, CHAN = int(opts.get('EVALS', 1)), opts.get('SCORE', 'both'), opts.get('ZERO'), opts.get('CHAN', 'alarm')
 assert ARM in ('free', 'deaf', 'drift'), ARM
 H2 = opts.get('HARNESS', '1') == '2'
-assert SCORE in ('both', 'stored') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
+assert SCORE in ('both', 'stored', 'kj', 'home') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
 BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0'] + EXTRA
 ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', **({'PP_MIND_ALARM': 'train'} if opts.get('ALARM', 'train') == 'train' else {})}
 RUN_ENV = {**ENV, **({'PP_SCENT_DEAF': 'alarm'} if ARM == 'deaf' else {})}
@@ -103,19 +105,34 @@ def run(genome, seed, out, env):
 
 
 def score(d):
-    r = dict(stored=0, nest=0, alive=0, starved=0, layA=0.0, layB=0.0, layAl=0.0)
+    r = dict(stored=0, nest=0, alive=0, starved=0, layA=0.0, layB=0.0, layAl=0.0, kj=0.0, tank=0.0, deliver=0, churn=0, home=0)
     try:
         last = list(csv.DictReader(open(f'{d}/stock.csv')))[-1]
         r['stored'] = int(last['nest_food']) + int(last['door_food'])
         r['alive'] = int(last['alive'])
+        r['tank'] = float(last['tank_mean'])
     except (OSError, IndexError):
+        pass
+    try:  # the larder's ENERGY: at frame 100k nearly every stored cell is a part-eaten crumb, so cells overstate
+        last = list(csv.DictReader(open(f'{d}/larder.csv')))[-1]  # food (E4 readiness review, 2026-10-27)
+        r['kj'] = sum(float(v) for k, v in last.items() if k.endswith('_kj'))
+    except (OSError, IndexError):
+        pass
+    try:  # food delivered home over the round (nest.csv food_home)
+        r['home'] = int(list(csv.DictReader(open(f'{d}/nest.csv')))[-1]['food_home'])
+    except (OSError, IndexError, KeyError):
         pass
     if r['alive'] and os.path.exists(f'{d}/nestmap.txt'):
         r['nest'] = nestcount.count(d, FRAMES).get('nest', 0)
     try:
         with open(f'{d}/events.csv') as f:
             next(f)
-            r['starved'] = sum(1 for line in f if ',death,' in line and line.rstrip().split(',')[5] == '1')
+            for line in f:  # counted here because events.csv is deleted below and cannot be re-scored later
+                k = line.split(',', 3)[2]
+                if k == 'death' and line.rstrip().split(',')[5] == '1':
+                    r['starved'] += 1
+                elif k in ('deliver', 'churn'):
+                    r[k] += 1
     except (OSError, StopIteration):
         pass
     try:
@@ -125,10 +142,11 @@ def score(d):
                 r['layA'], r['layB'], r['layAl'] = float(t[1]), float(t[3]), float(t[5])
     except OSError:
         pass
+    food = {'kj': r['kj'], 'home': r['home']}.get(SCORE, r['stored'])
     if H2:  # food stored counts even if the colony died out: removes the extinction cliff (review 2026-10-27)
-        r['score'] = r['stored'] + (r['nest'] if SCORE == 'both' and r['alive'] else 0)
+        r['score'] = food + (r['nest'] if SCORE == 'both' and r['alive'] else 0)
     else:
-        r['score'] = (r['stored'] + (r['nest'] if SCORE == 'both' else 0)) if r['alive'] else 0
+        r['score'] = (food + (r['nest'] if SCORE == 'both' else 0)) if r['alive'] else 0
     for fn in os.listdir(d):  # keep the small files only
         if fn.startswith(('map_f', 'ants_f', 'nestmap_f', 'occupants')) or fn in ('events.csv', 'births.csv', 'age30.csv'):
             os.remove(f'{d}/{fn}')
@@ -148,6 +166,9 @@ if g0 > 0:  # a resumed run re-writes the generation it stopped in: drop that ge
             open(fn, 'w').write('\n'.join([L[0]] + [l for l in L[1:] if l.strip() and int(l.split(',')[0]) < g0]) + '\n')
 hist_json = f'{OUT}/hist.json'
 hist = json.load(open(hist_json)) if H2 and os.path.exists(hist_json) else {}
+# hist.json is written before a generation's `done`, so a resume would count that generation twice: entries are
+# (gen, score) and every one from a generation being re-run is dropped
+hist = {k: [e for e in v if isinstance(e, list) and e[0] < g0] for k, v in hist.items()}
 if g0 == 0:
     os.makedirs(f'{OUT}/g000', exist_ok=True)
     base = founder_raw()
@@ -157,7 +178,7 @@ if g0 == 0:
         else:
             mutant(base, f'{OUT}/g000/c{c:02}.raw.txt', SEED * 100000 + c)
     with open(gens_csv, 'w') as f:
-        f.write('gen,colony,parent,score,stored,nest,alive,starved,layA,layB,layAl\n')
+        f.write('gen,colony,parent,score,stored,nest,alive,starved,layA,layB,layAl,kj,tank,deliver,churn,home\n')
     with open(listen_csv, 'w') as f:
         f.write('gen,genome,seed,normal_score,deaf_score,shift_score,normal_stored,deaf_stored,shift_stored\n')
 parents_of = {}
@@ -178,8 +199,8 @@ for g in range(g0, GENS):
     if H2:  # an elite carries its score history: a lucky mutant must beat its running mean, not one draw
         keys = [hashlib.sha1(open(gf, 'rb').read()).hexdigest()[:16] for gf in genomes]
         for c, k in enumerate(keys):
-            hist.setdefault(k, []).append(res[c]['score'])
-            rank[c] = sum(hist[k]) / len(hist[k])
+            hist.setdefault(k, []).append([g, res[c]['score']])
+            rank[c] = sum(e[1] for e in hist[k]) / len(hist[k])
         hist = {k: hist[k] for k in set(keys)}
         json.dump(hist, open(hist_json, 'w'))
     order = sorted(range(N), key=lambda c: (-rank[c], c))
@@ -190,7 +211,7 @@ for g in range(g0, GENS):
     with open(gens_csv, 'a') as f:
         for c in range(N):
             r = res[c]
-            f.write(f"{g},{c},{parents_of.get((g, c), '')},{r['score']},{r['stored']},{r['nest']},{r['alive']},{r['starved']},{r['layA']:.0f},{r['layB']:.0f},{r['layAl']:.0f}\n")
+            f.write(f"{g},{c},{parents_of.get((g, c), '')},{r['score']},{r['stored']},{r['nest']},{r['alive']},{r['starved']},{r['layA']:.0f},{r['layB']:.0f},{r['layAl']:.0f},{r['kj']:.1f},{r['tank']:.2f},{r['deliver']:.1f},{r['churn']:.1f},{r['home']:.0f}\n")
     best = order[0] if ARM != 'drift' else max(range(N), key=lambda c: (res[c]['score'], -c))
     if EVERY and (g % EVERY == EVERY - 1 or g == GENS - 1):
         ld = f'{gd}/listen'

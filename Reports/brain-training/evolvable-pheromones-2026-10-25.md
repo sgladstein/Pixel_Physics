@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8. Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -489,3 +489,37 @@ has never run a full evolution; the bed has not been checked against the trainin
 (`teacher-training/training-environment-review-2026-10-27.md`: harness-only rules, 40-row floor, no windfall); the
 founder is `std_pool` (layout 5), not the current ratchet pool or the gated layouts 6-8. Data, genomes and scripts:
 `Reports/data/evolvable-pheromones-2026-10-27/`.
+
+### 9.9 E4 readiness review: not ready, and the score counted crumbs (2026-10-27 evening)
+
+The owner asked before approving E4 whether the set-up was right (18:16Z). A second independent review
+([evolvable-pheromones-e4-readiness-2026-10-27.md](evolvable-pheromones-e4-readiness-2026-10-27.md)) found it was
+not, and its first finding rewrites part of §9.5:
+
+- **"Food stored" counted larder cells, and at frame 100k nearly all are part-eaten crumbs** (`larder.csv`:
+  `prov_cells` 0, the rest `crumb_cells`). Re-scored in energy by the lane (each arm's best, 16 shared worlds, the
+  §9.5 head-to-heads): **run 1 deaf 216 vs free 118 kJ (deaf higher 16/16, p < 0.001; cells said 497 vs 224);
+  run 2 deaf 157 vs free 158 kJ (free higher 7/16: a tie; cells said 478 vs 334).** The deaf arm's energy per
+  stored cell fell over evolution (0.55 -> 0.38 in run 1), so part of what selection found was smaller crumbs.
+  Run 1's loss stands at 1.8x; run 2 is no evidence either way.
+- **PF2, does a food trail pay on this bed for today's founder?** (`std_pool` member 0 as replaced on 10-26, third
+  row filled, 16 fresh worlds 7001-7016, data in `Reports/data/evolvable-pheromones-2026-10-27/pf2/`):
+
+  | Arm | Larder kJ | Food delivered home | Tank (mean) | Extinct |
+  |---|---|---|---|---|
+  | normal | 173 | 2,324 | 10.2 | 0/16 |
+  | deaf to B | 205 (higher 14/16, p = 0.004) | 2,164 (lower 10/16) | 6.3 | 2/16 |
+  | deaf to A and B | 48 (lower 15/16) | 641 | 0.0 | 12/16 |
+
+  The food trail keeps ants fed and alive; it does not raise what is stored, and raises deliveries ~7%. A stored-food
+  score cannot reward a new food trail on this bed, so E4 on stored food could only fail. **The owner was asked
+  what "forage better" should mean** (food delivered home, colony fed and alive, or larder energy).
+- The review's other blockers: the binary is not pinned (a fresh build makes the layout 6/7 gate and reach rows
+  mutable, ~40% of add events); 60 generations with the gentle operator barely moves the channel (it recommends
+  gentle off-channel and standard on the channel's own slots, and EVALS=2 x 90 generations for the same cost); the
+  6/6 bar detects only ~35% gains, so it proposes pass / dead end / inconclusive rules fixed in advance and a
+  committed garden script; and a positive control (PF4: B deafened in both arms, so the prize for a new trail is
+  B's whole value) before the big run.
+- `emerge.py` now logs `kj, tank, deliver, churn, home` per colony, ranks on `SCORE=kj` or `SCORE=home` on request,
+  and no longer double-counts a generation's scores on resume (`hist.json` entries carry their generation). E3 was
+  stopped at generation 4 because it ranked on cells.
