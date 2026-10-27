@@ -83,7 +83,7 @@ already changed decisions:
 | `README.md` | Architecture, and per-milestone status. **~72k tokens, the largest document here — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers **and says which game each topic belongs to** (`engine` is shared and is most of them; `outdoor`, `lab` and `held` mark what the other two games never reach). Milestone sections are named for the *build*, not the subsystem — `M17 status` is the structural-collapse write-up |
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `lab/`, `bin/lab.rs` → no page yet, read `Reports/lanes/evolution-lab-coordinator.md`; `druid/`, `bin/druid.rs` → no wiki page yet, read `Reports/lanes/druid-program-coordinator.md` first (the standing note: owner rulings, live round, the environment facts that cost time), then `Reports/held-world-game-concept-2026-09-13.md` and README's `Held world status`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
-| `Reports/handoff/2026-10-27-account-move/README.md` | **The account move of 2026-10-27.** The week before it, the owner's working practices that lived only in chat and project memory (some override this file: the review queue is retired, pictures go on Artifact pages), every open item and unanswered owner decision, and the cloud setup. Read it once at the start of the new project |
+| `Reports/handoff/2026-10-27-account-move/README.md` | **The account move of 2026-10-27.** The week before it, the owner's working practices that lived only in chat and project memory (the picture and review-queue rulings are now in this file; check the hand-off for the rest), every open item and unanswered owner decision, and the cloud setup. Read it once at the start of the new project |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one. **Its sections are tagged by game**, so a lab session can skip `outdoor` and vice versa; `engine` is shared and is most of the index |
 | `Reports/dead-ends.md` | **Tried-and-reverted approaches** (726 at last census, 2026-09-02), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. **~97k tokens — do not read it whole**: its generated status index is the first table in the file, so read that, then only the sections it lists for your area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
@@ -95,7 +95,7 @@ already changed decisions:
 | `Reports/two-games-one-repo-2026-08-30.md` | **Why one repository holds two games, and what is scoped rather than shared.** There are **three** since 2026-09-13 — the held world (`--bin druid`) added a fourth tag, `held`, and the report's reasoning does not depend on the number two. Read it before proposing that anything be split, forked, or moved — it carries what the routing tables' `engine`/`outdoor`/`lab`/`held` tags mean, which rules can be `paths:`-scoped and which must stay always-loaded (§3), and which of five `docscheck` globs a `Reports/` reorganisation would silently break |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
 | `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
-| `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
+| `.claude/skills/review/SKILL.md` | **Retired** (owner, 2026-10-21): the old review queue. Pictures now go on an Artifact page linked in the thread — see *Getting the owner's judgement* |
 
 **Which rules apply to what you are doing right now.** The rule statements
 below are always loaded. Rules that only bite in one part of the tree live in
@@ -149,8 +149,6 @@ cargo test                                       # the full suite, unit + integr
 cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
-python3 scripts/review.py serve --open      # the owner's review queue; see below
-python3 scripts/review.py serve --lan       # ...also reachable from a phone on the same Wi-Fi
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
 bash scripts/worldgencheck.sh               # is a generation pass eating another's output, or has one stopped firing; CI gates this. --selftest puts the defect back
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
@@ -183,58 +181,52 @@ owner's judgement* below; it is not an occasional tool.
 
 ## Getting the owner's judgement
 
-**`scripts/review.py` is the primary way to get feedback from the owner, and it
-is meant to be used constantly — not saved for big moments.** Everything this
-project optimises for is judged by eye: whether a collapse *feels* like
-destruction, whether a fall reads as sand, whether a pool looks flat while it is
-still moving. None of that is a test result. Describing it in chat has
-repeatedly failed — three separate models were overturned only by the owner's
-playtest reports, and nearly every fix judged by test output alone left the
-screen unchanged.
+**Pictures on an Artifact page are the primary way to get feedback from the
+owner, and they are meant to be used constantly — not saved for big moments.**
+Everything this project optimises for is judged by eye: whether a collapse
+*feels* like destruction, whether a fall reads as sand, whether a pool looks
+flat while it is still moving. None of that is a test result. Describing it in
+chat has repeatedly failed — three separate models were overturned only by the
+owner's playtest reports, and nearly every fix judged by test output alone left
+the screen unchanged.
 
-So when a change is visible, **post it rather than describe it**. "This looks
-better" is precisely the claim the owner has to check, and a sentence is not
-checkable.
+So when a change is visible, **show it rather than describe it**: publish the
+PNGs or GIFs on an Artifact page (the `Artifact` tool, images in `files`,
+referenced relatively) and link the page in the thread. **Never attach a
+picture to a chat message** — the owner cannot see chat attachments (owner,
+2026-10-25). The review queue (`scripts/review.py`, `.claude/skills/review/`)
+is **retired** (owner, 2026-10-21); do not post cards to it.
 
-Post when:
+Show a page when:
 
 - a change alters anything on screen — including one you are confident about;
 - you are about to claim something looks, moves or feels better;
 - a complaint could mean two things — render both readings and ask which one it
   is, rather than spending the whole detour on the wrong one;
-- a step is "judge by eye" — post *before* declaring it done, not after;
-- you are choosing between approaches and the difference is visual: post a blind
-  A/B (`review.py ab --blind`) instead of arguing it out. Blinding costs you
-  nothing, because the stored verdict names the real option.
+- a step is "judge by eye" — show it *before* declaring it done, not after;
+- you are choosing between approaches and the difference is visual: put a blind
+  A/B on one page, the options labelled only **A** and **B** in a shuffled
+  order, and keep the key (which letter is which) in your own notes or the
+  report, never on the page.
 
-Posting is **fire-and-forget**: post, carry on, and collect the verdict with
-`review.py inbox` later or in a later session — run it when you pick a thread
-back up, including at the start of a new one. Do not stall a session waiting.
-`--wait` exists for one case only: a wrong guess would waste the work you are
-about to do. A `--wait` that times out changes nothing — the card stays queued
-and answerable — so it is only ever your own time at risk.
+Showing is **fire-and-forget**: link the page, carry on, and pick up the
+owner's answer when it arrives in the thread. Ask with a decision card only when
+a wrong guess would waste the work you are about to do.
 
 Two house rules, both from failures already paid for here:
 
-- **Put the discrete event count in the card's `meta`.** The page renders it
-  directly under the image. A collapse once read as "chunks are working" from a
-  picture whose body count was zero for the whole run; an image says *what* and
-  *where*, and only the number says *whether it fired*.
+- **Put the discrete event count beside each picture**, on the page itself. A
+  collapse once read as "chunks are working" from a picture whose body count
+  was zero for the whole run; an image says *what* and *where*, and only the
+  number says *whether it fired*.
 - **Prefer a paired comparison** over one run against a remembered impression.
   Outcomes here have enormous spread, so a single run is a sample from a wide
   distribution.
 
-The owner may be reading the queue on a phone (`serve --lan`), where a card is
-one column and an image is judged in the full-screen viewer. Nothing about
-posting changes; it is one more reason the card must stand on its own — a title,
-a question, and the count in `meta`.
-
-The queue is shared by every worktree of the clone, so a card posted from
-`.claude/worktrees/foo` and one from the main checkout land in the same place,
-and an answer outlives the session — and the worktree — that asked for it. The
-owner views it with the `serve` command above; it does not need to be running
-for you to post. Full protocol, including the JSON card spec, in
-`.claude/skills/review/SKILL.md`.
+The owner often reads on a phone, so each page must stand on its own: a title,
+the question, and the counts beside the pictures. Picture pages from before
+the account move are indexed in
+`Reports/handoff/2026-10-27-account-move/artifacts/README.md`.
 
 ## Writing to the owner
 
@@ -348,9 +340,9 @@ need belongs behind a pointer.
 `create_session` call passes `model:` explicitly — **never inherited from the
 coordinator** — owner cost policy, 2026-08-23. The default inherits the
 caller's model, and three workers once silently inherited a premium tier and
-ran $25–71 each inside ninety minutes. **Opus (`claude-opus-5`) is the
+ran $25–71 each inside ninety minutes. **Opus (`claude-opus-5-5`) is the
 default**; step down to Sonnet only where being wrong is cheap and loud, and
-up to Fable — which is *twice* Opus per token — only where being wrong is
+up to Fable — which is *2.5 times* Opus per token — only where being wrong is
 silent and compounds. Which is which: the `lab-coordinator` skill — which,
 despite the name, is the skill for running lanes in **every** program here.
 

@@ -1,5 +1,14 @@
 # Pixel Physics Engine — Build Plan
 
+> **Current state (2026-10-27): start elsewhere.** This plan's newest content
+> is from mid-September and does not cover the trained ant, colony selection
+> or the player seats. For where the work is now, read the account-move
+> hand-off ([`Reports/handoff/2026-10-27-account-move/README.md`](Reports/handoff/2026-10-27-account-move/README.md)),
+> the Teacher lane's batch log
+> ([`Reports/brain-training/teacher-training/colony-selection-log-2026-10-24.md`](Reports/brain-training/teacher-training/colony-selection-log-2026-10-24.md)),
+> and the plan of record, which lives in the project's shared folder at
+> `/mnt/project-files/planning/plan-after-account-move-2026-10-27.md`.
+
 > **Status:** M1–M4 are built and working (80 tests, 60 fps, chunk sleeping,
 > seven hot-reloadable materials, angle of repose from friction angle). M3 was
 > only half-completed — flammability, melting and reactions were specified and
