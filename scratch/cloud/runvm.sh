@@ -5,6 +5,8 @@
 # inrun_cloud prefixes VM names with pixel-train-, so pass the bare NAME.
 cd "$(dirname "$0")/../.."
 name=$1; jobs=$2; ref=$3; n=$4; dest=$5; prev=${RESUME_FROM:-}
+# a short SHA cannot be fetched on the VM (git fetch --depth 1 needs the full 40 characters; g1base-1027 died on it)
+full=$(git rev-parse --verify -q "$ref^{commit}" 2>/dev/null) && [ "${#ref}" -lt 40 ] && echo "$ref" | grep -qE "^[0-9a-f]+$" && ref=$full
 H=scratch/cloud
 for k in 0 1 2 3 4; do
   nm=$name; [ $k -gt 0 ] && nm=$name-r$k

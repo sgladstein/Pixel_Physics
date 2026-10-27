@@ -473,7 +473,12 @@ const STANDARD: &[&str] = &[
     "drip=20",
     "mutation=neutral",
     "kevents=4",
-    "kpm=0.013",
+    // 0.013 until 2026-10-27 (Teacher lane, plan A1): at 0.013 a child carries ~26 changed weights plus 4 structural
+    // events and every birth in a round mutates, which outran colony selection -- drift1's hand-laid come-home latch
+    // decayed (garden starved 46 -> 311 in 48 rounds) and self1's std_pool sold its nest for food (596 -> 129); at
+    // 0.003 the same selection kept both (drift1: starved 51 -> 28, nest 702 -> 700). Every batch since elite1 passed
+    // kpm=0.003 by hand, and clean1 found nothing better (PR #955). A batch that must match an older one passes kpm=0.013.
+    "kpm=0.003",
     "w_home_eat=2",
     "kid_cap=4",
     "retire=1",
