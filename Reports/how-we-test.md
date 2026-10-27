@@ -371,6 +371,8 @@ and [`brain-training/teacher-training/inherited-nest-2026-10-23.md`](brain-train
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |
 | What did a *played* session's nest do: rooms, brood, who starved where? | the lab's chronicle: the nest block at the end of `census.csv` and the indented lines under each CENSUS row (`lab::nestcensus`; README *Chronicle status*). `chronicle scenario=nest_goal export=DIR` writes the same files headlessly |
+| Does a colony measure repeat (the colony sets it) or follow the world? Which colony cases can selection see? | `scratch/inrun/measures.py ARM_DIR` (retest of ~20 candidate measures from a colsel run's round folders) and `--pair A B` (the world's share, two arms on the same seeds) |
+| Is an arm's common garden better than the control's, paired by colony, with extinct colonies counted? | `scratch/inrun/cgpair.py CONTROL_cg.csv ARM_cg.csv round=47 k=N` (paired counts, sign test, Bonferroni bar) |
 | Did a fix that works on a simple bed also hold in the played game? | `scripts/labbench.py BASE NEW` (two worktrees, pinned binaries, interleaved seeds, `labpair.py` table) — the **last** check, not a diagnosis |
 
 Before building anything new, grep [`instruments.md`](instruments.md).
@@ -426,6 +428,11 @@ the rule, and the Teacher lane adopted it the same day.
   survival vote, a child against its own donor in the same round (what one
   mutating round does to each case; elite1: lab worse in 63-69% of pairs),
   and the share of the kept half taken by children (50% = survival is blind).
+- **A batch does not need the VM.** `.github/workflows/batch.yml` runs the VM's job lines on GitHub's free runners
+  (push a `.batch` file to a `train/` branch; `.github/train-jobs/README.md`). A 32-colony round with the lab cases
+  takes ~8 minutes on one runner, so a 32 × 16 screen fits one 5-hour leg and 32 × 48 two; legs chain on their own.
+  The runner's bed results match the VM's byte for byte on the same code (selbt1 against elite2 e13, 2026-10-27), so
+  a VM batch is a valid control for a runner arm and the other way round.
 - **"No weights" is never literally true.** The kept half is a rank-sum, so
   a goal weighs as many votes as it has correlated cases (the nest's six
   cases took 63-71% at elite1), and percentile gates outweigh everything.

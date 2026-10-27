@@ -379,6 +379,22 @@ ELITE = os.environ.get('ELITE', '1') == '1' and 'elite=0' not in EXTRA
 # per round (every ant at r95 descends from one ant 7 rounds back): the in-round score works against the colony cases.
 REFOUND_MUT = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('refound_mut=')), None)
 CARRY_RANDOM = 'carry=random' in EXTRA
+# islands=K[:M] (selection lane, 2026-10-27; off by default, K=1): the island model. The colonies are split into K
+# islands of NCOL/K by index (colony c in island (c-1)*K//NCOL), and each round's ranking, gates, kept half and
+# refounding happen inside each island, so a family can only take over its own island. Every M rounds (default 4) each
+# island's best colony also refounds the next island's worst (a migrant), so a family that wins in one island is tried
+# in another without taking it over. colsel.csv's `rank` is then the place within the colony's island. **Why**: every
+# clean1 arm, random carry included, was down to ONE round-0 colony by round 15-31 (lineage.py), and among near-clones
+# no case can repeat: clean1 k3's starvation retest is 0.03 (measures.py) while two different pools pooled give 0.66
+# (the selection review's positive control). Selection among copies of one family is luck by construction.
+ISLANDS = next((tuple(int(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('islands=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('islands=')]
+NISL = ISLANDS[0] if ISLANDS else 1
+MIGRATE = ISLANDS[1] if ISLANDS and len(ISLANDS) > 1 else 4
+assert NISL >= 1 and NCOL % NISL == 0 and NCOL // NISL >= 4, 'islands=K needs NCOL divisible by K, 4+ colonies each'
+assert MIGRATE >= 1, 'islands=K:M needs M >= 1'
+def island(c):
+    return (c - 1) * NISL // NCOL
 SEL_ARG = next((x for x in EXTRA if x.startswith('sel=')), 'sel=score')  # was hardwired: arg() takes the first match
 SCALE_W = next((tuple(float(v) for v in x.split('=', 1)[1].split(',')) for x in EXTRA if x.startswith('nestneed=')), SCALE_W)
 # shapeopen=1 (teacher lane, 2026-10-25): +shape reads rooms from the nest's open cells only (roomshape.OPEN_ONLY):
@@ -524,6 +540,7 @@ def result(rdir, frames):
     columns in the second half; rooms = chambers + niches in the last nest.csv row."""
     ev = f'{rdir}/events.csv'
     home = late = starved = cuts = killed = slay = 0
+    home_j = 0
     if os.path.exists(ev):
         with open(ev) as f:
             next(f)
@@ -532,6 +549,7 @@ def result(rdir, frames):
                 k = p[2]
                 if k == 'deliver' and abs(int(p[3]) - 128) <= 8:
                     home += 1
+                    home_j += int(p[5])
                 elif k == 'dig' and abs(int(p[3]) - 128) <= 20:
                     cuts += 1
                     late += int(p[0]) > frames // 2
@@ -543,6 +561,13 @@ def result(rdir, frames):
                     slay += int(p[5])
                 elif k == 'spdeath' and p[5] == '3':
                     slay += 6  # a spider killed: its whole six-cell body
+    # home8 in energy as well as cells (selection lane, 2026-10-27): inrun's deliver row carries the cell's worth as
+    # put down (v; 960 = a whole provisions/fruit/windfall cell), and 61% of the cells delivered in one std_pool round
+    # (seed 5, food=mix) were part cells, mean 674. Kept beside the round, not in colsel.csv, whose columns other
+    # readers index by position; scratch/inrun/measures.py reads it. Events from before the worth was logged give 0.
+    if os.path.exists(ev):
+        with open(f'{rdir}/home.csv', 'w') as f:
+            f.write(f'home8_cells,home8_kj\n{home},{home_j / 1000:.1f}\n')
     rooms = alive = dug = pit = 0
     nf = f'{rdir}/nest.csv'
     if os.path.exists(nf):
@@ -693,7 +718,18 @@ if R0:
     spool_hist = st0.get('spool_hist', {})
     dist_now = st0.get('dist_now', dist_now)
     move_t = st0.get('move_t', move_t)
+# DEADLINE (unix seconds; set by scripts/batch_run.sh, 2026-10-27): a GitHub runner stops at 6 h, so a leg ends
+# between rounds rather than inside one. A round that would not finish by DEADLINE at the slowest pace this leg has
+# seen is not started: the driver exits 75 with state.json at that round, and the next leg resumes there exactly as
+# after a preemption. Unset (the VM), it never fires.
+DEADLINE = float(os.environ.get('DEADLINE', '0'))
+import time
+t_round = 0.0
 for r in range(R0, R):
+    if DEADLINE and time.time() + 1.1 * t_round > DEADLINE:
+        print(f'PAUSED before round {r}: the slowest round so far took {t_round:.0f} s and the leg ends in {DEADLINE - time.time():.0f} s', flush=True)
+        sys.exit(75)
+    t_start = time.time()
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
@@ -733,51 +769,68 @@ for r in range(R0, R):
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
     passed = {c: c in ok and dig_passed(res[c]) for c in cols}
-    if MODE == 'plain':
-        order = sorted(ok, key=lambda c: c)
-    else:
-        gp = [c for c in ok if passed[c]]
-        rs = {}
-        if gp:
-            nk = len(cases(res[gp[0]]))
-            rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(nk)]
-            rs = {c: sum(rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
-        order = sorted(gp, key=lambda c: (rs[c], c)) + sorted([c for c in ok if not passed[c]], key=lambda c: (-res[c][1], c))
-    order += [c for c in cols if c not in ok]  # extinct last
     src = {c: '' for c in cols}
     nxt = {c: carry[c] for c in cols}
-    if MODE in ('gate', 'lex') and ok:
-        half = NCOL // 2
-        top = [c for c in order[:half] if carry[c] is not None]
-        donors = [c for c in top if passed[c]] or top
-        if LABGATE is not None and len(donors) > 1:
-            lv = sorted(res[c][18] for c in donors)
-            bar = lv[min(len(lv) - 1, int(len(lv) * LABGATE / 100))]
-            donors = [c for c in donors if res[c][18] >= bar] or donors
-        if SCALEGATE is not None and len(donors) > 1:
-            sv = sorted(res[c][17] for c in donors)
-            bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
-            donors = [c for c in donors if res[c][17] >= bar] or donors
-        if DONOR_LONG is not None and len(donors) > 1:
-            with ThreadPoolExecutor(P) as ex:
-                lv = dict(zip(donors, ex.map(lambda c: long_alive(c, r, carry[c]), donors)))
-            q = DONOR_LONG[1] if len(DONOR_LONG) > 1 else 50.0
-            srt = sorted(lv.values())
-            bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
-            kept = [c for c in donors if lv[c] >= bar] or donors
-            new_l = not os.path.exists(f'{OUT}/donor600.csv')
-            with open(f'{OUT}/donor600.csv', 'a') as f:
-                if new_l:
-                    f.write('round,colony,frames,alive_end,mean_alive,kept\n')
-                for c in donors:
-                    f.write(f'{r},{c},{int(DONOR_LONG[0])},{lv[c][0]},{lv[c][1]},{int(c in kept)}\n')
-            print(f'round {r}: donor600 ' + ' '.join(f'c{c}={lv[c][0]}/{lv[c][1]}' for c in donors) + f' -> {kept}', flush=True)
-            donors = kept
-        for i, b in enumerate(order[half:][::-1]):  # worst first
-            if not donors:
-                break
-            d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
-            nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
+
+    def select(grp):
+        """Rank the colonies in grp and refound grp's worse half from its better half's donors; the order."""
+        if MODE == 'plain':
+            order = sorted([c for c in ok if c in grp], key=lambda c: c)
+        else:
+            gp = [c for c in ok if passed[c] and c in grp]
+            rs = {}
+            if gp:
+                nk = len(cases(res[gp[0]]))
+                rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(nk)]
+                rs = {c: sum(rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
+            order = sorted(gp, key=lambda c: (rs[c], c)) + sorted([c for c in ok if not passed[c] and c in grp], key=lambda c: (-res[c][1], c))
+        order += [c for c in grp if c not in ok]  # extinct last
+        if MODE in ('gate', 'lex') and ok:
+            half = len(grp) // 2
+            top = [c for c in order[:half] if carry[c] is not None]
+            donors = [c for c in top if passed[c]] or top
+            if LABGATE is not None and len(donors) > 1:
+                lv = sorted(res[c][18] for c in donors)
+                bar = lv[min(len(lv) - 1, int(len(lv) * LABGATE / 100))]
+                donors = [c for c in donors if res[c][18] >= bar] or donors
+            if SCALEGATE is not None and len(donors) > 1:
+                sv = sorted(res[c][17] for c in donors)
+                bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
+                donors = [c for c in donors if res[c][17] >= bar] or donors
+            if DONOR_LONG is not None and len(donors) > 1:
+                with ThreadPoolExecutor(P) as ex:
+                    lv = dict(zip(donors, ex.map(lambda c: long_alive(c, r, carry[c]), donors)))
+                q = DONOR_LONG[1] if len(DONOR_LONG) > 1 else 50.0
+                srt = sorted(lv.values())
+                bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
+                kept = [c for c in donors if lv[c] >= bar] or donors
+                new_l = not os.path.exists(f'{OUT}/donor600.csv')
+                with open(f'{OUT}/donor600.csv', 'a') as f:
+                    if new_l:
+                        f.write('round,colony,frames,alive_end,mean_alive,kept\n')
+                    for c in donors:
+                        f.write(f'{r},{c},{int(DONOR_LONG[0])},{lv[c][0]},{lv[c][1]},{int(c in kept)}\n')
+                print(f'round {r}: donor600 ' + ' '.join(f'c{c}={lv[c][0]}/{lv[c][1]}' for c in donors) + f' -> {kept}', flush=True)
+                donors = kept
+            for i, b in enumerate(order[half:][::-1]):  # worst first
+                if not donors:
+                    break
+                d = donors[i % len(donors)] if MODE == 'gate' else lexicase(donors, res, rng)
+                nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
+        return order
+
+    order = []
+    for g in range(NISL):
+        order += select([c for c in cols if island(c) == g])
+    if NISL > 1 and MODE in ('gate', 'lex') and (r + 1) % MIGRATE == 0:
+        # migration: each island's best colony (with a carry) also refounds the next island's worst, so a family
+        # that wins in one island is tried in another without taking it over
+        best = {g: next((c for c in order if island(c) == g and carry[c] is not None), None) for g in range(NISL)}
+        for g in range(NISL):
+            d, b = best[g], [c for c in order if island(c) == (g + 1) % NISL][-1]
+            if d is not None and b != d:
+                nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
+        print(f'round {r}: migration ' + ' '.join(f'c{best[g]}->island{(g + 1) % NISL}' for g in range(NISL)), flush=True)
     for c in cols:
         v = res[c] or (0,) * (19 + len(LAB_CASES) if LAB else 18)
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
@@ -845,6 +898,7 @@ for r in range(R0, R):
               open(statep + '.tmp', 'w'))
     os.replace(statep + '.tmp', statep)
     print(f'round {r} done: {sum(passed.values())} passed the gate, {len(ok)} alive', flush=True)
+    t_round = max(t_round, time.time() - t_start)
 for d in prev_dirs.values():  # the last round keeps its genomes (the product) and gzips its log
     if os.path.exists(f'{d}/events.csv'):
         subprocess.run(['gzip', '-f', f'{d}/events.csv'])

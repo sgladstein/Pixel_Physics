@@ -16,7 +16,7 @@
 //!     out       a pellet let go above the datum (left the nest); cutter: the pellet's cutter, or 0
 //!     in        a pellet let go at or below the datum; its tag is kept at that spot for a recut
 //!     field     a food cell taken into the crop away from home (v: its worth)
-//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`)
+//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`; v: its worth as put down)
 //!     churn     any other food cell put down within 12 columns of the nest
 //!     eat       the crop's digestion paid this ant v (face worth)
 //!     death     v: the cause's index
@@ -1741,7 +1741,11 @@ fn main() {
                         b.credit += g;
                         b.g2 += g * g;
                     }
-                    writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
+                    // v: the cell's face worth as put down (`food_value`; 960 for a whole provisions, fruit or windfall
+                    // cell, less for a crumb), so a reader can count food home in energy, not cells (selection lane,
+                    // 2026-10-27). It was always 0, and no reader used it.
+                    let worth = creature::food_value(&w, w.get(x, y)).round() as i64;
+                    writeln!(ev, "{frame},{},deliver,{x},{y},{worth},0", r.who).unwrap()
                 }
                 creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
                 // SCRATCH (foraging-loop thread): food put down in the field, so a load's fate closes.

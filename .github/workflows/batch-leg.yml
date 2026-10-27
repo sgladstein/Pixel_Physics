@@ -1,0 +1,194 @@
+name: Batch leg
+
+# One leg of a batch (`batch.yml` calls this once per leg): every runner of the batch carries on its job lines from
+# `batch-results/<batch>` for up to ~5 h 20 min, then `collect` publishes what each one has. Not run on its own.
+on:
+  workflow_call:
+    inputs:
+      leg: {type: number, required: true}
+      batch: {type: string, required: true}
+      ref: {type: string, required: true}       # a full sha, resolved once by the plan job so every leg builds one tree
+      resume: {type: string, required: true}    # "true": start from batch-results/<batch>; leg 1 of a fresh batch is "false"
+      leg_minutes: {type: string, required: true}  # when colsel stops starting rounds (320 unless the batch says less)
+      matrix: {type: string, required: true}
+    outputs:
+      left:
+        description: runners with lines still to run after this leg ('0' = the batch is finished)
+        value: ${{ jobs.collect.outputs.left }}
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include: ${{ fromJson(inputs.matrix) }}
+    name: leg ${{ inputs.leg }} ${{ matrix.entry }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      ROOT: /tmp/batch/out     # fixed: colsel's state.json holds absolute paths into it
+      PUB: /tmp/batch/pub
+      RAYON_NUM_THREADS: "1"   # lab runs gain nothing from threads; cores go to parallel colonies
+    steps:
+      - name: start the clock
+        # the leg's budget runs from here: 355 min for the job, of which the build, unpacking and publishing take up
+        # to ~25. DEADLINE is when colsel stops starting rounds; HARD, ten minutes later, is when every job is killed.
+        env:
+          LEG_MINUTES: ${{ inputs.leg_minutes }}
+        run: |
+          now=$(date +%s)
+          echo "DEADLINE=$(( now + LEG_MINUTES * 60 ))" >> "$GITHUB_ENV"
+          echo "HARD=$(( now + (LEG_MINUTES + 10) * 60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: what is left to run
+        env:
+          ENTRY: ${{ toJson(matrix) }}
+          BATCH: ${{ inputs.batch }}
+          RESUME: ${{ inputs.resume }}
+          RETRY: ${{ inputs.leg == 1 && 'retry' || '' }}
+        run: |
+          mkdir -p "$ROOT" "$PUB" "$RUNNER_TEMP/prev"
+          name=$(python3 -c 'import json,os;print(json.loads(os.environ["ENTRY"])["entry"])')
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          if [ "$RESUME" = true ] && git fetch --no-tags --depth 1 origin "refs/heads/batch-results/$BATCH" 2>/dev/null; then
+            # a symlink (mode 120000) is refused before anything is extracted (as train.yml, review of PR 728 N11)
+            if [ -n "$(git ls-tree -r FETCH_HEAD | awk '$1 == "120000"')" ]; then echo "refused: a symlink in batch-results/$BATCH"; exit 1; fi
+            git archive FETCH_HEAD | tar -x -C "$RUNNER_TEMP/prev"
+          fi
+          python3 scripts/batch.py todo "$ENTRY" "$RUNNER_TEMP/prev" $RETRY > "$RUNNER_TEMP/lines.txt"
+          echo "lines to run on $name:"; cat "$RUNNER_TEMP/lines.txt"
+          if [ -s "$RUNNER_TEMP/lines.txt" ]; then echo "WORK=1" >> "$GITHUB_ENV"; else echo "WORK=0" >> "$GITHUB_ENV"; fi
+          # carry: the earlier legs' status lines and folders for this runner
+          [ -f "$RUNNER_TEMP/prev/$name.status" ] && cp "$RUNNER_TEMP/prev/$name.status" "$PUB/"
+          if [ -s "$RUNNER_TEMP/lines.txt" ] && [ -f "$RUNNER_TEMP/prev/$name.tgz" ]; then
+            tar -xzf "$RUNNER_TEMP/prev/$name.tgz" -C "$ROOT"
+            if [ -n "$(find "$ROOT" -type l)" ]; then echo "refused: a symlink in $name.tgz"; exit 1; fi
+            echo "carried on from batch-results/$BATCH: $(du -sh "$ROOT" | cut -f1)"
+          fi
+      - name: code to build
+        if: env.WORK == '1'
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if [ "$REF" != "$(git rev-parse HEAD)" ]; then
+            git fetch --no-tags --depth 1 origin "$REF"
+            git worktree add --detach "$RUNNER_TEMP/code" FETCH_HEAD
+            echo "CODE_DIR=$RUNNER_TEMP/code" >> "$GITHUB_ENV"
+          else
+            echo "CODE_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          fi
+      - uses: dtolnay/rust-toolchain@1.98
+        if: env.WORK == '1'
+      - uses: Swatinem/rust-cache@v2
+        if: env.WORK == '1'
+        with:
+          shared-key: batch
+          save-if: ${{ inputs.leg == 1 }}
+      # x86-64-v3 as the VM builds (scratch/cloud/inrun_cloud.py), so a runner batch and a VM batch on the same
+      # sha and seeds are the same run; never `native`: legs land on different CPUs and share one build cache
+      - name: build inrun, labsurvive, spiderlab
+        if: env.WORK == '1'
+        run: cd "$CODE_DIR" && RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --example inrun --example labsurvive --example spiderlab
+      - name: run
+        if: env.WORK == '1'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LEG: ${{ inputs.leg }}
+        run: |
+          cd "$CODE_DIR"
+          {
+            echo "runner: $NAME, leg $LEG"; echo "built from: $(git rev-parse HEAD)"; echo "run: $RUN_URL"
+            echo "started: $(date -u +%FT%TZ)"; lscpu | grep -E 'Model name|^CPU\(s\)'
+          } >> "$PUB/$NAME.leg-log.txt"
+          export BIN=$CARGO_TARGET_DIR/release/examples/inrun LAB_BIN=$CARGO_TARGET_DIR/release/examples/labsurvive \
+            SPIDERLAB_BIN=$CARGO_TARGET_DIR/release/examples/spiderlab DEADLINE HARD
+          bash "$GITHUB_WORKSPACE/scripts/batch_run.sh" "$NAME" "$ROOT" "$PUB" < "$RUNNER_TEMP/lines.txt" | tee -a "$PUB/$NAME.leg-log.txt"
+          echo "finished: $(date -u +%FT%TZ)" >> "$PUB/$NAME.leg-log.txt"
+          touch "$RUNNER_TEMP/ran"
+      - name: what this runner publishes
+        if: always()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # a runner that stopped before batch_run.sh wrote its status (a build failure, a cancel, a lost runner):
+          # its lines are failed, not new, or every later leg would build and fail again. A resume push retries them.
+          if [ "$WORK" = 1 ] && [ ! -f "$RUNNER_TEMP/ran" ]; then
+            while read -r o rest; do
+              { grep -v "^$o " "$PUB/$NAME.status" 2>/dev/null || true; echo "$o failed the runner stopped before this leg finished (build failure, cancel or lost runner): $RUN_URL"; } > "$RUNNER_TEMP/st"
+              mv "$RUNNER_TEMP/st" "$PUB/$NAME.status"
+            done < "$RUNNER_TEMP/lines.txt"
+          fi
+          [ -f "$RUNNER_TEMP/prev/$NAME.leg-log.txt" ] && { cat "$RUNNER_TEMP/prev/$NAME.leg-log.txt" "$PUB/$NAME.leg-log.txt" 2>/dev/null > "$RUNNER_TEMP/ll" || true; mv "$RUNNER_TEMP/ll" "$PUB/$NAME.leg-log.txt"; }
+          # a runner with nothing left publishes nothing: collect keeps its files from the branch as they were
+          [ "$WORK" = 1 ] || { rm -rf "$PUB"; mkdir -p "$PUB"; }
+          ls -la "$PUB"; du -sh "$PUB"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: batch-${{ inputs.batch }}-leg${{ inputs.leg }}-${{ env.NAME }}
+          path: /tmp/batch/pub
+          retention-days: 3
+          if-no-files-found: ignore
+      # the whole folder, event logs included, for anything the branch leaves out; each leg's replaces nothing
+      - uses: actions/upload-artifact@v4
+        if: always() && env.WORK == '1'
+        with:
+          name: full-batch-${{ inputs.batch }}-leg${{ inputs.leg }}-${{ env.NAME }}
+          path: /tmp/batch/out
+          retention-days: 14
+          if-no-files-found: ignore
+
+  collect:
+    needs: run
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      left: ${{ steps.collect.outputs.left }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: batch-${{ inputs.batch }}-leg${{ inputs.leg }}-*
+          path: ${{ runner.temp }}/arts
+      - id: collect
+        env:
+          BATCH: ${{ inputs.batch }}
+          LEG: ${{ inputs.leg }}
+          RESUME: ${{ inputs.resume }}
+          MATRIX: ${{ inputs.matrix }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          # the branch as the last leg left it (runners that ran nothing this leg keep their files), then this leg's
+          if [ "$RESUME" = true ] && git fetch --no-tags --depth 1 origin "refs/heads/batch-results/$BATCH" 2>/dev/null; then
+            git archive FETCH_HEAD | tar -x -C "$work"
+          fi
+          for a in "$RUNNER_TEMP"/arts/*; do [ -d "$a" ] && cp -r "$a"/. "$work"/; done
+          python3 -c 'import os,json;print("\n".join(e["lines"] for e in json.loads(os.environ["MATRIX"])))' > "$work/jobs.txt"
+          left=$(python3 scripts/batch.py collect "$work" "$BATCH" "$LEG")
+          { echo; echo "run: $RUN_URL"; echo "published: $(date -u +%FT%TZ)"; } >> "$work/STATUS.md"
+          cat "$work/STATUS.md"
+          echo "left=$left" >> "$GITHUB_OUTPUT"
+          big=$(find "$work" -type f -size +90M)
+          if [ -n "$big" ]; then echo "refused: over GitHub's 100 MB file limit: $big"; exit 1; fi
+          cd "$work"
+          git init -q . && git checkout -q -b "batch-results/$BATCH"
+          git config user.name "batch-run" && git config user.email "batch-run@users.noreply.github.com"
+          git add -A && git commit -q -m "batch $BATCH after leg $LEG"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "batch-results/$BATCH"
+          echo "published batch-results/$BATCH ($(du -sh --exclude=.git . | cut -f1))"
