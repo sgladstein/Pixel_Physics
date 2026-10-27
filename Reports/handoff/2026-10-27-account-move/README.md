@@ -224,7 +224,7 @@ recommendation for each.
 | thread | state | open |
 |---|---|---|
 | Teacher lane | working; **clean1 running** | judge clean1; env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (decide after clean1). PR #948 at the merge desk |
-| Merge desk | holds no PR | PRs #944, #945, #947, #948, #950, #951, #952 (and this one) were with it or about to be. Procedure: `lanes/merge-desk.md` |
+| Merge desk | holds no PR | PRs #944 to #953 all merged (main ab9bc31). Only the Teacher lane's clean1 results PR is still expected. Procedure: `lanes/merge-desk.md` |
 | Evolvable pheromones | blocked on owner | **(owner)**: whether and where to run E4. E3 was stopped (it ranked on cells). PR #944 |
 | Brood and breeding | blocked on owner | **(owner)**: how to stop the nest packing with crumbs (a selection case is recommended). **(owner)**: the nest-worker caste, acceptable starvation, a training headcount cap. PR #952 |
 | Plant community plan | blocked on owner | **(owner)**: plant food or the understory (understory recommended). **(owner)**: ship the seed-trained shrub and herb (yes, after a lab check) |
