@@ -2331,11 +2331,11 @@ mod tests {
     /// ([`Settings::no_prune`]): 40 children of a fixed mind genome, half its
     /// slots live, at prune 0.3 / grow 0.1, hash to the value recorded on
     /// `main` before the list existed (`fingerprint` of each child, folded).
-    /// Re-recorded at layouts 6 and 7 (3,357 slots, `0xe8df_ee07_3c06_e641`;
-    /// 3,609, today's; `0x9a95_a9d9_bd2d_24b6` at 2,797): the gate and reach
-    /// rows lengthened the test genome, and `mutate`'s body did not change in
-    /// either commit, so each new value is the same draws over more slots, not
-    /// a moved draw.
+    /// Re-recorded at layouts 6, 7 and 8 (3,357 slots, `0xe8df_ee07_3c06_e641`;
+    /// 3,609, `0x55af_509c_1617_c87b`; 4,137, today's; `0x9a95_a9d9_bd2d_24b6`
+    /// at 2,797): the gate, reach and write rows lengthened the test genome,
+    /// and `mutate`'s body did not change in any of those commits, so each new
+    /// value is the same draws over more slots, not a moved draw.
     #[test]
     fn an_empty_no_prune_list_mutates_as_before() {
         let n = mind::GENOME_LEN;
@@ -2347,7 +2347,7 @@ mod tests {
             let c = mutate(&g, &slots, 0.03, 0.3, 0.3, 0.1, &[], &mut rng);
             h = h.rotate_left(7) ^ fingerprint(&c);
         }
-        assert_eq!(h, 0x55af_509c_1617_c87b, "an empty list must leave every draw as it was");
+        assert_eq!(h, 0x8d2a_48ec_8165_facc, "an empty list must leave every draw as it was");
     }
 
     /// **An arena that pays for pruning two slots**: fit is minus their
@@ -2920,13 +2920,14 @@ mod tests {
         let verbs: Vec<Verb> = Verb::ALL.into_iter().filter(|v| *v != Verb::Attack).collect();
         let g = vec![0.5f32; mind::GENOME_LEN];
         let eat = mind::verb_slots(Verb::Eat);
-        // ...its reach in every memory unit and every gate too (layout 7).
-        assert_eq!(eat.len(), 1 + (mind::CONTEXT + mind::MEMORY + 2) + mind::HIDDEN + mind::UNITS + mind::MEMORY + mind::MEMORY + mind::UNITS);
+        // ...its reach in every memory unit and every gate too (layout 7), and in every write gate (layout 8).
+        assert_eq!(eat.len(), 1 + (mind::CONTEXT + mind::MEMORY + 2) + mind::HIDDEN + mind::UNITS + mind::MEMORY + mind::MEMORY + mind::UNITS + mind::MEMORY);
         let dig = mind::verb_slots(Verb::Dig);
         assert!(eat.iter().all(|i| !dig.contains(i)), "two verbs share a slot");
         let open = mind::trainable(&verbs, [true, true, true]);
         let mut shut = open.clone();
-        assert_eq!(mind::protect(&mut shut, &[Verb::Eat]), eat.len());
+        // Only the slots mutation may move are taken out (the write gates are not, unless PP_WRITE=on).
+        assert_eq!(mind::protect(&mut shut, &[Verb::Eat]), eat.iter().filter(|i| open.contains(i)).count());
         for (slots, protected) in [(&open, false), (&shut, true)] {
             let mut rng = Rng(7);
             let (mut eat_changed, mut other_changed) = (0, 0);
