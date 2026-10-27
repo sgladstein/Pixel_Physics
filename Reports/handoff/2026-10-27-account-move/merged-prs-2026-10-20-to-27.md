@@ -1,9 +1,17 @@
 # Pull requests merged to main, 2026-10-20 to 2026-10-27
 
-Generated from `git log --merges --first-parent origin/main --since=2026-10-20` at main 09e338c (plus #946, #949). Newest first. Each title is the PR's own; the PR body on GitHub carries the measurements.
+Generated from `git log --merges --first-parent origin/main --since=2026-10-20` at main 09e338c (plus #944 to #953, added by hand at ab9bc31; titles of the added rows are summaries, the PR carries the exact title). Newest first. Each title is the PR's own; the PR body on GitHub carries the measurements.
 
 | merge | date | PR | title |
 |---|---|---|---|
+| ab9bc3170 | 10-27 | #944 | Evolvable pheromones: E4 review, kJ re-score, report sections 9.10 and 9.11, scripts |
+| 7f4930299 | 10-27 | #953 | Master hand-off for the account move |
+| 06a4ea121 | 10-27 | #952 | Brood and breeding: plan, data and scripts |
+| fb8417459 | 10-27 | #951 | Nest raider: data and findings |
+| 9216aa270 | 10-27 | #950 | Lone predator: pools, GIFs and plan (spider pool source comment now points into the repo) |
+| d049a6e5e | 10-27 | #948 | Teacher lane: scratch harness and log, inrun.rs food=all (switches off) |
+| 7326c5e21 | 10-27 | #945 | Rootless surviving plants: pictures and notes |
+| 2ca0a7bcf | 10-27 | #947 | Queen seat demo: data and notes |
 | 6a5811473 | 10-27 | #946 | Scout demo hand-off: keep the census probe and the first-look page in the repo |
 | e1d2f6e8a | 10-27 | #949 | Report: snapshot of the seat-demos shared board before the account move |
 | 09e338c80 | 10-27 | #943 | Evolvable pheromones: independent review, E1/E2 results, emerge.py harness fixes |
