@@ -8100,6 +8100,17 @@ impl World {
         self.organism(organism_id)
     }
 
+    /// **`live_organism_ids` with each state, and no allocation** -- for a
+    /// caller that visits every organism every drawn frame (the renderer's
+    /// pale hungry leaves) and would otherwise pay the `Vec` and a decode
+    /// per handle. Same set, same order, brood left out the same way.
+    pub fn live_organisms(&self) -> impl Iterator<Item = (OrganismId, &OrganismState)> + '_ {
+        self.organisms.iter().enumerate().filter_map(|(i, slot)| {
+            let state = slot.state.as_ref().filter(|s| s.brood.is_none())?;
+            Some((encode_organism_id((i + 1) as OrganismId, slot.generation), state))
+        })
+    }
+
     /// Every live organism's encoded id.
     ///
     /// Collected rather than iterated in place because the caller needs
