@@ -1,0 +1,10 @@
+# Selection lane, 2026-10-27: the island model (colsel islands=K:M) against clean1's k3 control. Same line, seeds and
+# founder as k3 (scratch/inrun/jobs/clean1.txt), plus islands=; k3 itself is in the bucket (runs/clean1, 32 x 48) and
+# is not rerun: every bed result of a runner round matches the VM's on the same code (selbt1 vs elite2 e13, 2026-10-27).
+# DECIDING MEASURE, named before launch: garden starvation at round 47, paired by colony against k3's round-47 garden
+# (a colony missing from the garden counts as the worse of its pair), two-sided sign test, Bonferroni over the two arms
+# (p < 0.025). Guards: garden nest and alive, same test. Mechanism checks: round-0 lines left at r47 (lineage.py) and
+# the survival order's retest (selaudit.py).
+ref=e33fe076816438a6c1d7d996d260a93f151c0ed3
+isl4 colsel 31 lex+spoil+crater+shape+scale+lab 32 48 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 islands=4:4
+isl2 colsel 31 lex+spoil+crater+shape+scale+lab 32 48 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 islands=2:4
