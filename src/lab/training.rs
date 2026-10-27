@@ -154,7 +154,7 @@ fn predator_pool(text: &str, species: &str) -> Vec<std::sync::Arc<creature::mind
     assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "{species} pool: {head:?}");
     let len: usize = h.next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{species} pool: genome length"));
     assert!(
-        [creature::mind::GENOME_LEN, creature::mind::GENOME_LEN_V5].contains(&len),
+        [creature::mind::GENOME_LEN, creature::mind::GENOME_LEN_V6, creature::mind::GENOME_LEN_V5].contains(&len),
         "{species} pool: genome length {len}"
     );
     let layout = pool_layout(head);
