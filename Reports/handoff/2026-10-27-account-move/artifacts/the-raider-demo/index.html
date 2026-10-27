@@ -1,0 +1,225 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>The Raider Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; the two colonies side by side as a blind pair, stacking on a phone. */
+:root {
+  --bg: #eef0ee;
+  --panel: #ffffff;
+  --fg: #1d2420;
+  --muted: #5b655f;
+  --line: #cfd5d1;
+  --raider: #b8285f;
+  --ant: #a86a00;
+  --display: "Silkscreen", "IBM Plex Mono", ui-monospace, monospace;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a17; --panel: #1e2521; --fg: #e3e8e4; --muted: #9aa59e; --line: #34403a;
+    --raider: #ff6fa3; --ant: #e7a83a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a17; --panel: #1e2521; --fg: #e3e8e4; --muted: #9aa59e; --line: #34403a;
+  --raider: #ff6fa3; --ant: #e7a83a; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--display); font-size: 13px; letter-spacing: .08em; color: var(--raider); }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 400; font-size: 20px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+section { display: grid; gap: 14px; }
+.lede { font-size: 18px; }
+code, kbd, .mono { font-family: var(--mono); font-size: .92em; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+.launch { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; }
+.launch code { white-space: pre; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 18px; padding: 0; margin: 0; list-style: none; }
+.keys li { min-width: 0; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+video, figure img { width: 100%; max-width: 100%; height: auto; border-radius: 4px; background: #000; image-rendering: pixelated; display: block; }
+figcaption { font-size: 14px; color: var(--muted); }
+.tag { font-family: var(--display); font-size: 15px; }
+.counts { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+.counts dt { color: var(--muted); }
+.counts dd { margin: 0; }
+.ask { border-left: 3px solid var(--raider); padding-left: 12px; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+summary { cursor: pointer; font-weight: 600; }
+summary:focus-visible, a:focus-visible { outline: 2px solid var(--raider); outline-offset: 2px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 13px; }
+td.num { font-family: var(--mono); }
+.raider { color: var(--raider); font-weight: 600; }
+.ant { color: var(--ant); font-weight: 600; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 70ch; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Enemy seat · playable demo</div>
+    <h1>The Raider</h1>
+    <p class="lede">You are a centipede, the shipped nest raider, set down beside a living ant colony that has had 20,000 frames to dig in. Pick off foragers, try the door, back away when they bite. The colony fights back with the same bite rules every animal in the engine uses.</p>
+  </header>
+
+  <section>
+    <h2>Play it</h2>
+    <div class="launch"><code>cargo run --release --bin lab -- demo=enemy          # the trained colony
+cargo run --release --bin lab -- demo=enemy oldant   # the hand-built colony</code></div>
+    <ul class="keys">
+      <li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> walk</li>
+      <li><kbd>Shift</kbd> (hold) sprint, while your wind lasts</li>
+      <li><kbd>B</kbd> bite, even with a full gut</li>
+      <li><kbd>E</kbd> eat what you killed</li>
+      <li><kbd>Q</kbd> put a crumb down</li>
+      <li><kbd>G</kbd> cut through stored crumbs</li>
+      <li><kbd>Y</kbd> season card · <kbd>R</kbd> new raider after a death</li>
+    </ul>
+    <p>Your body is drawn in <span class="raider">crimson</span> with a white ring on the head; the ants are <span class="ant">amber</span>. The HUD shows one wound meter for your whole body. When a bite fills it, the cell that took that bite comes off, so a bite on the head kills you and bites on the tail cost one cell at a time.</p>
+  </section>
+
+  <section>
+    <h2>After your playtest: no spit, and hit and run</h2>
+    <p>The spit is gone: your bite works with a full gut, and the extra flesh is just not eaten. For strategy, the first of the three directions is built. <strong>Hold Shift to sprint</strong> at 2.5 times your pace (ants are slower than you now, not about even) for 4 seconds, then you are winded until your wind comes back. <strong>Lost tail cells grow back</strong>, one every 15 seconds, once your wound has healed and you have eaten enough to overfill your tank. So the loop is: dart in, kill, sprint out, eat, heal, come back whole.</p>
+    <div class="pair">
+      <figure>
+        <span class="tag">Before</span>
+        <video src="door5_none.mp4" controls muted playsinline preload="metadata" aria-label="Without sprint the raider is bitten to death near the door in under ten seconds"></video>
+        <dl class="counts">
+          <dt>lived</dt><dd>576 frames</dd>
+          <dt>bites on raider</dt><dd>12</dd>
+          <dt>ending</dt><dd>head bitten off</dd>
+        </dl>
+      </figure>
+      <figure>
+        <span class="tag">Hit and run</span>
+        <video src="door5_hr.mp4" controls muted playsinline preload="metadata" aria-label="With sprint the raider backs away from the ants and lives through the clip"></video>
+        <dl class="counts">
+          <dt>lived</dt><dd>2,400 frames (still alive)</dd>
+          <dt>bites on raider</dt><dd>5</dd>
+          <dt>frames sprinting</dt><dd>718</dd>
+        </dl>
+      </figure>
+    </div>
+    <p>Same seed, same scripted player, trained colony: walk toward the door, and back off at the first cell lost. Over 6 seeds and 20,000 frames:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Play</th><th>Version</th><th>Raider died</th><th>Kills in all</th></tr></thead>
+      <tbody>
+        <tr><td>walk at the door</td><td>before</td><td class="num">5 of 6</td><td class="num">0</td></tr>
+        <tr><td>walk at the door</td><td>hit and run</td><td class="num">4 of 6</td><td class="num">0</td></tr>
+        <tr><td>stalk lone foragers</td><td>before</td><td class="num">2 of 6</td><td class="num">412</td></tr>
+        <tr><td>stalk lone foragers</td><td>hit and run</td><td class="num">1 of 6</td><td class="num">518</td></tr>
+      </tbody>
+    </table></div>
+    <p>At the door the raider lived longer on 5 of 6 seeds, but the script still never kills anything there, and regrowth fired only 3 times in all 24 runs (a raider hurt at the door hasn't eaten yet). Whether this feels like a strategy is a question for your hands, not the script.</p>
+  </section>
+
+  <section>
+    <h2>Which colony is the better opponent?</h2>
+    <p class="ask">Same seed, same scripted player, one minute of play after landing. The player waits on the surface for an ant walking alone, bites it, and backs off when bitten. The colonies differ only in the brain their ants think with. Which one would you rather play against?</p>
+    <div class="pair">
+      <figure>
+        <span class="tag">Colony A</span>
+        <video src="a.mp4" controls muted playsinline preload="metadata" aria-label="Colony A: one minute of the raider hunting"></video>
+        <dl class="counts">
+          <dt>raider kills</dt><dd>3</dd>
+          <dt>bites on raider</dt><dd>2</dd>
+          <dt>cells lost</dt><dd>0</dd>
+          <dt>ants</dt><dd>248 → 198</dd>
+          <dt>loads home</dt><dd>230</dd>
+        </dl>
+      </figure>
+      <figure>
+        <span class="tag">Colony B</span>
+        <video src="b.mp4" controls muted playsinline preload="metadata" aria-label="Colony B: one minute of the raider hunting"></video>
+        <dl class="counts">
+          <dt>raider kills</dt><dd>4</dd>
+          <dt>bites on raider</dt><dd>1</dd>
+          <dt>cells lost</dt><dd>0</dd>
+          <dt>ants</dt><dd>230 → 243</dd>
+          <dt>loads home</dt><dd>183</dd>
+        </dl>
+      </figure>
+    </div>
+    <details>
+      <summary>Which is which</summary>
+      <p>Colony A is the trained brain (the lab's default). Colony B is the hand-built brain. Over six seeds the difference is clearer than in this one pair: see the table below.</p>
+    </details>
+  </section>
+
+  <section>
+    <h2>Walking straight at the door</h2>
+    <div class="pair">
+      <figure>
+        <video src="door.mp4" controls muted playsinline preload="metadata" aria-label="The raider walks to the door and is bitten apart on the mound"></video>
+        <figcaption>Trained colony, seed 5. Five seconds from landing to death: 22 bites, and the body comes off tail first (cell 5, 4, 3, 2, then the head).</figcaption>
+      </figure>
+      <figure>
+        <img src="card_door.png" alt="Season card after the death: hunted 0:05, 22 bites taken, 5 cells lost">
+        <figcaption>The season card that opens on death.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>What 36 scripted runs say</h2>
+    <p>Six seeds per row, 12,000 frames (3 minutes 20 seconds) each, on today's main. Each row is one way of playing against one colony.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>How the raider plays</th><th>Colony</th><th>Raider died</th><th>Fastest death</th><th>Raider kills per run</th><th>Kills in all</th></tr></thead>
+        <tbody>
+          <tr><td>Straight at the door</td><td>trained</td><td class="num">6 of 6</td><td class="num">516 frames</td><td class="num">0</td><td class="num">0</td></tr>
+          <tr><td>Straight at the door</td><td>hand-built</td><td class="num">6 of 6</td><td class="num">439 frames</td><td class="num">0</td><td class="num">0</td></tr>
+          <tr><td>Stalk lone foragers, landing 30 columns out</td><td>trained</td><td class="num">4 of 6</td><td class="num">326 frames</td><td class="num">0–4</td><td class="num">8</td></tr>
+          <tr><td>Stalk lone foragers, landing 30 columns out</td><td>hand-built</td><td class="num">1 of 6</td><td class="num">981 frames</td><td class="num">0–4</td><td class="num">9</td></tr>
+          <tr><td><strong>Stalk lone foragers, landing 70 columns out (shipped)</strong></td><td>trained</td><td class="num">4 of 6</td><td class="num">2,050 frames</td><td class="num">2–6</td><td class="num">18</td></tr>
+          <tr><td><strong>Stalk lone foragers, landing 70 columns out (shipped)</strong></td><td>hand-built</td><td class="num">0 of 6</td><td class="num">never</td><td class="num">2–10</td><td class="num">38</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="plain">
+      <li>The door is defended. No scripted raid got in, from either landing spot, against either brain.</li>
+      <li>The landing moved from 30 to 70 columns. At 30 the raider was set down on the foragers' road and two trained seeds killed it inside 7 seconds, before a player has found the keys.</li>
+      <li>The trained colony is the harder opponent: it killed the stalking raider on 4 of 6 seeds and gave up half as many ants.</li>
+      <li>The demo's view costs <code>Lab::draw</code> about 0.3 ms a frame (2.45 ms against 2.16 ms, mean of 3,600 frames). The demo is off unless launched with <code>demo=enemy</code>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Mutation at birth (your pick)</h2>
+    <p>In <code>demo=enemy</code> every egg of the trained colony now takes a mutated copy of its parent's brain, using the training page's own mutation. The ants you eat leave no young, so your hunting is a selection pressure. Each raider life is a season, and the season card lists how hard the colony bit back per minute it had you in reach.</p>
+    <div class="pair">
+      <figure>
+        <img src="card_seasons.png" alt="Season card listing seasons 2 to 5 with lived time, kills, bites taken and bites per minute in reach">
+        <figcaption>Five raider lives against one colony, 401 mutated young so far. The per-minute rate swings with how the raider played (16 to 134), so a single season says little.</figcaption>
+      </figure>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Mutation rate</th><th>Ants left at frame 175,000, 6 seeds, no raider</th></tr></thead>
+          <tbody>
+            <tr><td>Off</td><td class="num">16, 183, 274, 324, 326, 261</td></tr>
+            <tr><td>Training page's rate</td><td class="num">182, 2, 0, 0, 4, 72</td></tr>
+            <tr><td>A third of it</td><td class="num">319, 361, 147, 293, 128, 109</td></tr>
+            <tr><td><strong>A tenth of it (default)</strong></td><td class="num">253, 368, 307, 276, 336, 238</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <ul class="plain">
+      <li>At the training page's rate the colony melts down: 3 of 6 went extinct with no raider at all. In the training bed, bad brains are culled before they breed; in the lab nothing culls them.</li>
+      <li>At a tenth of the rate every egg still gets a changed brain (about 3,000 in a run this long) and the colony lives as well as the unmutated one. That is the default. <code>mutate=2</code> and <code>mutate=3</code> choose the stronger rates; <code>mutate=0</code> turns it off.</li>
+      <li>I have not shown that the colony gets better at fighting the raider within a session. The bite rate depends more on how the raider plays than on the colony, and a few hundred thousand frames is only a handful of ant generations.</li>
+    </ul>
+  </section>
+</div>
+
+</body></html>

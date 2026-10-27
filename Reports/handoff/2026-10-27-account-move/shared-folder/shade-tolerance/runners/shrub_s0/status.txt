@@ -1,0 +1,4 @@
+started 2026-10-22T14:08:15Z name=shrub_s0 species=shrub stations=bright,shade scald=0 seed=1 host=vm cores=4
+built 2026-10-22T14:12:47Z
+training done 2026-10-22T14:27:40Z
+finished 2026-10-22T14:28:26Z

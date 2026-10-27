@@ -1,0 +1,76 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Spider Lab Results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; each run is a figure with the clip, its caption and its counts beside it. */
+:root {
+  --bg: #f3f4f1; --surface: #ffffff; --fg: #1d211c; --muted: #5b6458; --line: #d6dbd2; --accent: #8a2f45;
+  --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151814; --surface: #1e221d; --fg: #e6e9e2; --muted: #a2ab9e; --line: #333a31; --accent: #e08aa0; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151814; --surface: #1e221d; --fg: #e6e9e2; --muted: #a2ab9e; --line: #333a31; --accent: #e08aa0; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 48px; }
+main { max-width: 780px; margin: 0 auto; display: grid; gap: 32px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.15rem; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 65ch; }
+.lede { color: var(--muted); }
+figure { margin: 0; display: grid; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+figure img { width: 100%; height: auto; image-rendering: pixelated; border-radius: 3px; display: block; }
+figcaption { display: grid; gap: 8px; }
+.counts { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts b { color: var(--accent); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.9rem; min-width: 460px; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; }
+td.num { font-family: var(--mono); }
+tr.win td { color: var(--accent); font-weight: 600; }
+</style>
+<main>
+  <header style="display:grid;gap:8px">
+    <h1>Spiders that can share a box with a colony</h1>
+    <p class="lede">Lone predator thread, 25 October 2026. Spiders bred by the game's own rules in a lab box, with nothing refilled.</p>
+  </header>
+
+  <figure>
+    <img src="coexist.gif" alt="Lab box seen from the side: an ant nest mound in the middle, spiders hunting on the surface to both sides, from frame 30,000 to 130,000.">
+    <figcaption>
+      <h2>The new spider pool, living beside the colony</h2>
+      <p>The pool picked for coexistence, in the lab_mid_fruit box with the hand-built ant (seed 12). One frame every 1,000, from frame 30,000 to 130,000. The yellow dots are ants and the dark-red clusters are spiders. By frame 130,000 the colony still holds 186 ants. Four spiders are alive, after 35 were born.</p>
+      <p class="counts">spider births <b>35</b> · spiders starved 16 · killed by ants 12 · ants alive at the end <b>186</b> · both kinds alive in <b>100%</b> of samples</p>
+    </figcaption>
+  </figure>
+
+  <section style="display:grid;gap:12px">
+    <h2>How the pools compare in the lab</h2>
+    <p>Two spiders in lab_mid_fruit with the hand-built ant, run for 300,000 frames on four seeds. "Together" is the share of the run in which spiders and ants were both alive.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Spider pool</th><th>Together, by seed</th><th>Ants at the end</th></tr></thead>
+        <tbody>
+          <tr><td>Before (trained without digestion time)</td><td class="num">13% · 4% · 2% · 15%</td><td class="num">226–444</td></tr>
+          <tr><td>Evolved, no coexistence selection</td><td class="num">24% · 25% · 7% · 15%</td><td class="num">354 · 146 · 0 · 0</td></tr>
+          <tr class="win"><td>Evolved, picked for coexistence (now in the lab)</td><td class="num">71% · 80% · 11% · 5%</td><td class="num">199 · 187 · 174 · 267</td></tr>
+          <tr><td>No spiders at all</td><td class="num">—</td><td class="num">190–266</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede">Four seeds is a first look. On the two other seeds, the new pool's spiders died before they bred.</p>
+  </section>
+
+  <figure>
+    <img src="sight.gif" alt="Side-by-side clip comparing a spider with sight and one without, hunting ants on the training bed.">
+    <figcaption>
+      <h2>Earlier: spiders with and without sight</h2>
+      <p>From 24 October. The same bed run twice, with the spider's eye on and off. The sighted pool is the one the new spiders were bred from.</p>
+    </figcaption>
+  </figure>
+</main>
+
+</body></html>

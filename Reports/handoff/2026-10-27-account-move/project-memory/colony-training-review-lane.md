@@ -1,0 +1,25 @@
+---
+name: colony-training-review-lane
+description: Fable review of the in-colony (in-run) selection training approach, 2026-10-22: verdict, the three structural findings, the ranked fixes, where the report and hand-off live
+metadata:
+  type: project
+  modified: 2026-10-22T13:53:43.404Z
+---
+
+Thread "In-colony training review" (cmsg_01Mei3dwkcdzPxa5Jmuqi2bBXGvK5FoG5XdB4K4GMj1uWQ), asked by Scotttt 2026-10-22 13:38Z. Report: https://claude.ai/artifact/AYMLfoEd4jvMiJK2g2RgG9 . Hand-off for the Teacher lane + test scripts: /mnt/project-files/colony-training-review/ (for-teacher-lane-2026-10-22.md, run.sh, cg.sh, summ.py).
+
+- **Verdict:** keep in-run selection; the lesson-copy-then-select ladder (h1 -> c1 -> hA1) is what moved the ant. Three structural problems: (1) the training world never contains the late game (fresh stamp every 200k frames, fixed 24-36 headcount) so digging is never selected where it matters; (2) heavy per-child mutation (pm .03, sd 1, 10 structural events) on weak per-birth selection erodes unpaid skills (digging died under random parents too); (3) ~12 score-weight arms, none adopted; every adopted change was a lesson or body change -> freeze the ledger.
+- Also flagged: the lab ships one genome (assets/minds/h1.raw.txt) but the common garden judges a 30-genome mixture; the clone-colony judge was never run. The harness has no crossover although the fixed scaffold exists to allow it (dead-ends D4). Mutation-rate sweep the owner asked for (2026-10-21) never run.
+- **Ranked fixes:** no-reset 1.2M world or inherited bed; growing headcount band; lower mutation + protected lesson slots; recombination per scorer unit; lexicase/Pareto parent pick instead of adaptive weights; judge = common garden + clone colony + lab game. Owner question raised: nest as refuge in physics (night cold outside, warmth sense exists).
+- **Local test (12 seeds, hA1, 6x200k, arms scoreM/randM/score0/rand0 + common garden):** scripts in the folder; result appended there when done. A 200k round runs in ~15 s on this box.
+- Compute branch head 98ad9dc4; main is 107 commits ahead and restructures mind::tick, so the Teacher lane has not merged it (their note 13:50Z).
+
+**Why:** the next reviewer or the Teacher lane should not redo the reading. **How to apply:** see [[teacher-lane]], [[inrun-selection]], [[dig-loss]], [[inrun-batches-day2]].
+
+- **Owner ruling 2026-10-22 14:01Z: "The goal doesn't have to be a single brain"; save multiple brains.** Ship the trained population (the final round's pool), not one champion. "One brain" still means no castes / hand-made roles. Follow-ons: the game's births should draw from the saved pool (mind::inherit copies the parent unchanged today); judge the mixture (common garden) and whether it persists (lines left at round 20); diversity in training (family cap, crossover, lexicase) becomes a goal. Report §2d updated.
+
+- **14:30Z state.** Mutation test done (12 seeds, hA1): random parents + standard mutation wreck everything in 6 rounds (cuts 201->26); score selection with NO mutation reaches only 394 food vs 3,934 but starves 0.3 vs 7.1 of 24 -> the gain needs mutation, the starvation is mutational damage to the hungry lesson. Teacher lane 64 seeds agrees: whole-genome low mutation cuts 244 vs 130, starved 3.0 vs 4.9, but 20/64 extinct vs 8; long 1.2M world WORSE (static nest = nothing to dig; the late game must be demand, not time).
+- **Patch** /mnt/project-files/colony-training-review/inrun-switches-vs-65ab126b.patch (examples/inrun.rs, applies at 65ab126b/98ad9dc4): grow_band=F:HI, cross=P, pick=lexicase, lesson=PATH:F. Off = byte-identical. Caveat: hA1 differs from c1 on 1,081/2,790 slots so lesson=c1:0.1 is also a ~75% overall rate cut. 12-seed test of all four vs standard running 14:25Z (scratchpad fixes/; summary appended to the hand-off file).
+- **Owner Q on adaptive mutation (14:21Z), answered:** different rates for different jobs (teacher pass: mutation off; selection: per-slot). Order: protected lesson slots -> self-adaptive rate gene (one inherited slot, ES style; fits the pool goal) -> one-fifth rule as readout only (68% children below parent reads "fine" under it, so it would miss lesson damage); CMA-ES too heavy.
+- **15:00Z fix test (12 seeds vs standard):** protected lesson slots (lesson=c1:0.1) starved 3.0 vs 7.1 (fewer 6/8 paired), cuts 230 vs 128, extinctions equal, food median 1,114 vs 3,934 (lower 5/8). Crossover: food up, starvation 4.0, but digging wrecked (45 cuts, 5/11 colonies <20). Growing band: 4/12 extinct, no dig gain. Lexicase: = control, no weights. Recommended to Teacher lane: lesson= at 64 seeds (0.1, 0.3, tighter mask, +cross). Files: /mnt/project-files/colony-training-review/fixes-12seeds-*.txt.
+- **15:50Z landed:** report + patch + hand-off + raw rows pushed as Reports/colony-training-review-2026-10-22.md (+ folder) on branch claude/project-thread-a2u2g4, PR #823 MERGED to main a9aecc4 at 16:44Z (docs only). Owner rule 15:37Z via coordinator: never leave work parked on a branch; land reports in Reports/ through the merge desk.

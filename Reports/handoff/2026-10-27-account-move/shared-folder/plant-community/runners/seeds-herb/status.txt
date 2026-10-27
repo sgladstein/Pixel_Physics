@@ -1,0 +1,5 @@
+started 2026-10-22T06:05:49Z name=seeds-herb species=herb seed=1 host=vm cores=4
+built 2026-10-22T06:10:20Z
+score run done 2026-10-22T06:27:20Z
+random run done 2026-10-22T06:43:38Z
+finished 2026-10-22T06:44:53Z

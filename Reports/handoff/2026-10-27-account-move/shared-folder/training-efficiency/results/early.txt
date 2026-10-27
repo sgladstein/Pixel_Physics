@@ -1,0 +1,37 @@
+colsel3-1022      cs3lexlesinh  vs cs3lex     nest     r15: idea 52->220  ctl 56->58 | vs ctl +1 (p 0.000)  alone +1  ctl drift +0
+colsel3-1022      cs3lexlesinh  vs cs3lex     starved  r15: idea 5->0  ctl 4->5 | vs ctl +1 (p 0.000)  alone +1  ctl drift +0
+colsel8-1022      cs8hcs        vs cs8hA1     starved  r31: idea 1->0  ctl 8->3 | vs ctl +1 (p 0.000)  alone +0  ctl drift +1
+colsel8-1022      cs8hcs        vs cs8hA1     nest     r31: idea 8->50  ctl 21->6 | vs ctl +1 (p 0.004)  alone +1  ctl drift +0
+colsel9b-1022     cs9joincr     vs cs9hcs     nest     r31: idea 7->69  ctl 7->50 | vs ctl +0 (p 0.526)  alone +1  ctl drift +1
+colsel9b-1022     cs9joincr     vs cs9hcs     home8    r31: idea 746->2019  ctl 649->1995 | vs ctl +0 (p 0.253)  alone +1  ctl drift +1
+colsel15-1023     cs15roof      vs cs15ctl    nest     r47: idea 187->143  ctl 29->19 | vs ctl +1 (p 0.000)  alone +0  ctl drift +0
+colsel15-1023     cs15roof      vs cs15ctl    crater   r47: idea 4->1  ctl 84->14 | vs ctl +1 (p 0.000)  alone +1  ctl drift +1
+colsel15-1023     cs15both      vs cs15ctl    nest     r47: idea 165->189  ctl 29->19 | vs ctl +1 (p 0.000)  alone +0  ctl drift +0
+colsel15-1023     cs15both      vs cs15ctl    crater   r47: idea 2->0  ctl 66->14 | vs ctl +1 (p 0.000)  alone +1  ctl drift +1
+colsel20-1023     cs20light     vs cs20wean   nest     r47: idea 54->322  ctl 40->71 | vs ctl +1 (p 0.000)  alone +1  ctl drift +0
+colsel23-1023     cs23inh       vs cs23ctl    nest     r47: idea 44->102  ctl 68->202 | vs ctl -1 (p 0.025)  alone +1  ctl drift +0
+brood1b-1023      brood1crutch  vs brood1ctl  crater   r31: idea 186->18  ctl 180->4 | vs ctl -1 (p 0.000)  alone +1  ctl drift +1
+brood1b-1023      brood1crutch  vs brood1ctl  nest     r31: idea 84->131  ctl 76->186 | vs ctl +0 (p 0.899)  alone +1  ctl drift +1
+broodplant1c-1024 bp1           vs bp1pile    starved  r31: idea 126->16  ctl 134->2 | vs ctl -1 (p 0.000)  alone +1  ctl drift +1
+broodplant1c-1024 bp1           vs bp1pile    nest     r31: idea 67->254  ctl 74->184 | vs ctl +1 (p 0.033)  alone +1  ctl drift +1
+stdcheck-1024b    stdoff        vs stdwean    nest     r15: idea 326->504  ctl 400->430 | vs ctl +1 (p 0.023)  alone +1  ctl drift +0
+farfood1-1024     farramp       vs farctl     nest     r23: idea 607->248  ctl 658->559 | vs ctl -1 (p 0.000)  alone -1  ctl drift +0
+missing farfood2-1024 ramp2far ramp2
+colsel3-1022      cs3lexlesinh  nest     final r15 +1  stable from r9  calls ....++++  |dz| 1.17 need N 12
+colsel3-1022      cs3lexlesinh  starved  final r15 +1  stable from r11  calls .....+++  |dz| 0.95 need N 10
+colsel8-1022      cs8hcs        starved  final r31 +1  stable from r1  calls ++++++++++++++++  |dz| 0.69 need N 24
+colsel8-1022      cs8hcs        nest     final r31 +1  stable from r19  calls .....-...+++++++  |dz| 0.50 need N 48
+colsel9b-1022     cs9joincr     nest     final r31 +0  stable from r29  calls ...+.+...-.-.+..  |dz| 0.21 need N None
+colsel9b-1022     cs9joincr     home8    final r31 +0  stable from r29  calls ..----.......-..  |dz| 0.21 need N None
+colsel15-1023     cs15roof      nest     final r47 +1  stable from r1  calls ++++++++++++++++++++++++  |dz| 1.75 need N 6
+colsel15-1023     cs15roof      crater   final r47 +1  stable from r1  calls ++++++++++++++++++++++++  |dz| 1.24 need N 10
+colsel15-1023     cs15both      nest     final r47 +1  stable from r1  calls ++++++++++++++++++++++++  |dz| 1.60 need N 6
+colsel15-1023     cs15both      crater   final r47 +1  stable from r1  calls ++++++++++++++++++++++++  |dz| 1.07 need N 10
+colsel20-1023     cs20light     nest     final r47 +1  stable from r31  calls ...+++.+++++++.+++++++++  |dz| 1.56 need N 10
+colsel23-1023     cs23inh       nest     final r47 -1  stable from r1  calls ------------------------  |dz| 0.74 need N 56
+brood1b-1023      brood1crutch  crater   final r31 -1  stable from r23  calls ...--.--.-.-----  |dz| 0.49 need N 24
+brood1b-1023      brood1crutch  nest     final r31 +0  stable from r25  calls ......+..+++....  |dz| 0.06 need N None
+broodplant1c-1024 bp1           starved  final r31 -1  stable from r13  calls ...--.----------  |dz| 0.26 need N 16
+broodplant1c-1024 bp1           nest     final r31 +1  stable from r31  calls ...+.++.++..-..+  |dz| 0.32 need N None
+stdcheck-1024b    stdoff        nest     final r15 +1  stable from r13  calls .--...++  |dz| 0.35 need N None
+farfood1-1024     farramp       nest     final r23 -1  stable from r23  calls ..-.-....+.-  |dz| 0.82 need N 40

@@ -1,0 +1,37 @@
+plantrain rungs: species=creeper,/tmp/m2-hold-from-creeper-wxtE/start.ron,/tmp/m2-hold-from-creeper-wxtE/score_best.ron,/tmp/m2-hold-from-creeper-wxtE/random_best.ron rungs=hold stations=bright layouts=8 base=7000000 threads=4
+  hold bright beside tree at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.86 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    76 p50   103 p75   116 cv 0.28 | rgr/1k p25 0.03 p50 0.04 p75 0.04
+             own score 2.99 | neighbour score 3.00 end shoot p50  1568 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/start.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   121 p50   136 p75   153 cv 0.16 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1483 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   120 p50   140 p75   184 cv 0.26 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.00 | neighbour score 3.00 end shoot p50  1829 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   105 p50   116 p75   131 cv 0.19 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50  1619 flowered 0/8 alive 8/8
+  hold bright beside shrub at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.83 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    91 p50   109 p75   116 cv 0.18 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.00 end shoot p50   496 flowered 8/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/start.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   122 p50   130 p75   141 cv 0.13 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.83 end shoot p50   267 flowered 8/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   123 p50   134 p75   154 cv 0.22 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.53 end shoot p50   261 flowered 8/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   107 p50   125 p75   131 cv 0.16 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.84 end shoot p50   328 flowered 8/8 alive 8/8
+  hold bright beside herb at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 3.29 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25    91 p50   107 p75   110 cv 0.22 | rgr/1k p25 0.04 p50 0.04 p75 0.04
+             own score 3.00 | neighbour score 3.80 end shoot p50   230 flowered 7/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/start.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   122 p50   145 p75   149 cv 0.15 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.80 end shoot p50   242 flowered 8/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   122 p50   141 p75   187 cv 0.22 | rgr/1k p25 0.05 p50 0.05 p75 0.06
+             own score 3.00 | neighbour score 3.80 end shoot p50   219 flowered 6/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   104 p50   134 p75   146 cv 0.24 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.72 end shoot p50   226 flowered 7/8 alive 7/8
+  hold bright beside creeper at 12 (width 56 frames 40000 n_est 20 lamp 1 rain Light soil 1): 2.69 core-s a bed
+    creeper  germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   104 p50   111 p75   118 cv 0.15 | rgr/1k p25 0.04 p50 0.04 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    86 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/start.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   123 p50   138 p75   152 cv 0.13 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    84 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/score_best.ron germ  8/8 est  8/8 est@ p50    750 | end shoot p25   122 p50   133 p75   151 cv 0.23 | rgr/1k p25 0.05 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 2.97 end shoot p50    74 flowered 0/8 alive 8/8
+    /tmp/m2-hold-from-creeper-wxtE/random_best.ron germ  8/8 est  8/8 est@ p50   1000 | end shoot p25   100 p50   122 p75   136 cv 0.20 | rgr/1k p25 0.04 p50 0.05 p75 0.05
+             own score 3.00 | neighbour score 3.00 end shoot p50    83 flowered 0/8 alive 8/8

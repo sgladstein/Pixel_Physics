@@ -1,0 +1,35 @@
+keeperlook: arm=sketch scenario=nest_goal seed=2 start=12000 frames=18000 far=150 new_ant=true (ANT BRAIN: TRAINED -- 0 ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL))
+  14 of 14 colony ants think with a trained mind
+  nest at column 236, surface y 158; far heap at column 86 (136 cells); 14 ants
+  sketch: 268 cells cut by hand_dig (lined), 271 open
+    scent: B at trail middle (161,159) 0 | B at far end 0 | alarm at puff 233
+  f+    0: ants  14 | digs     0 (dug cells     0) | sketch open  271/271 | cut beside sketch    0 | ants near puff (ant-ticks)      3 | corridor ant-ticks       2 | room ant-ticks      0 | far food 136
+    scent: B at trail middle (161,159) 0 | B at far end 0 | alarm at puff 1983
+  f+  100: ants  14 | digs     1 (dug cells     1) | sketch open  268/271 | cut beside sketch    2 | ants near puff (ant-ticks)    242 | corridor ant-ticks     202 | room ant-ticks      0 | far food 124
+    scent: B at trail middle (161,159) 0 | B at far end 0 | alarm at puff 211
+  f+  300: ants  14 | digs     2 (dug cells     2) | sketch open  270/271 | cut beside sketch    2 | ants near puff (ant-ticks)    803 | corridor ant-ticks     688 | room ant-ticks      0 | far food 124
+    scent: B at trail middle (161,159) 8 | B at far end 0 | alarm at puff 0
+  f+ 1500: ants  15 | digs     5 (dug cells     5) | sketch open  270/271 | cut beside sketch    3 | ants near puff (ant-ticks)   1760 | corridor ant-ticks    6000 | room ant-ticks      0 | far food 113
+    scent: B at trail middle (161,159) 1980 | B at far end 0 | alarm at puff 0
+  f+ 3000: ants  19 | digs    20 (dug cells    18) | sketch open  268/271 | cut beside sketch    4 | ants near puff (ant-ticks)   6499 | corridor ant-ticks   14951 | room ant-ticks      0 | far food 113
+    scent: B at trail middle (161,159) 11 | B at far end 219 | alarm at puff 3093
+  f+ 4500: ants  27 | digs    32 (dug cells    29) | sketch open  267/271 | cut beside sketch    6 | ants near puff (ant-ticks)  19977 | corridor ant-ticks   24187 | room ant-ticks      0 | far food 101
+    scent: B at trail middle (161,159) 9423 | B at far end 18549 | alarm at puff 0
+  f+ 6000: ants  31 | digs    52 (dug cells    49) | sketch open  265/271 | cut beside sketch    5 | ants near puff (ant-ticks)  26223 | corridor ant-ticks   41676 | room ant-ticks      0 | far food  78
+    scent: B at trail middle (161,159) 3055 | B at far end 8362 | alarm at puff 0
+  f+ 7500: ants  30 | digs    69 (dug cells    66) | sketch open  260/271 | cut beside sketch    6 | ants near puff (ant-ticks)  28173 | corridor ant-ticks   60360 | room ant-ticks      0 | far food  57
+    scent: B at trail middle (161,159) 1199 | B at far end 2062 | alarm at puff 139
+  f+ 9000: ants  26 | digs    84 (dug cells    81) | sketch open  254/271 | cut beside sketch    8 | ants near puff (ant-ticks)  32895 | corridor ant-ticks   74806 | room ant-ticks      0 | far food  39
+    scent: B at trail middle (161,159) 13598 | B at far end 1824 | alarm at puff 1971
+  f+10500: ants  19 | digs    99 (dug cells    96) | sketch open  254/271 | cut beside sketch   10 | ants near puff (ant-ticks)  36370 | corridor ant-ticks   88170 | room ant-ticks    916 | far food  22
+    scent: B at trail middle (161,159) 2021 | B at far end 2453 | alarm at puff 0
+  f+12000: ants  31 | digs   118 (dug cells   115) | sketch open  238/271 | cut beside sketch   20 | ants near puff (ant-ticks)  40282 | corridor ant-ticks  100375 | room ant-ticks   1936 | far food  14
+    scent: B at trail middle (161,155) 12 | B at far end 6221 | alarm at puff 5281
+  f+13500: ants  35 | digs   141 (dug cells   135) | sketch open  226/271 | cut beside sketch   28 | ants near puff (ant-ticks)  46112 | corridor ant-ticks  116566 | room ant-ticks   3801 | far food   1
+    scent: B at trail middle (161,159) 805 | B at far end 2780 | alarm at puff 0
+  f+15000: ants  27 | digs   168 (dug cells   166) | sketch open  228/271 | cut beside sketch   30 | ants near puff (ant-ticks)  49385 | corridor ant-ticks  132955 | room ant-ticks   3855 | far food   0
+    scent: B at trail middle (161,159) 0 | B at far end 2469 | alarm at puff 0
+  f+16500: ants  17 | digs   175 (dug cells   173) | sketch open  228/271 | cut beside sketch   30 | ants near puff (ant-ticks)  49539 | corridor ant-ticks  140936 | room ant-ticks   3855 | far food   0
+    scent: B at trail middle (161,159) 0 | B at far end 25 | alarm at puff 0
+  f+18000: ants  12 | digs   177 (dug cells   175) | sketch open  227/271 | cut beside sketch   32 | ants near puff (ant-ticks)  49539 | corridor ant-ticks  142231 | room ant-ticks   3855 | far food   0
+  wrote /tmp/claude-0/-home-user-Pixel-Physics/247fdf2f-dd86-5ed2-9626-5e51e17ef6b4/scratchpad/look/v2-sketch-s2.gif (151 frames)

@@ -1,0 +1,5 @@
+started 2026-10-22T00:33:07Z name=hold-tree species=tree seed=1 host=vm cores=4
+built 2026-10-22T00:37:09Z
+score run done 2026-10-22T01:01:06Z
+random run done 2026-10-22T01:23:45Z
+finished 2026-10-22T01:25:13Z

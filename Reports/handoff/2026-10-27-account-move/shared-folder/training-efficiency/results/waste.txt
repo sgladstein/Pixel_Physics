@@ -1,0 +1,19 @@
+training colony-rounds 208847 garden runs 83410
+in-run era colony-rounds 30927 colony era 177920
+  dup broodplant1c-1024/bp1pile: 2048 colony-rounds
+  dup colsel10-1022/cs10std: 2048 colony-rounds
+  dup colsel23-1023/cs23ctl: 3072 colony-rounds
+  dup colsel4-1022/cs4inh: 1024 colony-rounds
+  dup colsel4-1022/cs4inhsp: 2048 colony-rounds
+  dup colsel9b-1022/cs9hcs: 2048 colony-rounds
+  dup oldref-1022/kid3: 314 colony-rounds
+  dup strict-1022/st0: 314 colony-rounds
+  dup gate2-1022/ctl: 302 colony-rounds
+  dup ha1next-1022/hA1c: 360 colony-rounds
+  dup body-1022/hA1c: 360 colony-rounds
+  dup shortr-1022/hA1r200: 360 colony-rounds
+  dup needdrop-1022/hA1off: 64 colony-rounds
+  dup nob-1022/hA1off: 64 colony-rounds
+  dup ha1next-1022/hA1hg3: 331 colony-rounds
+duplicate colony-rounds 14757 of 208847 = 7.1%; colony-era duplicate cpu 87 h of 1114 h = 7.8%
+fresh control arms (colony era): 131 cpu-h = 11.7%

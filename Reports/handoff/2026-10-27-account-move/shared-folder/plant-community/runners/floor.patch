@@ -1,0 +1,139 @@
+From aa395ca7eafd469b3ba265fdd81ecd649f8b08c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 02:40:12 +0000
+Subject: [PATCH] Rung 4: the founder's whole score shrinks once its neighbour
+ is below half its usual size
+
+The difference term alone let crowding pay: on the log size scale a
+founder that doubles itself gains about what it loses for halving its
+neighbour, so the rung-2 re-fits (a shrub beside the shrub re-fit ends at
+21 cells against 367) beat shipped on rung 4 and selection from them moved
+nothing. hold_score is now multiplied by min(1, kept / 0.5), kept being
+the neighbour's end shoot against its size beside the control -- still
+graded, a quarter of its size halves the score.
+
+Measured with `plantrain mode=rungs rungs=hold` (12 layouts, beside every
+role), floored hold score, shipped -> rung-2 re-fit -> rung-4 champion from
+shipped: tree 2.07 -> 1.94 -> 2.09, shrub 2.76 -> 3.00 -> 3.37, herb
+3.57 -> 3.36 -> 3.58, creeper 2.23 -> 2.13 -> 2.27. The re-fits fall to or
+below shipped except the shrub; the tree's rung-4 random champion (which
+took a herb from 7 flowerings in 8 to 3) drops to 1.43. Shipped beds under
+the floor: 3-8 of 48 per role, the noise the floor adds to the control.
+`plantrain mode=rungs` now prints the floored hold score per arm.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MeoGuLUW4DRUotF7ECUSrv
+---
+ examples/plantrain.rs    | 27 +++++++++++++++++++++++++++
+ src/train_plant/score.rs | 33 ++++++++++++++++++++++++++++++++-
+ 2 files changed, 59 insertions(+), 1 deletion(-)
+
+diff --git a/examples/plantrain.rs b/examples/plantrain.rs
+index c577e0ff8..860932284 100644
+--- a/examples/plantrain.rs
++++ b/examples/plantrain.rs
+@@ -216,6 +216,19 @@ fn rungs(m: &BTreeMap<String, String>) {
+             let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
+             let with = nb.map_or(String::new(), |nb| format!(" beside {} at {}", nb.species, nb.gap));
+             println!("  {} {}{with} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
++            // Rung 4's yardstick, from the first species named (as the
++            // trainer takes it from the control), so each row below can be
++            // read as the score selection sees it.
++            let yard = nb.map(|_| {
++                let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len().max(1) as f32;
++                let nbs: Vec<&arena::Census> = rows[0].iter().filter_map(|c| c.neighbour.as_deref()).collect();
++                let nb_end = mean(nbs.iter().map(|c| c.end_shoot as f32).collect());
++                score::Yardstick {
++                    own_end: mean(rows[0].iter().map(|c| c.end_shoot as f32).collect()),
++                    nb_end,
++                    nb_score: mean(nbs.iter().map(|c| score::sized_score(c, &k, nb_end)).collect()),
++                }
++            });
+             for (sp, cs) in species.iter().zip(&rows) {
+                 let germ = cs.iter().filter(|c| c.germinated).count();
+                 let est: Vec<f32> = cs.iter().filter_map(|c| c.established_at.map(|f| f as f32)).collect();
+@@ -259,6 +272,20 @@ fn rungs(m: &BTreeMap<String, String>) {
+                         nb_score.iter().sum::<f32>() / nbs.len().max(1) as f32,
+                         q(&nb_end, 0.5)
+                     );
++                    // The trainer's score, and how many beds left the
++                    // neighbour under the floor (scaled) or under a tenth
++                    // of its usual size.
++                    let y = yard.expect("a hold bed has a yardstick");
++                    let held: Vec<f32> = cs.iter().map(|c| score::hold_score(c, &k, &y)).collect();
++                    let kept: Vec<f32> = cs.iter().map(|c| score::neighbour_kept(c, &y)).collect();
++                    let tenth = nbs.iter().filter(|c| (c.end_shoot as f32) < 0.1 * y.nb_end).count();
++                    println!(
++                        "    {:<8} hold score {:.2} | neighbour under the floor {}/{n} (kept p25 {:.2}) under a tenth {tenth}/{n}",
++                        "",
++                        held.iter().sum::<f32>() / n.max(1) as f32,
++                        kept.iter().filter(|&&f| f < 1.0).count(),
++                        q(&kept, 0.25)
++                    );
+                 }
+             }
+         }
+diff --git a/src/train_plant/score.rs b/src/train_plant/score.rs
+index 05a2a2b2f..d4c4710e3 100644
+--- a/src/train_plant/score.rs
++++ b/src/train_plant/score.rs
+@@ -77,10 +77,34 @@ pub const GROW_CAP: f32 = 8.0;
+ /// does better earns nothing: helping is not this rung's job. Graded rather
+ /// than a floor that rejects, so a candidate that crowds its neighbour a
+ /// little loses a little. Never below 0.
++///
++/// **And the whole score shrinks once the neighbour is below
++/// [`NEIGHBOUR_FLOOR`] of its usual size.** The difference alone was too
++/// weak (2026-10-22, `Reports/plant-community-2026-10-20/m2/hold/`): on the
++/// log scale a founder that doubles itself gains about what it loses for
++/// halving its neighbour, so the rung-2 re-fits -- which take a shrub beside
++/// them from 367 cells to 21 -- already beat shipped here, and twelve
++/// generations of rung-4 selection from them moved nothing. Below the floor
++/// the score is multiplied by `kept / floor`, so it is still graded: a
++/// neighbour kept at a quarter of its size halves the score, one smothered
++/// to a twentieth all but zeroes it.
+ pub fn hold_score(c: &Census, k: &Constants, y: &Yardstick) -> f32 {
+     let own = sized_score(c, k, y.own_end);
+     let nb = c.neighbour.as_deref().map_or(y.nb_score, |n| sized_score(n, k, y.nb_end));
+-    (own - (y.nb_score - nb).max(0.0)).max(0.0)
++    (own - (y.nb_score - nb).max(0.0)).max(0.0) * neighbour_kept(c, y)
++}
++
++/// The share of its usual size below which a rung-4 neighbour's loss
++/// scales the founder's whole score ([`hold_score`]).
++pub const NEIGHBOUR_FLOOR: f32 = 0.5;
++
++/// `min(1, kept / NEIGHBOUR_FLOOR)`, where `kept` is the neighbour's end
++/// shoot against `y.nb_end`; 1 with no neighbour.
++pub fn neighbour_kept(c: &Census, y: &Yardstick) -> f32 {
++    c.neighbour.as_deref().map_or(1.0, |n| {
++        let kept = n.end_shoot as f32 / y.nb_end.max(1.0);
++        (kept / NEIGHBOUR_FLOOR).min(1.0)
++    })
+ }
+ 
+ pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
+@@ -221,6 +245,7 @@ mod tests {
+             established_at: Some(1_000),
+             first_flower: flowered.then_some(5_000),
+             shoot_at_first_flower: 100,
++            end_shoot: 200,
+             ..Census::default()
+         };
+         let beside = |nb: Census| Census { neighbour: Some(Box::new(nb)), ..life(true) };
+@@ -232,6 +257,12 @@ mod tests {
+         assert!(alone > stunted && stunted > killed, "graded by how much of its life the neighbour lost: {alone} {stunted} {killed}");
+         assert!(killed >= 0.0);
+         assert_eq!(hold_score(&beside(life(true)), &k, &Yardstick { nb_score: y.nb_score - 1.0, ..y }), alone, "a neighbour doing better earns nothing");
++        // The floor: a neighbour as well off in score but smothered in size
++        // scales the whole score, graded below the floor.
++        let shrunk = |end: u32| hold_score(&beside(Census { end_shoot: end, ..life(true) }), &k, &y);
++        assert_eq!(shrunk(100), alone, "at the floor nothing is taken");
++        assert!(shrunk(100) > shrunk(50) && shrunk(50) > shrunk(10) && shrunk(10) > 0.0, "graded below it");
++        assert!((shrunk(50) - alone / 2.0).abs() < 1e-5, "a quarter of its size halves the score");
+         // A perennial that has not flowered is paid its size, not pinned at
+         // the top of the step as `bed_score` pins it.
+         let tree = |end: u32| Census { end_shoot: end, peak_shoot: end, ..life(false) };
+-- 
+2.43.0
+

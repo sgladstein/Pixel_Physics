@@ -1,0 +1,169 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Keeper Seat Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column of field notes from a formicarium; the film and chart break wider. */
+:root {
+  --bg: #f3f1ea; --panel: #e8e4d8; --fg: #23211c; --muted: #5f5a4e;
+  --soil: #7a5634; --road: #2f7d6b; --listen: #3f8f3a; --off: #b4762c; --none: #8a8577;
+  --rule: #cfc8b6;
+  --display: "Bitter", Georgia, serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #191813; --panel: #24221b; --fg: #ece7da; --muted: #a59f8f;
+  --soil: #c08a58; --road: #5fc2aa; --listen: #7fcf74; --off: #e0a45a; --none: #9b968a; --rule: #3a372d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #191813; --panel: #24221b; --fg: #ece7da; --muted: #a59f8f;
+  --soil: #c08a58; --road: #5fc2aa; --listen: #7fcf74; --off: #e0a45a; --none: #9b968a; --rule: #3a372d; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 17px/1.55 var(--body); }
+main { max-width: 980px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 34px; }
+.col { max-width: 68ch; display: grid; gap: 12px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: 2.1rem; }
+h2 { font-size: 1.35rem; }
+p { margin: 0; }
+.lede { font-size: 1.12rem; }
+.eyebrow { font: 600 0.78rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--soil); }
+code, kbd { font-family: var(--mono); font-size: 0.86em; }
+kbd { border: 1px solid var(--rule); background: var(--panel); border-radius: 4px; padding: 1px 6px; }
+.keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; align-items: baseline; }
+.film { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.film figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+.film img { width: 100%; image-rendering: pixelated; border: 1px solid var(--rule); background: #000; }
+.film figcaption { font-size: 0.92rem; color: var(--muted); }
+.film figcaption b { color: var(--fg); }
+.tag { font: 600 0.75rem/1 var(--mono); letter-spacing: 0.05em; padding: 3px 7px; border-radius: 3px; display: inline-block; color: var(--bg); }
+.t-none { background: var(--none); } .t-off { background: var(--off); } .t-on { background: var(--listen); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 560px; font-size: 0.95rem; }
+th, td { text-align: right; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
+th:first-child, td:first-child { text-align: left; }
+th { font: 600 0.78rem/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.chart { width: 100%; max-width: 100%; }
+.chart text { fill: var(--muted); font: 12px var(--mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.92rem; }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; background: currentColor; }
+.l-none { color: var(--none); } .l-off { color: var(--off); } .l-on { color: var(--listen); }
+.note { border-left: 3px solid var(--soil); padding-left: 14px; color: var(--muted); }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+@media (max-width: 720px) { .film { grid-template-columns: 1fr; } h1 { font-size: 1.7rem; } }
+</style>
+
+<main>
+  <header class="col">
+    <div class="eyebrow">Seat demo · the keeper (gardener) · 2026-10-25</div>
+    <h1>Keeper Seat Demo</h1>
+    <p class="lede">You are a hand over the formicarium, not an ant. Carry trained ants out to a far food station and the colony's road to it gets busier and the colony grows. The more ants you carry, the bigger the change. A switch on screen turns on a scripted "listening" that makes taught ants lean toward the food they remember. It adds to the effect, and it is labelled as the one fake.</p>
+  </header>
+
+  <section class="col">
+    <h2>How to play</h2>
+    <p><code>cargo run --release --bin lab -- demo=keeper</code>. The box opens paused at frame 6,000. The colony landed at the west end and has had time to dig a first chamber. Food arrives three ways:</p>
+    <ul>
+      <li>a small ration inside the nest (3 cells per 1,000 frames, less than the colony eats);</li>
+      <li>a green-ringed station about 280 columns east, kept topped up so it never runs dry;</li>
+      <li>whatever you add with the lab's own FOOD brush.</li>
+    </ul>
+    <div class="keys">
+      <kbd>Y</kbd><span><b>Carry.</b> Press on an ant and release where it should go. If you set it down within 12 cells of food that isn't at home, it remembers that food.</span>
+      <kbd>U</kbd><span><b>Treat.</b> Click an ant to put a mouthful of provisions in its crop. Away from home, it also remembers the place.</span>
+      <kbd>P</kbd><span><b>Listening.</b> Turns the scripted gain on and off. Off is today's ant, and the panel always says which arm is live.</span>
+      <kbd>J</kbd><span><b>Overlay.</b> Cycles off, then <i>who knows</i> (a white ring for ants taught by your hand, amber fed once, red fed twice, grey asleep), then <i>traffic</i> (where heads have been).</span>
+    </div>
+    <p>The panel under the frame counter shows the counts: visits to the station, food carried home from it, the first delivery's frame, how many ants know it, your carries and treats, and how many times a place was passed on mouth to mouth.</p>
+  </section>
+
+  <section class="col" style="max-width:none">
+    <h2>The film: one seed, three hands</h2>
+    <p class="col" style="max-width:68ch">Seed 11 runs from the moment the demo opens (frame 6,000) to frame 30,000, with the traffic overlay on and one picture every 600 frames. I chose seed 11 because its differences sit near the 12-seed medians, slightly under them. In two of the three runs, 19 ants are carried to the station at the opening frame.</p>
+    <div class="film">
+      <figure><img src="none.gif" alt="Lab box, nobody carried: a road to the far station forms on its own"><figcaption><span class="tag t-none">NOBODY CARRIED</span><br><b>268</b> station visits, <b>34</b> cells home, <b>88</b> ants at the end. The colony finds the station by itself, with its first delivery at frame 10,362.</figcaption></figure>
+      <figure><img src="off.gif" alt="Lab box, 19 ants carried, listening off"><figcaption><span class="tag t-off">19 CARRIED · LISTENING OFF</span><br><b>323</b> visits, <b>42</b> cells home, <b>138</b> ants. This is today's ant: carried ants feed at the station, walk the food home and come back.</figcaption></figure>
+      <figure><img src="on.gif" alt="Lab box, 19 ants carried, listening on"><figcaption><span class="tag t-on">19 CARRIED · LISTENING ON</span><br><b>391</b> visits, <b>58</b> cells home, <b>148</b> ants. The first delivery comes at frame 8,436.</figcaption></figure>
+    </div>
+    <p class="note col" style="max-width:68ch">The three overlays look much alike, because the untaught colony also builds a road to the station. The difference shows in the counts and in the size of the colony, not in the shape of the road. At 1x the whole box is in view and ants are a few pixels long; in the app you zoom in.</p>
+  </section>
+
+  <section class="col" style="max-width:none">
+    <h2>Twelve seeds: station visits after the box opens</h2>
+    <div class="legend"><span class="l-none">nobody carried</span><span class="l-off">~17 carried, listening off</span><span class="l-on">~17 carried, listening on</span></div>
+    <svg class="chart" id="chart" viewBox="0 0 900 300" role="img" aria-label="Median station visits since the demo opened, by arm, frames 6,000 to 30,000"></svg>
+    <p class="col" style="max-width:68ch;color:var(--muted);font-size:0.92rem">These are medians of 12 seeds, read every 1,500 frames. The scripted hand asked for 20 ants and lifted 7 to 20 (median 16.5): only ants that are not stacked on another ant can be lifted.</p>
+  </section>
+
+  <section class="col">
+    <h2>How much you teach decides how much changes</h2>
+    <p>Each row compares two arms on the same seed, over the 24,000 frames after the demo opens. "Up" counts the seeds where the first arm beat the second.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Comparison</th><th>Ants carried</th><th>Station visits</th><th>Up</th><th>Cells home</th><th>Up</th></tr></thead>
+      <tbody>
+        <tr><td>Carried, listening off − nobody</td><td>3</td><td>−17</td><td>4/12</td><td>−7</td><td>3/12</td></tr>
+        <tr><td>Carried, listening off − nobody</td><td>10</td><td>+52</td><td>10/12</td><td>+1.5</td><td>6/12</td></tr>
+        <tr><td>Carried, listening off − nobody</td><td>~17</td><td>+105.5</td><td>10/12</td><td>+15.5</td><td>9/12</td></tr>
+        <tr><td>Listening on − off, same carry</td><td>3</td><td>+36.5</td><td>9/12</td><td>+8.5</td><td>9/12</td></tr>
+        <tr><td>Listening on − off, same carry</td><td>10</td><td>+12</td><td>6/12</td><td>+13.5</td><td>9/12</td></tr>
+        <tr><td>Listening on − off, same carry</td><td>~17</td><td>+89</td><td>9/12</td><td>+3.5</td><td>8/12</td></tr>
+      </tbody>
+    </table></div>
+    <p>Median ants alive at frame 30,000:</p>
+    <ul>
+      <li>120 with nobody carried;</li>
+      <li>122, 146 and 168 with 3, 10 and ~17 carried, listening off;</li>
+      <li>134, 152 and 184 with listening on.</li>
+    </ul>
+    <p>Digging rose with colony size in every arm, and starvation stayed flat.</p>
+  </section>
+
+  <section class="col">
+    <h2>What is scripted and what is the ant</h2>
+    <ul>
+      <li><b>Carry and treat are real verbs on the trained ant.</b> Carry moves the ant's body. Treat is a real meal, booked as food the player made. Neither writes behaviour; the ant does the rest.</li>
+      <li><b>Listening is the one fake.</b> It applies only to ants your hand taught (or that were fed the place), and only when they are carrying nothing. Each Walk target's pull is multiplied by <code>exp(6 × FOOD_WAY)</code> after the brain has already chosen to walk. It never changes whether an ant digs, eats or feeds. The trained pool cannot use the sense itself yet, because its weight on that sense was zeroed when the sense was added. Off, it is byte-identical to main (merged as PR #907).</li>
+      <li><b>The meal copy is counted but does nothing you can see.</b> A taught ant that feeds a nestmate passes the place on at half strength. Copy strength 0, 0.25, 0.5 and 0.75 all gave the same traffic. The share of ants that "know" never rises past the ones your hand taught, because a second-hand place is weak and the next stray bite puts it to sleep. It stays on as neutral.</li>
+      <li><b>The warm-up hides the landing.</b> About 30 of the 52 founders starve by frame 3,000 on every landing tried, <code>nest_goal</code>'s own included. The demo opens after that.</li>
+    </ul>
+  </section>
+
+  <section class="col">
+    <h2>What tracing individual ants showed</h2>
+    <ul>
+      <li>Taught ants spend 67 to 70% of their time carrying food. The scripted tilt never acts while they carry.</li>
+      <li>When a taught ant is empty, it chooses to walk in 97 to 98% of its decisions. The verb was never the bottleneck.</li>
+      <li>One stray bite on the way home used to erase a lesson for good. Lessons now sleep and wake on the next bite at the taught place.</li>
+      <li>The demo's own bookkeeping costs nothing measurable. On the same colony it ran at 0.92 to 1.27 ms a frame with the demo on, against 0.88 to 1.15 ms with it off. A busier demo is slower only because the colony is bigger.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+(function () {
+  var data = {"none":{"f":[6000,7500,9000,10500,12000,13500,15000,16500,18000,19500,21000,22500,24000,25500,27000,28500,30000],"arr":[0,2.5,12,29.5,44.5,58.5,74.5,95.5,116.5,134,157.5,177.5,199,219.5,243,260,284]},
+    "off":{"arr":[0,25,26,49,64.5,86.5,103.5,135,155.5,174.5,201,229,248.5,279,314,339,375]},
+    "on":{"arr":[0,24,29,56,69,97.5,115.5,152.5,180.5,207,233,274.5,307,347.5,392.5,430,478.5]}};
+  var f = data.none.f, svg = document.getElementById("chart"), NS = "http://www.w3.org/2000/svg";
+  var L = 56, R = 880, T = 16, B = 260, ymax = 500;
+  function x(v) { return L + (v - 6000) / 24000 * (R - L); }
+  function y(v) { return B - v / ymax * (B - T); }
+  function el(n, a) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; }
+  [0, 100, 200, 300, 400, 500].forEach(function (v) {
+    el("line", { x1: L, x2: R, y1: y(v), y2: y(v), stroke: "var(--rule)", "stroke-width": 1, fill: "none" });
+    el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end" }).textContent = v;
+  });
+  [6000, 12000, 18000, 24000, 30000].forEach(function (v) {
+    el("text", { x: x(v), y: B + 20, "text-anchor": "middle" }).textContent = "frame " + v.toLocaleString("en-US");
+  });
+  [["none", "var(--none)"], ["off", "var(--off)"], ["on", "var(--listen)"]].forEach(function (s) {
+    var pts = data[s[0]].arr.map(function (v, i) { return x(f[i]) + "," + y(v); }).join(" ");
+    el("polyline", { points: pts, fill: "none", stroke: s[1], "stroke-width": 2.5, "stroke-linejoin": "round" });
+    var last = data[s[0]].arr[data[s[0]].arr.length - 1];
+    el("circle", { cx: x(30000), cy: y(last), r: 4, fill: s[1] });
+  });
+})();
+</script>
+
+</body></html>

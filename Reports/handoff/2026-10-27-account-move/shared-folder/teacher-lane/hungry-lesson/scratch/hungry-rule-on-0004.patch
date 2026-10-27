@@ -1,0 +1,263 @@
+diff --git a/examples/inrun.rs b/examples/inrun.rs
+index 994cb8fa..d870178b 100644
+--- a/examples/inrun.rs
++++ b/examples/inrun.rs
+@@ -635,7 +635,13 @@ fn main() {
+         }
+         if fr % window == 0 {
+             let alive = inrun::ants(&w, sp).len();
+-            println!("frame {fr:7}  alive {alive:3}  {:.1}s", t0.elapsed().as_secs_f64());
++            println!(
++                "frame {fr:7}  alive {alive:3}  {:.1}s  food W {} E {} home {}",
++                t0.elapsed().as_secs_f64(),
++                inrun::food_near(&w, inrun::NEST - dist, 8 + spread),
++                inrun::food_near(&w, inrun::NEST + dist, 8 + spread),
++                inrun::food_near(&w, inrun::NEST, 6)
++            );
+             let mut pf = std::fs::File::create(out.join(format!("ants_f{fr:07}.txt"))).unwrap();
+             for id in inrun::ants(&w, sp) {
+                 if let Some(st) = w.organism(id) {
+@@ -672,4 +678,5 @@ fn main() {
+         println!("selection: quota due {q_due}, no eligible parent {q_noparent}, placements failed {birth_fail}");
+     }
+     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
++    println!("{}", creature::mind::scratch_log::hungry_report());
+ }
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 4213735d..2ab3547c 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1472,7 +1472,11 @@ pub fn context(
+     let Some(&(hx, hy)) = st.chain.first() else {
+         return (v, [0.0; 5]);
+     };
+-    let e = (st.energy / def.start_energy.max(f32::EPSILON)).max(0.0);
++    // SCRATCH (hungry lane): `PP_ENERGY_REAL=J` reads the bank against J joules (the species' authored start_energy,
++    // 200) instead of this world's def, which a training arena's `budget_to` rescales to its own budget.
++    static REAL: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
++    let unit = REAL.get_or_init(|| std::env::var("PP_ENERGY_REAL").ok().map(|v| v.parse().expect("PP_ENERGY_REAL"))).unwrap_or(def.start_energy);
++    let e = (st.energy / unit.max(f32::EPSILON)).max(0.0);
+     v[c::ENERGY] = e / (1.0 + e);
+     let cap = organism_crop_capacity(world, organism, def);
+     v[c::CROP] = st.crop.map_or(0.0, |cr| {
+@@ -1844,6 +1848,17 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+                     }
+                 }
+             }
++            if redrawn.is_none() && scratch_log::hungry_rule().is_some() {
++                if let Some((pick, scores0)) = d.as_ref().map(|d| (d.pick, d.scores.clone())) {
++                    if let Some(i) = scratch_log::hungry_out(world, organism, (x, y), &ctx, &opts, pick) {
++                        if let Some(d) = d.as_mut() {
++                            d.pick = i;
++                        }
++                        mind.state.mem = scratch_log::remember(&mind.genome.w, &ctx, &mem0, &opts, &scores0, Verb::Walk);
++                        mind.state.last_verb = Some(Verb::Walk);
++                    }
++                }
++            }
+             mind.state.last = Some(now);
+             let mut offered = [false; VERBS];
+             for o in opts.iter() {
+@@ -4036,20 +4051,60 @@ pub mod scratch_log {
+             .iter()
+             .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
+             .collect();
+-        cline(&format!(
+-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{}",
+-            world.frame,
+-            at.0,
+-            at.1,
+-            u8::from(SETTLE.with(|s| s.get())),
+-            d.pick,
+-            last.map_or(-1, |v| v as i32),
+-            u8::from(carrying),
+-            f(ctx),
+-            f(mem0),
+-            all.join(";"),
+-            bottom.join(";")
+-        ));
++        // SCRATCH (hungry lane): the hungry teacher's label as a 16th field, `p|i;j` or `-`, whenever `PP_HUNGRY` is set.
++        let hungry = match hungry_rule() {
++            Some((lo, hi)) => {
++                let (lab, p) = hungry_label(world, organism, at, ctx, opts, lo, hi);
++                if lab.is_empty() { "-".to_string() } else { format!("{p}|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) }
++            }
++            None => "-".to_string(),
++        };
++        let row = |settle: u8| {
++            format!(
++                "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{},{hungry}",
++                world.frame,
++                at.0,
++                at.1,
++                settle,
++                d.pick,
++                last.map_or(-1, |v| v as i32),
++                u8::from(carrying),
++                f(ctx),
++                f(mem0),
++                all.join(";"),
++                bottom.join(";")
++            )
++        };
++        // `PP_COPY_SAMPLE=k`: keep every labelled row and one in k of the rest, each kept row preceded by the same
++        // ant's previous decision marked settle=2 (memory context only, never a training row), so the copier's
++        // one-step memory path still links a kept row to the decision just before it.
++        let k: u64 = sample_k();
++        let settle = u8::from(SETTLE.with(|s| s.get()));
++        if k <= 1 {
++            cline(&row(settle));
++            return;
++        }
++        let keep = hungry != "-" || rng::stream(world.seed, organism as u64, world.frame, 4444).next_u64() % k == 0;
++        let line = row(settle);
++        PREV_ROW.with(|m| {
++            let mut m = m.borrow_mut();
++            if keep {
++                if let Some((written, prev)) = m.get(&organism) {
++                    if !*written {
++                        cline(prev);
++                    }
++                }
++                cline(&line);
++            }
++            m.insert(organism, (keep, row(2)));
++        });
++    }
++    thread_local! {
++        static PREV_ROW: std::cell::RefCell<HashMap<OrganismId, (bool, String)>> = std::cell::RefCell::new(HashMap::new());
++    }
++    fn sample_k() -> u64 {
++        static K: OnceLock<u64> = OnceLock::new();
++        *K.get_or_init(|| std::env::var("PP_COPY_SAMPLE").ok().map_or(1, |v| v.parse().expect("PP_COPY_SAMPLE")))
+     }
+     pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
+     /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
+@@ -4078,6 +4133,127 @@ pub mod scratch_log {
+         low
+     }
+ 
++    // ---- SCRATCH (hungry lane, 2026-10-21): "go out when hungry". `PP_HUNGRY=lo:hi[:q]` (grants of start_energy):
++    // an ant whose energy reads below `hi` grants, crop empty, jaws free, with no food in reach to pick up, is sent
++    // out with probability (hi - e) / (hi - lo) (1 at or below `lo`; graded so a lockstep colony does not leave as
++    // one): below the ground as built it takes the highest step, on the surface the step furthest from its home's
++    // column. Reads only what the ant feels (its own energy, crop, jaws, depth) plus where its home is.
++    pub fn hungry_rule() -> Option<(f32, f32)> {
++        static H: OnceLock<Option<(f32, f32)>> = OnceLock::new();
++        *H.get_or_init(|| {
++            std::env::var("PP_HUNGRY").ok().map(|v| {
++                let p: Vec<f32> = v.split(':').map(|x| x.parse().expect("PP_HUNGRY lo:hi")).collect();
++                (p[0], p[1])
++            })
++        })
++    }
++    pub static HUNGRY_COUNTS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
++    /// The teacher's label: the outward steps for a hungry ant, or empty. `p` is the label's weight.
++    pub fn hungry_label(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], lo: f32, hi: f32) -> (Vec<usize>, f32) {
++        let e = ctx[c::ENERGY] / (1.0 - ctx[c::ENERGY]).max(1e-6);
++        // `PP_HUNGRY_FLOOR=f`: no label below f grants. The training arenas read energy against their own budget, not
++        // start_energy: fetch and trail sit at exactly 1 grant (0.5) for ever and the soil arena's ant falls from 1 to
++        // 0.25 grants while it digs, so a lesson keyed on "below 2 grants" also fires on every soil-arena decision. The
++        // window [floor, hi) is the part of the colony's hunger no arena reads.
++        static FLOOR: OnceLock<f32> = OnceLock::new();
++        let floor = *FLOOR.get_or_init(|| std::env::var("PP_HUNGRY_FLOOR").ok().map_or(0.0, |v| v.parse().expect("PP_HUNGRY_FLOOR")));
++        // `PP_HUNGRY_RETURN=1`: a failed search comes back. Empty jaws and crop, on the surface, `PP_HUNGRY_R` columns
++        // or more from home, at any energy: the steps nearer home. The first copy that learned "walk away" (h4,
++        // 2026-10-21) learned it without the radius and ran 16-22 of 24 founders to the bed's walls in 10k frames.
++        if std::env::var("PP_HUNGRY_RETURN").is_ok() && ctx[c::CROP] == 0.0 && ctx[c::SPOIL] == 0.0 && ctx[c::DEPTH] <= 0.05 {
++            let radius: i32 = std::env::var("PP_HUNGRY_R").ok().map_or(40, |v| v.parse().expect("PP_HUNGRY_R"));
++            let nx = world.organism(organism).map_or(at.0, |s| s.forage_anchor.0);
++            if (at.0 - nx).abs() >= radius && !opts.iter().any(|o| o.verb == Verb::PickUp) {
++                let back: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && (opts[i].target.0 - nx).abs() < (at.0 - nx).abs()).collect();
++                return if back.is_empty() { (Vec::new(), 0.0) } else { (back, 1.0) };
++            }
++        }
++        if e >= hi || e < floor || ctx[c::CROP] > 0.0 {
++            return (Vec::new(), 0.0);
++        }
++        let p = ((hi - e) / (hi - lo)).clamp(0.0, 1.0);
++        // Laden with spoil: a pellet in the jaws keeps food out of them. Put it down out of the hole when that is
++        // offered; otherwise carry it up and away (traced 2026-10-21: in the die-off 94% of hungry decisions were ants
++        // holding a pellet at the bottom of the chamber, an upward step offered on all but 38 of 15,052, Drop on 184).
++        let laden = ctx[c::SPOIL] > 0.0;
++        if laden {
++            let drops: Vec<usize> = (0..opts.len())
++                .filter(|&i| opts[i].verb == Verb::Drop && opts[i].feats[options::f::CUT] == 0.0 && opts[i].feats[options::f::DEPTH] <= 0.0)
++                .collect();
++            if !drops.is_empty() {
++                return (drops, p);
++            }
++        }
++        // Food in reach: take it into the crop (a hungry ant eats what it finds; the first build walked past the heap to
++        // the bed's wall and 16 of 24 founders starved there).
++        let picks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::PickUp).collect();
++        if !laden && !picks.is_empty() {
++            return (picks, p);
++        }
++        let walks: Vec<usize> = (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk).collect();
++        if walks.is_empty() {
++            return (Vec::new(), 0.0);
++        }
++        let nx = world.organism(organism).map_or(at.0, |s| s.forage_anchor.0);
++        // The teacher may know where food is (T1 amended): the nearest provisions column within 12 rows, searched
++        // outward; with none found, away from home.
++        let food = world.materials.id_of("provisions");
++        let fx = food.and_then(|m| {
++            (0..=100).find_map(|dx| {
++                [at.0 - dx, at.0 + dx].into_iter().find(|&cx| (at.1 - 12..=at.1 + 12).any(|cy| world.in_bounds(cx, cy) && world.get(cx, cy).material == m))
++            })
++        });
++        // `PP_HUNGRY_AWAY=1`: away from home only, never toward the food the teacher can see (the food-seeking build
++        // chased provisions buried in a mound wall and piled 12 ants into a tower beside it, 2026-10-21).
++        let away = std::env::var("PP_HUNGRY_AWAY").is_ok();
++        let toward = |tx: i32| -> i32 { if laden || away { (tx - nx).abs() } else { fx.map_or((tx - nx).abs(), |f| -(tx - f).abs()) } };
++        let key = |i: usize| -> (i32, i32) {
++            let (tx, ty) = opts[i].target;
++            if ctx[c::DEPTH] > 0.05 { (at.1 - ty, toward(tx)) } else { (toward(tx), at.1 - ty) }
++        };
++        // A search has a radius (`PP_HUNGRY_R`, default 40 columns): with the founding heaps still empty, the
++        // away-only build ran 13-17 of 24 founders to the bed's walls, where they starved in the first 10k frames.
++        let radius: i32 = std::env::var("PP_HUNGRY_R").ok().map_or(40, |v| v.parse().expect("PP_HUNGRY_R"));
++        if !laden && (at.0 - nx).abs() >= radius {
++            return (Vec::new(), 0.0);
++        }
++        let best = walks.iter().map(|&i| key(i)).max().unwrap();
++        let here = if ctx[c::DEPTH] > 0.05 { (0, toward(at.0)) } else { (toward(at.0), 0) };
++        if best <= here || (std::env::var("PP_HUNGRY_SOFT").is_ok() && best.0 <= here.0) {
++            return (Vec::new(), 0.0);
++        }
++        // `PP_HUNGRY_SOFT=1`: every step that gains on the key's first part (higher, below ground; further out, above),
++        // not only the best -- a label a scorer can learn from the HOME and UP features.
++        if std::env::var("PP_HUNGRY_SOFT").is_ok() {
++            return (walks.into_iter().filter(|&i| key(i).0 > here.0).collect(), p);
++        }
++        (walks.into_iter().filter(|&i| key(i) == best).collect(), p)
++    }
++    pub fn hungry_out(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], pick: usize) -> Option<usize> {
++        let (lo, hi) = hungry_rule()?;
++        let (lab, p) = hungry_label(world, organism, at, ctx, opts, lo, hi);
++        if lab.is_empty() {
++            return None;
++        }
++        HUNGRY_COUNTS[0].fetch_add(1, Ordering::Relaxed);
++        if lab.contains(&pick) {
++            HUNGRY_COUNTS[1].fetch_add(1, Ordering::Relaxed);
++            return None;
++        }
++        static ACT: OnceLock<f32> = OnceLock::new();
++        let act = *ACT.get_or_init(|| std::env::var("PP_HUNGRY_ACT").ok().map_or(1.0, |v| v.parse().expect("PP_HUNGRY_ACT")));
++        if roll(world, organism, 77) >= p * act {
++            HUNGRY_COUNTS[2].fetch_add(1, Ordering::Relaxed);
++            return None;
++        }
++        HUNGRY_COUNTS[3].fetch_add(1, Ordering::Relaxed);
++        Some(lab[(roll(world, organism, 78) * lab.len() as f32) as usize % lab.len()])
++    }
++    pub fn hungry_report() -> String {
++        let c: Vec<u64> = HUNGRY_COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
++        format!("hungry {:?}: labelled {} | brain already out {} | skipped by grade {} | forced {}", hungry_rule(), c[0], c[1], c[2], c[3])
++    }
++
+     pub fn teach_report() -> String {
+         let c: Vec<u64> = COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+         format!(

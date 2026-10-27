@@ -1,0 +1,1 @@
+plantrain: start=/home/user/plant-hold-clone/assets/species/tree.ron control=tree groups=shape,leaf pop=16 gens=12 keep=0.25 layouts=2 holdout=4 final=6 sigma=0.9 genes=8 seed=1 select=Score teeth=true width=96 frames=40000 every=250 mutation_off=true n_est=20 k_seed=24 size_floor=55 rung=hold stations=bright neighbours=shrub,herb,creeper out=/tmp/m2-hold-tree-TgjJ/score

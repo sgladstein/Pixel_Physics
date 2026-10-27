@@ -1,0 +1,231 @@
+<title>Ant Training Compute Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~44rem) with charts and tables allowed to run a little wider; summary first, evidence after. */
+:root {
+  --bg: #f6f7f5; --panel: #ffffff; --fg: #17201c; --muted: #5a645f; --rule: #dde2de; --accent: #1d6a55; --accent-soft: #e2efe9;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #c98a00;
+  --good: #1f7a3a; --bad: #b4332f; --warn: #8a5a00; --neutral: #6b7470;
+  --good-bg: #e3f2e7; --bad-bg: #f8e3e1; --warn-bg: #f6ecd7; --neutral-bg: #eceeed;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121715; --panel: #1a201d; --fg: #e8ece9; --muted: #a2aca7; --rule: #2e3632; --accent: #6cc7a6; --accent-soft: #1f302a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --good: #7fd197; --bad: #f0928d; --warn: #e2b866; --neutral: #a2aca7;
+  --good-bg: #1d3325; --bad-bg: #3a2220; --warn-bg: #362b17; --neutral-bg: #262c29; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121715; --panel: #1a201d; --fg: #e8ece9; --muted: #a2aca7; --rule: #2e3632; --accent: #6cc7a6; --accent-soft: #1f302a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --good: #7fd197; --bad: #f0928d; --warn: #e2b866; --neutral: #a2aca7;
+  --good-bg: #1d3325; --bad-bg: #3a2220; --warn-bg: #362b17; --neutral-bg: #262c29; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 17px/1.55 var(--body); margin: 0; }
+.wrap { max-width: 50rem; margin: 0 auto; padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font: 600 12px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 800 clamp(30px, 6vw, 46px)/1.05 var(--display); font-stretch: 85%; margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font: 750 24px/1.2 var(--display); font-stretch: 90%; margin: 0; text-wrap: balance; }
+h3 { font: 700 17px/1.3 var(--display); margin: 0; }
+p { margin: 0; max-width: 66ch; }
+.lede { font-size: 19px; color: var(--muted); max-width: 62ch; }
+section { display: grid; gap: 16px; min-width: 0; }
+.answers { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.answers li { display: grid; grid-template-columns: 7.5rem 1fr; gap: 14px; padding-block: 14px; border-top: 1px solid var(--rule); }
+.answers li:last-child { border-bottom: 1px solid var(--rule); }
+.answers .q { font: 600 12px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-top: 4px; }
+.answers b { font-weight: 700; }
+@media (max-width: 560px) { .answers li { grid-template-columns: 1fr; gap: 4px; } }
+.stat { font: 600 15px var(--mono); font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 12px; min-width: 0; }
+.figcap { font-size: 14px; color: var(--muted); }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+.bar { max-height: 48px; }
+.s1 { fill: var(--s1); stroke: var(--s1); } .s2 { fill: var(--s2); stroke: var(--s2); } .s3 { fill: var(--s3); stroke: var(--s3); } .s4 { fill: var(--s4); stroke: var(--s4); }
+rect.mark { stroke: none; }
+.line { fill: none; stroke-width: 2; }
+.dot { stroke: var(--panel); stroke-width: 2; cursor: default; }
+.grid { stroke: var(--rule); stroke-width: 1; }
+.axis { stroke: var(--muted); stroke-width: 1; }
+.ref { stroke: var(--muted); stroke-dasharray: 3 4; stroke-width: 1; }
+.tick, .dl { fill: var(--muted); font: 12px var(--mono); }
+.dl { fill: var(--fg); font: 600 12px var(--body); }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--muted); }
+.legend li { display: flex; align-items: center; gap: 7px; }
+.legend b { color: var(--fg); font: 600 13px var(--mono); }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.sw.s1 { background: var(--s1); } .sw.s2 { background: var(--s2); } .sw.s3 { background: var(--s3); } .sw.s4 { background: var(--s4); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th { text-align: left; font: 600 11.5px/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: bottom; background: var(--panel); position: sticky; top: 0; }
+td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+td.num { font: 13px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .sub { color: var(--muted); font-size: 13px; }
+td.note { color: var(--muted); font-size: 13.5px; min-width: 16rem; }
+.tag, .c { display: inline-block; font: 600 12px/1.2 var(--body); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.c.up, .t-agree { background: var(--good-bg); color: var(--good); }
+.c.dn, .t-backwards { background: var(--bad-bg); color: var(--bad); }
+.c.ns { background: var(--neutral-bg); color: var(--neutral); }
+.t-overcalled { background: var(--warn-bg); color: var(--warn); }
+.t-missed { background: var(--neutral-bg); color: var(--fg); }
+.v-clear { background: var(--neutral-bg); color: var(--fg); }
+.v-dup { background: var(--bad-bg); color: var(--bad); }
+.v-ns { background: var(--neutral-bg); color: var(--neutral); }
+.v-selection, .v-moved, .v-void { background: var(--good-bg); color: var(--good); }
+.v-na { background: var(--neutral-bg); color: var(--neutral); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.filters button { font: 600 13px var(--body); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--rule); background: var(--panel); color: var(--fg); cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.recs { counter-reset: r; display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.recs li { display: grid; grid-template-columns: 2.2rem 1fr auto; gap: 4px 14px; padding-block: 16px; border-top: 1px solid var(--rule); align-items: baseline; }
+.recs li::before { counter-increment: r; content: counter(r); font: 700 20px var(--display); color: var(--accent); }
+.recs .save { font: 600 13px var(--mono); color: var(--accent); white-space: nowrap; text-align: right; }
+.recs p { grid-column: 2 / 4; color: var(--muted); font-size: 15.5px; }
+@media (max-width: 560px) { .recs li { grid-template-columns: 2rem 1fr; } .recs .save { grid-column: 2; text-align: left; } }
+.callout { background: var(--accent-soft); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; }
+.checks { display: grid; gap: 12px; padding-left: 1.1em; margin: 0; }
+.checks li { max-width: 66ch; }
+.method { font-size: 14.5px; color: var(--muted); display: grid; gap: 8px; }
+code { font: 13.5px var(--mono); background: var(--neutral-bg); padding: 1px 5px; border-radius: 4px; }
+#tip { position: fixed; pointer-events: none; background: var(--fg); color: var(--bg); font: 13px/1.35 var(--body); padding: 7px 10px; border-radius: 6px; max-width: 260px; z-index: 20; }
+@media (prefers-reduced-motion: no-preference) { .filters button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Analysis only · no new runs · 52 batches, 21–24 Oct 2026</div>
+  <h1>Are we spending the VM well?</h1>
+  <p class="lede">Every in-run and colony-selection batch in the cloud bucket, re-read from its own tables: 209,000 colony-rounds and 83,000 garden runs, about 1,100 CPU-hours for the colony-selection batches alone. The question is how much of that bought a decision.</p>
+</header>
+
+<section aria-labelledby="ans">
+  <h2 id="ans">Short answers</h2>
+  <ul class="answers">
+    <li><span class="q">Control arms</span><div>The comparison is needed. Paying for it fresh usually was not. Judging the new idea alone, against where it started, matches the real call on only <b>{{a_agree}} of {{a_total}} decision measures; {{a_back}} come out backwards</b>, because selection alone improves a colony a lot. But of the <b>{{n_same}} fresh same-batch controls</b>, {{same_dup}} were byte-identical reruns of an earlier arm, {{same_clear}} confirmed effects large enough that an earlier run already settled them, {{same_ns}} found no effect, and <b>{{same_changed}} changed or protected the call</b>.</div></li>
+    <li><span class="q">Reruns</span><div>The simulator is deterministic, so the same build, founder, settings and seeds give the same numbers. <b>7% of all colony-rounds were exact repeats</b> of something already in the bucket.</div></li>
+    <li><span class="q">Gardens</span><div>The common garden runs after every second round and costs <b>30% of colony-selection CPU</b>. Calls were read from one or two of its 24 gardens.</div></li>
+    <li><span class="q">Colonies</span><div>64 is right when the effect is medium-sized. 32 colonies keep 99% of large-effect calls and 85% of medium ones, and no subsample at any size ever reversed a call. Pairing arms by seed buys nothing after 48 rounds: the same colony in two arms is uncorrelated (r ≈ 0).</div></li>
+    <li><span class="q">Rounds</span><div>Rule changes (body rules, inheritance) show in the first garden. Learned behaviour (light dig head) settles by round 23–31. Erosion questions, like the nest peaking and then shrinking, need the full 48.</div></li>
+  </ul>
+  <div class="callout"><h3>Net</h3><p>Two mechanical changes, gardens every 8 rounds and no exact reruns, would have cut about <b>28% of CPU</b> with no change to any decision on this page: about 1.4 batches for the price of one. A screening stage and shared controls go further, at the cost of slower answers on small effects.</p></div>
+</section>
+
+<section aria-labelledby="where">
+  <h2 id="where">Where the colony-selection CPU went</h2>
+  <p>28 colony-selection batches, 74 arms, 1,114 CPU-hours, measured from each run's own <code>done: … in Xs</code> line. On the 64-core VM that is about 17 hours of full use.</p>
+  <div class="panel">
+    {{chart1}}
+    <p class="figcap">"Exact reruns" counts only the rounds that reproduced an earlier arm byte for byte, so it is a floor. Gardens include those of reruns and controls.</p>
+  </div>
+</section>
+
+<section aria-labelledby="ctl">
+  <h2 id="ctl">How often did the control change the call?</h2>
+  <p>Two separate questions. First, does an idea need a comparison at all, or can we run it alone and see whether the colony got better? Second, when we did run a control in the same batch, did that arm tell us anything an earlier run had not?</p>
+  <h3>Running it alone would have misled</h3>
+  <p>For the batches with a same-batch control, the table puts the real call (idea against control at the last garden) next to the call you would make from the idea arm alone (last garden against its own first garden). Controls improve under selection too, so "it got better" is the wrong test: half of these would have been read wrongly ({{a_back}} backwards, {{a_over}} false wins, {{a_miss}} missed wins).</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Idea</th><th>Metric</th><th>Idea arm<br>first → last</th><th>Control<br>first → last</th><th>Vs control</th><th>Alone</th><th>Alone gets</th><th>Call settled</th></tr></thead>
+    <tbody>{{arows}}</tbody>
+  </table></div>
+  <p class="figcap">Medians over the colonies present in each garden. "Call" is a two-sided sign test on the colony-by-colony differences at p &lt; 0.05. "Call settled" is the first garden round from which the idea-vs-control call never changed again. The cut_join + crater arm was adopted by owner card although it was not distinguishable from its control.</p>
+  <h3>Fresh controls mostly re-measured something we had</h3>
+  <p>Every A/B call in the lane notes, {{n_all}} in all. {{n_hist}} were made against an earlier arm without running a new control, which worked whenever the earlier arm shared the build and settings. Of the {{n_same}} same-batch controls: {{same_dup}} exact reruns, {{same_clear}} large effects an earlier run already settled, {{same_ns}} no effect, {{same_changed}} changed or protected the call.</p>
+  <div class="filters" role="group" aria-label="Filter the ledger">
+    <button id="f-all" aria-pressed="true" data-f="all">All {{n_all}}</button>
+    <button id="f-same" aria-pressed="false" data-f="same">Same-batch control</button>
+    <button id="f-hist" aria-pressed="false" data-f="hist">Earlier arm reused</button>
+    <button id="f-dup" aria-pressed="false" data-f="dup">Exact reruns</button>
+    <button id="f-chg" aria-pressed="false" data-f="chg">Changed the call</button>
+  </div>
+  <div class="tablewrap"><table id="ledger">
+    <thead><tr><th>Era</th><th>Batch and question</th><th>Control</th><th>Outcome</th><th>What the control bought</th><th>Evidence</th></tr></thead>
+    <tbody>{{lrows}}</tbody>
+  </table></div>
+  <p class="figcap">From project memory (the Teacher, brood, plant-food and body-genes lane notes), checked against the bucket where the numbers are reproducible. Reruns were found by comparing every arm's per-colony, per-round tables against every other arm in the bucket.</p>
+</section>
+
+<section aria-labelledby="col">
+  <h2 id="col">How many colonies?</h2>
+  <p>For every pair of arms in the same colony-selection batch and five measures (nest, crater, starved, home food, alive), I took the call at 64 colonies and redrew it 300 times from random subsets of fewer colonies. 176 pair-measures had a call at 64.</p>
+  <div class="panel">
+    <h3>Share of 64-colony calls still made with fewer colonies</h3>
+    {{chart2}}
+    <ul class="legend">{{leg2}}</ul>
+    <p class="figcap">Effect size is the mean colony-by-colony difference divided by its spread. Dashed line: 32 colonies. No subset at any size gave the opposite call; fewer colonies only turn calls into "can't tell".</p>
+  </div>
+  <p>The decisions that moved the line were mostly large: the roof and room rules needed about 6–10 colonies, the light dig head about 10, the hcs founder 24. The ones that needed 40–56 colonies (inheritance retry, the distance ramp's nest cost) were medium effects. Spread between colonies is wide: the per-arm spread is about 0.6× the median for nest size, 1× for crater, 0.4× for home food, and nearly 2× for starved, so a single colony means little.</p>
+  <p>One caveat the data cannot settle: in colony selection the colonies are also the population being selected (the bottom half is refounded from the top half). Fewer colonies would change the training, not only the measurement. That needs one paired test before a smaller standard is adopted.</p>
+  <p>The older in-run batches (per-seed jobs, 6 rounds) show the same pattern with smaller effects: of 92 arm pairs, 37 had a food call at 64 seeds, and the middle effect size was 0.23 of the spread. There seed pairing did help a little (r ≈ 0.3 between arms on the same seed); in 48-round colony selection it does not.</p>
+</section>
+
+<section aria-labelledby="rnd">
+  <h2 id="rnd">How many rounds?</h2>
+  <div class="panel">
+    <h3>Does an early garden already show the round-47 call?</h3>
+    {{chart3}}
+    <ul class="legend">{{leg3}}</ul>
+    <p class="figcap">131 pair-measures from 48-round batches that had a call at round 47. The rest of each column is "no call yet". Round 47 is itself one noisy sample, so this understates early agreement a little.</p>
+  </div>
+  <p>By round 15 about 6 in 10 calls already match and 1 in 12 points the other way; past round 29 almost nothing reverses. For the decisions that mattered the picture is sharper: rule changes such as the roof rule and the failed inheritance retry were clear from the first garden, after two rounds. Learned changes took longer, and questions about erosion (nest peaks at round 15–21 and then shrinks, as in colsel4 and the roof arm) only show in long runs.</p>
+</section>
+
+<section aria-labelledby="rec">
+  <h2 id="rec">What to change</h2>
+  <ol class="recs">
+    <li><b>Run the garden every 8 rounds, not every 2.</b><span class="save">≈ 22% CPU</span><p>Rounds 7, 15, 23, 31, 39, 47 still show the trajectory and the peak-then-erode shape. <code>CG_EVERY=8</code> already exists in colsel.py; only the default changes.</p></li>
+    <li><b>Treat a control as a cache entry, never a rerun.</b><span class="save">≈ 6–8% CPU</span><p>Key it by the build's simulation code, founder pool, settings and seeds. If an arm with the same key is in the bucket, point the comparison at it. Also resume shared prefixes instead of replaying them: colsel4 replayed colsel3's 16 rounds, colsel10 replayed 32 rounds of colsel9b, and the weaned control replayed 9 rounds of colsel18.</p></li>
+    <li><b>One control per ratchet turn, shared by every idea in that turn.</b><span class="save">½ to ¼ of control cost</span><p>Under the ratchet the founder changes each time, so a cached control lasts one turn. Testing three or four ideas against one control (as colsel15 and colsel20 did) spreads it. Ratchet when a batch clearly beats the line rather than after every batch, so the control lives longer.</p></li>
+    <li><b>Screen first, then confirm.</b><span class="save">up to 3–5× per idea</span><p>A 32-colony, 16-round screen with gardens at 7 and 15 costs about a sixth of a full arm. It catches large effects (all the rule changes here) and almost never points the wrong way. Only ideas that pass, plus anything aimed at late-game erosion, get the full 64 × 48.</p></li>
+    <li><b>Name the deciding measure before the batch.</b><span class="save">fewer false wins</span><p>Most batches read five measures. With five chances at p &lt; 0.05, an idea that does nothing shows a "significant" change on at least one about one time in five.</p></li>
+  </ol>
+</section>
+
+<section aria-labelledby="else">
+  <h2 id="else">Other things worth checking</h2>
+  <ul class="checks">
+    <li><b>Gardens drop extinct colonies.</b> The moving-food arms ended with 47–56 colonies in the garden while others had 64, so their medians describe survivors only. Counting an extinct colony as zero alive and zero nest makes arms comparable.</li>
+    <li><b>Lab survival is a separate test.</b> farfood1's control looked fine in the bed and still starved in the owner's box; the bed garden alone would not have caught it. A small lab-box garden on the finalist (16 colonies) is cheap insurance.</li>
+    <li><b>Small effects are being decided anyway.</b> cut_join + crater and rules-off-from-round-0 were adopted on differences the data barely separate. That is a fair call when the change is cheap to undo; it is worth saying so on the decision card.</li>
+    <li><b>The +lab case and spider cases add per-round cost</b> that this audit could not separate from training time; worth one timing line in colsel's log.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="how" class="method">
+  <h2 id="how">How this was measured</h2>
+  <p>Source: the training bucket's <code>runs/*/small/*.tgz</code> for all 52 batches with results, streamed and reduced to each arm's <code>colsel.csv</code>, <code>cg.csv</code>, round and garden timings, and for in-run batches each seed's <code>nest.csv</code> and extinction marker. Spot checks reproduce the lane notes exactly (colsel15 control 1,461 / 9 / 19 / 13.5; roof 4,465 / 1 / 143 / 1).</p>
+  <p>Calls use a two-sided sign test on per-colony differences at p &lt; 0.05, matching the lanes' paired practice. Subsampling draws without replacement from the colonies that ran, which slightly flatters large subsets. h1turn-1021 (no small archives) and farfood2-1024 (still running) are not in the numbers. Scripts and reduced tables: <code>/mnt/project-files/training-efficiency/</code>.</p>
+</section>
+</div>
+<div id="tip" hidden></div>
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  document.addEventListener('mousemove', function (e) {
+    var t = e.target.closest && e.target.closest('[data-tip]');
+    if (!t) { tip.hidden = true; return; }
+    tip.textContent = t.getAttribute('data-tip'); tip.hidden = false;
+    var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+  });
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#ledger tbody tr'));
+  var btns = document.querySelectorAll('.filters button');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      btns.forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      var f = b.getAttribute('data-f');
+      rows.forEach(function (r) {
+        var v = r.getAttribute('data-v'), c = r.getAttribute('data-c');
+        var show = f === 'all' || (f === 'same' && c === 'same') || (f === 'hist' && c === 'hist') || (f === 'dup' && v === 'dup') || (f === 'chg' && (v === 'selection' || v === 'moved' || v === 'void'));
+        r.hidden = !show;
+      });
+    });
+  });
+})();
+</script>

@@ -1,0 +1,164 @@
+From 9827a0fee3a5889bb39e7611d0f9444c80735abb Mon Sep 17 00:00:00 2001
+From: claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 15:29:08 +0000
+Subject: [PATCH 2/4] scratch: bottom sense switches
+
+---
+ examples/copylog.rs         |  2 +-
+ examples/mutants.rs         |  4 ++--
+ examples/reliab.rs          |  2 +-
+ src/sim/creature/mind.rs    | 47 +++++++++++++++++++++++++++++++++++--
+ src/sim/creature/options.rs | 14 +++++++++++
+ 5 files changed, 63 insertions(+), 6 deletions(-)
+
+diff --git a/examples/copylog.rs b/examples/copylog.rs
+index 9307fcb6..10b5b317 100644
+--- a/examples/copylog.rs
++++ b/examples/copylog.rs
+@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::sync::Mutex;
+ 
+ fn soil() -> Soil {
+-    Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true }
++    Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 }
+ }
+ fn fetch() -> Scarce {
+     Scarce {
+diff --git a/examples/mutants.rs b/examples/mutants.rs
+index 14e83870..b61c4419 100644
+--- a/examples/mutants.rs
++++ b/examples/mutants.rs
+@@ -8,7 +8,7 @@ use std::path::Path;
+ fn main() {
+     let a: Vec<String> = std::env::args().skip(1).collect();
+     let (start, n, seed, out): (&str, usize, u64, &str) = (&a[0], a[1].parse().unwrap(), a[2].parse().unwrap(), &a[3]);
+-    let soil = Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true };
++    let soil = Soil { ants: 1, frames: 12000, step: 4, shaft: 8, budget: Some(2400.0), foot: true, step_near: 0.0 };
+     let g = train::start_mind(&soil, start);
+     let slots = train::trainable_for(&soil, g.len());
+     let mut rng = Rng(seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
+@@ -18,7 +18,7 @@ fn main() {
+     std::fs::create_dir_all(out).unwrap();
+     let live = |g: &[f32]| g.iter().filter(|w| **w != 0.0).count();
+     for k in 0..n {
+-        let c = train::mutate(&g, &slots, pm, sigma, prune, grow, &mut rng);
++        let c = train::mutate(&g, &slots, pm, sigma, prune, grow, &vec![false; g.len()], &mut rng);
+         let changed = g.iter().zip(&c).filter(|(a, b)| a != b).count();
+         let p = Path::new(out).join(format!("m{k:02}.txt"));
+         train::save_genome(&p, &c).unwrap();
+diff --git a/examples/reliab.rs b/examples/reliab.rs
+index 457c5e5d..b4088159 100644
+--- a/examples/reliab.rs
++++ b/examples/reliab.rs
+@@ -10,7 +10,7 @@ fn main() {
+     let a: Vec<String> = std::env::args().skip(1).collect();
+     let (shaft, frames, out, files): (i32, u64, &str, &[String]) = (a[0].parse().unwrap(), a[1].parse().unwrap(), &a[2], &a[3..]);
+     let budget = 1200.0 * frames as f32 / 6000.0;
+-    let soil = Soil { ants: 1, frames, step: 4, shaft, budget: Some(budget), foot: true };
++    let soil = Soil { ants: 1, frames, step: 4, shaft, budget: Some(budget), foot: true, step_near: 0.0 };
+     let gs: Vec<Vec<f32>> = files.iter().map(|f| train::start_mind(&soil, f)).collect();
+     // Two independent 48-world sets, drawn the way training draws a generation's (mirrored pairs).
+     let sets = [train::training_layouts(9001, 0, 48), train::training_layouts(9002, 0, 48)];
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 5e80463b..95f73912 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -1786,6 +1786,12 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
+             let (mut ctx, now) = context(world, organism, def, &mind.state, &opts);
+             // SCRATCH (investigation, not for main): PP_ABLATE=name,name zeroes those senses before every decision.
+             scratch_log::ablate(&mut ctx);
++            // SCRATCH (teacher lane): `PP_BOTTOM_CTX=1` (with `PP_BOTTOM`) puts "a cut at the bottom of my hole, below
++            // the ground as built, is in reach" on the borrowed context slot c::CROWD (17), which reads 0 in every solo
++            // arena: the job stage reads it straight, past the scorer's saturated best-score channel.
++            if std::env::var("PP_BOTTOM_CTX").is_ok() {
++                ctx[17] = f32::from(u8::from(opts.iter().any(|o| o.verb == Verb::Dig && o.feats[options::f::BUILDING] == 1.0 && o.feats[options::f::DEPTH] > 0.0)));
++            }
+             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+             let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
+             let mut d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
+@@ -4016,8 +4022,18 @@ pub mod scratch_log {
+                 format!("{}:{}:{}:{}:{}", op.verb as usize, op.target.0, op.target.1, d.scores[k], nz.join(" "))
+             })
+             .collect();
++        // SCRATCH (teacher lane, 2026-10-21): the "bottom of the hole" candidate sense, appended as a 15th field so
++        // every reader of fields 0-13 is unchanged. Per Dig option, for reach R in BOTTOM_REACH: target row minus the
++        // deepest open row of the cavity the head stands in, flooded through open cells (empty, or this ant's own
++        // body) within Chebyshev R of the head -- what an ant feels by touch and gravity: is there open space lower
++        // than the cell it is about to cut? `-` for other verbs.
++        let lows: Vec<i32> = BOTTOM_REACH.iter().map(|&r| cavity_low(world, organism, at, r)).collect();
++        let bottom: Vec<String> = opts
++            .iter()
++            .map(|op| if op.verb == Verb::Dig { lows.iter().map(|l| (op.target.1 - l).to_string()).collect::<Vec<_>>().join(" ") } else { "-".into() })
++            .collect();
+         cline(&format!(
+-            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{}",
++            "Q,{},{organism},{},{},{},{},{},{},{lab},{},{},{},{}",
+             world.frame,
+             at.0,
+             at.1,
+@@ -4027,9 +4043,36 @@ pub mod scratch_log {
+             u8::from(carrying),
+             f(ctx),
+             f(mem0),
+-            all.join(";")
++            all.join(";"),
++            bottom.join(";")
+         ));
+     }
++    pub const BOTTOM_REACH: [i32; 4] = [2, 3, 4, 6];
++    /// The deepest (largest y) open row connected to the head within Chebyshev `r` of it, 8-connected; the head's
++    /// own row if nothing else is open.
++    pub fn cavity_low(world: &World, organism: OrganismId, head: (i32, i32), r: i32) -> i32 {
++        let open = |x: i32, y: i32| {
++            let c = world.get(x, y);
++            c.material == crate::sim::material::EMPTY || c.organism_id() == organism
++        };
++        let mut seen = std::collections::HashSet::new();
++        let mut stack = vec![head];
++        seen.insert(head);
++        let mut low = head.1;
++        while let Some((x, y)) = stack.pop() {
++            low = low.max(y);
++            for dx in -1..=1 {
++                for dy in -1..=1 {
++                    let n = (x + dx, y + dy);
++                    if (n.0 - head.0).abs() <= r && (n.1 - head.1).abs() <= r && !seen.contains(&n) && open(n.0, n.1) {
++                        seen.insert(n);
++                        stack.push(n);
++                    }
++                }
++            }
++        }
++        low
++    }
+ 
+     pub fn teach_report() -> String {
+         let c: Vec<u64> = COUNTS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+diff --git a/src/sim/creature/options.rs b/src/sim/creature/options.rs
+index dc5339fb..7300903c 100644
+--- a/src/sim/creature/options.rs
++++ b/src/sim/creature/options.rs
+@@ -487,6 +487,20 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof:
+     if crop_food {
+         push(Verb::Eat, head, &|_| {});
+     }
++    // SCRATCH (teacher lane, 2026-10-21, never for main): `PP_BOTTOM=<reach>` writes a candidate "bottom of the hole"
++    // sense onto every Dig option, borrowing the unwritten `f::BUILDING` slot: 1 when no open cell of the cavity the
++    // head stands in (flooded through open cells within Chebyshev `reach` of the head) lies lower than the target.
++    if let Some(r) = bottom_reach() {
++        let low = super::mind::scratch_log::cavity_low(world, organism, head, r);
++        for o in out.iter_mut().filter(|o| o.verb == Verb::Dig) {
++            o.feats[f::BUILDING] = f32::from(u8::from(o.target.1 >= low));
++        }
++    }
++}
++
++fn bottom_reach() -> Option<i32> {
++    static R: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
++    *R.get_or_init(|| std::env::var("PP_BOTTOM").ok().and_then(|v| v.parse().ok()))
+ }
+ 
+ /// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
+-- 
+2.43.0
+

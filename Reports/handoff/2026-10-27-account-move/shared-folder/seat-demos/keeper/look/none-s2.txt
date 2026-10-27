@@ -1,0 +1,10 @@
+keeperlook: arm=none scenario=nest_goal seed=2 start=12000 frames=9000 far=150 new_ant=true (ANT BRAIN: TRAINED -- 0 ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL))
+  14 of 14 colony ants think with a trained mind
+  nest at column 155, surface y 160; far heap at column 8 (98 cells); 14 ants
+  f+    0: ants  14 | digs     0 (dug cells     0) | sketch open    0/0 | ants near puff (ant-ticks)      0 | corridor ant-ticks       6 | room ant-ticks      0 | far food  98
+  f+ 1500: ants  16 | digs    14 (dug cells    14) | sketch open    0/0 | ants near puff (ant-ticks)    450 | corridor ant-ticks   11320 | room ant-ticks      0 | far food  64
+  f+ 3000: ants  24 | digs    35 (dug cells    33) | sketch open    0/0 | ants near puff (ant-ticks)   1081 | corridor ant-ticks   22983 | room ant-ticks      0 | far food  62
+  f+ 4500: ants  25 | digs    49 (dug cells    47) | sketch open    0/0 | ants near puff (ant-ticks)   1383 | corridor ant-ticks   34085 | room ant-ticks      0 | far food  40
+  f+ 6000: ants  24 | digs    64 (dug cells    62) | sketch open    0/0 | ants near puff (ant-ticks)   4394 | corridor ant-ticks   43461 | room ant-ticks      0 | far food  34
+  f+ 7500: ants  37 | digs    80 (dug cells    78) | sketch open    0/0 | ants near puff (ant-ticks)   5830 | corridor ant-ticks   56836 | room ant-ticks      0 | far food  23
+  f+ 9000: ants  40 | digs    97 (dug cells    92) | sketch open    0/0 | ants near puff (ant-ticks)   7068 | corridor ant-ticks   77089 | room ant-ticks      0 | far food  12

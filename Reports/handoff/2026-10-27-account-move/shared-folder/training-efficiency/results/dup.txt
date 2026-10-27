@@ -1,0 +1,28 @@
+COLSEL exact-prefix matches (rounds identical from round 0):
+  brood1b-1023/brood1ctl (32 rounds) == broodplant1c-1024/bp1pile (32 rounds) for first 32 rounds
+  colsel10-1022/cs10std (48 rounds) == colsel9b-1022/cs9joincr (32 rounds) for first 32 rounds
+  colsel18-1023/cs18both (48 rounds) == colsel20-1023/cs20wean (48 rounds) for first 9 rounds
+  colsel21b-1023/cs21shape (48 rounds) == colsel23-1023/cs23ctl (48 rounds) for first 48 rounds
+  colsel3-1022/cs3lexlesinh (16 rounds) == colsel4-1022/cs4inh (32 rounds) for first 16 rounds
+  colsel3-1022/cs3lexlesinh (16 rounds) == colsel4-1022/cs4inhsp (32 rounds) for first 16 rounds
+  colsel8-1022/cs8hcs (32 rounds) == colsel9b-1022/cs9hcs (32 rounds) for first 32 rounds
+IN-RUN arms with identical per-seed outputs (share of seeds identical):
+  body-1022/hA1c == ha1-1022/hA1: 64/64 seeds identical
+  body-1022/hA1c == ha1next-1022/hA1c: 64/64 seeds identical
+  body-1022/hA1c == shortr-1022/hA1r200: 64/64 seeds identical
+  body-1022/hg == ha1next-1022/hA1hg3: 64/64 seeds identical
+  c1-1022/ctl == oldref-1022/kid3: 64/64 seeds identical
+  c1-1022/ctl == strict-1022/st0: 64/64 seeds identical
+  ctl-1022/ctl == gate2-1022/ctl: 64/64 seeds identical
+  ha1-1022/hA1 == ha1next-1022/hA1c: 64/64 seeds identical
+  ha1-1022/hA1 == shortr-1022/hA1r200: 64/64 seeds identical
+  ha1-1022/hA1off == needdrop-1022/hA1ndoff: 32/64 seeds identical
+  ha1-1022/hA1off == needdrop-1022/hA1off: 64/64 seeds identical
+  ha1-1022/hA1off == nob-1022/hA1off: 64/64 seeds identical
+  ha1next-1022/hA1c == shortr-1022/hA1r200: 64/64 seeds identical
+  long60b-1022/L60c1 == night2-1022/L60c1: 13/18 seeds identical
+  long60b-1022/L60rand == night2-1022/L60rand: 21/28 seeds identical
+  needdrop-1022/hA1ndoff == needdrop-1022/hA1off: 32/64 seeds identical
+  needdrop-1022/hA1ndoff == nob-1022/hA1off: 32/64 seeds identical
+  needdrop-1022/hA1off == nob-1022/hA1off: 64/64 seeds identical
+  oldref-1022/kid3 == strict-1022/st0: 64/64 seeds identical

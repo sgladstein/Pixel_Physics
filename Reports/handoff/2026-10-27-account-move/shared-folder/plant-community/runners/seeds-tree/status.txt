@@ -1,0 +1,5 @@
+started 2026-10-22T05:40:52Z name=seeds-tree species=tree seed=1 host=vm cores=4
+built 2026-10-22T05:44:55Z
+score run done 2026-10-22T06:01:57Z
+random run done 2026-10-22T06:19:10Z
+finished 2026-10-22T06:20:30Z

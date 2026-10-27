@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Hungry Ants Go Home</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict, a four-world table, then the two films with counts above each */
+:root{--bg:#f3efe8;--card:#fbf8f3;--fg:#2a231c;--mute:#6f6355;--rule:#d9cfc1;--accent:#8a4b2a;
+--display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Source Serif 4",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--card:#211c16;--fg:#ece4d8;--mute:#a89a88;--rule:#3a3128;--accent:#e08c5e;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+main{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1,h2{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15} h1{font-size:clamp(26px,4vw,40px)} h2{font-size:20px}
+p{margin:0;max-width:70ch} .mute{color:var(--mute)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.intro,.ant{display:flex;flex-direction:column;gap:10px} .ant{border-top:1px solid var(--rule);padding-top:18px}
+.stats{font:13px/1.45 var(--mono);color:var(--mute);font-variant-numeric:tabular-nums} .stats b{color:var(--fg)}
+video{width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:3px}
+.tbl{overflow-x:auto} table{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums;min-width:520px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:right} th[scope=row]{text-align:left;font-weight:500} thead th{color:var(--mute);font-weight:400}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+</style>
+<main>
+<div class="intro">
+<span class="eyebrow">Teacher lane · hungry ants · 25 Oct 2026</span>
+<h1>Sending hungry ants home fixes starvation on far, moving food</h1>
+<p>The trained ant has no "go back" of its own. It walks out while fat, and once it hits a wall of the bed its choice of step is close to a coin toss: the home sense is there, but the brain does not use it. Getting back 300 columns that way takes longer than a full tank lasts.</p>
+<p>So I tried a teacher that takes over one choice: an ant that no longer has fuel for the walk home turns for home, putting down any pellet, climbing out of any pit and turning round rather than stepping into its own tail. Acting on today's trained colony, on the far food that moves every 20,000 frames, it cuts starvation by about ten times, to roughly the hand-built ant's level.</p>
+<p class="mute">This is the teacher acting, not a lesson the ants have learned yet. It shows what a lesson could buy. The nest is still tiny either way.</p>
+</div>
+<div class="tbl"><table><thead><tr><th>world</th><th>starved, no teacher</th><th>starved, teacher</th><th>alive at end, no teacher</th><th>alive at end, teacher</th></tr></thead><tbody>
+<tr><th scope="row">21099</th><td>217</td><td>14</td><td>23</td><td>76</td></tr>
+<tr><th scope="row">22099</th><td>381</td><td>24</td><td>0</td><td>71</td></tr>
+<tr><th scope="row">23099</th><td>476</td><td>31</td><td>37</td><td>73</td></tr>
+<tr><th scope="row">24099</th><td>145</td><td>25</td><td>0</td><td>75</td></tr>
+</tbody></table></div>
+<section class="ant"><h2>Trained colony with the teacher, world 21099</h2>
+<p class="stats"><b>76</b> ants alive · <b>14</b> starved · food deliveries 8,014 · nest <b>124</b> cells, <b>2</b> open · crater 5</p>
+<video src="teach.mp4" controls muted loop playsinline preload="metadata" poster="teach_end.png"></video></section>
+<section class="ant"><h2>Same colony, no teacher, same world</h2>
+<p class="stats"><b>23</b> ants alive · <b>217</b> starved · food deliveries 6,350 · nest <b>145</b> cells, <b>5</b> open · crater 5</p>
+<video src="base.mp4" controls muted loop playsinline preload="metadata" poster="base_end.png"></video></section>
+<p class="mute">For comparison, the hand-built ant on this world keeps 80 alive with 11 starved and 1,139 open nest cells.</p>
+<section class="ant"><h2>What it took, in the order the traces found it</h2>
+<ol>
+<li>Turning home at a fixed 2 tanks was too late for an ant 300 columns out: it starved on the way. Turning when the fuel left is about what the walk home costs fixed that.</li>
+<li>Hungry ants holding a pellet were being walked away from home by an older rule. Now they put it down first.</li>
+<li>Ants got stuck in pits dug where a heap had been, and one stood still for 2,500 frames trying to step into its own tail. Climbing out and turning round fixed both. That last fix took the deaths from 50-129 to 14-31.</li>
+</ol></section>
+</main>
+
+</body></html>

@@ -1,0 +1,1058 @@
+diff --git a/examples/plant_m0.rs b/examples/plant_m0.rs
+index 4700d07ca..f11c3477a 100644
+--- a/examples/plant_m0.rs
++++ b/examples/plant_m0.rs
+@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
+ use pixel_physics::train_plant::genome;
+ use std::collections::{BTreeMap, HashMap};
+ 
+-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base"];
++const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block", "ground", "below", "axis", "switch", "heredity", "pile", "life", "budreserve", "shade", "genes", "dimlamp", "dimspacing", "trace", "pics", "level", "roots", "rotground", "altpal", "rotsoil", "twater", "arm", "traceall", "vary", "devkey", "base", "whys"];
+ 
+ fn args() -> BTreeMap<String, String> {
+     let mut m = BTreeMap::new();
+@@ -1166,12 +1166,29 @@ fn plastic(m: &BTreeMap<String, String>) {
+                 // Why a plant dies in the shade is a question about one
+                 // plant's ledger over its life, not about the census.
+                 let trace: u64 = get(m, "trace", 0);
++                // `whys=1`: under each trace row, why the founder's shoot
++                // tips did or did not grow since the last one (`GrowWhy`,
++                // from `World::grow_log`) -- a stalled seedling's tip that
++                // never retires is counted, so the census says what holds it.
++                let whys = get(m, "whys", 0u8) != 0;
++                let traced = |s: u64| trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0);
++                if whys && traced(s) {
++                    w.grow_log = Some(Vec::new());
++                }
+                 for f in 0..frames {
+                     pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
+                     // `traceall=1`: every seed's founder, not only seed 0 --
+                     // the per-individual trace the stall lottery needs.
+-                    if trace > 0 && (s == 0 || get(m, "traceall", 0u8) != 0) && f % trace == 0 {
++                    if traced(s) && f % trace == 0 {
+                         trace_founder(&w, id, &format!("{label} s={s} f={f}"));
++                        if let Some(log) = w.grow_log.as_mut() {
++                            let mut by: BTreeMap<String, u32> = BTreeMap::new();
++                            for r in log.iter().filter(|r| r.organism == id && !r.root) {
++                                *by.entry(format!("{:?}", r.why)).or_default() += 1;
++                            }
++                            log.clear();
++                            println!("    WHYS {label} s={s} f={f} {by:?}");
++                        }
+                     }
+                 }
+                 // `pics=N`: the founder's patch for the first N seeds,
+@@ -1195,7 +1212,11 @@ fn plastic(m: &BTreeMap<String, String>) {
+                 // One line per seed, so the arms can be compared paired
+                 // within seed rather than by mean of survivors: a shoot's
+                 // spread inside an arm (SD ~250 on 600) swamps a 10% shift.
+-                println!("    SEED {label} s={s} shoot {}", form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])));
++                println!(
++                    "    SEED {label} s={s} shoot {} sprouts {}",
++                    form(&w, id, bed.ground_y).map_or("dead".to_string(), |f| format!("{:.0}", f[0])),
++                    w.collar_sprouts
++                );
+                 if let Some(f) = form(&w, id, bed.ground_y) {
+                     rows.push(f);
+                     if let Some(st) = w.organism(id) {
+@@ -1215,7 +1236,12 @@ fn plastic(m: &BTreeMap<String, String>) {
+             println!();
+             table.push(rows);
+         }
++        // Only when every arm ran: under `arm=` the table holds a subset,
++        // and its positions no longer name the arms below.
+         for (axis, a, b) in [("dim - bright, genes ignored", 1usize, 0usize), ("dim - bright, genes read", 3, 2)] {
++            if table.len() < 4 {
++                continue;
++            }
+             print!("  {axis:<28}");
+             for (i, name) in FORM.iter().enumerate() {
+                 let (ma, sa) = mean_sd(&table[a].iter().map(|r| r[i]).collect::<Vec<_>>());
+diff --git a/examples/plantrain.rs b/examples/plantrain.rs
+index a2f00c2f2..5d73b9f54 100644
+--- a/examples/plantrain.rs
++++ b/examples/plantrain.rs
+@@ -5,6 +5,8 @@
+ //! ```text
+ //! # train: herb, its shape and leaf genes free, 24 genomes, 6 layouts a generation
+ //! cargo run --release --example plantrain -- groups=shape,leaf pop=24 gens=20 layouts=6 out=training/plants/run1
++//! # train on rung 2 (juvenile growth, bright and dim), scored against the shipped species' size there
++//! cargo run --release --example plantrain -- control=shrub rung=grow stations=bright,dim pop=24 gens=20 layouts=4 out=training/plants/shrub-grow
+ //! # the null: the same run with parents drawn at random
+ //! cargo run --release --example plantrain -- groups=shape,leaf pop=24 gens=20 layouts=6 select=random out=training/plants/null1
+ //! # the shipped species' own census on N layouts: where the run constants come from
+@@ -21,6 +23,12 @@
+ //! cargo run --release --example plantrain -- mode=lean layouts=4 offsets=4,8 stops=8000,16000,24000
+ //! # rank genomes by mean or by worst layout: which pick holds up on a second, disjoint set?
+ //! cargo run --release --example plantrain -- mode=ranking genomes=16 layouts=12 sigma=0.9 genes=8
++//! # the ladder's first rungs on the shipped role species: per station, who establishes, how fast it grows, what a bed costs
++//! cargo run --release --example plantrain -- mode=rungs species=tree,shrub,herb,creeper rungs=establish,grow stations=bright,dim layouts=12
++//! # ...and a trained file beside the species it came from, over a whole life
++//! cargo run --release --example plantrain -- mode=rungs species=shrub,training/plants/run1/best.ron rungs=life layouts=12
++//! # does each rung rank genomes the way the next one does? mutated children on rungs 1, 2 and a whole life
++//! cargo run --release --example plantrain -- mode=ladder control=herb genomes=16 layouts=8 stations=bright,dim
+ //! # a picture: the shipped species and each file, on N layouts, at chosen frames
+ //! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
+ //! ```
+@@ -39,7 +47,7 @@ use std::path::PathBuf;
+ const KNOWN: &[&str] = &[
+     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
+     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
+-    "heavy", "spacing", "offsets", "top",
++    "heavy", "spacing", "offsets", "top", "species", "rungs", "stations", "drysoil", "rung", "station",
+ ];
+ 
+ fn args() -> BTreeMap<String, String> {
+@@ -74,6 +82,9 @@ fn bed(m: &BTreeMap<String, String>) -> BedSpec {
+             Some("on") => false,
+             Some(v) => panic!("mutation={v} is not on|off"),
+         },
++        // `station=dim` for `mode=pic` and the other whole-bed modes; the
++        // trainer takes `stations=` instead, since it scores several.
++        station: m.get("station").map_or(d.station, |v| arena::Station::named(v).unwrap_or_else(|| panic!("station `{v}` is not bright|dim|dry"))),
+     };
+     if b.every == 0 || b.frames == 0 {
+         eprintln!("plantrain: every= and frames= must be at least 1");
+@@ -156,6 +167,199 @@ fn calibrate(m: &BTreeMap<String, String>) {
+     println!("score at k_seed={} size_floor={}: mean {mean:.3} min {min:.3} sd {:.3}  {:?}", k.k_seed, k.size_floor, sd(&scores), scores);
+ }
+ 
++/// **The ladder's rungs on shipped species, per station** (plant-community
++/// plan §6.2, M2): germinated and established out of the layouts, the frame
++/// it established at, shoot cells at the end with their spread, the juvenile
++/// growth rate from establishment to the end, and the wall time per bed --
++/// the numbers a rung's constants and its compute budget (§13) are set from,
++/// and the check that a station changes anything at all.
++fn rungs(m: &BTreeMap<String, String>) {
++    let species: Vec<String> = get(m, "species", "tree,shrub,herb,creeper".to_string()).split(',').map(str::to_string).collect();
++    let rungs: Vec<arena::Rung> = get(m, "rungs", "establish,grow".to_string())
++        .split(',')
++        .map(|r| arena::Rung::named(r).unwrap_or_else(|| panic!("rung `{r}` is not establish|grow|life")))
++        .collect();
++    // `dry` is left out by default: see `Station::DRY` for why it scores
++    // nothing yet.
++    let stations: Vec<arena::Station> = get(m, "stations", "bright,dim".to_string())
++        .split(',')
++        .map(|s| arena::Station::named(s).unwrap_or_else(|| panic!("station `{s}` is not bright|dim|dry")))
++        .collect();
++    let n: usize = get(m, "layouts", 12);
++    let base: u64 = get(m, "base", 3_000_000);
++    let threads = rayon::current_num_threads();
++    println!("plantrain rungs: species={} rungs={} stations={} layouts={n} base={base} threads={threads}", species.join(","), rungs.iter().map(|r| r.name()).collect::<Vec<_>>().join(","), stations.iter().map(|s| s.name).collect::<Vec<_>>().join(","));
++    for &rung in &rungs {
++        for &station in &stations {
++            let mut spec = rung.spec(station);
++            spec.n_est = get(m, "n_est", spec.n_est);
++            // `drysoil=F`: the dry station's starting soil water, for the
++            // sweep that finds a value that is dry to a plant.
++            if station.name == "dry" {
++                spec.station.soil = get(m, "drysoil", spec.station.soil);
++            }
++            let layouts = rung.layouts(base, n);
++            // A name ending `.ron` is a trained file, so a champion can be
++            // put on the same rungs as the species it came from.
++            let arms: Vec<Arm> = species
++                .iter()
++                .map(|s| if s.ends_with(".ron") { Arm::of(&train_plant::load(std::path::Path::new(s)).expect("the file loads")) } else { Arm::shipped(s) })
++                .collect();
++            let t = std::time::Instant::now();
++            let rows = train_plant::census_all(&arms, &layouts, &spec);
++            let per_bed = t.elapsed().as_secs_f32() * threads as f32 / (arms.len() * n) as f32;
++            println!("  {} {} (width {} frames {} n_est {} lamp {} rain {:?} soil {}): {per_bed:.2} core-s a bed", rung.name(), station.name, spec.width, spec.frames, spec.n_est, spec.station.lamp, spec.station.rain, spec.station.soil);
++            for (sp, cs) in species.iter().zip(&rows) {
++                let germ = cs.iter().filter(|c| c.germinated).count();
++                let est: Vec<f32> = cs.iter().filter_map(|c| c.established_at.map(|f| f as f32)).collect();
++                let end: Vec<f32> = cs.iter().map(|c| c.end_shoot as f32).collect();
++                let mean = end.iter().sum::<f32>() / n.max(1) as f32;
++                let cv = if mean > 0.0 { sd(&end) / mean } else { 0.0 };
++                // ln(end / n_est) per 1,000 frames after establishing: the
++                // relative growth rate over the juvenile stretch.
++                let rgr: Vec<f32> = cs
++                    .iter()
++                    .filter_map(|c| {
++                        let at = c.established_at?;
++                        let span = spec.frames.saturating_sub(at);
++                        (span > 0 && c.end_shoot > 0).then(|| (c.end_shoot as f32 / spec.n_est.max(1) as f32).ln() * 1000.0 / span as f32)
++                    })
++                    .collect();
++                println!(
++                    "    {sp:<8} germ {germ:>2}/{n} est {:>2}/{n} est@ p50 {:>6.0} | end shoot p25 {:>5.0} p50 {:>5.0} p75 {:>5.0} cv {cv:.2} | rgr/1k p25 {:.2} p50 {:.2} p75 {:.2}",
++                    est.len(),
++                    q(&est, 0.5),
++                    q(&end, 0.25),
++                    q(&end, 0.5),
++                    q(&end, 0.75),
++                    q(&rgr, 0.25),
++                    q(&rgr, 0.5),
++                    q(&rgr, 0.75)
++                );
++            }
++        }
++    }
++}
++
++/// Spearman rank correlation of two equal-length lists, ties at their mean
++/// rank.
++fn spearman(x: &[f32], y: &[f32]) -> f32 {
++    let rank = |v: &[f32]| -> Vec<f32> {
++        let mut idx: Vec<usize> = (0..v.len()).collect();
++        idx.sort_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal));
++        let mut r = vec![0.0; v.len()];
++        let mut i = 0;
++        while i < idx.len() {
++            let mut j = i;
++            while j + 1 < idx.len() && v[idx[j + 1]] == v[idx[i]] {
++                j += 1;
++            }
++            for &t in &idx[i..=j] {
++                r[t] = (i + j) as f32 / 2.0;
++            }
++            i = j + 1;
++        }
++        r
++    };
++    let (rx, ry) = (rank(x), rank(y));
++    let n = rx.len().max(1) as f32;
++    let (mx, my) = (rx.iter().sum::<f32>() / n, ry.iter().sum::<f32>() / n);
++    let cov: f32 = rx.iter().zip(&ry).map(|(a, b)| (a - mx) * (b - my)).sum();
++    let vx: f32 = rx.iter().map(|a| (a - mx) * (a - mx)).sum();
++    let vy: f32 = ry.iter().map(|b| (b - my) * (b - my)).sum();
++    cov / (vx * vy).sqrt().max(f32::EPSILON)
++}
++
++/// **Does each rung predict the next?** (plant-community plan §6.2's first
++/// rule for the ladder: a rung that does not rank candidates the way the
++/// next one does is teaching something else.) Mutated children of `control`
++/// -- the same children `mode=ranking` makes -- grown on rung 1 (establish)
++/// and rung 2 (grow) per station on two disjoint layout sets, and once on a
++/// whole life (P1's bed and score). Prints each arm's numbers, then the
++/// rank correlations: a rung against itself on the other set (its own
++/// repeatability -- a ceiling on anything it can predict), and each rung
++/// against the next.
++fn ladder(m: &BTreeMap<String, String>) {
++    let start = train_plant::load(&start_path(m)).expect("the start species loads");
++    let g: usize = get(m, "genomes", 16);
++    let n: usize = get(m, "layouts", 8);
++    let base: u64 = get(m, "base", 9_000_000);
++    let sigma: f32 = get(m, "sigma", 0.9);
++    let max_genes: usize = get(m, "genes", 8);
++    let groups: Vec<Group> = m
++        .get("groups")
++        .map(|v| v.split(',').map(|x| Group::parse(x).unwrap_or_else(|| panic!("unknown group `{x}`"))).collect())
++        .unwrap_or_else(|| vec![Group::Shape, Group::Leaf, Group::Flower, Group::Height]);
++    let stations: Vec<arena::Station> = get(m, "stations", "bright,dim".to_string())
++        .split(',')
++        .map(|s| arena::Station::named(s).unwrap_or_else(|| panic!("station `{s}` is not bright|dim|dry")))
++        .collect();
++    let genes = genome::gene_table(&start);
++    let free: Vec<usize> = (0..genes.len()).filter(|&i| groups.contains(&genes[i].group)).collect();
++    let mut rng = pixel_physics::sim::rng::Rng::new(get(m, "seed", 0x5EED_1000));
++    let control: String = get(m, "control", "herb".to_string());
++    let mut arms = vec![Arm::shipped(&control)];
++    for i in 0..g {
++        let (mut d, _) = genome::mutate(&start, &genes, &free, sigma, max_genes, &mut rng);
++        d.name = genome::child_name(&start.name, 971, 0, i);
++        arms.push(Arm::of(&d));
++    }
++    println!(
++        "plantrain ladder: control={control} genomes={g} sigma={sigma} genes={max_genes} groups={} layouts={n}+{n} base={base} stations={}",
++        groups.iter().map(|x| x.name()).collect::<Vec<_>>().join(","),
++        stations.iter().map(|s| s.name).collect::<Vec<_>>().join(",")
++    );
++    let mean_of = |rows: &[Census], f: &dyn Fn(&Census) -> f32| rows.iter().map(f).sum::<f32>() / rows.len().max(1) as f32;
++    // cols[name] = one number per arm.
++    let mut cols: Vec<(String, Vec<f32>)> = Vec::new();
++    for &station in &stations {
++        for rung in [arena::Rung::Establish, arena::Rung::Grow] {
++            let spec = rung.spec(station);
++            for (set, b) in [("A", base), ("B", base + 500_000)] {
++                let t = std::time::Instant::now();
++                let rows = train_plant::census_all(&arms, &rung.layouts(b, n), &spec);
++                eprintln!("  {} {} {set}: {:.0} s", rung.name(), station.name, t.elapsed().as_secs_f32());
++                cols.push((format!("{}-{}-{set}", rung.name(), station.name), rows.iter().map(|r| mean_of(r, &|c| c.end_shoot as f32)).collect()));
++            }
++        }
++    }
++    let life = arena::Rung::Life.spec(arena::Station::BRIGHT);
++    let k = constants(m, &life);
++    let t = std::time::Instant::now();
++    let life_scores = train_plant::score_all(&arms, &arena::Rung::Life.layouts(base + 1_000_000, n), &life, &k);
++    eprintln!("  life bright: {:.0} s", t.elapsed().as_secs_f32());
++    cols.push(("life-score".to_string(), life_scores.iter().map(|r| score::fold(r).0).collect()));
++    print!("\n{:<5}", "arm");
++    for (name, _) in &cols {
++        print!(" {name:>18}");
++    }
++    println!();
++    for a in 0..arms.len() {
++        let tag = if a == 0 { "ship".to_string() } else { format!("c{a:02}") };
++        print!("{tag:<5}");
++        for (_, v) in &cols {
++            print!(" {:>18.2}", v[a]);
++        }
++        println!();
++    }
++    let col = |name: &str| cols.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone()).unwrap_or_default();
++    println!("\nSpearman over {} arms:", arms.len());
++    for &station in &stations {
++        let st = station.name;
++        let (e_a, e_b) = (col(&format!("establish-{st}-A")), col(&format!("establish-{st}-B")));
++        let (g_a, g_b) = (col(&format!("grow-{st}-A")), col(&format!("grow-{st}-B")));
++        let life = col("life-score");
++        println!(
++            "  {st:<7} repeat: establish {:+.2} grow {:+.2} | establish -> grow {:+.2} | grow -> life {:+.2} | establish -> life {:+.2}",
++            spearman(&e_a, &e_b),
++            spearman(&g_a, &g_b),
++            spearman(&e_a, &g_b),
++            spearman(&g_a, &life),
++            spearman(&e_a, &life)
++        );
++    }
++}
++
+ fn sd(v: &[f32]) -> f32 {
+     if v.len() < 2 {
+         return 0.0;
+@@ -720,6 +924,8 @@ fn main() {
+     let m = args();
+     match m.get("mode").map(String::as_str).unwrap_or("train") {
+         "calibrate" => calibrate(&m),
++        "rungs" => rungs(&m),
++        "ladder" => ladder(&m),
+         "sweep" => sweep(&m),
+         "score" => score_files(&m),
+         "pic" => pic(&m),
+@@ -754,6 +960,14 @@ fn main() {
+                 teeth: get(&m, "teeth", 1u8) != 0,
+                 constants: constants(&m, &b),
+                 bed: b,
++                // `rung=grow stations=bright,dim`: train on rung 2, which
++                // predicts a whole life at a fifth of its cost
++                // (`mode=ladder`); `life`, the default, is P1's bed.
++                rung: arena::Rung::named(&get(&m, "rung", "life".to_string())).unwrap_or_else(|| panic!("rung= is establish|grow|life")),
++                stations: get(&m, "stations", "bright".to_string())
++                    .split(',')
++                    .map(|x| arena::Station::named(x).unwrap_or_else(|| panic!("station `{x}` is not bright|dim|dry")))
++                    .collect(),
+                 out: m.get("out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("training/plants/run")),
+             };
+             if let Err(e) = train_plant::run(&s) {
+@@ -762,7 +976,7 @@ fn main() {
+             }
+         }
+         other => {
+-            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness|lean|ranking");
++            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness|lean|ranking|rungs|ladder");
+             std::process::exit(2);
+         }
+     }
+diff --git a/src/sim/plant.rs b/src/sim/plant.rs
+index 3917003ad..66980ee9a 100644
+--- a/src/sim/plant.rs
++++ b/src/sim/plant.rs
+@@ -2500,6 +2500,15 @@ pub(crate) fn branch_node_default() -> bool {
+     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BRANCH_NODE").as_deref(), Ok("1")))
+ }
+ 
++/// `World::collar_sprout`'s default: off, unless
++/// `PIXEL_PHYSICS_COLLAR_SPROUT=1` -- the harness switch, as
++/// `branch_node_default`, until it is measured.
++pub(crate) fn collar_sprout_default() -> bool {
++    use std::sync::OnceLock;
++    static ON: OnceLock<bool> = OnceLock::new();
++    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_COLLAR_SPROUT").as_deref(), Ok("1")))
++}
++
+ /// `World::node_keyed_growth`'s default: off, unless
+ /// `PIXEL_PHYSICS_NODE_KEY=1` -- the instrument that lets every harness
+ /// (`clone_variance`, `plant_m0`) run the A2 arm without a flag of its own.
+@@ -11360,6 +11369,48 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
+             richest = Some((x, y, held));
+         }
+     }
++    // **A plant with no tip and no bud left sprouts from its base**
++    // (`World::collar_sprout`). Buds are laid down only by a tip as it
++    // extends, and thickening wood buries them, so a plant whose last tip
++    // retires slowly loses every way to grow: traced on twelve lone shrubs
++    // under the lamp (`plant_m0 axis=shade whys=1`), 7 of 12 ended the run
++    // with no tip and no bud, frozen from frame 11,500 to 58,000 -- one at
++    // 278 cells holding ~700 carbon for 48,000 frames -- and *when* each
++    // froze set much of the spread in final size. Real shrubs keep a bank of
++    // buds at the root collar and resprout from it; that is most of what
++    // makes a shrub a shrub (Bond & Midgley 2001, "Ecology of sprouting in
++    // woody plants", cited from memory). `break_tillers` is the same answer
++    // for grass, which has no buds at all.
++    //
++    // The lowest stem cell with open air beside or above it becomes the one
++    // candidate bud, and everything after this is the ordinary flush: the
++    // same gate (`bud_break_reserve`'s one tip for a tipless plant, or
++    // income), paid from the richest cell, so no carbon is made. It keeps
++    // its own short path from the collar, so the new stem has the whole
++    // turgor budget a basal shoot has. One at a time, only with no tip: a
++    // stand cannot run away through it any faster than one stem per plant.
++    let mut sprouting = false;
++    if buds.is_empty() && tips == 0 && world.collar_sprout && reserve >= BUD_RESERVE_STEPS * cost * wood_density_mult(world, organism_id) {
++        let mut crown: Option<(i32, i32)> = None;
++        for &(x, y) in &cells {
++            let cell = world.get(x, y);
++            if cell.organism_id() != organism_id
++                || organism::cell_type(cell.aux()) != Some(CellType::MatureBody)
++                || world.materials.get(cell.material).reinforces_powder
++            {
++                continue;
++            }
++            let open = [(0, -1), (-1, 0), (1, 0)].iter().any(|&(dx, dy)| growable(world, x + dx, y + dy, 0.0, false));
++            // `cells` is sorted by row, so the last open one is lowest.
++            if open && crown.is_none_or(|(_, cy)| y >= cy) {
++                crown = Some((x, y));
++            }
++        }
++        if let Some((x, y)) = crown {
++            buds.push((x, y, 1.0));
++            sprouting = true;
++        }
++    }
+     if buds.is_empty() {
+         return;
+     }
+@@ -11519,6 +11570,9 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
+     // defect `plants:124` is about is exactly the case where the first is
+     // positive and the second is zero.
+     world.buds_flushed = world.buds_flushed.saturating_add(1);
++    if sprouting {
++        world.collar_sprouts = world.collar_sprouts.saturating_add(1);
++    }
+     // The richest cell pays the flush price; the bud keeps its own stake.
+     //
+     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
+@@ -25254,6 +25308,54 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
+         }
+     }
+ 
++    /// **A plant with no tip and no bud left sprouts from its base, with
++    /// `World::collar_sprout` on, and only then.** The reserve test's tree,
++    /// with every bud also buried (made `MatureBody`, as thickening does):
++    /// off, `break_buds` has nothing to flush; on, the lowest open stem cell
++    /// becomes a tip, and it is counted in `collar_sprouts`. The guard's
++    /// positive control is the off arm: the same tree, the same stores,
++    /// nothing happens.
++    #[test]
++    fn a_plant_with_no_tip_and_no_bud_sprouts_from_its_base_only_when_on() {
++        for on in [false, true] {
++            let mut w = test_world();
++            w.seed = 1;
++            plant_tree_on_ground(&mut w, 100, 60);
++            let id = w.get(100, 60).organism_id();
++            run_with_fields(&mut w, 4_000);
++            let cells: Vec<(i32, i32)> = w.organism(id).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
++            for &(x, y) in &cells {
++                let c = w.get(x, y);
++                if matches!(organism::cell_type(c.aux()), Some(CellType::GrowingTip | CellType::DormantBud)) {
++                    w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::MatureBody)));
++                }
++            }
++            for &(x, y) in &cells {
++                write_carbon(&mut w, x, y, 1.0);
++            }
++            w.bud_break_reserve = true;
++            w.collar_sprout = on;
++            let (before, sprouts_before) = (w.buds_flushed, w.collar_sprouts);
++            break_buds(&mut w, id);
++            let flushed = w.buds_flushed - before;
++            let sprouts = w.collar_sprouts - sprouts_before;
++            assert_eq!((flushed, sprouts), (u32::from(on), u32::from(on)), "sprout {on}: a tree with no tip, no bud and full stores flushed {flushed}, sprouted {sprouts}");
++            if on {
++                let tip = cells.iter().find(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip)).copied();
++                let lowest_stem = cells
++                    .iter()
++                    .filter(|&&(x, y)| {
++                        let c = w.get(x, y);
++                        !w.materials.get(c.material).reinforces_powder && organism::cell_type(c.aux()) != Some(CellType::Leaf)
++                    })
++                    .map(|&(_, y)| y)
++                    .max();
++                let (tip, lowest) = (tip.expect("on: a tip should exist"), lowest_stem.expect("a stem"));
++                assert!(lowest - tip.1 <= 2, "the sprout should be at the base: tip at row {}, lowest stem row {lowest}", tip.1);
++            }
++        }
++    }
++
+     /// **The shade genes are read only under `World::shade_plasticity`, and a
+     /// tolerant leaf pays its price in bright light** (A5). A tree given
+     /// `shade_tolerate` 1.0 through the parameter-override path a mutation
+diff --git a/src/sim/world.rs b/src/sim/world.rs
+index 5d15ac87c..eec9cf7b4 100644
+--- a/src/sim/world.rs
++++ b/src/sim/world.rs
+@@ -5884,6 +5884,9 @@ pub struct World {
+     /// scheduled -- `supportable` is a budget and spending none of it is the
+     /// outcome the defect produces.
+     pub buds_flushed: u32,
++    /// Of `buds_flushed`, how many were a plant sprouting from its base with
++    /// no bud left (`World::collar_sprout`).
++    pub collar_sprouts: u32,
+     /// **Root cells taken by fine-root turnover** — `plant.rs`'s
+     /// `ROOT_TURNOVER_PER_TICK`, the did-it-fire counter for a mechanism
+     /// that ships at zero.
+@@ -6454,6 +6457,11 @@ pub struct World {
+     pub node_keyed_growth: bool,
+     /// **Laterals at nodes, not by coin** (A3; `plant::branch_due`).
+     pub branch_by_node: bool,
++    /// **A plant with no tip and no bud left sprouts from its base**
++    /// (`plant::break_buds`, the collar sprout). Off, a plant whose last
++    /// tip has retired and whose buds have all been thickened over is
++    /// frozen for good, whatever carbon it holds.
++    pub collar_sprout: bool,
+     /// **The deepest generation any lineage has ever reached** — a high-water
+     /// mark, never decremented, and the reason it exists is that every other
+     /// generation readout in this repo cannot answer the question.
+@@ -7549,6 +7557,7 @@ impl World {
+             roots_shed: 0,
+             shed_stranded: 0,
+             buds_flushed: 0,
++            collar_sprouts: 0,
+             fields_settled: false,
+             touched_chunks: ChunkSet::default(),
+             creature_par: crate::sim::creature::ParTuning::default(),
+@@ -7592,6 +7601,7 @@ impl World {
+             developmental_key: super::organism::DevelopmentalKey::default(),
+             node_keyed_growth: super::plant::node_key_default(),
+             branch_by_node: super::plant::branch_node_default(),
++            collar_sprout: super::plant::collar_sprout_default(),
+             deepest_generation: 0,
+             deepest_animal_generation: 0,
+             deepest_breeder_generation: 0,
+diff --git a/src/train_plant/arena.rs b/src/train_plant/arena.rs
+index 4962d0de1..1c3e9ec41 100644
+--- a/src/train_plant/arena.rs
++++ b/src/train_plant/arena.rs
+@@ -15,6 +15,7 @@
+ //! (soil and lamp textures, rain columns, the sweep order), so layouts are
+ //! stratified by light rather than mirrored.
+ 
++use crate::lab::rain::Rain;
+ use crate::lab::scene::LabBox;
+ use crate::sim::cell::OrganismId;
+ use crate::sim::explosion::Blasts;
+@@ -59,6 +60,110 @@ pub fn layouts(base: u64, n: usize) -> Vec<Layout> {
+     (0..n).map(|i| Layout { seed: base + i as u64, offset: Offset::ALL[i % Offset::ALL.len()] }).collect()
+ }
+ 
++/// **A station: the fixed conditions an individual is grown in** (plan §5).
++/// One plant is noisy, so a genome is grown as several individuals across a
++/// set of stations, and a role is judged mostly in the stations its niche is
++/// made of -- an understory candidate in dim ones, a colonist in open ones.
++/// A station changes only the light and the water; the bed, its soil and the
++/// founder's layout are the run's.
++#[derive(Clone, Copy, PartialEq, Debug)]
++pub struct Station {
++    pub name: &'static str,
++    /// The grow lamps' beam, as a fraction of the lab's.
++    pub lamp: f32,
++    /// The mister.
++    pub rain: Rain,
++    /// The soil's water at the start, as a fraction of the way from wilting
++    /// point to what the bed was built holding (field capacity). 1 leaves the
++    /// bed as built.
++    pub soil: f32,
++}
++
++impl Station {
++    /// The lab as it ships: full lamps, light rain.
++    pub const BRIGHT: Station = Station { name: "bright", lamp: 1.0, rain: Rain::Light, soil: 1.0 };
++    /// Lamps at 0.4 of their beam, the dim arm `plant_m0 axis=shade` measured
++    /// its shade genes in (and checked was dim, which M0's between-lamps arm
++    /// was not).
++    pub const DIM: Station = Station { name: "dim", lamp: 0.4, rain: Rain::Light, soil: 1.0 };
++    /// Full lamps, no mister, and the soil a quarter of the way from wilting
++    /// to field capacity -- just above the highest germination threshold of
++    /// the four role species (shrub, 0.20).
++    ///
++    /// **Not yet a station that scores anything, and the reason is the
++    /// engine's, not this constant's** (M2, 2026-10-21; `plantrain
++    /// mode=rungs`). A young plant's growth does not respond to soil water
++    /// above the germination threshold: starting soil at 1.0, 0.35, 0.25 and
++    /// 0.15 grew the same herb on 8-12 layouts (end shoot p50 116, 110, 106
++    /// against 102 under the mister), and at 0.12 and below nothing
++    /// germinated. Water is a cliff at germination with no middle, so this
++    /// station is kept as the instrument and left out of the default set
++    /// until a dry plant grows less. No mister alone is not dry either: a bed
++    /// is built at field capacity, and over 3,000 frames it read the same as
++    /// the bright station on every species, to the cell.
++    pub const DRY: Station = Station { name: "dry", lamp: 1.0, rain: Rain::Off, soil: 0.25 };
++    pub const ALL: [Station; 3] = [Station::BRIGHT, Station::DIM, Station::DRY];
++
++    pub fn named(name: &str) -> Option<Station> {
++        Station::ALL.into_iter().find(|s| s.name == name)
++    }
++}
++
++/// **A rung of the ladder** (plan §6.2): a bed size, a length, and the steps
++/// of a plant's life it scores. Each is the cheapest arena its stage can be
++/// decided in; the run is cut off once it is.
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub enum Rung {
++    /// Germinate and establish: a pocket of soil 48 wide, 3,000 frames.
++    /// The plan's 24 cannot hold the layouts: a bed that narrow has one
++    /// lamp, and "half way to the next" lands on the far wall. Measured: 24
++    /// and 40 wide built no founder, 48 planted at all three offsets.
++    Establish,
++    /// Juvenile growth rate: 48 wide, 10,000 frames.
++    Grow,
++    /// A whole life, alone: P1's bed, 96 wide, 40,000 frames.
++    Life,
++}
++
++impl Rung {
++    pub const ALL: [Rung; 3] = [Rung::Establish, Rung::Grow, Rung::Life];
++
++    pub fn name(self) -> &'static str {
++        match self {
++            Rung::Establish => "establish",
++            Rung::Grow => "grow",
++            Rung::Life => "life",
++        }
++    }
++
++    pub fn named(name: &str) -> Option<Rung> {
++        Rung::ALL.into_iter().find(|r| r.name() == name)
++    }
++
++    /// The rung's `n` layouts from `base`. **The short rungs plant under a
++    /// lamp only**: the light is the station's job, and in a narrow bed a
++    /// seed between two lamps never sprouts at all (measured on shrub and
++    /// herb, 3,000 frames: 4 of 4 between-lamp seeds still a seed, every
++    /// under-lamp one grown), so a third of the beds would score nothing for
++    /// every genome. A whole life keeps all three offsets, as P1 had it.
++    pub fn layouts(self, base: u64, n: usize) -> Vec<Layout> {
++        match self {
++            Rung::Life => layouts(base, n),
++            Rung::Establish | Rung::Grow => (0..n).map(|i| Layout { seed: base + i as u64, offset: Offset::Under }).collect(),
++        }
++    }
++
++    /// The rung's bed, in `station`.
++    pub fn spec(self, station: Station) -> BedSpec {
++        let d = BedSpec { station, ..BedSpec::default() };
++        match self {
++            Rung::Establish => BedSpec { width: 48, frames: 3_000, every: 100, ..d },
++            Rung::Grow => BedSpec { width: 48, frames: 10_000, every: 250, ..d },
++            Rung::Life => d,
++        }
++    }
++}
++
+ /// The bed's size, length and sampling. Every field is printed in the run's
+ /// settings line.
+ #[derive(Clone, Copy, Debug)]
+@@ -75,11 +180,13 @@ pub struct BedSpec {
+     /// inherit without mutation. The only variation is the one the trainer
+     /// makes. `false` leaves every dial as the lab ships it.
+     pub mutation_off: bool,
++    /// The light and water the bed is grown under.
++    pub station: Station,
+ }
+ 
+ impl Default for BedSpec {
+     fn default() -> Self {
+-        Self { width: 96, frames: 40_000, every: 250, n_est: 20, mutation_off: true }
++        Self { width: 96, frames: 40_000, every: 250, n_est: 20, mutation_off: true, station: Station::BRIGHT }
+     }
+ }
+ 
+@@ -108,6 +215,7 @@ pub fn bed_for(species_ron: Option<&str>, name: &str, layout: Layout, spec: &Bed
+         predators: 0,
+         seed: layout.seed,
+         species_ron: species_ron.map(str::to_string),
++        rain: spec.station.rain,
+         ..LabBox::default()
+     };
+     b.founder_at = Some(vec![founder_column(&b, layout.offset)]);
+@@ -133,6 +241,10 @@ pub struct Census {
+     /// least `n_est` shoot cells at the end. In a one-species bed with
+     /// heredity off these are all the founder's line.
+     pub seedlings_established: u32,
++    /// The first census at which the founder held `n_est` shoot cells.
++    pub established_at: Option<u64>,
++    /// The founder's shoot cells at the last census.
++    pub end_shoot: u32,
+     /// The founder is alive at the end.
+     pub founder_alive: bool,
+     /// Frames the bed ran.
+@@ -158,11 +270,57 @@ fn height_of(w: &World, id: OrganismId, ground_y: i32) -> i32 {
+     w.organism(id).map_or(0, |st| st.cells.keys().map(|&(_, y)| ground_y - y).max().unwrap_or(0))
+ }
+ 
+-/// Build the bed, find its founder, apply the heredity dials. The founder is
+-/// the one organism the bed holds once it is built (no colony, no predator,
+-/// one founder).
++/// Scale the grow lamps' beam by `factor` and re-place every lamp cell, so
++/// the light field picks the new beam up (`plant_m0`'s `dim_lamps`, which
++/// measured that it does).
++pub fn dim_lamps(w: &mut World, factor: f32, width: i32, height: i32) {
++    let Some(lamp) = w.materials.id_of("growlamp") else {
++        return;
++    };
++    if factor == 1.0 {
++        return;
++    }
++    w.materials.get_mut(lamp).beam *= factor;
++    for y in 0..height {
++        for x in 0..width {
++            let c = w.get(x, y);
++            if c.material == lamp {
++                w.set(x, y, crate::sim::cell::Cell::EMPTY);
++                w.set(x, y, c);
++            }
++        }
++    }
++}
++
++/// Set every soil cell's water to `fraction` of the way from wilting point to
++/// what it holds now -- its own field capacity, as the bed was built, so a
++/// textured bed keeps each soil's own scale.
++pub fn dry_soil(w: &mut World, fraction: f32, width: i32, height: i32) {
++    let Some(soil) = w.materials.id_of("soil") else {
++        return;
++    };
++    let wilt = crate::sim::material::SOIL_WILTING_POINT as f32;
++    for y in 0..height {
++        for x in 0..width {
++            let c = w.get(x, y);
++            if c.material == soil {
++                let held = c.aux() as f32;
++                let to = wilt + fraction * (held - wilt).max(0.0);
++                w.set(x, y, c.with_aux(to.round() as u16));
++            }
++        }
++    }
++}
++
++/// Build the bed, find its founder, apply the heredity dials and the
++/// station's light. The founder is the one organism the bed holds once it is
++/// built (no colony, no predator, one founder).
+ pub fn build(bed: &LabBox, spec: &BedSpec) -> (World, OrganismId) {
+     let mut w = bed.build();
++    dim_lamps(&mut w, spec.station.lamp, bed.width, bed.height);
++    if spec.station.soil < 1.0 {
++        dry_soil(&mut w, spec.station.soil, bed.width, bed.height);
++    }
+     if spec.mutation_off {
+         w.fate_mutation_chance = 0.0;
+         w.param_mutation_chance = 0.0;
+@@ -193,8 +351,17 @@ pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
+             continue;
+         }
+         let shoot = st.shoot_cells;
+-        c.germinated |= shoot > 0;
++        // **More than the seed**: an unsprouted seed is one shoot cell, so
++        // `shoot > 0` counted every seed that sat on the ground for the whole
++        // run as germinated (measured: 12 of 12 "germinated" on a narrow bed
++        // where four never grew a cell). Germination is the first root or
++        // shoot past the seed.
++        c.germinated |= st.cells.len() > 1;
+         c.peak_shoot = c.peak_shoot.max(shoot);
++        c.end_shoot = shoot;
++        if shoot >= spec.n_est && c.established_at.is_none() {
++            c.established_at = Some(f);
++        }
+         c.peak_height = c.peak_height.max(height_of(&w, founder, bed.ground_y));
+         let (flowers, fruit) = organs_of(&w, founder);
+         if flowers > 0 && c.first_flower.is_none() {
+@@ -204,6 +371,9 @@ pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
+         c.fruited |= fruit > 0;
+     }
+     c.founder_alive = w.organism(founder).is_some_and(|s| s.species == species);
++    if !c.founder_alive {
++        c.end_shoot = 0;
++    }
+     c.seedlings_established = w
+         .live_organism_ids()
+         .into_iter()
+@@ -259,6 +429,35 @@ mod tests {
+         assert!(b.lamp_columns().0.contains(&cols[0]), "under a lamp: {cols:?} against {:?}", b.lamp_columns().0);
+     }
+ 
++    /// **A station reaches the bed it names.** Dim scales the lamp's beam;
++    /// dry sets the soil to its fraction of the way from wilting point; the
++    /// short rungs plant under a lamp only. Each read off the built world,
++    /// against the bright station built from the same layout.
++    #[test]
++    fn a_station_reaches_the_bed_and_the_short_rungs_plant_under_a_lamp() {
++        let layout = Layout { seed: 3, offset: Offset::Under };
++        let built = |station: Station| {
++            let spec = Rung::Establish.spec(station);
++            let bed = bed_for(None, "herb", layout, &spec);
++            let (w, _) = build(&bed, &spec);
++            let lamp = w.materials.id_of("growlamp").expect("the lab has lamps");
++            let soil = w.materials.id_of("soil").expect("soil ships");
++            let water: Vec<u16> = (0..bed.height).flat_map(|y| (0..bed.width).map(move |x| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.material == soil).map(|c| c.aux()).collect();
++            (w.materials.get(lamp).beam, water, bed.rain)
++        };
++        let (beam, wet, rain) = built(Station::BRIGHT);
++        let (dim_beam, _, _) = built(Station::DIM);
++        let (_, dry, dry_rain) = built(Station::DRY);
++        assert!((dim_beam - beam * Station::DIM.lamp).abs() < 1e-6, "dim: beam {dim_beam} against {beam}");
++        assert_eq!((rain, dry_rain), (Rain::Light, Rain::Off));
++        let mean = |v: &[u16]| v.iter().map(|&a| a as f32).sum::<f32>() / v.len().max(1) as f32;
++        let wilt = crate::sim::material::SOIL_WILTING_POINT as f32;
++        let want = wilt + Station::DRY.soil * (mean(&wet) - wilt);
++        assert!((mean(&dry) - want).abs() < 2.0, "dry: soil water {} against {want}", mean(&dry));
++        assert!(Rung::Establish.layouts(0, 6).iter().all(|l| l.offset == Offset::Under));
++        assert_eq!(Rung::Life.layouts(0, 3).iter().map(|l| l.offset).collect::<Vec<_>>(), Offset::ALL.to_vec());
++    }
++
+     #[test]
+     fn a_bed_holds_exactly_its_founder_and_the_dials_are_off() {
+         let spec = BedSpec::default();
+diff --git a/src/train_plant/mod.rs b/src/train_plant/mod.rs
+index 401b7bc0f..4784701b1 100644
+--- a/src/train_plant/mod.rs
++++ b/src/train_plant/mod.rs
+@@ -36,7 +36,7 @@ pub mod score;
+ 
+ use crate::sim::organism::{CellType, SpeciesDef};
+ use crate::sim::rng::Rng;
+-use arena::{BedSpec, Census, Layout};
++use arena::{BedSpec, Census, Layout, Rung, Station};
+ use genome::{Gene, Group};
+ use rayon::prelude::*;
+ use score::Constants;
+@@ -76,13 +76,21 @@ pub struct Settings {
+     pub teeth: bool,
+     pub bed: BedSpec,
+     pub constants: Constants,
++    /// **Which rung a genome is scored on** (plant-community plan §6.2).
++    /// `Life` is P1's bed and stepped score, on `bed`; `Grow` is rung 2 in
++    /// every one of `stations`, scored by [`score::grow_score`] against the
++    /// control's own size there.
++    pub rung: Rung,
++    /// The stations a `Grow` genome is grown in; every bed is one layout in
++    /// one station. Ignored by `Life`, which grows in `bed`.
++    pub stations: Vec<Station>,
+     pub out: PathBuf,
+ }
+ 
+ impl Settings {
+     pub fn line(&self) -> String {
+         format!(
+-            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} out={}",
++            "plantrain: start={} control={} groups={} pop={} gens={} keep={} layouts={} holdout={} final={} sigma={} genes={} seed={} select={:?} teeth={} width={} frames={} every={} mutation_off={} n_est={} k_seed={} size_floor={} rung={} stations={} out={}",
+             self.start.display(),
+             self.control,
+             self.groups.iter().map(|g| g.name()).collect::<Vec<_>>().join(","),
+@@ -104,6 +112,8 @@ impl Settings {
+             self.constants.n_est,
+             self.constants.k_seed,
+             self.constants.size_floor,
++            self.rung.name(),
++            self.stations.iter().map(|st| st.name).collect::<Vec<_>>().join(","),
+             self.out.display()
+         )
+     }
+@@ -133,6 +143,12 @@ impl Settings {
+         if self.bed.every == 0 || self.bed.frames == 0 {
+             return Err("every= and frames= must be at least 1".into());
+         }
++        if self.rung == Rung::Establish {
++            return Err("rung=establish ranks nothing: 12 of 17 herb children read identical at frame 3,000 (`plantrain mode=ladder`); train on grow or life".into());
++        }
++        if self.rung == Rung::Grow && self.stations.is_empty() {
++            return Err("rung=grow needs at least one station".into());
++        }
+         Ok(())
+     }
+ }
+@@ -176,6 +192,45 @@ pub fn census_all(arms: &[Arm], layouts: &[Layout], bed: &BedSpec) -> Vec<Vec<Ce
+     flat.chunks(layouts.len().max(1)).map(|c| c.to_vec()).collect()
+ }
+ 
++/// **The run's beds and scores, whichever rung it is on**: `out[arm][bed]`.
++/// `Life` is [`score_all`] on `s.bed`. `Grow` grows every layout in every
++/// station (`rung.spec`, `s.bed.n_est`), bed `station * layouts + layout`,
++/// and scores each by [`score::grow_score`] against `refs[station]`.
++pub fn rung_scores(arms: &[Arm], base: u64, n: usize, s: &Settings, refs: &[f32]) -> Vec<Vec<f32>> {
++    let layouts = s.rung.layouts(base, n);
++    match s.rung {
++        Rung::Life | Rung::Establish => score_all(arms, &layouts, &s.bed, &s.constants),
++        Rung::Grow => {
++            let mut out = vec![Vec::with_capacity(n * s.stations.len()); arms.len()];
++            for (si, &station) in s.stations.iter().enumerate() {
++                let spec = BedSpec { n_est: s.bed.n_est, ..s.rung.spec(station) };
++                for (a, row) in census_all(arms, &layouts, &spec).iter().enumerate() {
++                    out[a].extend(row.iter().map(|c| score::grow_score(c, spec.n_est, refs.get(si).copied().unwrap_or(1.0))));
++                }
++            }
++            out
++        }
++    }
++}
++
++/// **The yardsticks `Grow` scores against**: the control's mean end shoot per
++/// station on `n` layouts from `base` -- the hold-out, so the training
++/// layouts never set them. Empty for `Life`.
++pub fn grow_refs(control: &Arm, base: u64, n: usize, s: &Settings) -> Vec<f32> {
++    if s.rung != Rung::Grow {
++        return Vec::new();
++    }
++    let layouts = s.rung.layouts(base, n);
++    s.stations
++        .iter()
++        .map(|&station| {
++            let spec = BedSpec { n_est: s.bed.n_est, ..s.rung.spec(station) };
++            let row = census_all(std::slice::from_ref(control), &layouts, &spec).remove(0);
++            row.iter().map(|c| c.end_shoot as f32).sum::<f32>() / row.len().max(1) as f32
++        })
++        .collect()
++}
++
+ /// Bed scores, `out[arm][layout]`.
+ pub fn score_all(arms: &[Arm], layouts: &[Layout], bed: &BedSpec, k: &Constants) -> Vec<Vec<f32>> {
+     census_all(arms, layouts, bed).iter().map(|row| row.iter().map(|c| score::bed_score(c, k)).collect()).collect()
+@@ -246,13 +301,18 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+     }
+     let probe = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 15, 15));
+     let control = Arm::shipped(&s.control);
+-    let holdout = arena::layouts(HOLDOUT_BASE + s.seed * 1_000, s.holdout);
++    let holdout_base = HOLDOUT_BASE + s.seed * 1_000;
++    let holdout = s.rung.layouts(holdout_base, s.holdout);
++    let refs = grow_refs(&control, holdout_base, s.holdout, s);
++    if !refs.is_empty() {
++        println!("plantrain: grow yardsticks, the control's mean end shoot per station: {}", s.stations.iter().zip(&refs).map(|(st, r)| format!("{} {r:.1}", st.name)).collect::<Vec<_>>().join(", "));
++    }
+ 
+     // **Teeth, before generation 0.**
+     let teeth = teeth_arms(&start, s.seed);
+     let mut arms = vec![control.clone(), Arm::of(&start)];
+     arms.extend(teeth.iter().cloned());
+-    let scored = score_all(&arms, &holdout, &s.bed, &s.constants);
++    let scored = rung_scores(&arms, holdout_base, s.holdout, s, &refs);
+     let names = ["control", "start", "seedbound", "starved"];
+     for (i, row) in scored.iter().enumerate() {
+         let (mean, min) = score::fold(row);
+@@ -278,7 +338,7 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+     }
+ 
+     let mut progress = String::from("gen,best,median,control,best_min,holdout_best,holdout_control,paired_mean,ahead,behind,halfwidth,best_name,best_moves\n");
+-    let mut holdout_csv = String::from("gen,layout,seed,offset,best,control\n");
++    let mut holdout_csv = String::from("gen,bed,seed,offset,station,best,control\n");
+     let keep = ((s.pop as f32 * s.keep).round() as usize).clamp(1, s.pop);
+     let mut champion: (SpeciesDef, String) = (genome::clone_def(&start), "start".into());
+     for g in 0..s.gens {
+@@ -287,10 +347,10 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+                 return Err(format!("generation {g} child {i} ({}) is invalid: {e:?}", def.name));
+             }
+         }
+-        let train = arena::layouts(TRAIN_BASE + s.seed * 100_000 + g as u64 * 100, s.layouts);
++        let train_base = TRAIN_BASE + s.seed * 100_000 + g as u64 * 100;
+         let mut arms: Vec<Arm> = pop.iter().map(|(d, _)| Arm::of(d)).collect();
+         arms.push(control.clone());
+-        let scores = score_all(&arms, &train, &s.bed, &s.constants);
++        let scores = rung_scores(&arms, train_base, s.layouts, s, &refs);
+         let control_train = score::fold(scores.last().expect("the control row")).0;
+         let mut ranked: Vec<(usize, f32, f32)> = scores[..pop.len()]
+             .iter()
+@@ -307,11 +367,15 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+         champion = (genome::clone_def(&pop[bi].0), pop[bi].1.clone());
+ 
+         // The monitoring hold-out: champion against control, paired.
+-        let h = score_all(&[Arm::of(&champion.0), control.clone()], &holdout, &s.bed, &s.constants);
++        let h = rung_scores(&[Arm::of(&champion.0), control.clone()], holdout_base, s.holdout, s, &refs);
+         let (hb, hc) = (score::fold(&h[0]).0, score::fold(&h[1]).0);
+         let (pm, ahead, behind, hw) = score::paired(&h[0], &h[1]);
+-        for (li, l) in holdout.iter().enumerate() {
+-            let _ = writeln!(holdout_csv, "{g},{li},{},{},{:.4},{:.4}", l.seed, l.offset.name(), h[0][li], h[1][li]);
++        // One row per bed; under `Grow` the beds run station by station, each
++        // over the same layouts.
++        for (bi, (cb, cc)) in h[0].iter().zip(&h[1]).enumerate() {
++            let l = holdout[bi % holdout.len().max(1)];
++            let station = if s.rung == Rung::Grow { s.stations[bi / holdout.len().max(1)].name } else { "-" };
++            let _ = writeln!(holdout_csv, "{g},{bi},{},{},{station},{cb:.4},{cc:.4}", l.seed, l.offset.name());
+         }
+         let _ = writeln!(
+             progress,
+@@ -364,12 +428,12 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
+     }
+ 
+     // **The final set, read once.**
+-    let finals = arena::layouts(FINAL_BASE + s.seed * 1_000, s.final_set);
+-    let f = score_all(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], &finals, &s.bed, &s.constants);
++    let finals_base = FINAL_BASE + s.seed * 1_000;
++    let f = rung_scores(&[Arm::of(&champion.0), control.clone(), Arm::of(&start)], finals_base, s.final_set, s, &refs);
+     let fp = score::paired(&f[0], &f[1]);
+     let report = format!(
+-        "{line}\nfinal set ({} layouts): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
+-        finals.len(),
++        "{line}\nfinal set ({} beds): champion {:.4} control {:.4} start {:.4}\nchampion - control: mean {:+.4} +/-{:.4}, ahead on {}, behind on {}\nchampion {}: {}\n",
++        f[0].len(),
+         score::fold(&f[0]).0,
+         score::fold(&f[1]).0,
+         score::fold(&f[2]).0,
+@@ -458,6 +522,8 @@ mod tests {
+             teeth: false,
+             bed: BedSpec { frames: 1_500, ..BedSpec::default() },
+             constants: Constants { n_est: 20, k_seed: 24, size_floor: 55 },
++            rung: Rung::Life,
++            stations: vec![Station::BRIGHT],
+             out,
+         };
+         let a = run(&settings(dir.join("a"))).expect("run a");
+diff --git a/src/train_plant/score.rs b/src/train_plant/score.rs
+index b78c2d7e9..5cb9c0f98 100644
+--- a/src/train_plant/score.rs
++++ b/src/train_plant/score.rs
+@@ -51,6 +51,33 @@ pub fn bed_score(c: &Census, k: &Constants) -> f32 {
+     }
+ }
+ 
++/// **Rung 2's score: juvenile growth, in steps** (plant-community plan
++/// §6.2). Not germinated 0; germinated 1 plus the way to establishment;
++/// established 2 plus its shoot cells at the end of the rung against
++/// `reference` -- the shipped species' mean in the same station, measured
++/// once at the start of the run, so a child cannot move its own yardstick.
++/// Size is paid on a log scale, `ln(1 + end/ref) / ln(1 + GROW_CAP)`, so
++/// the reference scores 0.32 of the step, twice it 0.5, and the step is
++/// full only at `GROW_CAP` times it. It was a straight line capped at twice
++/// the reference, and the first shrub re-fit (2026-10-21, bright + dim)
++/// had its every child on the cap from generation 6: its champion grew
++/// 488 cells against a bright yardstick of 244 and 377 against a dim one
++/// of 111, so the trainer could no longer tell children apart. A ceiling
++/// is still wanted -- it keeps a runaway grower from buying the whole
++/// score -- but it belongs where the bed, not the scale, runs out.
++pub const GROW_CAP: f32 = 8.0;
++
++pub fn grow_score(c: &Census, n_est: u32, reference: f32) -> f32 {
++    if !c.germinated {
++        return 0.0;
++    }
++    if c.established_at.is_none() {
++        return 1.0 + if n_est == 0 { 0.0 } else { (c.peak_shoot as f32 / n_est as f32).min(0.999) };
++    }
++    let rel = c.end_shoot as f32 / reference.max(1.0);
++    2.0 + ((1.0 + rel).ln() / (1.0 + GROW_CAP).ln()).min(0.999)
++}
++
+ /// Mean and minimum of a genome's bed scores.
+ pub fn fold(scores: &[f32]) -> (f32, f32) {
+     if scores.is_empty() {
+@@ -125,6 +152,20 @@ mod tests {
+         assert!(dwarf > bed_score(&census(10_000, None, false, 0), &k));
+     }
+ 
++    #[test]
++    fn the_grow_score_steps_and_pays_size_against_the_reference() {
++        let est = |end: u32| Census { germinated: true, peak_shoot: end.max(20), established_at: Some(1_000), end_shoot: end, ..Census::default() };
++        let unsprouted = Census::default();
++        let small = Census { germinated: true, peak_shoot: 10, ..Census::default() };
++        let order = [grow_score(&unsprouted, 20, 100.0), grow_score(&small, 20, 100.0), grow_score(&est(50), 20, 100.0), grow_score(&est(100), 20, 100.0), grow_score(&est(150), 20, 100.0)];
++        for w in order.windows(2) {
++            assert!(w[1] > w[0], "{order:?}");
++        }
++        assert!((grow_score(&est(200), 20, 100.0) - 2.5).abs() < 1e-6, "twice the reference scores half way up its step");
++        assert!(grow_score(&est(700), 20, 100.0) > grow_score(&est(400), 20, 100.0), "still telling growers apart well past twice the reference");
++        assert!(grow_score(&est(10_000), 20, 100.0) < 3.0, "capped below the next step");
++    }
++
+     #[test]
+     fn the_paired_bar_counts_sides() {
+         let (mean, ahead, behind, _) = paired(&[3.0, 2.0, 5.0], &[2.0, 2.0, 4.0]);

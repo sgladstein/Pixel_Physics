@@ -1,0 +1,17 @@
+colony west at x=88: pool std (30 members), bite off -> member 0 switch -1 job 0, 0 members with it on
+colony east at x=168: pool std (30 members), bite 0 -> member 0 switch 1 job 0, 30 members with it on
+datum at the nests: west row 64, east row 64
+frame 10000: west 55+0 east 59+0 | kills W->E 0 E->W 4 | bites 5
+frame 20000: west 58+0 east 67+1 | kills W->E 0 E->W 4 | bites 5
+frame 30000: west 60+0 east 73+0 | kills W->E 0 E->W 4 | bites 5
+frame 40000: west 68+0 east 73+0 | kills W->E 0 E->W 5 | bites 8
+frame 50000: west 68+0 east 75+0 | kills W->E 0 E->W 5 | bites 8
+frame 60000: west 72+3 east 71+1 | kills W->E 0 E->W 5 | bites 8
+frame 70000: west 74+0 east 72+0 | kills W->E 0 E->W 6 | bites 10
+frame 80000: west 74+0 east 77+0 | kills W->E 0 E->W 6 | bites 10
+frame 90000: west 74+0 east 77+0 | kills W->E 0 E->W 6 | bites 10
+frame 100000: west 77+0 east 77+0 | kills W->E 0 E->W 7 | bites 11
+RESULT seed=7 bite=off,0 solo=none gap=80 side=west alive=77 lived=65.6 peak=78 delivered=8141 nest_cuts=823 deep_cuts=577 other_cuts=800 killed=7 starved=7 kills_of_foe=0 first_kill=-
+RESULT seed=7 bite=off,0 solo=none gap=80 side=east alive=77 lived=69.7 peak=77 delivered=6596 nest_cuts=804 deep_cuts=570 other_cuts=652 killed=0 starved=8 kills_of_foe=7 first_kill=7329
+mind acts: bites 11 kills 7 flesh 0 | alarm laid 612065.7
+done: 100000 frames in 41.2s
