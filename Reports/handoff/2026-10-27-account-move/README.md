@@ -16,7 +16,8 @@ before quoting anything that predates a change to the standard pool or the brain
 - **Where:** the pheromone thread's own container (4 cores), not the VM. Output goes to that session's scratchpad
   (`pf4/{free,deaf}/`), which the new account cannot see.
 - **Timing:** started 19:12Z 2026-10-27. At 21:03Z it was at generation 20 of 40 in both arms, about 5.5 minutes a
-  generation. Evolution was due to finish about 23:00Z and the garden judging about 23:30Z.
+  generation. It hit the 2-hour background-job limit at 21:10Z (free arm at generation 22, deaf at 20) and was
+  resumed at 21:12Z. Evolution was then due about 23:10Z and the garden judging about 23:40Z.
 - **What it tests:** scents A **and** B are deafened in both arms. A trail on the third scent plane is then worth what
   the founder's two scents are worth together (PF2: 2,324 vs 641 food delivered). The question is whether the
   evolution set-up can find a signal when one clearly pays.
@@ -276,7 +277,7 @@ recommendation for each.
 |---|---|---|
 | Teacher lane | working | the copy test ("can the brain copy the hand-built ant in the lab boxes", owner 21:01Z: own thread); env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (after clean1, the lane recommends yes to both: `elite=1` plus `kpm=0.003`). clean1 logged in PR #955 |
 | Merge desk | working | merged #945-#953 by 19:40Z; #944 and #955 (clean1) were still with it. Procedure: `lanes/merge-desk.md` |
-| Evolvable pheromones | blocked on owner; **PF4 running** | PF4 positive control due ~23:30Z (see "Still running at the move"). **(owner)**: whether and where to run E4, after PF4. E3 was stopped (it ranked on cells). PR #944 merged |
+| Evolvable pheromones | blocked on owner; **PF4 running** | PF4 positive control due ~23:40Z (see "Still running at the move"). **(owner)**: whether and where to run E4, after PF4. E3 was stopped (it ranked on cells). PR #944 merged |
 | Brood and breeding | blocked on owner | **(owner)**: how to stop the nest packing with crumbs (a selection case is recommended). **(owner)**: the nest-worker caste, acceptable starvation, a training headcount cap. PR #952 |
 | Plant community plan | blocked on owner | **(owner)**: plant food or the understory (understory recommended). **(owner)**: ship the seed-trained shrub and herb (yes, after a lab check) |
 | Rootless surviving plants | review ready | **(owner)**: build "pale hungry leaves" (recommended yes). PR #945 |
