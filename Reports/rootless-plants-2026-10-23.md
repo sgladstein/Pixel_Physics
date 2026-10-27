@@ -95,6 +95,15 @@ cells on the ground every 1,000 frames), `ROOTLOSS` (what each lost root cell
 of a small plant became, plus the switch's two counters) and writes
 `_owners.png`. Use `below=150` to see the whole root depth.
 
+**The pictures shown to the owner** are in `rootless-plants-2026-10-23/img/`:
+[the marked rootless tree](rootless-plants-2026-10-23/img/marked-tree-seed5-450k.png)
+(seed 5, 450k, roots required off),
+[today against roots required](rootless-plants-2026-10-23/img/today-vs-roots-required-450k.png)
+and [its owner map](rootless-plants-2026-10-23/img/today-vs-roots-required-450k_owners.png)
+(each plant one colour, roots darker), and
+[nutrient by root](rootless-plants-2026-10-23/img/nutrient-by-root-450k.png)
+(three paired beds, base on top).
+
 ## Side finding: a growing tip hanging off a leaf
 
 Turning the switch on reddened `shedding_every_leaf_does_not_disconnect_the_stem`.
