@@ -2,7 +2,7 @@
 
 **What it did:** trained a spider (`assets/species/spider.ron`) with a mind by the colony's in-run selection, put it on the Teacher lane's bed against the colony, co-evolved both, added sight, handling time (a meal takes the gut's time; a full spider does not bite), evolved breeding genes, a lab population test (`examples/spiderlab.rs`), and the spider in the lab game (COLONY chip, `assets/minds/spider_pool.txt` = coex-r10). PRs #844, #852, #871, #872, #879, #891 merged. Full record: `Reports/lone-predator-2026-10-24.md` (stages one to five, plus "Where it stands").
 
-**Unmerged:** PR #950 (branch claude/project-thread-xxnka9, head 320a4324): moves the pools, judged rows and GIFs from /mnt/project-files/predator into `Reports/lone-predator/`, repoints the report, and adds the "Where it stands" section. With the Merge desk. Nothing else unmerged.
+**Unmerged:** nothing. PR #950 (pools, judged rows, GIFs into Reports/lone-predator/, "Where it stands" section) merged 2026-10-27 as 9216aa2.
 
 **Open to-dos** (also in the report's "Where it stands"):
 1. Re-measure spider pools at the new brain price (PIXEL_PHYSICS_LINK_PRICE 0.25, landed after batch ce4) and after #887 (no reach-budding from living prey).

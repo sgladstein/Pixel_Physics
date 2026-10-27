@@ -11,7 +11,7 @@ Started at the owner's ask "I don't love that the nest is 100% full of food". Pa
 - Learned laying: `PP_LAYGENE` lay gate in the mind genome (ON by default, neutral at zeros), inrun `lay_cap_p`,
   colsel `capwean=R0:R1`, PR #870. Result (Teacher lane laygene2-1024): selection found no brake; `lay_cap` stays in
   training.
-- Hand-off PR #952 (at the merge desk, head 7749fc49, NOT yet merged when this note was written): the plan doc as
+- Hand-off PR #952 (MERGED 2026-10-27 as 06a4ea1): the plan doc as
   `Reports/brood-plan-2026-10-23.md`, data and pictures in `Reports/brood-in-training-2026-10-24/`, pilot scripts and
   the four colsel20 carries in `scratch/inrun/brood/`.
 
@@ -41,4 +41,4 @@ plan report).
 None.
 
 ## Branches
-`claude/project-thread-6einf2` carries PR #952 only; everything before it is merged.
+None unmerged: `claude/project-thread-6einf2` is fully merged (last, PR #952).

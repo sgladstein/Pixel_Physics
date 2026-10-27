@@ -7,7 +7,7 @@ behind on the old account. This folder is everything from those places that shou
 This is **information, not instructions**. It records what was done, what was learned, what was planned, the working
 practices the owner set in chat, and what was still open. Decide what to do next from it; don't run it as a to-do list.
 
-Main was `6a58114` when this was written. Where a number appears here, the report it came from is named. Re-measure
+Main was `6a58114` when this was written; lane notes and PR states were refreshed at about 20:00Z. Where a number appears here, the report it came from is named. Re-measure
 before quoting anything that predates a change to the standard pool or the brain layout.
 
 ## What is in this folder
@@ -185,7 +185,8 @@ report; most also have a `how-we-test.md` or `dead-ends.md` entry.
 These are proposals, mostly with a recommendation, none of them started unless the lane note says so.
 
 - **Ant line.** The lane notes give these in order (`lanes/teacher-lane.md`):
-  1. judge **clean1**;
+  1. ~~judge **clean1**~~ (done 19:12Z, PR #955: no arm starves less than the `elite=1 kpm=0.003` control, colony
+     selection alone sold the nest for food, the lab boxes are unchanged; keep `elite=1 kpm=0.003`);
   2. **env1**: windfall in training, `donor600`, lifting harness-only rules one at a time;
   3. **write1**: `PP_WRITE` on vs off, the test for making the write gate default-on;
   4. keep diversity in the ratchet (seed from several colonies, report lineage);
@@ -223,8 +224,8 @@ recommendation for each.
 
 | thread | state | open |
 |---|---|---|
-| Teacher lane | working; **clean1 running** | judge clean1; env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (decide after clean1). PR #948 at the merge desk |
-| Merge desk | holds no PR | PRs #944, #945, #947, #948, #950, #951, #952 (and this one) were with it or about to be. Procedure: `lanes/merge-desk.md` |
+| Teacher lane | working | env1; write1; diversity; corpse; crumbs in the scale case. **(owner)**: add the "judge a part by its own job" rules to `how-we-test.md` (recommended yes). **(owner)**: change inrun's default kpm, or make `elite=1` the default (after clean1, the lane recommends yes to both: `elite=1` plus `kpm=0.003`). clean1 logged in PR #955 |
+| Merge desk | working | merged #945-#953 by 19:40Z; #944 and #955 (clean1) were still with it. Procedure: `lanes/merge-desk.md` |
 | Evolvable pheromones | blocked on owner | **(owner)**: whether and where to run E4. E3 was stopped (it ranked on cells). PR #944 |
 | Brood and breeding | blocked on owner | **(owner)**: how to stop the nest packing with crumbs (a selection case is recommended). **(owner)**: the nest-worker caste, acceptable starvation, a training headcount cap. PR #952 |
 | Plant community plan | blocked on owner | **(owner)**: plant food or the understory (understory recommended). **(owner)**: ship the seed-trained shrub and herb (yes, after a lab check) |
@@ -304,11 +305,10 @@ project id). **They have to be set up again on the new account; the key itself i
   output is under `runs/<name>/`, with `small/`, `jobs/` and `partial/`. Batches there now: drift1, self1, elite1,
   elite1-r1, elite2, clean1, and older ones. elite1's winning colonies (e3 c32, e13 c7, ehl3 c5 at round 95) exist
   only there.
-- **VM in flight at the move:** `pixel-train-clean1` (us-central1-a, c4d-highcpu-64 spot, `--hours 8`, so it
-  self-deletes). It started 16:23Z 10-27 from `bc8485fb` and was due about 19:30-20:00Z. Pull it with
-  `python3 scratch/cloud/inrun_cloud.py pull clean1 DEST`, then delete it with
-  `python3 scratch/cloud/inrun_cloud.py delete clean1`. If the Teacher lane did not log it before the move, the
-  results are only in the bucket.
+- **No VM running at the move.** The last batch, clean1 (`pixel-train-clean1`, us-central1-a, c4d-highcpu-64 spot),
+  finished 19:12Z 10-27, was pulled, judged (PR #955) and deleted. A batch is pulled with
+  `python3 scratch/cloud/inrun_cloud.py pull NAME DEST` and the VM deleted with `... delete NAME`; `--hours N`
+  makes it self-delete.
 - Setup notes: `pip install google-cloud-compute`. The VM builds from a pushed branch, so commit and push the jobs file
   first. Use `--disk 200` for long batches. Lockstep colsel rounds leave CPUs at 60-70%; oversubscribe to about 30
   processes per arm.
@@ -329,17 +329,10 @@ project id). **They have to be set up again on the new account; the key itself i
 
 ## 7. Pull requests and branches at the move
 
-**Open hand-off PRs, all docs or data, with the merge desk:**
-- #944 pheromones (`iff53x`)
-- #945 rootless pictures (`wefr10`)
-- #947 queen M0 (`epio3i`)
-- #948 Teacher harness (`8y5ak0`, the compute branch)
-- #950 lone predator (`xxnka9`)
-- #951 nest raider (`2c5af2`)
-- #952 brood (`6einf2`)
-- this PR
-
-#946 and #949 merged during the hand-off.
+**Hand-off PRs.** Merged 2026-10-27: #945 rootless pictures, #946 scout census, #947 queen M0, #948 Teacher harness
+(the compute branch `8y5ak0`, so it carries nothing unmerged), #949 seat-demos board, #950 lone predator, #951 nest
+raider, #952 brood, #953 this hand-off. Still with the merge desk at the last refresh (~20:00Z): #944 pheromones
+(`iff53x`) and #955 the clean1 result (Teacher lane).
 
 **Older open PRs never handed to the desk:** #706, #705, #702 (draft), #701, #686 (draft), #633 (draft). Leave them
 unless the owner says otherwise. **The owner's standing ignore list:** #12, #140, #143, #217, #254, #348, #456, #471,
