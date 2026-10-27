@@ -8,8 +8,8 @@ The write-up of record is `Reports/nest-raider-2026-10-25.md` on main (rounds on
 - PR #894 (f0a9798): report correction.
 - PR #927 (825022e): predtrain `nestpay=K`, the nest smell (`PIXEL_PHYSICS_NEST_SMELL=on`, off by default because of a measured lab harm), and spiderlab `nest_kills` plus `PP_KILLLOG`.
 
-## Open PR
-- **#951**, branch `claude/project-thread-2c5af2`, head 2448e015: data only, no code. It saves the raw data behind the report into `Reports/nest-raider-2026-10-25/` (pools, lab grids 1/2/4, training and judge logs, driver scripts, stills). It has been handed to the Merge desk. No other unmerged branches.
+## Data PR
+- **#951** merged as fb84174 (2026-10-27): the raw data is now in `Reports/nest-raider-2026-10-25/`. No unmerged branches.
 
 ## Open to-dos
 None are required. Ideas the owner was offered but has not taken up:

@@ -1,4 +1,4 @@
-# Merge desk: lane hand-off note (written 2026-10-27 ~18:50Z, main 09e338c)
+# Merge desk: lane hand-off note (written 2026-10-27 ~18:50Z; state refreshed ~19:50Z at main ab9bc31)
 
 Facts only. The standing procedure is `Reports/handoff/merge-desk.md` (written 2026-10-02 by an earlier desk). This note
 is what that file does not say, plus the state right now. Everything here is from this desk's own session, which began
@@ -6,8 +6,13 @@ is what that file does not say, plus the state right now. Everything here is fro
 
 ## State right now
 
-- **PRs I hold: none.** Last hand-off merged was #943 (pheromones review) as `09e338c` at ~17:59Z. Main is `09e338c`.
-  `readmetoc.py --check` current and `docscheck.sh` clean on main after it.
+- **PRs I hold: none.** Last hand-off merged was #944 (pheromones data and E4 review) as `ab9bc31` at ~19:45Z. Main is
+  `ab9bc31`. `readmetoc.py --check` current, `docscheck.sh` clean and `contextbudget.py --check` current on main after it.
+  The account-move hand-offs all landed this hour, each 15/15 green on its exact head: #949 `e1d2f6e`, #946 `6a58114`,
+  #947 `2ca0a7b`, #945 `7326c5e`, #948 `d049a6e`, #950 `9216aa2`, #951 `fb84174`, #952 `06a4ea1`, #953 `7f49302`
+  (the master hand-off), #944 `ab9bc31`. **Still expected:** the Teacher lane's clean1 results PR (docs and data, no code),
+  promised for about 20:20Z; if it never arrives, its results are only in the Teacher lane's `/mnt/project-files` and
+  thread, not the repo.
 - **Merged by this desk since 2026-10-21 (the ones I can name with SHAs):** #926 docs fix `ce49832`; #933 `ed9dd21`;
   #934 `b384f43` (brain layout 6, per-unit gate, on); #935 `d8387ed` (layout 7, reach-aware gates, on); #936 `c7c975d`;
   #937 `b7ba0cf`; #938 `76e7564` (colsel elite=1, off); #939 `063810a`; #940 `0034bf5`; #941 `44410be`; #942 `eeb7611`

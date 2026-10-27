@@ -10,12 +10,12 @@
   - Report: `Reports/teaching-the-colony-2026-10-25/queen-seat-demo.md`, with the feasibility review, plan v1, plan review, plan v2 and M0 tables in `queen/`.
 
 ## Unmerged
-- PR #947 (head 5579bcfb), with the Merge desk. It adds the 224 KB of M0 raw runs and two demo stills to `Reports/teaching-the-colony-2026-10-25/queen/`, and changes no code. This is the last file that needs saving. The 6 MB nest GIF is deliberately not kept; it is regenerated with:
+- Nothing. PR #947 merged 2026-10-27 as 2ca0a7b (all checks green). It added the 224 KB of M0 raw runs and two demo stills to `Reports/teaching-the-colony-2026-10-25/queen/`, and changed no code. The 6 MB nest GIF is deliberately not kept; it is regenerated with:
   `cargo run --release --example queendemo -- seed=2 frames=40000 gif=q.gif every=200 up=8 crop=220,134,80,50`
 
 ## Open owner decision
 - **The owner has not yet given a verdict on the demo.**
-  - Asked 2026-10-25: does the wild-egg gamble read as fun? Pictures were on https://claude.ai/artifact/BaPrQYh4UVRA58Ewc2v751, which the new account will not be able to open; the same stills are in PR #947.
+  - Asked 2026-10-25: does the wild-egg gamble read as fun? Pictures were on https://claude.ai/artifact/BaPrQYh4UVRA58Ewc2v751, which the new account will not be able to open; the same stills are on main in `Reports/teaching-the-colony-2026-10-25/queen/pictures/`.
   - The owner then asked two questions, both answered in the thread:
     - Can ants learn within their lifetime? No. Weights are fixed from the egg; only last-food memory and scent change during a life.
     - How do I play it? The key guide is in the report's "What the player does" table.

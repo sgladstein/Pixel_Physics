@@ -27,28 +27,16 @@ round ~50 (elite2).
 **This lane's held-out exam:** trained brains die out in 3 of the game's 8 boxes, where the hand-built ant thrives.
 Windfall rots before slow trained ants reach it; corpse is never offered to a mind ant at its gut.
 
-## Running now
+## clean1 result (done 19:12Z; logged in PR #955)
 
-- **clean1**: VM `pixel-train-clean1` (us-central1-a, c4d-highcpu-64 spot, --hours 8), started 16:23Z, built from
-  `bc8485fb`. The jobs file is `scratch/inrun/jobs/clean1.txt`: 6 arms × 32 colonies × 48 rounds, seed 31.
-  - **Arms:**
-    - k3: control, elite kpm 0.003;
-    - kdec: refound_mut, no in-round mutation or selection, random carry;
-    - kgoal: lex+crater+scale+lab with gates 25;
-    - kboth: kdec and kgoal together;
-    - ktone: in-colony selection kept, mutation only at refounding;
-    - kev1: kevents=1.
-  - Expected done ~19:30-20:00Z.
-  - **Output:** bucket `runs/clean1/` (`small/<arm>.tgz`, `jobs/<arm>.tgz`, `partial/<arm>.tgz`).
-  - **Pull:** `python3 scratch/cloud/inrun_cloud.py pull clean1 DEST`, then delete the VM:
-    `python3 scratch/cloud/inrun_cloud.py delete clean1`. It self-deletes at the hours limit.
-  - **Deciding measure (named in advance):** garden starvation at r47 against k3 (Mann-Whitney over colonies), with
-    nest as the guard. Then run `scratch/inrun/exam.py` on each arm's rank-0 colony at r47.
-  - Round-23 interim: no arm clearly better on starvation; kgoal and kboth lost nest (p < 1e-3).
+No arm starves less than k3 (`elite=1 kpm=0.003`) at round 47. Colony selection alone (kdec) sold the nest for food
+(open nest 27 vs 512 held out). No arm changes the game's lab boxes. Every arm collapses to one founder colony.
+Recommendation: keep `elite=1 kpm=0.003` as the training default; do not adopt `refound_mut`/`carry=random`. The VM is
+deleted; the full job tgzs stay in bucket `runs/clean1/`.
 
 ## Open to-dos (in order)
 
-1. **Judge clean1** (above) and log it.
+1. clean1 is judged and logged (above, PR #955).
 2. **env1:** windfall in training (`food=all`, a new inrun option) and a windfall box inside `labgate`.
    - `donor600=` donor gate: 400k-600k, or every other round. Lockstep rounds make it ~3x wall time.
    - Check repeatability with `scratch/inrun/selaudit.py` on the first 16 rounds before gating on it.
@@ -81,8 +69,8 @@ Windfall rots before slow trained ants reach it; corpse is never offered to a mi
   - a training budget before a survival verdict.
 
   Recommendation: yes. No answer yet.
-- **Change inrun's default `kpm`, or make colsel `elite=1` the default?** These affect every lane. Recommendation:
-  decide after clean1, since its arms move where mutation happens at all.
+- **Change inrun's default `kpm`, or make colsel `elite=1` the default?** These affect every lane. After clean1 the
+  recommendation is yes, to both: `elite=1` plus `kpm=0.003`.
 
 ## Pools and founders
 
@@ -110,7 +98,7 @@ Windfall rots before slow trained ants reach it; corpse is never offered to a mi
 `claude/project-thread-8y5ak0` is the compute branch. Everything to bc8485fb plus the log is in **PR #948** (merge desk).
 Commit `9b5d471b` (tools) is local to the lane worktree and is pushed after #948 merges. A copy survives the session in
 `/mnt/project-files/handoff/lanes/teacher-tools/`: the commit as a patch (`git am` it onto main) and the three files
-under `files/`. If the lane ends before #948 merges, land that patch.
+under `files/`. The master hand-off carried these three files into PR #953, so commit 9b5d471b itself is dropped.
 
 ## Working practices not written in the repo
 
