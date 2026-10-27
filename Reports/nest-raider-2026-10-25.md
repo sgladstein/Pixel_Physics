@@ -215,3 +215,6 @@ cargo run --release --example predtrain -- out=DIR species=centipede pool=POOL s
 PP_KILLLOG=1 [PIXEL_PHYSICS_NEST_SMELL=on] PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen cargo run --release --example spiderlab -- \
     scenario=lab_mid_fruit pool=POOL species=centipede spiders=2 frames=300000 seed=3 delay=30000 2> kills.txt   # nest_kills= in RESULT
 ```
+
+The raw logs, the three raider pools and the lab grids behind every number above are in
+[`nest-raider-2026-10-25/`](nest-raider-2026-10-25/README.md).
