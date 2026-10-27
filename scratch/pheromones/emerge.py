@@ -30,6 +30,9 @@ columns off; emergence = that gap growing over generations, in free and not in d
   [HARNESS=2] the review's fixes (2026-10-27): gen 0 keeps the unmutated founder, an elite is ranked on the mean of
   every score it has drawn, food stored counts even if the colony died out, listening worlds change per checkpoint
   (resumes no longer duplicate rows, and ZERO/FILL now apply to a .raw.txt founder, in either harness)
+  [CHANMUT=PM:SIGMA] after MUT, a further step of SIGMA on each live slot of the alarm channel (its emit row and every
+  link reading it) with probability PM: gentle MUT elsewhere, a standard step on the channel (readiness review)
+  [DEAFALSO=B] both arms deaf to this plane too (PF4 positive control); listening replays keep it deaf
   [CHAN=alarm|B] the channel the listening replays deafen and shift; [ALARM=train|frozen] PP_MIND_ALARM
   e.g. python3 scratch/pheromones/emerge.py /tmp/em free 16 200 100000 assets/minds/std_pool.txt P=4
 
@@ -44,7 +47,7 @@ import nestcount  # noqa: E402
 
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT, ARM, N, GENS, FRAMES, FOUNDER = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL', 'HARNESS')
+OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL', 'HARNESS', 'CHANMUT', 'DEAFALSO')
 opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in OPTS)}
 EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in OPTS]
 P, EVERY, LISTEN, SEED = int(opts.get('P', 4)), int(opts.get('EVERY', 10)), int(opts.get('LISTEN', 4)), int(opts.get('SEED', 1))
@@ -55,7 +58,11 @@ H2 = opts.get('HARNESS', '1') == '2'
 assert SCORE in ('both', 'stored', 'kj', 'home') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
 BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0'] + EXTRA
 ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', **({'PP_MIND_ALARM': 'train'} if opts.get('ALARM', 'train') == 'train' else {})}
-RUN_ENV = {**ENV, **({'PP_SCENT_DEAF': 'alarm'} if ARM == 'deaf' else {})}
+# DEAFALSO=B: both arms are also deaf to this plane -- PF4, the positive control (the prize for a new trail on the
+# third plane is then the whole of B's value)
+_deaf = ([opts['DEAFALSO']] if 'DEAFALSO' in opts else []) + (['alarm'] if ARM == 'deaf' else [])
+ENV = {**ENV, **({'PP_SCENT_DEAF': opts['DEAFALSO']} if 'DEAFALSO' in opts else {})}
+RUN_ENV = {**ENV, **({'PP_SCENT_DEAF': ','.join(_deaf)} if _deaf else {})}
 os.makedirs(OUT, exist_ok=True)
 
 
@@ -90,10 +97,71 @@ def founder_raw():
     return fp
 
 
+# The channel's own slots in a layout-5 genome: its emit row, and every link that reads it (context `alarm` 6 and
+# `d_alarm` 9 in the scorer, job, memory, emit and hidden rows; scent features 15-17 in every scorer unit).
+VERBS, MEMORY, UNITS, CONTEXT, FEATURES, HIDDEN, EMITS = 9, 12, 16, 22, 45, 8, 3
+S_IN = CONTEXT + MEMORY + 1
+S_CTX = VERBS + 2 + MEMORY  # switch, sharp, pull, rate
+S_FEAT = S_CTX + UNITS * S_IN
+JOB = S_FEAT + UNITS * FEATURES + UNITS * VERBS + UNITS + 1
+J_IN = CONTEXT + MEMORY + 2
+MEM = JOB + VERBS * J_IN
+M_IN = CONTEXT + 2 + VERBS + MEMORY + 1
+EMIT = MEM + MEMORY * M_IN
+E_IN = CONTEXT + MEMORY + 1
+HID = EMIT + EMITS * E_IN
+assert EMIT == 2340, EMIT  # the alarm emit row is 2410-2444 (EMIT + 2 * E_IN)
+
+
+def channel_slots(ch=2):
+    ctx = (4 + ch, 7 + ch)
+    out = set(range(EMIT + ch * E_IN, EMIT + (ch + 1) * E_IN))
+    for base, rows, width in ((S_CTX, UNITS, S_IN), (JOB, VERBS, J_IN), (MEM, MEMORY, M_IN), (EMIT, EMITS, E_IN), (HID, HIDDEN, S_IN)):
+        out.update(base + r * width + k for r in range(rows) for k in ctx)
+    out.update(S_FEAT + u * FEATURES + 9 + 3 * ch + k for u in range(UNITS) for k in range(3))
+    return out
+
+
+CHAN_SLOTS = {5: channel_slots()}  # by layout
+
+
+def chan_slots(layout):
+    """The channel's slots in a genome of `layout`. A newer binary writes its mutants in its own layout (main at
+    2026-10-27 writes layout 8 from a layout-5 founder, values identical, indices moved), so map the layout-5 slots
+    through the binary itself: a probe genome with a unique value on every channel slot, converted by a zero-rate
+    `mutate_to`, says where each slot went."""
+    if layout not in CHAN_SLOTS:
+        probe, conv = f'{OUT}/_probe5.raw.txt', f'{OUT}/_probe{layout}.raw.txt'
+        idx = sorted(CHAN_SLOTS[5])
+        with open(probe, 'w') as f:
+            f.write('genome 3285 layout=5\n' + ''.join(f'{i} {1.0 + k / 1024:.6f}\n' for k, i in enumerate(idx)))
+        subprocess.run([BIN, f'founders={probe}:1', f'out={OUT}/_mut', f'mutate_to={conv}:0:0:0:1'], capture_output=True, env=ENV)
+        lines = [l for l in open(conv).read().split('\n') if l.strip()]
+        assert f'layout={layout}' in lines[0], (lines[0], layout)
+        got = {int(l.split()[0]) for l in lines[1:] if float(l.split()[1]) != 0.0}
+        assert len(got) == len(idx), (len(got), len(idx))
+        CHAN_SLOTS[layout] = got
+    return CHAN_SLOTS[layout]
+
+
 def mutant(parent, dest, mseed):
     pm, sigma, events = MUT.split(':')
     r = subprocess.run([BIN, f'founders={parent}:1', f'out={OUT}/_mut', f'mutate_to={dest}:{pm}:{sigma}:{events}:{mseed}'],
                        capture_output=True, text=True, env=ENV)
+    if 'CHANMUT' in opts and r.returncode == 0:
+        # E4 readiness review, 2026-10-27: gentle mutation everywhere (MUT) protects the colony's behaviour, but moves a
+        # forming convention ~4x slower; CHANMUT=PM:SIGMA gives the channel's own live slots the standard step on top
+        cpm, csig = (float(x) for x in opts['CHANMUT'].split(':'))
+        lines = [l for l in open(dest).read().split('\n') if l.strip()]
+        slots = chan_slots(int(lines[0].split('layout=')[1].split()[0]))
+        rng = random.Random(mseed * 7 + 3)
+        out = [lines[0]]
+        for l in lines[1:]:
+            i, w = l.split()
+            if int(i) in slots and float(w) != 0.0 and rng.random() < cpm:
+                w = f'{max(-40.0, min(40.0, float(w) + csig * rng.gauss(0.0, 1.0))):.6f}'
+            out.append(f'{i} {w}')
+        open(dest, 'w').write('\n'.join(out) + '\n')
     assert os.path.exists(dest), r.stdout + r.stderr
 
 
@@ -218,7 +286,7 @@ for g in range(g0, GENS):
         jobs = []
         for k in range(LISTEN):
             s = 900000 + k + (1000 * g if H2 else 0)  # HARNESS=2: fresh listening worlds per checkpoint
-            jobs += [(s, 'normal', ENV), (s, 'deaf', {**ENV, 'PP_SCENT_DEAF': CHAN}), (s, 'shift', {**ENV, 'PP_SCENT_SHIFT': f'{CHAN}:40'})]
+            jobs += [(s, 'normal', ENV), (s, 'deaf', {**ENV, 'PP_SCENT_DEAF': ','.join(([opts['DEAFALSO']] if 'DEAFALSO' in opts else []) + [CHAN])}), (s, 'shift', {**ENV, 'PP_SCENT_SHIFT': f'{CHAN}:40'})]
         with ThreadPoolExecutor(P) as ex:
             lr = list(ex.map(lambda j: run(genomes[best], j[0], f'{ld}/{j[1]}_s{j[0]}', j[2]), jobs))
         with open(listen_csv, 'a') as f:

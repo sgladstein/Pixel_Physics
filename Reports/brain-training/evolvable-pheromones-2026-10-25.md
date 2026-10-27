@@ -568,3 +568,41 @@ the free best hearing):
 meets criteria 1-4 forms and holds*, with food delivered home (`emerge.py SCORE=home`) as both the selection score and
 a guard against the deaf arm. The readiness review's other fixes still apply (pinned binary, channel-weighted
 operator, 90 generations at EVALS=2, pre-registered garden script, PF4 positive control).
+
+### 9.11 The review's fixes, and the positive control (2026-10-27, owner: "Are you working on the reviewers fixes and positive control?")
+
+- **Score:** `emerge.py SCORE=home` ranks on food delivered home; `kj, tank, deliver, churn, home` are logged for
+  every colony whatever ranks. Resume no longer double-counts a generation's scores.
+- **Operator:** `MUT=0.013:0.25:1 CHANMUT=0.013:1.0` = gentle mutation everywhere (E1: it removes most of the load in
+  5 of 6 genomes) plus the standard step on the channel's own live slots (its emit row and every link reading it:
+  177 slots, ~85 live in today's founder), so a forming convention moves at the old pace without the off-channel
+  damage.
+- **Binary pinned (PF5):** main at `09e338c` built with `PP_GATE=off PP_REACH=off` reproduces the lane's older binary
+  bit for bit (`stock.csv` and `larder.csv` md5 equal on 2 worlds x 30k frames, deaf to A and B) and writes identical
+  mutants, but in layout 8 (4,625 slots, indices moved). `emerge.py` maps the channel's layout-5 slots through the
+  binary itself (a probe genome converted by a zero-rate `mutate_to`), so `CHANMUT` hits the right slots in either
+  layout. **E4 runs on main with `PP_GATE=off PP_REACH=off`.**
+- **Judge pre-registered:** `scratch/pheromones/garden.py`, committed before any E4 run. Each run's last generation:
+  every genome on 4 fresh worlds, its top 4 on 8 more (seeds from 5,000,000, never a training or listening seed);
+  each free run's best then tested against criteria 1-3 of §9.10 (information: alarm emit differs >= 3x by sender
+  state with the higher >= 0.25, since a random N(0, 0.05) row already differs 2.5x at ~0.2; response, meaning:
+  deaf, map 40 columns off and constant 0.02 each lower on >= 12/16 by >= 20% in median). Verdict: SIGNALS FORM if
+  >= 3/6 free runs communicate and free/deaf food delivered (geometric mean over paired runs) >= 0.90; DEAD END if
+  0/6; otherwise INCONCLUSIVE, next step more replicates of the same harness.
+- **PF4, the positive control (running at the account move):** A **and** B deafened in both arms, so a trail on the
+  third plane is worth what the founder's two scents are worth together (PF2: 2,324 vs 641 food delivered, 12/16
+  extinct). The review proposed B alone; PF2 found B worth only ~7% of food delivered for today's founder, too small
+  a prize for a positive control. 16 colonies x 40 generations x 2 worlds, `SCORE=home`, the operator above,
+  `HARNESS=2`, seed 41, both arms (`scripts/pf4_run.sh` in the data folder). **Pass, fixed now:** at generation 40
+  the free arm's garden value (stage B, `garden.py ... DEAFALSO=A,B`) is >= 1.5x the deaf arm's, and the free best
+  meets criteria 2 and 3. If it fails, E4 cannot find a smaller prize: fix operator or length first.
+
+**The E4 command** (per replicate R = 1..6, both arms; then `garden.py` over all twelve):
+
+```
+BIN=target/release/examples/inrun PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 \
+  python3 scratch/pheromones/emerge.py OUT/ARM_R ARM 16 90 100000 assets/minds/std_pool.txt P=4 SEED=$((100+R)) \
+  EVALS=2 SCORE=home MUT=0.013:0.25:1 CHANMUT=0.013:1.0 ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train \
+  EVERY=10 LISTEN=4 HARNESS=2
+python3 scratch/pheromones/garden.py OUT/garden free=OUT/free_1,...,OUT/free_6 deaf=OUT/deaf_1,...,OUT/deaf_6
+```
