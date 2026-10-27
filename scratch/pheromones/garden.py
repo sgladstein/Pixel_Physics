@@ -68,10 +68,13 @@ def score(d):
 
 def run(job):
     genome, seed, out, e = job
-    if not os.path.exists(f'{out}/nest.csv'):
+    if not os.path.exists(f'{out}/done'):  # a run killed mid-way (container restart) leaves a partial nest.csv: redo it
         os.makedirs(out, exist_ok=True)
         with open(f'{out}.log', 'w') as lf:
             subprocess.run([BIN, f'founders={genome}:30', f'seed={seed}', f'out={out}'] + BED, stdout=lf, stderr=subprocess.STDOUT, env=e)
+        r = score(out)
+        open(f'{out}/done', 'w').close()
+        return r
     return score(out)
 
 
