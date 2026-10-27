@@ -809,9 +809,17 @@ fn main() {
     let food_mats: (&str, &str) = match arg(&a, "food").unwrap_or("provisions") {
         "provisions" => ("provisions", "provisions"),
         "fruit" => ("fruit", "fruit"),
-        "mix" => ("provisions", "fruit"),
-        f => panic!("food={f}: provisions, fruit or mix"),
+        "mix" | "all" => ("provisions", "fruit"),
+        f => panic!("food={f}: provisions, fruit, mix or all"),
     };
+    // `food=all` (Teacher lane, 2026-10-27): with `patches=`, each jump draws its heap's material from all four foods the
+    // lab's boxes use, from its own stream so the heap's place and timing match `food=mix` on the same seed; without
+    // `patches=` it is `mix`. **Why**: the environment review (PR #941) found 9 of the 36 shipped boxes feed on windfall
+    // or corpse, which training never offered; in two_larders swapping them for fruit and provisions took the trained
+    // pool from 3.6-7.3 ants lived to 37-101 (8/8 seeds), while the hand-built ant lived on them.
+    const FOOD_ALL: [&str; 4] = ["provisions", "fruit", "windfall", "corpse"];
+    let food_all = arg(&a, "food") == Some("all");
+    let mut food_rng = train::Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5F0D);
     // SCRATCH (evolvable-pheromones lane, 2026-10-25): `patches=T:LO:HI` -- **one** food heap, on a random side at a
     // random distance LO..HI columns from the door, that jumps to a new side and distance every T frames; the old
     // heap is left to be eaten and is never topped up again. Off by default (the two mirrored heaps of `dist=`).
@@ -1482,6 +1490,9 @@ fn main() {
                     let x = if east { inrun::NEST + d } else { inrun::NEST - d };
                     // Kept on the bed: a west heap past the wall goes east instead, as `dist=` does.
                     patch_at = if x >= 8 && x < bw - 8 { (x, if east { food_mats.0 } else { food_mats.1 }) } else { (inrun::NEST + d, food_mats.0) };
+                    if food_all {
+                        patch_at.1 = FOOD_ALL[food_rng.below(FOOD_ALL.len())];
+                    }
                     writeln!(patch_log, "{fr},{},{}", patch_at.0, patch_at.1).unwrap();
                 }
                 inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now, drip as usize, spread, patch_at.1);
