@@ -1340,3 +1340,7 @@ ant's moves in the famine twins and std_pool's own in lab_herbs and lab_far_mix 
 exam lines beside env4's two colsel lines (P=20 each), all in `scratch/inrun/jobs/env4.txt`. src/, assets/ and
 examples/ are unchanged since x3's build (b5860d0b), so x3's std_pool and hand-built rows pair with them. Deciding
 measure: lived against std_pool over the 48 box-seeds (Bonferroni over 2), alive and starved share as guards.
+
+**f_ow is void** (12:50Z): under `oneworld=1` inrun seeded the births' stream from the world's seed, so colonies
+sharing a carry in one world ran identically (Selection lane, selow1: 1-2 distinct outcomes a round). PR #979 adds
+`sseed=` and has colsel pass each colony its own. f_ow ran before it and is not examined; it is rerun after #979.
