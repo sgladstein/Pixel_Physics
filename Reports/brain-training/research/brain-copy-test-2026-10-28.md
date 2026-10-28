@@ -17,7 +17,7 @@ headcount over the 60k frames after landing) against std_pool's **3.8** (higher 
 p = 1e-7) and the hand-built ant's **38.0** (lower on 24 of 24). Two separate things hold the copies back:
 
 1. **The brain's running bill kills a landing colony.** Every live link costs energy every tick. On one tank of
-   food, a 2,000-link brain loses about a fifth of its colony in the first 1,500 frames, and a 3,200-link copy
+   food, a 1,500-link brain loses about a fifth of its colony in the first 1,500 frames, and a 2,700-link copy
    lives 4.8 where the same copy with the bill off lives 15.4 (24/24). Training never sees this: its colonies land
    with three tanks (`grants=3`).
 2. **A behaviour gap that the brain's shape does not explain.** The copies match the hand-built ant's choices about
@@ -25,16 +25,18 @@ p = 1e-7) and the hand-built ant's **38.0** (lower on 24 of 24). Two separate th
    network itself gets only 41%. Adding what the hand-built ant did one decision earlier does not raise it
    (0.414 either way). Bill-free, the best copy (18.2) is still below the hand-built ant on 24 of 24 seeds.
 
-So the bottleneck is the training environment (the bill at a thin landing) and what the ant can sense, not how the
-scorer combines what it senses. For std_pool itself the bill is the smaller part: bill-free it lives 5.8 (24/24
+So the bottleneck is the training environment (the bill at a thin landing) plus something the scorer's inputs do
+not carry, not how the scorer combines them. That the missing piece is a *sense* is the likeliest reading of a
+low ceiling, not something traced here. For std_pool itself the bill is the smaller part: bill-free it lives 5.8 (24/24
 above 3.8, still 0/24 alive at the end) against the hand-built ant's 38.
 
 ## How it was done
 
 - **Labels.** The hand-built ant played seeds 1-6 of each box while a mind watched (`PP_SHADOW=1`, the old ant
   acts, the mind logs its options and the old ant's pick, `PP_SHADOW_SAMPLE` keeping 1 in 20 plain walk/rest/turn
-  rows). A fix was needed first: under shadow, `every_ant_has_one` built ways for minds that were not acting, and
-  the shadowed colony lived 555 against 342 unshadowed. With the fix the two are identical. Seeds 1-4 train, 5-6 are held out.
+  rows). A fix was needed first: under shadow, `every_ant_has_one` said every ant had a mind, so the nest skipped
+  building the mound and escape ways (`creature.rs`, `minds_only`) that the acting hand-built ant needs, and the
+  shadowed colony lived 342 against 555 unshadowed. The fix returns false under shadow or relabelling. With the fix the two are identical. Seeds 1-4 train, 5-6 are held out.
 - **Fit.** `scratch/copytest/brain.py` is the mind's `decide` rebuilt in torch (scorer, gate, job head, hidden
   units, the two weighted draws with `PICK_FLOOR`), checked against `copyreplay` by `check.py`. `copyfit.py` fits a
   whole genome by Adam on the log chance of the old ant's pick. Turn around is off in every std_pool member and its
@@ -42,15 +44,16 @@ above 3.8, still 0/24 alive at the end) against the hand-built ant's 38.
   - **c1** weights decisions as they happen, so walking and resting dominate.
   - **c2** weights every logged row equally (`plain_k=1`), so pick up, put down and dig count about 20 times more.
   - **c3** is c2 with a proximal L1 step (`prox=x`) that drives links to exact zero: x = 0.05, 0.2 and 0.6 give
-    2,772, 1,292 and 878 billed links.
+    2,284, 804 and 390 billed links.
 - **Ceiling.** `ceiling.py` is a two-layer, 128-wide network over the same inputs (context, memory, last verb, each
   option's features and verb), with a softmax over the options and the same labels.
 - **Exam.** `boxes.py` puts each brain in as the lab's only founder pool, on fresh seeds 11-18 per box, for 60,000
   frames after landing, one tank, the real lab rules (`labsurvive`). The deciding measure, named before launch, is
-  `lived` (mean headcount over those 60k frames), paired by seed. `cmp.py` gives the sign test. 13 arms
-  were compared, so the Bonferroni bar is p < 0.004.
-- **Links** are counted as the game bills them (`MindGenome::live`): every non-zero weight from the scorer onward,
-  the dig head's ~490 included.
+  `lived` (mean headcount over those 60k frames), paired by seed. `cmp.py` gives the sign test. 14 arms
+  were compared, so the Bonferroni bar is p < 0.0036.
+- **Links** are counted as the game bills them (`MindGenome::live`): every non-zero weight from the scorer to the
+  end of the core genome. The dig head rides after the core in a genome file, comes off before the count and is
+  not billed.
 - **Horizon.** This is a 60k test. The Teacher lane's exam runs 600k, where the hand-built ant itself mostly
   dies in `feast_and_famine` and `scattered_larder` (0/8 alive in feast_and_famine). The two are different
   questions and are not reconciled here.
@@ -60,23 +63,24 @@ above 3.8, still 0/24 alive at the end) against the hand-built ant's 38.
 ### How many ants each brain keeps alive
 
 All arms: 24 colonies (8 seeds x 3 boxes), 60k frames after landing. "Higher than std" and "lower than hand-built"
-count seeds. Every p below passes p < 0.004 unless marked *.
+count seeds. Every p below passes p < 0.0036 unless marked *.
 
 | Brain | Billed links | Lived (median) | Alive at end | vs std_pool | vs hand-built |
 |---|---|---|---|---|---|
 | Hand-built ant | ~50 | 38.0 (two_larders 228.8, scattered 34.9, feast 35.5) | 24/24 | 24/24 higher | |
-| std_pool | 2,012 | 3.8 | 0/24 | | 24/24 lower |
-| c1 | 3,181 | 4.3 | 3/24 | 12 higher, 12 lower (p 1 *) | 24/24 lower |
-| c2 | 3,181 | 4.8 | 2/24 | 17 higher, 6 lower (p 0.035 *) | 24/24 lower |
-| c3, lightly pruned | 2,772 | 5.7 | 5/24 | 21 higher, 1 lower (p 1e-5) | 24/24 lower |
-| **c3, pruned** | **1,292** | **13.0** | **13/24** | **24/24 higher** | 24/24 lower |
-| c3, pruned hard | 878 | 8.9 | 10/24 | 24/24 higher | 24/24 lower |
-| d1 (relabelled once) | 3,247 | 3.4 | 2/24 | 9 higher, 14 lower (p 0.41 *) | 24/24 lower |
-| std_pool, bill off | 2,012 | 5.8 | 0/24 | 24/24 higher | 24/24 lower |
-| c1, bill off | 3,181 | 13.8 | 10/24 | 24/24 higher | 24/24 lower |
-| c2, bill off | 3,181 | 15.4 | 11/24 | 24/24 higher | 24/24 lower |
-| c3 pruned, bill off | 1,292 | 18.2 | 16/24 | 24/24 higher | 24/24 lower |
-| Hand-built, bill off | ~50 | 40.2 | 24/24 | 24/24 higher | 11 higher, 13 lower (p 0.84) |
+| std_pool | 1,523 | 3.8 | 0/24 | | 24/24 lower |
+| c1 | 2,693 | 4.3 | 3/24 | 12 higher, 12 lower (p 1 *) | 24/24 lower |
+| c2 | 2,693 | 4.8 | 2/24 | 17 higher, 6 lower (p 0.035 *) | 24/24 lower |
+| c3, lightly pruned | 2,284 | 5.7 | 5/24 | 21 higher, 1 lower (p 1e-5) | 24/24 lower |
+| **c3, pruned** | **804** | **13.0** | **13/24** | **24/24 higher** | 24/24 lower |
+| c3, pruned hard | 390 | 8.9 | 10/24 | 24/24 higher | 24/24 lower |
+| d1 (relabelled once) | 2,759 | 3.4 | 2/24 | 9 higher, 14 lower (p 0.41 *) | 24/24 lower |
+| d2 (relabelled twice, pruned) | 884 | 8.9 | 12/24 | 24/24 higher | 24/24 lower |
+| std_pool, bill off | 1,523 | 5.8 | 0/24 | 24/24 higher | 24/24 lower |
+| c1, bill off | 2,693 | 13.8 | 10/24 | 24/24 higher | 24/24 lower |
+| c2, bill off | 2,693 | 15.4 | 11/24 | 24/24 higher | 24/24 lower |
+| c3 pruned, bill off | 804 | 18.2 | 16/24 | 24/24 higher | 24/24 lower |
+| Hand-built, bill off | ~50 | 40.2 | 24/24 | 24/24 higher | 11 higher, 13 lower (p 0.84 *) |
 
 Pairwise among copies:
 
@@ -85,8 +89,10 @@ Pairwise among copies:
 - Pruned hard against pruned: 10 higher and 14 lower, p = 0.54 (no difference). But pruned hard brought home
   less food: trip deliveries 32.5 against 106, median.
 
-The hand-built ant with the bill off is the control. The bill switch changes nothing for a brain that pays no
-bill, so the switch moves the brain's bill and nothing else.
+The hand-built ant pays a brain bill too, on its own synapse count (`creature.rs`, `synapse_tax`), but a small one:
+with it off, its drain at landing goes 0.038 to 0.033 and its colony does not move (40.2 against 38.0, 11 higher
+and 13 lower). `tax=` scales `synapse_fraction`, which only the three bill sites read, so the switch moves the
+bill and nothing else.
 
 ### Why copies die at landing: the bill
 
@@ -97,17 +103,17 @@ over seeds of the median ant (`labsurvive trace=250`). Nobody eats much this ear
 |---|---|---|---|---|---|---|
 | Hand-built | ~50 | on | 0.038 | 133 | 0 | 17 |
 | Hand-built | ~50 | off | 0.033 | 135 | 0 | 16 |
-| std_pool | 2,012 | on | 0.098 | 69 | 19.3 | 37 |
-| std_pool | 2,012 | off | 0.064 | 105 | 0 | 35 |
-| clean1_k3c23 (PR #959) | 2,036 | on | 0.101 | 68 | 20.8 | 29 |
-| clean1_k3c23 | 2,036 | off | 0.062 | 103 | 0.3 | 30 |
-| c3, pruned hard | 878 | on | 0.068 | 109 | ~1 | |
-| c3, pruned | 1,292 | on | 0.077 | 101 | 3.5 | 225 |
-| c3, lightly pruned | 2,772 | on | 0.111 | 65 | ~27 | |
-| c2 | 3,181 | on | 0.104 | 71 | 23.5 | 156 |
-| c2 | 3,181 | off | 0.040 | 140 | 0.3 | 153 |
+| std_pool | 1,523 | on | 0.098 | 69 | 19.3 | 37 |
+| std_pool | 1,523 | off | 0.064 | 105 | 0 | 35 |
+| clean1_k3c23 (PR #959) | ~1,550 | on | 0.101 | 68 | 20.8 | 29 |
+| clean1_k3c23 | ~1,550 | off | 0.062 | 103 | 0.3 | 30 |
+| c3, pruned hard | 390 | on | 0.068 | 109 | ~1 | |
+| c3, pruned | 804 | on | 0.077 | 101 | 3.5 | 225 |
+| c3, lightly pruned | 2,284 | on | 0.111 | 65 | ~27 | |
+| c2 | 2,693 | on | 0.104 | 71 | 23.5 | 156 |
+| c2 | 2,693 | off | 0.040 | 140 | 0.3 | 153 |
 
-At ~2,000 links, the bill is about 0.035-0.04 per tick, as much again as the hand-built ant's whole running cost.
+At ~1,500 links, the bill is about 0.035-0.04 per tick, as much again as the hand-built ant's whole running cost.
 It starves a fifth of a one-tank colony before it finds food. Bill-free, std_pool and clean1 still drain twice as
 fast as the hand-built ant. They dig twice as much, which is behaviour and not bill.
 
@@ -122,11 +128,11 @@ except where noted.
 
 | Fit | Billed links | Overall | Step | Rest | Turn | Pick up | Put down | Dig |
 |---|---|---|---|---|---|---|---|---|
-| std_pool member 0, Turn around switched on (the fits' start) | 2,012 | 0.138 | 0.22 | 0.05 | 0.12 | 0.20 | 0.15 | 0.01 |
-| c1 | 3,181 | 0.383 | 0.27 | 0.52 | 0.26 | 0.26 | 0.10 | 0.04 |
-| c2 | 3,181 | 0.373 | 0.26 | 0.51 | 0.25 | 0.44 | 0.36 | 0.13 |
-| c3, pruned | 1,292 | 0.353 | 0.26 | 0.47 | 0.20 | 0.37 | 0.29 | 0.15 |
-| c3, pruned hard | 878 | 0.337 | 0.25 | 0.45 | 0.23 | 0.39 | 0.25 | 0.09 |
+| std_pool member 0, Turn around switched on (the fits' start) | 1,523 | 0.138 | 0.22 | 0.05 | 0.12 | 0.20 | 0.15 | 0.01 |
+| c1 | 2,693 | 0.383 | 0.27 | 0.52 | 0.26 | 0.26 | 0.10 | 0.04 |
+| c2 | 2,693 | 0.373 | 0.26 | 0.51 | 0.25 | 0.44 | 0.36 | 0.13 |
+| c3, pruned | 804 | 0.353 | 0.26 | 0.47 | 0.20 | 0.37 | 0.29 | 0.15 |
+| c3, pruned hard | 390 | 0.337 | 0.25 | 0.45 | 0.22 | 0.39 | 0.25 | 0.09 |
 | ceiling (same senses, any function) | | 0.413 | 0.35 | 0.50 | 0.27 | 0.33 | 0.14 | 0.07 |
 | ceiling + the previous decision | | 0.414 | 0.33 | 0.52 | 0.32 | 0.31 | 0.11 | 0.06 |
 
@@ -148,12 +154,20 @@ picked up food in only about 0.5% of decisions there: the copies rarely reach fo
 
 A copy only ever trained on the hand-built ant's states drifts into states the hand-built ant never visits. The
 standard fix is to run the copy, have the teacher label the copy's own states, and refit. `PP_OLDLAB=1
-PP_OLDLAB_ALL=1` runs the hand-built ant's decision on a clone of the world at each of the mind's decisions and
-logs it as the label (`PP_OLDLAB_K=2` decisions ahead).
+PP_OLDLAB_ALL=1` runs the hand-built ant's decision on a clone of the world at a random sample of the mind's
+decisions (one in `PP_OLDLAB_K`, here 2) and logs it as the label.
 
 - **Round 1 (d1, from c1):** test P on its own states 0.30. In the boxes it lived 3.4 against c1's 4.3 (no better
   than std_pool, 9 higher and 14 lower).
-- **Round 2 (d2, from pruned c3):** DAGGER2
+- **Round 2 (d2, from pruned c3):** relabelled on pruned c3's own states (18 runs, seeds 1-6), refit from c3 on
+  those labels plus the original ones (`prox=0.2`, 884 billed links). Agreement on its own held-out states rose
+  only from 0.270 to 0.283. In the boxes it lived 8.9 against c3's 13.0 (9 higher, 15 lower, p 0.31). Per box the
+  result split: better in scattered_larder on 8 of 8 seeds (9.6 against 6.4) and worse in feast_and_famine on 8 of 8
+  (5.2 against 13.0). Neither per-box split (p 0.008 each) passes the corrected bar. Food brought home fell from 106 to 28 trips.
+
+Relabelling therefore did not close the gap. That fits the reading above: agreement on the copy's own states stays
+near 0.28 (lower than the 0.41 the ceiling reaches on the hand-built ant's states, a different set of states), and
+more labels on the same inputs do not add information the inputs lack.
 
 ### Layout 8 (writable memory)
 
@@ -168,8 +182,9 @@ builds one, the test above is the bar it must beat.
 - The founding grant (`grants=3`) hides a cost selection never pays. It does not explain std_pool's collapse:
   bill-free, std_pool still dies.
 - A pool can be made to keep a colony alive by copying, and pruning is a large part of why. Copying alone does not
-  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. What closes
-  it, if anything, is giving the mind what the hand-built ant senses.
+  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. The likeliest
+  lever is an input the hand-built ant uses and the mind lacks. Which one was not traced; the come-home case
+  (`PP_HOMELOW`) is the precedent.
 - The pruned copy is a usable founder, sitting between std_pool and the hand-built ant at 60k. It was not run to 600k.
 
 ## Tools left behind (scratch)
