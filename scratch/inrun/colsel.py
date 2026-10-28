@@ -634,6 +634,33 @@ def cases(v):
     return c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
 
 
+def case_names():
+    """The names of cases()'s entries, in its order (colsel.csv's column names where one exists)."""
+    n = ['home8', 'starved'] + (['nestcuts_late', 'nest'] if DIG == 'nest' else ['late_cuts', 'rooms'])
+    n += ['spoil'] if SPOIL else []
+    n += ['crater'] if 'crater' in EXTRA_CASES or CRATER_FULL else []
+    n += [k for k in ('rooms', 'shape', 'guard', 'slay', 'scale') if k in EXTRA_CASES]
+    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else [])
+
+
+# weights=NAME:W,... (selection lane, 2026-10-28; the selection review's "one case per goal, with an explicit weight
+# the owner sets"): a case not named keeps weight 1, weight 0 drops it. The survival rank-sum becomes a weighted sum,
+# and lexicase draws each pick's case order weighted (a case of weight 3 leads a pick three times as often as one of
+# weight 1; Efraimidis-Spirakis keys). **Why**: unweighted, the six nest cases carried 63-71% of the vote by accident
+# of how many were written per goal, and cases that do not repeat from world to world (starved 0.03, shape -0.03,
+# spoil 0.02 in clean1 k3, `measures.py`) vote as loudly as food home (0.34). Unset: the run, rng draws included,
+# as before.
+WEIGHTS = next((dict((k, float(w)) for k, w in (kv.split(':') for kv in x.split('=', 1)[1].split(',')))
+                for x in EXTRA if x.startswith('weights=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('weights=')]
+
+
+def case_weights():
+    names = case_names()
+    assert set(WEIGHTS) <= set(names), f'weights= names a case this run does not have: {set(WEIGHTS) - set(names)} (cases: {names})'
+    return [WEIGHTS.get(k, 1.0) for k in names]
+
+
 def dig_passed(v):
     return (v[10] if DIG == 'nest' else v[1]) >= GATE
 
@@ -644,7 +671,13 @@ def lexicase(pool, res, rng):
     # Every case cases() returns. Was range(4) until 2026-10-22 19:00Z, so colsel4-1022's +spoil arm never read its
     # fifth case and came out identical to its control in every round (a change that moved nothing).
     order = list(range(len(cases(res[cand[0]]))))
-    rng.shuffle(order)
+    if WEIGHTS is None:
+        rng.shuffle(order)
+    else:
+        w = case_weights()
+        assert len(w) == len(order), (case_names(), len(order))
+        key = {k: rng.random() ** (1.0 / w[k]) for k in order if w[k] > 0}
+        order = sorted(key, key=lambda k: -key[k])
     for k in order:
         vals = [cases(res[c])[k] for c in cand]
         best = max(vals)
@@ -805,7 +838,9 @@ for r in range(R0, R):
             if gp:
                 nk = len(cases(res[gp[0]]))
                 rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(nk)]
-                rs = {c: sum(rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
+                w = case_weights() if WEIGHTS is not None else [1.0] * nk
+                assert len(w) == nk, (case_names(), nk)
+                rs = {c: sum(w[k] * rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
             order = sorted(gp, key=lambda c: (rs[c], c)) + sorted([c for c in ok if not passed[c] and c in grp], key=lambda c: (-res[c][1], c))
         order += [c for c in grp if c not in ok]  # extinct last
         if MODE in ('gate', 'lex') and ok:
