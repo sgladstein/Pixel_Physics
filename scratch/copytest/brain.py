@@ -139,6 +139,10 @@ class Rows:
                  self.lab[sel], [self.meta[i] for i in idx])
         if hasattr(self, 'prev_verb'):
             R.prev_verb, R.opt_hist = self.prev_verb[idx], self.opt_hist[sel]
+        if hasattr(self, 'state'):
+            R.state = self.state[idx]
+        if hasattr(self, 'off'):
+            R.off = self.off[sel]
         return R
 
 
@@ -149,7 +153,7 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
     decision (every kept row's previous decision is in the log, kept or as a settle=2 row): `R.prev_verb` per row, and
     per option `R.opt_hist` = (repeats the previous step's direction, steps back onto the previous cell)."""
     ctx, mem, last, row_of, verb, feats, lab, meta = [], [], [], [], [], [], [], []
-    prev_verb, opt_hist = [], []
+    prev_verb, opt_hist, state, offs = [], [], [], []
     n = 0
     rs = np.random.default_rng(seed)
     for fi, p in enumerate(paths):
@@ -190,6 +194,7 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
             meta.append((f[0], int(f[2]), int(f[3]), int(f[4]), int(f[5]), fi))
             if hist:
                 prev_verb.append(before[1] if before else -1)
+            state.append(walk_state(f[17] if len(f) > 17 else ''))
             for k, o in enumerate(x for x in f[13].split(';') if x):
                 q = o.split(':', 4)
                 v = np.zeros(FEATURES, np.float32)
@@ -210,6 +215,7 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
                         back = float(int(q[0]) == 0 and t == before[0])
                     opt_hist.append((rep, back))
                 verb.append(int(q[0]))
+                offs.append((np.clip((int(q[1]) - int(f[4])) / 2, -3, 3), np.clip((int(q[2]) - int(f[5])) / 2, -3, 3)))
                 row_of.append(n)
                 lab.append(labs is not None and k in labs)
             n += 1
@@ -221,7 +227,35 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
              np.array(verb, np.int64), np.stack(feats), np.array(lab, bool), meta)
     if hist:
         R.prev_verb, R.opt_hist = np.array(prev_verb, np.int64), np.array(opt_hist, np.float32)
+    R.off = np.array(offs, np.float32)
+    if any(s is not None for s in state):
+        R.state = np.stack([s if s is not None else np.zeros(STATE_LEN, np.float32) for s in state])
     return R
+
+
+STATE_LEN = 37
+
+
+def walk_state(field):
+    """The old ant's own walk state (`PP_SHADOW_STATE=1`, the row's 18th field `S:k=v;...`), scaled to about -3..3:
+    the two patiences, the scout's give-up and dark flags, stillness, time since the nest, the lagged trail-A memory,
+    the anchor's offset from the head, `home_away`, and the heading one-hot. None when the row has no such field."""
+    if not field.startswith('S:'):
+        return None
+    d = dict(kv.split('=') for kv in field[2:].split(';'))
+    v = [float(d['hp']), float(d['sp']), float(d['sh']), float(d['sd']), min(float(d['st']), 400) / 100,
+         min(float(d['sn']), 4000) / 1000, np.log1p(max(float(d['pm']), 0.0)) / 5,
+         np.clip(float(d['ax']) / 32, -3, 3), np.clip(float(d['ay']) / 32, -3, 3), min(float(d['ha']), 200) / 50]
+    hd = np.zeros(8, np.float32)
+    hd[int(d['hd']) % 8] = 1.0
+    # The errand (`pw`, `PULL_WHY_NAMES`) and its target's offset, when the log was taken with the decision trace on.
+    pw = np.zeros(17, np.float32)
+    off = np.zeros(2, np.float32)
+    if 'pw' in d:
+        pw[int(d['pw']) % 17] = 1.0
+        if int(d['pw']) > 1:
+            off[:] = np.clip(float(d['px']) / 32, -3, 3), np.clip(float(d['py']) / 32, -3, 3)
+    return np.concatenate([np.array(v, np.float32), hd, pw, off])
 
 
 # ---- the forward pass -----------------------------------------------------------------------------------------------

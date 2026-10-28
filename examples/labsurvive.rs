@@ -112,9 +112,21 @@ fn main() {
     // bed where the whole colony starves (a colony that dies at 9,000 frames beats one that dies at 2,000).
     let (mut landed, mut peak, mut lived) = (None::<u64>, 0usize, 0u64);
     let s0 = lab.world.deaths_by_cause[starved];
+    // SCRATCH (copy test, 2026-10-28): `PP_DECLOG=1` turns the decision trace on (it draws nothing and changes no
+    // branch), so the shadow log's `W` rows can say why the old ant's walk did what it did. Only the last few frames
+    // are kept: a row is read on the ant's next tick.
+    let declog = std::env::var("PP_DECLOG").is_ok_and(|v| v == "1");
+    if declog {
+        lab.world.decision_log = Some(Vec::new());
+    }
     loop {
         lab.tick_for_harness();
         let f = lab.world.frame;
+        if declog && f.is_multiple_of(16) {
+            if let Some(log) = lab.world.decision_log.as_mut() {
+                log.retain(|r| r.frame + 4 >= f);
+            }
+        }
         let n = count(&lab);
         peak = peak.max(n);
         if landed.is_some() {
