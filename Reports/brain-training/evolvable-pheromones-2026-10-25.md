@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). The PF4 positive control failed (§9.12); rechecked (§9.13), its 1.8x was mostly a farmed score (re-carried food), the real gap 1.16x, and ants with no scent relearned to forage. Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). The PF4 positive control failed (§9.12); rechecked (§9.13), its 1.8x was mostly a farmed score (re-carried food), the real gap 1.16x, and ants with no scent relearned to forage. On far food (§9.14) one run won 1.56x but missed the reliance bar; **six repeats (E4, §9.15) closed the line: signalling won 3 of 6 pairs (0.99x), 0 of 6 colonies relied on their signal by 20%. Dead end; the third channel stays frozen.** Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -748,3 +748,42 @@ criteria 2 and 3. **Result: 1.56x (819 vs 527), but criteria 2 and 3 missed on m
   better forager, the first time on any bed. The reliance bar of 20% was not met (15-17%). By the rule fixed before
   the run this is a fail; the owner was asked (card 09:40Z) whether to replicate (E4 on the far bed, 6+6 runs of 40
   generations on runners), close as the bar says, or accept it.
+
+### 9.15 E4 on far food: six repeats, a dead end, and the scent line closes (2026-10-28)
+
+The owner chose "Repeat it 6 times on runners" (card, 13:30Z) over closing or accepting §9.14. pf4w's set-up exactly
+(ref 597a9943, the wide bed, the operator, 16 colonies x 40 generations, EVALS=2, `SCORE=heaphome`), replicates
+R = 1..6 at `SEED=100+R`, on GitHub runners (`.github/train-jobs/e4a.batch`, `e4b.batch`, 13:33-19:20Z). Judged by
+`garden.py` with a local build of 597a9943, which reproduced pf4w's garden exactly when re-run as a control. Data:
+`Reports/data/evolvable-pheromones-2026-10-27/e4/`. Pictures: https://claude.ai/artifact/NcXbVeF8P1ndpiojacYnj7.
+
+**Verdict, fixed in the batch file before launch:** garden.py's rule unchanged (SIGNALS FORM if >= 3/6 free bests
+meet criteria 1-3 and the free/deaf geometric mean >= 0.90; DEAD END if 0/6; else INCONCLUSIVE), plus a second
+question, "does the signalling arm forage better": free higher than its paired deaf in 6/6 (sign test p = 0.031).
+**Result: 0/6 communicate, free higher 3/6 (p = 1.0), geometric mean 0.99. DEAD END; the arm does not forage better.**
+
+| replicate | free (garden stage B, heap food) | deaf | free / deaf | free best's signal (max state ratio) | deaf / shift / const drop | passes |
+|---|---|---|---|---|---|---|
+| 1 | 569 | 730 | 0.78 | 1.5x (fails criterion 1) | 6% / 7% / 6% | no |
+| 2 | 616 | 595 | 1.04 | laden-only, 100x | 8% / 6% / 6% | no |
+| 3 | 606 | 653 | 0.93 | none (stopped laying, 0.004) | 2% / -8% / 0% | no |
+| 4 | 684 | 707 | 0.97 | empty-only, 6.7x | 12% / 10% / 13% | no |
+| 5 | 633 | 623 | 1.02 | laden-only, 18x | 14% / 7% / 10% | no |
+| 6 | 785 | 616 | 1.27 | laden-only, 19x | 6% / 17% / 7% | no |
+| pf4w (seed 42, not counted) | 819 | 527 | 1.56 | laden-only, 7.8x | 15% / 17% / 9% | no |
+
+- **pf4w was the top of the spread.** Its free arm scored highest of all seven free runs and its deaf arm lowest of
+  all seven deaf runs. Seven pairs together: free higher 4/7, geometric mean 1.06.
+- **Signals form, as everywhere before.** Four of six free bests carry a state-dependent signal (three laden-only
+  food trails, 18-100x; one laid by empty ants, 6.7x); one is weak and one run stopped laying. In training, the
+  free arm's heap deliveries at generations 35-39 were higher in 2/6 replicates (median colony 528-770 vs 560-706).
+- **None is relied on.** The largest loss to any of the three ablations is 17%, against the bar's 20% in all three.
+  So across seven far-food runs, a colony that evolves a meaningful trail leans on it for a tenth of its food, and a
+  colony with no scent at all forages as well.
+- **What it closes.** The third channel stays frozen on the main ant line (as the lane's collision rule already
+  required); `PP_MIND_ALARM=train` and `PIXEL_PHYSICS_ALARM_GROUND` stay off. The dead end is recorded in
+  `Reports/dead-ends.md` with what its rejection depends on: a bed where a lone forager finds the heap on its own
+  (one heap, 100-250 columns out, moving every 20k frames), clonal colonies, colony selection over 40 generations,
+  and the gentle operator. Retry only on a bed where food cannot be found without a trail (hidden or short-lived
+  food, many small heaps), never by adding replicates on this one.
+
