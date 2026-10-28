@@ -1,0 +1,120 @@
+name: Batch
+
+# **Colony-selection, in-run and emergence batches on GitHub's free runners**, started by pushing a file. The
+# sibling of `train.yml`, which runs only the arena trainer (`examples/train`). Built 2026-10-27 so every lane can
+# screen a colony-selection idea without the one Google VM (owner rule: one VM, the Teacher lane schedules it).
+#
+# **How to start a batch.** Commit one `.github/train-jobs/<batch>.batch` file and push it to a `train/<anything>`
+# branch. It holds the job lines the VM runs (`scratch/cloud/inrun_cloud.py`), or `use=` a VM jobs file in the repo,
+# so one jobs file runs in either place: `scripts/batch.py` documents the format and refuses what cannot run here.
+# Or "Run workflow" with the batch name, once this file is on `main`. See `.github/train-jobs/README.md`.
+#
+# **Legs.** A hosted runner stops at 6 h. Each colsel or emerge line gets a runner of its own (rounds.sh lines are
+# packed four to a runner), and the batch runs as up to LEGS legs of about 5 h 20 min: every leg publishes each
+# runner's folder to the branch `batch-results/<batch>` and the next leg carries on from it (colsel stops between
+# rounds at its DEADLINE and resumes from state.json, as after a preemption; emerge resumes from its last
+# generation; rounds.sh skips rounds marked done). A leg starts only while some runner has lines left. Eight legs
+# is ~43 h of one runner, enough for the 32-colony x 16-round screen (`Reports/how-we-test.md` §7; timings in
+# `.github/train-jobs/README.md`); a 64 x 48 confirmation belongs on the VM.
+#
+# **Cost to everyone else.** PR CI queues on the same 20-job pool, and `max-parallel` is per workflow run: push
+# batches to `train/**`, never `claude/**` (that also starts the full CI matrix), and one batch per push.
+#
+# **Token.** As in `train.yml`: the workflow default is read-only, the runners that run the jobs never hold a
+# token, and only each leg's `collect` job gets `contents: write`, to force-push `batch-results/<batch>`.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Batch name: runs .github/train-jobs/<name>.batch from the branch this is run on"
+        required: true
+  push:
+    branches: ['claude/**', 'train/**']
+    paths: ['.github/train-jobs/*.batch']
+
+permissions:
+  contents: read
+
+# one batch at a time per branch: a second push waits for the first to finish all its legs
+concurrency:
+  group: batch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      batch: ${{ steps.plan.outputs.batch }}
+      ref: ${{ steps.plan.outputs.ref }}
+      resume: ${{ steps.plan.outputs.resume }}
+      leg_minutes: ${{ steps.plan.outputs.leg_minutes }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_NAME: ${{ inputs.name }}
+        run: python3 scripts/batch.py plan
+
+  # Legs. GitHub has no loop over jobs, so each leg is one call of the same reusable workflow; leg k+1 runs only
+  # if leg k's collect found a runner with lines left. Add a leg here (and to LEGS above) to run longer.
+  leg1:
+    needs: plan
+    if: ${{ needs.plan.outputs.matrix != '[]' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 1, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "${{ needs.plan.outputs.resume }}", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg2:
+    needs: [plan, leg1]
+    if: ${{ !cancelled() && needs.leg1.outputs.left != '0' && needs.leg1.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 2, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg3:
+    needs: [plan, leg2]
+    if: ${{ !cancelled() && needs.leg2.outputs.left != '0' && needs.leg2.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 3, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg4:
+    needs: [plan, leg3]
+    if: ${{ !cancelled() && needs.leg3.outputs.left != '0' && needs.leg3.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 4, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg5:
+    needs: [plan, leg4]
+    if: ${{ !cancelled() && needs.leg4.outputs.left != '0' && needs.leg4.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 5, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg6:
+    needs: [plan, leg5]
+    if: ${{ !cancelled() && needs.leg5.outputs.left != '0' && needs.leg5.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 6, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg7:
+    needs: [plan, leg6]
+    if: ${{ !cancelled() && needs.leg6.outputs.left != '0' && needs.leg6.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 7, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}
+  leg8:
+    needs: [plan, leg7]
+    if: ${{ !cancelled() && needs.leg7.outputs.left != '0' && needs.leg7.outputs.left != '' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/batch-leg.yml
+    with: {leg: 8, batch: "${{ needs.plan.outputs.batch }}", ref: "${{ needs.plan.outputs.ref }}", leg_minutes: "${{ needs.plan.outputs.leg_minutes }}", resume: "true", matrix: "${{ needs.plan.outputs.matrix }}"}

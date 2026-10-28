@@ -1,0 +1,43 @@
+emerge: arm deaf, 16 colonies, gens 0..39, 100000 frames, EVALS=2 SCORE=home ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 0: best 924 median 743 alive 12/16 alarm laid median 1309 B laid max 37102
+gen 1: best 1318 median 790 alive 16/16 alarm laid median 2777 B laid max 45938
+gen 2: best 1056 median 858 alive 13/16 alarm laid median 1673 B laid max 45982
+gen 3: best 1274 median 916 alive 11/16 alarm laid median 1636 B laid max 59334
+gen 4: best 1216 median 924 alive 12/16 alarm laid median 31432 B laid max 57648
+gen 5: best 1426 median 1040 alive 13/16 alarm laid median 73309 B laid max 63062
+gen 6: best 1261 median 1029 alive 15/16 alarm laid median 68720 B laid max 52452
+gen 7: best 1337 median 964 alive 13/16 alarm laid median 78402 B laid max 60664
+gen 8: best 1254 median 985 alive 16/16 alarm laid median 64409 B laid max 54588
+gen 9: best 1424 median 994 alive 15/16 alarm laid median 94909 B laid max 59920
+gen 10: best 1586 median 1125 alive 16/16 alarm laid median 119473 B laid max 71431
+gen 11: best 1574 median 1027 alive 15/16 alarm laid median 94332 B laid max 77240
+gen 12: best 1436 median 1181 alive 16/16 alarm laid median 116936 B laid max 60994
+gen 13: best 1490 median 1113 alive 16/16 alarm laid median 151866 B laid max 63580
+gen 14: best 1568 median 1265 alive 16/16 alarm laid median 215113 B laid max 66780
+gen 15: best 1754 median 1251 alive 16/16 alarm laid median 229685 B laid max 62440
+gen 16: best 1509 median 1182 alive 16/16 alarm laid median 121838 B laid max 62878
+gen 17: best 1619 median 1391 alive 15/16 alarm laid median 208414 B laid max 65310
+gen 18: best 1752 median 1342 alive 15/16 alarm laid median 253801 B laid max 66858
+gen 19: best 1940 median 1351 alive 16/16 alarm laid median 155335 B laid max 71084
+gen 20: best 1841 median 1509 alive 16/16 alarm laid median 161749 B laid max 64849
+emerge: arm deaf, 16 colonies, gens 21..39, 100000 frames, EVALS=2 SCORE=home ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 21: best 2000 median 1384 alive 16/16 alarm laid median 194457 B laid max 67485
+gen 22: best 1906 median 1544 alive 16/16 alarm laid median 200124 B laid max 85477
+gen 23: best 2153 median 1650 alive 16/16 alarm laid median 2416 B laid max 57726
+gen 24: best 2444 median 1694 alive 16/16 alarm laid median 28713 B laid max 69149
+gen 25: best 2724 median 2008 alive 14/16 alarm laid median 326 B laid max 64280
+gen 26: best 2555 median 2073 alive 16/16 alarm laid median 1519 B laid max 62140
+gen 27: best 2739 median 2228 alive 16/16 alarm laid median 416 B laid max 65248
+gen 28: best 2886 median 2273 alive 16/16 alarm laid median 823 B laid max 69876
+gen 29: best 3070 median 2246 alive 16/16 alarm laid median 813 B laid max 89106
+gen 30: best 2930 median 2424 alive 16/16 alarm laid median 1797 B laid max 66946
+gen 31: best 3177 median 2554 alive 16/16 alarm laid median 808 B laid max 82482
+gen 32: best 3314 median 2510 alive 16/16 alarm laid median 2071 B laid max 81574
+gen 33: best 3532 median 2840 alive 16/16 alarm laid median 1250 B laid max 79475
+gen 34: best 3420 median 2833 alive 15/16 alarm laid median 2192 B laid max 79841
+gen 35: best 3348 median 2835 alive 16/16 alarm laid median 1677 B laid max 74660
+gen 36: best 3625 median 2792 alive 16/16 alarm laid median 1465 B laid max 78532
+emerge: arm deaf, 16 colonies, gens 37..39, 100000 frames, EVALS=2 SCORE=home ZERO=2410-2444 CHAN=alarm ALARM=train, bed sel=off frames=100000 dist=100 food=mix patches=20000:30:110 maps=0
+gen 37: best 3444 median 2728 alive 16/16 alarm laid median 1608 B laid max 72713
+gen 38: best 4491 median 3156 alive 16/16 alarm laid median 18661 B laid max 80546
+gen 39: best 3763 median 3192 alive 16/16 alarm laid median 19367 B laid max 76945

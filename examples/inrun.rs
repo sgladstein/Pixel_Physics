@@ -16,7 +16,7 @@
 //!     out       a pellet let go above the datum (left the nest); cutter: the pellet's cutter, or 0
 //!     in        a pellet let go at or below the datum; its tag is kept at that spot for a recut
 //!     field     a food cell taken into the crop away from home (v: its worth)
-//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`)
+//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`; v: its worth as put down)
 //!     churn     any other food cell put down within 12 columns of the nest
 //!     eat       the crop's digestion paid this ant v (face worth); x,y where its head is
 //!     death     v: the cause's index
@@ -473,7 +473,12 @@ const STANDARD: &[&str] = &[
     "drip=20",
     "mutation=neutral",
     "kevents=4",
-    "kpm=0.013",
+    // 0.013 until 2026-10-27 (Teacher lane, plan A1): at 0.013 a child carries ~26 changed weights plus 4 structural
+    // events and every birth in a round mutates, which outran colony selection -- drift1's hand-laid come-home latch
+    // decayed (garden starved 46 -> 311 in 48 rounds) and self1's std_pool sold its nest for food (596 -> 129); at
+    // 0.003 the same selection kept both (drift1: starved 51 -> 28, nest 702 -> 700). Every batch since elite1 passed
+    // kpm=0.003 by hand, and clean1 found nothing better (PR #955). A batch that must match an older one passes kpm=0.013.
+    "kpm=0.003",
     "w_home_eat=2",
     "kid_cap=4",
     "retire=1",
@@ -1736,7 +1741,11 @@ fn main() {
                         b.credit += g;
                         b.g2 += g * g;
                     }
-                    writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
+                    // v: the cell's face worth as put down (`food_value`; 960 for a whole provisions, fruit or windfall
+                    // cell, less for a crumb), so a reader can count food home in energy, not cells (selection lane,
+                    // 2026-10-27). It was always 0, and no reader used it.
+                    let worth = creature::food_value(&w, w.get(x, y)).round() as i64;
+                    writeln!(ev, "{frame},{},deliver,{x},{y},{worth},0", r.who).unwrap()
                 }
                 creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
                 // SCRATCH (foraging-loop thread): food put down in the field, so a load's fate closes.

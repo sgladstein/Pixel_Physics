@@ -14,7 +14,8 @@ usage: exam.py OUT NAME FOUNDERS [ENV]
             ant score, as colsel's carried()), or a founders string as inrun takes it.
   ENV       extra env for both, e.g. PP_HOMELOW=0.006,PP_HOMELOW_STORE=1 (the instinct arm).
 Writes OUT/NAME/garden.csv and OUT/NAME/lab.csv. Compare two names with exam_cmp.py (paired sign tests).
-env P (parallel runs, default 4), WORLDS (default 16), LAB_SEEDS (default 2), BOXES (comma list).
+env P (parallel runs, default 4), WORLDS (default 16), LAB_SEEDS (default 2), BOXES (comma list), AFTER (lab frames
+after landing, default 60000; G1 judges at 600000, plan 2026-10-27).
 """
 import csv, os, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,7 @@ ENV = dict(x.split('=', 1) for x in sys.argv[4].split(',')) if len(sys.argv) > 4
 P = int(os.environ.get('P', '4'))
 WORLDS = int(os.environ.get('WORLDS', '16'))
 LAB_SEEDS = int(os.environ.get('LAB_SEEDS', '2'))
+AFTER = int(os.environ.get('AFTER', '60000'))
 BOXES = os.environ.get('BOXES', 'played_bed,far_larder,scattered_larder,two_larders,the_bank,herb_first_colony,'
                        'crowded_bench,feast_and_famine').split(',')
 BIN, LAB_BIN = 'target/release/examples/inrun', 'target/release/examples/labsurvive'
@@ -99,7 +101,7 @@ def garden(s):
 
 def lab(job):
     box, sd = job
-    out = subprocess.run([LAB_BIN, f'founders={F}', f'scenario={box}', f'seed={sd}', 'after=60000'], capture_output=True,
+    out = subprocess.run([LAB_BIN, f'founders={F}', f'scenario={box}', f'seed={sd}', f'after={AFTER}'], capture_output=True,
                          text=True, env={**os.environ, **ENV, 'RAYON_NUM_THREADS': '1',
                                          'PIXEL_PHYSICS_LAB_SCENARIOS': 'assets/lab_scenarios'}).stdout
     line = next((l for l in out.splitlines() if l.startswith('RESULT')), '')
