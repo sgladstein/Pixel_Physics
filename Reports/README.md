@@ -794,6 +794,16 @@ by somebody about to try it on creatures.
   hungry plant's leaves fade toward yellow-green in three steps, a rootless
   one fully; render only, no measurable draw cost.
 
+- [shrub-grazing-2026-10-28.md](shrub-grazing-2026-10-28.md)
+  — **Why the lab colony kills the shrubs, and the fix; resprout on since
+  2026-10-28.** With the colony, 4 of 12 lab beds keep four kinds of plant at
+  450k (10 of 12 without). Traced per plant with a new bite recorder: ants
+  eat leaf at one rate per shoot cell on herb, shrub and scrambler; the herb
+  renews from seed and every stripped shrub starves in full light. Collar
+  resprout on keeps the shrub on 12 beds against 4 (p 0.008) at no measured
+  colony cost; shrubs born defended save them too but take over and shrink
+  the colony mid-game (dead end).
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
   handoff carrying the state and the queue -- read that first.** Revision 4

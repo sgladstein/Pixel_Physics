@@ -900,7 +900,11 @@ fn main() {
                     *kinds.entry(sp.name.clone()).or_default() += 1;
                 }
             }
-            println!("            kinds {}", kinds.iter().map(|(n, c)| format!("{n}={c}")).collect::<Vec<_>>().join(" "));
+            println!(
+                "            kinds {} | collar sprouts {}",
+                kinds.iter().map(|(n, c)| format!("{n}={c}")).collect::<Vec<_>>().join(" "),
+                world.collar_sprouts
+            );
             hungriest.sort_by(|a, b| b.0.total_cmp(&a.0));
             for (h, name, x0, y0, x1, y1) in hungriest.iter().take(5) {
                 println!("              pale {name} hunger {h:.2}: leaves x {x0}..{x1} y {y0}..{y1}");
