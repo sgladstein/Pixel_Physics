@@ -1,0 +1,11 @@
+runner: pf4w_free, leg 1
+built from: 597a99435a5752b2188f78d7f4dfd2fef38491ca
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40626450970
+started: 2026-10-28T03:28:26Z
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      142%
+06:09:06 pf4w_free: done, exit 0
+-rw-r--r-- 1 runner runner 16537116 Oct 28 06:09 /tmp/batch/pub/pf4w_free.tgz
+pf4w_free done exit 0
+finished: 2026-10-28T06:09:08Z
