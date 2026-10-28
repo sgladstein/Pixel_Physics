@@ -24,6 +24,8 @@ p = 1e-7) and the hand-built ant's **38.0** (lower on 24 of 24). Two separate th
    90% as well as an unconstrained network given the same senses (held-out P(label) 0.38 against 0.41), and that
    network itself gets only 41%. Adding what the hand-built ant did one decision earlier does not raise it
    (0.414 either way). Bill-free, the best copy (18.2) is still below the hand-built ant on 24 of 24 seeds.
+   **Corrected the same day (addendum):** the hand-built ant agrees with itself only 0.50 of the time under other
+   dice, so the inputs carry 83% of what is predictable; the shortfall is in turning round, picking up and digging.
 
 So the bottleneck is the training environment (the bill at a thin landing) plus something the scorer's inputs do
 not carry, not how the scorer combines them. That the missing piece is a *sense* is the likeliest reading of a
@@ -177,14 +179,90 @@ decision's label and per-option history added did not move (0.413 against 0.414)
 (backprop-through-time) fitter for the write gate, which `copyfit.py` does not have, is unlikely to pay. If someone
 builds one, the test above is the bar it must beat.
 
+## Addendum: how predictable is the hand-built ant itself? (same day)
+
+The 0.41 ceiling was read above as "the inputs miss things". It was not compared with the most any brain could score.
+`PP_SELFAGREE=k` (under `PP_SHADOW`) replays one hand-built tick in k in a clone of the world whose seed is XORed,
+and records whether the hand-built ant earned the same label (`A` rows in the copy log). That rate estimates Σp² of
+its own choice, which is the best mean P(label) any *calibrated* predictor of this tick can reach (an overconfident
+one can score up to E[max p]; the ceiling is fitted on log-likelihood, so it is close to calibrated). **Positive control:** the
+same replay with the seed unchanged (`PP_SELFAGREE_XOR=0`) agrees on 99.9% of 6,216 ticks.
+
+Held-out seeds 5-6, all three boxes, 60k frames, 1 tick in 20 (299,479 labelled ticks; mean over the six runs):
+
+| Move | Hand-built against itself | Ceiling (the mind's inputs) | c1 | c3 pruned | Ticks |
+|---|---|---|---|---|---|
+| All | **0.495** | 0.413 | 0.383 | 0.353 | 299,479 |
+| Step | 0.402 | 0.348 | 0.273 | 0.262 | 155,864 |
+| Rest | 0.600 | 0.502 | 0.518 | 0.466 | 127,312 |
+| Turn round | 0.512 | 0.269 | 0.262 | 0.201 | 12,927 |
+| Pick up | 0.494 | 0.331 | 0.263 | 0.366 | 1,909 |
+| Put down | 0.168 | 0.138 | 0.102 | 0.291 | 1,249 |
+| Dig | 0.487 | 0.068 | 0.038 | 0.146 | 218 |
+
+**This corrects the senses reading above.** The hand-built ant agrees with itself only half the time, because its
+walk is a weighted random pick by design. The mind's inputs already carry 83% of what is predictable (0.41 of
+0.50), and for stepping and resting, 95% of all ticks, the gap is small. The information the mind lacks is concentrated
+in three rare moves: turning round (0.27 of 0.51), picking up (0.33 of 0.49) and digging (0.07 of 0.49). The dig
+figure understates the mind, because `brain.py` drops the dig head's own features (index 45 and up), which the game's
+mind does read. What the hand-built ant reads at a turn-round and a pick-up that the mind does not is the next trace.
+
+## Addendum 2: which way it walks, and what the mind is not shown (same day)
+
+The first addendum left the gap in turning round, picking up and digging. Two things were tested on the hand-built
+ant's held-out runs (three boxes, seeds 5-6; trained on seeds 1-3), always on the **same rows** across arms.
+
+**1. Its errand and private walk memory.** With the decision trace on, the shadow row now carries the walk's own state
+(`PP_SHADOW_STATE=1`: the two patiences, the scout's give-up and dark flags, stillness, time since the nest, the trail-A
+memory, the anchor, heading, `home_away`) and its errand (`pull_why`) with the target's offset. Given all of it, the
+unconstrained ceiling rises from 0.410 to 0.431 (step 0.317 -> 0.353, turn round 0.272 -> 0.312, pick up 0.323 ->
+0.340; rest and dig unchanged). That is a fifth of the gap to the ant itself, not the missing piece.
+
+**2. The ant's own odds, as a positive control.** The shadow row now also carries the walk's draw for the tick: its
+exploration `k`, its persistence, and the score it gave each option's heading. From these, the hand-built ant's own
+P(label) for a step is (k + max(s,0))² / Σ, computed directly. Two findings:
+
+- `k` is 0.1 on 97% of walking ticks: there is no hidden exploration setting. The labels match the scores (mean
+  P(label) 0.494 against Σp² 0.496 over 149,548 step labels), so the score mapping is right.
+- Shown those scores, the ceiling matches the ant's own odds (below), so the method can find information when it is
+  there.
+
+Given that the ant walks, which way does it go? (`ceiling.py pick=1`: rows labelled a step or a turn-round, only step
+and turn-round options; 22,676 step rows and 1,417 turn-round rows held out. The hand-built column is its own P(label)
+on the same rows, from the 1,500-step rerun with `dump=`.)
+
+| Shown to the ceiling | Step | Turn round |
+|---|---|---|
+| The mind's inputs | 0.505 | 0.548 |
+| + walk memory, errand and target | 0.554 | 0.589 |
+| + the walk's own scores (positive control) | 0.594 | 0.730 |
+| The hand-built ant's own odds | 0.583 | 0.685 |
+
+So **which way to step is mostly in the mind's senses already**: 87% of the ant's own odds for a step and 80% for a
+turn-round. Walk memory and the errand recover 63% of what is left for a step and 30% for a turn-round.
+The large turn-round gap in the first addendum (0.27 of 0.51) was mostly not the heading at all. It was the move-or-rest
+roll (the old brain's `Move` output is a probability, so whether the ant moves this tick is dice), and in two_larders 7% of
+"turn round" labels are falls, which the old ant never chose (its own agreement on them is 100%). Most pick-ups (68%)
+happen on a tick whose move roll failed, so they inherit the same dice.
+
+**What the mind lacks, then, is memory the old walk keeps for itself**: how long it has been searching (patience), that
+a scout has given up, and where its current errand is going. The mind has memory slots that could carry these, so this
+is a training question, not a missing sense. Per the owner's ruling on instincts (10-26), these are not candidates for
+new senses: each one is the old walk's own rule state.
+
+Caveat: `ceiling.py` samples the same number of rows from each run, which over-weights short runs (a colony that died
+early). Arms are compared on identical rows, so the comparison is fair, but the absolute numbers differ from a
+whole-run mean (the ant's own step odds are 0.494 over all rows, 0.583 on the sampled ones).
+
 ## What this means for training
 
 - The founding grant (`grants=3`) hides a cost selection never pays. It does not explain std_pool's collapse:
   bill-free, std_pool still dies.
 - A pool can be made to keep a colony alive by copying, and pruning is a large part of why. Copying alone does not
-  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. The likeliest
-  lever is an input the hand-built ant uses and the mind lacks. Which one was not traced; the come-home case
-  (`PP_HOMELOW`) is the precedent.
+  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. Half of the
+  hand-built ant's choice is its own dice (addendum). Given that it walks, the mind's senses already carry 80-87% of
+  which way it goes; what remains is the old walk's private memory (patience, a scout's give-up, the errand's target),
+  which the mind could learn to keep in its own memory (addendum 2). Senses are not the bottleneck.
 - The pruned copy is a usable founder, sitting between std_pool and the hand-built ant at 60k. It was not run to 600k.
 
 ## Tools left behind (scratch)
@@ -201,5 +279,7 @@ builds one, the test above is the bar it must beat.
 
 Switches (all off unless set): `PP_SHADOW=1` (the old ant acts, the mind logs), `PP_SHADOW_SAMPLE=n`,
 `PP_COPY_LOG=path`, `PP_COPY_SAMPLE=a:b`, `PP_OLDLAB=1` / `PP_OLDLAB_ALL=1` / `PP_OLDLAB_K=k` (the old ant labels the
-mind's states). `labsurvive` cannot read a pool file. Split it into one genome file per member (pool member k = member
+mind's states), `PP_SELFAGREE=k` (replay one tick in k under other dice), `PP_SHADOW_STATE=1` (the walk's own
+state, and with `labsurvive PP_DECLOG=1` its errand, `W` rows and its own step scores). `ceiling.py` takes `state=1`,
+`old=1|2`, `pick=1` and `dump=PATH`. `labsurvive` cannot read a pool file. Split it into one genome file per member (pool member k = member
 0 plus its own lines) and pass the list.
