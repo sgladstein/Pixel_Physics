@@ -217,6 +217,11 @@ fn main() {
     // below only takes the bare-bed detour when this is nonzero. Ignored
     // under `scenario=`, whose own timeline decides colony placement.
     let ants_at: u64 = arg("ants_at").unwrap_or(0);
+    // **`mister=1`: the lab's mister as the game runs it** (`lab::tick_world`
+    // calls `rain::tick` after the step), `latecensus`'s flag of the same
+    // name. Off by default so every earlier picture stays comparable: this
+    // harness's bed is otherwise drier than the played lab's.
+    let mister: bool = arg::<u8>("mister").unwrap_or(0) != 0;
 
     // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
     // paired comparison rather than one run against a remembered impression,
@@ -885,6 +890,21 @@ fn main() {
                 q(1.0),
                 hungers.len(),
             );
+            // **Which kinds are alive beside the picture** -- `latecensus`'s
+            // `kinds` count (plants past their seed, two or more cells), so a
+            // bed that looks thin can be read as a kind gone or a kind small.
+            let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for (_, st) in world.live_organisms() {
+                let sp = world.species.get(st.species);
+                if sp.creature.is_none() && st.cells.len() >= 2 {
+                    *kinds.entry(sp.name.clone()).or_default() += 1;
+                }
+            }
+            println!(
+                "            kinds {} | collar sprouts {}",
+                kinds.iter().map(|(n, c)| format!("{n}={c}")).collect::<Vec<_>>().join(" "),
+                world.collar_sprouts
+            );
             hungriest.sort_by(|a, b| b.0.total_cmp(&a.0));
             for (h, name, x0, y0, x1, y1) in hungriest.iter().take(5) {
                 println!("              pale {name} hunger {h:.2}: leaves x {x0}..{x1} y {y0}..{y1}");
@@ -980,6 +1000,9 @@ fn main() {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
             if let Some(s) = &scenario {
                 pixel_physics::lab::scenario::tick_timeline(s, &mut world, &spec);
+            }
+            if mister {
+                pixel_physics::lab::rain::tick(&mut world, &spec, spec.rain);
             }
             renderer.dig.observe(&mut world);
         }
