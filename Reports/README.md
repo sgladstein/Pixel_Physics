@@ -6278,7 +6278,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it, food carried home falls by about 60%.
 
 - [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
-  ants evolve their own scents (owner's ask, 2026-10-25): signals emerge but do not pay: B stays at 0.03, palette parked, emit rows stay frozen (§9.7).** A planned
+  ants evolve their own scents (owner's ask, 2026-10-25): signals emerge but do not pay: B stays at 0.03, palette parked, emit rows stay frozen (§9.7); closed as a dead end after six far-food repeats (§9.15).** A planned
   palette of fixed molecules picked by a gene is parked after
   [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
   in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
@@ -6300,6 +6300,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   is 28-34% of the trained pools' deliveries.
   On far food (§9.14, wide bed, heap 100-250 out, scored on heap food) the signalling arm won 1.56x and
   reinvented a laden-only trail (7.8x), but its colony relied on it only 15-17%: fails the pre-set 20% bar.
+  **Closed by E4 (§9.15, 2026-10-28):** six repeats of that test, signalling higher in 3 of 6 pairs (0.99x), 0 of 6
+  colonies relying on their signal by 20%: a dead end, and the 1.56x was the top of the spread.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
