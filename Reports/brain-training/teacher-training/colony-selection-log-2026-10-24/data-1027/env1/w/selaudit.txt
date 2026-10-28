@@ -1,0 +1,38 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/074507f3-3bc6-5b2b-9fd4-4417d230c2c7/scratchpad/env1/w: 24 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 3.0 (range 2-5); passed dig gate median 11.0
+retest (kept-twice colonies, 0 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8             n/a
+   starved           n/a
+   nestcuts_late     n/a
+   nest              n/a
+   spoil             n/a
+   crater            n/a
+   shape             n/a
+   scale             n/a
+   lab               n/a
+   lab2_lab_herbs    n/a
+   ranksum           n/a
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             14% | +0.00 -0.09
+   starved           13% | +0.00 +0.27
+   nestcuts_late     17% | +0.00 +0.17
+   nest              19% | +0.00 +0.33
+   spoil             14% | +0.00 +0.09
+   crater            10% | +0.00 -0.45
+   shape             -3% | +0.00 -0.36
+   scale              2% | +0.00 +0.72
+   lab               10% | +0.00 +0.77
+   lab2_lab_herbs     4% | +0.00 -0.12
+child vs donor, same round (368 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   170 worse   198  median    -194.5  sign p=1.6e-01
+   starved         child better   176 worse   191  median      -4.5  sign p=4.6e-01
+   nestcuts_late   child better   149 worse   171  median      +0.0  sign p=2.4e-01
+   nest            child better   172 worse   196  median     -44.5  sign p=2.3e-01
+   spoil           child better   113 worse   246  median      -8.5  sign p=1.8e-12
+   crater          child better   187 worse   179  median      +1.0  sign p=7.1e-01
+   shape           child better   204 worse   117  median      +2.0  sign p=1.4e-06
+   scale           child better   123 worse   117  median      +0.0  sign p=7.5e-01
+   lab             child better   120 worse   129  median      +0.0  sign p=6.1e-01
+   lab2_lab_herbs  child better   136 worse   113  median      +0.0  sign p=1.6e-01
+luck: children take 46% of the top half (50% = no information)

@@ -1060,3 +1060,30 @@ paired over the 6 boxes x 8 seeds at 600k (48 pairs), two-sided sign test, Bonfe
 (p < 0.0167). Guard: garden r23 open nest not lower (extinct colonies counted as 0). Food home is not a deciding
 measure: the pheromones lane found it double-counts a drop-and-repick loop at the nest edge (2026-10-28), and in
 colsel it is one case of ten. Run `selaudit.py` on the first 16 rounds.
+
+## 2026-10-28 (01:20Z): `env1` training gardens -- carrion is a famine for every brain, windfall is not
+
+`env1-1028` (built at 17f03045, launched 00:24Z, done 01:19Z: 24 rounds x 4 arms in 55 minutes on 64 cores).
+Data: `data-1027/env1/` (cg.csv, colsel.csv and `selaudit.py` output per arm).
+
+| arm | colonies extinct per training round (of 32) | garden r23: colonies with a carry, alive (extinct = 0), starved |
+|---|---|---|
+| c (control) | 1-9, median 4 | 28, 61, 259 |
+| w (windfall + corpse, 25% of heaps) | **15-24, median 21** | 16, **0**, 244 |
+| wf (windfall only) | 0-7, median 3 | 29, 59.5, 251 |
+| w6 (w + donor600) | **17-29, median 25** | 3, **0**, 146 |
+
+**Correction to the 00:30Z section: corpse is not a learnable food on this bed, for any brain.** One held-out world
+(500001, 60k, `foodwild=1:KIND` so every heap after the first is that food): corpse heaps, hand-built ant 7
+deliveries after 20k and extinct, std_pool 80 and extinct; windfall heaps, hand-built 559 and 80 alive, std_pool
+1,208 and 65 alive. The gut argument above was inferred and is wrong as the explanation: the bed's mind ants carry
+the species' authored body (the `body=` switch is not on main), and the hand-built ant fails on corpse here too. Why
+corpse feeds the hand-built ant in the game's boxes and no one on this bed is open (hand-off to-do 5). **Corpse comes
+out of training** until it is.
+
+**Windfall alone changes nothing in the garden** (wf against c at r23: alive 59.5 vs 61, starved 251 vs 259). Its
+selection audit looks like elite1's (ranksum retest 0.05, children 54% of the top half, children worse than their
+donor on lab 233 of 365 pairs). Whether it changed the game boxes is the deciding measure: the exam batch `x1`
+(rank-0 colonies at r23: c c9, w c17, wf c28, w6 c22; plus the copy-test lane's pruned copy
+`scratch/inrun/genomes/copytest_c3_pruned.raw.txt` from PR #970, and the 16 lost baseline box sets), 6 boxes x 8
+seeds at 600k, one VM line per seed.
