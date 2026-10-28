@@ -1526,3 +1526,41 @@ boom_bust), same 34 founders, 3 seeds, 600k, plain env. Deciding measure as twin
 at p < 0.01, now 0.05 / 7), against twinself's exam rows (same engine). A box that passes is a candidate steering
 case; the three played_bed variants are close kin of an exam box, so a pass there is weaker evidence of a general
 signal than one in steady_income, the_bank, far_larder or boom_bust.
+
+## 2026-10-28 (23:45Z): twingame -- two played_bed variants rank colonies as the exam does; env6 launched on them
+
+twingame-1028 (714 runs, ref f948010c, 22:12-23:22Z), `data-1027/twingame/`, `twingame_an.py`, against twinself's
+exam rows (same engine):
+
+| box | self | vs exam | perm p | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|---|---|---|
+| played_bed_scrambler | +0.00 | **+0.52** | 0.0010 | 1 | 143 | 271 | 145 |
+| played_bed_understory | +0.27 | **+0.52** | 0.0015 | 0 | 171 | 261 | 153 |
+| played_bed_windfall_reach | +0.04 | +0.13 | 0.25 | 2 | 160 | 226 | 155 |
+| steady_income | +0.01 | -0.15 | 0.80 | 18 | 133 | 277 | 155 |
+| the_bank | +0.21 | +0.03 | 0.43 | 96 | 0.2 | 0.4 | 0.2 |
+| far_larder | +0.00 | +0.00 | 1.0 | 96 | 0.2 | 0.4 | 0.2 |
+| boom_bust | +0.16 | -0.04 | 0.59 | 96 | 13 | 20 | 9 |
+
+**Against the measure as named, no box passes**: none reaches self >= 0.3. Two pass the exam half at p < 0.05/7.
+the_bank and far_larder kill even the hand-built ant (lived 0.4) under labsurvive's plain landing, so they say
+nothing here. After the named measure (exploratory, so weaker): scrambler + understory summed over their 6 runs rank
+the exam at **+0.67** (p < 0.0001); with 2 seeds each +0.61, 1 seed each +0.45. The variants are played_bed with one
+thing added, so the kinship control ranks them against herb_first_colony + crowded_bench only: +0.59 (p 0.0002),
+where played_bed itself scores +0.41. The self bar was too strict for a summed check: the exam's own played_bed
+agrees with itself at +0.16 and still ranks the other two at +0.41.
+
+**env6** (launched 23:45Z): t_fam's setup from std_pool on this build, three arms, P 21 each:
+
+| arm | change |
+|---|---|
+| g_ctl | none (t_fam with donor600: the control, rerun on this engine) |
+| g_dl | + `donorlab=600000:50:played_bed_scrambler,played_bed_understory,played_bed_scrambler,played_bed_understory:lived` |
+| g_dlo | the same donorlab in place of donor600 |
+
+colsel's `donorlab` gains a fourth field, `lived`, that ranks on mean headcount first (the quantity the rank checks
+validated) and runs a box named twice on two seeds. Smoke (4 colonies, 1 round, 3k): c1 had more alive at the end
+(145 vs 128) and lower lived (138.2 vs 140.8), and `:lived` kept c2 where the default would keep c1.
+**Deciding measure, named before launch:** exam x8 (6 boxes x 8 seeds at 600k), each arm's r23 rank-0 colony, lived
+paired over the 48 box-seeds against g_ctl's and against std_pool (Bonferroni over 2 arms), alive and starved share
+as guards. The donorlab log's own lived by round says whether the filter lifts the next generation (it did not in env5).

@@ -364,6 +364,13 @@ EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
 # k3c23 6/30 against std_pool, env2 s_d6 10/22, env4 f_w6 8/23 against its own founder -- and the watchdog lane found
 # no training case, donor600's bed check included, ranks donors by survival (311 donors, every case within +-0.25).
 # The exam's boxes are lab boxes; this puts a long lab run between a candidate and the next generation.
+# donorlab=FRAMES:Q:A,B,...:lived ranks on mean headcount first (then alive at the end); a box named twice runs twice
+# on two seeds. **Why** (2026-10-28, x7 and the rank checks): at the default boxes the check is a random pick -- the
+# labscen twins agree with themselves seed to seed at -0.09..+0.27 and with the exam at -0.19..+0.11, because 73-93 of
+# 96 trained runs die in them (twinself-1028; twinenv-1028: the box, not the door rule). Two non-exam game boxes do
+# rank colonies as the exam does: played_bed_scrambler + played_bed_understory, 3 seeds each at 600k, Spearman of mean
+# headcount +0.67 against the exam's plant boxes (+0.59 with played_bed left out; 2 seeds each +0.61, 1 seed +0.45),
+# twingame-1028 over the 32 t_fama carries. Both are copied into LAB_DIR for this.
 DONOR_LAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('donorlab=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('donorlab=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
@@ -927,9 +934,10 @@ for r in range(R0, R):
                 with ThreadPoolExecutor(P) as ex:
                     lv = dict(zip(donors, ex.map(lambda c: lab_long(c, r, carry[c]), donors)))
                 q = float(DONOR_LAB[1]) if len(DONOR_LAB) > 1 else 50.0
-                srt = sorted(lv.values())
+                key = (lambda t: (t[1], t[0])) if len(DONOR_LAB) > 3 and DONOR_LAB[3] == 'lived' else (lambda t: t)
+                srt = sorted(key(v) for v in lv.values())
                 bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
-                kept = [c for c in donors if lv[c] >= bar] or donors
+                kept = [c for c in donors if key(lv[c]) >= bar] or donors
                 new_l = not os.path.exists(f'{OUT}/donorlab.csv')
                 with open(f'{OUT}/donorlab.csv', 'a') as f:
                     if new_l:
