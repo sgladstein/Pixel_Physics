@@ -2762,13 +2762,30 @@ pub(crate) fn branch_node_default() -> bool {
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BRANCH_NODE").as_deref(), Ok("1")))
 }
 
-/// `World::collar_sprout`'s default: off, unless
-/// `PIXEL_PHYSICS_COLLAR_SPROUT=1` -- the harness switch, as
-/// `branch_node_default`, until it is measured.
+/// `World::collar_sprout`'s default: **on** (plant lane, 2026-10-28);
+/// `PIXEL_PHYSICS_COLLAR_SPROUT=0` (or `off`) turns it off.
+///
+/// Parked off on 10-21 because it barely moved a *lone* shrub's size spread
+/// (0.41 -> 0.40) -- no harm was measured, it just had no job there. With the
+/// colony it has one. Traced on four lab beds (`planttrace life=1 bites=1`),
+/// the ants eat leaf at the same rate per shoot cell on the herb, the shrub
+/// and the scrambler (3.7, 3.7 and 3.3 cells per 1,000 per 500 frames; tree
+/// 0.9, grass 0); the herb outgrows that by turnover, and none of 33
+/// established shrubs survived: each was stripped, kept its wood, retired
+/// its tips and starved at full light, water and soil food on a fortieth of
+/// the no-ant income per shoot cell. On 12 paired `played_bed` beds with the
+/// colony and the mister to 450k (`latecensus mister=1`), on against off:
+/// shrub alive at 450k on 12 beds against 4 (8 better, 0 worse, sign p
+/// 0.008), scrambler 9 against 4 (5-0, p 0.06), four or more kinds 8 against
+/// 4 (5-1); median ants 107 against 52 at 450k (9 more, 3 fewer, n.s.) and
+/// 132 against 180 at 250k (n.s.); herb 9 against 11 beds (1-3) and tree 5
+/// against 8 (0-3), neither significant. It fired 40,746 times in one bed's
+/// 450k run (`labshot`'s `collar sprouts` count). Record:
+/// `Reports/shrub-grazing-2026-10-28.md`.
 pub(crate) fn collar_sprout_default() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_COLLAR_SPROUT").as_deref(), Ok("1")))
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_COLLAR_SPROUT").as_deref(), Ok("0") | Ok("off")))
 }
 
 /// `World::node_keyed_growth`'s default: off, unless
@@ -27551,6 +27568,12 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             // The control: a sod rooted in wet soil, same switch, same frames.
             let mut c = World::new(Rect::new(0, 0, 63, 63));
             c.rootless_dries = rootless_dries;
+            // Collar resprout off in the control, as old age is: its bar is
+            // exact equality across the two arms, and with resprout on (the
+            // default since 2026-10-28) a tipless blade's base sprout lands one
+            // blade apart between them (59 against 60) -- that rule's chaos,
+            // not this one's effect. The pocket plant keeps the default.
+            c.collar_sprout = false;
             c.plant_load_failure = false;
             c.weather_override = Some(crate::sim::weather::Weather::CLEAR);
             // Old age off, as in `rootless_grass_scene`.

@@ -9,7 +9,12 @@ member 0 whole and every later member as its differences from member 0, zeros in
 import csv
 import sys
 
-rdir, out, notes = sys.argv[1], sys.argv[2], sys.argv[3:]
+# --carry (teacher lane, 2026-10-28): the carry as a lab box receives it from colsel's carried() or exam.py's round-folder
+# founders -- the top 30 rows, duplicates kept, each once (`labsurvive` drops the `:count` a founders string carries, so
+# a carry under 30 rows is not topped up there) -- so a pool file stands in for a round folder on a VM that has only the
+# repo. Not the garden's carry: inrun does read the counts. Default: distinct genomes.
+CARRY = '--carry' in sys.argv
+rdir, out, notes = [a for a in sys.argv[1:] if a != '--carry'][0], [a for a in sys.argv[1:] if a != '--carry'][1], [a for a in sys.argv[1:] if a != '--carry'][2:]
 r = list(csv.DictReader(open(f'{rdir}/final/index.csv')))
 r.sort(key=lambda x: int(x['id']))
 r.sort(key=lambda x: (-float(x['score']), int(x['id'])))
@@ -31,12 +36,15 @@ def load(i):
 # and a pool member twice is a member wasted (farfood3b logsense c12 r23 had one such pair in its top 30; the lab's
 # `the_first_founders_are_the_standard_pool` asserts the members differ).
 seen, keep = set(), []
-for x in r:
+if CARRY:
+    r = r[:30]
+    seen = None
+for x in (r if seen is not None else []):
     key = tuple(sorted((i, float(w)) for i, w in load(x['id'])[1].items()))
     if key not in seen:
         seen.add(key)
         keep.append(x)
-r = keep[:30]
+r = keep[:30] if seen is not None else r
 head0, g0 = load(r[0]['id'])
 with open(out, 'w') as f:
     for n in notes:

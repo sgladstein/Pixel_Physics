@@ -96,6 +96,17 @@
 //! traced. The draw only reads the world (a full redraw over an empty touched
 //! set, never `World::take_touched_chunks`), so it changes no digest.
 //!
+//! **`bites=1`: who ate which plant** (2026-10-28). Turns on
+//! `World::bite_log` and writes **`bites.csv`**: one row per plant and
+//! material an animal's mouth took a living cell of -- owner id, its born
+//! frame (read while it was alive; -1 if the bite that killed it was the first
+//! seen), species, material, cells. Built because the lab bed's shrubs were
+//! found starving with full light, water and soil food at a fortieth of the
+//! income per shoot cell of the same beds with no colony, and the ledger above
+//! has no column that says a leaf was *eaten* rather than shed. Recording draws
+//! nothing and changes nothing (same `hash.txt` with it on or off); the summed
+//! cells are reconciled against `creature_stats.eaten_plant_cells`.
+//!
 //! Read with `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `tips`,
 //! `life`; and over `growlog.csv.gz`, `tip` for one tip's run of decisions
 //! and `check`, which rebuilds every score from its terms and every pick
@@ -934,6 +945,7 @@ fn main() {
     let species: Option<String> = arg("species");
     let cull_at: Option<u64> = arg("cull");
     let growlog_on = arg::<u8>("growlog").unwrap_or(0) == 1;
+    let bites_on = arg::<u8>("bites").unwrap_or(0) == 1;
     let only: Option<Vec<OrganismId>> =
         arg::<String>("only").map(|v| v.split(',').filter_map(|id| id.trim().parse().ok()).collect());
     let from: u64 = arg("from").unwrap_or(0);
@@ -953,7 +965,7 @@ fn main() {
         tiles: Vec::new(),
     };
     println!(
-        "planttrace: scenario={scenario} seed={seed} frames={frames} colony={} hashevery={hash_every} log={} life={} every={every} track={track} est={} species={} cull={} growlog={} only={} from={from} shots={} at={} scale={} out={out}",
+        "planttrace: scenario={scenario} seed={seed} frames={frames} colony={} hashevery={hash_every} log={} life={} every={every} track={track} est={} species={} cull={} growlog={} bites={} only={} from={from} shots={} at={} scale={} out={out}",
         colony.map_or("as-written".to_string(), |c| c.to_string()),
         u8::from(log_on),
         u8::from(life_on),
@@ -961,6 +973,7 @@ fn main() {
         species.as_deref().unwrap_or("all"),
         opt(cull_at),
         u8::from(growlog_on),
+        u8::from(bites_on),
         only.as_ref().map_or("all".to_string(), |ids| ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")),
         if shots.frames.is_empty() {
             "none".to_string()
@@ -990,6 +1003,12 @@ fn main() {
     if log_on {
         lab.world.death_log = Some(Vec::new());
     }
+    if bites_on {
+        lab.world.bite_log = Some(Vec::new());
+    }
+    // (owner, material) -> living cells bitten; owner -> born frame, species.
+    let mut bitten: BTreeMap<(OrganismId, String), u64> = BTreeMap::new();
+    let mut bitten_who: HashMap<OrganismId, (i64, String)> = HashMap::new();
     let mut ledger = life_on.then(|| Ledger::new(&out, every, track, est, species.clone()));
     let mut growlog = growlog_on.then(|| {
         lab.world.grow_log = Some(Vec::new());
@@ -1069,6 +1088,22 @@ fn main() {
         if let Some(g) = growlog.as_mut() {
             g.drain(&mut lab.world);
         }
+        if let Some(drained) = lab.world.bite_log.as_mut().map(std::mem::take) {
+            let w = &lab.world;
+            for b in drained {
+                if !b.living || b.owner == 0 || b.spared {
+                    continue;
+                }
+                // Read while the owner is alive; a plant whose first recorded
+                // bite was also its last is booked with born -1.
+                let who = w.organism(b.owner).map_or((-1, "?".to_string()), |st| (st.born_frame as i64, w.species.get(st.species).name.clone()));
+                let e = bitten_who.entry(b.owner).or_insert(who.clone());
+                if e.0 < 0 {
+                    *e = who;
+                }
+                *bitten.entry((b.owner, w.materials.get(b.material).name.clone())).or_insert(0) += 1;
+            }
+        }
         shots.take(f, &lab);
         if f % hash_every == 0 || f == frames {
             writeln!(hashes, "{f},{:016x}", grid_hash(&lab.world)).unwrap();
@@ -1114,6 +1149,24 @@ fn main() {
         println!(
             "\nRECONCILED with deaths_by_cause: {}",
             if ok { "yes, every cause" } else { "NO -- see above" }
+        );
+    }
+    if bites_on {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/bites.csv")).expect("bites.csv"));
+        writeln!(f, "owner,born,species,material,cells").unwrap();
+        let mut by_species: BTreeMap<String, u64> = BTreeMap::new();
+        let mut total = 0u64;
+        for ((owner, mat), n) in &bitten {
+            let (born, name) = bitten_who.get(owner).cloned().unwrap_or((-1, "?".to_string()));
+            writeln!(f, "{owner},{born},{name},{mat},{n}").unwrap();
+            *by_species.entry(name).or_insert(0) += n;
+            total += n;
+        }
+        f.flush().unwrap();
+        println!(
+            "\nBITES (living plant cells eaten, by owner's species): {} | total {total} against eaten_plant_cells {}",
+            by_species.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "),
+            w.creature_stats.eaten_plant_cells
         );
     }
     if let Some(l) = ledger {

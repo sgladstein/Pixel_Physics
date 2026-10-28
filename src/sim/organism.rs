@@ -7061,6 +7061,31 @@ pub fn plant_defence_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_DEFENCE").map(|v| v != "0").unwrap_or(true))
 }
 
+/// SCRATCH (plant lane, 2026-10-28): **a founder's defence by species**,
+/// `PIXEL_PHYSICS_FOUNDING_DEFENCE=shrub:0.5,scrambler:0.5`; unset (always,
+/// outside a measurement) is 0.0 for every species, today's plant. Bred seeds
+/// inherit it through `plant::bear_seed_at` as any defence. Built to ask
+/// whether a defended shrub survives the lab colony: traced on four lab beds,
+/// every established shrub with ants died starving in full light, water and
+/// soil food, its leaves eaten at the same rate per shoot cell as the herb's
+/// (3.7 per 1,000 per 500 frames) but replaced too slowly to pay its wood.
+pub fn founding_defence(species: &str) -> f32 {
+    use std::sync::OnceLock;
+    static TABLE: OnceLock<Vec<(String, f32)>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_FOUNDING_DEFENCE")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .filter_map(|kv| kv.split_once(':'))
+                    .filter_map(|(k, d)| d.trim().parse::<f32>().ok().map(|d| (k.trim().to_string(), d.clamp(0.0, 1.0))))
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    table.iter().find(|(k, _)| k == species).map_or(0.0, |&(_, d)| d)
+}
+
 /// **What a fully defended plant pays**: construction at
 /// `1 + DEFENCE_COST * defence` the undefended price, so 2x at `defence`
 /// 1.0. A starting point, not a measured value -- the literature agrees the

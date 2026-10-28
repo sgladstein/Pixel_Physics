@@ -2,7 +2,8 @@
 
 Status: **working note of the selection lane** (lane 4 of the plan after the account move). It follows the
 selection review ([selection-review-2026-10-27.md](selection-review-2026-10-27.md)) and records what this lane
-built and measured against its "change first" list. Results of the islands screen are added when it finishes.
+built and measured against its "change first" list. §5 holds the screens run on Scott's "test all your ideas"
+(2026-10-28 01:59Z): islands, case weights and one world per round. Pictures: https://claude.ai/artifact/HCcmdpytbi2npc4c9x2NUL
 
 ## In plain words
 
@@ -149,20 +150,41 @@ No colsel case ranks on stored cells as food. The measures that would change a r
 home8's kJ form is now in every round folder, and whether it ranks colonies differently from the cell count is
 checked in §3's rank check below.
 
-## 5. Keeping more than one family: the islands screen
+## 5. The screens: islands, case weights, one world per round
 
-`islands=K[:M]` in colsel (merged with PR #962): the colonies split into K islands that select and refound only
-within themselves; every M rounds (default 4) each island's best colony refounds the next island's worst. The
-screen `selisl1` runs it on GitHub runners: the clean1 k3 line with `islands=4:4` and `islands=2:4`, sha
-e33fe076, 32 x 48.
+All on GitHub runners, the clean1 k3 line (32 x 48) plus one switch, judged against k3's own round-47 common garden
+(same garden worlds, paired by colony) with `scratch/inrun/cgpair.py` (new; a colony that died out in training counts
+as the worse side of its pair). **Deciding measure, named in each batch file before launch**: garden starvation at
+round 47, two-sided sign test, Bonferroni over the 5 arms (p < 0.01; `selisl1.batch` named 2 arms, p < 0.025 --
+neither bar is met). Guards: garden alive and nest.
 
-**Deciding measure, named before launch**: starvation in the round-47 common garden, paired by colony against clean1
-k3's own round-47 garden (same garden worlds), two-sided sign test, Bonferroni over 2 arms (p < 0.025). Guards:
-garden nest and alive. Mechanism checks: distinct families at round 47 (`lineage.py`) and the retest table above.
-Judge with `scratch/inrun/cgpair.py` (new; a colony that died out in training counts as the worse side of its pair).
+| arm (batch) | starved: arm / k3, better-worse, p | alive: arm / k3, better-worse, p | other | families left (k3: 1 by round 17) |
+|---|---|---|---|---|
+| islands=2:4 (selisl1 isl2) | 272 / 293, 17-13, 0.59 | 71 / 56, 23-7, **0.005** | 30 of 32 reached the garden (k3 26) | 1 by round 38 |
+| islands=4:4 (selisl1 isl4) | 302 / 293, 14-18, 0.60 | 71 / 56, 23-8, 0.011 | nest 11-21, p 0.11 | 1 by round 39 |
+| weights= (selow1 wt1) | 342 / 293, 9-23, 0.020 | 56 / 56, 16-15, 1.0 | food home 10-22 (p 0.05), nest scale 22-9 (p 0.03), crater 127 / 33 | 1 by round 15 |
+| oneworld=1, and with weights= (selow1 ow1, owwt) | **void**, see below | | | |
 
-*Running* (GitHub Actions run 40596907554, results to `batch-results/selisl1`); the verdict is added here when it
-finishes.
+**Islands** fail the deciding measure. They keep more colonies alive to round 47 and delay the fall to one family by
+some 20 rounds, but do not stop it: migration every 4 rounds lets a family that wins one island take over the next.
+With more families alive, the cases repeat better (selaudit, kept-twice retest: starvation 0.08-0.12 against k3's
+0.03, the rank-sum 0.10-0.11 against 0.04), which is the selection review's point that selection among copies of
+one family is luck. **The 2-island winner (colony 6, round 47) is worse than std_pool in the game**: level on 16
+held-out garden worlds (alive 9-7 of 16) and in a 60k lab-box check (lived 4 of 12), but in the Teacher lane's 600k
+exam of the same 48 box-seeds it lived longer in 6 and shorter in 25 (p 0.0009), was alive at the end in 5 against
+19 (p 0.007) and had a larger starved share in 29 against 8 (p 0.0008) -- the pattern of every 24-48-round winner
+this week. A winner is judged at 600k, not 60k. Its carry: `/mnt/project-files/selection/isl2c6r47_pool.txt`.
+
+**Case weights** (`weights=spoil:0,crater:0.5,shape:0.5,scale:2,lab:3`) did what they were told and lost the main
+goal: donors were picked hard for lab (+1.05 sd) and nest scale (+0.76 sd) and against food home (-0.28) and
+starvation (-0.17); garden nest scale rose and starvation, food home and the crater got worse. The lab case they
+weighted up is the 15k-frame headcount, which the Watchdog lane found does not predict who is alive at 300k in the
+same boxes (Spearman -0.14). (`selaudit.py`'s weight-share column still shows the unweighted shares.)
+
+**One world per round was not a test the first time.** inrun seeded the births' stream (mutation, crossover, parent
+draws) from the world's seed, so colonies sharing a carry in the one world ran identically: colsel.csv has 1 or 2
+distinct outcomes in every round, and all 32 colonies died out together at round 23 (round 15 with weights). inrun
+`sseed=` (PR #979) gives each colony its own stream; the rerun (`selow2`) is running, verdict to follow.
 
 ## 6. Instruments added
 
@@ -171,5 +193,7 @@ finishes.
 - `scratch/inrun/cgpair.py`: one arm's common garden against a control's, paired by colony, with a sign test and a
   Bonferroni bar.
 - `examples/inrun.rs`: a deliver row carries the cell's worth as put down (v).
-- `scratch/inrun/colsel.py`: `islands=`, `home.csv` (home8 in kJ); `DEADLINE` pauses between rounds.
+- `scratch/inrun/colsel.py`: `islands=`, `oneworld=1`, `weights=`, `home.csv` (home8 in kJ); `DEADLINE` pauses
+  between rounds.
+- `examples/inrun.rs`: `sseed=`, the births' stream apart from the world's seed.
 - `scratch/inrun/rounds.sh`: skips rounds already done, so a runner leg resumes.

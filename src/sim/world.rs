@@ -8610,6 +8610,7 @@ impl World {
         // `plant::bear_seed_at` overwrites it with the parent's mutated copy
         // for a bred seed, which is later in the same call.
         let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
+        let founding_defence = super::organism::founding_defence(&self.species.get(species).name);
         let state = OrganismState {
             fates,
             // **The identity, stamped at the one allocation seam.** See
@@ -8654,8 +8655,10 @@ impl World {
             origin: None,
             germination_frame: 0,
             // Undefended at birth -- `plant::bear_seed_at` writes a bred
-            // seed's from its parent. See `OrganismState::defence`.
-            defence: 0.0,
+            // seed's from its parent. See `OrganismState::defence`. A
+            // founder takes `organism::founding_defence` (0 unless the
+            // scratch switch names its species).
+            defence: founding_defence,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
