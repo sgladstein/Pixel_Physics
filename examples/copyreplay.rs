@@ -37,7 +37,11 @@ fn main() {
                 let mut feats = [0.0f32; FEATURES];
                 for kv in q[4].split(' ').filter(|s| !s.is_empty()) {
                     let (i, v) = kv.split_once('=').unwrap();
-                    feats[i.parse::<usize>().unwrap()] = v.parse().unwrap();
+                    // The dig head's own features ride as indices 100+k (`PP_DIGFEAT`); the scorer reads none of them.
+                    let i: usize = i.parse().unwrap();
+                    if i < FEATURES {
+                        feats[i] = v.parse().unwrap();
+                    }
                 }
                 Opt { verb: Verb::ALL[q[0].parse::<usize>().unwrap()], target: (q[1].parse().unwrap(), q[2].parse().unwrap()), feats }
             })
