@@ -18,6 +18,8 @@
 //!     field     a food cell taken into the crop away from home (v: its worth)
 //!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`; v: its worth as put down)
 //!     churn     any other food cell put down within 12 columns of the nest
+//!     tunnel    (tunnel=B only) a paying cut 2+ rows down that pushes on a low passage (v = its length): paid more
+//!               to its cutter (see `tunnel_bonus`); logged before its `dig` row
 //!     recarry   (homepick=K only) a trip cell picked up within K columns of the door, put down at the nest again: not paid,
 //!               not food_home; v: its worth as put down
 //!     eat       the crop's digestion paid this ant v (face worth); x,y where its head is
@@ -1187,6 +1189,28 @@ fn main() {
     // the h1 founders; hcs starves far less. 0 = off.
     let roof_debit = fnum("roof_debit", 0.0);
     let deep_bonus = fnum("deep_bonus", 0.0);
+    // tunnel=B (nest lane, 2026-10-28, owner's pick "Bonus for extending a tunnel"; 0 = off, the default): a paying cut
+    // of original ground at least 2 rows down that pushes a low passage on -- beside it, left or right, at least 2 open
+    // cells in a row whose open height in that column is at most `tunnel_h` (4) rows -- pays its cutter
+    // 1 + B * (run - 1) / (tunnel_len - 1) times the cut half, run = that passage's length capped at `tunnel_len` (4):
+    // graded, a third of B at 2 cells, all of it at 4. Logged `tunnel` with the run in the depth column. Only the
+    // cutter's credit grows; the pellet's carry pay is unchanged. Why: the trained nest is one cone. std_pool's own dig
+    // head picks a cell below the ant 77% of the time (w500004, 3,178 dig choices to 200k: down 21%, down-and-sideways
+    // 56%), so the hole spreads down from the door, and nothing paid a passage carried on sideways. Lifting the
+    // 20-column band (nest_r=0, 8 seeds x 6 rounds) made the cone bigger, not tunnels. It adds pay and never withholds
+    // it: the withholding rules (cut_roof, rim_rows, zone_debit) made colonies stop digging. The pay goes to the
+    // evolving dig head's choices; nothing in the ant's body changes.
+    // DON'T go back to the first test (ground above the cut, open beside it): it told the two nests apart only on
+    // average (paid deep cuts, w500004 200k sel=off nest_r=0: hand-built galleries 55%, std_pool's cone 20%), and the
+    // trained 20% were the cone's overhanging lower flanks. At tunnel=2 over 8 seeds x 6 rounds it paid them: width 1
+    // higher / 5 lower (p .22), the paid share flat 14-21% -> 15-22%, ~90% of paid cuts with nest under them at the end,
+    // 2 colonies extinct against 0. The passage test separates the ants: seeds 500004-06, same settings, share of deep
+    // paid cuts with run >= 2 at height 4: hand-built 51-59%, std_pool 3-5%; run >= 4: 39-44% against 0-1%. A cone's
+    // flank is a wedge that thickens away from the cut, so it fails the height test within a few cells; a gallery does
+    // not. (With nest_r=20 the hand-built ant's galleries beyond 20 columns are unpaid: judge with the band lifted.)
+    let tunnel_bonus = fnum("tunnel", 0.0);
+    let tunnel_h = fnum("tunnel_h", 4.0) as i32;
+    let tunnel_len = (fnum("tunnel_len", 4.0) as i32).max(2);
     // A meal at home after work (owner, 2026-10-21: "the nest needs a purpose"): a food cell swallowed at home pays
     // `w_home_eat` once per stretch of work (a trip out, a dig, a carry), so working and coming back to eat pays and
     // sitting at home eating the store does not (the stay-at-homes are who drained the store and starved together in the first pilots).
@@ -1681,6 +1705,37 @@ fn main() {
                         worth = 1.0 + deep_bonus;
                     }
                 }
+                let mut tmul = 1.0;
+                if worth > 0.0 && tunnel_bonus > 0.0 && depth >= 2 {
+                    let ground = |ex: i32, ey: i32| (0..bh).contains(&ey) && join_ground.contains(&w.get(ex, ey).material);
+                    // How tall the open space is in column ex at the cut's row; 99 when it runs 8+ rows up or down.
+                    let tall = |ex: i32| {
+                        let (mut u, mut d) = (0, 0);
+                        while u < 8 && y - 1 - u >= 0 && !ground(ex, y - 1 - u) {
+                            u += 1;
+                        }
+                        while d < 8 && y + 1 + d < bh && !ground(ex, y + 1 + d) {
+                            d += 1;
+                        }
+                        if u >= 8 || d >= 8 { 99 } else { u + d + 1 }
+                    };
+                    let mut run = 0;
+                    for s in [-1, 1] {
+                        let mut k = 0;
+                        while k < tunnel_len {
+                            let ex = x + s * (k + 1);
+                            if !(0..bw).contains(&ex) || ground(ex, y) || tall(ex) > tunnel_h {
+                                break;
+                            }
+                            k += 1;
+                        }
+                        run = run.max(k);
+                    }
+                    if run >= 2 {
+                        tmul = 1.0 + tunnel_bonus * (run - 1) as f64 / (tunnel_len - 1) as f64;
+                        writeln!(ev, "{frame},{who},tunnel,{x},{y},{run},{who}").unwrap();
+                    }
+                }
                 held.insert(who, (who, worth));
                 writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
                 if worth == 0.0 {
@@ -1689,7 +1744,7 @@ fn main() {
                 if let Some(b) = book.get_mut(&who) {
                     b.tripped = true;
                     b.m[1] += 1.0;
-                    let g = worth * 0.5 * w_dig * dig_price;
+                    let g = worth * tmul * 0.5 * w_dig * dig_price;
                     b.credit += g;
                     b.g2 += g * g;
                 }
