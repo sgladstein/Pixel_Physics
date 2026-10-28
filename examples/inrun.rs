@@ -1277,7 +1277,13 @@ fn main() {
     let mut age30 = std::io::BufWriter::new(std::fs::File::create(out.join("age30.csv")).unwrap());
     writeln!(age30, "id,score30").unwrap();
     let mut last_birth = 0u64;
-    let mut srng = train::Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5);
+    // sseed=N (selection lane, 2026-10-28; default: the world's seed, bit for bit): the seed of the births' stream --
+    // mutation, crossover and parent draws -- apart from the world's. **Why**: colsel's oneworld=1 gives every colony
+    // the same world in a round, and with this stream seeded by the world as well, every colony with the same carry
+    // ran the same births to the same end: the first oneworld screen (selow1, 32 x 48) had one or two distinct
+    // outcomes in every round of 48 and died out whole at round 23. colsel passes each colony its own sseed.
+    let sseed = num("sseed", seed);
+    let mut srng = train::Rng(sseed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5);
     let kslots = inrun::slots();
     struct Who {
         born: u64,
