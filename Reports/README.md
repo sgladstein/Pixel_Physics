@@ -6357,6 +6357,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   donor on lab (63-69% of pairs) and nest, better on food; the whole population descends from one ant 7-22 rounds
   back. Ranked fixes: cut the child round's damage, one case per goal with explicit weights, more families.
 
+- [brain-training/research/selection-lane-2026-10-27.md](brain-training/research/selection-lane-2026-10-27.md) —
+  **selection lane: batches on GitHub runners, which colony scores repeat, food counted twice at the door.** Runner
+  batches match the VM colony for colony (PR #962). In clean1, food home (0.29-0.34), nest scale (0.30) and nest
+  (0.22) repeat from world to world; starvation repeats at 0.03 while the world sets it at 0.24, so no starvation
+  count a round keeps can select. A quarter to two thirds of trained colonies' deliveries are cells re-carried at
+  the door (the Nest lane's `homepick` counts them once); counting once reorders home8 increasingly by round
+  (Spearman 0.96 -> 0.64 over 3 rounds). Kept-cell scores audited for kJ. Islands screen pending.
+
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
   lessons made in parallel onto hA1 (home sense, crater refusal) merged by slot union kept both: food 309 -> 431, 22 of
