@@ -1,0 +1,30 @@
+runner: isl4, leg 1
+built from: e33fe076816438a6c1d7d996d260a93f151c0ed3
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40596907554
+started: 2026-10-27T22:52:16Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+03:49:23 isl4: paused, exit 75 at 19 (was 0)
+-rw-r--r-- 1 runner runner 23965579 Oct 28 03:49 /tmp/batch/pub/isl4.tgz
+isl4 paused exit 75 at 19 (was 0)
+finished: 2026-10-28T03:49:28Z
+runner: isl4, leg 2
+built from: e33fe076816438a6c1d7d996d260a93f151c0ed3
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40596907554
+started: 2026-10-28T03:53:33Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+08:49:12 isl4: paused, exit 75 at 38 (was 19)
+-rw-r--r-- 1 runner runner 47877680 Oct 28 08:49 /tmp/batch/pub/isl4.tgz
+isl4 paused exit 75 at 38 (was 19)
+finished: 2026-10-28T08:49:22Z
+runner: isl4, leg 3
+built from: e33fe076816438a6c1d7d996d260a93f151c0ed3
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40596907554
+started: 2026-10-28T08:54:40Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+11:07:11 isl4: done, exit 0
+-rw-r--r-- 1 runner runner 69430983 Oct 28 11:07 /tmp/batch/pub/isl4.tgz
+isl4 done exit 0
+finished: 2026-10-28T11:07:23Z
