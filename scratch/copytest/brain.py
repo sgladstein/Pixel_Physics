@@ -125,13 +125,16 @@ class Rows:
         self.meta = meta  # per row: (tag, frame, id, x, y, index of the file in `paths`)
         self.n = len(ctx)
 
-    def subset(self, idx):
+    def subset(self, idx, opt_keep=None):
+        """Rows `idx` (in that order) and their options; `opt_keep` (per option, bool) also drops options."""
         idx = np.asarray(idx)
         keep = np.zeros(self.n, bool)
         keep[idx] = True
         new = -np.ones(self.n, np.int64)
         new[idx] = np.arange(len(idx))
         om = keep[self.row_of]
+        if opt_keep is not None:
+            om &= opt_keep
         # keep the rows' order as in idx
         order = np.argsort(new[self.row_of[om]], kind='stable')
         sel = np.nonzero(om)[0][order]

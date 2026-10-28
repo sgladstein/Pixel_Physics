@@ -20,3 +20,6 @@ The report is [`../brain-copy-test-2026-10-28.md`](../brain-copy-test-2026-10-28
   `claude/project-thread-8hfe09` @4379f253), seeds 1-4 for training, 5-6 held out. The six exam boxes were never
   seen. Held-out P(label) 0.360 (walk 0.255, turn round 0.130, rest 0.505, dig 0.093, pick up 0.383, put down
   0.295) on 45,000 decisions; 690 billed links.
+- `errand-ceiling.json`: addendum 2's numbers (the ceiling shown the walk's memory and errand, and in the heading-pick
+  arms the walk's own scores), from `PP_DECLOG=1 PP_SHADOW_STATE=1` copy logs.
+- `g1-twin-check.txt`: the raw `RESULT` rows of the twin-seed check (g1 vs c3 vs std_pool, held-out seeds 7-12, 60k).

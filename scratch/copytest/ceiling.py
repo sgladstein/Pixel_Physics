@@ -4,7 +4,7 @@ for any brain that reads only this decision's context, memory and option feature
 by a softmax, fitted to the same labels as `copyfit.py`. If it cannot reach the labels either, the senses are missing,
 not the brain's shape; if it can and the mind cannot, the mind's shape is the limit.
 
-usage: ceiling.py OUT train=a,b test=c,d [rows=N] [trows=N] [steps=N] [hidden=H] [mem=0|1] [hist=0|1] [state=0|1] [old=0|1|2]
+usage: ceiling.py OUT train=a,b test=c,d [rows=N] [trows=N] [steps=N] [hidden=H] [mem=0|1] [hist=0|1] [state=0|1] [old=0|1|2] [pick=0|1]
 """
 import json, os, sys, time
 import numpy as np
@@ -22,6 +22,14 @@ torch.manual_seed(num('seed', 1))
 
 def rows(paths, n):
     R = B.parse_rows(paths, per_file=int(1.15 * n / len(paths)) + 1, hist=HIST)
+    if A.get('pick', '0') == '1':
+        # `pick=1`: only the old walk's heading pick -- rows whose label is a step or a turn-round, and only their step
+        # and turn-round options -- so P(label) is the heading given that the ant walked, and the move/rest roll (its
+        # dice, and also whether the walk's own scores exist at all) is out of the comparison.
+        step = R.verb <= 1
+        good = np.zeros(R.n, bool)
+        good[R.row_of[step & R.lab]] = True
+        R = R.subset(np.nonzero(good)[0], opt_keep=step)
     return R.subset(np.sort(rng.choice(R.n, n, replace=False))) if R.n > n else R
 
 
