@@ -1181,3 +1181,70 @@ three paired measures over the 48 box-seeds, and an arm passes only if lived pas
 significantly worse:** lived; alive at 600k; starved / (founders + births). Same comparisons, Bonferroni over 3.
 Also found: the env1, clean1 and elite1 job lines dropped `shapeopen=1` (on since nest3, gone after nest11); the
 watchdog finds either shape version noise (rho ~0), so it comes back for consistency, not as a lever.
+
+## 2026-10-28 (04:55Z): `env2` training gardens -- all four arms alike on the bed; exam `x2` launched
+
+`env2-1028` (built at bbccb08c, launched 03:13Z, done 04:49Z: 24 rounds x 4 arms in 1 h 36 min on 64 cores, the
+donor600 check about 40 min over env1's 55). Data: `data-1027/env2/` (cg.csv, colsel.csv, donor600.csv, and
+`selaudit.py` for s_c and s_d6).
+
+| arm | colonies extinct per round (of 32) | garden r23: colonies with a carry, alive median, starved median, nest median | rank 0 at r23 |
+|---|---|---|---|
+| s_c | 0-4, median 2 | 28, 72, 276.5, 872 | c31 |
+| s_d6 | 0-5, median 1 | 31, 69, 279, 787 | c5 |
+| s_d6hp | 0-8, median 3 | 31, 74, 265, 968 | c13 |
+| s_d6nr | 0-4, median 1.5 | 30, 72, 285.5, 859 | c32 |
+
+The bed cannot tell the arms apart, as with env1. s_d6's selection audit: ranksum retest 0.04 [-0.10, 0.19], so
+which colony is ranked first in a round is close to a coin toss between rounds; only home8 (0.26), scale (0.32) and
+lab (0.15) repeat at all. Saved the four rank-0 carries as `scratch/inrun/genomes/env2_{cc31,d6c5,d6hpc13,d6nrc32}_pool.txt`.
+
+**Exam `x2`** (`scratch/inrun/jobs/x2.txt`, 336 lines): the four env2 carries, env1's w6c22, std_pool and the
+hand-built ant, 6 boxes x 8 seeds at 600k, every brain on the same build so the controls are paired with the
+judged. Measures as named at 03:40Z (lived, alive at 600k, starved / (founders + births)).
+
+## 2026-10-28 (05:55Z): exam `x2` -- env2 made std_pool worse; the donor check did not replicate; homepick hurt
+
+`x2-1028` (built 4d1f9fcf, 04:53-05:52Z, 336 lines, about 64 core-hours). Data: `data-1027/x2/lab600k.csv`;
+`python3 x2an.py` in that folder reprints every line. std_pool's and the hand-built ant's 48 rows came out
+**identical to x1's** on a later build, so the exam is deterministic across these builds and x1's other rows stay
+comparable.
+
+| comparison (48 box-seeds) | lived | alive at 600k | starved share (lower is better) |
+|---|---|---|---|
+| s_d6 vs s_c (the donor check) | 11 / 23, p = 0.058 | **6 / 19, p = 0.015** | 26 / 9, p = 0.006 (worse) |
+| s_d6hp vs s_d6 (homepick=12) | **5 / 26, p = 0.0002** | 11 / 12 | 14 / 21 |
+| s_d6nr vs s_d6 (nest_r=0) | 9 / 21, p = 0.043 | 11 / 14 | 19 / 18 |
+| s_c vs std_pool | 8 / 21, p = 0.024 | 9 / 15 | 22 / 14 |
+| s_d6 vs std_pool | 10 / 22, p = 0.05 | 5 / 20, p = 0.004 | 30 / 7, p = 0.0002 (worse) |
+| env1 w6c22 vs std_pool | 20 / 13, p = 0.3 | 12 / 12 | **10 / 26, p = 0.011 (better)** |
+
+Bonferroni bar p < 0.0167. **No env2 arm passes against its control, and every env2 colony is worse than its own
+founder in the game boxes.** The donor check, which passed in env1 (27 / 6 from the k3c23 founder), does not repeat
+from std_pool: s_d6 is lower on every measure, significantly so on alive. homepick=12 costs heavily (lived 5 / 26),
+in the plant boxes (herb_first_colony lived median 50 against s_d6's 81, crowded_bench 100 against 156), where it
+also had 3 of 8 colonies dead. The windfall boxes: every brain but the hand-built ant 0.4-0.5 again.
+
+**Reading.** The ratchet has now gone backwards on its last five founders' worth of batches: 24 rounds of today's
+selection from any founder lands below that founder in the game. With selection close to noise (s_d6 ranksum
+retest 0.04) and no training case predicting 600k survival (watchdog: 311 donors, every case within +-0.25),
+what 24 rounds do is drift, and the drift is downhill for the game. env1's w6 is the one pool level with std_pool,
+and it starves a smaller share (p = 0.011, a guard measure, so not a pass); it does not become the lab ant (B1
+needs a pool that beats std_pool). Lab default unchanged.
+
+### env3 (launched 05:56Z): select on what the game asks, not on the bed
+
+Founder std_pool, 32 colonies x 24 rounds, all with donor600 (as s_d6, the reference), `shapeopen=1` back, and the
+famine twins as their own lab cases (`labcase=lab_herbs,lab_famine_scatter,lab_famine_trickle`):
+
+| arm | P | lab case scored on |
+|---|---|---|
+| t_fam | 16 | mean headcount over 15k (today's) |
+| t_fama | 24 | alive at 100k (`labscore=alive:100000`) |
+| t_famak | 24 | alive at 100k less 0.1 x starved (`labscore=alive:100000:0.1`; 0.1 picked after looking at 28 carries, so untested) |
+
+A 100k lab run costs about 15x a 15k one (lab_far_mix, std_pool: 108 s against 7 s), hence the wider P on the two
+alive arms. **Deciding measure, named before launch:** the exam of each arm's rank-0 colony at r23, paired over the
+48 box-seeds at 600k: t_fama and t_famak against t_fam on lived, alive at 600k and starved share (an arm passes on
+lived with neither other measure significantly worse; Bonferroni over 2), and each against std_pool. The same exam
+carries the copy-test lane's generalist copy `g1-twins` (fitted on the four twins only).
