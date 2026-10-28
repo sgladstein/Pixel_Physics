@@ -23,3 +23,12 @@ The report is [`../brain-copy-test-2026-10-28.md`](../brain-copy-test-2026-10-28
 - `errand-ceiling.json`: addendum 2's numbers (the ceiling shown the walk's memory and errand, and in the heading-pick
   arms the walk's own scores), from `PP_DECLOG=1 PP_SHADOW_STATE=1` copy logs.
 - `g1-twin-check.txt`: the raw `RESULT` rows of the twin-seed check (g1 vs c3 vs std_pool, held-out seeds 7-12, 60k).
+- `g2-mixed.raw.txt`, `g3-mixed-plant3.raw.txt`, `g4-mixed-famine2.raw.txt` (Teacher lane's ask, 10-28): copies fitted
+  from std_pool member 0 on two label sources at once -- the hand-built ant's shadow labels in the two famine twins,
+  and std_pool's own picks while it played `lab_herbs` and `lab_far_mix` (`PP_COPY_SAMPLE=200`, relabelled with
+  `scratch/copytest/selflabel.py`), seeds 1-4. g3 lists the plant logs three times, g4 the famine logs twice (the fit
+  samples equally per listed file). Billed links 1,137 / 981 / 983. `g2-g4-twin-check.txt`: their `RESULT` rows on
+  held-out twin seeds 7-12 at 60k (std rerun identical to `g1-twin-check.txt`). Twin check, mean colony size,
+  far_mix / herbs / famine_scatter: std 238 / 50 / 4.4; g2 226 / 67 / 5.5; g3 237 / 55 / 4.9; g4 267 / 62 / 5.1;
+  g1 11 / 31 / 8.3. g4 beats std 23/1 there. At 600k on the exam boxes (Teacher x5) g2 and g3 brought std_pool's
+  plant walk back but lost g1's two_larders survival (alive 0 and 1 of 8 vs g1's 6 of 8).
