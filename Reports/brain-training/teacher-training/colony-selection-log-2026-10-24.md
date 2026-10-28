@@ -1412,3 +1412,30 @@ against std_pool and against t_fam c7 (Bonferroni over 3 arms), alive and starve
 changes the plant exam boxes (played_bed, herb_first_colony, crowded_bench), so the std_pool and hand-built rows of
 x1-x6 (all built before it) pair only with brains examined on a build before it. Every exam on a main at or after
 36e25d65 reruns std_pool and the hand-built ant in the same batch.
+
+## 2026-10-28 (17:15Z): env5 in -- the long twin run did not climb inside training; exam `x7` queued
+
+env5 ran 24 rounds in 3 h 16 min (13:49-17:05Z). Rank-0 colonies at r23: e_dl c28, e_dlo c28 (different genomes),
+e_dl4 c31, written as `scratch/inrun/genomes/env5_{dlc28,dloc28,dl4c31}_pool.txt`.
+
+What `donorlab` saw (OUT/donorlab.csv: each donor candidate's carry, alive at the end summed over lab_herbs +
+lab_far_mix, mean over that round's candidates):
+
+| arm | r0 | r5 | r11 | r17 | r23 |
+|---|---|---|---|---|---|
+| e_dl (200k) | 377 | 72 | 202 | 213 | 296 |
+| e_dlo (200k) | 368 | 264 | 148 | 210 | 316 |
+| e_dl4 (400k) | 227 | 84 | 94 | 49 | 74 |
+
+So keeping the better half of the candidates did not lift the long twin survival of the next generation: all three
+arms end at or below round 0, and the 400k arm falls by two thirds. The gates and the round's other cases drive the
+pool, and `donorlab` only chooses among what they pass. This is training-side; the exam decides.
+
+**Exam x7** (288 runs, launches on the VM after the watchdog's twinrank-1028, ref 677b51a7, which has #973): the
+three env5 winners, t_fam c7 (`env3_famc7_pool.txt`, rerun here because x3 was pre-#973), std_pool and the hand-built
+ant, 6 boxes x 8 seeds at 600k. Deciding measure as named at launch above.
+
+**twinrank-1028** (for the watchdog lane, VM 17:10Z, ref 0704e089, pre-#973 to match the carries): the 32 t_fama
+r23 carries plus old and std, lab_herbs + lab_far_mix at 200k and herb_first_colony + played_bed at 600k, seeds 1-3.
+Asks whether the twins rank colonies as the exam does (the watchdog's Spearman, fail below 0.3 or p >= .05).
+`exam.py` now takes `PIXEL_PHYSICS_LAB_SCENARIOS` from the job env (default unchanged) so a job can run the twins.
