@@ -1319,3 +1319,17 @@ drifts downhill (env1, env2), a game-like lab score did not fix it (env3), and t
 Next: the copy-test lane is fitting one copy on both kinds of label -- the hand-built ant's moves in the famine
 twins, std_pool's own in the plant twins -- due about 13:30Z; it gets the exam, and if it is level or better it
 founds a batch with the famine cases (t_fam's setup, the one env that did not land below its founder).
+
+### env4 (launched after #977 merges): t_fam's setup, one world per round, and from env1's w6
+
+While the copy-test lane fits its two-label copy, the VM runs t_fam's setup (the one batch that held level with its
+founder) two ways, 32 colonies x 24 rounds, P=32 each:
+
+| arm | change against t_fam |
+|---|---|
+| f_ow | `oneworld=1` (Selection lane: every colony plays the same world each round, so a round ranks colonies, not worlds; ranksum retest in env2/env3 was -0.04 to 0.10) |
+| f_w6 | founded from `scratch/inrun/genomes/env1_w6c22_pool.txt` (level with std_pool on lived, a smaller starved share, p = 0.011) |
+
+**Deciding measure, named before launch:** the exam of each rank-0 r23 colony, lived paired over the 48 box-seeds
+at 600k against t_fam's c7 and against std_pool (Bonferroni over 2 per arm), alive at 600k and starved share as
+guards. Pass against std_pool -> candidate lab ant (B1), picture first.
