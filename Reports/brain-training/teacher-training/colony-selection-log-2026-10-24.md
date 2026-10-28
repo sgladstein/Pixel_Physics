@@ -1473,3 +1473,31 @@ t_fama carries, 3 seeds, beside herb_first_colony, played_bed and crowded_bench 
 (before launch): a box can steer if its seed-to-seed Spearman of lived over the 32 colonies (mean of the 3 seed pairs)
 is >= 0.3, and its 3-seed lived sum ranks the exam boxes' 9-run sum at Spearman >= 0.3 with permutation p < 0.01
 (0.05 / 5 boxes). The famine twins are left out: every trained colony is dead there, so they cannot rank siblings.
+
+## 2026-10-28 (21:30Z): twinself -- no lab twin can steer at 600k either; the exam's plant boxes can
+
+twinself-1028 (816 runs, ref 3c0ebbc6, 19:18-21:15Z), `data-1027/twinself/twinself.csv`, `twinself_an.py`. The 32
+t_fama r23 carries, 3 seeds. "self" is the box's seed-to-seed Spearman of lived over the 32 colonies (mean of the 3
+seed pairs); "vs exam" is its 3-seed lived sum against the exam plant boxes' sum (for an exam box, the other two):
+
+| box | self | vs exam | perm p | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|---|---|---|
+| lab_herbs | -0.00 | +0.11 | 0.28 | 73 | 3 | 93 | 74 |
+| lab_far_mix | +0.22 | -0.18 | 0.84 | 82 | 103 | 489 | 119 |
+| lab_mid_fruit | -0.09 | -0.19 | 0.85 | 90 | 79 | 301 | 97 |
+| lab_far_wild | +0.08 | +0.09 | 0.30 | 93 | 49 | 306 | 52 |
+| lab_far200_fruit | +0.27 | -0.01 | 0.52 | 91 | 84 | 311 | 110 |
+| herb_first_colony (exam) | +0.47 | +0.62 | <0.0001 | 3 | 142 | 278 | 134 |
+| played_bed (exam) | +0.16 | +0.41 | 0.010 | 1 | 143 | 292 | 172 |
+| crowded_bench (exam) | +0.24 | +0.64 | <0.0001 | 1 | 204 | 649 | 211 |
+
+(hand-built and std_pool: 3-seed mean lived.) All five twins summed against the exam: -0.08. **Verdict against the
+measure named at launch: no twin steers** (none reaches self >= 0.3; none ranks the exam). The three exam plant boxes
+rank colonies alike (+0.41 to +0.64), so sibling colonies do differ in a way the game sees.
+
+**The dead column is the finding.** At 600k most trained colonies are dead in every twin (73-93 of 96 runs, where
+`dead` is 0 ants at the end), against 1-3 of 96 in the exam plant boxes. lab_herbs differs from herb_first_colony
+only in where its two herbs stand (x 240/270, at the nest, against 128/384), yet 73 against 3 dead. The twin runs
+also carry colsel's lab env (`PP_MIND_DOOR_OPEN=drop`, which every colsel job since env1 sets; `PP_BED_W` only
+widens the in-run bed). So either the box or the door rule kills them. **twinenv-1028** (204 runs, launched 21:30Z)
+separates the two: herb_first_colony with `door=drop`, lab_herbs without, same founders and seeds.
