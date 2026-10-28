@@ -6,9 +6,12 @@ O=$1; S=$2; R=$3; F=$4; SEL=$5; G=$6; shift 6
 B=${BIN:-target/release/examples/inrun}
 C="frames=$F dist=25 spread=10 grants=3 window=4000 sel=$SEL $*"
 mkdir -p $O
-$B founders=$G:1 mutants=30:0.03:1.0:7 seed=$S $C out=$O/r0 > /dev/null 2>&1
+# r<k>/.done marks a finished round, and a rerun on the same OUT skips it (a GitHub runner leg ends at 6 h and the next
+# leg carries the job on, scripts/batch_run.sh). A round with no .done, killed part way, is run again from its start.
+[ -f $O/r0/.done ] || { $B founders=$G:1 mutants=30:0.03:1.0:7 seed=$S $C out=$O/r0 > /dev/null 2>&1 && touch $O/r0/.done; }
 for r in $(seq 1 $((R-1))); do
   p=$O/r$((r-1))
+  [ -f $O/r$r/.done ] && continue
   list=$(python3 -I -c "
 import csv, random
 r=list(csv.DictReader(open('$p/final/index.csv')))
@@ -18,7 +21,7 @@ else: r.sort(key=lambda x:(-float(x['score']), int(x['id'])))
 r=r[:30]; n=len(r)
 print(','.join(f\"$p/final/{x['id']}.raw.txt@{x['family']}.{x['id']}:{30//n + (1 if i < 30%n else 0)}\" for i,x in enumerate(r)) if n else '')")
   [ -n "$list" ] || { echo "extinct after round $((r-1))" > $O/EXTINCT; exit 0; }
-  $B founders=$list seed=$((S*1000+r)) $C out=$O/r$r > /dev/null 2>&1
+  $B founders=$list seed=$((S*1000+r)) $C out=$O/r$r > /dev/null 2>&1 && touch $O/r$r/.done
   # long runs (more than 10 rounds): drop the every-4k maps and ant lists of the round before (the small pull never
   # fetched them; the round-end ones stay) so 60+ rounds fit the VM's disk
   # ...and gzip its event log (about 5x): 64 jobs x 60 rounds of plain events.csv filled a 60 GB disk on 2026-10-22,

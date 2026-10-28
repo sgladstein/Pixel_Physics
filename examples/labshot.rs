@@ -535,6 +535,24 @@ fn main() {
     println!("  {} organism(s) placed by the builder before the first tick", founders.len());
 
     let mut tiles: Vec<Vec<u8>> = Vec::new();
+    // **`drawevery=N` -- what drawing this bed costs as the game draws it**:
+    // a second renderer, drawn incrementally every N frames into a buffer it
+    // keeps, the way the lab's window is (dirty-rect skip and all), with the
+    // time and the pixels recomputed per draw reported at each stop. The
+    // stop pictures are full redraws into a fresh buffer and say nothing
+    // about what a settled bed costs, which is the number pale hungry leaves
+    // (`Renderer::pale_leaves`) had to be checked against. Pair two runs with
+    // `PIXEL_PHYSICS_PALE_LEAVES=0`, same seed and build.
+    let draw_every: u64 = arg("drawevery").unwrap_or(0);
+    // `drawfrom=F`: start the timed draws at frame F, so the cost of a grown
+    // bed can be read without paying a draw every frame of its growing.
+    let draw_from: u64 = arg("drawfrom").unwrap_or(0);
+    let mut play = Renderer::new();
+    play.fade_roots = renderer.fade_roots;
+    let mut play_buf = vec![0u8; (vw * vh * 4) as usize];
+    let mut play_pending = pixel_physics::sim::fxhash::ChunkSet::default();
+    let mut play_first = true;
+    let mut play_stats: Vec<(f64, usize)> = Vec::new();
     // `.max(ants_at)`: a founding frame past the last requested stop must
     // still be reached, or `ants_at` past the end of `frames=` would silently
     // never fire -- the same "an unknown argument is silently ignored" shape
@@ -558,7 +576,24 @@ fn main() {
         if next < stops.len() && stops[next] == f {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();
+            // Handed on to the timed renderer, which must see every touch.
+            play_pending.extend(touched.iter().copied());
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+            if draw_every > 0 && !play_stats.is_empty() {
+                let mut ms: Vec<f64> = play_stats.iter().map(|s| s.0).collect();
+                ms.sort_by(f64::total_cmp);
+                let n = ms.len();
+                let full = play_stats.iter().filter(|s| s.1 >= (vw * vh) as usize).count();
+                println!(
+                    "            draws {n} since last stop: mean {:.3} ms p99 {:.3} ms worst {:.3} ms | pixels recomputed mean {:.0} of {} | full redraws {full}",
+                    ms.iter().sum::<f64>() / n as f64,
+                    ms[((n - 1) as f64 * 0.99) as usize],
+                    ms[n - 1],
+                    play_stats.iter().map(|s| s.1 as f64).sum::<f64>() / n as f64,
+                    vw * vh,
+                );
+                play_stats.clear();
+            }
             // A no-op under `Off`, which `draw_life_marks` itself checks.
             pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, marks);
             // **`mark=ants`: every nesting animal painted over in a colour the
@@ -795,6 +830,65 @@ fn main() {
                 })
                 .collect();
             println!("            founders (cells): {}", founder_line.join(" "));
+            // **Pale hungry leaves, counted beside the picture**: plants and
+            // leaf cells at each pale step, as a fresh draw reads them
+            // (`render::pale_leaf_step` from step 0), and the hunger spread
+            // over plants with a leaf. A picture with no pale plant in it and
+            // one where the tint is too faint to see are the same picture;
+            // only the count says which.
+            let mut by_step = [(0usize, 0usize); 4];
+            let mut hungers: Vec<f32> = Vec::new();
+            // The hungriest few, with where their leaves are, so a crop can
+            // be aimed at a pale plant rather than at a guess.
+            let mut hungriest: Vec<(f32, String, i32, i32, i32, i32)> = Vec::new();
+            for (id, st) in world.live_organisms() {
+                if world.species.get(st.species).creature.is_some() {
+                    continue;
+                }
+                let leaves = st
+                    .cells
+                    .keys()
+                    .filter(|&&(x, y)| {
+                        let c = world.get(x, y);
+                        c.organism_id() == id && organism::cell_type(c.aux()) == Some(CellType::Leaf)
+                    })
+                    .count();
+                if leaves == 0 {
+                    continue;
+                }
+                let h = pixel_physics::sim::plant::nutrient_hunger(st);
+                hungers.push(h);
+                if pixel_physics::render::pale_leaf_step(h, 0) > 0 {
+                    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+                    for &(x, y) in st.cells.keys() {
+                        let c = world.get(x, y);
+                        if c.organism_id() == id && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+                            x0 = x0.min(x);
+                            y0 = y0.min(y);
+                            x1 = x1.max(x);
+                            y1 = y1.max(y);
+                        }
+                    }
+                    hungriest.push((h, world.species.get(st.species).name.clone(), x0, y0, x1, y1));
+                }
+                let step = pixel_physics::render::pale_leaf_step(h, 0) as usize;
+                by_step[step].0 += 1;
+                by_step[step].1 += leaves;
+            }
+            hungers.sort_by(f32::total_cmp);
+            let q = |p: f32| hungers.get(((hungers.len().saturating_sub(1)) as f32 * p) as usize).copied().unwrap_or(0.0);
+            println!(
+                "            pale leaves (plants/leaf cells by step 0..3): {} | hunger p50 {:.2} p90 {:.2} max {:.2} over {} leafy plants",
+                by_step.iter().map(|(p, l)| format!("{p}/{l}")).collect::<Vec<_>>().join(" "),
+                q(0.5),
+                q(0.9),
+                q(1.0),
+                hungers.len(),
+            );
+            hungriest.sort_by(|a, b| b.0.total_cmp(&a.0));
+            for (h, name, x0, y0, x1, y1) in hungriest.iter().take(5) {
+                println!("              pale {name} hunger {h:.2}: leaves x {x0}..{x1} y {y0}..{y1}");
+            }
             // **What took each animal's head** (`World::vital_losses`).
             // `DeathCause::Killed` is booked wherever a creature's deciding
             // cell goes away, whatever took it, so the cause alone cannot say
@@ -888,6 +982,14 @@ fn main() {
                 pixel_physics::lab::scenario::tick_timeline(s, &mut world, &spec);
             }
             renderer.dig.observe(&mut world);
+        }
+        if draw_every > 0 && f >= draw_from && f % draw_every == 0 {
+            let mut touched = world.take_touched_chunks();
+            touched.extend(play_pending.drain());
+            let t = std::time::Instant::now();
+            let px = play.draw(&world, &particles, &touched, &mut play_buf, (vw, vh), play_first);
+            play_stats.push((t.elapsed().as_secs_f64() * 1000.0, px));
+            play_first = false;
         }
     }
 

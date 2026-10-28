@@ -3263,6 +3263,55 @@ pub const ROOT_FADE: f32 = 0.8;
 /// How far either side of a nest's centre, in columns, roots fade.
 pub const ROOT_FADE_REACH: i32 = 40;
 
+/// **Pale hungry leaves: the colour a starving leaf fades toward** -- a
+/// washed yellow-green, nitrogen chlorosis rather than autumn. Real plants
+/// short of nitrogen pull it out of their leaves and the chlorophyll goes
+/// first, so a hungry plant reads pale before it reads small
+/// (`Reports/rootless-plants-2026-10-23.md`, idea 1). The nutrient mechanism
+/// already prices growth and income; until this it could not be seen.
+pub const PALE_LEAF_TARGET: [f32; 3] = [206.0, 204.0, 98.0];
+/// The hunger (`plant::nutrient_hunger`, the share of income a plant loses
+/// to its nutrient standing) at which each pale step begins.
+///
+/// **Steps, not a ramp, and few of them**, because the colour changes with
+/// nothing in the grid changing: `nutrient_status` lives on the organism and
+/// is rewritten every organism tick without a cell write, so a continuous
+/// ramp would need its plant repainted on almost every tick and the
+/// dirty-rect skip would stop working over any bed. Three steps repaint a
+/// plant only when it crosses one (see `Renderer::pale_leaves`).
+pub const PALE_LEAF_STEPS: [f32; 3] = [0.15, 0.40, 0.65];
+/// How far toward `PALE_LEAF_TARGET` a leaf is pulled at each step (index 0
+/// is a fed plant, drawn as itself). Stops short of 1 so a starving leaf
+/// still carries its species' own shade and grain.
+pub const PALE_LEAF_PULL: [f32; 4] = [0.0, 0.3, 0.55, 0.8];
+/// Hunger a plant must move past a step's edge before its step changes, so a
+/// plant sitting on an edge does not flick between two colours (and repaint)
+/// every organism tick.
+pub const PALE_LEAF_HYSTERESIS: f32 = 0.04;
+
+/// **The pale step for a hunger, given the step the plant was last drawn
+/// at.** A move up needs the hunger past the new step's edge by the
+/// hysteresis; a move down needs it below the old step's edge by the same.
+pub fn pale_leaf_step(hunger: f32, previous: u8) -> u8 {
+    // Clearly past an edge going up, or clearly back below one going down;
+    // anywhere in between holds the step it was drawn at.
+    let up = PALE_LEAF_STEPS.iter().filter(|&&edge| hunger >= edge + PALE_LEAF_HYSTERESIS).count() as u8;
+    let down = PALE_LEAF_STEPS.iter().filter(|&&edge| hunger > edge - PALE_LEAF_HYSTERESIS).count() as u8;
+    if up > previous {
+        up
+    } else if down < previous {
+        down
+    } else {
+        previous
+    }
+}
+
+/// Whether leaves pale with hunger: on unless `PIXEL_PHYSICS_PALE_LEAVES` is
+/// `0` or `off` (the way back to the old look, for a side-by-side).
+fn pale_leaves_default() -> bool {
+    !matches!(std::env::var("PIXEL_PHYSICS_PALE_LEAVES").as_deref(), Ok("0") | Ok("off"))
+}
+
 /// **The nest cutaway's palette**: a fixed ramp, never a blend into the
 /// cell's own colour (`CLAUDE.md`, *a debug readout must not be a function
 /// of the thing it debugs*). Ground is dark, the colony's own work is
@@ -3663,6 +3712,32 @@ pub struct Renderer {
     /// `(fade_roots, nest count)` as of the last `draw`: either changing
     /// repaints every root near a nest with no chunk dirtied.
     last_root_fade: (bool, usize),
+    /// **Pale hungry leaves** -- a plant's leaves fade toward
+    /// [`PALE_LEAF_TARGET`] in [`PALE_LEAF_STEPS`] as it loses income to
+    /// nutrient shortage. Drawing only: no rule reads a leaf's colour. On by
+    /// default (`PIXEL_PHYSICS_PALE_LEAVES=0` turns it off).
+    ///
+    /// **How it keeps the dirty-rect skip.** The hunger is organism state,
+    /// written with no cell write, so no chunk is dirtied when it moves. So
+    /// the steps are worked out once per `draw` for every plant, compared
+    /// with the steps this world was last drawn at, and only a plant whose
+    /// step changed has its leaves' box unioned into the dirty region -- the
+    /// same device as the chunk bodies' rectangles. A settled bed with no
+    /// plant crossing an edge repaints nothing.
+    pub pale_leaves: bool,
+    /// This frame's step for every plant drawn pale (step > 0), read per leaf
+    /// cell by `cell_colour`. Empty when nothing is hungry or the switch is
+    /// off, and then a leaf pays one `is_empty` test.
+    pale_steps: crate::sim::fxhash::FxHashMap<OrganismId, u8>,
+    /// The steps each world was last drawn at, keyed by the world's address.
+    /// **Per world, because the lab draws its other chambers' thumbnails
+    /// through this same renderer** and organism handles are reissued by
+    /// every world from its own first tick: one shared map would compare one
+    /// chamber's plants against another's and miss a real change.
+    pale_drawn: std::collections::HashMap<usize, crate::sim::fxhash::FxHashMap<OrganismId, u8>>,
+    /// World-space boxes of the leaves whose step changed this frame, for
+    /// the dirty region.
+    pale_rects: Vec<Rect>,
     /// **The nest cutaway**: `Some(ground row)` draws everything below that
     /// row on a fixed ramp -- tunnels pale, nest white, brood yellow, food
     /// green, the rest dark -- so a colony's underground reads at a glance
@@ -4016,6 +4091,10 @@ impl Renderer {
             fade_roots: false,
             root_fade_soil: None,
             last_root_fade: (false, 0),
+            pale_leaves: pale_leaves_default(),
+            pale_steps: Default::default(),
+            pale_drawn: std::collections::HashMap::new(),
+            pale_rects: Vec::new(),
             nest_cutaway: None,
             cutaway: None,
             last_organism_overlay: OrganismOverlay::Off,
@@ -4879,6 +4958,9 @@ impl Renderer {
             self.last_root_fade = root_fade;
             organism_overlay_changed = true;
         }
+        // Pale hungry leaves: the steps once per draw, and the boxes of the
+        // plants whose step moved, unioned into the dirty region below.
+        self.refresh_pale_leaves(world);
         // The cutaway: ids once per draw, and a toggle repaints everything.
         let cutaway = self.nest_cutaway.map(|ground| Cutaway {
             ground,
@@ -5353,6 +5435,16 @@ impl Renderer {
                 });
             }
             self.last_moon_rect = moon_rect;
+            // Leaves whose pale step moved with no cell written -- see
+            // `pale_leaves`.
+            for &r in &self.pale_rects {
+                if let Some(r) = self.world_rect_to_screen_rect(r, width, height) {
+                    dirty = Some(match dirty {
+                        Some(d) => d.union(r),
+                        None => r,
+                    });
+                }
+            }
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {
@@ -7406,6 +7498,19 @@ impl Renderer {
                 }
             }
         }
+        // **A hungry plant's leaves go pale** -- see `pale_leaves`. Gated
+        // cheapest first, the way the gut tint below is: one `is_empty` for
+        // every cell while no plant is hungry, then the id bit, then the
+        // cell-type decode (after the id test: `aux` is a tagged union), and
+        // only then the map.
+        if !self.pale_steps.is_empty() && cell.organism_id() != 0 && organism::cell_type(cell.aux()) == Some(organism::CellType::Leaf) {
+            if let Some(&step) = self.pale_steps.get(&cell.organism_id()) {
+                let t = PALE_LEAF_PULL[step as usize];
+                for (c, target) in base.iter_mut().take(3).zip(PALE_LEAF_TARGET) {
+                    *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
         // **A specialised gut wears its diet.** Gated in three widening
         // steps so the cost lands only on the cells it is about: an
         // `organism_id` bit test (every cell), a cell-type decode (organism
@@ -8098,6 +8203,58 @@ impl Renderer {
     /// full-length long ants ever were. Ticks, not draws, is what makes the
     /// constant mean what its own doc says it means.
     const IDLE_ANIM_DELAY: u64 = 60;
+
+    /// **This frame's pale steps, and the leaves whose step moved** -- once
+    /// per `draw`, never per pixel. See [`Renderer::pale_leaves`].
+    ///
+    /// One pass over the organisms (a few hundred in a lab bed), each a
+    /// species lookup and three compares. The leaf box is only walked for a
+    /// plant whose step changed, which is the rare case the hysteresis is
+    /// for. A plant that died needs nothing: its cells went with a write.
+    fn refresh_pale_leaves(&mut self, world: &World) {
+        self.pale_rects.clear();
+        let key = world as *const World as usize;
+        let drawn = self.pale_drawn.remove(&key).unwrap_or_default();
+        let mut now: crate::sim::fxhash::FxHashMap<OrganismId, u8> = Default::default();
+        if self.pale_leaves {
+            for (id, state) in world.live_organisms() {
+                if world.species.get(state.species).creature.is_some() {
+                    continue;
+                }
+                let before = drawn.get(&id).copied().unwrap_or(0);
+                let step = pale_leaf_step(crate::sim::plant::nutrient_hunger(state), before);
+                if step > 0 {
+                    now.insert(id, step);
+                }
+            }
+        }
+        let moved = now
+            .iter()
+            .filter(|(id, step)| drawn.get(id) != Some(step))
+            .map(|(&id, _)| id)
+            .chain(drawn.keys().filter(|id| !now.contains_key(id)).copied());
+        for id in moved {
+            let Some(state) = world.organism(id) else { continue };
+            let mut leaves: Option<Rect> = None;
+            for &(x, y) in state.cells.keys() {
+                let cell = world.get(x, y);
+                if cell.organism_id() == id && organism::cell_type(cell.aux()) == Some(organism::CellType::Leaf) {
+                    match leaves.as_mut() {
+                        Some(r) => r.include(x, y),
+                        None => leaves = Some(Rect::point(x, y)),
+                    }
+                }
+            }
+            self.pale_rects.extend(leaves);
+        }
+        // Bounded: a world that is gone (a rebuilt chamber) leaves its entry
+        // behind, and nothing else would ever clear it.
+        if self.pale_drawn.len() >= 16 {
+            self.pale_drawn.clear();
+        }
+        self.pale_steps.clone_from(&now);
+        self.pale_drawn.insert(key, now);
+    }
 
     /// Rebuilds this frame's [`IdleTrack`]s and, for `Antennae`/`Shuffle`,
     /// `idle_extra` — once per `draw`, never per pixel: `cell_colour` runs
@@ -14229,6 +14386,110 @@ mod tests {
             reused.sky_light_grid, fresh.sky_light_grid,
             "a reset renderer lit the new world with the old world's occupancy"
         );
+    }
+
+    /// A bed of leaf cells owned by one herb, on a stone floor, for the pale
+    /// leaf tests. The cells are in the organism's own map as well as the
+    /// grid, as a grown plant's are.
+    fn pale_leaf_bed() -> (World, OrganismId) {
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+        let species = world.species.id_of("herb").expect("herb is compiled in");
+        let id = world.push_organism(species).expect("an organism slot is free");
+        for y in 30..40 {
+            for x in 20..30 {
+                world.set(x, y, Cell::new(leaf, 0).with_organism_id(id).with_aux(organism::pack_cell_type(organism::CellType::Leaf)));
+                world.organism_mut(id).expect("alive").cells.insert((x, y), Default::default());
+            }
+        }
+        world.organism_mut(id).expect("alive").nutrient_status = 1.0;
+        world.end_step();
+        (world, id)
+    }
+
+    #[test]
+    fn pale_leaf_steps_hold_inside_the_hysteresis_and_move_past_it() {
+        let [a, b, c] = PALE_LEAF_STEPS;
+        let m = PALE_LEAF_HYSTERESIS;
+        assert_eq!(pale_leaf_step(0.0, 0), 0);
+        assert_eq!(pale_leaf_step(1.0, 0), 3, "a rootless plant (status 0, hunger 1) is fully pale");
+        // Just past an edge from below holds; clearly past it moves.
+        assert_eq!(pale_leaf_step(a + m * 0.5, 0), 0);
+        assert_eq!(pale_leaf_step(a + m * 1.5, 0), 1);
+        // Just under an edge from above holds; clearly under it moves.
+        assert_eq!(pale_leaf_step(a - m * 0.5, 1), 1);
+        assert_eq!(pale_leaf_step(a - m * 1.5, 1), 0);
+        // A big jump crosses several steps at once, both ways.
+        assert_eq!(pale_leaf_step(c + m * 1.5, 0), 3);
+        assert_eq!(pale_leaf_step(0.0, 3), 0);
+        // Sitting between two edges keeps whatever it was drawn at.
+        let mid = (a + b) * 0.5;
+        assert_eq!(pale_leaf_step(mid, 1), 1);
+        assert_eq!(pale_leaf_step(mid, 0), 1);
+        assert_eq!(pale_leaf_step(mid, 2), 1);
+    }
+
+    /// **The guard pale leaves needed.** A plant's hunger is organism state
+    /// written with no cell write, so no chunk is dirtied when it moves; the
+    /// renderer has to find the plant itself. Here the herb starves between
+    /// two draws with nothing in the grid touched, and the skipped redraw
+    /// must still come out pixel-identical to a full one -- and different
+    /// from the fed plant, or the test would pass on a tint that never drew.
+    /// Checked to fail with the pale boxes left out of the dirty region.
+    #[test]
+    fn a_plant_that_goes_hungry_repaints_with_no_cell_written() {
+        let (mut world, id) = pale_leaf_bed();
+        let (uw, uh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut subject = Renderer::new();
+        subject.pale_leaves = true;
+        let mut actual = vec![0u8; (uw * uh * 4) as usize];
+        let warm = world.take_touched_chunks();
+        subject.draw(&world, &particles, &warm, &mut actual, (uw, uh), true);
+        let fed = actual.clone();
+        // A settled frame first: nothing changed, so nothing is repainted.
+        let idle = world.take_touched_chunks();
+        assert_eq!(subject.draw(&world, &particles, &idle, &mut actual, (uw, uh), false), 0, "a fed, settled bed repaints nothing");
+
+        world.organism_mut(id).expect("alive").nutrient_status = 0.0;
+        let touched = world.take_touched_chunks();
+        assert!(touched.is_empty(), "the hunger must change with no chunk dirtied, or this tests nothing");
+        let recomputed = subject.draw(&world, &particles, &touched, &mut actual, (uw, uh), false);
+
+        let mut baseline = Renderer::new();
+        baseline.pale_leaves = true;
+        let mut expected = vec![0u8; (uw * uh * 4) as usize];
+        baseline.draw(&world, &particles, &ChunkSet::default(), &mut expected, (uw, uh), true);
+        assert_ne!(expected, fed, "a starving herb must not draw like a fed one");
+        assert_eq!(actual, expected, "the skipped redraw must repaint the plant whose hunger moved");
+        assert!(recomputed > 0 && recomputed < (uw * uh) as usize, "only the plant's leaves repaint, not the screen (recomputed {recomputed})");
+
+        // And the way back: fed again, it draws as it did.
+        world.organism_mut(id).expect("alive").nutrient_status = 1.0;
+        let touched = world.take_touched_chunks();
+        subject.draw(&world, &particles, &touched, &mut actual, (uw, uh), false);
+        assert_eq!(actual, fed, "a plant fed again goes back to its own green");
+    }
+
+    #[test]
+    fn pale_leaves_off_draws_a_starving_plant_as_a_fed_one() {
+        let (mut world, id) = pale_leaf_bed();
+        let (uw, uh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let draw = |world: &World| {
+            let mut r = Renderer::new();
+            r.pale_leaves = false;
+            let mut buf = vec![0u8; (uw * uh * 4) as usize];
+            r.draw(world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
+            buf
+        };
+        let fed = draw(&world);
+        world.organism_mut(id).expect("alive").nutrient_status = 0.0;
+        assert_eq!(draw(&world), fed, "with the switch off, hunger draws nothing");
     }
 
     #[test]

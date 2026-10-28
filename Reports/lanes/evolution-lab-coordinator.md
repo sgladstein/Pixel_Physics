@@ -1,5 +1,11 @@
 # The evolution lab — coordinator note
 
+> **2026-10-27: read these first** — the ant is now a trained colony and the
+> review queue is retired:
+> [`../handoff/2026-10-27-account-move/README.md`](../handoff/2026-10-27-account-move/README.md),
+> [`../brain-training/teacher-training/colony-selection-log-2026-10-24.md`](../brain-training/teacher-training/colony-selection-log-2026-10-24.md),
+> and the plan of record, `/mnt/project-files/planning/plan-after-account-move-2026-10-27.md`.
+
 *`cargo run --release --bin lab` is the main game (owner, 2026-10-02): a sealed box of soil under
 grow lights where the shipped plants and ants live. Design of record:
 [`../evolution-lab-design-guide-2026-08-30.md`](../evolution-lab-design-guide-2026-08-30.md),
@@ -44,11 +50,10 @@ hashes the sequence, so **red means either a phase moved deliberately (re-take
 the number) or a phase was added to one binary's loop and not to
 `frame::step`**.
 
-**On cards:** **a one-cell event is unreadable even ringed and zoomed** — show
+**On pictures:** **a one-cell event is unreadable even ringed and zoomed** — show
 the stand, the door or the colony over a long span; **movement, not stills, is
 how animals are seen**, but a *follow camera* ruins a colony card ("shaking
-gif") and a scrubbable sequence plays where a GIF did not. **Sonnet refuses a
-brief dense in genetics vocabulary**: use the world's words or run Opus.
+gif") and a scrubbable sequence plays where a GIF did not.
 **`labforage`, `labstats` and `latecensus` `SUMMARY` lines are contested** —
 keep `main`'s fields first, append yours.
 
@@ -84,11 +89,8 @@ median of 111), so **a card is a picture of a different world** — and **a scen
 can fail to contain the defect you are removing**, at which point a working fix
 and a dead one look identical.
 
-**`review.py get <id>` is the only authoritative read; `inbox` has lost cards
-outright**, and a card can be archived carrying no stored response even after he
-answers — **write the verdict into the record, not a pointer to it**. **The
-queue is for visual evaluations ONLY** (owner ruling). **A card whose OPTIONS do
-not match its QUESTION does not answer it** — round 36 asked "what should an
+**Write the owner's verdict into the record, not a pointer to it.** **A
+question whose OPTIONS do not match it does not answer it** — round 36 asked "what should an
 alarm mean?" over before/after panes of a different change; the click endorsed
 the change and settled nothing.
 
@@ -190,8 +192,6 @@ concurrent line each belongs to.
   the bar headlessly and scripts clicks.
 - **`/tmp` is shared between agents in this container.** Set a private
   `TMPDIR`, or one lane captures another's frame.
-- **`review.py inbox --mark-seen` marked all 199 cards seen**, not just the
-  caller's. Use `get <id>` rather than trusting an empty inbox.
 - **Several agents in one container makes every timing untrustworthy** —
   pin `RAYON_NUM_THREADS` or compare arms inside one run.
 - **A cloud lane is reached by poke, never by `SendMessage`**, and a poke

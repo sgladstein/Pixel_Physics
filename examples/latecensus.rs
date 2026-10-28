@@ -408,6 +408,37 @@ fn main() {
                 world.germinations,
                 world.fruit_dropped
             );
+            // **Which kinds of plant are alive, and how much leaf each
+            // holds** -- the plant community's own measure (kinds alive at
+            // 450k with the colony on the bed), which `plants=` above pools
+            // into one number. A plant is counted once it is past its seed
+            // (two or more cells); `pale` is how many of its leafy plants a
+            // fresh draw shows pale with hunger (`render::pale_leaf_step`).
+            let mut kinds: std::collections::BTreeMap<String, (usize, usize, usize)> = std::collections::BTreeMap::new();
+            for (id, st) in world.live_organisms() {
+                let sp = world.species.get(st.species);
+                if sp.creature.is_some() || st.cells.len() < 2 {
+                    continue;
+                }
+                let leaves = st
+                    .cells
+                    .keys()
+                    .filter(|&&(x, y)| {
+                        let c = world.get(x, y);
+                        c.organism_id() == id
+                            && pixel_physics::sim::organism::cell_type(c.aux()) == Some(pixel_physics::sim::organism::CellType::Leaf)
+                    })
+                    .count();
+                let pale = leaves > 0 && pixel_physics::render::pale_leaf_step(pixel_physics::sim::plant::nutrient_hunger(st), 0) > 0;
+                let e = kinds.entry(sp.name.clone()).or_default();
+                e.0 += 1;
+                e.1 += leaves;
+                e.2 += pale as usize;
+            }
+            println!(
+                "        kinds {}",
+                kinds.iter().map(|(n, (p, l, h))| format!("{n}={p}/{l}/{h}")).collect::<Vec<_>>().join(" ")
+            );
             // **The two numbers that separate the two candidate channels for
             // the 2026-09-12 baseline shift**, measured beside the census
             // rather than inferred from it.

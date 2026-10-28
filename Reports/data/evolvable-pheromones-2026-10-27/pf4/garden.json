@@ -1,0 +1,89 @@
+{
+ "free": [
+  {
+   "run": "/tmp/claude-0/-home-user-Pixel-Physics/2ef7e65c-531a-5db4-866b-18b502ff6e79/scratchpad/pf4/free",
+   "gen": "/tmp/claude-0/-home-user-Pixel-Physics/2ef7e65c-531a-5db4-866b-18b502ff6e79/scratchpad/pf4/free/g039",
+   "top": [
+    "c01.raw.txt",
+    "c00.raw.txt",
+    "c04.raw.txt",
+    "c08.raw.txt"
+   ],
+   "best": "c08.raw.txt",
+   "value": 1981.46875,
+   "kj": 133.84375,
+   "tank": 10.2753125,
+   "extinct": 0,
+   "deaf_lower": 13,
+   "shift_lower": 13,
+   "const_lower": 13,
+   "census": {
+    "all": 0.426,
+    "at_nest empty": 0.769,
+    "at_nest laden": 0.457,
+    "away empty": 0.469,
+    "away laden": 0.149,
+    "depth>0 empty": 0.784,
+    "depth>0 laden": 0.513,
+    "empty": 0.484,
+    "energy 0.0": 0.42,
+    "energy 0.1": 0.435,
+    "energy 0.2": 0.448,
+    "energy 0.3": 0.454,
+    "energy 0.4": 0.439,
+    "energy 0.5": 0.453,
+    "energy 0.6": 0.462,
+    "energy 0.7": 0.459,
+    "energy 0.8": 0.441,
+    "energy 0.9": 0.382,
+    "home_dist 0.0": 0.538,
+    "home_dist 0.1": 0.375,
+    "home_dist 0.2": 0.287,
+    "home_dist 0.3": 0.295,
+    "home_dist 0.4": 0.348,
+    "home_dist 0.5": 0.369,
+    "home_dist 0.6": 0.341,
+    "home_dist 0.7": 0.469,
+    "home_dist 0.8": 0.354,
+    "laden": 0.203,
+    "surface empty": 0.472,
+    "surface laden": 0.156
+   },
+   "max_state_ratio": 3.0671140939597317,
+   "C_median": {
+    "normal": 2016.5,
+    "deaf": 1619.0,
+    "shift": 1440.5,
+    "const": 1647.5
+   },
+   "criteria": {
+    "information": true,
+    "deaf": false,
+    "shift": true,
+    "const": false
+   },
+   "communicates": false
+  }
+ ],
+ "deaf": [
+  {
+   "run": "/tmp/claude-0/-home-user-Pixel-Physics/2ef7e65c-531a-5db4-866b-18b502ff6e79/scratchpad/pf4/deaf",
+   "gen": "/tmp/claude-0/-home-user-Pixel-Physics/2ef7e65c-531a-5db4-866b-18b502ff6e79/scratchpad/pf4/deaf/g039",
+   "top": [
+    "c04.raw.txt",
+    "c07.raw.txt",
+    "c13.raw.txt",
+    "c15.raw.txt"
+   ],
+   "best": "c13.raw.txt",
+   "value": 3568.96875,
+   "kj": 91.296875,
+   "tank": 6.673125,
+   "extinct": 1
+  }
+ ],
+ "n_communicating": 0,
+ "guard": 0.5551936396192878,
+ "t": NaN,
+ "verdict": "DEAD END"
+}

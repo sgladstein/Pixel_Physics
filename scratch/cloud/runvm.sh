@@ -5,6 +5,8 @@
 # inrun_cloud prefixes VM names with pixel-train-, so pass the bare NAME.
 cd "$(dirname "$0")/../.."
 name=$1; jobs=$2; ref=$3; n=$4; dest=$5; prev=${RESUME_FROM:-}
+# a short SHA cannot be fetched on the VM (git fetch --depth 1 needs the full 40 characters; g1base-1027 died on it)
+full=$(git rev-parse --verify -q "$ref^{commit}" 2>/dev/null) && [ "${#ref}" -lt 40 ] && echo "$ref" | grep -qE "^[0-9a-f]+$" && ref=$full
 H=scratch/cloud
 for k in 0 1 2 3 4; do
   nm=$name; [ $k -gt 0 ] && nm=$name-r$k
@@ -31,7 +33,7 @@ for k in 0 1 2 3 4; do
         timeout 1800 python3 scratch/cloud/inrun_cloud.py pull $nm $dest 2>&1 | tail -2; exit 0
       fi
       echo "$(date -u +%H:%M) $nm gone with $c of $n jobs: relaunching with --resume $nm"
-      prev=$nm
+      prev=${prev:+$prev,}$nm  # the whole chain: a finished job line in any earlier launch is skipped (inrun_cloud)
       break
     fi
     sleep 120

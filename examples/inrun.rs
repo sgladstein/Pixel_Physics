@@ -16,9 +16,11 @@
 //!     out       a pellet let go above the datum (left the nest); cutter: the pellet's cutter, or 0
 //!     in        a pellet let go at or below the datum; its tag is kept at that spot for a recut
 //!     field     a food cell taken into the crop away from home (v: its worth)
-//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`)
+//!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`; v: its worth as put down)
 //!     churn     any other food cell put down within 12 columns of the nest
-//!     eat       the crop's digestion paid this ant v (face worth)
+//!     recarry   (homepick=K only) a trip cell picked up within K columns of the door, put down at the nest again: not paid,
+//!               not food_home; v: its worth as put down
+//!     eat       the crop's digestion paid this ant v (face worth); x,y where its head is
 //!     death     v: the cause's index
 //! out/map_fNNNNNNN.txt  `x0 y0 w h`, then rows of `.` open / `a` animal / `f` provisions / `#` other, the nest box
 //! out/surface.txt       the datum, one row per column
@@ -473,7 +475,12 @@ const STANDARD: &[&str] = &[
     "drip=20",
     "mutation=neutral",
     "kevents=4",
-    "kpm=0.013",
+    // 0.013 until 2026-10-27 (Teacher lane, plan A1): at 0.013 a child carries ~26 changed weights plus 4 structural
+    // events and every birth in a round mutates, which outran colony selection -- drift1's hand-laid come-home latch
+    // decayed (garden starved 46 -> 311 in 48 rounds) and self1's std_pool sold its nest for food (596 -> 129); at
+    // 0.003 the same selection kept both (drift1: starved 51 -> 28, nest 702 -> 700). Every batch since elite1 passed
+    // kpm=0.003 by hand, and clean1 found nothing better (PR #955). A batch that must match an older one passes kpm=0.013.
+    "kpm=0.003",
     "w_home_eat=2",
     "kid_cap=4",
     "retire=1",
@@ -819,6 +826,18 @@ fn main() {
     // pool from 3.6-7.3 ants lived to 37-101 (8/8 seeds), while the hand-built ant lived on them.
     const FOOD_ALL: [&str; 4] = ["provisions", "fruit", "windfall", "corpse"];
     let food_all = arg(&a, "food") == Some("all");
+    // `foodwild=P[:KINDS]` (Teacher lane, 2026-10-27, env1): with `patches=`, each jump's heap is, with chance P, one
+    // of KINDS (`+`-separated, default `windfall+corpse`, drawn evenly) instead of `food=`'s own material, from the same
+    // stream as `food=all`, so place and timing still match `food=mix` on the seed. A graded `food=all`: `food=all` is
+    // every heap uniform over four foods, and on held-out world 500001 it took std_pool from 74 alive at 100k on
+    // `food=mix` to extinct, so a batch started there would have nothing to select from. The founding heap is never wild.
+    // Unset: the run unchanged.
+    let food_wild: Option<(f32, Vec<String>)> = arg(&a, "foodwild").map(|v| {
+        let (p, k) = v.split_once(':').unwrap_or((v, "windfall+corpse"));
+        let p: f32 = p.parse().expect("foodwild=P[:KINDS]");
+        assert!((0.0..=1.0).contains(&p), "foodwild P in 0..=1");
+        (p, k.split('+').map(str::to_string).collect())
+    });
     let mut food_rng = train::Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5F0D);
     // SCRATCH (evolvable-pheromones lane, 2026-10-25): `patches=T:LO:HI` -- **one** food heap, on a random side at a
     // random distance LO..HI columns from the door, that jumps to a new side and distance every T frames; the old
@@ -1093,6 +1112,17 @@ fn main() {
     // Pay by depth: a delivery `d` rows below the datum is worth (1 + w_depth * min(d, 10) / 10) times (owner, 2026-10-21:
     // food dropped at the door is not food stored in the nest).
     let w_depth = fnum("w_depth", 0.0);
+    // homepick=K (nest lane, 2026-10-28; 0 = off, the default): a trip cell picked up within K columns of the door is not
+    // a delivery when it is put down again at the nest. Its drop is logged `recarry`, not `deliver`, earns no delivery pay
+    // and is not counted in food_home (nor in colsel's home8, which reads `deliver` rows). Why: pick_up books a cell as a
+    // trip cell when the ant's HEAD is out of nest reach, and the spoil mound over the door lifts it out, so food dropped
+    // at the door and picked up again from the mound pays again when it is carried back down. std_pool, exam world
+    // 500004, 200k: 3,302 of 5,155 deliveries (64%) were loads picked up within 12 columns of the door, 2,557 of them
+    // within 3 columns and above the datum; 1,835 came from the field, against the hand-built ant's 1,304 deliveries in
+    // all. Those re-carries go down the door shaft as the crumb cone under the mouth, which eaten from the top is the
+    // trained nest's crater. Each ant's crop is booked near/far per trip cell (reset when a pick-up starts a fresh crop,
+    // as `pick_up` resets `trip_cells`), and a drop spends a far cell first, so a mixed load is paid for its field part.
+    let homepick = num("homepick", 0) as i32;
     // Pay by how far the spoil went: a pellet let go within `rim` columns of the nest pays nothing for its carry (nor the
     // cutter's half), rising to full `rim_ramp` columns further out. Spoil heaped on the rim rolls back into the pit:
     // after the pit's peak, 764 pellets let go within 30 columns against 198 dropped inside it (p5, 2026-10-21).
@@ -1346,6 +1376,8 @@ fn main() {
     let mut nest_log = std::io::BufWriter::new(std::fs::File::create(out.join("nest.csv")).unwrap());
     writeln!(nest_log, "frame,alive,food_home,nest_score,dug,chambers,niches,tunnel_cells,pit,per_cell,door_open,zone,zone_reach").unwrap();
     let mut food_home = 0u64;
+    // homepick's book: ant -> (trip cells in its crop picked up within K columns of the door, the rest); re-carries.
+    let (mut near_load, mut recarried) = (HashMap::<u32, (u32, u32)>::new(), 0u64);
     writeln!(sel_log, "frame,alive,adults,births,removals,bias,median,food_price,dig_price,clear_price,ghosts").unwrap();
     let mut bias = 0.0f64;
     // Ants culled this frame whose death record has not come in yet. `slay` frees the slot at once and the record lands
@@ -1515,6 +1547,15 @@ fn main() {
                     patch_at = if x >= 8 && x < bw - 8 { (x, if east { food_mats.0 } else { food_mats.1 }) } else { (inrun::NEST + d, food_mats.0) };
                     if food_all {
                         patch_at.1 = FOOD_ALL[food_rng.below(FOOD_ALL.len())];
+                    } else if let Some((p, kinds)) = &food_wild {
+                        // Both draws every jump, so the stream does not depend on P.
+                        let (u, k) = (food_rng.unit(), food_rng.below(kinds.len()));
+                        // Never the founding heap: on 4 held-out worlds the hand-built ant died out in 3 under
+                        // `food=all`, every time the first heap (or the first two) was windfall or corpse -- 30
+                        // founders on 3 tanks cannot wait 20,000 frames for the next one (2026-10-27).
+                        if u < *p && fr > 1 { // frames count from 1, so the founding heap is the jump at frame 1
+                            patch_at.1 = kinds[k].as_str();
+                        }
                     }
                     writeln!(patch_log, "{fr},{},{}", patch_at.0, patch_at.1).unwrap();
                 }
@@ -1691,6 +1732,18 @@ fn main() {
                     writeln!(ev, "{frame},{},homeeat,{x},{y},{},0", r.who, r.worth).unwrap()
                 }
                 creature::FOOD_SWALLOW if !r.flag => {
+                    if homepick > 0 {
+                        let fresh = w.organism(r.who).and_then(|s| s.crop).is_none_or(|c| c.cells <= 1);
+                        let e = near_load.entry(r.who).or_default();
+                        if fresh {
+                            *e = (0, 0);
+                        }
+                        if (x - inrun::NEST).abs() <= homepick {
+                            e.0 += 1;
+                        } else {
+                            e.1 += 1;
+                        }
+                    }
                     if strict {
                         bit.insert(r.who);
                         if let Some(at) = hungry_due.remove(&r.who) {
@@ -1711,6 +1764,26 @@ fn main() {
                     writeln!(ev, "{frame},{},field,{x},{y},{},0", r.who, r.worth).unwrap()
                 }
                 creature::FOOD_DROP if r.flag && (strict || zone_on) && !home => writeln!(ev, "{frame},{},tdrop,{x},{y},0,0", r.who).unwrap(),
+                // homepick: a far cell is spent first and paid below; a near one is a re-carry.
+                creature::FOOD_DROP
+                    if r.flag
+                        && homepick > 0
+                        && near_load.get_mut(&r.who).is_some_and(|e| match *e {
+                            (_, f) if f > 0 => {
+                                e.1 -= 1;
+                                false
+                            }
+                            (n, _) if n > 0 => {
+                                e.0 -= 1;
+                                true
+                            }
+                            _ => false,
+                        }) =>
+                {
+                    recarried += 1;
+                    let worth = creature::food_value(&w, w.get(x, y)).round() as i64;
+                    writeln!(ev, "{frame},{},recarry,{x},{y},{worth},0", r.who).unwrap()
+                }
                 creature::FOOD_DROP if r.flag => {
                     food_home += 1;
                     delivered.push_back((frame, if n_field > 0 { cell_worth } else { 1.0 }));
@@ -1736,7 +1809,11 @@ fn main() {
                         b.credit += g;
                         b.g2 += g * g;
                     }
-                    writeln!(ev, "{frame},{},deliver,{x},{y},0,0", r.who).unwrap()
+                    // v: the cell's face worth as put down (`food_value`; 960 for a whole provisions, fruit or windfall
+                    // cell, less for a crumb), so a reader can count food home in energy, not cells (selection lane,
+                    // 2026-10-27). It was always 0, and no reader used it.
+                    let worth = creature::food_value(&w, w.get(x, y)).round() as i64;
+                    writeln!(ev, "{frame},{},deliver,{x},{y},{worth},0", r.who).unwrap()
                 }
                 creature::FOOD_DROP if home => writeln!(ev, "{frame},{},churn,{x},{y},0,0", r.who).unwrap(),
                 // SCRATCH (foraging-loop thread): food put down in the field, so a load's fate closes.
@@ -1744,12 +1821,16 @@ fn main() {
                 _ => {}
             }
         }
-        for (who, worth, _) in w.digest_log.as_mut().unwrap().drain(..) {
+        let digested = std::mem::take(w.digest_log.as_mut().unwrap());
+        for (who, worth, _) in digested {
             if let Some(s) = spiders.as_mut().filter(|s| s.ids.contains(&who)) {
                 s.digested(who, worth);
                 continue;
             }
-            writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();
+            // x,y: the eater's head now (nest lane, 2026-10-27; was 0,0), so a reader can tell food eaten at home --
+            // the larder going down -- from food eaten in the field. Read only.
+            let (ex, ey) = w.organism(who).and_then(|s| s.chain.first().copied()).unwrap_or((0, 0));
+            writeln!(ev, "{frame},{who},eat,{ex},{ey},{worth},0").unwrap();
             eaten.push_back((frame, worth as f64));
         }
         if let Some(s) = spiders.as_mut() {
@@ -2750,4 +2831,7 @@ fn main() {
     println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
+    if homepick > 0 {
+        println!("homepick {homepick}: re-carries unpaid {recarried}, deliveries paid {food_home}");
+    }
 }

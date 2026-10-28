@@ -5,6 +5,7 @@ Owner (2026-10-22 16:54Z): count the cuts that actually expand the nest, and the
   nest      open cells joined to the door below the datum that are roofed (ground above them in the column) or in the
             door's shaft (NEST +-1): the same rule as inrun's `inherit_nest=1`; the sky-open crater is not nest
   crater    open cells below the datum within 20 columns of the door that are not nest (sky-open)
+  crater_full  crater plus the food, crumbs and ants filling the sky-open hole (see where it is computed)
   nestcuts  cuts of original ground (`dig` events) whose cell is nest at the end: digging that lasted and made room
   spoil     loose spoil cells below the datum within 20 columns of the door at the end (in the nest, the crater, or
             refilling old tunnels)
@@ -70,12 +71,20 @@ def count(d, frames=None):
     nest = {(dx, dy) for dx, dy in seen if roofed(dx, dy) or not wide[dx]}
     crater = sum(1 for dy in range(H) for dx in range(door - REACH, door + REACH + 1)
                  if grid[dy][dx] == e and below(dx, dy) and (dx, dy) not in nest)
+    # crater_full (nest lane, 2026-10-28): the crater with what fills it -- `crater` plus every cell the door's flood
+    # reached that is not nest and not open air (crumbs, stored food, ants), within REACH. The trained ant cuts the
+    # door's rim (21 original-ground cuts at the datum beside the door by 250k against the hand-built ant's 2, world
+    # 500004) and its mouth widens from 5 to 9-12 cells, but its crumb pile fills the hole, so `crater` reads it as
+    # nest-coloured food: on the 16 exam worlds at 200k std_pool's crater is ~42 open cells against ~190 with the
+    # filling counted, and the hand-built ant's is 0 both ways (16/16). The hole only shows as open air once a dying
+    # colony eats the pile (crater 312 at 600k). colsel `craterfull=1` scores this instead of `crater`.
+    crater_full = crater + sum(1 for dx, dy in seen - nest if abs(dx - door) <= REACH and grid[dy][dx] != e)
     spoil = sum(1 for dy in range(H) for dx in range(door - REACH, door + REACH + 1) if grid[dy][dx] == sp and below(dx, dy))
     # nest_open (teacher lane, 2026-10-25): the nest's cells that are still open air, not stored food or crumbs. The
     # owner's "too small" read as a nest of ~100 open cells under ~500 cells of food in every trained colony (pictures
     # https://claude.ai/artifact/7CykXk4N8PiKzo1BEomvVz), while `nest` counts the food as room.
     nest_open = sum(1 for dx, dy in nest if grid[dy][dx] == e)
-    out = {'nest': len(nest), 'nest_open': nest_open, 'crater': crater, 'spoil': spoil, 'nestcuts': None, 'nestcuts_late': None, 'spoil_in': None}
+    out = {'nest': len(nest), 'nest_open': nest_open, 'crater': crater, 'crater_full': crater_full, 'spoil': spoil, 'nestcuts': None, 'nestcuts_late': None, 'spoil_in': None}
     ev = f'{d}/events.csv'
     if not os.path.exists(ev) and not os.path.exists(ev + '.gz'):
         return out

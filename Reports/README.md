@@ -42,6 +42,49 @@ by somebody about to try it on creatures.
 
 ## Method and architecture — read these first  ·  `engine`
 
+- [why-no-emergence-2026-10-14.md](why-no-emergence-2026-10-14.md) —
+  **diagnosis, 2026-10-14; nothing built; §5 measured (16 runs), §6 checked
+  against the literature. Copied onto main 2026-10-27 from PR #701; it predates the
+  trained ant, so its creature-layer findings describe the hand-built one.** The owner's question: why has the engine
+  produced no unplanned behaviour, and why are ants still not digging a
+  realistic nest? **The goal is sound; the physics layer already emerges.
+  The creature layer failed by two approaches in turn.** Evolution with no
+  designed behaviour had one fitness axis and too few generations. Rules
+  aimed at named behaviours became a controller of ~160 switches, and
+  `creature.rs` grew from 2.7k to 55k lines. **The global nest structures
+  (BFS "way", flood-filled home, founding shaft, a 1-in-4 caste) are
+  evidence of where local signals ran out, not the cause** (the owner's
+  correction). The causes, in order:
+  - **Locally the nest is featureless.** Soil cannot hold or mark a cut,
+    scent leaks through rock, the field is one value per 16×16 cells, and
+    brood falls.
+  - **Rules aimed at outcomes come out as 24 `*_pull`/`*_target`
+    destinations, which need a map.**
+
+  Measured (16 runs, adversarially reviewed): the energy margin is not thin
+  (a forager at food 90 carries about nine round trips of reserve;
+  starvation is under 1% of deaths). `NEST_REST` no longer kills.
+  `NURSE_STAY=on` kills 1,349–3,482 adults a run in boom-and-die-off cycles
+  (births double; young nest-born ants starve in waves). A jam, the boom
+  and food diverted to brood are not separated, and the report names the
+  run that would separate them.
+
+  The benchmark is past the published models (checked on PubMed and
+  SciSpace: no counter-example), and stratified chambers are past the
+  published biology: the CO₂ template was vented away and reversed with no
+  change. The one chamber the literature explains forms around brood that
+  workers moved to suitable temperature and humidity, which needs the local
+  differences this world lacks. An independent 2026 whole-colony model hit the same failures and
+  made the same concessions. The process filters out the unplanned. Ends
+  with what the evidence implies; every item there is the owner's call.
+- [why-no-emergence-2026-10-14/README.md](why-no-emergence-2026-10-14/README.md) —
+  **the §5 measurement's scripts**: `run.sh` (four arms of `deeptrace` on the
+  dry goal box), `margin.py` (reserve in frames, foraging trips, deaths),
+  `starvers.py` (each starver stuck, held or free), `stuckway.py` (nest
+  starvers' nearest approach to the door), `shaftcensus.py` (who is in the
+  door shaft, and the colony's timeline). Data regenerates; not kept.
+  `consensus-brief.md` is an optional third literature check (Consensus's
+  allowance was spent; §6 was checked on PubMed and SciSpace instead).
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
   **proposal, not yet built; revised after an adversarial review found its
   central recommendation was a no-op.** Answers whether two games on one
@@ -300,6 +343,23 @@ by somebody about to try it on creatures.
 - [emergent-world-architecture.md](emergent-world-architecture.md) —
   **direction agreed.** Thin agents, rich world; the priority reshuffle; §8
   is where determinism was reversed to *required*.
+- [emergence-and-stigmergy-2026-09-02.md](emergence-and-stigmergy-2026-09-02.md)
+  — **research and synthesis; nothing built.** Stigmergy is a subset of
+  emergence, not a synonym — §4 sorts the shipped engine into which
+  mechanisms are which (fire and the structural count-to-infinity runaway
+  are emergent but not stigmergic), §5–§6 record what the stigmergic case
+  specifically required and taught the rest of the programme, and §7 flags
+  claimed-vs-verified gaps (tiger-bush banding is mechanically wired and
+  unlooked-at; the moisture-curvature construction channel is a documented
+  refutation). §8, added on request, turns the question forward: facilitative
+  (not just competitive) inter-organism stigmergy, response-threshold
+  division of labour, the predator-prey extinction result
+  `population-dynamics-research.md` already found and the beetle mechanism
+  doesn't yet trigger, ontogenetic plasticity as a third adaptation axis,
+  direct multi-agent flocking as a category the "agents never talk directly"
+  rule forecloses, and percolation (already found once, in fire spread,
+  never generalized) are all named as concrete unbuilt directions.
+  *Copied onto main 2026-10-27 from PR #217; predates the trained ant.*
 - [documentation-audit.md](documentation-audit.md) — **executed
   2026-08-21/22.** What the docs told an agent that wasn't true, re-ranked
   for the agent consumer; carries the in-flight doc inventory, and the
@@ -730,7 +790,9 @@ by somebody about to try it on creatures.
   2.62 -> 2.88. `World::nutrient_by_root` then caps a plant's nutrient by
   how much root reaches soil against its foliage. The report ends with how
   realistic the nutrient model is against real plants, and six ranked
-  ideas (pale hungry leaves first).
+  ideas (pale hungry leaves first). **Idea 1 built and on, 2026-10-27**: a
+  hungry plant's leaves fade toward yellow-green in three steps, a rootless
+  one fully; render only, no measurable draw cost.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
@@ -874,6 +936,71 @@ an example against the fields the engine still has (5b), but only the index
 carries *why* a report stands where it does.
 
 
+- [plant-literature-review-comparison-2026-09-19.md](plant-literature-review-comparison-2026-09-19.md)
+  — **review, 2026-09-19.** An outside survey of plant and ecosystem
+  simulation (L-systems to global vegetation models, with a five-layer
+  architecture recommendation), commissioned by the owner from someone who
+  knew only that this is a plant/ecology game, read against the tree
+  mechanism by mechanism. **The engine already holds nearly everything it
+  recommends for its first two stages, under other names** — Palubicki's
+  `Q` and `n = ⌊v⌋`, Beer–Lambert per column, Michaelis–Menten soil,
+  source–sink from surplus, a Weibull age hazard, functional-balance
+  allocation — and several of its textbook forms are recorded dead ends
+  here (flat maintenance respiration, diffusion-as-dominance, litter that
+  credits the soil, a flat mortality rate, a calendar season). What is
+  worth taking is small: two log-log **pattern readouts** (self-thinning
+  and height–thickness slopes) from numbers an instrument already has; the
+  literature's name and a graded mechanism for open bug §V2 (**hydraulic
+  failure**, conductance lost under sustained deficit); the **PPA** as a
+  candidate patch-tier model for M10 catch-up, where `Z*` is literally the
+  skyline; and the finding that `seed_launch`'s kernel is **uniform** where
+  every field kernel is fat-tailed — one line to fix when the wind verb is
+  built. Its §2 maps Díaz's six-trait global spectrum onto the genome slots
+  and finds the heritable axes contain it, chosen without reference to it.
+  **§7, added the same day on the owner's instruction, re-audits seven of
+  those rejections without trusting them**, paired over 12 seeds with
+  identity and positive controls: two were **never measured** (litter
+  returning nutrients cites two *moisture* entries; the attractor removal
+  was a design exchange), one was measured by a test on a **disjoint code
+  path** (reversible dormancy — tip retirement is still permanent, and a
+  cut *suppresses* bud break 12/12), fine-root turnover is **overturned in
+  its generality** (the sweep carried a collapsed 6-row bed in every arm;
+  on the shipped bed +11% income 9/12), flat maintenance **confirms for a
+  reason never recorded**, `seed_launch` stands, and season stands
+  strengthened (a tree lives two app-days) while temperature's condition
+  changed (the field writes one nothing in `plant.rs` reads). The finding
+  that reorders §5: **`income − maintenance` is the only currency, the
+  girth term is 70% of it, and a full-size tree is seedless by
+  construction** — a 10% floor of income to reproduction gives 2.18x seed
+  on 12/12 with no stand cost at 20,000 frames. Five dead-end entries, the
+  nutrient doc comment and the wiki's "size buys offspring" line are
+  written back; the six switches the audit ran on land as instruments,
+  default off. Sibling of the entry below, which is the same literature
+  read from inside the project a month earlier.
+  *Copied onto main 2026-10-27 from PR #476; predates the trained ant.*
+- [plant-economy-and-turnover-plan-2026-09-19.md](plant-economy-and-turnover-plan-2026-09-19.md)
+  — **plan, proposed, not started; seven owner calls in its §8.** The
+  most impactful plant changes, ranked from the comparison report and its
+  re-audit, ordered by the dependency each was *measured* to have: **0**
+  readouts before mechanisms (seeds-against-size, self-thinning slope,
+  allometry, a safe-site census — the numbers exist, the curves do not);
+  **1** a grown plant is productive (seed from production, not the
+  residual — measured 2.18x on 12/12 — then heartwood so the bill follows
+  the crown down, with the maintenance level re-derived against
+  recruitment for the first time); **2** seed reaches ground it can grow
+  on (the wind verb with a fat-tailed kernel, and the safe-site census
+  against the ~305 germinations recruitment pins at, since germination is
+  the blocked stage three times over); **3** gaps open and the ground
+  remembers (root turnover at the knee, a conservative nutrient-return
+  ledger measured on soil memory, graded frost from the weather channel
+  and never a calendar); **4** a cut tree answers (the stump A/B first,
+  then a `MatureBody → DormantBud` path for staleness retirement); **5**
+  the exclusion test that closes or reopens the attractor question in
+  half a day. Names the constants each phase re-derives, the card each
+  wants before it is called done, the one serialised lane `plant.rs`
+  forces, and nine things it deliberately does not do. ~10–12
+  session-days.
+  *Copied onto main 2026-10-27 from PR #476; predates the trained ant.*
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,
@@ -3438,6 +3565,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   behaviours as default* — with the knob kept, an `off` control kept for
   measurement, and the constants rivalry reallocates named and re-derived,
   since a correct mechanism at inherited constants is a regression.
+- [ant-survey-trail-reevaluation-2026-09-19.md](ant-survey-trail-reevaluation-2026-09-19.md)
+  — **measurement, 2026-09-19.** Lane T of the ant-survey follow-up round,
+  under the owner's *"don't trust past results"*: the trail line's five
+  rejections re-run on a bed with a return leg (`TRAIL_A_RHO 0`), 36 seeds,
+  paired within seed, each with the clause the original test could not see.
+  What it found: the food-charged `EmitB` odometer is inert at **both** reader
+  gains, scored on recruitment; the food-trail reader's de-saturation
+  (`ac02ac03`, 2026-09-18 — never written back to `dead-ends.md` or the wiki)
+  is the **whole** hand-trail effect, 22 colonies of 36 against 4; the
+  colony's own channel B is a net cost (`carryb=0` is the best arm); channel
+  B's decay band is inert; and a `(Crowding, EmitB, −w)` survival gain is the
+  emission cost falling, shown by the no-emission control. Trophallaxis and
+  the patchy-larder race at twelve seeds, and the laden right-of-way test
+  designed but not built.
+  *Copied onto main 2026-10-27 from PR #478; predates the trained ant.*
 - [pheromone-master-2026-09-17.md](pheromone-master-2026-09-17.md)
   — **master index and plan, 2026-09-17. `engine`.** **The entry point to the
   whole pheromone line** — thirteen reports and two lane notes, ~10,400 lines,
@@ -4735,6 +4877,42 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     covers its mouth). `CreatureStats::pickups_at_nest` is new: a delivery
     counts any drop at home, and deliveries minus this is the food that came
     home.
+- [digbox-eight-days-ago-2026-09-19.md](digbox-eight-days-ago-2026-09-19.md) —
+  **measurement, 2026-09-19. `engine`/`lab`.** Did the colony's digging
+  change in the eight days to 2026-09-19? `examples/digbox` was ported back
+  onto `ccaef282` (2026-09-11) and both trees run at identical parameters,
+  `ants=1200 rate=8 w=400 soil=80 frames=30000`, `RAYON_NUM_THREADS=1`.
+  **It changed, and it is not a null.** Digging is **1.39–1.77x** higher at
+  every stop, and **2.11x** in the selftest's own matched-colony control
+  (30 ants founded, 4,000 frames: 166 digs then, 351 now). **But the
+  standing void converges**: `roofed+open` is 144 against 297 at frame
+  10,000 and **319 against 325 at 30,000, a 2% difference** — the two trees
+  end at the same amount of empty room and today's arrives by frame 10,000,
+  where the older one needs the full 30,000. The columns that stay apart are
+  about *bodies*, not void: 531 against 312 cells holding an animal, 818
+  against 680 hauled clear. Quoted on **`room total` = `roofed + open +
+  bodies`**, because `roofed` and `open` count materially empty cells and a
+  gallery with an ant in it is not empty — every earlier figure in this line
+  was `roofed` alone and undercounts by about three times. **The port needed
+  no `src/` change on either tree**, so the engine's public surface did not
+  move, it only gained; `probe_full`, `nest_site_rows`, `room_surface_at`,
+  `CreatureStats::{dig_rolls, at_nest_crowding}` are all absent at
+  `ccaef282` and all but the last two are diagnostics the census never
+  touches. **One difference is not a strip and is a live candidate**:
+  `BrainInput` gained `Stillness = 29` in the window, widening the ant's
+  genome, alongside `ec1dffdd` *"an animal that stands still gets
+  restless"*. **§8 (added 2026-09-19) runs four more arms between the two
+  endpoints and overturns that**: on the matched-colony probe the whole step
+  is **09-11 -> 09-12, 166 digs to 404, one day**, and everything after drifts
+  *down* (404/361/361/351/351). So `Stillness` is ruled out -- it landed
+  09-13, after the step -- and **the entire stacking series is ruled out
+  outright**, because 09-16 and 09-19 are identical on every stop and column
+  from two different binaries. The 37 commits of 09-12 are all tagged `lab:`,
+  and the leading candidate is `1f5bc393` *"an ant at the nest is asked how
+  much room the colony has, not how packed it is"*, which touches `ant.ron`
+  and `brain.rs`. Narrowed to a day, **not to a commit**. Six cropped nest images and both logs under
+  `data/digbox-*`.
+  *Copied onto main 2026-10-27 from PR #471; predates the trained ant.*
 - [evolution-lab-round-37-brief-2026-09-15.md](evolution-lab-round-37-brief-2026-09-15.md)
   — **brief, 2026-09-15. `lab`/`engine`/`held`.** Opens with **two retracted
   numbers** a reader may have inherited (29.4 is per-bed, not per-ant; the
@@ -5826,6 +6004,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   seeds from a 900 J start (median 11,400 frames), against 7 of 12 for her
   genome. Four beetles kill a lone queen 12 of 12 within 800 frames. Design
   docs are Claude Docs linked from the report.
+- [play-as-ant-slice1-2026-10-11.md](play-as-ant-slice1-2026-10-11.md) — **the
+  play-as-an-ant game's slice 1, the first playable**: `scenario=queen_start`
+  puts the lab in queen mode (`lab::queen`): WASD and seven verb keys drive
+  one queen at 4x and below, with her own colour, a following camera and a
+  panel, on a planted box with a capped food spot and no beetles. Off is
+  byte-identical to main. A scripted player through the keys reaches 20
+  workers at frame 11,761 (seed 1). Also the trail trace: her trail lands on
+  a route the colony already marked, so it adds almost nothing; with the
+  colony's own trail silenced it doubles workers at food.
+  *Copied onto main 2026-10-27 from PR #686; predates the trained ant.*
 
 - [brain-training/README.md](brain-training/README.md) — **the stage 2 brain
   notes, copied verbatim from the shared folder 2026-10-19.** The general
@@ -6496,6 +6684,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   tools and tables, how to regenerate every run, and what to trace before
   building more. The code is on branch `claude/project-thread-ns0j6p`, off by
   default. Start here if the new ant is picked up again.
+- [dead-ends-triage-review-2026-09-12.md](dead-ends-triage-review-2026-09-12.md)
+  — **review of the register sweep (PR #331), and the plan to carry it on.**
+  The nine `CONDITION MET` write-backs hold and are the durable value. The
+  machine-readable half is wrong for about one entry in twelve, by
+  construction: the content key collides on 19 distinct entries, the index
+  check rewrites two tracked files and gates nothing (measured in a depth-1
+  clone), and the tables never learned the run-order's own demotions —
+  `creatures:039` is still the first candidate row. Two fresh blind
+  re-ratings: the DEAD side replicates (4 of 40 reopened, mostly stale rather
+  than revivable); the candidate side does not (14 of 20 closed, 0 of 10
+  controls reopened, five closures adjudicated and upheld), so the candidate
+  table is a ~40%-precision list, not a floor. Re-reads the run-order:
+  `plants:124` stands, with the deficit read per organism at the bole;
+  `structural:074`'s condition was met on 2026-08-22 and two documents say
+  so; `structural:013` is moot because both unauthored solids opt out of the
+  check. Plan in four parts; samples and results in
+  [data/dead-ends-triage-review-2026-09-12/](data/dead-ends-triage-review-2026-09-12/).
+  *Copied onto main 2026-10-27 from PR #348; predates the trained ant.*
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that

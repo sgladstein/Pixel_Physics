@@ -12835,6 +12835,32 @@ fn nutrient_income_multiplier(world: &World, organism_id: OrganismId) -> f32 {
     nutrient_availability(status, half)
 }
 
+/// **How much of its income a plant is losing to hunger, `0.0..=1.0`** —
+/// `1 - nutrient_income_multiplier`, read off the state directly so the
+/// renderer can ask it of every plant once a frame without a handle lookup.
+///
+/// This is what pale hungry leaves draw (`render::PALE_LEAF_STEPS`): the
+/// nutrient mechanism worked and could not be seen, eight paired beds
+/// differing about as much as any two seeds do
+/// (`Reports/rootless-plants-2026-10-23.md`, idea 1). Keyed on the income
+/// curve rather than the raw status because that is what the shortage
+/// *costs* the plant: soil at status 0.5 is worth 0.95 of full income and
+/// should not read as half-starved. A plant past its seed with no root reads
+/// status 0 under `World::roots_required`, so it reads fully hungry here --
+/// which is the point: a rootless plant goes yellow.
+///
+/// `0.0` whenever the mechanism is off, so nothing pales then.
+pub fn nutrient_hunger(state: &organism::OrganismState) -> f32 {
+    if nutrient_initial() == 0 {
+        return 0.0;
+    }
+    let half = nutrient_half_saturation();
+    if half <= 0.0 {
+        return 0.0;
+    }
+    1.0 - nutrient_availability(state.nutrient_status, half)
+}
+
 /// **What a plant's nutrient standing is actually worth to it, `0.0..=1.0`
 /// — the one curve BOTH nutrient prices read.**
 ///

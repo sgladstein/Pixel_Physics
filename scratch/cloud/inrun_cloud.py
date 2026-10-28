@@ -10,7 +10,8 @@ per vCPU, through scratch/inrun/rounds.sh, and put each finished job's folder to
   pull   NAME DEST [--which jobs]   download progress, ARMSUM.txt and every finished job's small copy (or full copy) into DEST
   delete NAME          delete the VM (only after pull shows DONE)
 
-A jobs line is: OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]  (the rounds.sh arguments, OUT a bare name).
+A jobs line is: OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]  (the rounds.sh arguments, OUT a bare name),
+or `OUT colsel P ...` (colsel.py), or `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` (exam.py's lab boxes).
 Trailing blanks are stripped on the VM: xargs -L joins a line that ends in a blank onto the next one, which once ran
 the control arm with the next arm's arguments and dropped that arm (rimshape-1022).
 """
@@ -75,7 +76,22 @@ fi
 log "built in $(( $(date +%s) - T0 )) s"
 sed "s/[[:space:]]*$//" "${ARGS#jobs=}" > $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
 put $W/jobs.txt jobs.txt
+# have OBJECT: is runs/OBJECT in the bucket (metadata only)
+have() {
+  TOK=$(curl -sf -H "Metadata-Flavor: Google" $MD/service-accounts/default/token | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])') || return 1
+  curl -sf -o /dev/null -H "Authorization: Bearer $TOK" "https://storage.googleapis.com/storage/v1/b/$BUCKET/o/runs%2F$(echo $1 | sed 's#/#%2F#g')"
+}
 if [ -n "$RESUME" ]; then
+  # RESUME may be a comma list of every earlier launch of this batch (runvm.sh passes the chain); a job line one of
+  # them already finished (its jobs/OUT.tgz is in the bucket) is not run again, and partial/ comes from the last one.
+  # Pull every name in the chain.
+  : > $W/jobs.left
+  while read -r l; do o=${l%% *}; d=""
+    for rn in ${RESUME//,/ }; do have "$rn/jobs/$o.tgz" && d=$rn; done
+    if [ -n "$d" ]; then log "skip $o: done in $d"; else echo "$l" >> $W/jobs.left; fi
+  done < $W/jobs.txt
+  mv $W/jobs.left $W/jobs.txt
+  RESUME=${RESUME##*,}
   for o in $(cut -d' ' -f1 $W/jobs.txt); do
     get "$RESUME/partial/$o.tgz" $W/tgz/$o-r.tgz && tar -C $W/out -xzf $W/tgz/$o-r.tgz && log "resumed $o from $RESUME at round $(python3 -c "import json;print(json.load(open('$W/out/$o/state.json'))['r'])")"
     rm -f $W/tgz/$o-r.tgz
@@ -86,6 +102,8 @@ run_one() {
   cd $W/repo; o=$1; shift
   # `OUT colsel P MODE NCOL ROUNDS FRAMES GENOME args`: one colony-selection driver using P cores (colsel.py)
   if [ "$1" = colsel ]; then P=$2 python3 -I scratch/inrun/colsel.py $W/out/$o "${@:3}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
+  # `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]`: the held-out exam's lab boxes only (exam.py, WORLDS=0), P runs at once
+  elif [ "$1" = exam ]; then P=$2 BOXES=$3 LAB_SEEDS=$4 AFTER=$5 WORLDS=0 python3 -I scratch/inrun/exam.py $W/out $o "${@:6}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
   else bash scratch/inrun/rounds.sh $W/out/$o "$@"; fi
   tar -C $W/out -czf $W/tgz/$o.tgz $o && put $W/tgz/$o.tgz jobs/$o.tgz && rm -f $W/tgz/$o.tgz
   # the small copy pull fetches: everything but the event log and the 4k-frame maps and ant lists (last one of each kept)

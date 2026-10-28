@@ -981,3 +981,82 @@ judged on: the environment review's windfall gap and 200k horizon, and a brain t
 when low" (PR #940, write gate PR #942). **Recommendation:** keep k3's setup (`elite=1 kpm=0.003`) as the training
 default; do not adopt `refound_mut`/`carry=random`. `kevents=1` is harmless and may be kept. Next batches are env1
 (windfall in training, the long-run donor gate) and write1 (`PP_WRITE=on`), as planned.
+
+## 2026-10-27 (night): new account; training defaults; more than one family saved; the G1 baseline exam
+
+**Defaults (plan A1, the owner did not object).** colsel `elite=1` is now on unless a job says `elite=0`, and inrun's
+`STANDARD` mutation rate is `kpm=0.003` (was 0.013). Every batch since elite1 passed both by hand, so those batches
+are unchanged; a job file from before elite1 that relied on the old defaults now needs `elite=0 kpm=0.013` to repeat.
+
+**Pools for diversity** (`scratch/inrun/mkpool.py` from the bucket's `small/` copies; each file's header carries its
+held-out garden numbers): `assets/minds/elite1_e3c32_pool.txt`, `elite1_e13c7_pool.txt`, `elite1_ehl3c5_pool.txt`
+(needs the home-low instinct it was trained with) and `clean1_k3c23_pool.txt` (clean1's k3 rank 0 at r47). All four
+are layout 7 (genome 4097); std_pool is layout 5.
+
+**The launcher works from this account.** `vmproof-1027` (c4d-highcpu-8, ~5 minutes) started, built, ran an exam line,
+uploaded and pulled. A short SHA cannot be fetched by the VM (`g1base-1027` died on it); `runvm.sh` now expands it.
+`inrun_cloud.py` takes `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` lines, and `exam.py` takes `AFTER=`.
+
+**G1 baseline (`g1base2-1027`, launched 22:05Z, built at 4e4807a7 = main c67f37e1 + this lane's commits; the exam
+binary, labsurvive, is main's).** The bar G1 is judged on, measured before anything is trained against it. Brains:
+the hand-built ant, std_pool, and the four saved pools above except ehl3c5 (which needs an instinct). Boxes: the six
+where the hand-built ant lives (two_larders, scattered_larder, feast_and_famine, played_bed, herb_first_colony,
+crowded_bench), seeds 1-8, as shipped, **600,000 frames after landing**. **Deciding measures, named before the run:**
+ants alive at the end and starved, paired by box and seed against the hand-built ant, sign test per box. Results and
+the bar follow in the next section.
+
+## 2026-10-28 (00:30Z): windfall and carrion in training -- `foodwild`, and the `env1` batch
+
+**Corpse belongs in.** The authored ant's gut is neutral (`assets/species/ant.ron` traits slot 0 = 0.0), so the
+hand-built ant digests corpse (quality 0.25) as well as plants (0.25). The trained ants' gut is a body gene open in
+training (`body=default`, [body genes](body-genes-2026-10-22.md)) and drifted toward the plant end (-1), where corpse
+is worth nothing: that is why a mind ant is never offered corpse at its gut, and the hand-built ant's corpse
+deliveries need no separate forage code (inferred from the code, not traced in a run). Offering corpse in training
+gives selection a reason to keep the gut where both foods pay.
+
+**`food=all` as built is not a training bed.** 4 held-out worlds (500001-500004), 200k, garden bed, sel=off (data
+`data-1027/foodwild/sweep.txt`):
+
+| arm | std_pool colonies alive at 200k | hand-built ant colonies alive |
+|---|---|---|
+| `food=mix` (today's training) | 4 / 4 (64-80 ants) | 4 / 4 (79-99) |
+| `food=all` (every heap uniform over provisions, fruit, windfall, corpse) | **0 / 4** | **1 / 4** (75; 0, 0, 4) |
+| `foodwild=0.5` (half the heaps windfall or corpse) | 0 / 4 | 2 / 4 |
+| `foodwild=0.25` | **3 / 4** (64-100) | **4 / 4** (77-91) |
+
+With `patches=` there is one heap at a time and it jumps every 20,000 frames, so a heap the colony cannot use is a
+20,000-frame famine. Every colony lost under `food=all` had a wild first or second heap (traced from `patches.csv`):
+30 founders on 3 tanks cannot wait for the next. `foodwild=P[:KINDS]` (new, inrun) makes each jump after the first
+windfall or corpse with chance P, from the same stream, so place and timing match `food=mix` on the seed; the founding
+heap is never wild. At 0.25 the hand-built ant loses nothing and std_pool loses one world in four: hard, with spread.
+
+**A selection box for the new foods:** `scratch/inrun/labscen/lab_far_wild.ron` is `lab_far_mix` with windfall west
+and corpse east. Seed 1, 15k after landing: hand-built 80 alive (lived 51.8), std_pool 75 (44.5); on `lab_far_mix`
+175 and 220. The exam's boxes stay held out.
+
+**The G1 baseline exam was preempted.** `g1base2-1027` lost its spot VM at ~22:30Z with 14 of 30 box lines done, and
+the watcher died with this session's worker, so nobody noticed for two hours. What came back: every trained pool
+(std_pool, e3c32, e13c7, k3c23) is extinct by 600k in two_larders, scattered_larder and feast_and_famine in 8/8 seeds,
+mean headcount 0.3-0.5 in all but four runs (7.5-16.8), so they die within a few thousand frames. The hand-built ant
+at 600k: feast_and_famine 0/8 alive (lived median 8.1), scattered_larder 3/8 alive (lived 14.9). At 60k it lives in
+8/8 of each (copy-test lane, seeds 11-18). So G1's "boxes where the hand-built ant lives" must be re-based at 600k, and
+`lived` (mean headcount, graded) is the measure that can still separate brains there. Fixes so it cannot happen again:
+`exam.py LAB_SEEDS=A-B` (one VM line per seed), and a relaunched batch skips every job line an earlier launch in the
+chain finished (`runvm.sh` passes the chain; `inrun_cloud.py` checks the bucket).
+
+**`env1`** (`scratch/inrun/jobs/env1.txt`): founder `clean1_k3c23_pool.txt` (the ratchet's latest product of the
+default setup; in the three boxes above every candidate founder dies alike), 32 colonies x 24 rounds, garden every 8,
+`elite=1 kpm=0.003`, 16 cores per arm:
+
+| arm | change against `c` |
+|---|---|
+| c | control: today's training (`food=mix`, lab cases lab_far_mix + lab_far200_fruit) |
+| w | `foodwild=0.25` (windfall and corpse) and the lab_far_wild case |
+| wf | `foodwild=0.25:windfall` (windfall only) and the lab_far_wild case: whether corpse matters |
+| w6 | w plus `donor600=600000` (donors must also hold up over one 600k run) |
+
+**Deciding measure, named before launch:** the held-out exam of each arm's rank-0 colony at r23 against c's, `lived`
+paired over the 6 boxes x 8 seeds at 600k (48 pairs), two-sided sign test, Bonferroni over the three comparisons
+(p < 0.0167). Guard: garden r23 open nest not lower (extinct colonies counted as 0). Food home is not a deciding
+measure: the pheromones lane found it double-counts a drop-and-repick loop at the nest edge (2026-10-28), and in
+colsel it is one case of ten. Run `selaudit.py` on the first 16 rounds.
