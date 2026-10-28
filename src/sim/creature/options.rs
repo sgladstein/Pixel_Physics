@@ -835,10 +835,6 @@ fn home_eat_crutch(world: &World, organism: OrganismId, def: &CreatureDef, out: 
 /// How many decisions [`home_eat_crutch`] narrowed (brood lane scratch; read by `inrun`).
 pub static HOME_EAT_FORCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// How many dig options `PP_BODYRULES=chambers` took away (a cell is counted each time it is offered and refused;
-/// nest lane scratch, read by `inrun`).
-pub static CHAMBER_REFUSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 /// [`build_with`], with its cell window ([`MEMO_SIDE`]) or, `remember`
 /// false, with none -- every read straight from the world, as before the
 /// window: the reference the window is held to in tests.
@@ -1386,36 +1382,24 @@ pub fn shadow(world: &mut World, organism: OrganismId, def: &CreatureDef) {
 /// No waiver for a shut-in ant (the shipped ant waives all but Floor when escaping).
 /// **Never a default and never permanent** (owner, 2026-10-23: "No permanent body rule from the old ant!"): a training
 /// scaffold only, weaned to nothing by `scratch/inrun/colsel.py wean=R0:R1`, and every ant is judged with it off.
-///
-/// `chambers` (nest lane, 2026-10-28; owner: "when that gets to a certain size they're basically not allowed to dig
-/// unless it's a tunnel and then they can start digging chambers again"): [`super::chamber_refuses`] with
-/// `PP_CHAMBER_MAX` block centres (default 40, a 12x9 room). Not from the old ant: a training scaffold on the same
-/// terms as the others, weaned by the same `PP_BODYRULES_P`. Joined to the others with `+` (`roof+chambers`).
 fn review_body_rules_refuse(world: &World, t: (i32, i32)) -> bool {
-    static V: std::sync::OnceLock<(bool, bool, Option<usize>)> = std::sync::OnceLock::new();
-    let (roof, rooms, chambers) = *V.get_or_init(|| {
-        let v = std::env::var("PP_BODYRULES").unwrap_or_default();
-        let has = |k: &str| v.split('+').any(|p| p == k || p == "both" && k != "chambers");
-        let max = std::env::var("PP_CHAMBER_MAX").ok().and_then(|m| m.parse().ok()).unwrap_or(40);
-        (has("roof"), has("rooms"), has("chambers").then_some(max))
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    let (roof, rooms) = *V.get_or_init(|| match std::env::var("PP_BODYRULES").as_deref() {
+        Ok("roof") => (true, false),
+        Ok("rooms") => (false, true),
+        Ok("both") => (true, true),
+        _ => (false, false),
     });
     // PP_BODYRULES_P=p (Teacher lane, 2026-10-23; owner: "No permanent body rule from the old ant!"): a scaffold that
     // is weaned. Each ground cell is protected with probability p, drawn once per cell and world (a pure hash), so at
     // p < 1 a fraction of the roof and room cells are free to cut and the brain has to spare the rest itself. Unset = 1.
     static P: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     let p = *P.get_or_init(|| std::env::var("PP_BODYRULES_P").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0));
-    if (roof || rooms || chambers.is_some()) && p < 1.0 && super::rng::stream(world.seed, t.0 as u64, t.1 as u64, 0xB0D7_0001).unit_f32() >= p {
+    if (roof || rooms) && p < 1.0 && super::rng::stream(world.seed, t.0 as u64, t.1 as u64, 0xB0D7_0001).unit_f32() >= p {
         return false;
     }
     (roof && super::dig_roof_of(world).is_some_and(|rows| super::under_roof(world, t, rows)))
         || (rooms && super::shaft_room_refuses(world, t).is_some())
-        || chambers.is_some_and(|max| {
-            let no = super::chamber_refuses(world, t, max);
-            if no {
-                CHAMBER_REFUSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            no
-        })
 }
 
 #[cfg(test)]
