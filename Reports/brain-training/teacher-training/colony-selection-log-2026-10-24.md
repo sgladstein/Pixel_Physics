@@ -1501,3 +1501,28 @@ only in where its two herbs stand (x 240/270, at the nest, against 128/384), yet
 also carry colsel's lab env (`PP_MIND_DOOR_OPEN=drop`, which every colsel job since env1 sets; `PP_BED_W` only
 widens the in-run bed). So either the box or the door rule kills them. **twinenv-1028** (204 runs, launched 21:30Z)
 separates the two: herb_first_colony with `door=drop`, lab_herbs without, same founders and seeds.
+
+## 2026-10-28 (22:10Z): twinenv -- the box kills, not the door rule; twingame launched
+
+twinenv-1028 (204 runs, ref e9ed27cd, same engine as twinsself), `data-1027/twinenv/`, `twinenv_an.py`, paired per
+colony-seed (32 x 3) against twinself's rows:
+
+| arm | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|
+| herb_first_colony, plain (twinself) | 3 | 142 | 278 | 134 |
+| herb_first_colony, `door=drop` | 2 | 137 | 278 | 134 |
+| lab_herbs, plain | 75 | 1.1 | 93 | 33 |
+| lab_herbs, lab env (twinself) | 73 | 2.5 | 93 | 74 |
+
+door=drop against plain: herb_first_colony 46/50 (p 0.76), lab_herbs 17/15 (p 0.86): **the door rule does nothing
+measurable at 600k**, so the watchdog's plugged-door lead is closed for these boxes. With the rule held, lab_herbs
+against herb_first_colony is 1/95 (p 2e-27): moving the two herbs from x 128/384 to 240/270, at the nest, kills 3 in
+4 trained colonies and costs the hand-built ant two thirds of its headcount. The twins are harsher boxes, not
+broken ones: they kill what the exam boxes keep, so they cannot rank siblings that all die in them.
+
+**twingame-1028** (714 runs, launched 22:10Z): seven game boxes that are not among the six exam boxes
+(played_bed_scrambler, played_bed_understory, played_bed_windfall_reach, steady_income, the_bank, far_larder,
+boom_bust), same 34 founders, 3 seeds, 600k, plain env. Deciding measure as twinself's (self >= 0.3 and vs exam >= 0.3
+at p < 0.01, now 0.05 / 7), against twinself's exam rows (same engine). A box that passes is a candidate steering
+case; the three played_bed variants are close kin of an exam box, so a pass there is weaker evidence of a general
+signal than one in steady_income, the_bank, far_larder or boom_bust.
