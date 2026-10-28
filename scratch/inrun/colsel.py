@@ -477,6 +477,10 @@ LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split(
 # starvation more than the colony does (Spearman between two arms on the same seeds 0.24; the same colony kept into a
 # fresh world 0.03, `measures.py`), so with a world each, starvation ranks worlds. The common garden keeps a world per
 # colony (it pairs arms by colony). Costs nothing: the same runs, other seeds. Off, every seed is as before.
+# **The births' stream stays each colony's own** (inrun `sseed=`, below in `go`): the first screen (selow1, 2026-10-28)
+# ran without it, and colonies sharing a carry in one world were one deterministic run -- one or two distinct outcomes
+# a round, and all 32 died out together at round 23. A risk that remains by design: a world lethal to every colony
+# now kills every colony in the same round.
 ONEWORLD = 'oneworld=1' in EXTRA
 EXTRA = [x for x in EXTRA if x != 'oneworld=1']
 
@@ -486,13 +490,13 @@ def wc(c):
     return 1 if ONEWORLD else c
 
 
-def seed_of(kind, c, r=0, k=0):
+def seed_of(kind, c, r=0, k=0, own=False):
     """Every world seed the driver hands out, in one place (selection review, 2026-10-27). The old seeds were sums
     that ran into each other: training c*1000+r met the garden's c*1000+99 at round 99, the lab case's
     c*1000+10r+k met colony c+1's from round 100, and each labcase= scenario (c*1000+10(r+100(k+1))) took colony
     c+k+1's first lab seed every round. Training below round 99 and the lab case below round 100 keep their old
     seeds, so earlier controls stay reusable; past those rounds, and for labcase=, each kind has its own range."""
-    if kind in ('train', 'lab', 'labcase', 'labl'):
+    if kind in ('train', 'lab', 'labcase', 'labl') and not own:
         c = wc(c)
     if kind == 'train':
         return c if r == 0 else (c * 1000 + r if r < 99 else 10_000_000 + c * 1000 + r)
@@ -854,7 +858,10 @@ for r in range(R0, R):
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
         cr = spider_args(with_spiders(with_cap(cr), r), f'{OUT}/c{c}/r{r}/spiders')
         cr = ['kpm=0', 'kevents=0'] + cr if ELITE and not fresh[c] else cr
-        return run(founders[c] + [f'seed={seed_of("train", c, r)}'] + inh + cr, f'{OUT}/c{c}/r{r}')
+        # under oneworld the births' stream stays the colony's own (inrun sseed=): without it, colonies with one carry
+        # in one world are one run (selow1: 1-2 distinct outcomes a round, all 32 died out together at round 23)
+        own = [f'sseed={seed_of("train", c, r, own=True)}'] if ONEWORLD else []
+        return run(founders[c] + [f'seed={seed_of("train", c, r)}'] + own + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
     cols = list(range(1, NCOL + 1))
