@@ -1333,3 +1333,10 @@ founder) two ways, 32 colonies x 24 rounds, P=32 each:
 **Deciding measure, named before launch:** the exam of each rank-0 r23 colony, lived paired over the 48 box-seeds
 at 600k against t_fam's c7 and against std_pool (Bonferroni over 2 per arm), alive at 600k and starved share as
 guards. Pass against std_pool -> candidate lab ant (B1), picture first.
+
+**Same VM, exam `x5`**: the copy-test lane's two-label copies, both fitted from std_pool member 0 on the hand-built
+ant's moves in the famine twins and std_pool's own in lab_herbs and lab_far_mix (exam boxes never seen):
+`copytest_g2.raw.txt` (1,137 billed links) and `copytest_g3.raw.txt` (plant labels weighted x3, 981 links). 96
+exam lines beside env4's two colsel lines (P=20 each), all in `scratch/inrun/jobs/env4.txt`. src/, assets/ and
+examples/ are unchanged since x3's build (b5860d0b), so x3's std_pool and hand-built rows pair with them. Deciding
+measure: lived against std_pool over the 48 box-seeds (Bonferroni over 2), alive and starved share as guards.
