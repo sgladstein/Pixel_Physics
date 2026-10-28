@@ -1,0 +1,408 @@
+twr-c1-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c1-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c2-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c2-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c3-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c3-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c4-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c4-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c5-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c5-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c6-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c6-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c7-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c7-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c8-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c8-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c9-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c9-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c10-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c10-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c11-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c11-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c12-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c12-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c13-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c13-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c14-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c14-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c15-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c15-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c16-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c16-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c17-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c17-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c18-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c18-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c19-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c19-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c20-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c20-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c21-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c21-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c22-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c22-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c23-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c23-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c24-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c24-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c25-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c25-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c26-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c26-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c27-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c27-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c28-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c28-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c29-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c29-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c30-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c30-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c31-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c31-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c32-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-c32-X-played_bed-s1 exam 1 played_bed 1-1 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-old-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 old
+twr-old-X-played_bed-s1 exam 1 played_bed 1-1 600000 old
+twr-std-T-lab_herbs-s1 exam 1 lab_herbs 1-1 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-T-lab_far_mix-s1 exam 1 lab_far_mix 1-1 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-X-herb_first_colony-s1 exam 1 herb_first_colony 1-1 600000 std
+twr-std-X-played_bed-s1 exam 1 played_bed 1-1 600000 std
+twr-c1-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c1-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c2-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c2-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c3-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c3-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c4-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c4-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c5-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c5-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c6-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c6-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c7-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c7-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c8-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c8-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c9-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c9-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c10-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c10-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c11-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c11-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c12-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c12-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c13-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c13-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c14-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c14-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c15-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c15-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c16-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c16-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c17-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c17-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c18-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c18-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c19-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c19-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c20-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c20-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c21-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c21-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c22-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c22-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c23-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c23-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c24-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c24-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c25-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c25-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c26-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c26-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c27-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c27-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c28-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c28-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c29-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c29-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c30-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c30-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c31-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c31-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c32-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-c32-X-played_bed-s2 exam 1 played_bed 2-2 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-old-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 old
+twr-old-X-played_bed-s2 exam 1 played_bed 2-2 600000 old
+twr-std-T-lab_herbs-s2 exam 1 lab_herbs 2-2 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-T-lab_far_mix-s2 exam 1 lab_far_mix 2-2 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-X-herb_first_colony-s2 exam 1 herb_first_colony 2-2 600000 std
+twr-std-X-played_bed-s2 exam 1 played_bed 2-2 600000 std
+twr-c1-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c1-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c1-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c1_pool.txt
+twr-c2-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c2-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c2-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c2_pool.txt
+twr-c3-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c3-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c3-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c3_pool.txt
+twr-c4-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c4-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c4-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c4_pool.txt
+twr-c5-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c5-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c5-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c5_pool.txt
+twr-c6-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c6-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c6-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c6_pool.txt
+twr-c7-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c7-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c7-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c7_pool.txt
+twr-c8-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c8-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c8-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c8_pool.txt
+twr-c9-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c9-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c9-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c9_pool.txt
+twr-c10-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c10-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c10-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c10_pool.txt
+twr-c11-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c11-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c11-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c11_pool.txt
+twr-c12-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c12-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c12-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c12_pool.txt
+twr-c13-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c13-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c13-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c13_pool.txt
+twr-c14-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c14-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c14-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c14_pool.txt
+twr-c15-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c15-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c15-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c15_pool.txt
+twr-c16-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c16-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c16-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c16_pool.txt
+twr-c17-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c17-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c17-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c17_pool.txt
+twr-c18-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c18-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c18-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c18_pool.txt
+twr-c19-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c19-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c19-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c19_pool.txt
+twr-c20-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c20-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c20-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c20_pool.txt
+twr-c21-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c21-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c21-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c21_pool.txt
+twr-c22-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c22-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c22-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c22_pool.txt
+twr-c23-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c23-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c23-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c23_pool.txt
+twr-c24-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c24-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c24-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c24_pool.txt
+twr-c25-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c25-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c25-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c25_pool.txt
+twr-c26-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c26-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c26-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c26_pool.txt
+twr-c27-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c27-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c27-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c27_pool.txt
+twr-c28-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c28-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c28-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c28_pool.txt
+twr-c29-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c29-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c29-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c29_pool.txt
+twr-c30-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c30-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c30-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c30_pool.txt
+twr-c31-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c31-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c31-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c31_pool.txt
+twr-c32-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-c32-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-c32-X-played_bed-s3 exam 1 played_bed 3-3 600000 scratch/inrun/genomes/twinrank/t_fama_c32_pool.txt
+twr-old-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 old PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-old-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 old
+twr-old-X-played_bed-s3 exam 1 played_bed 3-3 600000 old
+twr-std-T-lab_herbs-s3 exam 1 lab_herbs 3-3 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-T-lab_far_mix-s3 exam 1 lab_far_mix 3-3 200000 std PP_BED_W=448,PP_MIND_DOOR_OPEN=drop,PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+twr-std-X-herb_first_colony-s3 exam 1 herb_first_colony 3-3 600000 std
+twr-std-X-played_bed-s3 exam 1 played_bed 3-3 600000 std
