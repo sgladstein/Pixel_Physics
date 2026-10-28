@@ -1203,7 +1203,7 @@ lab (0.15) repeat at all. Saved the four rank-0 carries as `scratch/inrun/genome
 hand-built ant, 6 boxes x 8 seeds at 600k, every brain on the same build so the controls are paired with the
 judged. Measures as named at 03:40Z (lived, alive at 600k, starved / (founders + births)).
 
-## 2026-10-28 (06:05Z): exam `x2` -- env2 made std_pool worse; the donor check did not replicate; homepick hurt
+## 2026-10-28 (05:55Z): exam `x2` -- env2 made std_pool worse; the donor check did not replicate; homepick hurt
 
 `x2-1028` (built 4d1f9fcf, 04:53-05:52Z, 336 lines, about 64 core-hours). Data: `data-1027/x2/lab600k.csv`;
 `python3 x2an.py` in that folder reprints every line. std_pool's and the hand-built ant's 48 rows came out
@@ -1232,7 +1232,7 @@ what 24 rounds do is drift, and the drift is downhill for the game. env1's w6 is
 and it starves a smaller share (p = 0.011, a guard measure, so not a pass); it does not become the lab ant (B1
 needs a pool that beats std_pool). Lab default unchanged.
 
-### env3 (launched 06:10Z): select on what the game asks, not on the bed
+### env3 (launched 05:56Z): select on what the game asks, not on the bed
 
 Founder std_pool, 32 colonies x 24 rounds, all with donor600 (as s_d6, the reference), `shapeopen=1` back, and the
 famine twins as their own lab cases (`labcase=lab_herbs,lab_famine_scatter,lab_famine_trickle`):
