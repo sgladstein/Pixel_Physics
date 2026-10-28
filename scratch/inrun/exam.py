@@ -106,7 +106,10 @@ def lab(job):
     box, sd = job
     out = subprocess.run([LAB_BIN, f'founders={F}', f'scenario={box}', f'seed={sd}', f'after={AFTER}'], capture_output=True,
                          text=True, env={**os.environ, **ENV, 'RAYON_NUM_THREADS': '1',
-                                         'PIXEL_PHYSICS_LAB_SCENARIOS': 'assets/lab_scenarios'}).stdout
+                                         # the game's boxes unless a job names another folder (the watchdog's twinrank,
+                                         # 2026-10-28, runs the selection twins in scratch/inrun/labscen through here)
+                                         'PIXEL_PHYSICS_LAB_SCENARIOS': ENV.get('PIXEL_PHYSICS_LAB_SCENARIOS',
+                                                                                'assets/lab_scenarios')}).stdout
     line = next((l for l in out.splitlines() if l.startswith('RESULT')), '')
     kv = dict(x.split('=', 1) for x in line.split()[1:])
     return dict(box=box, seed=sd, **kv)
