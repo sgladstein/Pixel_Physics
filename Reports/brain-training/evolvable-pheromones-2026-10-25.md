@@ -711,3 +711,40 @@ Suggestive at n = 8, not a result. **The proposed rerun therefore uses the wide 
 same bed the trained pools are judged on): PF4's set-up, `PP_BED_W=448 patches=20000:100:250`, scored on deliveries
 whose trip began at the heap, ~5 h on 4 cores. Pass bar, fixed now: the free arm's garden value (stage B on that score)
 >= 1.2x the deaf arm's AND its best meets criteria 2 and 3. Fail: close the third channel on today's evidence.
+
+### 9.14 PF4 on far food: the signalling arm won 1.56x and reinvented a food trail, but missed the reliance bar (2026-10-28)
+
+The owner chose the far-food test (card, 01:48Z). Set-up as PF4 (A and B deaf in both arms; free hears the third
+plane, dense start, gentle operator plus CHANMUT, EVALS=2, 16 colonies x 40 generations, seed 42) on the wide bed
+(`PP_BED_W=448`, `patches=20000:100:250`), ranked and judged on **deliveries whose trip began at the heap**
+(`SCORE=heaphome`). Ran on two GitHub runners (`.github/train-jobs/pf4w.batch`, ref main 597a9943, 03:28-06:16Z):
+the lane container suspends while the session is idle, and twice lost the run at generation 1. Judged by `garden.py`
+(`SCORE=heaphome PATCHES=20000:100:250 DEAFALSO=A,B`, `PP_BED_W=448`) with a local build of the same code. Data:
+`Reports/data/evolvable-pheromones-2026-10-27/pf4w/`. Pictures: https://claude.ai/artifact/NcXbVeF8P1ndpiojacYnj7.
+
+**Pre-registered bar** (§9.13, fixed before launch): garden stage B free >= 1.2x deaf AND the free best meets
+criteria 2 and 3. **Result: 1.56x (819 vs 527), but criteria 2 and 3 missed on magnitude. FAILED.**
+
+| free best (g39 `c00`), 16 garden worlds | median heap deliveries | lower than normal | change |
+|---|---|---|---|
+| normal | 779 | | |
+| deaf to the channel | 663.5 | 12/16 | -15% (bar -20%) |
+| map 40 columns off | 650 | 15/16 | -17% (bar -20%) |
+| constant 0.02 | 706.5 | 12/16 | -9% (bar -20%) |
+
+- **Criterion 1 passes strongly: a laden-only food trail.** Emit census: laden 0.69 (away 0.69, at the nest 0.71),
+  empty 0.09 (at the nest 0.01): 7.8x by sender state. The arm reinvented B's meaning on the new channel.
+- **Head to head on 16 more fresh worlds (5,000,500-515), each arm's best, medians, sign tests (5 measures, Bonferroni
+  p < 0.01):** heap deliveries 798 vs 545 (free higher 15/16, p < 0.001); starved 62 vs 158 (free lower 16/16,
+  p < 0.001); alive 79 vs 65 (13/16, p = 0.02); larder kJ 134 vs 105 (12/16, p = 0.08); all deliveries 1,779 vs 1,273
+  (14/16, p = 0.004). The re-carry share was 21-24% in all three arms.
+- **The free best, deafened:** heap deliveries 670 (lower than hearing 14/16, p = 0.004) and still above the deaf best
+  (551 mean). Its starvation is unchanged by deafness (57 vs 62). So the trail is worth ~15% to the colony that evolved
+  it, and the rest of the 1.35-1.56x arm gap is what else that run evolved: one run per arm, so possibly search luck.
+- **In training** (median colony, generations 35-39): heap deliveries 748 vs 506, alive 78 vs 60, starved 61 vs 168.
+  The free arm laid the third plane heavily from generation 10 (median ~150k-255k per colony); the deaf arm also kept
+  laying it (~115k-140k), which it cannot hear, so the bill was not selected out on this bed.
+- **Reading.** On far food a state-dependent signal forms, receivers use it, and the signalling arm ends up the
+  better forager, the first time on any bed. The reliance bar of 20% was not met (15-17%). By the rule fixed before
+  the run this is a fail; the owner was asked (card 09:40Z) whether to replicate (E4 on the far bed, 6+6 runs of 40
+  generations on runners), close as the bar says, or accept it.
