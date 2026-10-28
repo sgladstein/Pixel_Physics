@@ -1,0 +1,250 @@
+{
+ "free": [
+  {
+   "run": "e4/x/e4_free_4/e4_free_4",
+   "gen": "e4/x/e4_free_4/e4_free_4/g039",
+   "top": [
+    "c00.raw.txt",
+    "c03.raw.txt",
+    "c14.raw.txt",
+    "c15.raw.txt"
+   ],
+   "best": "c15.raw.txt",
+   "value": 684.46875,
+   "kj": 68.59375,
+   "tank": 10.6725,
+   "extinct": 0,
+   "deaf_lower": 11,
+   "shift_lower": 13,
+   "const_lower": 15,
+   "census": {
+    "all": 0.482,
+    "at_nest empty": 0.524,
+    "at_nest laden": 0.125,
+    "away empty": 0.633,
+    "away laden": 0.087,
+    "depth>0 empty": 0.58,
+    "depth>0 laden": 0.125,
+    "empty": 0.627,
+    "energy 0.0": 0.622,
+    "energy 0.1": 0.62,
+    "energy 0.2": 0.614,
+    "energy 0.3": 0.618,
+    "energy 0.4": 0.627,
+    "energy 0.5": 0.624,
+    "energy 0.6": 0.606,
+    "energy 0.7": 0.595,
+    "energy 0.8": 0.58,
+    "energy 0.9": 0.438,
+    "home_dist 0.0": 0.364,
+    "home_dist 0.1": 0.38,
+    "home_dist 0.2": 0.373,
+    "home_dist 0.3": 0.413,
+    "home_dist 0.4": 0.376,
+    "home_dist 0.5": 0.358,
+    "home_dist 0.6": 0.351,
+    "home_dist 0.7": 0.572,
+    "home_dist 0.8": 0.452,
+    "home_dist 0.9": 0.559,
+    "laden": 0.094,
+    "surface empty": 0.628,
+    "surface laden": 0.089
+   },
+   "max_state_ratio": 6.670212765957447,
+   "C_median": {
+    "normal": 742.5,
+    "deaf": 655.0,
+    "shift": 668.0,
+    "const": 646.5
+   },
+   "criteria": {
+    "information": true,
+    "deaf": false,
+    "shift": false,
+    "const": false
+   },
+   "communicates": false
+  },
+  {
+   "run": "e4/x/e4_free_5/e4_free_5",
+   "gen": "e4/x/e4_free_5/e4_free_5/g039",
+   "top": [
+    "c08.raw.txt",
+    "c07.raw.txt",
+    "c06.raw.txt",
+    "c00.raw.txt"
+   ],
+   "best": "c00.raw.txt",
+   "value": 632.71875,
+   "kj": 88.915625,
+   "tank": 14.615,
+   "extinct": 0,
+   "deaf_lower": 11,
+   "shift_lower": 10,
+   "const_lower": 12,
+   "census": {
+    "all": 0.135,
+    "at_nest empty": 0.007,
+    "at_nest laden": 0.47,
+    "away empty": 0.03,
+    "away laden": 0.531,
+    "depth>0 empty": 0.003,
+    "depth>0 laden": 0.457,
+    "empty": 0.029,
+    "energy 0.0": 0.046,
+    "energy 0.1": 0.035,
+    "energy 0.2": 0.032,
+    "energy 0.3": 0.036,
+    "energy 0.4": 0.035,
+    "energy 0.5": 0.043,
+    "energy 0.6": 0.056,
+    "energy 0.7": 0.067,
+    "energy 0.8": 0.108,
+    "energy 0.9": 0.204,
+    "home_dist 0.0": 0.241,
+    "home_dist 0.1": 0.223,
+    "home_dist 0.2": 0.244,
+    "home_dist 0.3": 0.181,
+    "home_dist 0.4": 0.184,
+    "home_dist 0.5": 0.188,
+    "home_dist 0.6": 0.225,
+    "home_dist 0.7": 0.095,
+    "home_dist 0.8": 0.047,
+    "home_dist 0.9": 0.156,
+    "laden": 0.523,
+    "surface empty": 0.03,
+    "surface laden": 0.53
+   },
+   "max_state_ratio": 18.03448275862069,
+   "C_median": {
+    "normal": 616.0,
+    "deaf": 529.0,
+    "shift": 575.0,
+    "const": 555.0
+   },
+   "criteria": {
+    "information": true,
+    "deaf": false,
+    "shift": false,
+    "const": false
+   },
+   "communicates": false
+  },
+  {
+   "run": "e4/x/e4_free_6/e4_free_6",
+   "gen": "e4/x/e4_free_6/e4_free_6/g039",
+   "top": [
+    "c13.raw.txt",
+    "c15.raw.txt",
+    "c11.raw.txt",
+    "c04.raw.txt"
+   ],
+   "best": "c04.raw.txt",
+   "value": 784.59375,
+   "kj": 75.01875,
+   "tank": 8.1475,
+   "extinct": 1,
+   "deaf_lower": 12,
+   "shift_lower": 13,
+   "const_lower": 11,
+   "census": {
+    "all": 0.141,
+    "at_nest empty": 0.0,
+    "at_nest laden": 0.324,
+    "away empty": 0.029,
+    "away laden": 0.536,
+    "depth>0 empty": 0.0,
+    "depth>0 laden": 0.331,
+    "empty": 0.027,
+    "energy 0.0": 0.017,
+    "energy 0.1": 0.013,
+    "energy 0.2": 0.012,
+    "energy 0.3": 0.015,
+    "energy 0.4": 0.017,
+    "energy 0.5": 0.024,
+    "energy 0.6": 0.035,
+    "energy 0.7": 0.047,
+    "energy 0.8": 0.142,
+    "energy 0.9": 0.277,
+    "home_dist 0.0": 0.145,
+    "home_dist 0.1": 0.179,
+    "home_dist 0.2": 0.188,
+    "home_dist 0.3": 0.184,
+    "home_dist 0.4": 0.181,
+    "home_dist 0.5": 0.224,
+    "home_dist 0.6": 0.244,
+    "home_dist 0.7": 0.146,
+    "home_dist 0.8": 0.1,
+    "home_dist 0.9": 0.106,
+    "laden": 0.503,
+    "surface empty": 0.028,
+    "surface laden": 0.521
+   },
+   "max_state_ratio": 18.62962962962963,
+   "C_median": {
+    "normal": 827.0,
+    "deaf": 778.0,
+    "shift": 685.5,
+    "const": 771.0
+   },
+   "criteria": {
+    "information": true,
+    "deaf": false,
+    "shift": false,
+    "const": false
+   },
+   "communicates": false
+  }
+ ],
+ "deaf": [
+  {
+   "run": "e4/x/e4_deaf_4/e4_deaf_4",
+   "gen": "e4/x/e4_deaf_4/e4_deaf_4/g039",
+   "top": [
+    "c14.raw.txt",
+    "c04.raw.txt",
+    "c11.raw.txt",
+    "c07.raw.txt"
+   ],
+   "best": "c07.raw.txt",
+   "value": 706.5625,
+   "kj": 53.875,
+   "tank": 11.06875,
+   "extinct": 0
+  },
+  {
+   "run": "e4/x/e4_deaf_5/e4_deaf_5",
+   "gen": "e4/x/e4_deaf_5/e4_deaf_5/g039",
+   "top": [
+    "c01.raw.txt",
+    "c02.raw.txt",
+    "c07.raw.txt",
+    "c10.raw.txt"
+   ],
+   "best": "c07.raw.txt",
+   "value": 622.53125,
+   "kj": 114.571875,
+   "tank": 11.9225,
+   "extinct": 0
+  },
+  {
+   "run": "e4/x/e4_deaf_6/e4_deaf_6",
+   "gen": "e4/x/e4_deaf_6/e4_deaf_6/g039",
+   "top": [
+    "c04.raw.txt",
+    "c13.raw.txt",
+    "c12.raw.txt",
+    "c09.raw.txt"
+   ],
+   "best": "c04.raw.txt",
+   "value": 615.6875,
+   "kj": 134.703125,
+   "tank": 17.1809375,
+   "extinct": 0
+  }
+ ],
+ "n_communicating": 0,
+ "guard": 1.078563449275735,
+ "t": 0.8945896979344713,
+ "verdict": "DEAD END"
+}

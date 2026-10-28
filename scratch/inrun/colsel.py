@@ -355,6 +355,17 @@ assert LABGATE is None or LAB, 'labgate= needs +lab'
 # repeats (scratch/inrun/selaudit.py, or the log here) before trusting it as a gate.
 DONOR_LONG = next((tuple(float(v) for v in x.split('=', 1)[1].split(':')) for x in EXTRA if x.startswith('donor600=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
+# donorlab=FRAMES[:Q[:A,B]] (teacher lane, 2026-10-28; off by default): donor600's check run in lab boxes instead of on the
+# bed -- after the gates (and after donor600= if both are set), each remaining candidate's carry lands in each of the
+# lab scenarios A,B (default lab_herbs,lab_far_mix from LAB_DIR) on the lab case's own seeds and runs FRAMES frames
+# after landing; candidates whose (alive at the end, mean headcount), summed over the boxes, is at or above the Q-th
+# percentile (default 50) stay donors. Logged to OUT/donorlab.csv. **Why**: six held-out exams on 2026-10-28 (x1-x6,
+# the game's six boxes at 600k): every pool 24 rounds of selection produced landed level with or below its founder --
+# k3c23 6/30 against std_pool, env2 s_d6 10/22, env4 f_w6 8/23 against its own founder -- and the watchdog lane found
+# no training case, donor600's bed check included, ranks donors by survival (311 donors, every case within +-0.25).
+# The exam's boxes are lab boxes; this puts a long lab run between a candidate and the next generation.
+DONOR_LAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('donorlab=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('donorlab=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
 # scaleopen=1 / SCALE_OPEN=1 (teacher lane, 2026-10-25): score only the nest's OPEN cells against the need. nest1-1025's scalegate
@@ -485,7 +496,7 @@ def seed_of(kind, c, r=0, k=0, own=False):
     c*1000+10r+k met colony c+1's from round 100, and each labcase= scenario (c*1000+10(r+100(k+1))) took colony
     c+k+1's first lab seed every round. Training below round 99 and the lab case below round 100 keep their old
     seeds, so earlier controls stay reusable; past those rounds, and for labcase=, each kind has its own range."""
-    if kind in ('train', 'lab', 'labcase') and not own:
+    if kind in ('train', 'lab', 'labcase', 'labl') and not own:
         c = wc(c)
     if kind == 'train':
         return c if r == 0 else (c * 1000 + r if r < 99 else 10_000_000 + c * 1000 + r)
@@ -495,6 +506,8 @@ def seed_of(kind, c, r=0, k=0, own=False):
         return c * 1000 + r * 10 + k if r < 100 else 20_000_000 + c * 10_000 + r * 10 + k
     if kind == 'labcase':
         return 30_000_000 + c * 100_000 + r * 100 + k
+    if kind == 'labl':  # donorlab=
+        return 50_000_000 + c * 10_000 + r * 10 + k
     if kind == 'long':
         return 40_000_000 + c * 1000 + r
     raise ValueError(kind)
@@ -559,6 +572,21 @@ def long_alive(c, r, carry_c):
         al = []
     shutil.rmtree(d, ignore_errors=True)
     return (al[-1], round(sum(al) / len(al), 2)) if al else (0, 0.0)
+
+
+def lab_long(c, r, carry_c):
+    """donorlab=: (alive at the end, mean headcount), summed over its boxes, of one carry FRAMES after landing."""
+    import re
+    scens = DONOR_LAB[2].split(',') if len(DONOR_LAB) > 2 else ['lab_herbs', 'lab_far_mix']
+    al = lv = 0.0
+    for k, sc in enumerate(scens):
+        out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={seed_of("labl", c, r, k)}',
+                              f'after={int(float(DONOR_LAB[0]))}'], capture_output=True, text=True,
+                             env={**os.environ, **LAB_ENV, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
+        m = re.search(r'RESULT alive=(\d+) lived=([\d.]+)', out)
+        if m:
+            al, lv = al + int(m.group(1)), lv + float(m.group(2))
+    return (int(al), round(lv, 2))
 
 
 def carried(rdir):
@@ -894,6 +922,21 @@ for r in range(R0, R):
                     for c in donors:
                         f.write(f'{r},{c},{int(DONOR_LONG[0])},{lv[c][0]},{lv[c][1]},{int(c in kept)}\n')
                 print(f'round {r}: donor600 ' + ' '.join(f'c{c}={lv[c][0]}/{lv[c][1]}' for c in donors) + f' -> {kept}', flush=True)
+                donors = kept
+            if DONOR_LAB is not None and len(donors) > 1:
+                with ThreadPoolExecutor(P) as ex:
+                    lv = dict(zip(donors, ex.map(lambda c: lab_long(c, r, carry[c]), donors)))
+                q = float(DONOR_LAB[1]) if len(DONOR_LAB) > 1 else 50.0
+                srt = sorted(lv.values())
+                bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
+                kept = [c for c in donors if lv[c] >= bar] or donors
+                new_l = not os.path.exists(f'{OUT}/donorlab.csv')
+                with open(f'{OUT}/donorlab.csv', 'a') as f:
+                    if new_l:
+                        f.write('round,colony,frames,alive_end,lived,kept\n')
+                    for c in donors:
+                        f.write(f'{r},{c},{int(float(DONOR_LAB[0]))},{lv[c][0]},{lv[c][1]},{int(c in kept)}\n')
+                print(f'round {r}: donorlab ' + ' '.join(f'c{c}={lv[c][0]}/{lv[c][1]}' for c in donors) + f' -> {kept}', flush=True)
                 donors = kept
             for i, b in enumerate(order[half:][::-1]):  # worst first
                 if not donors:
