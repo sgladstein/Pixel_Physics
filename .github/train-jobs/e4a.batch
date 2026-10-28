@@ -1,0 +1,15 @@
+# E4 on far food (pheromones lane; Reports/brain-training/evolvable-pheromones-2026-10-25.md §9.15; Scott chose
+# "Repeat it 6 times on runners" 2026-10-28 13:30Z). pf4w's set-up exactly (same ref, bed, operator, 40 generations),
+# replicates R=1..6 at SEED=100+R, split over two batches (e4a: R=1-3, e4b: R=4-6) so it holds 6 of the 20 shared
+# runner slots, not 10. Verdict fixed before launch: garden.py over all twelve (SCORE=heaphome PATCHES=20000:100:250
+# DEAFALSO=A,B, PP_BED_W=448, one local build of this ref), its rule unchanged: SIGNALS FORM if >= 3/6 free bests meet
+# criteria 1-3 (deaf/shift/const each lower by >= 20% on >= 12/16) and free/deaf geomean >= 0.90; DEAD END if 0/6;
+# else INCONCLUSIVE. Second question, also fixed now: the signalling arm forages better if free stage B > its paired
+# deaf in 6/6 (sign test p = 0.031); 5/6 (p = 0.22) is not a result.
+ref=597a99435a5752b2188f78d7f4dfd2fef38491ca
+e4_free_1 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge free 16 40 100000 assets/minds/std_pool.txt P=4 SEED=101 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
+e4_deaf_1 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge deaf 16 40 100000 assets/minds/std_pool.txt P=4 SEED=101 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
+e4_free_2 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge free 16 40 100000 assets/minds/std_pool.txt P=4 SEED=102 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
+e4_deaf_2 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge deaf 16 40 100000 assets/minds/std_pool.txt P=4 SEED=102 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
+e4_free_3 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge free 16 40 100000 assets/minds/std_pool.txt P=4 SEED=103 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
+e4_deaf_3 PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_GROUND=0.03:0.05 PP_BED_W=448 emerge deaf 16 40 100000 assets/minds/std_pool.txt P=4 SEED=103 EVALS=2 SCORE=heaphome PATCHES=20000:100:250 MUT=0.013:0.25:1 CHANMUT=0.013:1.0 DEAFALSO=A,B ZERO=2410-2444 FILL=0.05 CHAN=alarm ALARM=train EVERY=10 LISTEN=4 HARNESS=2
