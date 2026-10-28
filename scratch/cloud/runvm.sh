@@ -33,7 +33,7 @@ for k in 0 1 2 3 4; do
         timeout 1800 python3 scratch/cloud/inrun_cloud.py pull $nm $dest 2>&1 | tail -2; exit 0
       fi
       echo "$(date -u +%H:%M) $nm gone with $c of $n jobs: relaunching with --resume $nm"
-      prev=$nm
+      prev=${prev:+$prev,}$nm  # the whole chain: a finished job line in any earlier launch is skipped (inrun_cloud)
       break
     fi
     sleep 120

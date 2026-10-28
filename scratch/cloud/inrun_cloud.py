@@ -76,7 +76,22 @@ fi
 log "built in $(( $(date +%s) - T0 )) s"
 sed "s/[[:space:]]*$//" "${ARGS#jobs=}" > $W/jobs.txt || { log "no jobs file"; echo no-jobs > $W/done.txt; put $W/done.txt DONE; echo "@@DONE no-jobs" | tty; sleep 600; shutdown -h now; exit 1; }
 put $W/jobs.txt jobs.txt
+# have OBJECT: is runs/OBJECT in the bucket (metadata only)
+have() {
+  TOK=$(curl -sf -H "Metadata-Flavor: Google" $MD/service-accounts/default/token | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])') || return 1
+  curl -sf -o /dev/null -H "Authorization: Bearer $TOK" "https://storage.googleapis.com/storage/v1/b/$BUCKET/o/runs%2F$(echo $1 | sed 's#/#%2F#g')"
+}
 if [ -n "$RESUME" ]; then
+  # RESUME may be a comma list of every earlier launch of this batch (runvm.sh passes the chain); a job line one of
+  # them already finished (its jobs/OUT.tgz is in the bucket) is not run again, and partial/ comes from the last one.
+  # Pull every name in the chain.
+  : > $W/jobs.left
+  while read -r l; do o=${l%% *}; d=""
+    for rn in ${RESUME//,/ }; do have "$rn/jobs/$o.tgz" && d=$rn; done
+    if [ -n "$d" ]; then log "skip $o: done in $d"; else echo "$l" >> $W/jobs.left; fi
+  done < $W/jobs.txt
+  mv $W/jobs.left $W/jobs.txt
+  RESUME=${RESUME##*,}
   for o in $(cut -d' ' -f1 $W/jobs.txt); do
     get "$RESUME/partial/$o.tgz" $W/tgz/$o-r.tgz && tar -C $W/out -xzf $W/tgz/$o-r.tgz && log "resumed $o from $RESUME at round $(python3 -c "import json;print(json.load(open('$W/out/$o/state.json'))['r'])")"
     rm -f $W/tgz/$o-r.tgz
