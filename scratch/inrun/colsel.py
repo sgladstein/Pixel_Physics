@@ -304,8 +304,14 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
+    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
     EXTRA_CASES.append(k)
+# +craterfull (nest lane, 2026-10-28): the crater case, counting the hole with what fills it (nestcount `crater_full`:
+# the crumbs and food in the sky-open space under a widened mouth, as well as its open air). Use it in place of +crater.
+# **Why**: the trained ant cuts the door's rim and its mouth widens from 5 to 9-12 cells, but the crumb pile fills the
+# hole, so at the 200k judge `crater` sees ~42 cells of a ~190-cell crater (std_pool, 16 exam worlds; the hand-built
+# ant 0 both ways). The colsel.csv/cg.csv `crater` column then holds the full count. Unset: the run unchanged.
+CRATER_FULL = 'craterfull' in EXTRA_CASES
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 # +lab (teacher lane, 2026-10-24): each round, every colony's carry also lands in lab boxes through the lab's own code
 # (examples/labsurvive.rs), and its mean headcount over the LAB_AFTER frames after landing (labsurvive `lived`, in tenths), summed over LAB_SCENS, is a case. **Why**: the
@@ -550,7 +556,7 @@ def result(rdir, frames):
             dug, pit = int(n['dug']), int(n['pit'])
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
-            n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
+            n.get('nestcuts_late') or 0, n.get('crater_full' if CRATER_FULL else 'crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
             roomshape.score(rdir) if n else 0.0, killed, slay,
             nest_scale(rdir, n.get('nest_open' if SCALE_OPEN else 'nest', 0)) if n else 0.0)
 
@@ -574,7 +580,7 @@ def cases(v):
     (DIG=nest: kept late cuts and nest size; DIG=cuts: raw late cuts and rooms)."""
     c = (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
     c = c + (-v[12],) if SPOIL else c
-    c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
+    c = c + (-v[11],) if 'crater' in EXTRA_CASES or CRATER_FULL else c
     c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
     c = c + (v[14],) if 'shape' in EXTRA_CASES else c
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c

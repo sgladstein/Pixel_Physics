@@ -5,9 +5,9 @@ from math import comb
 from statistics import median
 
 A, B = list(csv.DictReader(open(sys.argv[1]))), list(csv.DictReader(open(sys.argv[2])))
-key = lambda r: (r.get('world') or (r['box'] + ':' + r['seed']), r['frame'])
+key = lambda r: (r.get('world') or (r['box'] + ':' + r['seed']), r.get('frame', '0'))
 b = {key(r): r for r in B}
-M = ['alive', 'starved', 'nest_open', 'crater', 'crumbs', 'rooms', 'ants_in']
+M = ["alive", "starved", "nest_open", "crater", "crumbs", "rooms", "ants_in"] + (["deliveries"] if "deliveries" in A[0] else [])
 
 
 def sign_p(w, l):
@@ -18,8 +18,8 @@ def sign_p(w, l):
     return min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2 ** n)
 
 
-for fr in sorted({r['frame'] for r in A}, key=int):
-    pairs = [(r, b[key(r)]) for r in A if r['frame'] == fr and key(r) in b]
+for fr in sorted({r.get('frame', '0') for r in A}, key=int):
+    pairs = [(r, b[key(r)]) for r in A if r.get('frame', '0') == fr and key(r) in b]
     print(f'frame {fr}: {len(pairs)} pairs')
     for m in M:
         x = [(float(p[m]), float(q[m])) for p, q in pairs]

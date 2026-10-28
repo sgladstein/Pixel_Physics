@@ -18,7 +18,7 @@
 //!     field     a food cell taken into the crop away from home (v: its worth)
 //!     deliver   a trip cell put down at the nest: the game's own delivery (`trip_deliveries`)
 //!     churn     any other food cell put down within 12 columns of the nest
-//!     eat       the crop's digestion paid this ant v (face worth)
+//!     eat       the crop's digestion paid this ant v (face worth); x,y where its head is
 //!     death     v: the cause's index
 //! out/map_fNNNNNNN.txt  `x0 y0 w h`, then rows of `.` open / `a` animal / `f` provisions / `#` other, the nest box
 //! out/surface.txt       the datum, one row per column
@@ -1744,12 +1744,16 @@ fn main() {
                 _ => {}
             }
         }
-        for (who, worth, _) in w.digest_log.as_mut().unwrap().drain(..) {
+        let digested: Vec<_> = w.digest_log.as_mut().unwrap().drain(..).collect();
+        for (who, worth, _) in digested {
             if let Some(s) = spiders.as_mut().filter(|s| s.ids.contains(&who)) {
                 s.digested(who, worth);
                 continue;
             }
-            writeln!(ev, "{frame},{who},eat,0,0,{worth},0").unwrap();
+            // x,y: the eater's head now (nest lane, 2026-10-27; was 0,0), so a reader can tell food eaten at home --
+            // the larder going down -- from food eaten in the field. Read only.
+            let (ex, ey) = w.organism(who).and_then(|s| s.chain.first().copied()).unwrap_or((0, 0));
+            writeln!(ev, "{frame},{who},eat,{ex},{ey},{worth},0").unwrap();
             eaten.push_back((frame, worth as f64));
         }
         if let Some(s) = spiders.as_mut() {
