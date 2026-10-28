@@ -6285,6 +6285,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   signals they came to depend on (deaf/misplaced/constant cost 2-15x food), yet deaf controls foraged 1.4-2.2x better,
   not because of the emission bill; opening the channel to a good forager cost it 13%. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`, `PP_EMIT_FREE`,
   `PIXEL_PHYSICS_A_DIFFUSE`, `PIXEL_PHYSICS_ALARM_GROUND`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
+  The PF4 positive control (A and B deaf in both arms) failed (§9.12); rechecked (§9.13), its 1.8x was mostly
+  re-carried food counted as fresh deliveries (42% of the deaf arm's), 1.16x on food from the heap, and the same loop
+  is 28-34% of the trained pools' deliveries.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder

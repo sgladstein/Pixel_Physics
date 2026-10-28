@@ -1,0 +1,17 @@
+['std', 'w500001'] deliver=3424 source=1952 deliver=959 churn=369 fdrop=144 pick_deliver=1397 loop_share=0.28
+['std', 'w500002'] deliver=4966 source=2727 deliver=1498 churn=559 fdrop=182 pick_deliver=2093 loop_share=0.30
+['std', 'w500003'] deliver=3925 source=2119 deliver=1204 churn=467 fdrop=135 pick_deliver=1731 loop_share=0.31
+['std', 'w500004'] deliver=5155 source=2604 deliver=1641 churn=717 fdrop=193 pick_deliver=2282 loop_share=0.32
+['std', 'w500005'] deliver=2896 source=1610 deliver=846 churn=331 fdrop=109 pick_deliver=1221 loop_share=0.29
+['std', 'w500006'] deliver=3858 source=2179 deliver=1076 churn=461 fdrop=142 pick_deliver=1553 loop_share=0.28
+['std', 'w500007'] deliver=3935 source=2177 deliver=1115 churn=468 fdrop=175 pick_deliver=1574 loop_share=0.28
+['std', 'w500008'] deliver=3362 source=2016 deliver=821 churn=380 fdrop=145 pick_deliver=1224 loop_share=0.24
+['std', 'w500009'] deliver=4333 source=2305 deliver=1360 churn=457 fdrop=211 pick_deliver=1933 loop_share=0.31
+['std', 'w500010'] deliver=4151 source=2240 deliver=1231 churn=495 fdrop=185 pick_deliver=1688 loop_share=0.30
+['std', 'w500011'] deliver=3020 source=1794 deliver=745 churn=323 fdrop=158 pick_deliver=1131 loop_share=0.25
+['std', 'w500012'] deliver=4846 source=2752 deliver=1314 churn=591 fdrop=189 pick_deliver=1893 loop_share=0.27
+['std', 'w500013'] deliver=4143 source=2403 deliver=1079 churn=460 fdrop=201 pick_deliver=1684 loop_share=0.26
+['std', 'w500014'] deliver=4748 source=2701 deliver=1333 churn=530 fdrop=184 pick_deliver=1942 loop_share=0.28
+['std', 'w500015'] deliver=4469 source=2480 deliver=1237 churn=559 fdrop=193 pick_deliver=1818 loop_share=0.28
+['std', 'w500016'] deliver=3937 source=2324 deliver=1015 churn=440 fdrop=158 pick_deliver=1513 loop_share=0.26
+MEDIAN deliver=4040 deliver_from_source=2272 deliver_from_deliver=1160 deliver_from_churn=464 deliver_from_fdrop=178 pick_deliver=1686 loop_share=0.28
