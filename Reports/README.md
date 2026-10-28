@@ -6378,7 +6378,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (0.22) repeat from world to world; starvation repeats at 0.03 while the world sets it at 0.24, so no starvation
   count a round keeps can select. A quarter to two thirds of trained colonies' deliveries are cells re-carried at
   the door (the Nest lane's `homepick` counts them once); counting once reorders home8 increasingly by round
-  (Spearman 0.96 -> 0.64 over 3 rounds). Kept-cell scores audited for kJ. Islands screen pending.
+  (Spearman 0.96 -> 0.64 over 3 rounds). Kept-cell scores audited for kJ. Screens vs clean1 k3 (32 x 48): islands
+  keep more colonies alive (23 of 30 pairs) but starve no less and still fall to one family (round 38 vs 17), and
+  the winner loses to std_pool at 600k in the game boxes (6 of 31); case weights starved more (9 of 32 better); the
+  first one-world-per-round run was void (no per-colony births' stream; inrun `sseed=` fixes it), rerun pending.
 
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
