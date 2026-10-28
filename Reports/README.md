@@ -6288,6 +6288,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   The PF4 positive control (A and B deaf in both arms) failed (§9.12); rechecked (§9.13), its 1.8x was mostly
   re-carried food counted as fresh deliveries (42% of the deaf arm's), 1.16x on food from the heap, and the same loop
   is 28-34% of the trained pools' deliveries.
+  On far food (§9.14, wide bed, heap 100-250 out, scored on heap food) the signalling arm won 1.56x and
+  reinvented a laden-only trail (7.8x), but its colony relied on it only 15-17%: fails the pre-set 20% bar.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
