@@ -441,6 +441,19 @@ LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
 assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# labscore=alive:AFTER[:K] (teacher lane + watchdog lane, 2026-10-28; off by default): a lab run is scored on the colony
+# alive AFTER frames after landing, less K x the ants that starved (default K 0), in place of the mean headcount over
+# LAB_AFTER. **Why**: the watchdog lane reran env1 c's 28 r23 carries on their own lab seeds to 300k; the 15k headcount
+# ranks them against mean alive at 150-300k at Spearman +0.03 (against alive at 300k -0.14, its rank 0 dead in both
+# boxes), because headcount rises with a hatching boom that then starves (a median 67% of what they hatch). Alive at
+# 100k ranks them at +0.57 (+0.41), alive100k - 0.1 x starved +0.59 (+0.47); full subtraction (K 1) -0.03, since every
+# trained colony starves thousands, though it alone puts all 8 hand-built runs above every trained one. About 13x the
+# lab run's cost at 100k. Logged in the same `lab`/`lab2_*` columns (alive in tenths, as lived was).
+LAB_SCORE = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('labscore=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('labscore=')]
+if LAB_SCORE:
+    assert LAB_SCORE[0] == 'alive' and len(LAB_SCORE) in (2, 3), 'labscore=alive:AFTER[:K]'
+    LAB_AFTER = LAB_SCORE[1]
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
 LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split('=', 1) for kv in x[len('setenv='):].split(','))
@@ -489,6 +502,11 @@ def lab_alive(c, r, carry_c, scens=None, kind='lab', case=0):
     for k, sc in enumerate(scens or LAB_SCENS):
         out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={seed_of(kind, c, r, case + k)}', f'after={LAB_AFTER}'],
                              capture_output=True, text=True, env={**os.environ, **LAB_ENV, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
+        if LAB_SCORE:
+            m = re.search(r'RESULT alive=(\d+) lived=[\d.]+ peak=\d+ starved=(\d+)', out)
+            k = float(LAB_SCORE[2]) if len(LAB_SCORE) > 2 else 0.0
+            tot += round(10 * (int(m.group(1)) - k * int(m.group(2)))) if m else 0
+            continue
         m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
         tot += round(10 * float(m.group(1))) if m else 0  # tenths: whole ants rounded every early-dying colony to one value
     return tot
