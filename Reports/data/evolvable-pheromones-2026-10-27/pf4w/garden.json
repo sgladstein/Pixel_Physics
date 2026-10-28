@@ -1,0 +1,90 @@
+{
+ "free": [
+  {
+   "run": "/tmp/claude-0/-home-user-Pixel-Physics/8d486e07-5b12-5ad1-8921-406fe13a749e/scratchpad/pf4wr/x/free/pf4w_free",
+   "gen": "/tmp/claude-0/-home-user-Pixel-Physics/8d486e07-5b12-5ad1-8921-406fe13a749e/scratchpad/pf4wr/x/free/pf4w_free/g039",
+   "top": [
+    "c10.raw.txt",
+    "c01.raw.txt",
+    "c00.raw.txt",
+    "c15.raw.txt"
+   ],
+   "best": "c00.raw.txt",
+   "value": 819.46875,
+   "kj": 143.909375,
+   "tank": 44.42625,
+   "extinct": 0,
+   "deaf_lower": 12,
+   "shift_lower": 15,
+   "const_lower": 12,
+   "census": {
+    "all": 0.25,
+    "at_nest empty": 0.011,
+    "at_nest laden": 0.71,
+    "away empty": 0.097,
+    "away laden": 0.686,
+    "depth>0 empty": 0.028,
+    "depth>0 laden": 0.755,
+    "empty": 0.088,
+    "energy 0.0": 0.156,
+    "energy 0.1": 0.121,
+    "energy 0.2": 0.092,
+    "energy 0.3": 0.07,
+    "energy 0.4": 0.057,
+    "energy 0.5": 0.064,
+    "energy 0.6": 0.07,
+    "energy 0.7": 0.106,
+    "energy 0.8": 0.207,
+    "energy 0.9": 0.282,
+    "home_dist 0.0": 0.232,
+    "home_dist 0.1": 0.305,
+    "home_dist 0.2": 0.289,
+    "home_dist 0.3": 0.295,
+    "home_dist 0.4": 0.334,
+    "home_dist 0.5": 0.365,
+    "home_dist 0.6": 0.34,
+    "home_dist 0.7": 0.196,
+    "home_dist 0.8": 0.29,
+    "home_dist 0.9": 0.211,
+    "laden": 0.689,
+    "surface empty": 0.094,
+    "surface laden": 0.681
+   },
+   "max_state_ratio": 7.829545454545454,
+   "C_median": {
+    "normal": 779.0,
+    "deaf": 663.5,
+    "shift": 650.0,
+    "const": 706.5
+   },
+   "criteria": {
+    "information": true,
+    "deaf": false,
+    "shift": false,
+    "const": false
+   },
+   "communicates": false
+  }
+ ],
+ "deaf": [
+  {
+   "run": "/tmp/claude-0/-home-user-Pixel-Physics/8d486e07-5b12-5ad1-8921-406fe13a749e/scratchpad/pf4wr/x/deaf/pf4w_deaf",
+   "gen": "/tmp/claude-0/-home-user-Pixel-Physics/8d486e07-5b12-5ad1-8921-406fe13a749e/scratchpad/pf4wr/x/deaf/pf4w_deaf/g039",
+   "top": [
+    "c13.raw.txt",
+    "c08.raw.txt",
+    "c12.raw.txt",
+    "c00.raw.txt"
+   ],
+   "best": "c12.raw.txt",
+   "value": 526.96875,
+   "kj": 91.83125,
+   "tank": 13.314375,
+   "extinct": 0
+  }
+ ],
+ "n_communicating": 0,
+ "guard": 1.5550613769791852,
+ "t": NaN,
+ "verdict": "DEAD END"
+}

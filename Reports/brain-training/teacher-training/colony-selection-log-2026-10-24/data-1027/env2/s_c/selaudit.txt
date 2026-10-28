@@ -1,0 +1,38 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/074507f3-3bc6-5b2b-9fd4-4417d230c2c7/scratchpad/env2/s_c: 24 rounds, 32 colonies, cases ['home8', 'starved', 'nestcuts_late', 'nest', 'spoil', 'crater', 'shape', 'scale', 'lab', 'lab2_lab_herbs']
+donors: distinct donors per round median 4.0 (range 3-5); passed dig gate median 30.0
+retest (kept-twice colonies, 22 round pairs): Spearman r -> r+1 [90% bootstrap]
+   home8            0.19 [ 0.05, 0.32]
+   starved          0.04 [-0.10, 0.17]
+   nestcuts_late   -0.03 [-0.14, 0.08]
+   nest             0.21 [ 0.05, 0.35]
+   spoil           -0.00 [-0.14, 0.13]
+   crater          -0.03 [-0.16, 0.10]
+   shape           -0.01 [-0.12, 0.11]
+   scale            0.26 [ 0.16, 0.36]
+   lab              0.01 [-0.13, 0.14]
+   lab2_lab_herbs   0.02 [-0.12, 0.16]
+   ranksum          0.05 [-0.10, 0.20]
+weight (share of the survival rank-sum) | pressure on kept half, on donors (sd, + = better)
+   home8             12% | +0.29 +0.22
+   starved           13% | +0.46 +0.34
+   nestcuts_late     15% | +0.49 +0.60
+   nest              19% | +0.64 +0.87
+   spoil             10% | +0.32 +0.49
+   crater             9% | +0.25 +0.06
+   shape              4% | +0.14 -0.17
+   scale              6% | +0.24 +0.91
+   lab                7% | +0.27 +0.98
+   lab2_lab_herbs     5% | +0.15 -0.05
+child vs donor, same round (368 pairs; pairs share donors and rounds, so p is optimistic)
+   home8           child better   162 worse   206  median    -146.0  sign p=2.5e-02
+   starved         child better   177 worse   191  median      -8.5  sign p=5.0e-01
+   nestcuts_late   child better   171 worse   197  median     -14.0  sign p=1.9e-01
+   nest            child better   154 worse   213  median     -49.0  sign p=2.4e-03
+   spoil           child better   162 worse   199  median      -2.0  sign p=5.8e-02
+   crater          child better   184 worse   182  median      +0.5  sign p=9.6e-01
+   shape           child better   148 worse   135  median      +0.0  sign p=4.8e-01
+   scale           child better   151 worse   207  median      -0.1  sign p=3.6e-03
+   lab             child better   159 worse   207  median     -34.0  sign p=1.4e-02
+   lab2_lab_herbs  child better   187 worse   179  median      +5.0  sign p=7.1e-01
+luck: children take 46% of the top half (50% = no information)

@@ -6288,6 +6288,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   The PF4 positive control (A and B deaf in both arms) failed (§9.12); rechecked (§9.13), its 1.8x was mostly
   re-carried food counted as fresh deliveries (42% of the deaf arm's), 1.16x on food from the heap, and the same loop
   is 28-34% of the trained pools' deliveries.
+  On far food (§9.14, wide bed, heap 100-250 out, scored on heap food) the signalling arm won 1.56x and
+  reinvented a laden-only trail (7.8x), but its colony relied on it only 15-17%: fails the pre-set 20% bar.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
@@ -6451,7 +6453,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   frames: the best (pruned to 804 links) keeps 13 ants against std_pool's 3.8 (24/24) and the hand-built 38. The
   per-link bill starves a fifth of a one-tank landing at ~1,500 links (grants=3 hides it), yet std_pool bill-free
   still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
-  itself gets 41%. So: the landing bill plus missing senses, not the scorer. Tools in `scratch/copytest/`.
+  itself gets 41%, against the hand-built ant's own 50% under other dice (addendum): the shortfall sits in turning round,
+  picking up and digging. So: the landing bill plus three rare moves, not the scorer. Tools in `scratch/copytest/`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
