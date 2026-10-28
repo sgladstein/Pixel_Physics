@@ -1154,3 +1154,19 @@ Interim milestone: beat std_pool on the same 48 pairs. One exam of one brain is 
 at r23, lived paired over the 6 boxes x 8 seeds at 600k: s_d6 against s_c, s_d6hp and s_d6nr against s_d6
 (Bonferroni over 3, p < 0.0167), and each against std_pool for the ratchet. Guard: garden open nest not lower.
 Jobs: `scratch/inrun/jobs/env2.txt`.
+
+### Famine twins for selection (03:35Z)
+
+Two selection cases in `scratch/inrun/labscen`, twins of the exam's famine boxes, which stay held out:
+`lab_famine_scatter` (scattered_larder's food budget, colony at x 400, shallower soil, scatter over 30-450) and
+`lab_famine_trickle` (feast_and_famine's 74% of idle burn for one colony of 52 at x 256: 2 windfall cells every
+1,000 frames at x 290, 24 every 12,000 at x 60). Positive control, seed 2, colsel's own 15k after landing:
+
+| case | hand-built ant: lived, alive | std_pool: lived, alive |
+|---|---|---|
+| lab_famine_scatter | 51.4, 48 | 16.6, 2 |
+| lab_famine_trickle | 33.3, 23 | 16.5, 3 |
+
+So the cases separate the brain that holds out in a famine from one that does not, inside colsel's 15k budget. They
+go into the next batch's `labscens=`, and the copy-test lane fits its generalist copy on them (not on the exam
+boxes; c3 was fitted on the exam's own famine boxes at seeds 1-4, so its wins there are not held out at box level).
