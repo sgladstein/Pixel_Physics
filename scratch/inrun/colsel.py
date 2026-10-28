@@ -447,12 +447,29 @@ LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split(
            if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT', 'PP_CARRY', 'PP_HOMEFAR'))}
 
 
+# oneworld=1 (selection lane, 2026-10-28): every colony plays the SAME world in a round -- training seed, food
+# distance draws, heaps and the lab case's seeds are colony 1's -- and a new one each round, so a round's ranking
+# compares colonies on one test instead of on 32 different ones. **Why**: in clean1 the world sets a colony's
+# starvation more than the colony does (Spearman between two arms on the same seeds 0.24; the same colony kept into a
+# fresh world 0.03, `measures.py`), so with a world each, starvation ranks worlds. The common garden keeps a world per
+# colony (it pairs arms by colony). Costs nothing: the same runs, other seeds. Off, every seed is as before.
+ONEWORLD = 'oneworld=1' in EXTRA
+EXTRA = [x for x in EXTRA if x != 'oneworld=1']
+
+
+def wc(c):
+    """The colony whose world colony c plays this round: itself, or colony 1's under oneworld=1."""
+    return 1 if ONEWORLD else c
+
+
 def seed_of(kind, c, r=0, k=0):
     """Every world seed the driver hands out, in one place (selection review, 2026-10-27). The old seeds were sums
     that ran into each other: training c*1000+r met the garden's c*1000+99 at round 99, the lab case's
     c*1000+10r+k met colony c+1's from round 100, and each labcase= scenario (c*1000+10(r+100(k+1))) took colony
     c+k+1's first lab seed every round. Training below round 99 and the lab case below round 100 keep their old
     seeds, so earlier controls stay reusable; past those rounds, and for labcase=, each kind has its own range."""
+    if kind in ('train', 'lab', 'labcase'):
+        c = wc(c)
     if kind == 'train':
         return c if r == 0 else (c * 1000 + r if r < 99 else 10_000_000 + c * 1000 + r)
     if kind == 'garden':
@@ -739,7 +756,7 @@ for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
-        cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
+        cr = C if not DISTS else [f'dist={random.Random(wc(c) * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
         # distramp= with patches=T:LO:HI (teacher lane, 2026-10-25; owner: food "farther from the nest (ideally still
         # always moving)"): the ramp moves the moving heap's range instead, patches=T:max(20, D/2):D for this round's
@@ -752,7 +769,7 @@ for r in range(R0, R):
             cr = [f'patches={x.split("=", 1)[1].split(":")[0]}:{max(20, dist_now // 2)}:{dist_now}' if x.startswith('patches=') else x
                   for x in cr]
         if HEAPS:
-            draw = lambda k: HEAPS[0] + 5 * random.Random(c * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
+            draw = lambda k: HEAPS[0] + 5 * random.Random(wc(c) * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
             cr = [f'dist={draw(0)}' if x.startswith('dist=') else x for x in cr] + [f'near={draw(1)}']
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
