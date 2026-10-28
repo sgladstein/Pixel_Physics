@@ -1265,3 +1265,35 @@ did move the herb case in both 100k arms (median doubled and tripled). Whether a
 (`scratch/inrun/jobs/x3.txt`, 336 lines), the three r23 rank-0 carries, the copy-test lane's generalist copy
 `g1-twins` (fitted on the four twins only, PR #975) and its specialist c3, std_pool and the hand-built ant, 6 boxes
 x 8 seeds at 600k, measures as named at 05:55Z.
+
+## 2026-10-28 (10:40Z): exam `x3` -- alive-at-100k selection made it worse; famine cases at 15k held level with std_pool; the generalist copy is still a specialist
+
+`x3-1028` (built b5860d0b, 09:29-10:31Z, 336 lines). Data: `data-1027/x3/lab600k.csv`, `python3 x3an.py`.
+std_pool's rows match x1's again; the hand-built ant's played_bed median moved 246.8 -> 242.6 (main carried plant
+changes by then), so this exam's pairs, all on one build, are the ones to read.
+
+| comparison (48 box-seeds) | lived | alive at 600k | starved share |
+|---|---|---|---|
+| t_fama (alive at 100k) vs t_fam | **7 / 21, p = 0.013 (worse)** | 10 / 14 | 21 / 16 |
+| t_famak (alive100k - 0.1 x starved) vs t_fam | 12 / 17, p = 0.46 | 9 / 15 | 16 / 20 |
+| t_fam vs std_pool | 20 / 14, p = 0.39 | 12 / 12 | 23 / 14 |
+| t_fama vs std_pool | 8 / 22, p = 0.016 | 9 / 15 | 22 / 16 |
+| g1-twins vs std_pool | 23 / 25 | **6 / 24, p = 0.0014 (worse)** | 21 / 26 |
+| g1-twins vs c3 | 20 / 24 | 11 / 10 | 25 / 23 |
+
+**No pool beats std_pool, and scoring the lab case on alive at 100k made the winner worse**, not better: the famine
+twins are dead by 100k for every colony, so that case went flat, and what selection did move -- the herb case,
+doubled -- did not carry to the game's herb box (t_fama herb_first_colony lived median 126 against t_fam's 188).
+t_fam is the first env from std_pool not to land below it (env2's s_d6, the same setup without the famine cases
+and shapeopen: 10 / 22); it is level, not a pass. The generalist copy g1-twins, fitted on the twins only, keeps the
+copy's split on held-out boxes: two_larders alive in 6 of 8 (std_pool 0), the plant boxes near zero (played_bed
+lived 1.7 against 154).
+
+### Exam `x4` (launched 10:45Z): a mixed pool
+
+The copies live where std_pool dies and die where it lives. A colony's pool can hold both: `mixh` is g1-twins x 30
+plus std_pool's 30 members (half the eggs carry each), `mixq` g1-twins x 10 plus the 30 (a quarter). Same exam, 96
+lines (`scratch/inrun/jobs/x4.txt`), on x3's build so x3's std_pool and hand-built rows pair with it. std_pool's
+members as raw genomes: `scratch/inrun/genomes/std_pool_raw/`. **Deciding measure, named before launch:** lived,
+paired against std_pool over the 48 box-seeds, Bonferroni over the two mixes; alive at 600k and starved share as
+guards. A pass makes it the candidate lab ant (B1), with a side-by-side picture first.
