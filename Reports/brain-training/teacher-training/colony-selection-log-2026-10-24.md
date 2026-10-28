@@ -1369,3 +1369,41 @@ labels x2, 983 links) and the Selection lane's 2-island winner (`selisl1_isl2c6_
 round 47). Same engine as x3, so x3's std_pool and hand-built rows pair with all three. Deciding measure: lived
 against std_pool (Bonferroni over 3); alive and starved share as guards; f_w6 also against its founder env1 w6c22
 (x1/x2 rows, same engine).
+
+## 2026-10-28 (13:55Z): exam `x6` -- env4's winner, copy g4 and the islands winner all land below or level with std_pool
+
+`x6-1028` (built 0e2f00f7, 13:15-13:35Z, 144 lines; std_pool and hand-built rows from x3, env1 w6 from x2, all the
+same engine). Data: `data-1027/x6/lab600k.csv`, `python3 x6an.py`.
+
+| comparison (48 box-seeds) | lived | alive at 600k | starved share |
+|---|---|---|---|
+| env4 f_w6 c31 vs std_pool | **6 / 25, p = 0.0009 (worse)** | 6 / 18, p = 0.023 | 12 / 25, p = 0.047 (fewer starve) |
+| env4 f_w6 c31 vs its founder env1 w6c22 | **8 / 23, p = 0.011 (worse)** | 6 / 18 | 23 / 19 |
+| copy g4 vs std_pool | 12 / 21 | 8 / 17 | 20 / 19 |
+| selisl1 isl2 c6 r47 vs std_pool | **6 / 25, p = 0.0009 (worse)** | 5 / 19, p = 0.0066 | 29 / 8, p = 0.00075 (more starve) |
+
+The islands winner was level with std_pool on the Selection lane's own check (garden 200k and the lab case at 15k);
+at 600k in the game boxes it is clearly below. g4 keeps g1's two_larders colony alive in 1 of 8 (g1 6 of 8) and
+beats std_pool in crowded_bench (lived median 294 against 198), below it elsewhere.
+
+**Six exams, one pattern: 24-48 rounds of selection lower the game score of whatever founds them** (k3c23, env1 c,
+env2's four arms, env3's alive arm, f_w6 against w6c22, isl2), and the one batch that held level (t_fam) did not
+repeat from another founder (f_w6, same setup). The bed's judges and the 600k bed check choose on something the
+game's boxes do not reward.
+
+### env5 (launched 14:00Z): a long lab-box check between a candidate and the next generation
+
+colsel `donorlab=FRAMES[:Q[:A,B]]` (new, off by default): after the gates, each donor candidate's carry lands in
+lab_herbs and lab_far_mix (selection twins, not exam boxes) on its own seeds and runs FRAMES after landing; the
+top half by (alive at the end, mean headcount) stay donors. Smoke-tested on 4 colonies x 2 rounds. t_fam's setup
+otherwise (its r23 c7, already examined in x3, is the control: the default path is unchanged, so a rerun would be
+identical):
+
+| arm | P | change against t_fam |
+|---|---|---|
+| e_dl | 21 | + `donorlab=200000` |
+| e_dlo | 21 | `donorlab=200000` in place of donor600 |
+| e_dl4 | 22 | `donorlab=400000` in place of donor600 |
+
+**Deciding measure, named before launch:** each arm's r23 rank-0 colony, lived paired over the 48 box-seeds at 600k
+against std_pool and against t_fam c7 (Bonferroni over 3 arms), alive and starved share as guards.
