@@ -1297,3 +1297,25 @@ lines (`scratch/inrun/jobs/x4.txt`), on x3's build so x3's std_pool and hand-bui
 members as raw genomes: `scratch/inrun/genomes/std_pool_raw/`. **Deciding measure, named before launch:** lived,
 paired against std_pool over the 48 box-seeds, Bonferroni over the two mixes; alive at 600k and starved share as
 guards. A pass makes it the candidate lab ant (B1), with a side-by-side picture first.
+
+## 2026-10-28 (11:00Z): exam `x4` -- a mixed pool lands between its parts, level with std_pool
+
+`x4-1028` (built f6e0ee5c, the x3 engine plus records only; 10:37-10:53Z, 96 lines). std_pool, hand-built and
+g1-twins rows copied from x3 into `data-1027/x4/lab600k.csv`; `python3 x4an.py`.
+
+| comparison (48 box-seeds) | lived | alive at 600k | starved share |
+|---|---|---|---|
+| mixh (half g1-twins) vs std_pool | 25 / 20, p = 0.55 | 9 / 18, p = 0.12 | 23 / 23 |
+| mixq (a quarter) vs std_pool | 21 / 21 | 7 / 17, p = 0.064 | 20 / 21 |
+| mixh vs g1-twins | 26 / 18 | **25 / 6, p = 0.0009** | 21 / 27 |
+
+Neither mix passes. Half the eggs on the copy buys two_larders (alive 3 of 8, lived median 6.9 against std_pool's
+0.4) and costs the plant boxes (crowded_bench 117 against 198, herb_first_colony 92 against 144). The two famine
+boxes that kill everyone fast (scattered_larder, feast_and_famine) do not move for any pool.
+
+**Where the day leaves G1.** Four batches and four exams: no trained, copied or mixed pool beats std_pool, and
+the hand-built ant is far ahead of all of them (lived median 200 against 58; 45 of 48 pairs). Selection on the bed
+drifts downhill (env1, env2), a game-like lab score did not fix it (env3), and the copies are specialists (x3, x4).
+Next: the copy-test lane is fitting one copy on both kinds of label -- the hand-built ant's moves in the famine
+twins, std_pool's own in the plant twins -- due about 13:30Z; it gets the exam, and if it is level or better it
+founds a batch with the famine cases (t_fam's setup, the one env that did not land below its founder).
