@@ -1344,3 +1344,28 @@ measure: lived against std_pool over the 48 box-seeds (Bonferroni over 2), alive
 **f_ow is void** (12:50Z): under `oneworld=1` inrun seeded the births' stream from the world's seed, so colonies
 sharing a carry in one world ran identically (Selection lane, selow1: 1-2 distinct outcomes a round). PR #979 adds
 `sseed=` and has colsel pass each colony its own. f_ow ran before it and is not examined; it is rerun after #979.
+
+## 2026-10-28 (13:20Z): env4 and exam x5 in; exam x6 launched
+
+**x5** (the copy-test lane's two-label copies, 96 lines, 11:30-11:50Z; std_pool and hand-built rows from x3, engine
+unchanged since b5860d0b): `data-1027/x5/lab600k.csv`, `python3 x5an.py`.
+
+| comparison (48 box-seeds) | lived | alive at 600k | starved share |
+|---|---|---|---|
+| g2 vs std_pool | 9 / 21, p = 0.043 | **4 / 20, p = 0.0015 (worse)** | 21 / 19 |
+| g3 (plant labels x3) vs std_pool | 15 / 19 | 9 / 16 | 17 / 25 |
+
+The plant labels brought std_pool's walk back and took g1's famine walk with it: two_larders alive in 0 and 1 of 8
+(g1 6 of 8). g3 beats std_pool in crowded_bench (lived median 232 against 198) and loses played_bed (95 against 154)
+and herb_first_colony (76 against 144).
+
+**env4** (built 4532a298; spot preemption at 11:53Z with the 96 exam lines done, the two colsel lines rerun whole on
+a resume VM, 11:53-13:11Z). Data: `data-1027/env4/`. f_w6: extinct per round median 2, garden r23 alive 71.5,
+starved 236.5 (t_fam's 70 / 270); rank 0 at r23 c31, saved as `scratch/inrun/genomes/env4_w6c31_pool.txt`. f_ow is
+void (above).
+
+**x6** (`scratch/inrun/jobs/x6.txt`, 144 lines): f_w6's c31, the copy-test lane's g4 (`copytest_g4.raw.txt`, famine
+labels x2, 983 links) and the Selection lane's 2-island winner (`selisl1_isl2c6_pool.txt`, k3 line + islands=2:4,
+round 47). Same engine as x3, so x3's std_pool and hand-built rows pair with all three. Deciding measure: lived
+against std_pool (Bonferroni over 3); alive and starved share as guards; f_w6 also against its founder env1 w6c22
+(x1/x2 rows, same engine).
