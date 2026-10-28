@@ -1088,7 +1088,7 @@ donor on lab 233 of 365 pairs). Whether it changed the game boxes is the decidin
 `scratch/inrun/genomes/copytest_c3_pruned.raw.txt` from PR #970, and the 16 lost baseline box sets), 6 boxes x 8
 seeds at 600k, one VM line per seed.
 
-## 2026-10-28 (03:30Z): exam `x1` at 600k -- every pool trained since std_pool is worse in the game; the 600k donor check is the one change that helped
+## 2026-10-28 (03:10Z): exam `x1` at 600k -- every pool trained since std_pool is worse in the game; the 600k donor check is the one change that helped
 
 `x1-1028` (VM, built at 7630b2e8): the four env1 rank-0 colonies at r23, the copy-test lane's pruned copy of the
 hand-built ant (`c3p`, ~804 billed links), and the 16 baseline box sets `g1base2-1027` lost to preemption; with
@@ -1141,7 +1141,7 @@ the windfall at all (two_larders' heap is 60 columns from the door and gets no d
 hand-built ant's and the paired sign test against it not significant (p >= 0.05), in 5 of 6 boxes, 8 seeds, 600k.
 Interim milestone: beat std_pool on the same 48 pairs. One exam of one brain is 48 runs, about 6 core-hours.
 
-### env2 (launched 03:40Z): the ratchet restarted from std_pool, with the donor check
+### env2 (launched 03:13Z): the ratchet restarted from std_pool, with the donor check
 
 | arm | change |
 |---|---|
