@@ -6199,6 +6199,8 @@ pub mod scratch_log {
         tail: Option<(i32, i32)>,
         spoil: bool,
         crop: u16,
+        /// `PP_SELFAGREE`: the labels the old ant earned on the same tick in a clone with other dice, if sampled.
+        alt: Option<Vec<usize>>,
     }
     thread_local! {
         static SHADOW: std::cell::RefCell<HashMap<OrganismId, Pending>> = std::cell::RefCell::new(HashMap::new());
@@ -6258,6 +6260,13 @@ pub mod scratch_log {
         let Some(p) = SHADOW.with(|s| s.borrow_mut().remove(&organism)) else { return };
         let lab = shadow_label(world, organism, &p);
         SHADOW_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        // `PP_SELFAGREE`: one `A` row per sampled tick -- frame, ant, the verb of the label the old ant earned (-1 none),
+        // the clone's, and whether the two label sets share an option. Read every tick, not sampled like `Q` rows.
+        if let Some(alt) = &p.alt {
+            let verb = |l: &[usize]| l.first().map_or(-1, |&i| p.opts[i].verb as i32);
+            let agree = u8::from(lab.iter().any(|i| alt.contains(i)) || (lab.is_empty() && alt.is_empty()));
+            cline(&format!("A,{},{},{},{},{}", world.frame, organism, verb(&lab), verb(alt), agree));
+        }
         let field = if lab.is_empty() { "-".to_string() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) };
         if !p.row.contains(",@L@") {
             return;
@@ -6326,6 +6335,7 @@ pub mod scratch_log {
             tail: st.and_then(|s| s.chain.last().copied()),
             spoil: st.is_some_and(|s| s.spoil.is_some()),
             crop: st.and_then(|s| s.crop).map_or(0, |c| c.cells),
+            alt: None,
             opts,
         };
         if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
@@ -6334,6 +6344,28 @@ pub mod scratch_log {
         if !p.row.is_empty() {
             SHADOW.with(|s| s.borrow_mut().insert(organism, p));
         }
+    }
+    /// SCRATCH (copy test, 2026-10-28): `PP_SELFAGREE=k`: under `PP_SHADOW`, one old-ant tick in k is also played in a
+    /// clone whose seed is XORed with `PP_SELFAGREE_XOR` (default 0x5e1fa62e), and the two labels compared (`A` rows).
+    /// The rate at which the old ant agrees with itself under other dice is the most any copy reading only this
+    /// tick's state could score (Σp² of its own choice), so it splits the copy test's 0.41 ceiling into the old ant's
+    /// own randomness and what the mind cannot see. `PP_SELFAGREE_XOR=0` is the positive control: it must agree 100%.
+    pub fn selfagree_take(world: &World, organism: OrganismId) -> bool {
+        static K: OnceLock<u64> = OnceLock::new();
+        let k = *K.get_or_init(|| std::env::var("PP_SELFAGREE").ok().map_or(0, |v| v.parse().expect("PP_SELFAGREE")));
+        k > 0 && SHADOW.with(|s| s.borrow().contains_key(&organism)) && rng::stream(world.seed, organism as u64, world.frame, 4447).next_u64().is_multiple_of(k)
+    }
+    pub fn selfagree_xor() -> u64 {
+        static X: OnceLock<u64> = OnceLock::new();
+        *X.get_or_init(|| std::env::var("PP_SELFAGREE_XOR").ok().map_or(0x5e1f_a62e, |v| v.parse().expect("PP_SELFAGREE_XOR")))
+    }
+    pub fn selfagree_store(clone: &World, organism: OrganismId) {
+        let alt = SHADOW.with(|s| s.borrow().get(&organism).map(|p| shadow_label(clone, organism, p)));
+        SHADOW.with(|s| {
+            if let (Some(p), Some(a)) = (s.borrow_mut().get_mut(&organism), alt) {
+                p.alt = Some(a);
+            }
+        });
     }
     pub static DROPWHY: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
     pub fn carry_report() -> String {

@@ -157,6 +157,8 @@ fn main() {
         // the nest (copy test, 2026-10-27; `trip_deliveries` is the foraging measure, PR 614).
         w.creature_stats.trip_deliveries
     );
+    // The copy log is buffered: without this a short run writes nothing and a long one loses its tail.
+    pixel_physics::sim::creature::mind::scratch_log::copy_flush();
 }
 
 /// `nestmap=` ([`main`]): the ground round the first nest, as `examples/inrun.rs`'s `write_nestmap` and

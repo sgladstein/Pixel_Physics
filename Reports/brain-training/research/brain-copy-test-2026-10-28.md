@@ -24,6 +24,8 @@ p = 1e-7) and the hand-built ant's **38.0** (lower on 24 of 24). Two separate th
    90% as well as an unconstrained network given the same senses (held-out P(label) 0.38 against 0.41), and that
    network itself gets only 41%. Adding what the hand-built ant did one decision earlier does not raise it
    (0.414 either way). Bill-free, the best copy (18.2) is still below the hand-built ant on 24 of 24 seeds.
+   **Corrected the same day (addendum):** the hand-built ant agrees with itself only 0.50 of the time under other
+   dice, so the inputs carry 83% of what is predictable; the shortfall is in turning round, picking up and digging.
 
 So the bottleneck is the training environment (the bill at a thin landing) plus something the scorer's inputs do
 not carry, not how the scorer combines them. That the missing piece is a *sense* is the likeliest reading of a
@@ -177,14 +179,41 @@ decision's label and per-option history added did not move (0.413 against 0.414)
 (backprop-through-time) fitter for the write gate, which `copyfit.py` does not have, is unlikely to pay. If someone
 builds one, the test above is the bar it must beat.
 
+## Addendum: how predictable is the hand-built ant itself? (same day)
+
+The 0.41 ceiling was read above as "the inputs miss things". It was not compared with the most any brain could score.
+`PP_SELFAGREE=k` (under `PP_SHADOW`) replays one hand-built tick in k in a clone of the world whose seed is XORed,
+and records whether the hand-built ant earned the same label (`A` rows in the copy log). That rate estimates Σp² of
+its own choice, which is exactly the best P(label) any predictor of this tick can reach. **Positive control:** the
+same replay with the seed unchanged (`PP_SELFAGREE_XOR=0`) agrees on 99.9% of 6,216 ticks.
+
+Held-out seeds 5-6, all three boxes, 60k frames, 1 tick in 20 (299,479 labelled ticks; mean over the six runs):
+
+| Move | Hand-built against itself | Ceiling (the mind's inputs) | c1 | c3 pruned | Ticks |
+|---|---|---|---|---|---|
+| All | **0.495** | 0.413 | 0.383 | 0.353 | 299,479 |
+| Step | 0.402 | 0.348 | 0.273 | 0.262 | 155,864 |
+| Rest | 0.600 | 0.502 | 0.518 | 0.466 | 127,312 |
+| Turn round | 0.512 | 0.269 | 0.262 | 0.201 | 12,927 |
+| Pick up | 0.494 | 0.331 | 0.263 | 0.366 | 1,909 |
+| Put down | 0.168 | 0.138 | 0.102 | 0.291 | 1,249 |
+| Dig | 0.487 | 0.068 | 0.038 | 0.146 | 218 |
+
+**This corrects the senses reading above.** The hand-built ant agrees with itself only half the time, because its
+walk is a weighted random pick by design. The mind's inputs already carry 83% of what is predictable (0.41 of
+0.50), and for stepping and resting, 95% of all ticks, the gap is small. The information the mind lacks is concentrated
+in three rare moves: turning round (0.27 of 0.51), picking up (0.33 of 0.49) and digging (0.07 of 0.49). The dig
+figure understates the mind, because `brain.py` drops the dig head's own features (index 45 and up), which the game's
+mind does read. What the hand-built ant reads at a turn-round and a pick-up that the mind does not is the next trace.
+
 ## What this means for training
 
 - The founding grant (`grants=3`) hides a cost selection never pays. It does not explain std_pool's collapse:
   bill-free, std_pool still dies.
 - A pool can be made to keep a colony alive by copying, and pruning is a large part of why. Copying alone does not
-  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. The likeliest
-  lever is an input the hand-built ant uses and the mind lacks. Which one was not traced; the come-home case
-  (`PP_HOMELOW`) is the precedent.
+  reach the hand-built ant, and neither the brain's shape nor more decisions of history closes the gap. Half of the
+  hand-built ant's choice is its own dice (addendum); what the mind lacks sits in turning round, picking up and
+  digging, which is where to look next.
 - The pruned copy is a usable founder, sitting between std_pool and the hand-built ant at 60k. It was not run to 600k.
 
 ## Tools left behind (scratch)

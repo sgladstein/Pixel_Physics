@@ -10,5 +10,7 @@ The report is [`../brain-copy-test-2026-10-28.md`](../brain-copy-test-2026-10-28
   The raw `TRACE` files (30k lines) were not kept.
 - `fits.json`: each fit's arguments, start and final scores (held-out P(label), by verb), and live links. Curves
   are dropped. Log names are `lab/<box>-<seed>.log` (shadow labels) and `dag/<copy>/<box>-<seed>.log` (relabelled).
+- `self-agreement.json`: the addendum's table, the hand-built ant's agreement with itself per move (mean over the six
+  held-out runs, total ticks), from `PP_SELFAGREE=20` copy logs.
 - `c3-pruned.raw.txt`: the best-living copy (c3 at `prox=0.2`), a layout-8 genome. Run it with
   `labsurvive founders=c3-pruned.raw.txt@c3:1`.
