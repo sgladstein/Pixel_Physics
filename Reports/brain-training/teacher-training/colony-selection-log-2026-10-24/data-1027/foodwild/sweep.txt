@@ -1,0 +1,43 @@
+# std_pool (or nomind=1 the hand-built ant), garden bed, sel=off, 200k, worlds 500001-500004; columns: arm world frame,alive starved deliveries
+# run 1: food=mix / food=all / foodwild before the founding-heap fix (w25 w50 rows superseded)
+mix 500001 200000,71 starved=236 deliv=3424
+mix 500003 200000,65 starved=316 deliv=3925
+mix 500004 200000,64 starved=258 deliv=5155
+mix 500002 200000,80 starved=291 deliv=4966
+all 500002 200000,0 starved=111 deliv=454
+all 500004 200000,0 starved=79 deliv=494
+all 500001 200000,0 starved=197 deliv=1579
+all 500003 200000,0 starved=265 deliv=3108
+w25 500004 200000,0 starved=24 deliv=0
+w50 500001 200000,0 starved=93 deliv=478
+w50 500002 200000,0 starved=98 deliv=771
+w25 500001 200000,75 starved=196 deliv=4367
+w50 500004 200000,0 starved=24 deliv=0
+w25 500002 200000,100 starved=280 deliv=4848
+w25 500003 200000,64 starved=315 deliv=3858
+oldall 500002 200000,0 starved=56 deliv=134
+oldall 500004 200000,0 starved=39 deliv=61
+w50 500003 200000,0 starved=280 deliv=2985
+oldall 500001 200000,75 starved=16 deliv=1221
+oldall 500003 200000,4 starved=84 deliv=1097
+oldmix 500001 200000,81 starved=18 deliv=1370
+oldmix 500002 200000,99 starved=8 deliv=1901
+oldmix 500003 200000,79 starved=1 deliv=1595
+oldmix 500004 200000,80 starved=6 deliv=1304
+# run 2: foodwild with the founding heap never wild
+w25 500004 200000,0 starved=286 deliv=4190
+w25 500003 200000,64 starved=315 deliv=3858
+w25 500001 200000,75 starved=196 deliv=4367
+w25 500002 200000,100 starved=280 deliv=4848
+w50 500001 200000,0 starved=93 deliv=478
+w50 500002 200000,0 starved=98 deliv=771
+w50 500003 200000,0 starved=280 deliv=2985
+oldw25 500001 200000,80 starved=18 deliv=1248
+w50 500004 200000,0 starved=286 deliv=4190
+oldw25 500002 200000,91 starved=6 deliv=1837
+oldw50 500001 200000,0 starved=39 deliv=37
+oldw50 500002 200000,0 starved=52 deliv=129
+oldw25 500003 200000,77 starved=3 deliv=1510
+oldw25 500004 200000,79 starved=5 deliv=1188
+oldw50 500003 200000,84 starved=6 deliv=1636
+oldw50 500004 200000,79 starved=5 deliv=1229

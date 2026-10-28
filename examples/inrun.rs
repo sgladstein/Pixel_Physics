@@ -824,6 +824,18 @@ fn main() {
     // pool from 3.6-7.3 ants lived to 37-101 (8/8 seeds), while the hand-built ant lived on them.
     const FOOD_ALL: [&str; 4] = ["provisions", "fruit", "windfall", "corpse"];
     let food_all = arg(&a, "food") == Some("all");
+    // `foodwild=P[:KINDS]` (Teacher lane, 2026-10-27, env1): with `patches=`, each jump's heap is, with chance P, one
+    // of KINDS (`+`-separated, default `windfall+corpse`, drawn evenly) instead of `food=`'s own material, from the same
+    // stream as `food=all`, so place and timing still match `food=mix` on the seed. A graded `food=all`: `food=all` is
+    // every heap uniform over four foods, and on held-out world 500001 it took std_pool from 74 alive at 100k on
+    // `food=mix` to extinct, so a batch started there would have nothing to select from. The founding heap is never wild.
+    // Unset: the run unchanged.
+    let food_wild: Option<(f32, Vec<String>)> = arg(&a, "foodwild").map(|v| {
+        let (p, k) = v.split_once(':').unwrap_or((v, "windfall+corpse"));
+        let p: f32 = p.parse().expect("foodwild=P[:KINDS]");
+        assert!((0.0..=1.0).contains(&p), "foodwild P in 0..=1");
+        (p, k.split('+').map(str::to_string).collect())
+    });
     let mut food_rng = train::Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5F0D);
     // SCRATCH (evolvable-pheromones lane, 2026-10-25): `patches=T:LO:HI` -- **one** food heap, on a random side at a
     // random distance LO..HI columns from the door, that jumps to a new side and distance every T frames; the old
@@ -1520,6 +1532,15 @@ fn main() {
                     patch_at = if x >= 8 && x < bw - 8 { (x, if east { food_mats.0 } else { food_mats.1 }) } else { (inrun::NEST + d, food_mats.0) };
                     if food_all {
                         patch_at.1 = FOOD_ALL[food_rng.below(FOOD_ALL.len())];
+                    } else if let Some((p, kinds)) = &food_wild {
+                        // Both draws every jump, so the stream does not depend on P.
+                        let (u, k) = (food_rng.unit(), food_rng.below(kinds.len()));
+                        // Never the founding heap: on 4 held-out worlds the hand-built ant died out in 3 under
+                        // `food=all`, every time the first heap (or the first two) was windfall or corpse -- 30
+                        // founders on 3 tanks cannot wait 20,000 frames for the next one (2026-10-27).
+                        if u < *p && fr > 1 { // frames count from 1, so the founding heap is the jump at frame 1
+                            patch_at.1 = kinds[k].as_str();
+                        }
                     }
                     writeln!(patch_log, "{fr},{},{}", patch_at.0, patch_at.1).unwrap();
                 }
