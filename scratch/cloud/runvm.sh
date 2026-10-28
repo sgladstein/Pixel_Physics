@@ -11,13 +11,16 @@ H=scratch/cloud
 for k in 0 1 2 3 4; do
   nm=$name; [ $k -gt 0 ] && nm=$name-r$k
   res=""; [ -n "$prev" ] && res="--resume $prev"
+  # ATTACH=1: the first VM is already running (the session that launched it was restarted and its runvm died with it,
+  # 2026-10-28 env6): skip its start and only wait, pull and relaunch
   for i in $(seq 1 100); do
+    [ $k -eq 0 ] && [ -n "${ATTACH:-}" ] && { echo "$(date -u +%H:%M) attached to $nm"; break; }
     out=$(python3 scratch/cloud/inrun_cloud.py start $nm jobs=$jobs --ref $ref --type c4d-highcpu-64 --disk 200 --hours ${HOURS:-3} $res 2>&1 | tail -1)
     echo "$(date -u +%H:%M) $out" | cut -c1-160
     echo "$out" | grep -q "^started" && break
     sleep 180
   done
-  sleep 240
+  [ $k -eq 0 ] && [ -n "${ATTACH:-}" ] || sleep 240
   while true; do
     o=$(timeout 60 python3 scratch/cloud/inrun_cloud.py status $nm 2>&1 | tail -1)
     if echo "$o" | grep -q '@@DONE'; then
