@@ -1815,6 +1815,12 @@ pub struct Minds {
 /// (the game) reads false; so does one with a single creature that walks by
 /// the game's rules, today's brain included.
 pub fn every_ant_has_one(world: &World) -> bool {
+    // SCRATCH (copy test, 2026-10-27): under `PP_SHADOW` / `PP_OLDLAB` the game ant acts (or labels in a clone), so it
+    // needs its ways in every harness, not only where the harness sets `build_ways` (inrun does; the lab did not, and a
+    // shadowed two_larders colony then lived 555 against the plain hand-built ant's 342 on seed 1).
+    if scratch_log::shadow_on() || scratch_log::oldlab_on() {
+        return false;
+    }
     let Some(m) = world.minds.as_ref().filter(|m| !m.is_empty() && !m.build_ways) else {
         return false;
     };
@@ -6193,6 +6199,8 @@ pub mod scratch_log {
         tail: Option<(i32, i32)>,
         spoil: bool,
         crop: u16,
+        /// `PP_SELFAGREE`: the labels the old ant earned on the same tick in a clone with other dice, if sampled.
+        alt: Option<Vec<usize>>,
     }
     thread_local! {
         static SHADOW: std::cell::RefCell<HashMap<OrganismId, Pending>> = std::cell::RefCell::new(HashMap::new());
@@ -6252,11 +6260,73 @@ pub mod scratch_log {
         let Some(p) = SHADOW.with(|s| s.borrow_mut().remove(&organism)) else { return };
         let lab = shadow_label(world, organism, &p);
         SHADOW_COUNTS[0].fetch_add(1, Ordering::Relaxed);
+        // SCRATCH (copy test, 2026-10-28): with the decision trace on (`labsurvive` `PP_DECLOG=1`), one `W` row for
+        // every tick the old ant earned a turn-round, a pick-up or a dig, and one in 20 others: frame, ant, the label's
+        // verb, then why its walk did what it did -- the outcome, the pull (`PULL_WHY_NAMES`) and its gain, the door
+        // reader (`DOOR_WHY_NAMES`) and its term, the scout weight and give-up flag, patience, persistence, the trail
+        // presence of the heading taken, the forage drive and the want. The question: at the moves the copy misses,
+        // which of the walk's reasons is the mind not shown?
+        if let Some(log) = world.decision_log.as_ref() {
+            let lv = lab.first().map_or(-1, |&i| p.opts[i].verb as i32);
+            let rare = matches!(lab.first().map(|&i| p.opts[i].verb), Some(Verb::TurnAround | Verb::PickUp | Verb::Dig));
+            let take = rare || rng::stream(world.seed, organism as u64, world.frame, 4448).next_u64().is_multiple_of(20);
+            if take {
+                if let Some(r) = log.iter().rev().find(|r| r.id == organism && r.frame < world.frame) {
+                    cline(&format!(
+                        "W,{},{},{},{},{},{},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{}",
+                        world.frame,
+                        organism,
+                        lv,
+                        r.frame,
+                        r.outcome as u8,
+                        r.pull_why,
+                        r.pull_gain,
+                        r.door_why,
+                        r.door_f,
+                        r.scout_w,
+                        u8::from(r.scout_home),
+                        r.patience,
+                        r.persist,
+                        r.chosen_route,
+                        r.drive,
+                        r.want,
+                        r.fill
+                    ));
+                }
+            }
+        }
+        // `PP_SELFAGREE`: one `A` row per sampled tick -- frame, ant, the verb of the label the old ant earned (-1 none),
+        // the clone's, and whether the two label sets share an option. Read every tick, not sampled like `Q` rows.
+        if let Some(alt) = &p.alt {
+            let verb = |l: &[usize]| l.first().map_or(-1, |&i| p.opts[i].verb as i32);
+            let agree = u8::from(lab.iter().any(|i| alt.contains(i)) || (lab.is_empty() && alt.is_empty()));
+            cline(&format!("A,{},{},{},{},{}", world.frame, organism, verb(&lab), verb(alt), agree));
+        }
         let field = if lab.is_empty() { "-".to_string() } else { format!("1|{}", lab.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(";")) };
         if !p.row.contains(",@L@") {
             return;
         }
-        let row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        let mut row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        // SCRATCH (copy test, 2026-10-28): with `PP_SHADOW_STATE=1` and the decision trace on, the old walk's own draw
+        // for the step it took this tick -- its exploration `k`, its persistence, and the score it gave each option's
+        // heading (`os=`, in option order, NaN for an option that is not a one-cell step) -- so the ceiling can be
+        // shown the hand-built ant's distribution itself (the positive control), and then each part of it.
+        if shadow_state_on() && row.contains(",S:") {
+            if let Some(r) = world.decision_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == organism && r.frame < world.frame)) {
+                let os: Vec<String> = p
+                    .opts
+                    .iter()
+                    .map(|o| {
+                        let d = (o.target.0 - p.head.0, o.target.1 - p.head.1);
+                        match crate::sim::creature::DIRS.iter().position(|&v| v == d) {
+                            Some(i) if r.opts & (1 << i) != 0 => format!("{:.3}", r.score[i]),
+                            _ => "NaN".into(),
+                        }
+                    })
+                    .collect();
+                row = format!("{row};k={:.4};pe={:.3};os={}", r.k, r.persist, os.join("/"));
+            }
+        }
         // `PP_SHADOW_SAMPLE=n`: keep one in n rows labelled a plain step or rest, every other labelled row; a kept row
         // is preceded by the ant's previous row marked settle=2 (memory context), as `PP_COPY_SAMPLE` does.
         static N: OnceLock<u64> = OnceLock::new();
@@ -6308,8 +6378,36 @@ pub mod scratch_log {
         CAPTURE.with(|c| *c.borrow_mut() = Some(String::new()));
         CARRY_LAB.with(|c| *c.borrow_mut() = "@L@".into());
         copy_decision(world, organism, (x, y), &ctx, &mem0, last0, &opts, &d);
-        let row = CAPTURE.with(|c| c.borrow_mut().take()).unwrap_or_default();
+        let mut row = CAPTURE.with(|c| c.borrow_mut().take()).unwrap_or_default();
         let st = world.organism(organism);
+        // SCRATCH (copy test, 2026-10-28): `PP_SHADOW_STATE=1` appends the old ant's own walk state, which no mind input
+        // carries, as an 18th field `S:k=v;...`, to ask whether it is what the copy's ceiling misses at turn-rounds
+        // and pick-ups: the two patiences (home, scout), the scout's give-up and dark flags, ticks stood still, ticks
+        // since the nest, the lagged trail-A memory, the anchor's offset from the head, the heading, and `home_away`.
+        if shadow_state_on() {
+            if let Some(s) = st {
+                let line = row.trim_end().to_string();
+                row = format!(
+                    "{line},S:hp={:.3};sp={:.3};sh={};sd={};st={};sn={};pm={:.3};ax={};ay={};hd={};ha={}",
+                    s.home_patience,
+                    s.scout_patience,
+                    u8::from(s.scout_home),
+                    u8::from(s.scout_dark),
+                    s.still_ticks,
+                    s.since_nest,
+                    s.phero_a_mem,
+                    s.forage_anchor.0 - x,
+                    s.forage_anchor.1 - y,
+                    s.heading,
+                    s.home_away
+                );
+                // With the decision trace on: the errand its walk was last pulled by (`PULL_WHY_NAMES`) and where to,
+                // from the head -- the walk's target, which no option feature names unless it is home or the last food.
+                if let Some(r) = world.decision_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == organism)) {
+                    row = format!("{row};pw={};px={};py={}", r.pull_why, r.pull_at.0 - x, r.pull_at.1 - y);
+                }
+            }
+        }
         let p = Pending {
             row: row.trim_end().to_string(),
             cells: opts.iter().map(|o| cell_key(world, o.target)).collect(),
@@ -6320,6 +6418,7 @@ pub mod scratch_log {
             tail: st.and_then(|s| s.chain.last().copied()),
             spoil: st.is_some_and(|s| s.spoil.is_some()),
             crop: st.and_then(|s| s.crop).map_or(0, |c| c.cells),
+            alt: None,
             opts,
         };
         if let Some(m) = world.minds.as_mut().and_then(|m| m.ants.get_mut(&organism)) {
@@ -6328,6 +6427,32 @@ pub mod scratch_log {
         if !p.row.is_empty() {
             SHADOW.with(|s| s.borrow_mut().insert(organism, p));
         }
+    }
+    /// SCRATCH (copy test, 2026-10-28): `PP_SELFAGREE=k`: under `PP_SHADOW`, one old-ant tick in k is also played in a
+    /// clone whose seed is XORed with `PP_SELFAGREE_XOR` (default 0x5e1fa62e), and the two labels compared (`A` rows).
+    /// The rate at which the old ant agrees with itself under other dice is the most any copy reading only this
+    /// tick's state could score (Σp² of its own choice), so it splits the copy test's 0.41 ceiling into the old ant's
+    /// own randomness and what the mind cannot see. `PP_SELFAGREE_XOR=0` is the positive control: it must agree 100%.
+    pub fn selfagree_take(world: &World, organism: OrganismId) -> bool {
+        static K: OnceLock<u64> = OnceLock::new();
+        let k = *K.get_or_init(|| std::env::var("PP_SELFAGREE").ok().map_or(0, |v| v.parse().expect("PP_SELFAGREE")));
+        k > 0 && SHADOW.with(|s| s.borrow().contains_key(&organism)) && rng::stream(world.seed, organism as u64, world.frame, 4447).next_u64().is_multiple_of(k)
+    }
+    pub fn selfagree_xor() -> u64 {
+        static X: OnceLock<u64> = OnceLock::new();
+        *X.get_or_init(|| std::env::var("PP_SELFAGREE_XOR").ok().map_or(0x5e1f_a62e, |v| v.parse().expect("PP_SELFAGREE_XOR")))
+    }
+    pub fn selfagree_store(clone: &World, organism: OrganismId) {
+        let alt = SHADOW.with(|s| s.borrow().get(&organism).map(|p| shadow_label(clone, organism, p)));
+        SHADOW.with(|s| {
+            if let (Some(p), Some(a)) = (s.borrow_mut().get_mut(&organism), alt) {
+                p.alt = Some(a);
+            }
+        });
+    }
+    pub fn shadow_state_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_SHADOW_STATE").is_ok_and(|v| v == "1"))
     }
     pub static DROPWHY: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
     pub fn carry_report() -> String {
@@ -6716,6 +6841,12 @@ pub mod scratch_log {
         static K: OnceLock<u64> = OnceLock::new();
         let k = *K.get_or_init(|| std::env::var("PP_OLDLAB_K").ok().map_or(4, |v| v.parse().expect("PP_OLDLAB_K")));
         rng::stream(world.seed, organism as u64, world.frame, 4446).next_u64().is_multiple_of(k)
+    }
+    /// SCRATCH (copy test, 2026-10-27): `PP_OLDLAB_ALL=1`: the old ant labels every sampled decision of a mind ant
+    /// (DAgger over its whole program, for copying the hand-built ant into a mind), not only its dig states.
+    pub fn oldlab_all() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_OLDLAB_ALL").is_ok_and(|v| v == "1"))
     }
     /// `PP_OLDLAB_EMPTY=1`: label only while the jaws are empty (no spoil carry; see `oldlab_empty_only`).
     pub fn oldlab_label_empty() -> bool {

@@ -41,10 +41,21 @@ fn main() {
     // hand-built ant keeps ~65, the trained pool ~17) one ant at a time. Unset: no line, the run unchanged.
     let trace: u64 = arg("trace").unwrap_or(0);
     let founders: String = arg("founders").expect("founders=LIST|std|old");
+    // `nestmap=DIR [nestat=F,F,...]` (nest lane, 2026-10-27): at each F frames after landing (default: the end, `after`),
+    // the ground round the first colony's door as `DIR/nestmap_fF.txt` and `DIR/occupants_fF.txt`, in
+    // `examples/inrun.rs`'s format, plus `DIR/surface.txt` and one `NESTAT` line (alive, starved so far). The map is
+    // **shifted so the door sits at column 128**, inrun's `NEST`, so `scratch/inrun/nestcount.py` and `roomshape.py`
+    // read a lab box unchanged. Built for the nest lane's baseline, which judges the trained nest beside the hand-built
+    // ant's in the game's own boxes, where labsurvive printed no nest at all. Unset: no file, the run unchanged.
+    let nestmap: Option<String> = arg("nestmap");
+    let nestat: Vec<u64> = arg::<String>("nestat").map_or(vec![after], |v| {
+        v.split(',').map(|x| x.parse().expect("nestat=F,F")).collect()
+    });
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| panic!("scenario {name}: {e}"));
     if let Some(sd) = arg::<u64>("seed") {
         sc.bed.seed = sd;
     }
+    let bed = sc.bed.clone();
     println!("labsurvive scenario={name} seed={} after={after} grant={grant} founders={founders}", sc.bed.seed);
     let mut lab = pixel_physics::lab::Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
@@ -101,9 +112,21 @@ fn main() {
     // bed where the whole colony starves (a colony that dies at 9,000 frames beats one that dies at 2,000).
     let (mut landed, mut peak, mut lived) = (None::<u64>, 0usize, 0u64);
     let s0 = lab.world.deaths_by_cause[starved];
+    // SCRATCH (copy test, 2026-10-28): `PP_DECLOG=1` turns the decision trace on (it draws nothing and changes no
+    // branch), so the shadow log's `W` rows can say why the old ant's walk did what it did. Only the last few frames
+    // are kept: a row is read on the ant's next tick.
+    let declog = std::env::var("PP_DECLOG").is_ok_and(|v| v == "1");
+    if declog {
+        lab.world.decision_log = Some(Vec::new());
+    }
     loop {
         lab.tick_for_harness();
         let f = lab.world.frame;
+        if declog && f.is_multiple_of(16) {
+            if let Some(log) = lab.world.decision_log.as_mut() {
+                log.retain(|r| r.frame + 4 >= f);
+            }
+        }
         let n = count(&lab);
         peak = peak.max(n);
         if landed.is_some() {
@@ -118,6 +141,12 @@ fn main() {
         if probe > 0 && landed.is_some_and(|l| f > l && (f - l).is_multiple_of(probe)) {
             probe_line(&lab, f - landed.unwrap());
         }
+        if let (Some(dir), Some(l)) = (&nestmap, landed) {
+            if f > l && nestat.contains(&(f - l)) {
+                write_nest(&lab, &bed, std::path::Path::new(dir), f - l);
+                println!("NESTAT f={} alive={} starved={}", f - l, count(&lab), lab.world.deaths_by_cause[starved] - s0);
+            }
+        }
         if trace > 0 && landed.is_some_and(|l| f > l && (f - l).is_multiple_of(trace)) {
             trace_lines(&lab, f - landed.unwrap());
         }
@@ -128,15 +157,86 @@ fn main() {
     let w = &lab.world;
     let births = w.creature_stats.births;
     println!(
-        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={} digs={} deliveries={}",
+        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={} digs={} deliveries={} trip_deliveries={}",
         count(&lab),
         lived as f64 / after.max(1) as f64,
         w.deaths_by_cause[starved] - s0,
         landed.map_or(-1, |l| l as i64),
         w.frame,
         w.creature_stats.digs,
-        w.creature_stats.deliveries
+        w.creature_stats.deliveries,
+        // Food bitten on a trip and put down at home, once each: `deliveries` also counts crumbs shuffled inside
+        // the nest (copy test, 2026-10-27; `trip_deliveries` is the foraging measure, PR 614).
+        w.creature_stats.trip_deliveries
     );
+    // The copy log is buffered: without this a short run writes nothing and a long one loses its tail.
+    pixel_physics::sim::creature::mind::scratch_log::copy_flush();
+}
+
+/// `nestmap=` ([`main`]): the ground round the first nest, as `examples/inrun.rs`'s `write_nestmap` and
+/// `write_occupants` write it (same window: 100 columns each side of the door, rows 40..128 below the box's own datum
+/// row less 48), with every column shifted so the door is at 128. `surface.txt` is the datum per shifted column.
+fn write_nest(lab: &pixel_physics::lab::Lab, bed: &pixel_physics::lab::scene::LabBox, dir: &std::path::Path, f: u64) {
+    use pixel_physics::sim::material;
+    use std::io::Write;
+    const NEST: i32 = 128;
+    const HW: i32 = 100;
+    let w = &lab.world;
+    std::fs::create_dir_all(dir).unwrap();
+    let door = w.nest_sites.first().map_or(bed.width / 2, |s| s.x);
+    let shift = door - NEST;
+    let surf = |x: i32| w.room_surface_at(x).unwrap_or(bed.ground_y);
+    let mut sf = std::fs::File::create(dir.join("surface.txt")).unwrap();
+    for x in 0..NEST + HW + 1 {
+        writeln!(sf, "{}", surf(x + shift)).unwrap();
+    }
+    let (y0, y1) = (surf(door) - 48, (surf(door) + 40).min(bed.height));
+    let food = w.materials.id_of("provisions");
+    let mut legend: Vec<String> = Vec::new();
+    let (mut rows, mut occ) = (Vec::new(), Vec::new());
+    for y in y0..y1 {
+        let (mut row, mut orow) = (String::new(), String::new());
+        for x in door - HW..=door + HW {
+            let c = w.get(x, y);
+            let id = c.organism_id();
+            let creature = w.materials.kind(c.material) == material::MaterialKind::Creature;
+            orow.push(if let Some(b) = (id != 0).then(|| w.organism(id).and_then(|s| s.brood)).flatten() {
+                ['e', 'l', 'p'][b.stage as usize]
+            } else if id != 0 || creature {
+                'a'
+            } else if Some(c.material) == food {
+                'f'
+            } else {
+                '.'
+            });
+            if id != 0 && w.organism(id).is_some_and(|s| w.species.get(s.species).creature.is_none()) {
+                row.push('%');
+                continue;
+            }
+            if id != 0 || Some(c.material) == food || creature {
+                row.push('?');
+                continue;
+            }
+            let name = w.materials.get(c.material).name.to_string();
+            let k = legend.iter().position(|n| *n == name).unwrap_or_else(|| {
+                legend.push(name);
+                legend.len() - 1
+            });
+            row.push(char::from(b'A' + k as u8));
+        }
+        rows.push(row);
+        occ.push(orow);
+    }
+    let mut m = std::fs::File::create(dir.join(format!("nestmap_f{f:07}.txt"))).unwrap();
+    writeln!(m, "{} {y0} {}", NEST - HW, legend.join(",")).unwrap();
+    for r in rows {
+        writeln!(m, "{r}").unwrap();
+    }
+    let mut o = std::fs::File::create(dir.join(format!("occupants_f{f:07}.txt"))).unwrap();
+    writeln!(o, "{} {y0}", NEST - HW).unwrap();
+    for r in occ {
+        writeln!(o, "{r}").unwrap();
+    }
 }
 
 /// One `probe=` line ([`main`]): the food trail and how far out the colony is.

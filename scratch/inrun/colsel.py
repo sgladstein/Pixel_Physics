@@ -304,8 +304,14 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
+    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
     EXTRA_CASES.append(k)
+# +craterfull (nest lane, 2026-10-28): the crater case, counting the hole with what fills it (nestcount `crater_full`:
+# the crumbs and food in the sky-open space under a widened mouth, as well as its open air). Use it in place of +crater.
+# **Why**: the trained ant cuts the door's rim and its mouth widens from 5 to 9-12 cells, but the crumb pile fills the
+# hole, so at the 200k judge `crater` sees ~42 cells of a ~190-cell crater (std_pool, 16 exam worlds; the hand-built
+# ant 0 both ways). The colsel.csv/cg.csv `crater` column then holds the full count. Unset: the run unchanged.
+CRATER_FULL = 'craterfull' in EXTRA_CASES
 SPOIL = os.environ.get('SPOIL') == '1' or 'spoil' in EXTRA_CASES
 # +lab (teacher lane, 2026-10-24): each round, every colony's carry also lands in lab boxes through the lab's own code
 # (examples/labsurvive.rs), and its mean headcount over the LAB_AFTER frames after landing (labsurvive `lived`, in tenths), summed over LAB_SCENS, is a case. **Why**: the
@@ -435,18 +441,52 @@ LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
 assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# labscore=alive:AFTER[:K] (teacher lane + watchdog lane, 2026-10-28; off by default): a lab run is scored on the colony
+# alive AFTER frames after landing, less K x the ants that starved (default K 0), in place of the mean headcount over
+# LAB_AFTER. **Why**: the watchdog lane reran env1 c's 28 r23 carries on their own lab seeds to 300k; the 15k headcount
+# ranks them against mean alive at 150-300k at Spearman +0.03 (against alive at 300k -0.14, its rank 0 dead in both
+# boxes), because headcount rises with a hatching boom that then starves (a median 67% of what they hatch). Alive at
+# 100k ranks them at +0.57 (+0.41), alive100k - 0.1 x starved +0.59 (+0.47); full subtraction (K 1) -0.03, since every
+# trained colony starves thousands, though it alone puts all 8 hand-built runs above every trained one. About 13x the
+# lab run's cost at 100k. Logged in the same `lab`/`lab2_*` columns (alive in tenths, as lived was).
+LAB_SCORE = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('labscore=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('labscore=')]
+if LAB_SCORE:
+    assert LAB_SCORE[0] == 'alive' and len(LAB_SCORE) in (2, 3), 'labscore=alive:AFTER[:K]'
+    LAB_AFTER = LAB_SCORE[1]
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
 LAB_ENV = {k: v for x in EXTRA if x.startswith('setenv=') for k, v in (kv.split('=', 1) for kv in x[len('setenv='):].split(','))
            if not k.startswith(('PP_BODYRULES', 'PP_HOMEEAT', 'PP_CARRY', 'PP_HOMEFAR'))}
 
 
-def seed_of(kind, c, r=0, k=0):
+# oneworld=1 (selection lane, 2026-10-28): every colony plays the SAME world in a round -- training seed, food
+# distance draws, heaps and the lab case's seeds are colony 1's -- and a new one each round, so a round's ranking
+# compares colonies on one test instead of on 32 different ones. **Why**: in clean1 the world sets a colony's
+# starvation more than the colony does (Spearman between two arms on the same seeds 0.24; the same colony kept into a
+# fresh world 0.03, `measures.py`), so with a world each, starvation ranks worlds. The common garden keeps a world per
+# colony (it pairs arms by colony). Costs nothing: the same runs, other seeds. Off, every seed is as before.
+# **The births' stream stays each colony's own** (inrun `sseed=`, below in `go`): the first screen (selow1, 2026-10-28)
+# ran without it, and colonies sharing a carry in one world were one deterministic run -- one or two distinct outcomes
+# a round, and all 32 died out together at round 23. A risk that remains by design: a world lethal to every colony
+# now kills every colony in the same round.
+ONEWORLD = 'oneworld=1' in EXTRA
+EXTRA = [x for x in EXTRA if x != 'oneworld=1']
+
+
+def wc(c):
+    """The colony whose world colony c plays this round: itself, or colony 1's under oneworld=1."""
+    return 1 if ONEWORLD else c
+
+
+def seed_of(kind, c, r=0, k=0, own=False):
     """Every world seed the driver hands out, in one place (selection review, 2026-10-27). The old seeds were sums
     that ran into each other: training c*1000+r met the garden's c*1000+99 at round 99, the lab case's
     c*1000+10r+k met colony c+1's from round 100, and each labcase= scenario (c*1000+10(r+100(k+1))) took colony
     c+k+1's first lab seed every round. Training below round 99 and the lab case below round 100 keep their old
     seeds, so earlier controls stay reusable; past those rounds, and for labcase=, each kind has its own range."""
+    if kind in ('train', 'lab', 'labcase') and not own:
+        c = wc(c)
     if kind == 'train':
         return c if r == 0 else (c * 1000 + r if r < 99 else 10_000_000 + c * 1000 + r)
     if kind == 'garden':
@@ -466,6 +506,11 @@ def lab_alive(c, r, carry_c, scens=None, kind='lab', case=0):
     for k, sc in enumerate(scens or LAB_SCENS):
         out = subprocess.run([LAB_BIN, f'founders={carry_c}', f'scenario={sc}', f'seed={seed_of(kind, c, r, case + k)}', f'after={LAB_AFTER}'],
                              capture_output=True, text=True, env={**os.environ, **LAB_ENV, 'PIXEL_PHYSICS_LAB_SCENARIOS': LAB_DIR}).stdout
+        if LAB_SCORE:
+            m = re.search(r'RESULT alive=(\d+) lived=[\d.]+ peak=\d+ starved=(\d+)', out)
+            k = float(LAB_SCORE[2]) if len(LAB_SCORE) > 2 else 0.0
+            tot += round(10 * (int(m.group(1)) - k * int(m.group(2)))) if m else 0
+            continue
         m = re.search(r'RESULT alive=\d+ lived=([\d.]+)', out)  # mean headcount after landing: graded, unlike alive
         tot += round(10 * float(m.group(1))) if m else 0  # tenths: whole ants rounded every early-dying colony to one value
     return tot
@@ -578,7 +623,7 @@ def result(rdir, frames):
             dug, pit = int(n['dug']), int(n['pit'])
     n = nestcount.count(rdir, frames) if os.path.exists(f'{rdir}/nestmap.txt') else {}
     return (home, late, starved, rooms, alive, cuts, dug, pit, n.get('nest', 0), n.get('nestcuts') or 0,
-            n.get('nestcuts_late') or 0, n.get('crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
+            n.get('nestcuts_late') or 0, n.get('crater_full' if CRATER_FULL else 'crater', 0), n.get('spoil', 0), n.get('spoil_in') or 0,
             roomshape.score(rdir) if n else 0.0, killed, slay,
             nest_scale(rdir, n.get('nest_open' if SCALE_OPEN else 'nest', 0)) if n else 0.0)
 
@@ -602,13 +647,40 @@ def cases(v):
     (DIG=nest: kept late cuts and nest size; DIG=cuts: raw late cuts and rooms)."""
     c = (v[0], -v[2], v[10], v[8]) if DIG == 'nest' else (v[0], -v[2], v[1], v[3])
     c = c + (-v[12],) if SPOIL else c
-    c = c + (-v[11],) if 'crater' in EXTRA_CASES else c
+    c = c + (-v[11],) if 'crater' in EXTRA_CASES or CRATER_FULL else c
     c = c + (v[3],) if 'rooms' in EXTRA_CASES else c
     c = c + (v[14],) if 'shape' in EXTRA_CASES else c
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
     c = c + (v[16],) if 'slay' in EXTRA_CASES else c
     c = c + (v[17],) if 'scale' in EXTRA_CASES else c
     return c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
+
+
+def case_names():
+    """The names of cases()'s entries, in its order (colsel.csv's column names where one exists)."""
+    n = ['home8', 'starved'] + (['nestcuts_late', 'nest'] if DIG == 'nest' else ['late_cuts', 'rooms'])
+    n += ['spoil'] if SPOIL else []
+    n += ['crater'] if 'crater' in EXTRA_CASES or CRATER_FULL else []
+    n += [k for k in ('rooms', 'shape', 'guard', 'slay', 'scale') if k in EXTRA_CASES]
+    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else [])
+
+
+# weights=NAME:W,... (selection lane, 2026-10-28; the selection review's "one case per goal, with an explicit weight
+# the owner sets"): a case not named keeps weight 1, weight 0 drops it. The survival rank-sum becomes a weighted sum,
+# and lexicase draws each pick's case order weighted (a case of weight 3 leads a pick three times as often as one of
+# weight 1; Efraimidis-Spirakis keys). **Why**: unweighted, the six nest cases carried 63-71% of the vote by accident
+# of how many were written per goal, and cases that do not repeat from world to world (starved 0.03, shape -0.03,
+# spoil 0.02 in clean1 k3, `measures.py`) vote as loudly as food home (0.34). Unset: the run, rng draws included,
+# as before.
+WEIGHTS = next((dict((k, float(w)) for k, w in (kv.split(':') for kv in x.split('=', 1)[1].split(',')))
+                for x in EXTRA if x.startswith('weights=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('weights=')]
+
+
+def case_weights():
+    names = case_names()
+    assert set(WEIGHTS) <= set(names), f'weights= names a case this run does not have: {set(WEIGHTS) - set(names)} (cases: {names})'
+    return [WEIGHTS.get(k, 1.0) for k in names]
 
 
 def dig_passed(v):
@@ -621,7 +693,13 @@ def lexicase(pool, res, rng):
     # Every case cases() returns. Was range(4) until 2026-10-22 19:00Z, so colsel4-1022's +spoil arm never read its
     # fifth case and came out identical to its control in every round (a change that moved nothing).
     order = list(range(len(cases(res[cand[0]]))))
-    rng.shuffle(order)
+    if WEIGHTS is None:
+        rng.shuffle(order)
+    else:
+        w = case_weights()
+        assert len(w) == len(order), (case_names(), len(order))
+        key = {k: rng.random() ** (1.0 / w[k]) for k in order if w[k] > 0}
+        order = sorted(key, key=lambda k: -key[k])
     for k in order:
         vals = [cases(res[c])[k] for c in cand]
         best = max(vals)
@@ -733,7 +811,7 @@ for r in range(R0, R):
     live = [c for c in founders if founders[c] is not None]
     def go(c):
         inh = [f'inherit={nest[c]}'] if INHERIT and nest[c] else []
-        cr = C if not DISTS else [f'dist={random.Random(c * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
+        cr = C if not DISTS else [f'dist={random.Random(wc(c) * 7919 + r).choice(DISTS)}' if x.startswith('dist=') else x for x in C]
         cr = [f'dist={dist_now}' if x.startswith('dist=') else x for x in cr] if DISTRAMP else cr
         # distramp= with patches=T:LO:HI (teacher lane, 2026-10-25; owner: food "farther from the nest (ideally still
         # always moving)"): the ramp moves the moving heap's range instead, patches=T:max(20, D/2):D for this round's
@@ -746,13 +824,16 @@ for r in range(R0, R):
             cr = [f'patches={x.split("=", 1)[1].split(":")[0]}:{max(20, dist_now // 2)}:{dist_now}' if x.startswith('patches=') else x
                   for x in cr]
         if HEAPS:
-            draw = lambda k: HEAPS[0] + 5 * random.Random(c * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
+            draw = lambda k: HEAPS[0] + 5 * random.Random(wc(c) * 7919 + r * 31 + k).randrange((HEAPS[1] - HEAPS[0]) // 5 + 1)
             cr = [f'dist={draw(0)}' if x.startswith('dist=') else x for x in cr] + [f'near={draw(1)}']
         cr = with_p(cr, wean_p(r)) if WEAN else cr
         cr = with_capp(cr, capwean_p(r)) if CAPWEAN else cr
         cr = spider_args(with_spiders(with_cap(cr), r), f'{OUT}/c{c}/r{r}/spiders')
         cr = ['kpm=0', 'kevents=0'] + cr if ELITE and not fresh[c] else cr
-        return run(founders[c] + [f'seed={seed_of("train", c, r)}'] + inh + cr, f'{OUT}/c{c}/r{r}')
+        # under oneworld the births' stream stays the colony's own (inrun sseed=): without it, colonies with one carry
+        # in one world are one run (selow1: 1-2 distinct outcomes a round, all 32 died out together at round 23)
+        own = [f'sseed={seed_of("train", c, r, own=True)}'] if ONEWORLD else []
+        return run(founders[c] + [f'seed={seed_of("train", c, r)}'] + own + inh + cr, f'{OUT}/c{c}/r{r}')
     with ThreadPoolExecutor(P) as ex:
         dirs = dict(zip(live, ex.map(go, live)))
     cols = list(range(1, NCOL + 1))
@@ -782,7 +863,9 @@ for r in range(R0, R):
             if gp:
                 nk = len(cases(res[gp[0]]))
                 rk = [ranks([cases(res[c])[k] for c in gp]) for k in range(nk)]
-                rs = {c: sum(rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
+                w = case_weights() if WEIGHTS is not None else [1.0] * nk
+                assert len(w) == nk, (case_names(), nk)
+                rs = {c: sum(w[k] * rk[k][i] for k in range(nk)) for i, c in enumerate(gp)}
             order = sorted(gp, key=lambda c: (rs[c], c)) + sorted([c for c in ok if not passed[c] and c in grp], key=lambda c: (-res[c][1], c))
         order += [c for c in grp if c not in ok]  # extinct last
         if MODE in ('gate', 'lex') and ok:

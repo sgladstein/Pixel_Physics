@@ -14,7 +14,7 @@ usage: exam.py OUT NAME FOUNDERS [ENV]
             ant score, as colsel's carried()), or a founders string as inrun takes it.
   ENV       extra env for both, e.g. PP_HOMELOW=0.006,PP_HOMELOW_STORE=1 (the instinct arm).
 Writes OUT/NAME/garden.csv and OUT/NAME/lab.csv. Compare two names with exam_cmp.py (paired sign tests).
-env P (parallel runs, default 4), WORLDS (default 16), LAB_SEEDS (default 2), BOXES (comma list), AFTER (lab frames
+env P (parallel runs, default 4), WORLDS (default 16), LAB_SEEDS (default 2; or A-B), BOXES (comma list), AFTER (lab frames
 after landing, default 60000; G1 judges at 600000, plan 2026-10-27).
 """
 import csv, os, subprocess, sys
@@ -27,7 +27,10 @@ OUT, NAME, FOUNDERS = sys.argv[1], sys.argv[2], sys.argv[3]
 ENV = dict(x.split('=', 1) for x in sys.argv[4].split(',')) if len(sys.argv) > 4 and sys.argv[4] else {}
 P = int(os.environ.get('P', '4'))
 WORLDS = int(os.environ.get('WORLDS', '16'))
-LAB_SEEDS = int(os.environ.get('LAB_SEEDS', '2'))
+# LAB_SEEDS=N is seeds 1..N; A-B is seeds A..B (one VM job line per seed, so a preempted spot VM loses only the runs in
+# flight: g1base2-1027 lost 16 of 30 whole box lines at once, 2026-10-27).
+_ls = os.environ.get('LAB_SEEDS', '2')
+LAB_SEED_RANGE = range(int(_ls.split('-')[0]), int(_ls.split('-')[1]) + 1) if '-' in _ls else range(1, int(_ls) + 1)
 AFTER = int(os.environ.get('AFTER', '60000'))
 BOXES = os.environ.get('BOXES', 'played_bed,far_larder,scattered_larder,two_larders,the_bank,herb_first_colony,'
                        'crowded_bench,feast_and_famine').split(',')
@@ -120,7 +123,7 @@ def write(path, rows):
 
 
 with ThreadPoolExecutor(P) as ex:
-    labrows = list(ex.map(lab, [(b, sd) for b in BOXES for sd in range(1, LAB_SEEDS + 1)]))
+    labrows = list(ex.map(lab, [(b, sd) for b in BOXES for sd in LAB_SEED_RANGE]))
     write(f'{D}/lab.csv', labrows)
     gardenrows = list(ex.map(garden, range(500001, 500001 + WORLDS)))
     write(f'{D}/garden.csv', gardenrows)

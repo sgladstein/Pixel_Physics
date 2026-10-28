@@ -3,7 +3,7 @@
 *Lane report, thread "Let ants evolve their own pheromones" (branch `claude/project-thread-iff53x`). Status:
 **reopened 2026-10-25 15:00Z at the owner's request.** Decode done; B fade 0.25 rejected under selection (§5); the
 first emergence test found no convention that beats deafness (§7), but the follow-ups (§9) found why, and that a
-deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
+deleted food trail **re-evolves** once its emitter starts dense. A new-channel emergence run (§9.5, 2 replicates) found signals that emerge and are relied on, yet lose to deaf colonies (best genome vs best genome 1.4-2.2x; the review in §9.8 puts the arm-level gap at ~1.1-1.2x for replicate 2, n = 2), and opening a channel to a good forager cost it 13% (§9.6). Verdict §9.7: signals emerge, foraging does not improve; the owner chose to continue (2026-10-27); review and plan in §9.8; counted in energy rather than larder cells, replicate 2 is a tie and replicate 1 a 1.8x loss (§9.9). The PF4 positive control failed (§9.12); rechecked (§9.13), its 1.8x was mostly a farmed score (re-carried food), the real gap 1.16x, and ants with no scent relearned to forage. Companion: [the adversarial review](evolvable-pheromones-review-2026-10-25.md). Pictures:
 the "Ant Scent Lab" artifact page (https://claude.ai/artifact/XiD6BBQtmyZ9iF9qJYGDV3).*
 
 ## The short version
@@ -606,3 +606,145 @@ BIN=target/release/examples/inrun PP_GATE=off PP_REACH=off PIXEL_PHYSICS_ALARM_G
   EVERY=10 LISTEN=4 HARNESS=2
 python3 scratch/pheromones/garden.py OUT/garden free=OUT/free_1,...,OUT/free_6 deaf=OUT/deaf_1,...,OUT/deaf_6
 ```
+
+### 9.12 PF4, the positive control: FAILED its pre-registered bar (2026-10-27 23:30Z)
+
+A and B deaf in both arms (§9.11), 16 colonies x 40 generations, food delivered home; judged by `garden.py` on fresh
+worlds (data: `Reports/data/evolvable-pheromones-2026-10-27/pf4/`, `garden.json`).
+
+| | Free (hears the third plane) | Deaf (no scent at all) |
+|---|---|---|
+| Garden value: top 4 x 8 fresh worlds, food delivered home | 1,981 | **3,569** |
+| Larder kJ / tank / extinct of 32 | 134 / 10.3 / 0 | 91 / 6.7 / 1 |
+| Median colony, generations 35-39 (training) | 1,635 | 2,934 |
+| Third plane laid per colony, generations 35-39 | ~80,800 | ~1,900 (stopped laying at ~gen 30) |
+
+- **Bar: free >= 1.5x deaf and the free best meets criteria 2 and 3. Result: 0.56x. Failed.** Per §9.11, E4 cannot
+  find a smaller prize with this harness; the operator, the length or something else must change first.
+- **The free best came close to communicating.** Information: emit 0.77 when empty at the nest vs 0.15 laden away
+  (3.1x, passes). On 16 fresh worlds (food delivered, normal 2,017): deaf to the channel 1,619 (lower 13/16, -19.7%:
+  misses the 20% bar), map 40 columns off 1,441 (13/16, -29%: passes), constant 0.02 1,648 (13/16, -18%: misses). So
+  a state-dependent signal the colony leans on did form in 40 generations, but it is worth ~20%, while losing the
+  channel entirely was worth 80%.
+- **The striking number is the deaf arm.** With no scent at all it went from the founder's ~641 (PF2, deaf to A and
+  B) to 3,569 food delivered: more than the founder delivers with both its scents (2,324). Its jump (median 1,564 ->
+  2,699 at generations 20-34) coincides with it silencing the plane it cannot read (laid 140,944 -> 1,232 per colony),
+  so **the emission bill may be far larger than §9.5's cell-scored check (`PP_EMIT_FREE`, 224 vs 229 cells)
+  suggested** -- unmeasured on food delivered. The free arm cannot silence without losing what its nestmates read.
+- **Next, if the line continues:** re-run this control with `PP_EMIT_FREE=1` in both arms (does the deaf arm's
+  advantage vanish when laying costs nothing?), and measure the bill directly: today's founder and the PF4 bests on
+  16 worlds with and without `PP_EMIT_FREE`, scored on food delivered.
+
+### 9.13 PF4 rechecked: the deaf arm farmed the score; the real gap is 1.16x, and why the control failed (2026-10-28)
+
+New lane after the account move ("Find evolved pheromone signals"). Brief: verify PF4's verdict, find why it failed,
+propose whether and how to continue. Each arm's g39 best (free `c08`, deaf `c13`) and the founder (std_pool member 0,
+third row filled as PF4 built it) replayed on 16 fresh worlds (5,000,200-215, garden.py's stage C seeds) under PF4's
+environment, **with `events.csv` kept**, and each delivery traced back to the pickup that began its trip. Picture page:
+https://claude.ai/artifact/NcXbVeF8P1ndpiojacYnj7. Scripts and summary data: `Reports/data/evolvable-pheromones-2026-10-27/pf4/recheck/`.
+
+**The replay reproduces PF4** (free best 2,016 food delivered, garden.py's stage C said 2,016.5; deaf best 3,588 against
+stage B's 3,569). Means per world, sign tests deaf vs free over 16 paired worlds (6 measures: Bonferroni bar p < 0.008):
+
+| measure | founder | free best | deaf best | deaf higher | p |
+|---|---|---|---|---|---|
+| food delivered home (PF4's score) | 730 | 2,005 | 3,605 | 16/16 | < 0.001 |
+| food lifted at the heap (within 15 columns of the current patch) | 676 | 1,439 | 1,537 | 10/16 | 0.45 |
+| deliveries whose trip began at the heap | 409 | 787 | 913 | 15/16 | < 0.001 |
+| deliveries that re-carried a cell already delivered | 125 (17%) | 665 (33%) | 1,558 (42%) | | |
+| alive at the end | 0 | 68 | 63 | 3/16 | 0.02 |
+| larder kJ | 75 | 123 | 89 | 4/15 | 0.12 |
+
+- **Traced, not inferred: the score counts re-carries.** A cell put down at the nest is a delivery when any body
+  cell is within reach (`put_down`, `mind.rs`); a pickup is "away from home" by the picker's head (`pick_up`,
+  `food_at_home`), and the spoil mound by the door lifts heads out of reach (the Nest lane's trace). So a delivered
+  cell picked straight back up starts a new trip and is delivered again. World 5000200, deaf best: 1,428 away-from-home
+  pickups were cells delivered a median 40 frames earlier. During PF4 the deaf arm's `churn` (non-trip drops at home)
+  rose 536 -> 1,344 per colony alongside its score, the visible sign of selection learning the loop.
+- **So the 1.8x was mostly the loop.** On deliveries whose trip began at the heap the deaf arm still leads, but by
+  **1.16x** (15/16). Lifted at the heap the arms tie. The free colony keeps a few more ants and stores more energy;
+  neither survives the correction.
+- **The emission bill is not the cause** (§9.12's guess). With `PP_EMIT_FREE=1`, deliveries from the heap: deaf best
+  906 vs 913 (8/16, p = 1.0); free best 717 vs 787 (lower 14/16, p = 0.004: waiving the bill perturbs a brain tuned to
+  it). Founder unchanged.
+- **Why the positive control failed** (inferred from the founder column). PF4 assumed losing A and B was a prize only a
+  new trail could win back (PF2: 2,324 vs 641 delivered). But the deaf arm, with no scent at all, more than doubled the
+  founder's heap deliveries in 40 generations (409 -> 913). Most of what deafening cost the founder was a brain wired to
+  scents, which selection re-wires without any. On this bed a nestmate's trail adds little to private search.
+- **A signal still formed, close to the communication criteria**: emit 3.1x by sender state (passes 1), map 40 columns
+  off -29% (passes 3a), deaf -19.7% and constant -18% on 13/16 (just miss 2 and 3b; §9.12). So three runs out of three
+  with a fresh channel produced state-dependent, load-bearing signals; none produced a colony better than one with no
+  signal on this bed.
+- **The loop is in training too** (exam garden 500001-500016, `scratch/inrun/exam.py` settings, my driver reproducing
+  exam.py's w500001 exactly): re-carried 28% of std_pool's deliveries (median 1,160 of 4,040) and 34% of
+  clean1_k3c23's (1,859 of 5,573). clean1 still beats std_pool on deliveries from untouched food, 3,008 vs 2,272
+  (14/16, p = 0.004), against 5,573 vs 4,040 counted. Sent to the Teacher and Selection lanes 2026-10-28 00:30Z; the
+  Selection lane adopts the Nest lane's `inrun homepick=K` scoring switch; a cell bit ("put down at home") that also
+  changes what the ant believes is the Teacher lane's call.
+- **Measurement caveats.** `loop.py`'s "untouched" counts a cell that slid after a drop as untouched, so the loop share
+  is a lower bound. The heap window (15 columns) is a choice; deliveries whose trip began at the heap are the measure
+  least open to the loop, since a re-carry starts at the door.
+
+**Proposed next step** (card to the owner 2026-10-28): PF4 once more on a bed where private search is hard, scored on
+deliveries whose trip began at the heap, ~4 h on the lane's container. A clear free win reopens E4 on that bed; a tie
+closes the third channel. E4 on today's bed is not recommended.
+
+**Choosing that bed: a founder cannot say how much a bed rewards scent.** First bed check (founder, hearing A and B vs
+deaf to them, 8 worlds 5,000,400-407, deliveries from the heap): today's bed 881 vs 412 (8/8, 2.1x); heaps every 5,000
+frames 60-120 out at `cap=30`, 674 vs 441 (8/8, 1.5x). The faster bed made scent worth *less* to the founder, partly
+because old heaps are never removed, so a bed that moves faster leaves more food lying about. And by the lesson above,
+the founder's gap measures how its brain is wired to scents, not what a trail could add. A second check uses the two
+evolved bests instead.
+
+**Second bed check, the PF4 bests** (both evolved on today's bed; deliveries whose trip began at the heap, mean of 8
+worlds, free / deaf; free alive higher):
+
+| bed | deaf best | free best | free / deaf | free higher | alive, free higher |
+|---|---|---|---|---|---|
+| today (`patches=20000:30:110`) | 931 | 750 | 0.81 | 1/8 | |
+| far (`patches=20000:80:120 cap=30`) | 815 | 718 | 0.88 | 2/8 | |
+| wide (`PP_BED_W=448 patches=20000:100:250`) | 578 | 545 | 0.94 | 1/8 | 7/8 (p = 0.07) |
+
+The farther the food, the more the scent-free forager loses (931 -> 578) and the smaller its lead over the signaller,
+even for genomes evolved where food was near; on the wide bed the signalling colony keeps more ants alive on 7 of 8.
+Suggestive at n = 8, not a result. **The proposed rerun therefore uses the wide bed** (the exam garden's width, so the
+same bed the trained pools are judged on): PF4's set-up, `PP_BED_W=448 patches=20000:100:250`, scored on deliveries
+whose trip began at the heap, ~5 h on 4 cores. Pass bar, fixed now: the free arm's garden value (stage B on that score)
+>= 1.2x the deaf arm's AND its best meets criteria 2 and 3. Fail: close the third channel on today's evidence.
+
+### 9.14 PF4 on far food: the signalling arm won 1.56x and reinvented a food trail, but missed the reliance bar (2026-10-28)
+
+The owner chose the far-food test (card, 01:48Z). Set-up as PF4 (A and B deaf in both arms; free hears the third
+plane, dense start, gentle operator plus CHANMUT, EVALS=2, 16 colonies x 40 generations, seed 42) on the wide bed
+(`PP_BED_W=448`, `patches=20000:100:250`), ranked and judged on **deliveries whose trip began at the heap**
+(`SCORE=heaphome`). Ran on two GitHub runners (`.github/train-jobs/pf4w.batch`, ref main 597a9943, 03:28-06:16Z):
+the lane container suspends while the session is idle, and twice lost the run at generation 1. Judged by `garden.py`
+(`SCORE=heaphome PATCHES=20000:100:250 DEAFALSO=A,B`, `PP_BED_W=448`) with a local build of the same code. Data:
+`Reports/data/evolvable-pheromones-2026-10-27/pf4w/`. Pictures: https://claude.ai/artifact/NcXbVeF8P1ndpiojacYnj7.
+
+**Pre-registered bar** (§9.13, fixed before launch): garden stage B free >= 1.2x deaf AND the free best meets
+criteria 2 and 3. **Result: 1.56x (819 vs 527), but criteria 2 and 3 missed on magnitude. FAILED.**
+
+| free best (g39 `c00`), 16 garden worlds | median heap deliveries | lower than normal | change |
+|---|---|---|---|
+| normal | 779 | | |
+| deaf to the channel | 663.5 | 12/16 | -15% (bar -20%) |
+| map 40 columns off | 650 | 15/16 | -17% (bar -20%) |
+| constant 0.02 | 706.5 | 12/16 | -9% (bar -20%) |
+
+- **Criterion 1 passes strongly: a laden-only food trail.** Emit census: laden 0.69 (away 0.69, at the nest 0.71),
+  empty 0.09 (at the nest 0.01): 7.8x by sender state. The arm reinvented B's meaning on the new channel.
+- **Head to head on 16 more fresh worlds (5,000,500-515), each arm's best, medians, sign tests (5 measures, Bonferroni
+  p < 0.01):** heap deliveries 798 vs 545 (free higher 15/16, p < 0.001); starved 62 vs 158 (free lower 16/16,
+  p < 0.001); alive 79 vs 65 (13/16, p = 0.02); larder kJ 134 vs 105 (12/16, p = 0.08); all deliveries 1,779 vs 1,273
+  (14/16, p = 0.004). The re-carry share was 21-24% in all three arms.
+- **The free best, deafened:** heap deliveries 670 (lower than hearing 14/16, p = 0.004) and still above the deaf best
+  (551 mean). Its starvation is unchanged by deafness (57 vs 62). So the trail is worth ~15% to the colony that evolved
+  it, and the rest of the 1.35-1.56x arm gap is what else that run evolved: one run per arm, so possibly search luck.
+- **In training** (median colony, generations 35-39): heap deliveries 748 vs 506, alive 78 vs 60, starved 61 vs 168.
+  The free arm laid the third plane heavily from generation 10 (median ~150k-255k per colony); the deaf arm also kept
+  laying it (~115k-140k), which it cannot hear, so the bill was not selected out on this bed.
+- **Reading.** On far food a state-dependent signal forms, receivers use it, and the signalling arm ends up the
+  better forager, the first time on any bed. The reliance bar of 20% was not met (15-17%). By the rule fixed before
+  the run this is a fail; the owner was asked (card 09:40Z) whether to replicate (E4 on the far bed, 6+6 runs of 40
+  generations on runners), close as the bar says, or accept it.
