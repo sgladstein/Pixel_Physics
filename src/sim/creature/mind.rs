@@ -6306,7 +6306,27 @@ pub mod scratch_log {
         if !p.row.contains(",@L@") {
             return;
         }
-        let row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        let mut row = p.row.replacen(",@L@", &format!(",{field}"), 1);
+        // SCRATCH (copy test, 2026-10-28): with `PP_SHADOW_STATE=1` and the decision trace on, the old walk's own draw
+        // for the step it took this tick -- its exploration `k`, its persistence, and the score it gave each option's
+        // heading (`os=`, in option order, NaN for an option that is not a one-cell step) -- so the ceiling can be
+        // shown the hand-built ant's distribution itself (the positive control), and then each part of it.
+        if shadow_state_on() && row.contains(",S:") {
+            if let Some(r) = world.decision_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == organism && r.frame < world.frame)) {
+                let os: Vec<String> = p
+                    .opts
+                    .iter()
+                    .map(|o| {
+                        let d = (o.target.0 - p.head.0, o.target.1 - p.head.1);
+                        match crate::sim::creature::DIRS.iter().position(|&v| v == d) {
+                            Some(i) if r.opts & (1 << i) != 0 => format!("{:.3}", r.score[i]),
+                            _ => "NaN".into(),
+                        }
+                    })
+                    .collect();
+                row = format!("{row};k={:.4};pe={:.3};os={}", r.k, r.persist, os.join("/"));
+            }
+        }
         // `PP_SHADOW_SAMPLE=n`: keep one in n rows labelled a plain step or rest, every other labelled row; a kept row
         // is preceded by the ant's previous row marked settle=2 (memory context), as `PP_COPY_SAMPLE` does.
         static N: OnceLock<u64> = OnceLock::new();

@@ -14,3 +14,9 @@ The report is [`../brain-copy-test-2026-10-28.md`](../brain-copy-test-2026-10-28
   held-out runs, total ticks), from `PP_SELFAGREE=20` copy logs.
 - `c3-pruned.raw.txt`: the best-living copy (c3 at `prox=0.2`), a layout-8 genome. Run it with
   `labsurvive founders=c3-pruned.raw.txt@c3:1`.
+- `g1-twins.raw.txt`: the generalist copy for the Teacher lane (2026-10-28), a layout-8 genome. Fitted (`copyfit.py`
+  `switches=1 plain_k=1 prox=0.2`, 6,000 steps, from std_pool member 0) on the hand-built ant's shadow labels in the
+  four selection twins only: `lab_famine_scatter`, `lab_famine_trickle`, `lab_herbs`, `lab_far_mix` (branch
+  `claude/project-thread-8hfe09` @4379f253), seeds 1-4 for training, 5-6 held out. The six exam boxes were never
+  seen. Held-out P(label) 0.360 (walk 0.255, turn round 0.130, rest 0.505, dig 0.093, pick up 0.383, put down
+  0.295) on 45,000 decisions; 690 billed links.

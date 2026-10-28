@@ -4,7 +4,7 @@ for any brain that reads only this decision's context, memory and option feature
 by a softmax, fitted to the same labels as `copyfit.py`. If it cannot reach the labels either, the senses are missing,
 not the brain's shape; if it can and the mind cannot, the mind's shape is the limit.
 
-usage: ceiling.py OUT train=a,b test=c,d [rows=N] [trows=N] [steps=N] [hidden=H] [mem=0|1] [hist=0|1] [state=0|1]
+usage: ceiling.py OUT train=a,b test=c,d [rows=N] [trows=N] [steps=N] [hidden=H] [mem=0|1] [hist=0|1] [state=0|1] [old=0|1|2]
 """
 import json, os, sys, time
 import numpy as np
@@ -30,6 +30,7 @@ Rtr = rows(A['train'].split(','), num('rows', 150000))
 Rte = rows(A['test'].split(','), num('trows', 40000))
 USE_MEM = num('mem', 1)
 STATE = A.get('state', '0') == '1'
+OLD = num('old', 0)
 
 
 def inputs(R):
@@ -46,6 +47,12 @@ def inputs(R):
     if STATE:
         # `state=1`: the old ant's own walk state (`PP_SHADOW_STATE=1` logs), which no mind input carries.
         x = torch.cat([x, torch.from_numpy(R.state)[T['row_of']], torch.from_numpy(R.off)], 1)
+    if OLD:
+        # `old=1`: the old walk's exploration k and persistence (its own brain's outputs); `old=2` also the score it
+        # gave each option's heading -- the hand-built ant's draw itself, the positive control for the ceiling.
+        x = torch.cat([x, torch.from_numpy(R.old)[T['row_of']]], 1)
+        if OLD >= 2:
+            x = torch.cat([x, torch.from_numpy(R.oscore)], 1)
     T['w'] = torch.from_numpy(B.row_weights(R, float(A.get('plain_k', 20))))
     return x, T
 
