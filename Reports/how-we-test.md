@@ -140,6 +140,15 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   louder food trail at the door once read as "+43% food home" on it and was
   noise on `trip_deliveries` (more handling at the door, no more food;
   `Reports/teaching-the-colony-2026-10-25/colony-mind-verdict.md`).
+  **And `trip_deliveries` itself (inrun's `deliver`, `nest.csv food_home`)
+  counts re-carries**: a cell delivered at the nest edge, picked up by an ant
+  whose head the spoil mound lifts out of reach, starts a new trip and is
+  delivered again. 28% of std_pool's and 34% of clean1_k3c23's deliveries on
+  the exam garden; 42% for a scent-line colony that selection taught to farm it
+  (its 1.8x lead was 1.16x on food from the heap). Trace each delivery back to
+  the pickup that began it (`Reports/data/evolvable-pheromones-2026-10-27/pf4/recheck/loop.py`)
+  or score with inrun's `homepick` once it lands
+  (`evolvable-pheromones-2026-10-25.md` §9.13).
 - **Raw larvae starved** falls whenever eggs fall. Use **larvae starved per egg**.
 - **Total cuts.** 80–85% of nest cuts are re-digs of soil already moved. Count
   **new-ground cuts**.

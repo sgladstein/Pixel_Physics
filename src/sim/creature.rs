@@ -8108,8 +8108,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             if mind::scratch_log::oldlab_on()
                 && (mind::scratch_log::oldlab_act() || (mind::scratch_log::copy_on() && mind::scratch_log::oldlab_take(world, organism)))
             {
+                // SCRATCH (copy test, 2026-10-27): `PP_OLDLAB_ALL=1` labels every sampled state, not only dig states.
                 let dig_state = world.organism(organism).is_some_and(|s| {
-                    (s.spoil.is_some() && !mind::scratch_log::oldlab_label_empty())
+                    mind::scratch_log::oldlab_all()
+                        || (s.spoil.is_some() && !mind::scratch_log::oldlab_label_empty())
                         || (s.spoil.is_none()
                             && s.crop.is_none_or(|c| c.cells == 0)
                             && (x - 128).abs() <= 40
