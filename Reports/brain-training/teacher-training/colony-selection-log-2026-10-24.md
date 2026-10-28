@@ -1181,3 +1181,24 @@ three paired measures over the 48 box-seeds, and an arm passes only if lived pas
 significantly worse:** lived; alive at 600k; starved / (founders + births). Same comparisons, Bonferroni over 3.
 Also found: the env1, clean1 and elite1 job lines dropped `shapeopen=1` (on since nest3, gone after nest11); the
 watchdog finds either shape version noise (rho ~0), so it comes back for consistency, not as a lever.
+
+## 2026-10-28 (04:55Z): `env2` training gardens -- all four arms alike on the bed; exam `x2` launched
+
+`env2-1028` (built at bbccb08c, launched 03:13Z, done 04:49Z: 24 rounds x 4 arms in 1 h 36 min on 64 cores, the
+donor600 check about 40 min over env1's 55). Data: `data-1027/env2/` (cg.csv, colsel.csv, donor600.csv, and
+`selaudit.py` for s_c and s_d6).
+
+| arm | colonies extinct per round (of 32) | garden r23: colonies with a carry, alive median, starved median, nest median | rank 0 at r23 |
+|---|---|---|---|
+| s_c | 0-4, median 2 | 28, 72, 276.5, 872 | c31 |
+| s_d6 | 0-5, median 1 | 31, 69, 279, 787 | c5 |
+| s_d6hp | 0-8, median 3 | 31, 74, 265, 968 | c13 |
+| s_d6nr | 0-4, median 1.5 | 30, 72, 285.5, 859 | c32 |
+
+The bed cannot tell the arms apart, as with env1. s_d6's selection audit: ranksum retest 0.04 [-0.10, 0.19], so
+which colony is ranked first in a round is close to a coin toss between rounds; only home8 (0.26), scale (0.32) and
+lab (0.15) repeat at all. Saved the four rank-0 carries as `scratch/inrun/genomes/env2_{cc31,d6c5,d6hpc13,d6nrc32}_pool.txt`.
+
+**Exam `x2`** (`scratch/inrun/jobs/x2.txt`, 336 lines): the four env2 carries, env1's w6c22, std_pool and the
+hand-built ant, 6 boxes x 8 seeds at 600k, every brain on the same build so the controls are paired with the
+judged. Measures as named at 03:40Z (lived, alive at 600k, starved / (founders + births)).
