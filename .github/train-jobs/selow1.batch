@@ -1,0 +1,14 @@
+# Selection lane, 2026-10-28 (Scott: "test all your ideas"): one world per round for every colony (colsel oneworld=1),
+# explicit case weights (colsel weights=), and both, each against clean1's k3 control. Same line, seeds and founder as
+# k3 (scratch/inrun/jobs/clean1.txt); k3 is not rerun (runner = VM, selbt1 vs elite2 e13). The common garden keeps its
+# world per colony under oneworld, so every arm's garden pairs with k3's by colony.
+# Weights (a case not named keeps 1): food home 1 (not raised: home8 still counts the door re-carry loop, 28-34%,
+# Teacher lane), nest scale 2, lab 3, spoil 0 and room shape 0.5 (neither repeats world to world: retest 0.02 and
+# -0.03 in k3), crater 0.5 (owner 10-28: craters are acceptable now).
+# DECIDING MEASURE, named before launch: garden starvation at round 47, paired by colony against k3's round-47 garden
+# (a colony missing from the garden counts as the worse of its pair), two-sided sign test, Bonferroni over 5 arms (these
+# 3 and selisl1's 2; p < 0.01). Guards: garden nest and alive, same test. Mechanism checks: oneworld -- the training
+# round's starvation rank against the same colonies' garden starvation; weights -- the case weight table (selaudit.py).
+ow1 colsel 31 lex+spoil+crater+shape+scale+lab 32 48 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 oneworld=1
+wt1 colsel 31 lex+spoil+crater+shape+scale+lab 32 48 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 weights=spoil:0,crater:0.5,shape:0.5,scale:2,lab:3
+owwt colsel 31 lex+spoil+crater+shape+scale+lab 32 48 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 oneworld=1 weights=spoil:0,crater:0.5,shape:0.5,scale:2,lab:3
