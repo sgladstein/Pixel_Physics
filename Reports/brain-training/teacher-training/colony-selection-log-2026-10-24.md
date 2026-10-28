@@ -1407,3 +1407,8 @@ identical):
 
 **Deciding measure, named before launch:** each arm's r23 rank-0 colony, lived paired over the 48 box-seeds at 600k
 against std_pool and against t_fam c7 (Bonferroni over 3 arms), alive and starved share as guards.
+
+**Exam baseline moves at 36e25d65** (2026-10-28 14:57Z, PR #973: shrubs resprout from the base, default on). It
+changes the plant exam boxes (played_bed, herb_first_colony, crowded_bench), so the std_pool and hand-built rows of
+x1-x6 (all built before it) pair only with brains examined on a build before it. Every exam on a main at or after
+36e25d65 reruns std_pool and the hand-built ant in the same batch.
