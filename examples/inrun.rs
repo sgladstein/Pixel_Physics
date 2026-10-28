@@ -1634,6 +1634,47 @@ fn main() {
         }
         let frame = w.frame - f0;
         let cuts = std::mem::take(w.cut_log.as_mut().unwrap());
+        if std::env::var("PP_CHAMBER_AUDIT").is_ok() {
+            // TEMP (nest lane): ground cells under the datum near the door that open without a cut this frame.
+            static PREV: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+            let solid = |x: i32, y: i32| {
+                let m = w.get(x, y).material;
+                m == soil_m || Some(m) == w.materials.known(pixel_physics::sim::material::Known::PackedSoil)
+            };
+            let mut prev = PREV.lock().unwrap();
+            let now: Vec<bool> = (0..128).flat_map(|y| (64..192).map(move |x| (x, y))).map(|(x, y)| y > surf[x as usize] && solid(x, y)).collect();
+            if prev.len() == now.len() {
+                let cut: std::collections::HashSet<(i32, i32)> = cuts.iter().map(|c| (c.0, c.1)).collect();
+                static GONE: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+                let mut gone = GONE.lock().unwrap();
+                if gone.is_empty() {
+                    gone.resize(now.len(), false);
+                }
+                for (i, (&a, &b)) in prev.iter().zip(now.iter()).enumerate() {
+                    if a && !b {
+                        let (x, y) = (64 + (i % 128) as i32, (i / 128) as i32);
+                        let first = !gone[i] && orig[(y * bw + x) as usize];
+                        if !cut.contains(&(x, y)) {
+                            // `wall`: original ground leaving its place for the first time with no cut -- a slide.
+                            writeln!(ev, "{frame},0,{},{x},{y},0,0", if first { "wall" } else { "slump" }).unwrap();
+                        }
+                        gone[i] = true;
+                    }
+                }
+            }
+            *prev = now;
+            if frame % 1000 == 0 {
+                let mut big = 0;
+                for y in 0..128 {
+                    for x in 64..192 {
+                        if y > surf[x as usize] && w.get(x, y).material == pixel_physics::sim::material::EMPTY && creature::chamber_refuses(&w, (x, y), 15) {
+                            big += 1;
+                        }
+                    }
+                }
+                writeln!(ev, "{frame},0,bigroom,0,0,{big},0").unwrap();
+            }
+        }
         for (x, y, _, who) in cuts {
             let i = (y * bw + x) as usize;
             if (0..bw).contains(&x) && (0..bh).contains(&y) && orig[i] {
@@ -1737,6 +1778,9 @@ fn main() {
                     }
                 }
                 held.insert(who, (who, worth));
+                if std::env::var("PP_CHAMBER_AUDIT").is_ok() && creature::chamber_refuses(&w, (x, y), 15) {
+                    writeln!(ev, "{frame},{who},leak,{x},{y},{depth},{who}").unwrap();
+                }
                 writeln!(ev, "{frame},{who},dig,{x},{y},{depth},{who}").unwrap();
                 if worth == 0.0 {
                     continue;
@@ -1761,6 +1805,9 @@ fn main() {
                     }
                 }
                 held.insert(who, (tag, nest));
+                if std::env::var("PP_CHAMBER_AUDIT").is_ok() && creature::chamber_refuses(&w, (x, y), 15) {
+                    writeln!(ev, "{frame},{who},leakre,{x},{y},0,{tag}").unwrap();
+                }
                 writeln!(ev, "{frame},{who},recut,{x},{y},0,{tag}").unwrap();
                 if tag != 0 {
                     loose_n -= 1;
@@ -2892,6 +2939,33 @@ fn main() {
     println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
+    println!("chamber_refused {}", creature::options::CHAMBER_REFUSED.load(std::sync::atomic::Ordering::Relaxed));
+    if std::env::var("PP_CHAMBER_AUDIT").is_ok() {
+        let (mut big, mut open_n) = (0, 0);
+        for y in 0..128 {
+            for x in 64..192 {
+                if w.get(x, y).material == pixel_physics::sim::material::EMPTY {
+                    open_n += 1;
+                    if creature::chamber_refuses(&w, (x, y), 15) {
+                        big += 1;
+                    }
+                }
+            }
+        }
+        println!("chamber_audit empty cells {open_n}, in a chamber over 15 by the rule's own count {big}");
+        let (mut s, mut a) = (0, 0);
+        for y in 0..128 {
+            for x in 0..bw {
+                if y > surf[x as usize] + 2 && w.get(x, y).material == soil_m {
+                    s += 1;
+                    if w.get(x, y).attached() {
+                        a += 1;
+                    }
+                }
+            }
+        }
+        println!("chamber_audit soil cells under the datum {s}, attached {a}");
+    }
     if homepick > 0 {
         println!("homepick {homepick}: re-carries unpaid {recarried}, deliveries paid {food_home}");
     }

@@ -18626,6 +18626,70 @@ fn shaft_verdict(why: Option<ShaftWhy>, escaping: bool) -> (bool, bool) {
     (why.is_some() && !waived, waived)
 }
 
+/// **Whether a cut at `t` would grow a chamber past `max`** (nest lane, 2026-10-28; the owner's "past a medium
+/// chamber, they are not allowed to dig unless it is a tunnel"). A chamber is the union of every 5x5 block of
+/// room ground -- cut by an animal ([`World::dug_cells`]) or open now ([`shaft_open`]) -- under the nearest site's
+/// founding surface; anything thinner than 5 in either
+/// direction -- a tunnel, a shaft, a gallery -- is not chamber. Counted by block centres: a cell is a centre when
+/// the 5x5 block round it is all open, and a chamber is a piece of centres joined 8-way, so a W x H room counts
+/// (W - 4)(H - 4) (a 12x9 room 40). The cut is refused when it makes a centre and the piece that centre lands in
+/// counts more than `max` -- so a thin cut always goes ahead, a new chamber can open wherever a tunnel leads, and
+/// two chambers cannot be joined into one past the size. Measured on the hand-built ant (w500004-06, 200k): 70-80%
+/// of its nest is thinner than 5, with one 5x5-room of 300-330 cells; std_pool's nest is one 770-1,000-cell
+/// chamber with 4% thin. The flood stops at `max + 1` centres, which is the whole answer to "more than `max`"; the
+/// cost is about 25 reads per centre tested, run only for a cut that makes a centre.
+pub fn chamber_refuses(world: &World, (tx, ty): (i32, i32), max: usize) -> bool {
+    const K: i32 = 3;
+    const FULL: usize = 37;
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else {
+        return false;
+    };
+    let surface = site.surface;
+    if ty <= surface {
+        return false;
+    }
+    // Room is ground the ants have cut ([`World::dug_cells`]) or anything open now, so whatever lies in a room
+    // afterwards does not hide its size. Read from the material alone the rule leaked three ways in turn (std_pool,
+    // w500004, max 15): spoil and crumbs lying in the room broke every 5x5 block at the time of a cut (50k: 4,967
+    // refusals, a 227-cell room, 208 of its cells cut, no cut refused that should have been); pellets dropped in the
+    // room harden into packed soil, which hid it the same way (at 100k ~500 packed cells on the bed, 1,700 moves of
+    // soil that was not original ground, and the over-size room appeared between two samples with no leaking cut);
+    // and counting packed soil as open instead counted the ants' packed walls as room, which refused 1.3M options
+    // and held the nest to 121 cells.
+    let open = |x: i32, y: i32| (x, y) == (tx, ty) || (y > surface && (world.dug_cells.contains(&(x, y)) || shaft_open(world, x, y)));
+    // A centre is a 7x7 window at least `FULL` of 49 room: a real room, or a sponge of passages a cell or two apart
+    // (whose walls give way into one room), but not a tunnel up to 4 tall with ground round it (28 of 49), nor two
+    // such tunnels with 2 rows of ground between (35). With the plain 5x5-block test, ants held under the size dug
+    // just such a sponge and it fell in to one blob (std_pool, w500004, 200k: no cut broke the rule, open nest 275).
+    let centre = |x: i32, y: i32| (-K..=K).map(|dx| (-K..=K).filter(|&dy| open(x + dx, y + dy)).count()).sum::<usize>() >= FULL;
+    let made: Vec<(i32, i32)> = (-K..=K).flat_map(|dx| (-K..=K).map(move |dy| (tx + dx, ty + dy))).filter(|&(x, y)| centre(x, y)).collect();
+    if made.is_empty() {
+        return false;
+    }
+    // Centres within `JOIN` of each other are one chamber, so two chambers keep a wall thicker than a few cells
+    // between them: joined only 8-way, two chambers each under the size could stand a cell apart and be one room
+    // as soon as anything opened that cell.
+    const JOIN: i32 = 2;
+    let mut tested: std::collections::HashMap<(i32, i32), bool> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashSet<(i32, i32)> = made.iter().copied().collect();
+    let mut stack = made;
+    while let Some((x, y)) = stack.pop() {
+        if seen.len() > max {
+            return true;
+        }
+        for dx in -JOIN..=JOIN {
+            for dy in -JOIN..=JOIN {
+                let q = (x + dx, y + dy);
+                if !seen.contains(&q) && *tested.entry(q).or_insert_with(|| centre(q.0, q.1)) {
+                    seen.insert(q);
+                    stack.push(q);
+                }
+            }
+        }
+    }
+    seen.len() > max
+}
+
 /// [`shaft_room_refuses`] past its switch, for the test that cannot set it.
 fn shaft_room_refuses_with(world: &World, (tx, ty): (i32, i32), rule: ShaftRooms) -> Option<ShaftWhy> {
     let site = shaft_region(world, (tx, ty))?;
