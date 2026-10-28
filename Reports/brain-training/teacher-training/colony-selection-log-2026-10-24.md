@@ -1060,3 +1060,124 @@ paired over the 6 boxes x 8 seeds at 600k (48 pairs), two-sided sign test, Bonfe
 (p < 0.0167). Guard: garden r23 open nest not lower (extinct colonies counted as 0). Food home is not a deciding
 measure: the pheromones lane found it double-counts a drop-and-repick loop at the nest edge (2026-10-28), and in
 colsel it is one case of ten. Run `selaudit.py` on the first 16 rounds.
+
+## 2026-10-28 (01:20Z): `env1` training gardens -- carrion is a famine for every brain, windfall is not
+
+`env1-1028` (built at 17f03045, launched 00:24Z, done 01:19Z: 24 rounds x 4 arms in 55 minutes on 64 cores).
+Data: `data-1027/env1/` (cg.csv, colsel.csv and `selaudit.py` output per arm).
+
+| arm | colonies extinct per training round (of 32) | garden r23: colonies with a carry, alive (extinct = 0), starved |
+|---|---|---|
+| c (control) | 1-9, median 4 | 28, 61, 259 |
+| w (windfall + corpse, 25% of heaps) | **15-24, median 21** | 16, **0**, 244 |
+| wf (windfall only) | 0-7, median 3 | 29, 59.5, 251 |
+| w6 (w + donor600) | **17-29, median 25** | 3, **0**, 146 |
+
+**Correction to the 00:30Z section: corpse is not a learnable food on this bed, for any brain.** One held-out world
+(500001, 60k, `foodwild=1:KIND` so every heap after the first is that food): corpse heaps, hand-built ant 7
+deliveries after 20k and extinct, std_pool 80 and extinct; windfall heaps, hand-built 559 and 80 alive, std_pool
+1,208 and 65 alive. The gut argument above was inferred and is wrong as the explanation: the bed's mind ants carry
+the species' authored body (the `body=` switch is not on main), and the hand-built ant fails on corpse here too. Why
+corpse feeds the hand-built ant in the game's boxes and no one on this bed is open (hand-off to-do 5). **Corpse comes
+out of training** until it is.
+
+**Windfall alone changes nothing in the garden** (wf against c at r23: alive 59.5 vs 61, starved 251 vs 259). Its
+selection audit looks like elite1's (ranksum retest 0.05, children 54% of the top half, children worse than their
+donor on lab 233 of 365 pairs). Whether it changed the game boxes is the deciding measure: the exam batch `x1`
+(rank-0 colonies at r23: c c9, w c17, wf c28, w6 c22; plus the copy-test lane's pruned copy
+`scratch/inrun/genomes/copytest_c3_pruned.raw.txt` from PR #970, and the 16 lost baseline box sets), 6 boxes x 8
+seeds at 600k, one VM line per seed.
+
+## 2026-10-28 (03:10Z): exam `x1` at 600k -- every pool trained since std_pool is worse in the game; the 600k donor check is the one change that helped
+
+`x1-1028` (VM, built at 7630b2e8): the four env1 rank-0 colonies at r23, the copy-test lane's pruned copy of the
+hand-built ant (`c3p`, ~804 billed links), and the 16 baseline box sets `g1base2-1027` lost to preemption; with
+`g1base2`'s 14 finished lines that is 10 brains x 6 boxes x 8 seeds at `after=600000`, `lived` = mean headcount
+over the 600k. Data: `data-1027/x1/lab600k.csv`; `python3 exam_cmp2.py` in that folder reprints every line below.
+64 cores for about 1 h 10 min (g1base2 + x1 together about 110 core-hours).
+
+**Deciding measure (named at 00:30Z), env1 arms against their control `c`, lived paired over 48 box-seeds,
+Bonferroni p < 0.0167:**
+
+| arm | higher / lower than c | p | passes |
+|---|---|---|---|
+| w (windfall + corpse) | 14 / 18 | 0.6 | no |
+| wf (windfall only) | 17 / 13 | 0.58 | no |
+| w6 (w + `donor600=600000`) | **27 / 6** | **0.0003** | **yes** |
+
+w6 against w (the same arm without the donor check): 30 / 1, p = 3e-8. Starved does not separate any env1 arm. So
+the windfall in training did nothing for the game boxes; the 600k check on donors did.
+
+**The ratchet line has gone backwards in the game boxes** (lived, 48 pairs against std_pool): clean1 k3c23 6 / 30
+(p = 7e-5), elite1 e3c32 6 / 26 (p = 5e-4), elite1 e13c7 10 / 24 (p = 0.024), env1 c 5 / 32 (p = 7e-6). Only w6 is
+level with std_pool (20 / 13, p = 0.3). Every one of those pools won its own training round on the bed: the bed's
+score and the game boxes have come apart, which is why the next founder is std_pool, not k3c23.
+
+**Lived per box, median over 8 seeds** (alive at 600k in brackets):
+
+| box | hand-built | std_pool | k3c23 | env1 w6 | c3p (pruned copy) |
+|---|---|---|---|---|---|
+| two_larders | 172.2 (4/8) | 0.4 (0) | 0.4 (0) | 0.4 (0) | 17.8 (5/8) |
+| scattered_larder | 14.9 (3/8) | 0.5 (0) | 0.4 (0) | 0.5 (0) | 0.7 (0) |
+| feast_and_famine | 8.1 (0/8) | 0.4 (0) | 0.3 (0) | 0.4 (0) | 1.1 (0) |
+| played_bed | 246.8 (6/8) | 154.4 (8/8) | 151.1 (8/8) | 182.3 (8/8) | 3.4 (1/8) |
+| herb_first_colony | 306.8 (8/8) | 144.1 (8/8) | 98.8 (8/8) | 214.0 (8/8) | 10.4 (4/8) |
+| crowded_bench | 644.0 (8/8) | 198.4 (8/8) | 166.4 (7/8) | 243.0 (8/8) | 24.5 (5/8) |
+
+The hand-built ant beats std_pool on 45 of 48 (p = 1e-10). c3p splits clean by box: better than std_pool in
+scattered_larder and feast_and_famine (8 / 0 each, p = 0.0078) and two_larders (7 / 1, p = 0.07), worse in the
+three plant boxes (0 / 8 each).
+
+**The three windfall boxes are not a training-score problem.** Every trained pool's colony is gone a few thousand
+frames after landing there (lived 0.3-0.5 over 600k with 52-104 ants is about 2,000-6,000 frames), with 0-19
+deliveries and no births; the hand-built ant delivers 1,500-226,000. A founding grant does not rescue it (std_pool,
+seed 1, 60k: two_larders 0 deliveries with or without 3 tanks; scattered_larder 7 and 6). These boxes are sized to
+the hand-built ant's idle burn (food 92% of 52 ants x 0.10 x 6,000), and with no food a tank lasts the shipped pool
+~1,000 frames against the hand-built ant's ~3,700 (old-ant thread, 2026-10-25, `labsurvive` row of
+`Reports/instruments.md`). Being traced: whether it is the brain bill alone (`tax=`) or the colony never reaching
+the windfall at all (two_larders' heap is 60 columns from the door and gets no delivery).
+
+**Proposed G1 bar** (to the owner, 2026-10-28): per box, the trained pool's lived median at least 70% of the
+hand-built ant's and the paired sign test against it not significant (p >= 0.05), in 5 of 6 boxes, 8 seeds, 600k.
+Interim milestone: beat std_pool on the same 48 pairs. One exam of one brain is 48 runs, about 6 core-hours.
+
+### env2 (launched 03:13Z): the ratchet restarted from std_pool, with the donor check
+
+| arm | change |
+|---|---|
+| s_c | control: the env1 `c` setup, founded from `assets/minds/std_pool.txt` |
+| s_d6 | `donor600=600000` |
+| s_d6hp | s_d6 plus `homepick=12` (the Nest lane's re-carry switch, PR #967: a cell picked up within 12 columns of the door is not paid again) |
+| s_d6nr | s_d6 plus `nest_r=0` (dig pay everywhere, no 20-column band; the Nest lane's garden screen: a bigger nest, no extinctions) |
+
+32 colonies x 24 rounds, P=16 each. **Deciding measure, named before launch:** the exam of each arm's rank-0 colony
+at r23, lived paired over the 6 boxes x 8 seeds at 600k: s_d6 against s_c, s_d6hp and s_d6nr against s_d6
+(Bonferroni over 3, p < 0.0167), and each against std_pool for the ratchet. Guard: garden open nest not lower.
+Jobs: `scratch/inrun/jobs/env2.txt`.
+
+### Famine twins for selection (03:35Z)
+
+Two selection cases in `scratch/inrun/labscen`, twins of the exam's famine boxes, which stay held out:
+`lab_famine_scatter` (scattered_larder's food budget, colony at x 400, shallower soil, scatter over 30-450) and
+`lab_famine_trickle` (feast_and_famine's 74% of idle burn for one colony of 52 at x 256: 2 windfall cells every
+1,000 frames at x 290, 24 every 12,000 at x 60). Positive control, seed 2, colsel's own 15k after landing:
+
+| case | hand-built ant: lived, alive | std_pool: lived, alive |
+|---|---|---|
+| lab_famine_scatter | 51.4, 48 | 16.6, 2 |
+| lab_famine_trickle | 33.3, 23 | 16.5, 3 |
+
+So the cases separate the brain that holds out in a famine from one that does not, inside colsel's 15k budget. They
+go into the next batch's `labscens=`, and the copy-test lane fits its generalist copy on them (not on the exam
+boxes; c3 was fitted on the exam's own famine boxes at seeds 1-4, so its wins there are not held out at box level).
+
+### env2's exam measure, amended before it runs (03:40Z)
+
+The watchdog lane (2026-10-28): the lab case's 15k headcount does not predict survival (env1 c's 28 r23 carries to
+300k on their own lab seeds: Spearman -0.14 against alive at 300k; c9, the rank 0, dead in both boxes), and
+headcount rises with a hatching boom that starves (trained colonies starve a median 67% of what they hatch there;
+x1 at 600k: 75-93%, the hand-built ant 22%). So `lived` alone can reward the wrong colony. **env2's exam reports
+three paired measures over the 48 box-seeds, and an arm passes only if lived passes and neither of the others is
+significantly worse:** lived; alive at 600k; starved / (founders + births). Same comparisons, Bonferroni over 3.
+Also found: the env1, clean1 and elite1 job lines dropped `shapeopen=1` (on since nest3, gone after nest11); the
+watchdog finds either shape version noise (rho ~0), so it comes back for consistency, not as a lever.
