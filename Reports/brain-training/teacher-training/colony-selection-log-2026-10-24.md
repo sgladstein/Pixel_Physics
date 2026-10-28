@@ -1170,3 +1170,14 @@ Two selection cases in `scratch/inrun/labscen`, twins of the exam's famine boxes
 So the cases separate the brain that holds out in a famine from one that does not, inside colsel's 15k budget. They
 go into the next batch's `labscens=`, and the copy-test lane fits its generalist copy on them (not on the exam
 boxes; c3 was fitted on the exam's own famine boxes at seeds 1-4, so its wins there are not held out at box level).
+
+### env2's exam measure, amended before it runs (03:40Z)
+
+The watchdog lane (2026-10-28): the lab case's 15k headcount does not predict survival (env1 c's 28 r23 carries to
+300k on their own lab seeds: Spearman -0.14 against alive at 300k; c9, the rank 0, dead in both boxes), and
+headcount rises with a hatching boom that starves (trained colonies starve a median 67% of what they hatch there;
+x1 at 600k: 75-93%, the hand-built ant 22%). So `lived` alone can reward the wrong colony. **env2's exam reports
+three paired measures over the 48 box-seeds, and an arm passes only if lived passes and neither of the others is
+significantly worse:** lived; alive at 600k; starved / (founders + births). Same comparisons, Bonferroni over 3.
+Also found: the env1, clean1 and elite1 job lines dropped `shapeopen=1` (on since nest3, gone after nest11); the
+watchdog finds either shape version noise (rho ~0), so it comes back for consistency, not as a lever.
