@@ -5,6 +5,7 @@ The question (owner, 2026-10-27 18:49Z): *can ants evolve their own signals that
 ants?* -- with food delivered home as the guard (`evolvable-pheromones-2026-10-25.md` §9.10).
 
   python3 scratch/pheromones/garden.py OUT free=RUN,RUN,... deaf=RUN,RUN,... [P=4] [DEAFALSO=B] [FRAMES=100000]
+      [PATCHES=T:LO:HI] [SCORE=heaphome]
 
 Each RUN is an `emerge.py` OUT directory; its last generation with a `done` file is judged. Run with the same
 environment the runs used (BIN, PIXEL_PHYSICS_ALARM_GROUND). Seeds start at 5,000,000: never a training seed
@@ -34,12 +35,16 @@ import csv, json, math, os, statistics as st, subprocess, sys, threading
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from heaphome import heaphome  # noqa: E402
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT = sys.argv[1]
 kv = dict(a.split('=', 1) for a in sys.argv[2:])
 P = int(kv.get('P', 4))
 RUNS = {arm: [r for r in kv.get(arm, '').split(',') if r] for arm in ('free', 'deaf')}
-BED = ['sel=off', f"frames={kv.get('FRAMES', 100000)}", 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0']
+BED = ['sel=off', f"frames={kv.get('FRAMES', 100000)}", 'dist=100', 'food=mix', f"patches={kv.get('PATCHES', '20000:30:110')}", 'maps=0']
+# SCORE=heaphome (2026-10-28): judge on deliveries whose trip began at the heap, which the door loop cannot farm (§9.13)
+HEAPHOME = kv.get('SCORE') == 'heaphome'
 BASE = {**os.environ, 'RAYON_NUM_THREADS': '1', 'PP_MIND_ALARM': 'train'}
 DEAFALSO = [kv['DEAFALSO']] if 'DEAFALSO' in kv else []
 os.makedirs(OUT, exist_ok=True)
@@ -58,6 +63,8 @@ def score(d):
         r['alive'], r['tank'] = int(last['alive']), float(last['tank_mean'])
         r['kj'] = sum(float(v) for k, v in list(csv.DictReader(open(f'{d}/larder.csv')))[-1].items() if k.endswith('_kj'))
         r['home'] = int(list(csv.DictReader(open(f'{d}/nest.csv')))[-1]['food_home'])
+        if HEAPHOME:
+            r['home'] = heaphome(d)
     except (OSError, IndexError, KeyError):
         pass
     for fn in os.listdir(d) if os.path.isdir(d) else []:
