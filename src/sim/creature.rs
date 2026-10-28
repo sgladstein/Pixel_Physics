@@ -8128,6 +8128,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             return mind::tick(world, x, y, organism, def);
         }
         mind::scratch_log::shadow_pre(world, x, y, organism, def);
+        // SCRATCH (copy test, 2026-10-28): `PP_SELFAGREE=k`, the same tick in a clone with other dice
+        // (`mind::scratch_log::selfagree_take`).
+        if mind::scratch_log::selfagree_take(world, organism) {
+            let mut wc = world.clone();
+            mind::scratch_log::strip_mind(&mut wc, organism);
+            wc.seed ^= mind::scratch_log::selfagree_xor();
+            creature_tick(&mut wc, x, y, organism, def, &SpecWindow::default());
+            mind::scratch_log::selfagree_store(&wc, organism);
+        }
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
