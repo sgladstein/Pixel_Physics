@@ -1439,3 +1439,37 @@ ant, 6 boxes x 8 seeds at 600k. Deciding measure as named at launch above.
 r23 carries plus old and std, lab_herbs + lab_far_mix at 200k and herb_first_colony + played_bed at 600k, seeds 1-3.
 Asks whether the twins rank colonies as the exam does (the watchdog's Spearman, fail below 0.3 or p >= .05).
 `exam.py` now takes `PIXEL_PHYSICS_LAB_SCENARIOS` from the job env (default unchanged) so a job can run the twins.
+
+## 2026-10-28 (19:20Z): exam `x7` -- the long lab-twin check picks no better than chance; nothing beats std_pool
+
+x7-1028 (288 runs, ref 677b51a7, after #973; 18:21-19:14Z), `data-1027/x7/lab600k.csv`, `x7an.py`. Paired over the 48
+box-seeds at 600k, up/down (Bonferroni over the 3 env5 arms: p < 0.017):
+
+| against std_pool | lived | alive at the end | starved share |
+|---|---|---|---|
+| e_dl c28 (donor600 + donorlab 200k) | 18 / 20, p 0.87 | 17 / 7, p 0.064 | more starve 25 / 11, p 0.029 (not after Bonferroni) |
+| e_dlo c28 (donorlab 200k in place of donor600) | **4 / 26, p 6e-5** | **4 / 21, p 0.0009** | 23 / 16 |
+| e_dl4 c31 (donorlab 400k in place of donor600) | **7 / 25, p 0.002** | 10 / 16 | 23 / 14 |
+| t_fam c7 (control, rerun on this build) | 13 / 21, p 0.23 | 14 / 11 | more starve 25 / 12, p 0.047 |
+| hand-built ant (std vs old) | std 4 / 44, p 1.5e-9 | std 10 / 25, p 0.017 | std more 48 / 0 |
+
+Against t_fam c7, the arm env5 changes: e_dl 14 / 16 (level), e_dlo 5 / 23 (p 0.0009), e_dl4 10 / 23 (p 0.035).
+Per box, every trained brain still dies in two_larders, scattered_larder and feast_and_famine (lived 0.3-0.5, at most
+1 of 8 seeds alive); e_dlo also collapses in herb_first_colony (lived median 15, 3/8 alive) and crowded_bench (18,
+3/8). Median lived over 48: std 70, t_fam c7 58, e_dl 50, e_dl4 60, e_dlo 0.7; hand-built 184.
+
+**Reading.** Adding the long twin check on top of donor600 changes nothing; putting it in place of donor600 makes the
+game worse. That fits the watchdog's twinrank verdict (18:25Z): at 200k, lab_herbs does not agree with itself seed to
+seed (Spearman lived 0.00; lab_far_mix +0.20) and the twins rank the 32 t_fama carries against the exam boxes at
++0.06, so `donorlab` with one seed per box is close to a random pick among the gated candidates, while donor600 (the
+garden at 600k) carries some signal. The old-vs-std control does show on the twins (lived 325 vs 146), so they see
+large differences, not sibling ones. On this build std_pool and t_fam c7 are level (13 / 21), so t_fam's famine
+cases neither helped nor hurt; no trained pool beats std_pool, and the lab default stays std_pool (B1 waits for one
+that does).
+
+**Next, launched 19:18Z: twinself-1028** (816 runs, ref 3c0ebbc6). Can any non-exam lab box steer selection at 600k?
+Five labscen boxes (lab_herbs, lab_far_mix, lab_mid_fruit, lab_far_wild, lab_far200_fruit) at 600k with the 32
+t_fama carries, 3 seeds, beside herb_first_colony, played_bed and crowded_bench rerun on this build. Deciding measure
+(before launch): a box can steer if its seed-to-seed Spearman of lived over the 32 colonies (mean of the 3 seed pairs)
+is >= 0.3, and its 3-seed lived sum ranks the exam boxes' 9-run sum at Spearman >= 0.3 with permutation p < 0.01
+(0.05 / 5 boxes). The famine twins are left out: every trained colony is dead there, so they cannot rank siblings.
