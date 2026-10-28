@@ -6285,6 +6285,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   signals they came to depend on (deaf/misplaced/constant cost 2-15x food), yet deaf controls foraged 1.4-2.2x better,
   not because of the emission bill; opening the channel to a good forager cost it 13%. Switches: `PP_SCENT_DEAF`, `PP_SCENT_SHIFT`, `PP_SCENT_CONST`, `PP_EMIT_FREE`,
   `PIXEL_PHYSICS_A_DIFFUSE`, `PIXEL_PHYSICS_ALARM_GROUND`, `PP_MIND_ALARM=train`; `inrun patches=` (moving food).
+  The PF4 positive control (A and B deaf in both arms) failed (§9.12); rechecked (§9.13), its 1.8x was mostly
+  re-carried food counted as fresh deliveries (42% of the deaf arm's), 1.16x on food from the heap, and the same loop
+  is 28-34% of the trained pools' deliveries.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
@@ -6356,6 +6359,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   vote and two median gates leave ~4 donors a round; one mutating, pay-ranked round makes a child worse than its own
   donor on lab (63-69% of pairs) and nest, better on food; the whole population descends from one ant 7-22 rounds
   back. Ranked fixes: cut the child round's damage, one case per goal with explicit weights, more families.
+
+- [brain-training/research/selection-lane-2026-10-27.md](brain-training/research/selection-lane-2026-10-27.md) —
+  **selection lane: batches on GitHub runners, which colony scores repeat, food counted twice at the door.** Runner
+  batches match the VM colony for colony (PR #962). In clean1, food home (0.29-0.34), nest scale (0.30) and nest
+  (0.22) repeat from world to world; starvation repeats at 0.03 while the world sets it at 0.24, so no starvation
+  count a round keeps can select. A quarter to two thirds of trained colonies' deliveries are cells re-carried at
+  the door (the Nest lane's `homepick` counts them once); counting once reorders home8 increasingly by round
+  (Spearman 0.96 -> 0.64 over 3 rounds). Kept-cell scores audited for kJ. Islands screen pending.
 
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
@@ -6434,6 +6445,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   necessary, half strength acts like removal, and breaking the set input (an off memory unit reads -1, so its
   balanced pair turns the latch on everywhere) loses 13-14 of 16 colonies. Controls: gate shut by hand, links free.
   Recommends teach-then-protect now, and a write-gated memory (holds by default) as an off-by-default prototype.
+- [brain-training/research/brain-copy-test-2026-10-28.md](brain-training/research/brain-copy-test-2026-10-28.md) —
+  **can the brain copy the hand-built ant? Partly, and its shape is not the main limit (measurement and verdict).**
+  Brains fitted to the hand-built ant's choices, run in two_larders, scattered_larder and feast_and_famine for 60k
+  frames: the best (pruned to 804 links) keeps 13 ants against std_pool's 3.8 (24/24) and the hand-built 38. The
+  per-link bill starves a fifth of a one-tank landing at ~1,500 links (grants=3 hides it), yet std_pool bill-free
+  still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
+  itself gets 41%. So: the landing bill plus missing senses, not the scorer. Tools in `scratch/copytest/`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1

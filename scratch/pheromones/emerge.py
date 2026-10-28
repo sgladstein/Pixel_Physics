@@ -33,6 +33,8 @@ columns off; emergence = that gap growing over generations, in free and not in d
   [CHANMUT=PM:SIGMA] after MUT, a further step of SIGMA on each live slot of the alarm channel (its emit row and every
   link reading it) with probability PM: gentle MUT elsewhere, a standard step on the channel (readiness review)
   [DEAFALSO=B] both arms deaf to this plane too (PF4 positive control); listening replays keep it deaf
+  [SCORE=heaphome] deliveries whose trip began at the heap (`heaphome.py`; the door loop cannot farm it, §9.13)
+  [PATCHES=T:LO:HI] the moving heap (default 20000:30:110); with PP_BED_W=448 a far bed is 20000:100:250
   [CHAN=alarm|B] the channel the listening replays deafen and shift; [ALARM=train|frozen] PP_MIND_ALARM
   e.g. python3 scratch/pheromones/emerge.py /tmp/em free 16 200 100000 assets/minds/std_pool.txt P=4
 
@@ -44,10 +46,12 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'inrun'))
 import nestcount  # noqa: E402
+sys.path.insert(0, HERE)
+from heaphome import heaphome  # noqa: E402
 
 BIN = os.environ.get('BIN', 'target/release/examples/inrun')
 OUT, ARM, N, GENS, FRAMES, FOUNDER = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
-OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL', 'HARNESS', 'CHANMUT', 'DEAFALSO')
+OPTS = ('P', 'EVERY', 'LISTEN', 'SEED', 'MUT', 'EVALS', 'SCORE', 'ZERO', 'CHAN', 'ALARM', 'FILL', 'HARNESS', 'CHANMUT', 'DEAFALSO', 'PATCHES')
 opts = {k: v for k, v in (a.split('=', 1) for a in sys.argv[7:] if a.split('=', 1)[0] in OPTS)}
 EXTRA = [a for a in sys.argv[7:] if a.split('=', 1)[0] not in OPTS]
 P, EVERY, LISTEN, SEED = int(opts.get('P', 4)), int(opts.get('EVERY', 10)), int(opts.get('LISTEN', 4)), int(opts.get('SEED', 1))
@@ -55,8 +59,8 @@ MUT = opts.get('MUT', '0.013:1.0:4')  # pm:sigma:events, the standard line's kpm
 EVALS, SCORE, ZERO, CHAN = int(opts.get('EVALS', 1)), opts.get('SCORE', 'both'), opts.get('ZERO'), opts.get('CHAN', 'alarm')
 assert ARM in ('free', 'deaf', 'drift'), ARM
 H2 = opts.get('HARNESS', '1') == '2'
-assert SCORE in ('both', 'stored', 'kj', 'home') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
-BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', 'patches=20000:30:110', 'maps=0'] + EXTRA
+assert SCORE in ('both', 'stored', 'kj', 'home', 'heaphome') and CHAN in ('alarm', 'B'), (SCORE, CHAN)
+BED = ['sel=off', f'frames={FRAMES}', 'dist=100', 'food=mix', f"patches={opts.get('PATCHES', '20000:30:110')}", 'maps=0'] + EXTRA
 ENV = {**os.environ, 'RAYON_NUM_THREADS': '1', **({'PP_MIND_ALARM': 'train'} if opts.get('ALARM', 'train') == 'train' else {})}
 # DEAFALSO=B: both arms are also deaf to this plane -- PF4, the positive control (the prize for a new trail on the
 # third plane is then the whole of B's value)
@@ -173,7 +177,7 @@ def run(genome, seed, out, env):
 
 
 def score(d):
-    r = dict(stored=0, nest=0, alive=0, starved=0, layA=0.0, layB=0.0, layAl=0.0, kj=0.0, tank=0.0, deliver=0, churn=0, home=0)
+    r = dict(stored=0, nest=0, alive=0, starved=0, layA=0.0, layB=0.0, layAl=0.0, kj=0.0, tank=0.0, deliver=0, churn=0, home=0, heaphome=0)
     try:
         last = list(csv.DictReader(open(f'{d}/stock.csv')))[-1]
         r['stored'] = int(last['nest_food']) + int(last['door_food'])
@@ -210,7 +214,11 @@ def score(d):
                 r['layA'], r['layB'], r['layAl'] = float(t[1]), float(t[3]), float(t[5])
     except OSError:
         pass
-    food = {'kj': r['kj'], 'home': r['home']}.get(SCORE, r['stored'])
+    try:  # deliveries whose trip began at the heap: the door loop cannot farm it (§9.13, 2026-10-28)
+        r['heaphome'] = heaphome(d)
+    except (OSError, IndexError):
+        r['heaphome'] = 0
+    food = {'kj': r['kj'], 'home': r['home'], 'heaphome': r['heaphome']}.get(SCORE, r['stored'])
     if H2:  # food stored counts even if the colony died out: removes the extinction cliff (review 2026-10-27)
         r['score'] = food + (r['nest'] if SCORE == 'both' and r['alive'] else 0)
     else:
@@ -246,7 +254,7 @@ if g0 == 0:
         else:
             mutant(base, f'{OUT}/g000/c{c:02}.raw.txt', SEED * 100000 + c)
     with open(gens_csv, 'w') as f:
-        f.write('gen,colony,parent,score,stored,nest,alive,starved,layA,layB,layAl,kj,tank,deliver,churn,home\n')
+        f.write('gen,colony,parent,score,stored,nest,alive,starved,layA,layB,layAl,kj,tank,deliver,churn,home,heaphome\n')
     with open(listen_csv, 'w') as f:
         f.write('gen,genome,seed,normal_score,deaf_score,shift_score,normal_stored,deaf_stored,shift_stored\n')
 parents_of = {}
@@ -279,7 +287,7 @@ for g in range(g0, GENS):
     with open(gens_csv, 'a') as f:
         for c in range(N):
             r = res[c]
-            f.write(f"{g},{c},{parents_of.get((g, c), '')},{r['score']},{r['stored']},{r['nest']},{r['alive']},{r['starved']},{r['layA']:.0f},{r['layB']:.0f},{r['layAl']:.0f},{r['kj']:.1f},{r['tank']:.2f},{r['deliver']:.1f},{r['churn']:.1f},{r['home']:.0f}\n")
+            f.write(f"{g},{c},{parents_of.get((g, c), '')},{r['score']},{r['stored']},{r['nest']},{r['alive']},{r['starved']},{r['layA']:.0f},{r['layB']:.0f},{r['layAl']:.0f},{r['kj']:.1f},{r['tank']:.2f},{r['deliver']:.1f},{r['churn']:.1f},{r['home']:.0f},{r['heaphome']}\n")
     best = order[0] if ARM != 'drift' else max(range(N), key=lambda c: (res[c]['score'], -c))
     if EVERY and (g % EVERY == EVERY - 1 or g == GENS - 1):
         ld = f'{gd}/listen'
