@@ -1248,3 +1248,20 @@ alive arms. **Deciding measure, named before launch:** the exam of each arm's ra
 48 box-seeds at 600k: t_fama and t_famak against t_fam on lived, alive at 600k and starved share (an arm passes on
 lived with neither other measure significantly worse; Bonferroni over 2), and each against std_pool. The same exam
 carries the copy-test lane's generalist copy `g1-twins` (fitted on the four twins only).
+
+## 2026-10-28 (09:35Z): `env3` gardens -- at 100k the famine twins score every colony 0; exam `x3` launched
+
+`env3-1028` (built 57c3bc22, 05:56-09:26Z, 3 h 30 min on 64 cores). Data: `data-1027/env3/`.
+
+| arm | extinct per round (median of 32) | garden r23: carries, alive, starved, nest (medians) | lab_herbs case r0 -> r23 (median) | famine twins r0 -> r23 | rank 0 r23 |
+|---|---|---|---|---|---|
+| t_fam (15k headcount) | 2 | 27, 70, 270, 541 | 134 -> 193.5 | scatter 177 -> 174, trickle 148.5 -> 158 | c7 |
+| t_fama (alive at 100k) | 1 | 32, 66, 302, 704 | 400 -> 830 | 0 -> 0, 0 -> 0 | c9 |
+| t_famak (alive100k - 0.1 x starved) | 1 | 32, 63, 249.5, 556 | 93 -> 295.5 | -51 -> -51.5, -52 -> -52 | c32 |
+
+**The famine twins carried no signal in the 100k arms**: every colony is dead there by 100k, so the case is a
+constant (0, or minus the founding colony's starved). In t_fam, at 15k, they did not move in 24 rounds. Selection
+did move the herb case in both 100k arms (median doubled and tripled). Whether any of it reached the game: exam `x3`
+(`scratch/inrun/jobs/x3.txt`, 336 lines), the three r23 rank-0 carries, the copy-test lane's generalist copy
+`g1-twins` (fitted on the four twins only, PR #975) and its specialist c3, std_pool and the hand-built ant, 6 boxes
+x 8 seeds at 600k, measures as named at 05:55Z.
