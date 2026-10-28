@@ -128,14 +128,17 @@ fn main() {
     let w = &lab.world;
     let births = w.creature_stats.births;
     println!(
-        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={} digs={} deliveries={}",
+        "RESULT alive={} lived={:.1} peak={peak} starved={} births={births} landed={} frame={} digs={} deliveries={} trip_deliveries={}",
         count(&lab),
         lived as f64 / after.max(1) as f64,
         w.deaths_by_cause[starved] - s0,
         landed.map_or(-1, |l| l as i64),
         w.frame,
         w.creature_stats.digs,
-        w.creature_stats.deliveries
+        w.creature_stats.deliveries,
+        // Food bitten on a trip and put down at home, once each: `deliveries` also counts crumbs shuffled inside
+        // the nest (copy test, 2026-10-27; `trip_deliveries` is the foraging measure, PR 614).
+        w.creature_stats.trip_deliveries
     );
 }
 

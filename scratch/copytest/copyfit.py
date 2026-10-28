@@ -57,15 +57,20 @@ def slot_mask(kind):
 PLAIN_K = num('plain_k', 20.0)  # the logs' PP_SHADOW_SAMPLE
 
 
-def tt(R):
+PATHS = {}
+
+
+def tt(R, paths):
+    # A DAgger log (`PP_OLDLAB_ALL`, under `/dag/`) keeps every labelled row, so its plain rows stand for one decision.
+    k = np.array([1.0 if '/dag/' in paths[m[5]] else PLAIN_K for m in R.meta], np.float32)
     T = B.to_torch(R)
-    T['w'] = torch.from_numpy(B.row_weights(R, PLAIN_K))
+    T['w'] = torch.from_numpy(B.row_weights(R, k))
     return T
 
 
 def chunks(R, size):
     idx = rng.permutation(R.n)
-    return [tt(R.subset(np.sort(idx[i:i + size]))) for i in range(0, R.n, size)]
+    return [tt(R.subset(np.sort(idx[i:i + size])), TRP) for i in range(0, R.n, size)]
 
 
 def score(g, T, R=None):
@@ -94,15 +99,17 @@ for v in [int(x) for x in A.get('switches', '').split(',') if x]:
     g0[B.SWITCH + v] = max(g0[B.SWITCH + v], 1.0)
 core0 = torch.from_numpy(g0[:B.GENOME_LEN].copy())
 t0 = time.time()
-Rtr = sample_rows(A['train'].split(','), num('rows', 150000))
-Rte = sample_rows(A['test'].split(','), num('trows', 40000)) if A.get('test') else None
+TRP, TEP = A['train'].split(','), A.get('test', '').split(',')
+Rtr = sample_rows(TRP, num('rows', 150000))
+Rte = sample_rows(TEP, num('trows', 40000)) if A.get('test') else None
 print(f'rows: train {Rtr.n} ({len(Rtr.verb)} options), test {Rte.n if Rte else 0}; {time.time() - t0:.0f}s', flush=True)
-Ttr_all, Tte = tt(Rtr), (tt(Rte) if Rte else None)
+Ttr_all, Tte = tt(Rtr, TRP), (tt(Rte, TEP) if Rte else None)
 batches = chunks(Rtr, num('batch', 8192))
 mask = torch.from_numpy(slot_mask(A.get('slots', 'all')))
 w = core0.clone().requires_grad_(True)
 opt = torch.optim.Adam([w], lr=num('lr', 0.02))
 l1 = num('l1', 0.0)
+PROX = num('prox', 0.0)
 steps = num('steps', 3000)
 log = dict(args=A, start=START, curve=[])
 start_tr, start_te = score(core0, Ttr_all, Rtr), (score(core0, Tte, Rte) if Tte else None)
@@ -118,6 +125,13 @@ for step in range(1, steps + 1):
     w.grad[~mask] = 0.0
     opt.step()
     with torch.no_grad():
+        # `prox=x`: soft-threshold the trained weights by lr*x after each step (an L1 that reaches exact zeros), so the
+        # copy can be made as sparse as the brain's per-link bill wants; settings (sharpness, pull) are left alone.
+        if PROX > 0:
+            links = mask.clone()
+            links[:B.FIRST_LINK] = False
+            shrunk = torch.sign(w) * torch.clamp(w.abs() - num('lr', 0.02) * PROX, min=0.0)
+            w[links] = shrunk[links]
         w.clamp_(-40.0, 40.0)
         w[~mask] = core0[~mask]
     if step % 250 == 0 or step == steps:

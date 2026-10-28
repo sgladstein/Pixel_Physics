@@ -122,7 +122,7 @@ class Rows:
     def __init__(self, ctx, mem, last, row_of, verb, feats, lab, meta):
         self.ctx, self.mem, self.last = ctx, mem, last
         self.row_of, self.verb, self.feats, self.lab = row_of, verb, feats, lab
-        self.meta = meta  # per row: (tag, frame, id, x, y)
+        self.meta = meta  # per row: (tag, frame, id, x, y, index of the file in `paths`)
         self.n = len(ctx)
 
     def subset(self, idx):
@@ -135,25 +135,42 @@ class Rows:
         # keep the rows' order as in idx
         order = np.argsort(new[self.row_of[om]], kind='stable')
         sel = np.nonzero(om)[0][order]
-        return Rows(self.ctx[idx], self.mem[idx], self.last[idx], new[self.row_of[sel]], self.verb[sel], self.feats[sel],
-                    self.lab[sel], [self.meta[i] for i in idx])
+        R = Rows(self.ctx[idx], self.mem[idx], self.last[idx], new[self.row_of[sel]], self.verb[sel], self.feats[sel],
+                 self.lab[sel], [self.meta[i] for i in idx])
+        if hasattr(self, 'prev_verb'):
+            R.prev_verb, R.opt_hist = self.prev_verb[idx], self.opt_hist[sel]
+        return R
 
 
-def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=False, per_file=None, seed=1):
+def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=False, per_file=None, seed=1, hist=False):
     """Read Q rows. `keep(row_fields) -> bool` filters; settle=2 rows (memory context written before a sampled row) are
     skipped unless `settle2`. `per_file=N` keeps about N rows of each file, drawn at random before parsing (so a
-    multi-gigabyte log set never sits in memory)."""
+    multi-gigabyte log set never sits in memory). `hist=True` also records what the teacher did at the ant's previous
+    decision (every kept row's previous decision is in the log, kept or as a settle=2 row): `R.prev_verb` per row, and
+    per option `R.opt_hist` = (repeats the previous step's direction, steps back onto the previous cell)."""
     ctx, mem, last, row_of, verb, feats, lab, meta = [], [], [], [], [], [], [], []
+    prev_verb, opt_hist = [], []
     n = 0
     rs = np.random.default_rng(seed)
-    for p in paths:
+    for fi, p in enumerate(paths):
         prob = 1.0
         if per_file:
             total = sum(1 for l in open(p) if ',Q,' in l[:24] and l.split(',', 7)[6] != '2')
             prob = min(1.0, per_file / max(total, 1))
+        prev = {}
         for line in open(p):
             if ',Q,' not in line[:24]:
                 continue
+            if hist:
+                f = line.rstrip('\n').split(',', 16)
+                ant, here = f[3], (int(f[4]), int(f[5]))
+                before = prev.get(ant)
+                lf = f[15] if len(f) > 15 else '-'
+                pv, pt = -1, None
+                if lf.startswith('1|'):
+                    o = [x for x in f[13].split(';') if x][int(lf[2:].split(';')[0])].split(':', 4)
+                    pv, pt = int(o[0]), (int(o[1]), int(o[2]))
+                prev[ant] = (here, pv, pt)
             if prob < 1.0 and rs.random() > prob:
                 continue
             f = line.rstrip('\n').split(',')
@@ -170,7 +187,9 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
             ctx.append(np.array(f[11].split(' '), np.float32))
             mem.append(np.array(f[12].split(' '), np.float32))
             last.append(int(f[8]))
-            meta.append((f[0], int(f[2]), int(f[3]), int(f[4]), int(f[5])))
+            meta.append((f[0], int(f[2]), int(f[3]), int(f[4]), int(f[5]), fi))
+            if hist:
+                prev_verb.append(before[1] if before else -1)
             for k, o in enumerate(x for x in f[13].split(';') if x):
                 q = o.split(':', 4)
                 v = np.zeros(FEATURES, np.float32)
@@ -181,6 +200,15 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
                         if i < FEATURES:
                             v[i] = float(val)
                 feats.append(v)
+                if hist:
+                    t = (int(q[1]), int(q[2]))
+                    rep = back = 0.0
+                    if before and before[1] == 0 and before[2] is not None:
+                        d = (before[2][0] - before[0][0], before[2][1] - before[0][1])
+                        rep = float(int(q[0]) == 0 and (t[0] - here[0], t[1] - here[1]) == d)
+                    if before:
+                        back = float(int(q[0]) == 0 and t == before[0])
+                    opt_hist.append((rep, back))
                 verb.append(int(q[0]))
                 row_of.append(n)
                 lab.append(labs is not None and k in labs)
@@ -189,8 +217,11 @@ def parse_rows(paths, labelled_only=True, keep=None, max_rows=None, settle2=Fals
                 break
         if max_rows and n >= max_rows:
             break
-    return Rows(np.stack(ctx), np.stack(mem), np.array(last, np.int64), np.array(row_of, np.int64),
-                np.array(verb, np.int64), np.stack(feats), np.array(lab, bool), meta)
+    R = Rows(np.stack(ctx), np.stack(mem), np.array(last, np.int64), np.array(row_of, np.int64),
+             np.array(verb, np.int64), np.stack(feats), np.array(lab, bool), meta)
+    if hist:
+        R.prev_verb, R.opt_hist = np.array(prev_verb, np.int64), np.array(opt_hist, np.float32)
+    return R
 
 
 # ---- the forward pass -----------------------------------------------------------------------------------------------
@@ -258,7 +289,7 @@ def row_weights(R, plain_k):
     plain = np.ones(R.n, bool)
     lv = R.verb[R.lab]
     np.logical_and.at(plain, R.row_of[R.lab], np.isin(lv, [0, 1, 2]))
-    return np.where(plain, float(plain_k), 1.0).astype(np.float32)
+    return np.where(plain, np.asarray(plain_k, np.float32), 1.0).astype(np.float32)
 
 
 def label_logp(logp, T):

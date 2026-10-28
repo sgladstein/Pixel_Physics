@@ -21,10 +21,11 @@ torch.manual_seed(num('seed', 1))
 
 
 def rows(paths, n):
-    R = B.parse_rows(paths, per_file=int(1.15 * n / len(paths)) + 1)
+    R = B.parse_rows(paths, per_file=int(1.15 * n / len(paths)) + 1, hist=HIST)
     return R.subset(np.sort(rng.choice(R.n, n, replace=False))) if R.n > n else R
 
 
+HIST = A.get('hist', '0') == '1'  # add what the teacher did one decision ago (`brain.parse_rows(hist=True)`)
 Rtr = rows(A['train'].split(','), num('rows', 150000))
 Rte = rows(A['test'].split(','), num('trows', 40000))
 USE_MEM = num('mem', 1)
@@ -37,6 +38,10 @@ def inputs(R):
     per_row = torch.cat([T['ctx'], T['mem'] * USE_MEM, lasthot], 1)
     vhot = torch.nn.functional.one_hot(T['verb'], B.VERBS).float()
     x = torch.cat([per_row[T['row_of']], T['feats'], vhot], 1)
+    if HIST:
+        pv = torch.zeros(R.n, B.VERBS + 1)
+        pv[torch.arange(R.n), torch.from_numpy(R.prev_verb) + 1] = 1.0
+        x = torch.cat([x, pv[T['row_of']], torch.from_numpy(R.opt_hist)], 1)
     T['w'] = torch.from_numpy(B.row_weights(R, float(A.get('plain_k', 20))))
     return x, T
 

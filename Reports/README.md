@@ -6246,6 +6246,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   necessary, half strength acts like removal, and breaking the set input (an off memory unit reads -1, so its
   balanced pair turns the latch on everywhere) loses 13-14 of 16 colonies. Controls: gate shut by hand, links free.
   Recommends teach-then-protect now, and a write-gated memory (holds by default) as an off-by-default prototype.
+- [brain-training/research/brain-copy-test-2026-10-28.md](brain-training/research/brain-copy-test-2026-10-28.md) —
+  **can the brain copy the hand-built ant? Partly, and its shape is not the main limit (measurement and verdict).**
+  Brains fitted to the hand-built ant's choices, run in two_larders, scattered_larder and feast_and_famine for 60k
+  frames: the best (pruned to 1,292 links) keeps 13 ants against std_pool's 3.8 (24/24) and the hand-built 38. The
+  per-link bill starves a fifth of a one-tank landing at ~2,000 links (grants=3 hides it), yet std_pool bill-free
+  still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
+  itself gets 41%. So: the landing bill plus missing senses, not the scorer. Tools in `scratch/copytest/`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1

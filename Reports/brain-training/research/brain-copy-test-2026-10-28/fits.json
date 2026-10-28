@@ -1,0 +1,1624 @@
+{
+ "c1": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "6000",
+   "switches": "1"
+  },
+  "start": {
+   "train": {
+    "p": 0.14025084674358368,
+    "nll": 3.7514986991882324,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.22526061534881592,
+      76839
+     ],
+     "turn": [
+      0.12874291837215424,
+      6473
+     ],
+     "rest": [
+      0.045143790543079376,
+      68064
+     ],
+     "dig": [
+      0.006299667060375214,
+      2829
+     ],
+     "pick_up": [
+      0.18887780606746674,
+      14228
+     ],
+     "drop": [
+      0.14050309360027313,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.13832919299602509,
+    "nll": 3.785984992980957,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2211678922176361,
+      19518
+     ],
+     "turn": [
+      0.12115268409252167,
+      1251
+     ],
+     "rest": [
+      0.04595927894115448,
+      17352
+     ],
+     "dig": [
+      0.008905480615794659,
+      681
+     ],
+     "pick_up": [
+      0.1977374255657196,
+      3499
+     ],
+     "drop": [
+      0.14913691580295563,
+      2699
+     ]
+    }
+   },
+   "live": 1523
+  },
+  "final": {
+   "train": {
+    "p": 0.38382959365844727,
+    "nll": 1.2030291557312012,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.28362444043159485,
+      76839
+     ],
+     "turn": [
+      0.34454238414764404,
+      6473
+     ],
+     "rest": [
+      0.5051049590110779,
+      68064
+     ],
+     "dig": [
+      0.0263095423579216,
+      2829
+     ],
+     "pick_up": [
+      0.25770312547683716,
+      14228
+     ],
+     "drop": [
+      0.10679973661899567,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.38265177607536316,
+    "nll": 1.2256999015808105,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.27335479855537415,
+      19518
+     ],
+     "turn": [
+      0.2621675133705139,
+      1251
+     ],
+     "rest": [
+      0.5183442831039429,
+      17352
+     ],
+     "dig": [
+      0.03828245773911476,
+      681
+     ],
+     "pick_up": [
+      0.26326224207878113,
+      3499
+     ],
+     "drop": [
+      0.10150399804115295,
+      2699
+     ]
+    }
+   },
+   "live": 2693
+  }
+ },
+ "c2": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "6000",
+   "switches": "1",
+   "plain_k": "1"
+  },
+  "start": {
+   "train": {
+    "p": 0.14191775023937225,
+    "nll": 3.7169580459594727,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.22526061534881592,
+      76839
+     ],
+     "turn": [
+      0.12874291837215424,
+      6473
+     ],
+     "rest": [
+      0.045143790543079376,
+      68064
+     ],
+     "dig": [
+      0.006299667060375214,
+      2829
+     ],
+     "pick_up": [
+      0.18887780606746674,
+      14228
+     ],
+     "drop": [
+      0.14050309360027313,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.1414726823568344,
+    "nll": 3.7296152114868164,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2211678922176361,
+      19518
+     ],
+     "turn": [
+      0.12115268409252167,
+      1251
+     ],
+     "rest": [
+      0.04595927894115448,
+      17352
+     ],
+     "dig": [
+      0.008905480615794659,
+      681
+     ],
+     "pick_up": [
+      0.1977374255657196,
+      3499
+     ],
+     "drop": [
+      0.14913691580295563,
+      2699
+     ]
+    }
+   },
+   "live": 1523
+  },
+  "final": {
+   "train": {
+    "p": 0.37312811613082886,
+    "nll": 1.2592145204544067,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.2668915390968323,
+      76839
+     ],
+     "turn": [
+      0.326469361782074,
+      6473
+     ],
+     "rest": [
+      0.4982459545135498,
+      68064
+     ],
+     "dig": [
+      0.12001917511224747,
+      2829
+     ],
+     "pick_up": [
+      0.4343477487564087,
+      14228
+     ],
+     "drop": [
+      0.35533028841018677,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.37344956398010254,
+    "nll": 1.2725608348846436,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.25789129734039307,
+      19518
+     ],
+     "turn": [
+      0.2541041970252991,
+      1251
+     ],
+     "rest": [
+      0.5116932988166809,
+      17352
+     ],
+     "dig": [
+      0.1323990374803543,
+      681
+     ],
+     "pick_up": [
+      0.4350791871547699,
+      3499
+     ],
+     "drop": [
+      0.3565823435783386,
+      2699
+     ]
+    }
+   },
+   "live": 2693
+  }
+ },
+ "c3p0.05": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "6000",
+   "switches": "1",
+   "plain_k": "1",
+   "prox": "0.05"
+  },
+  "start": {
+   "train": {
+    "p": 0.14191775023937225,
+    "nll": 3.7169580459594727,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.22526061534881592,
+      76839
+     ],
+     "turn": [
+      0.12874291837215424,
+      6473
+     ],
+     "rest": [
+      0.045143790543079376,
+      68064
+     ],
+     "dig": [
+      0.006299667060375214,
+      2829
+     ],
+     "pick_up": [
+      0.18887780606746674,
+      14228
+     ],
+     "drop": [
+      0.14050309360027313,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.1414726823568344,
+    "nll": 3.7296152114868164,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2211678922176361,
+      19518
+     ],
+     "turn": [
+      0.12115268409252167,
+      1251
+     ],
+     "rest": [
+      0.04595927894115448,
+      17352
+     ],
+     "dig": [
+      0.008905480615794659,
+      681
+     ],
+     "pick_up": [
+      0.1977374255657196,
+      3499
+     ],
+     "drop": [
+      0.14913691580295563,
+      2699
+     ]
+    }
+   },
+   "live": 1523
+  },
+  "final": {
+   "train": {
+    "p": 0.37274911999702454,
+    "nll": 1.2510673999786377,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.28840935230255127,
+      76839
+     ],
+     "turn": [
+      0.31914132833480835,
+      6473
+     ],
+     "rest": [
+      0.4778127670288086,
+      68064
+     ],
+     "dig": [
+      0.15435154736042023,
+      2829
+     ],
+     "pick_up": [
+      0.39916351437568665,
+      14228
+     ],
+     "drop": [
+      0.3657083809375763,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.3736315667629242,
+    "nll": 1.2561484575271606,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2797205150127411,
+      19518
+     ],
+     "turn": [
+      0.2392374873161316,
+      1251
+     ],
+     "rest": [
+      0.49278703331947327,
+      17352
+     ],
+     "dig": [
+      0.17324957251548767,
+      681
+     ],
+     "pick_up": [
+      0.3974539637565613,
+      3499
+     ],
+     "drop": [
+      0.3686675429344177,
+      2699
+     ]
+    }
+   },
+   "live": 2284
+  }
+ },
+ "c3p0.2": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "6000",
+   "switches": "1",
+   "plain_k": "1",
+   "prox": "0.2"
+  },
+  "start": {
+   "train": {
+    "p": 0.14191775023937225,
+    "nll": 3.7169580459594727,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.22526061534881592,
+      76839
+     ],
+     "turn": [
+      0.12874291837215424,
+      6473
+     ],
+     "rest": [
+      0.045143790543079376,
+      68064
+     ],
+     "dig": [
+      0.006299667060375214,
+      2829
+     ],
+     "pick_up": [
+      0.18887780606746674,
+      14228
+     ],
+     "drop": [
+      0.14050309360027313,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.1414726823568344,
+    "nll": 3.7296152114868164,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2211678922176361,
+      19518
+     ],
+     "turn": [
+      0.12115268409252167,
+      1251
+     ],
+     "rest": [
+      0.04595927894115448,
+      17352
+     ],
+     "dig": [
+      0.008905480615794659,
+      681
+     ],
+     "pick_up": [
+      0.1977374255657196,
+      3499
+     ],
+     "drop": [
+      0.14913691580295563,
+      2699
+     ]
+    }
+   },
+   "live": 1523
+  },
+  "final": {
+   "train": {
+    "p": 0.34746843576431274,
+    "nll": 1.2987644672393799,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.27176472544670105,
+      76839
+     ],
+     "turn": [
+      0.2667170464992523,
+      6473
+     ],
+     "rest": [
+      0.45631226897239685,
+      68064
+     ],
+     "dig": [
+      0.1287481188774109,
+      2829
+     ],
+     "pick_up": [
+      0.36687836050987244,
+      14228
+     ],
+     "drop": [
+      0.28469952940940857,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.34707728028297424,
+    "nll": 1.3002184629440308,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2621158957481384,
+      19518
+     ],
+     "turn": [
+      0.20085236430168152,
+      1251
+     ],
+     "rest": [
+      0.46602463722229004,
+      17352
+     ],
+     "dig": [
+      0.1458754986524582,
+      681
+     ],
+     "pick_up": [
+      0.3661491572856903,
+      3499
+     ],
+     "drop": [
+      0.29058071970939636,
+      2699
+     ]
+    }
+   },
+   "live": 804
+  }
+ },
+ "c3p0.6": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "6000",
+   "switches": "1",
+   "plain_k": "1",
+   "prox": "0.6"
+  },
+  "start": {
+   "train": {
+    "p": 0.14191775023937225,
+    "nll": 3.7169580459594727,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.22526061534881592,
+      76839
+     ],
+     "turn": [
+      0.12874291837215424,
+      6473
+     ],
+     "rest": [
+      0.045143790543079376,
+      68064
+     ],
+     "dig": [
+      0.006299667060375214,
+      2829
+     ],
+     "pick_up": [
+      0.18887780606746674,
+      14228
+     ],
+     "drop": [
+      0.14050309360027313,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.1414726823568344,
+    "nll": 3.7296152114868164,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2211678922176361,
+      19518
+     ],
+     "turn": [
+      0.12115268409252167,
+      1251
+     ],
+     "rest": [
+      0.04595927894115448,
+      17352
+     ],
+     "dig": [
+      0.008905480615794659,
+      681
+     ],
+     "pick_up": [
+      0.1977374255657196,
+      3499
+     ],
+     "drop": [
+      0.14913691580295563,
+      2699
+     ]
+    }
+   },
+   "live": 1523
+  },
+  "final": {
+   "train": {
+    "p": 0.33384969830513,
+    "nll": 1.341446042060852,
+    "n": 180000,
+    "by_verb": {
+     "walk": [
+      0.2548888027667999,
+      76839
+     ],
+     "turn": [
+      0.2852536737918854,
+      6473
+     ],
+     "rest": [
+      0.44276201725006104,
+      68064
+     ],
+     "dig": [
+      0.0775783509016037,
+      2829
+     ],
+     "pick_up": [
+      0.3887542486190796,
+      14228
+     ],
+     "drop": [
+      0.23984457552433014,
+      11567
+     ]
+    }
+   },
+   "test": {
+    "p": 0.33191967010498047,
+    "nll": 1.3442199230194092,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2451949119567871,
+      19518
+     ],
+     "turn": [
+      0.22610026597976685,
+      1251
+     ],
+     "rest": [
+      0.44807344675064087,
+      17352
+     ],
+     "dig": [
+      0.0923423320055008,
+      681
+     ],
+     "pick_up": [
+      0.39015674591064453,
+      3499
+     ],
+     "drop": [
+      0.2463160902261734,
+      2699
+     ]
+    }
+   },
+   "live": 390
+  }
+ },
+ "d1": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log",
+    "c1/feast_and_famine-1.log",
+    "c1/feast_and_famine-2.log",
+    "c1/feast_and_famine-3.log",
+    "c1/feast_and_famine-4.log",
+    "c1/scattered_larder-1.log",
+    "c1/scattered_larder-2.log",
+    "c1/scattered_larder-3.log",
+    "c1/scattered_larder-4.log",
+    "c1/two_larders-1.log",
+    "c1/two_larders-2.log",
+    "c1/two_larders-3.log",
+    "c1/two_larders-4.log"
+   ],
+   "test": [
+    "c1/feast_and_famine-5.log",
+    "c1/feast_and_famine-6.log",
+    "c1/scattered_larder-5.log",
+    "c1/scattered_larder-6.log",
+    "c1/two_larders-5.log",
+    "c1/two_larders-6.log"
+   ],
+   "rows": "240000",
+   "trows": "40000",
+   "steps": "6000",
+   "switches": "1"
+  },
+  "start": {
+   "train": {
+    "p": 0.37780091166496277,
+    "nll": 1.2610464096069336,
+    "n": 240000,
+    "by_verb": {
+     "walk": [
+      0.2321106344461441,
+      103430
+     ],
+     "turn": [
+      0.1047535166144371,
+      20053
+     ],
+     "rest": [
+      0.5000954270362854,
+      95487
+     ],
+     "dig": [
+      0.023624969646334648,
+      2329
+     ],
+     "pick_up": [
+      0.2554306089878082,
+      9880
+     ],
+     "drop": [
+      0.0963374525308609,
+      8821
+     ]
+    }
+   },
+   "test": {
+    "p": 0.29761311411857605,
+    "nll": 2.080359697341919,
+    "n": 40000,
+    "by_verb": {
+     "walk": [
+      0.1737367808818817,
+      17309
+     ],
+     "turn": [
+      0.0557234026491642,
+      5386
+     ],
+     "rest": [
+      0.5169557929039001,
+      16452
+     ],
+     "dig": [
+      0.002019461477175355,
+      145
+     ],
+     "pick_up": [
+      0.28795740008354187,
+      270
+     ],
+     "drop": [
+      0.032395023852586746,
+      438
+     ]
+    }
+   },
+   "live": 2693
+  },
+  "final": {
+   "train": {
+    "p": 0.3873261511325836,
+    "nll": 1.2089691162109375,
+    "n": 240000,
+    "by_verb": {
+     "walk": [
+      0.24693720042705536,
+      103430
+     ],
+     "turn": [
+      0.24876242876052856,
+      20053
+     ],
+     "rest": [
+      0.4907894432544708,
+      95487
+     ],
+     "dig": [
+      0.022664591670036316,
+      2329
+     ],
+     "pick_up": [
+      0.24980567395687103,
+      9880
+     ],
+     "drop": [
+      0.1190231665968895,
+      8821
+     ]
+    }
+   },
+   "test": {
+    "p": 0.3045795261859894,
+    "nll": 1.5373618602752686,
+    "n": 40000,
+    "by_verb": {
+     "walk": [
+      0.19258053600788116,
+      17309
+     ],
+     "turn": [
+      0.19670383632183075,
+      5386
+     ],
+     "rest": [
+      0.4646526873111725,
+      16452
+     ],
+     "dig": [
+      0.0021001040004193783,
+      145
+     ],
+     "pick_up": [
+      0.2752660810947418,
+      270
+     ],
+     "drop": [
+      0.1627054065465927,
+      438
+     ]
+    }
+   },
+   "live": 2759
+  }
+ },
+ "w-c2": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "60000",
+   "trows": "45000",
+   "steps": "0",
+   "plain_k": "20"
+  },
+  "start": {
+   "train": {
+    "p": 0.37171927094459534,
+    "nll": 1.2672048807144165,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.2645595371723175,
+      25894
+     ],
+     "turn": [
+      0.3226059675216675,
+      2186
+     ],
+     "rest": [
+      0.49995872378349304,
+      22484
+     ],
+     "dig": [
+      0.11679218709468842,
+      1002
+     ],
+     "pick_up": [
+      0.4332183599472046,
+      4640
+     ],
+     "drop": [
+      0.3576238751411438,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.37352997064590454,
+    "nll": 1.2769614458084106,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2586238384246826,
+      19546
+     ],
+     "turn": [
+      0.25166112184524536,
+      1232
+     ],
+     "rest": [
+      0.5121350884437561,
+      17291
+     ],
+     "dig": [
+      0.13293354213237762,
+      696
+     ],
+     "pick_up": [
+      0.4341580867767334,
+      3509
+     ],
+     "drop": [
+      0.35308632254600525,
+      2726
+     ]
+    }
+   },
+   "live": 2693
+  },
+  "final": {
+   "train": {
+    "p": 0.37171927094459534,
+    "nll": 1.2672048807144165,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.2645595371723175,
+      25894
+     ],
+     "turn": [
+      0.3226059675216675,
+      2186
+     ],
+     "rest": [
+      0.49995872378349304,
+      22484
+     ],
+     "dig": [
+      0.11679218709468842,
+      1002
+     ],
+     "pick_up": [
+      0.4332183599472046,
+      4640
+     ],
+     "drop": [
+      0.3576238751411438,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.37352997064590454,
+    "nll": 1.2769614458084106,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2586238384246826,
+      19546
+     ],
+     "turn": [
+      0.25166112184524536,
+      1232
+     ],
+     "rest": [
+      0.5121350884437561,
+      17291
+     ],
+     "dig": [
+      0.13293354213237762,
+      696
+     ],
+     "pick_up": [
+      0.4341580867767334,
+      3509
+     ],
+     "drop": [
+      0.35308632254600525,
+      2726
+     ]
+    }
+   },
+   "live": 2693
+  }
+ },
+ "w-c3p0.2": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "60000",
+   "trows": "45000",
+   "steps": "0",
+   "plain_k": "20"
+  },
+  "start": {
+   "train": {
+    "p": 0.3525679111480713,
+    "nll": 1.2879613637924194,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.27012768387794495,
+      25894
+     ],
+     "turn": [
+      0.2627514898777008,
+      2186
+     ],
+     "rest": [
+      0.4571422338485718,
+      22484
+     ],
+     "dig": [
+      0.1267009675502777,
+      1002
+     ],
+     "pick_up": [
+      0.3652356266975403,
+      4640
+     ],
+     "drop": [
+      0.29022830724716187,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.35259008407592773,
+    "nll": 1.2885687351226807,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2622760236263275,
+      19546
+     ],
+     "turn": [
+      0.1992831826210022,
+      1232
+     ],
+     "rest": [
+      0.4663657546043396,
+      17291
+     ],
+     "dig": [
+      0.1478356570005417,
+      696
+     ],
+     "pick_up": [
+      0.36719492077827454,
+      3509
+     ],
+     "drop": [
+      0.28966137766838074,
+      2726
+     ]
+    }
+   },
+   "live": 804
+  },
+  "final": {
+   "train": {
+    "p": 0.3525679111480713,
+    "nll": 1.2879613637924194,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.27012768387794495,
+      25894
+     ],
+     "turn": [
+      0.2627514898777008,
+      2186
+     ],
+     "rest": [
+      0.4571422338485718,
+      22484
+     ],
+     "dig": [
+      0.1267009675502777,
+      1002
+     ],
+     "pick_up": [
+      0.3652356266975403,
+      4640
+     ],
+     "drop": [
+      0.29022830724716187,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.35259008407592773,
+    "nll": 1.2885687351226807,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.2622760236263275,
+      19546
+     ],
+     "turn": [
+      0.1992831826210022,
+      1232
+     ],
+     "rest": [
+      0.4663657546043396,
+      17291
+     ],
+     "dig": [
+      0.1478356570005417,
+      696
+     ],
+     "pick_up": [
+      0.36719492077827454,
+      3509
+     ],
+     "drop": [
+      0.28966137766838074,
+      2726
+     ]
+    }
+   },
+   "live": 804
+  }
+ },
+ "w-c3p0.6": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "60000",
+   "trows": "45000",
+   "steps": "0",
+   "plain_k": "20"
+  },
+  "start": {
+   "train": {
+    "p": 0.3386297821998596,
+    "nll": 1.3234107494354248,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.2531171143054962,
+      25894
+     ],
+     "turn": [
+      0.2823311686515808,
+      2186
+     ],
+     "rest": [
+      0.44346678256988525,
+      22484
+     ],
+     "dig": [
+      0.07665596157312393,
+      1002
+     ],
+     "pick_up": [
+      0.3876362144947052,
+      4640
+     ],
+     "drop": [
+      0.24339240789413452,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.33674511313438416,
+    "nll": 1.3305739164352417,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.24524858593940735,
+      19546
+     ],
+     "turn": [
+      0.22488407790660858,
+      1232
+     ],
+     "rest": [
+      0.4488067030906677,
+      17291
+     ],
+     "dig": [
+      0.09313038736581802,
+      696
+     ],
+     "pick_up": [
+      0.3908331096172333,
+      3509
+     ],
+     "drop": [
+      0.2452903687953949,
+      2726
+     ]
+    }
+   },
+   "live": 390
+  },
+  "final": {
+   "train": {
+    "p": 0.3386297821998596,
+    "nll": 1.3234107494354248,
+    "n": 60000,
+    "by_verb": {
+     "walk": [
+      0.2531171143054962,
+      25894
+     ],
+     "turn": [
+      0.2823311686515808,
+      2186
+     ],
+     "rest": [
+      0.44346678256988525,
+      22484
+     ],
+     "dig": [
+      0.07665596157312393,
+      1002
+     ],
+     "pick_up": [
+      0.3876362144947052,
+      4640
+     ],
+     "drop": [
+      0.24339240789413452,
+      3794
+     ]
+    }
+   },
+   "test": {
+    "p": 0.33674511313438416,
+    "nll": 1.3305739164352417,
+    "n": 45000,
+    "by_verb": {
+     "walk": [
+      0.24524858593940735,
+      19546
+     ],
+     "turn": [
+      0.22488407790660858,
+      1232
+     ],
+     "rest": [
+      0.4488067030906677,
+      17291
+     ],
+     "dig": [
+      0.09313038736581802,
+      696
+     ],
+     "pick_up": [
+      0.3908331096172333,
+      3509
+     ],
+     "drop": [
+      0.2452903687953949,
+      2726
+     ]
+    }
+   },
+   "live": 390
+  }
+ },
+ "ceil1": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "4000"
+  },
+  "train_by_verb": {
+   "walk": [
+    0.3770715296268463,
+    76839
+   ],
+   "turn": [
+    0.3854091763496399,
+    6473
+   ],
+   "rest": [
+    0.5015823841094971,
+    68064
+   ],
+   "dig": [
+    0.06520046293735504,
+    2829
+   ],
+   "pick_up": [
+    0.3318127393722534,
+    14228
+   ],
+   "drop": [
+    0.1485288441181183,
+    11567
+   ]
+  },
+  "test_by_verb": {
+   "walk": [
+    0.347709059715271,
+    19518
+   ],
+   "turn": [
+    0.26921847462654114,
+    1251
+   ],
+   "rest": [
+    0.5015566945075989,
+    17352
+   ],
+   "dig": [
+    0.06794267892837524,
+    681
+   ],
+   "pick_up": [
+    0.330707848072052,
+    3499
+   ],
+   "drop": [
+    0.1382014900445938,
+    2699
+   ]
+  }
+ },
+ "ceilh": {
+  "args": {
+   "train": [
+    "lab/feast_and_famine-1.log",
+    "lab/feast_and_famine-2.log",
+    "lab/feast_and_famine-3.log",
+    "lab/feast_and_famine-4.log",
+    "lab/scattered_larder-1.log",
+    "lab/scattered_larder-2.log",
+    "lab/scattered_larder-3.log",
+    "lab/scattered_larder-4.log",
+    "lab/two_larders-1.log",
+    "lab/two_larders-2.log",
+    "lab/two_larders-3.log",
+    "lab/two_larders-4.log"
+   ],
+   "test": [
+    "lab/feast_and_famine-5.log",
+    "lab/feast_and_famine-6.log",
+    "lab/scattered_larder-5.log",
+    "lab/scattered_larder-6.log",
+    "lab/two_larders-5.log",
+    "lab/two_larders-6.log"
+   ],
+   "rows": "180000",
+   "trows": "45000",
+   "steps": "4000",
+   "hist": "1"
+  },
+  "train_by_verb": {
+   "walk": [
+    0.35293859243392944,
+    76839
+   ],
+   "turn": [
+    0.4335763156414032,
+    6473
+   ],
+   "rest": [
+    0.5207729339599609,
+    68064
+   ],
+   "dig": [
+    0.06214381009340286,
+    2829
+   ],
+   "pick_up": [
+    0.30880430340766907,
+    14228
+   ],
+   "drop": [
+    0.11821441352367401,
+    11567
+   ]
+  },
+  "test_by_verb": {
+   "walk": [
+    0.326109379529953,
+    19518
+   ],
+   "turn": [
+    0.3151513338088989,
+    1251
+   ],
+   "rest": [
+    0.5231665372848511,
+    17352
+   ],
+   "dig": [
+    0.061162546277046204,
+    681
+   ],
+   "pick_up": [
+    0.3077965974807739,
+    3499
+   ],
+   "drop": [
+    0.10939334332942963,
+    2699
+   ]
+  }
+ }
+}
