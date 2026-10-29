@@ -2805,6 +2805,114 @@ pub mod inrun {
         *W.get_or_init(|| std::env::var("PP_BED_W").ok().and_then(|v| v.trim().parse().ok()).filter(|&w: &i32| w >= BED_W).unwrap_or(BED_W))
     }
 
+    /// SCRATCH (chambers lane, layers probe, 2026-10-29): `PP_BED_LAYERS=on` (or `seams=N,thick=T,flint=F,stones=S`)
+    /// lays the in-run bed's 40 rows of soil out as layered, uneven ground -- `N` gently sloped seams of hard clay
+    /// (`packedsoil`), `T` rows thick, with runs of flint (stone) through fraction `F` of each seam's length, and `S`
+    /// stones (stone blobs, radius 1-2) scattered through the dirt, soft soil left in the bands between. Unset: the
+    /// bed exactly (the uniform soil, built in one call as before). Defaults `seams=3,thick=2,flint=0.3,stones=60`.
+    ///
+    /// **Why.** The trained colony's nest is one funnel: on a bed of uniform soil the dig head picks a cut below the
+    /// ant 77% of the time. Real nests are shaped partly by the soil -- tunnels follow soft layers and go round stones
+    /// -- so this asks whether the ground alone, with the brain unchanged and still picking every cut, digs a nest of
+    /// passages along seams rather than a cone. A world rule, no ant rule: the brain sees the clay only through the
+    /// target feature it already reads (`options::f::HARD`, squash of `penetration_resistance`).
+    ///
+    /// **What the engine can and cannot say with these materials** (read, not assumed): a cut is a threshold, never a
+    /// time -- `jaw_can_cut` takes any ground with `penetration_resistance <= dig_force` (the ant's 1.0) in one cut at
+    /// one flat price (`dig_cost_in_moves`, unscaled by hardness). So there is **no cuttable-but-slower material**:
+    /// `packedsoil` (0.95) cuts exactly as soil (0.8) does and differs only in holding itself up (`self_supporting`: a
+    /// clay roof does not fall into the cut under it) and in the number HARD shows the brain; stone (100) cannot be cut
+    /// at all. Sand (1.4) and gravel (3.5) are uncuttable *powders*, which would pour into a tunnel and plug it for
+    /// good, so the hard parts are stone. The founding stamp's footprint (door +-4 columns, top 8 rows) is kept clear
+    /// of stone so every colony can found; the clay may cross it.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Layers {
+        pub seams: i32,
+        pub thick: i32,
+        pub flint: f32,
+        pub stones: i32,
+    }
+
+    pub fn bed_layers() -> Option<Layers> {
+        static L: std::sync::OnceLock<Option<Layers>> = std::sync::OnceLock::new();
+        *L.get_or_init(|| {
+            let v = std::env::var("PP_BED_LAYERS").ok()?;
+            let v = v.trim();
+            if v.is_empty() || v == "off" || v == "0" {
+                return None;
+            }
+            let mut l = Layers { seams: 3, thick: 2, flint: 0.3, stones: 60 };
+            for kv in v.split(',').filter(|s| *s != "on" && *s != "1") {
+                let (k, x) = kv.split_once('=').unwrap_or_else(|| panic!("PP_BED_LAYERS: {kv} is not KEY=VALUE"));
+                match k {
+                    "seams" => l.seams = x.parse().expect("seams=N"),
+                    "thick" => l.thick = x.parse().expect("thick=T"),
+                    "flint" => l.flint = x.parse().expect("flint=F"),
+                    "stones" => l.stones = x.parse().expect("stones=S"),
+                    _ => panic!("PP_BED_LAYERS: unknown key {k}"),
+                }
+            }
+            Some(l)
+        })
+    }
+
+    /// Lay [`Layers`] into a built bed, before the colony is placed. Deterministic per `seed` (every draw is
+    /// `rng::jitter3` of a position, the layer's number and the seed). Only `soil` cells are rewritten.
+    pub fn lay_layers(w: &mut World, bed: &crate::lab::scene::LabBox, seed: u64, l: Layers) {
+        use crate::sim::rng::jitter3;
+        let soil = w.materials.id_of("soil").expect("soil");
+        let clay = w.materials.id_of("packedsoil").expect("packedsoil");
+        let z = (seed as i32).wrapping_mul(7919);
+        let (top, depth) = (bed.ground_y, bed.soil_depth);
+        let (x0, x1) = (6, bed.width - 6);
+        let founding = |x: i32, y: i32| (x - NEST).abs() <= 4 && y < top + 8;
+        let put = |w: &mut World, x: i32, y: i32, m: material::MaterialId| {
+            let c = w.get(x, y);
+            if c.material == soil || (m == material::STONE && c.material == clay) {
+                w.set(x, y, Cell::new(m, (jitter3(x, y, z) * 255.0) as u8).with_aux(c.aux()));
+            }
+        };
+        for k in 0..l.seams {
+            let r = |n: i32| jitter3(k, n, z);
+            // Centre depth: evenly spaced through the soil, +-3 rows; a slope of up to 1 row in 16 columns; and a
+            // slow wobble of +-1.5 rows, so a seam is a line on the picture, not a ruled one.
+            let d = (k + 1) * depth / (l.seams + 1) + (r(1) * 7.0) as i32 - 3;
+            let slope = (r(2) - 0.5) * 0.12;
+            let (freq, phase) = (0.02 + r(3) * 0.05, r(4) * std::f32::consts::TAU);
+            let thick = l.thick + i32::from(r(5) < 0.5);
+            // Flint: runs of 3-12 columns, each run stone with probability `flint`.
+            let (mut run_left, mut stone_run) = (0, false);
+            for x in x0..x1 {
+                if run_left == 0 {
+                    run_left = 3 + (jitter3(x, 100 + k, z) * 10.0) as i32;
+                    stone_run = jitter3(x, 200 + k, z) < l.flint;
+                }
+                run_left -= 1;
+                let y0 = top + d + (slope * (x - NEST) as f32 + 1.5 * (freq * x as f32 + phase).sin()).round() as i32;
+                for y in y0..y0 + thick {
+                    if y <= top || y >= top + depth - 1 {
+                        continue;
+                    }
+                    let m = if stone_run && !founding(x, y) { material::STONE } else { clay };
+                    put(w, x, y, m);
+                }
+            }
+        }
+        for s in 0..l.stones {
+            let x = x0 + 2 + (jitter3(s, 300, z) * (x1 - x0 - 4) as f32) as i32;
+            let y = top + 4 + (jitter3(s, 301, z) * (depth - 6) as f32) as i32;
+            let rad = 1 + i32::from(jitter3(s, 302, z) < 0.5);
+            for dy in -rad..=rad {
+                for dx in -rad..=rad {
+                    let edge = jitter3(x + dx, y + dy, z) * 1.5;
+                    if (dx * dx + dy * dy) as f32 <= (rad * rad) as f32 + edge && !founding(x + dx, y + dy) && y + dy < top + depth - 1 {
+                        put(w, x + dx, y + dy, material::STONE);
+                    }
+                }
+            }
+        }
+    }
+
     // The mind, its emits and a child's slots are the game's training page's own ([`colony_bed`]), which main took
     // from this module when the in-run loop moved into the lab (`lab::training`).
     pub use super::colony_bed::{emits, mind, slots, verbs};
@@ -2864,7 +2972,10 @@ pub mod inrun {
     /// the grown bed. The datum is the bare bed's (frozen at build, before anything grew).
     pub fn colony_in(seed: u64, ants: usize, garden: &Garden, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
         let mut sc = bed_timed(seed, ants, "", 40, 33, bed_w(), NEST_X, "");
-        let w = if garden.plants.is_empty() {
+        // `PP_BED_LAYERS` ([`Layers`]) takes the planted path's build-then-found order (colony placed after the ground
+        // is laid, so its founding cut is made in the layered ground); unset, the bare bed is built as it always was.
+        let layers = bed_layers();
+        let w = if garden.plants.is_empty() && layers.is_none() {
             sc.build().0
         } else {
             if let Some(r) = garden.rain {
@@ -2877,6 +2988,9 @@ pub mod inrun {
                 sc.placements.push(crate::lab::scenario::Placement::Plant { species: sp.clone(), x: *x });
             }
             let (mut w, _, _) = sc.build();
+            if let Some(l) = layers {
+                lay_layers(&mut w, &sc.bed, seed, l);
+            }
             for _ in 0..garden.grow {
                 frame_timed(&mut w, &sc, true);
             }
