@@ -3,7 +3,7 @@
 Status: **working note of the selection lane** (lane 4 of the plan after the account move). It follows the
 selection review ([selection-review-2026-10-27.md](selection-review-2026-10-27.md)) and records what this lane
 built and measured against its "change first" list. §5 holds the screens run on Scott's "test all your ideas"
-(2026-10-28 01:59Z): islands, case weights and one world per round. Pictures: https://claude.ai/artifact/HCcmdpytbi2npc4c9x2NUL
+(2026-10-28 01:59Z): islands, case weights and one world per round, all five arms level or worse. Pictures: https://claude.ai/artifact/HCcmdpytbi2npc4c9x2NUL
 
 ## In plain words
 
@@ -163,7 +163,8 @@ neither bar is met). Guards: garden alive and nest.
 | islands=2:4 (selisl1 isl2) | 272 / 293, 17-13, 0.59 | 71 / 56, 23-7, **0.005** | 30 of 32 reached the garden (k3 26) | 1 by round 38 |
 | islands=4:4 (selisl1 isl4) | 302 / 293, 14-18, 0.60 | 71 / 56, 23-8, 0.011 | nest 11-21, p 0.11 | 1 by round 39 |
 | weights= (selow1 wt1) | 342 / 293, 9-23, 0.020 | 56 / 56, 16-15, 1.0 | food home 10-22 (p 0.05), nest scale 22-9 (p 0.03), crater 127 / 33 | 1 by round 15 |
-| oneworld=1, and with weights= (selow1 ow1, owwt) | **void**, see below | | | |
+| oneworld=1 (selow2 ow2; selow1 ow1 void) | 257 / 293, 16-14, 0.86 | 66 / 56, 15-13, 0.85 | level on every garden measure; 27 reached the garden | 1 by round 16 |
+| oneworld=1 + weights= (selow2 owwt2) | 314 / 293, 14-18, 0.60 | 40 / 56, 15-15, 1.0 | food home 12-20 (p 0.22), crater 129 / 33, 10-22 (p 0.05) | 1 by round 19 |
 
 **Islands** fail the deciding measure. They keep more colonies alive to round 47 and delay the fall to one family by
 some 20 rounds, but do not stop it: migration every 4 rounds lets a family that wins one island take over the next.
@@ -184,7 +185,31 @@ same boxes (Spearman -0.14). (`selaudit.py`'s weight-share column still shows th
 **One world per round was not a test the first time.** inrun seeded the births' stream (mutation, crossover, parent
 draws) from the world's seed, so colonies sharing a carry in the one world ran identically: colsel.csv has 1 or 2
 distinct outcomes in every round, and all 32 colonies died out together at round 23 (round 15 with weights). inrun
-`sseed=` (PR #979) gives each colony its own stream; the rerun (`selow2`) is running, verdict to follow.
+`sseed=` (PR #979) gives each colony its own stream.
+
+**The rerun (`selow2`) works and is level.** Every round has 32 distinct outcomes and no round lost the population.
+The ranking selection acts on repeats better from one round's world to the next (kept-twice retest of the rank-sum
+0.18 [0.09, 0.27] against k3's 0.07 [-0.04, 0.17]; starvation 0.12 against 0.04; food home 0.43 against 0.35), so
+taking the world's luck out of the comparison does what it should -- but the round-47 garden is level on starvation,
+alive, food home, nest and crater, and the population still fell to one family by round 16. Adding the weights
+repeated the weights arm (more crater, less food home, neither past the bar). No arm of the five passes the deciding
+measure, so none went to a 600k exam.
+
+**The weights arm re-judged for the nest** (after Scott ruled, 2026-10-28, that less food and more starvation are
+acceptable if the nest is fixed). Its best round-47 colony (c5) against std_pool on the exam's 16 garden worlds at
+200k (`scratch/inrun/exam.py`, `exam_cmp.py`; Bonferroni over 7 measures, p < 0.007): open nest 635 / 512, better in
+14 of 16 (p 0.004), but crater 144 / 42, 1 of 16 (p 0.0005), room-shape score 20.5 / 47 (6-10), food home 3,434 /
+4,040, 2-14 (p 0.004). The pictures (page above, `#nest`) show the same single cone in both, with a wider open shaft:
+more nest, not tunnels and rooms. **Selection cannot pick for rooms yet**: a colony's room-shape score does not
+repeat from one world to the next (kept-twice retest -0.04 in k3, -0.01 in wt1 and -0.02 in ow2), while nest size
+does (0.24-0.29) and crater weakly (0.11-0.13). A rooms weight would reward the world; tunnels and rooms have to come
+from the Nest lane's chamber-size work first, after which `weights=rooms:W` can carry them.
+
+**The lab cases are noise as cases** (Teacher lane, 2026-10-28, twinself/twingame on claude/project-thread-8hfe09):
+the labscen boxes colsel's `lab`/`lab2_*` cases use cannot rank colonies even at 600k (seed-to-seed agreement at most
++0.27, agreement with the exam's boxes at most +0.11), so the weights arm's `lab:3` weighted a case that carries no
+skill. played_bed_scrambler with played_bed_understory at 600k does rank them (+0.67 against the exam's plant boxes),
+at a cost no per-round case can pay; the Teacher lane is testing it as a donor filter instead.
 
 ## 6. Instruments added
 
