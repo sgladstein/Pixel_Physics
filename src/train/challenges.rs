@@ -2800,6 +2800,16 @@ pub mod inrun {
     /// 110 at round 15 and held, its pool lived 110-130 ants with fruit 150 columns out and 9-37 at 200, where the
     /// hand-built ant lived 114-132. Training never asked for a walk the box needs. A heap that would fall past the
     /// west wall is dropped beside the east one (`examples/inrun.rs`), so far food is one-sided.
+    /// SCRATCH (nest lane, 2026-10-29): `PP_BED_SOIL=D` gives the in-run bed `D` rows of soil over the stone floor
+    /// instead of 40, up to 60 (the bed is 128 rows with the ground at [`GROUND_Y`], so 60 leaves 4 rows of stone).
+    /// Default 40, the bed exactly. **Why** (owner, 2026-10-29: "our dirt isn't deep enough, at some point we're just
+    /// hitting the rock at the bottom"): the trained ant's cone and the hand-written digger's tunnels both reach the
+    /// stone at row 104 by the end of the first 200k-frame round, so any nest shape below that is decided by the floor.
+    pub fn bed_soil() -> i32 {
+        static D: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+        *D.get_or_init(|| std::env::var("PP_BED_SOIL").ok().and_then(|v| v.trim().parse().ok()).map_or(40, |d: i32| d.clamp(40, 60)))
+    }
+
     pub fn bed_w() -> i32 {
         static W: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
         *W.get_or_init(|| std::env::var("PP_BED_W").ok().and_then(|v| v.trim().parse().ok()).filter(|&w: &i32| w >= BED_W).unwrap_or(BED_W))
@@ -2863,7 +2873,7 @@ pub mod inrun {
     /// [`colony`] on a [`Garden`]: the plants placed and grown for `grow` frames first, then the colony founded on
     /// the grown bed. The datum is the bare bed's (frozen at build, before anything grew).
     pub fn colony_in(seed: u64, ants: usize, garden: &Garden, genome_of: &dyn Fn(usize) -> std::sync::Arc<creature::mind::MindGenome>) -> (World, Scenario, SpeciesId) {
-        let mut sc = bed_timed(seed, ants, "", 40, 33, bed_w(), NEST_X, "");
+        let mut sc = bed_timed(seed, ants, "", bed_soil(), 33, bed_w(), NEST_X, "");
         let w = if garden.plants.is_empty() {
             sc.build().0
         } else {
