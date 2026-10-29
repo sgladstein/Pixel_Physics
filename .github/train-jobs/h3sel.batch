@@ -1,0 +1,37 @@
+# Does colony selection keep a tunnel nest when nest shape counts in the score? (chambers thread, 2026-10-29; prepared
+# on local claude/chambers-selrun, launched only on Scott's go.) Founders "H3 + eat seed": the Nest lane's 30 H3
+# founders (std_pool with the hand-written dig head, scratch/nest/handdig/make.py thr=0.2 out=3 door=8) with the
+# chambers lane's eat seed written by scratch/nest/eatseed/make.py nest=60 unchanged (its README's arm B), as one pool
+# file: scratch/inrun/genomes/h3eat/h3eat_pool.txt (byte-identical members to the Teacher lane's poolH3eat.tgz).
+# A SEPARATE SCREEN from the Teacher lane's H3-seeded VM batch (~17:00Z): runners, 16 rounds, nest_r=0, a three-arm
+# paired design around the shape case; neither is the other's control.
+#
+# Arms, the same line but founders and score, so every arm plays world c*1000+r for colony c in round r (paired):
+#   A h3eat_std    H3 + eat, the standard score (clean1 k3's line: lex+spoil+crater+shape+scale+lab, labgate=50,
+#                  scalegate=50, scaleopen=1, elite=1 kpm=0.003; no weights, shape read with stored food as space)
+#   B h3eat_shape  H3 + eat, standard + nest shape counted: shape read from open cells only (shapeopen=1, crumbs and
+#                  food are wall) and two crumb-proof cases from scratch/inrun/nestshape.py, +gallery (open passage
+#                  cells: open pieces of 20+ cells outside every 5x5 room and the crater) and +crumbs (crumb share of
+#                  the nest, lower better), weights shape:2 gallery:2 crumbs:1 -- nest shape 5 of 15 of the vote
+#                  (A: 1 of 10). W chosen from a repeatability check run first (scratch/nest/selrun/retest.py, 16
+#                  H3+eat carries in the same two fresh worlds, Spearman world 1 vs world 2): galleryc 0.44, crumb
+#                  share 0.38, open roomshape 0.45 (positive control, H3+eat and std_pool carries mixed: galleryc 0.59);
+#                  the Selection lane's room shape on clean1 was ~0 and nest size 0.25-0.29. Not low, so one world
+#                  per colony and a moderate weight, not a 2-world mean.
+#   C std_std      std_pool founders, the standard score: the cone control.
+# All three: nest_r=0 (the dig band lifted, as every H3 and eat-seed screen ran: with nest_r=20 the in-round ant
+# score pays no tunnel cut beyond 20 columns of the door), 32 colonies x 16 rounds (Reports/how-we-test.md §7 screen),
+# garden at rounds 7 and 15. Every arm writes OUT/nestshape.csv (every colony, every round) and OUT/cgshape.csv (each
+# garden); every round's nest maps at 25k steps stay in the folders, so a tunnel that fades within a round shows.
+# Runners: 3, one leg each expected (a 32-colony round with the lab cases ~8 min, so ~2.5-3.5 h with the gardens).
+#
+# DECIDING MEASURE, named before launch (scratch/nest/selrun/judge.py prints it): at round 15, paired by colony, B
+# against A, two-sided sign test on (1) galleryc, higher better, and (2) alive at the end of the round, higher better
+# (no run = extinct = alive 0, galleryc 0; missing data counts as the worse of its pair). B KEEPS THE TUNNEL NEST if (1)
+# favours B at p < 0.05, (2) does not favour A at p < 0.05, and the crumb-proof check holds: crumb share is not higher in
+# B at p < 0.05. B vs C and A vs C reported the same way; extinct counts beside them. Not tests, reported: every round's
+# medians, the gardens, the within-round snapshots, and whether the carries keep the eat seed (g[6] > 0, g[1680] < -30,
+# g[1683] > 30, g[1715] < -19) and a dig head nearer H3's than std_pool's (layout 8: head g[4137:4619]).
+h3eat_std colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0
+h3eat_shape colsel 31 lex+spoil+crater+shape+scale+lab+gallery+crumbs 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0 shapeopen=1 weights=shape:2,gallery:2,crumbs:1
+std_std colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 assets/minds/std_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0
