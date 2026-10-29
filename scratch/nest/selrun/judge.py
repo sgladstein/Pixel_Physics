@@ -1,11 +1,11 @@
-"""SCRATCH (chambers selection run, 2026-10-29): the judge of batch h3sel, written before launch. Reads the colsel folders
+"""SCRATCH (chambers selection run, 2026-10-29): the judge of batch chambers-sel1, written before launch. Reads the colsel folders
 the batch's runners publish and prints the deciding measure, the guards, the every-round log and the seed check.
 
-    git fetch origin batch-results/h3sel && mkdir -p R && git archive FETCH_HEAD | tar -x -C R
+    git fetch origin batch-results/chambers-sel1 && mkdir -p R && git archive FETCH_HEAD | tar -x -C R
     for t in R/*.tgz; do tar -xzf $t -C R/full; done        # (mkdir R/full first) the whole folders, nest maps included
     python3 scratch/nest/selrun/judge.py R/full A=h3eat_std B=h3eat_shape C=std_std [round=N]
 
-DECIDING MEASURE (named before launch; .github/train-jobs/h3sel.batch carries the same text): at the last round, paired
+DECIDING MEASURE (named before launch; .github/train-jobs/chambers-sel1.batch carries the same text): at the last round, paired
 by colony (every arm plays world c*1000+r in round r), B against A, two-sided sign test on
   (1) galleryc -- open passage cells, crumbs and food as wall (scratch/inrun/nestshape.py) -- higher is better, and
   (2) alive at the end of the round -- higher is better (a colony with no run, extinct, is alive 0, galleryc 0),
@@ -58,7 +58,7 @@ def med(v):
 data = {k: arm_data(v) for k, v in ARMS.items()}
 last = RND if RND is not None else min(x[3] for x in data.values())
 ncol = max(int(x['colony']) for k in data for x in data[k][1])
-print(f'h3sel judge: arms {ARMS}, last round {last}, {ncol} colonies')
+print(f'chambers-sel1 judge: arms {ARMS}, last round {last}, {ncol} colonies')
 
 
 def at(k, r):
