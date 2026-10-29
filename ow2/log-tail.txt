@@ -1,0 +1,53 @@
+round 0 done: 30 passed the gate, 30 alive
+round 1 done: 32 passed the gate, 32 alive
+round 2 done: 26 passed the gate, 26 alive
+round 3 done: 30 passed the gate, 30 alive
+round 4 done: 29 passed the gate, 29 alive
+round 5 done: 30 passed the gate, 30 alive
+round 6 done: 30 passed the gate, 30 alive
+round 7 done: 31 passed the gate, 31 alive
+round 8 done: 30 passed the gate, 30 alive
+round 9 done: 29 passed the gate, 29 alive
+round 10 done: 20 passed the gate, 20 alive
+round 11 done: 25 passed the gate, 25 alive
+round 12 done: 28 passed the gate, 28 alive
+round 13 done: 29 passed the gate, 29 alive
+round 14 done: 30 passed the gate, 30 alive
+round 15 done: 29 passed the gate, 30 alive
+round 16 done: 30 passed the gate, 30 alive
+round 17 done: 28 passed the gate, 28 alive
+round 18 done: 29 passed the gate, 29 alive
+round 19 done: 30 passed the gate, 31 alive
+PAUSED before round 20: the slowest round so far took 1428 s and the leg ends in 776 s
+resuming at round 20
+round 20 done: 32 passed the gate, 32 alive
+round 21 done: 28 passed the gate, 28 alive
+round 22 done: 29 passed the gate, 29 alive
+round 23 done: 27 passed the gate, 27 alive
+round 24 done: 29 passed the gate, 29 alive
+round 25 done: 27 passed the gate, 27 alive
+round 26 done: 31 passed the gate, 31 alive
+round 27 done: 30 passed the gate, 30 alive
+round 28 done: 32 passed the gate, 32 alive
+round 29 done: 32 passed the gate, 32 alive
+round 30 done: 28 passed the gate, 28 alive
+round 31 done: 30 passed the gate, 30 alive
+round 32 done: 24 passed the gate, 26 alive
+round 33 done: 31 passed the gate, 31 alive
+round 34 done: 29 passed the gate, 29 alive
+round 35 done: 25 passed the gate, 25 alive
+round 36 done: 31 passed the gate, 32 alive
+round 37 done: 28 passed the gate, 28 alive
+round 38 done: 32 passed the gate, 32 alive
+PAUSED before round 39: the slowest round so far took 1398 s and the leg ends in 928 s
+resuming at round 39
+round 39 done: 23 passed the gate, 23 alive
+round 40 done: 27 passed the gate, 27 alive
+round 41 done: 28 passed the gate, 28 alive
+round 42 done: 28 passed the gate, 28 alive
+round 43 done: 28 passed the gate, 28 alive
+round 44 done: 26 passed the gate, 26 alive
+round 45 done: 29 passed the gate, 30 alive
+round 46 done: 29 passed the gate, 29 alive
+round 47 done: 26 passed the gate, 27 alive
+DONE

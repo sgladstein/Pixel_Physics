@@ -1,0 +1,20 @@
+runner: owwt2, leg 1
+built from: 8033d2a1d863909aeb28ee9f7c3456558cb872c6
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40690824015
+started: 2026-10-28T13:52:27Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+18:51:40 owwt2: paused, exit 75 at 26 (was 0)
+-rw-r--r-- 1 runner runner 32128630 Oct 28 18:51 /tmp/batch/pub/owwt2.tgz
+owwt2 paused exit 75 at 26 (was 0)
+finished: 2026-10-28T18:51:45Z
+runner: owwt2, leg 2
+built from: 8033d2a1d863909aeb28ee9f7c3456558cb872c6
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40690824015
+started: 2026-10-28T19:04:15Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+23:17:04 owwt2: done, exit 0
+-rw-r--r-- 1 runner runner 58098122 Oct 28 23:17 /tmp/batch/pub/owwt2.tgz
+owwt2 done exit 0
+finished: 2026-10-28T23:17:14Z

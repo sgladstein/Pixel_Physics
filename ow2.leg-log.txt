@@ -1,0 +1,30 @@
+runner: ow2, leg 1
+built from: 8033d2a1d863909aeb28ee9f7c3456558cb872c6
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40690824015
+started: 2026-10-28T13:53:01Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+18:56:57 ow2: paused, exit 75 at 20 (was 0)
+-rw-r--r-- 1 runner runner 25134812 Oct 28 18:57 /tmp/batch/pub/ow2.tgz
+ow2 paused exit 75 at 20 (was 0)
+finished: 2026-10-28T18:57:03Z
+runner: ow2, leg 2
+built from: 8033d2a1d863909aeb28ee9f7c3456558cb872c6
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40690824015
+started: 2026-10-28T19:05:33Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+00:04:49 ow2: paused, exit 75 at 39 (was 20)
+-rw-r--r-- 1 runner runner 47623072 Oct 29 00:04 /tmp/batch/pub/ow2.tgz
+ow2 paused exit 75 at 39 (was 20)
+finished: 2026-10-29T00:04:59Z
+runner: ow2, leg 3
+built from: 8033d2a1d863909aeb28ee9f7c3456558cb872c6
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40690824015
+started: 2026-10-29T00:11:05Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+02:32:32 ow2: done, exit 0
+-rw-r--r-- 1 runner runner 58577973 Oct 29 02:32 /tmp/batch/pub/ow2.tgz
+ow2 done exit 0
+finished: 2026-10-29T02:32:44Z
