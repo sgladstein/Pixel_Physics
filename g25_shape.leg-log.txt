@@ -1,0 +1,10 @@
+runner: g25_shape, leg 1
+built from: 94ca284d251d602c0832ee5d5e75a060c9b581dd
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40932093141
+started: 2026-10-29T18:37:49Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+20:40:02 g25_shape: done, exit 0
+-rw-r--r-- 1 runner runner 17587209 Oct 29 20:40 /tmp/batch/pub/g25_shape.tgz
+g25_shape done exit 0
+finished: 2026-10-29T20:40:04Z

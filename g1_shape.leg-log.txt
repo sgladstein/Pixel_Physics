@@ -1,0 +1,10 @@
+runner: g1_shape, leg 1
+built from: 94ca284d251d602c0832ee5d5e75a060c9b581dd
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40932093141
+started: 2026-10-29T18:39:22Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+22:40:19 g1_shape: done, exit 0
+-rw-r--r-- 1 runner runner 18018146 Oct 29 22:40 /tmp/batch/pub/g1_shape.tgz
+g1_shape done exit 0
+finished: 2026-10-29T22:40:23Z

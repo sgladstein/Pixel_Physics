@@ -1,0 +1,17 @@
+round 0 done: 23 passed the gate, 23 alive
+round 1 done: 26 passed the gate, 26 alive
+round 2 done: 29 passed the gate, 29 alive
+round 3 done: 24 passed the gate, 24 alive
+round 4 done: 20 passed the gate, 20 alive
+round 5 done: 22 passed the gate, 22 alive
+round 6 done: 23 passed the gate, 23 alive
+round 7 done: 21 passed the gate, 21 alive
+round 8 done: 26 passed the gate, 26 alive
+round 9 done: 24 passed the gate, 24 alive
+round 10 done: 26 passed the gate, 26 alive
+round 11 done: 26 passed the gate, 26 alive
+round 12 done: 26 passed the gate, 26 alive
+round 13 done: 24 passed the gate, 24 alive
+round 14 done: 27 passed the gate, 27 alive
+round 15 done: 23 passed the gate, 23 alive
+DONE
