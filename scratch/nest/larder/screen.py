@@ -40,6 +40,8 @@ for a in arms:
         up = n = 0
         for w in W:
             x, y = M[(a, w)], M[(b0, w)]
+            if k == 'alive':  # a line extinct before round R counts as 0 alive
+                x, y = x or dict(alive=0), y or dict(alive=0)
             if x is None or y is None: continue
             if k == 'passage' and (x[k] is None or y[k] is None): continue
             if x[k] == y[k]: continue
