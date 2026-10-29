@@ -1122,6 +1122,37 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
             }
         }
     }
+    // SCRATCH (chambers lane, larder seed, 2026-10-29): `PP_FOODBESIDE=1`, **food beside a put-down spot**, on the
+    // `f::BUILDING` slot: on every Drop option that would put down crop food, the share of the target's eight
+    // neighbours holding loose food (any `food_energy` cell no organism owns, a corpse excepted -- crumbs, fruit,
+    // seeds lying); 0 on every other option, so under the switch the slot carries nothing else (the last-food memory,
+    // [`FOOD_WAY`](f::FOOD_WAY), is not written). A sense, graded 0..1, with no direction or situation built in: what
+    // a weight does with it is the genome's. **Why**: a Drop target is an empty cell, so its one-hot reads air
+    // whatever lies beside it, and no feature told a put-down beside the store from one in a passage -- every trained
+    // nest is strewn with crumbs (311 against the hand-built ant's 20) that wall its passages. **Why this slot**:
+    // std_pool and H3 carry no weight on it in any unit; a new slot would move every later weight of every genome on
+    // disk (the [`FOOD_WAY`] note). **Not a no-op on its own**: with no new weight a run reproduces `PP_LASTFOOD=off`
+    // byte for byte, which differs from the default (H3 + eat seed, world 68 round 0: alive 63 vs 58 at 25k), so
+    // compare an arm against a baseline run with this switch on too. Off unless set.
+    if food_beside() && st.spoil.is_none() && crop.is_some_and(|c| c.cells > 0) {
+        let corpse = here.mats.corpse;
+        let loose_food = |x: i32, y: i32| {
+            let c = world.get(x, y);
+            c.organism_id() == 0 && world.materials.get(c.material).food_energy > 0.0 && corpse.is_none_or(|m| c.material != m)
+        };
+        for o in out.iter_mut() {
+            o.feats[f::BUILDING] = if o.verb == Verb::Drop {
+                let (tx, ty) = o.target;
+                DIRS.iter().filter(|&&(dx, dy)| loose_food(tx + dx, ty + dy)).count() as f32 / 8.0
+            } else {
+                0.0
+            };
+        }
+    } else if food_beside() {
+        for o in out.iter_mut() {
+            o.feats[f::BUILDING] = 0.0;
+        }
+    }
     DESCRIBED.set(described);
 }
 
@@ -1129,6 +1160,20 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
 /// any world without minds or without a closed disc, so the shipped lab never pays more than the `Option` read.
 fn stomach_closed(world: &World, (hx, hy): (i32, i32)) -> bool {
     world.minds.as_ref().is_some_and(|m| m.closed_stomach.iter().any(|&(x, y, r)| (hx - x).pow(2) + (hy - y).pow(2) <= r * r))
+}
+
+/// SCRATCH (chambers lane, larder seed): `PP_FOODBESIDE=1` writes food beside each crop put-down spot on
+/// `f::BUILDING` (see where it is written in [`build_remembering`]). Refuses the switches that write the same slot.
+pub fn food_beside() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("PP_FOODBESIDE").is_ok_and(|v| v == "1");
+        assert!(
+            !(on && (std::env::var("PP_BOTTOM").is_ok() || std::env::var("PP_HOMELOW").is_ok() || home_dir())),
+            "PP_FOODBESIDE writes f::BUILDING, as PP_BOTTOM, PP_HOMELOW and PP_HOMEDIR do: run one"
+        );
+        on
+    })
 }
 
 fn bottom_reach() -> Option<i32> {
