@@ -1552,6 +1552,31 @@ pub(crate) fn larva_eaten(world: &mut World, organism: OrganismId, (x, y): (i32,
     true
 }
 
+/// **A brood item drowned where it lies** -- egg, larva or pupa: the same
+/// corpse [`larva_eaten`] leaves (the bank goes into it, so the ledger stays
+/// shut and a nestmate can eat back what was spent), with no alarm and not
+/// counted as starved. `false`, changing nothing, unless `organism` is live
+/// brood lying on its own cell (a carried item is in a jaw, not the pool).
+///
+/// **No rule in the engine calls this.** It is the world half of the
+/// chambers lane's flood probe (2026-10-29, `examples/inrun.rs`
+/// `PP_FLOOD_HARM`): before it, water was harmless underground -- brood is a
+/// `Powder` water can never displace (`MaterialKind::is_displaceable`), so a
+/// pond simply stood on it, and nothing in this file reads a liquid at all.
+/// The question was whether a cone nest that funnels rain onto its brood
+/// pile is worse than a shaft with dry side rooms; the caller decides what
+/// "submerged long enough" means, this only says what drowning leaves.
+pub fn drown(world: &mut World, organism: OrganismId) -> Option<(i32, i32)> {
+    let state = world.organism(organism)?;
+    state.brood?;
+    let bank = state.energy;
+    let (x, y) = state.cells.keys().copied().find(|&(x, y)| world.get(x, y).organism_id() == organism)?;
+    let colony = world.colony_of(organism);
+    larva_starves(world, organism, (x, y), bank, colony);
+    world.creature_stats.larvae_starved -= 1;
+    Some((x, y))
+}
+
 /// **A pupa becomes an adult on or beside its own cell**, if the body fits
 /// within `HATCH_REACH`. The cell is cleared first so the head can take it,
 /// and put back if the body cannot be laid anywhere. Returns the adult's

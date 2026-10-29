@@ -1473,6 +1473,14 @@ fn main() {
     let mut lab_tick = (arg(&a, "tick") == Some("lab")).then(|| {
         let mut spec = sc.bed.clone();
         spec.rain = pixel_physics::lab::rain::Rain::from_index(num("labrain", 0) as u8);
+        // labspells=W:D (chambers lane, flood probe, 2026-10-29): the mister in storms -- `W` frames at `labrain`, then
+        // `D` frames off with the lid vented, again (`lab::rain::Spells`, the box's own wet and dry spells). A steady
+        // mister soaks into the bed and never stands; a storm arrives faster than soil takes it, so it runs downhill
+        // and stands where the ground is lowest. Unset: the bed's own spells (none), the steady mister.
+        if let Some(v) = arg(&a, "labspells") {
+            let (wet, dry) = v.split_once(':').expect("labspells=WET:DRY");
+            spec.spells = Some(pixel_physics::lab::rain::Spells { wet: wet.parse().unwrap(), dry: dry.parse().unwrap() });
+        }
         (spec, pixel_physics::sim::particle::ParticleSystem::new(), pixel_physics::sim::explosion::Blasts::new(), pixel_physics::sim::player::Tuning::default())
     });
     // The datum and the ground below it at frame 0.
@@ -1532,6 +1540,47 @@ fn main() {
     let film_p = pixel_physics::sim::ParticleSystem::new();
     let mut film_buf: Vec<u8> = Vec::new();
     let mut joined = vec![false; (bw * bh) as usize];
+    // PP_FLOOD_HARM=N (chambers lane, flood probe, 2026-10-29; with tick=lab and labrain): **standing water costs the
+    // colony what it covers.** A brood item (egg, larva, pupa) or a cell of loose food (provisions, crumbs, fruit)
+    // with liquid lying on it -- the cell above is liquid -- for N frames running is lost: the brood drowns into a
+    // corpse worth its bank (`brood::drown`), the food spoils to wet soil. Checked every 50 frames, so N is rounded
+    // up to that; the clock resets the moment the water is gone or the item is moved. **Why**: before this, water
+    // underground was harmless. Brood and crumbs are powders water can never displace, so a pond stood on them and
+    // nothing read it, and ants walk on its surface (`creature::water_footing_of`). The owner wants chambers off a
+    // shaft, and a cone funnels rain onto exactly the pile a side room would keep dry -- the probe asks whether that
+    // makes a cone worse than a gallery nest by the colony's own count. A world rule, never a rule on the ant: it
+    // says what water does to brood and food, and nothing about where an ant digs or puts anything. Unset: nothing
+    // is read or changed, the run byte-identical.
+    let flood_harm: Option<u64> = std::env::var("PP_FLOOD_HARM").ok().map(|v| v.parse().expect("PP_FLOOD_HARM=FRAMES"));
+    // PP_FLOOD_DAMP=M (with PP_FLOOD_HARM): **sodden ground counts as water.** An item is also wet while any of its four
+    // neighbours is ground holding M or more moisture (`SOIL_SATURATED` is 1000, field capacity 620). Why: on this bed
+    // water never stands underground to be measured -- a 24-row cloudburst (9,912 cells) was gone into the soil within
+    // 1,000 frames, lid sealed or vented (world 500001), so "submerged" never fires; what rain leaves where it falls
+    // is wet ground, and a cone's floor is open to the sky where a side room's is under a roof.
+    let flood_damp: Option<u16> = std::env::var("PP_FLOOD_DAMP").ok().map(|v| v.parse().expect("PP_FLOOD_DAMP=MOISTURE"));
+    let flood_food: Vec<_> = ["provisions", "crumbs", "fruit"].iter().filter_map(|n| w.materials.id_of(n)).collect();
+    let flood_soil = w.materials.id_of("soil");
+    let mut flood_brood_wet: HashMap<u32, u64> = HashMap::new();
+    let mut flood_food_wet = vec![0u64; (bw * bh) as usize];
+    let (mut flood_drowned, mut flood_spoiled) = (0u64, 0u64);
+    // labburst=EVERY:ROWS (chambers lane, flood probe, 2026-10-29): a cloudburst. Every EVERY frames a sheet ROWS deep
+    // of water appears under the room's top across the whole bed, in empty cells only (the mister's own placement,
+    // `World::paint_capsule_as`), and falls. **Why**: the mister at its heaviest (`labrain=3`, ~14 cells per 40 frames
+    // on a 448-wide bed), even in 4,000-frame storms, soaked into the soil before any of it stood: on world 500001 at
+    // most 6 water cells stood below the datum at any sampled frame of 100k, and the flood rule spoiled 3 food cells.
+    // A sheet arrives faster than the ground takes it, so it runs to the low ground and stands -- a cone's pit, if the
+    // colony dug one. Unset: nothing placed.
+    let burst: Option<(u64, i32)> = arg(&a, "labburst").map(|v| {
+        let (e, r) = v.split_once(':').expect("labburst=EVERY:ROWS");
+        (e.parse().unwrap(), r.parse().unwrap())
+    });
+    let burst_water = w.materials.id_of("water");
+    let mut burst_placed = 0u64;
+    let mut flood_log = flood_harm.map(|_| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(out.join("flood.csv")).unwrap());
+        writeln!(f, "frame,brood_wet,food_wet,drowned,spoiled,water_below_datum,water_all").unwrap();
+        f
+    });
     let join_ground: Vec<_> = ["soil", "packedsoil", "spoil", "stone"].iter().filter_map(|n| w.materials.id_of(n)).collect();
     let mut spiders = Spiders::new(&a, &mut w, seed);
     if let Some(s) = spiders.as_mut() {
@@ -1562,6 +1611,77 @@ fn main() {
             pixel_physics::lab::tick_world(&mut w, particles, blasts, tuning, spec, Some(&sc));
         } else {
             inrun::step(&mut w, &sc);
+        }
+        if let (Some((every, rows)), Some(water)) = (burst, burst_water) {
+            if every > 0 && fr % every == 0 {
+                let top = sc.bed.room_top();
+                for y in top..top + rows {
+                    w.paint_capsule_as((0, y), (bw - 1, y), 0, water, 1.0);
+                    burst_placed += (0..bw).filter(|&x| w.get(x, y).material == water).count() as u64;
+                }
+            }
+        }
+        if let Some(n) = flood_harm.filter(|_| fr % 50 == 0) {
+            use pixel_physics::sim::material::MaterialKind;
+            let is_liquid = |w: &pixel_physics::sim::world::World, x: i32, y: i32| w.in_bounds(x, y) && w.materials.kind(w.get(x, y).material) == MaterialKind::Liquid;
+            // Under PP_FLOOD_DAMP=M, ground holding M or more (moisture, `SOIL_SATURATED` 1000 is full) beside the
+            // item counts as water on it.
+            let wet = |w: &pixel_physics::sim::world::World, x: i32, y: i32| {
+                is_liquid(w, x, y - 1)
+                    || flood_damp.is_some_and(|m| {
+                        [(0, -1), (0, 1), (-1, 0), (1, 0)].iter().any(|&(dx, dy)| {
+                            let (nx, ny) = (x + dx, y + dy);
+                            if !w.in_bounds(nx, ny) {
+                                return false;
+                            }
+                            let c = w.get(nx, ny);
+                            let mat = w.materials.get(c.material);
+                            mat.kind == MaterialKind::Powder && mat.water_capacity > 0 && c.organism_id() == 0 && c.aux() >= m
+                        })
+                    })
+            };
+            let mut seen = std::collections::HashSet::new();
+            for id in w.live_brood_ids() {
+                let at = w.organism(id).and_then(|s| s.cells.keys().copied().find(|&(x, y)| w.get(x, y).organism_id() == id));
+                let Some((x, y)) = at else { continue };
+                if !wet(&w, x, y) {
+                    continue;
+                }
+                seen.insert(id);
+                let t = flood_brood_wet.entry(id).or_insert(0);
+                *t += 50;
+                if *t >= n && pixel_physics::sim::brood::drown(&mut w, id).is_some() {
+                    flood_drowned += 1;
+                }
+            }
+            flood_brood_wet.retain(|id, _| seen.contains(id));
+            let (mut food_now, mut water_below, mut water_all) = (0usize, 0usize, 0usize);
+            for y in 1..bh {
+                for x in 0..bw {
+                    let i = (y * bw + x) as usize;
+                    let c = w.get(x, y);
+                    if w.materials.kind(c.material) == MaterialKind::Liquid {
+                        water_all += 1;
+                        water_below += usize::from(y >= surf[x as usize]);
+                    }
+                    if c.organism_id() != 0 || !flood_food.contains(&c.material) || !wet(&w, x, y) {
+                        flood_food_wet[i] = 0;
+                        continue;
+                    }
+                    food_now += 1;
+                    flood_food_wet[i] += 50;
+                    if flood_food_wet[i] >= n {
+                        if let Some(soil) = flood_soil {
+                            w.set(x, y, pixel_physics::sim::cell::Cell::new(soil, 0).with_aux(pixel_physics::sim::material::SOIL_FIELD_CAPACITY));
+                            flood_spoiled += 1;
+                        }
+                        flood_food_wet[i] = 0;
+                    }
+                }
+            }
+            if let Some(fl) = flood_log.as_mut().filter(|_| fr % 1000 == 0) {
+                writeln!(fl, "{fr},{},{food_now},{flood_drowned},{flood_spoiled},{water_below},{water_all}", seen.len()).unwrap();
+            }
         }
         if fr % every == 1 || every == 1 {
             let cap_now = cap_to.map_or(cap, |(c, f)| if fr >= f { c } else { (cap as f64 + (c as f64 - cap as f64) * fr as f64 / f as f64).round() as usize });
@@ -2890,6 +3010,12 @@ fn main() {
     // either fired at all on a bed where no stranger lives (Teacher lane's question before the default landed).
     let k = w.minds.as_ref().map_or(Default::default(), |m| m.counts);
     println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
+    if flood_harm.is_some() {
+        println!("flood: brood drowned {flood_drowned}, food cells spoiled {flood_spoiled}");
+    }
+    if burst.is_some() {
+        println!("burst: {burst_placed} water cells placed (room top {})", sc.bed.room_top());
+    }
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
     if homepick > 0 {
