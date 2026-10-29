@@ -499,6 +499,177 @@ fn arg<'a>(a: &'a [String], k: &str) -> Option<&'a str> {
     a.iter().find_map(|s| s.strip_prefix(&format!("{k}=")))
 }
 
+/// SCRATCH (chambers lane, buried-food probe, 2026-10-29; off unless set): `PP_BURIED_FOOD=N:SIZE:MIN:MAX[:CHECK]`
+/// keeps **N pockets of food in the soil** -- buried seed caches, root-aphid honeydew -- each a blob of up to SIZE
+/// `provisions` cells written over untouched `soil` only, centred MIN..MAX columns from the door on a side drawn
+/// per pocket (west only where the wall allows, as `patches=` does) and at a depth drawn through the soil, 4 rows
+/// under the datum to 3 rows above the first non-soil cell under it. Every CHECK frames (default 1000) a pocket with
+/// less than a quarter of its cells left is **spent** and a fresh one is laid somewhere new, so the stock lasts the
+/// run and a pocket found once is not a pocket forever. **Why**: the owner wants chambers joined by tunnels, and in
+/// the training bed every route to galleries so far cost colonies -- a cone is the best nest for what selection
+/// pays. Food is what selection pays most, so food that only a tunnel heading outward meets is the most direct world
+/// pressure on the nest's shape. **A world rule, never a rule on the ant**: no sense is added (a buried pocket is
+/// found by touch, as `PickUp` lists any food cell beside the head; a mind's `FOOD_WAY` memory points back to it once
+/// found) and no choice is filtered. The top-up of the surface heap does not count pocket cells still in place
+/// against its cap (`extra_in`), so the surface income is the same with pockets on. Seeded from the run's seed on a
+/// stream of its own: arms pair, and unset touches no draw (the run is bit for bit the bed without it).
+/// `pockets.csv`: frame,pocket,x,y,cells,kind,left -- `lay` (cells placed), `spent`, `end` (left at the run's end).
+struct Buried {
+    n: usize,
+    size: usize,
+    lo: i32,
+    hi: i32,
+    check: u64,
+    rng: train::Rng,
+    food: pixel_physics::sim::material::MaterialId,
+    soil: pixel_physics::sim::material::MaterialId,
+    /// Each pocket's cells as laid; a cell still holding `food` is a cell still in place.
+    pockets: Vec<Vec<(i32, i32)>>,
+    log: std::io::BufWriter<std::fs::File>,
+    laid: u64,
+    taken: u64,
+}
+
+impl Buried {
+    fn from_env(w: &pixel_physics::sim::World, seed: u64, out: &std::path::Path) -> Option<Buried> {
+        let v = std::env::var("PP_BURIED_FOOD").ok().filter(|v| !v.is_empty() && v != "off")?;
+        let p: Vec<&str> = v.split(':').collect();
+        assert!(p.len() == 4 || p.len() == 5, "PP_BURIED_FOOD=N:SIZE:MIN:MAX[:CHECK]");
+        let n: usize = p[0].parse().expect("PP_BURIED_FOOD N");
+        let size: usize = p[1].parse().expect("PP_BURIED_FOOD SIZE");
+        let (lo, hi): (i32, i32) = (p[2].parse().expect("PP_BURIED_FOOD MIN"), p[3].parse().expect("PP_BURIED_FOOD MAX"));
+        let check: u64 = p.get(4).map_or(1000, |c| c.parse().expect("PP_BURIED_FOOD CHECK"));
+        assert!(n > 0 && size > 0 && 0 < lo && lo <= hi && check > 0, "PP_BURIED_FOOD=N:SIZE:MIN:MAX with N, SIZE > 0, 0 < MIN <= MAX");
+        let mut log = std::io::BufWriter::new(std::fs::File::create(out.join("pockets.csv")).unwrap());
+        writeln!(log, "frame,pocket,x,y,cells,kind,left").unwrap();
+        println!("buried food: {n} pockets of {size} cells, {lo}-{hi} columns from the door, checked every {check} frames");
+        Some(Buried {
+            n,
+            size,
+            lo,
+            hi,
+            check,
+            rng: train::Rng(seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0xB0_41ED),
+            food: w.materials.id_of("provisions").expect("provisions"),
+            soil: w.materials.id_of("soil").expect("soil"),
+            pockets: Vec::new(),
+            log,
+            laid: 0,
+            taken: 0,
+        })
+    }
+
+    fn left(&self, w: &pixel_physics::sim::World, k: usize) -> usize {
+        self.pockets[k].iter().filter(|&&(x, y)| w.get(x, y).material == self.food).count()
+    }
+
+    /// Lay one pocket at a fresh draw (a few tries, in case a draw lands in dug ground); its cells.
+    fn lay(&mut self, w: &mut pixel_physics::sim::World, surf: &[i32], frame: u64, k: usize) -> Vec<(i32, i32)> {
+        let bw = surf.len() as i32;
+        let pal = {
+            let m = w.materials.get(self.food);
+            (m.palette.len().max(1) as u64, m.base_shades.max(1) as u64)
+        };
+        for _ in 0..8 {
+            let d = self.lo + self.rng.below((self.hi - self.lo + 1) as usize) as i32;
+            let east = self.rng.unit() < 0.5;
+            let cx = if !east && inrun::NEST - d >= 8 { inrun::NEST - d } else { inrun::NEST + d };
+            if cx >= bw - 8 {
+                continue;
+            }
+            let top = surf[cx as usize];
+            let mut bot = top;
+            while w.in_bounds(cx, bot + 1) && w.get(cx, bot + 1).material == self.soil {
+                bot += 1;
+            }
+            let (y0, y1) = (top + 4, bot - 3);
+            if y1 <= y0 {
+                continue;
+            }
+            let cy = y0 + self.rng.below((y1 - y0) as usize) as i32;
+            // The blob: cells nearest the centre first (a 2:1 ellipse, wider than deep, as a cache lies), soil only.
+            let r = ((self.size as f32 / 2.0).sqrt() as i32) + 3;
+            let mut offs: Vec<(i32, i32, i32)> = Vec::new();
+            for dy in -r..=r {
+                for dx in -2 * r..=2 * r {
+                    offs.push((dx * dx + 4 * dy * dy, dx, dy));
+                }
+            }
+            offs.sort_unstable();
+            let mut cells = Vec::new();
+            for (_, dx, dy) in offs {
+                if cells.len() >= self.size {
+                    break;
+                }
+                let (x, y) = (cx + dx, cy + dy);
+                if x < 1 || x >= bw - 1 || !w.in_bounds(x, y) || y < top + 2 || w.get(x, y).material != self.soil {
+                    continue;
+                }
+                let shade = (self.rng.below(pal.1 as usize) as u64 + pal.0 * self.rng.below((256 / pal.0) as usize) as u64) as u8;
+                w.set(x, y, pixel_physics::sim::Cell::new(self.food, shade));
+                cells.push((x, y));
+            }
+            if cells.len() * 2 < self.size {
+                // Mostly dug already: put the cells back to soil and draw again.
+                for &(x, y) in &cells {
+                    w.set(x, y, pixel_physics::sim::Cell::new(self.soil, 0));
+                }
+                continue;
+            }
+            self.laid += cells.len() as u64;
+            writeln!(self.log, "{frame},{k},{cx},{cy},{},lay,{}", cells.len(), cells.len()).unwrap();
+            return cells;
+        }
+        Vec::new()
+    }
+
+    fn fill(&mut self, w: &mut pixel_physics::sim::World, surf: &[i32], frame: u64) {
+        while self.pockets.len() < self.n {
+            let k = self.pockets.len();
+            let c = self.lay(w, surf, frame, k);
+            self.pockets.push(c);
+        }
+    }
+
+    /// Every `check` frames: a pocket below a quarter left is spent and laid again elsewhere.
+    fn tick(&mut self, w: &mut pixel_physics::sim::World, surf: &[i32], frame: u64) {
+        if !frame.is_multiple_of(self.check) {
+            return;
+        }
+        for k in 0..self.pockets.len() {
+            let left = self.left(w, k);
+            let had = self.pockets[k].len();
+            if had == 0 || left * 4 < had {
+                if had > 0 {
+                    self.taken += (had - left) as u64;
+                    writeln!(self.log, "{frame},{k},{},{},{had},spent,{left}", self.pockets[k][0].0, self.pockets[k][0].1).unwrap();
+                }
+                self.pockets[k] = self.lay(w, surf, frame, k);
+            }
+        }
+    }
+
+    /// Pocket cells still in place in columns `x0..=x1`: what the surface top-up must not count against its cap.
+    fn extra_in(&self, w: &pixel_physics::sim::World, x0: i32, x1: i32, material: &str) -> usize {
+        if w.materials.id_of(material) != Some(self.food) {
+            return 0;
+        }
+        self.pockets.iter().flatten().filter(|&&(x, y)| (x0..=x1).contains(&x) && w.get(x, y).material == self.food).count()
+    }
+
+    fn finish(&mut self, w: &pixel_physics::sim::World, frame: u64) {
+        for k in 0..self.pockets.len() {
+            let (had, left) = (self.pockets[k].len(), self.left(w, k));
+            self.taken += (had - left) as u64;
+            if let Some(&(x, y)) = self.pockets[k].first() {
+                writeln!(self.log, "{frame},{k},{x},{y},{had},end,{left}").unwrap();
+            }
+        }
+        self.log.flush().unwrap();
+        println!("buried food: {} cells laid, {} gone from their pockets (taken, or fallen into a cut)", self.laid, self.taken);
+    }
+}
+
 /// One spider placement in [`Spiders::log`]: (organism id, pool index, genome, born, died, flesh credit, mutant,
 /// breeding genes).
 type Placement = (u32, usize, Vec<f32>, u64, Option<u64>, f64, bool, [f32; 2]);
@@ -1447,6 +1618,12 @@ fn main() {
         }
         eprintln!("nest=zone pad {nest_pad}: {} cells at frame 0", zone.iter().filter(|&&z| z).count());
     }
+    // `PP_BURIED_FOOD` (see [`Buried`]): the pockets go in after the datum and the original ground are read, so a
+    // pocket cell reads as the ground it was laid in for the dig ledger, and no cut is ever paid for one (food is not dug).
+    let mut buried = Buried::from_env(&w, seed, &out);
+    if let Some(b) = buried.as_mut() {
+        b.fill(&mut w, &surf, 0);
+    }
     let mut ev = std::io::BufWriter::new(std::fs::File::create(out.join("events.csv")).unwrap());
     writeln!(ev, "frame,id,kind,x,y,v,cutter").unwrap();
     // Who cut the pellet each ant holds; pellets let go inside, by spot; field food each ant holds.
@@ -1518,16 +1695,21 @@ fn main() {
                     }
                     writeln!(patch_log, "{fr},{},{}", patch_at.0, patch_at.1).unwrap();
                 }
-                inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now, drip as usize, spread, patch_at.1);
+                let extra = buried.as_ref().map_or(0, |b| b.extra_in(&w, patch_at.0 - 8 - spread, patch_at.0 + 8 + spread, patch_at.1));
+                inrun::top_up_with(&mut w, &sc, patch_at.0, cap_now + extra, drip as usize, spread, patch_at.1);
             } else {
                 let west = west_at(dist);
                 for (x, mat, east) in [(inrun::NEST + dist, food_mats.0, true), (west, food_mats.1, false)] {
                     if food_flip.is_some_and(|f| east != ((fr < f) == flip_east_first)) {
                         continue;
                     }
-                    inrun::top_up_with(&mut w, &sc, x, cap_now, drip as usize, spread, mat);
+                    let extra = buried.as_ref().map_or(0, |b| b.extra_in(&w, x - 8 - spread, x + 8 + spread, mat));
+                    inrun::top_up_with(&mut w, &sc, x, cap_now + extra, drip as usize, spread, mat);
                 }
             }
+        }
+        if let Some(b) = buried.as_mut() {
+            b.tick(&mut w, &surf, fr);
         }
         if food_flip == Some(fr) && !flip_keep {
             // The first heap's loose food goes at the flip, so the side that fed the colony is empty, not slowly eaten out.
@@ -2690,6 +2872,9 @@ fn main() {
                 }
             }
         }
+    }
+    if let Some(b) = buried.as_mut() {
+        b.finish(&w, frames);
     }
     ev.flush().unwrap();
     if let Some(tl) = trace_log.as_mut() {
