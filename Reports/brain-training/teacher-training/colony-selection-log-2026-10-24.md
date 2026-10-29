@@ -1564,3 +1564,21 @@ validated) and runs a box named twice on two seeds. Smoke (4 colonies, 1 round, 
 **Deciding measure, named before launch:** exam x8 (6 boxes x 8 seeds at 600k), each arm's r23 rank-0 colony, lived
 paired over the 48 box-seeds against g_ctl's and against std_pool (Bonferroni over 2 arms), alive and starved share
 as guards. The donorlab log's own lived by round says whether the filter lifts the next generation (it did not in env5).
+
+## 2026-10-29 (11:30Z): exam `x9` -- the hand-written dig head (H3) lives in the game as well as std_pool
+
+H3 (the Nest lane's poolH3: std_pool with a hand-written dig head, g[2797:3279] only; Scott: seed training with it only
+if colonies live) through the six exam boxes x 8 seeds at 600k, run in this lane's container on bb0d7570 (same engine
+as x7: std_pool played_bed seed 1 rerun beside it gave the identical row). `data-1027/x9/lab600k.csv` (H3 rows + x7's
+std, old, famc7), `x9an.py`. Paired over 48 box-seeds:
+
+| H3 against | lived | alive at the end | starved share |
+|---|---|---|---|
+| std_pool | 19 / 14, p 0.49 | 13 / 13 | 21 / 15, p 0.41 |
+| hand-built ant | 2 / 46 | 8 / 27 | 48 / 0 more |
+
+Per box (lived median): played_bed 178 vs std 155, crowded_bench 229 vs 203, herb_first_colony 126 vs 139; all three
+famine boxes 0.4-0.5 like every trained brain. Median lived over 48: H3 71, std 70. **H3 passes Scott's gate**: the
+colonies live as well as std_pool's in the game, with the tunnels the Nest lane measured on the bed. The founders are
+in `scratch/inrun/genomes/handdig_h3/` (30 raws, each once). H3+eat (the chambered-nests thread's eat seed on H3,
+`handdig_h3eat/`) gets the same exam on the VM after env6, beside env6's own exam (x8).
