@@ -55,8 +55,9 @@ use std::sync::Arc;
 /// each a fair coin between adding a link (an empty trainable slot gets a step) and removing one (a live link set to
 /// 0). The expected change in size is zero at every size, so there is no size the operator drifts toward: `train::mutate`
 /// at prune 0 / grow 1 added ~60 links a child (a one-way ratchet), and prune .3 / grow .1 pulled toward ~700.
-/// `prot`: per-slot "this slot is a lesson" flags and the factor its weight-step chance is scaled by (review lane,
-/// 2026-10-22, `lesson=`); protected slots never take a structural event.
+/// `prot`: per-slot factors its weight-step chance is scaled by, and per-slot "takes no structural event" flags (review
+/// lane, 2026-10-22, `lesson=`: a lesson slot has both; chambers lane, 2026-10-29: `PP_DIGHEAD_RATE`/`PP_DIGHEAD_GROW`
+/// set the dig head's slots apart). A slot past either list's end is unprotected.
 /// SCRATCH (dig-scoring thread): a founder's `.raw.txt`, at its saved length -- GENOME_LEN, or GENOME_LEN plus an
 /// evolved dig head's slots under `PP_DIGHEAD_EVOLVE` (a later round's founders keep their heads).
 fn load_founder(p: &str) -> Vec<f32> {
@@ -156,21 +157,18 @@ fn with_head(g: Vec<f32>) -> Vec<f32> {
     g
 }
 
-fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, prot: Option<(&[bool], f32)>, rng: &mut train::Rng) -> Vec<f32> {
+fn neutral_mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, events: usize, prot: Option<(&[f32], &[bool])>, rng: &mut train::Rng) -> Vec<f32> {
     let first = creature::mind::FIRST_LINK;
     let mut c = g.to_vec();
     for &i in slots {
-        let p = match prot {
-            Some((m, f)) if m.get(i).copied().unwrap_or(false) => pm * f,
-            _ => pm,
-        };
+        let p = pm * prot.and_then(|(f, _)| f.get(i).copied()).unwrap_or(1.0);
         if (c[i] != 0.0 || i < first) && rng.unit() < p {
             c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
         }
     }
     for _ in 0..events {
         let add = rng.unit() < 0.5;
-        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(m, _)| m.get(i).copied().unwrap_or(false))).collect();
+        let pool: Vec<usize> = slots.iter().copied().filter(|&i| i >= first && (c[i] == 0.0) == add && !prot.is_some_and(|(_, x)| x.get(i).copied().unwrap_or(false))).collect();
         if pool.is_empty() {
             continue;
         }
@@ -1282,7 +1280,29 @@ fn main() {
             Some((flags, lf))
         }
     };
-    let prot = lesson.as_ref().map(|(m, f)| (m.as_slice(), *f));
+    // SCRATCH (chambers lane, 2026-10-29): under a lesson the head's slots took the LESSON's factor, and never a
+    // structural event. chambers-sel1 (lesson 0.1, kpm 0.003, 16 rounds x 32 colonies) left the hand-set H3 head --
+    // 19 live slots of 482 -- unchanged in 814 of 822 carried genomes and never more than one slot off, so selection
+    // could keep the digger but never reshape it. PP_DIGHEAD_RATE=F sets the head's factor on its own, and
+    // PP_DIGHEAD_GROW=1 lets head slots add and drop links like any core slot. Both unset: unchanged.
+    let head_rate: Option<f32> = std::env::var("PP_DIGHEAD_RATE").ok().map(|v| v.parse().expect("PP_DIGHEAD_RATE"));
+    let head_grow = std::env::var("PP_DIGHEAD_GROW").is_ok_and(|v| v == "1");
+    let prot: Option<(Vec<f32>, Vec<bool>)> = lesson.as_ref().map(|(m, f)| {
+        let mut fac: Vec<f32> = m.iter().map(|&b| if b { *f } else { 1.0 }).collect();
+        let mut fixed = m.clone();
+        let g = creature::mind::GENOME_LEN;
+        if creature::mind::scratch_log::head_evolve().is_some() && fac.len() > g {
+            if let Some(r) = head_rate {
+                fac[g..].iter_mut().for_each(|x| *x = r);
+            }
+            if head_grow {
+                fixed[g..].iter_mut().for_each(|x| *x = false);
+            }
+            eprintln!("dig head: {} slots at {} of the mutation rate, structural events {}", fac.len() - g, fac[g], if fixed[g] { "off" } else { "on" });
+        }
+        (fac, fixed)
+    });
+    let prot = prot.as_ref().map(|(f, x)| (f.as_slice(), x.as_slice()));
     let kid_cap = num("kid_cap", 1000) as u32;
     // retire=1: a parent leaves once it has had `kid_cap` children (its last child takes its place). Without it the
     // capped parents, immortal with old age off, sat in the colony unable to breed: 307 of 342 judgements owing a

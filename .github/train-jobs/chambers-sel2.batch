@@ -1,0 +1,28 @@
+# Can selection reshape the tunnel digger itself, when its weights are free to change? (chambers thread, 2026-10-29;
+# the follow-up to chambers-sel1, launched on the chambers lane's recommendation while Scott's card is open.)
+# chambers-sel1 kept the H3 + eat-seed founders' tunnels for 16 rounds at cone-level survival, but its lesson
+# protection (lesson=c1:0.1) also gave the dig head's slots a tenth of the weight-step chance and no structural events:
+# H3's head has 19 live links of 482, and 814 of 822 carried genomes ended with it unchanged. The shape score could
+# only act through the core, and found nothing there (passages 17 vs 15 worlds against the plain score).
+# Here the head mutates on its own terms (examples/inrun.rs PP_DIGHEAD_RATE / PP_DIGHEAD_GROW, unset = unchanged);
+# the core keeps sel1's lesson protection. Smoke (4 colonies x 2 rounds x 20k, rate 1 + grow): 102 of 120 carried
+# heads changed, median 3 slots.
+#
+# Arms -- every other setting is sel1's line, so each plays world c*1000+r for colony c in round r and pairs with
+# sel1's arms colony by colony:
+#   g1_shape   head rate 1, links may grow/drop, shape score (sel1 B's weights shape:2 gallery:2 crumbs:1)
+#   g1_std     head rate 1, links may grow/drop, plain score
+#   g25_shape  head rate 0.25 (the dig-scoring thread's default), links may grow/drop, shape score
+# Controls are sel1's frozen-head arms, h3eat_shape and h3eat_std (batch-results/chambers-sel1), same worlds.
+#
+# DECIDING MEASURE, named before launch (claude/chambers-judge's judge.py, deciding passage measure `tunnels`):
+# at round 15, paired by colony, two-sided sign test on (1) tunnels, higher better, and (2) alive, higher better
+# (extinct = alive 0, tunnels 0):
+#   Q1 does a free digger beat the frozen one under the shape score: g1_shape vs sel1 h3eat_shape.
+#   Q2 does the shape score steer a free digger: g1_shape vs g1_std.
+# A YES on either needs (1) favouring the first arm at p < 0.05 with (2) not favouring the second at p < 0.05 and crumb
+# share not higher at p < 0.05. g25_shape is a dose check, reported the same way, not a test. Also reported: the
+# pictures, the seed check (eat seed held), and the head's drift from H3 (slots changed, links added).
+g1_shape PP_DIGHEAD_RATE=1 PP_DIGHEAD_GROW=1 colsel 31 lex+spoil+crater+shape+scale+lab+gallery+crumbs 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0 shapeopen=1 weights=shape:2,gallery:2,crumbs:1
+g1_std PP_DIGHEAD_RATE=1 PP_DIGHEAD_GROW=1 colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0
+g25_shape PP_DIGHEAD_RATE=0.25 PP_DIGHEAD_GROW=1 colsel 31 lex+spoil+crater+shape+scale+lab+gallery+crumbs 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0 shapeopen=1 weights=shape:2,gallery:2,crumbs:1
