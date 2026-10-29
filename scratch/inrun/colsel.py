@@ -459,6 +459,12 @@ LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
 assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# labafter=N (jobs arg; teacher lane, 2026-10-29): LAB_AFTER from a jobs line, as labscens= is, since a VM batch passes
+# only P to the driver's environment. **Why**: the rank checks of 2026-10-28 (twinrank, twinself, twingame) found the
+# only lab boxes that rank colonies as the exam does are played_bed_scrambler + played_bed_understory at 600k, 2-3
+# seeds each (+0.61/+0.67); a 15k headcount there was never checked. Used with weights= to make that the whole score.
+LAB_AFTER = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('labafter=')), LAB_AFTER)
+EXTRA = [x for x in EXTRA if not x.startswith('labafter=')]
 # labscore=alive:AFTER[:K] (teacher lane + watchdog lane, 2026-10-28; off by default): a lab run is scored on the colony
 # alive AFTER frames after landing, less K x the ants that starved (default K 0), in place of the mean headcount over
 # LAB_AFTER. **Why**: the watchdog lane reran env1 c's 28 r23 carries on their own lab seeds to 300k; the 15k headcount
@@ -877,7 +883,14 @@ for r in range(R0, R):
     ok = [c for c in cols if carry[c] is not None]
     if LAB:
         with ThreadPoolExecutor(P) as ex:
-            labv = dict(zip(ok, ex.map(lambda c: lab_alive(c, r, carry[c]), ok)))
+            # one job per colony x box, summed, rather than one per colony looping its boxes: the same seeds (kind
+            # 'lab', index k) and the same per-run rounding, so the case is unchanged, but a round of 600k boxes
+            # (labafter=600000, env7 2026-10-29) is no longer four runs long end to end on a 64-core VM
+            jobs = [(c, k, sc) for c in ok for k, sc in enumerate(LAB_SCENS)]
+            got = list(ex.map(lambda j: lab_alive(j[0], r, carry[j[0]], [j[2]], 'lab', j[1]), jobs))
+            labv = {c: 0 for c in ok}
+            for (c, _, _), v in zip(jobs, got):
+                labv[c] += v
             # Each labcase= scenario keeps its seed offset past LAB_SCENS', so adding one never moves the summed case.
             lab2 = [dict(zip(ok, ex.map(lambda c, k=k, sc=sc: lab_alive(c, r, carry[c], [sc], 'labcase', k), ok))) for k, sc in enumerate(LAB_CASES)]
         res = {c: (v + (labv.get(c, 0),) + tuple(d.get(c, 0) for d in lab2) if v else v) for c, v in res.items()}

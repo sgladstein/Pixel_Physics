@@ -1582,3 +1582,44 @@ famine boxes 0.4-0.5 like every trained brain. Median lived over 48: H3 71, std 
 colonies live as well as std_pool's in the game, with the tunnels the Nest lane measured on the bed. The founders are
 in `scratch/inrun/genomes/handdig_h3/` (30 raws, each once). H3+eat (the chambered-nests thread's eat seed on H3,
 `handdig_h3eat/`) gets the same exam on the VM after env6, beside env6's own exam (x8).
+
+## 2026-10-29 (14:45Z): exam `x8` -- the played-bed filter did not help; x10 -- H3 + eat level too; env7 selects on survival alone
+
+**x8** (144 runs, ref 00d18fe3; std, old, famc7 from x7, same engine), `data-1027/x8/`, `x8an.py`. env6's r23 rank-0
+colonies, lived paired over 48 box-seeds (Bonferroni over the 2 filter arms: p < 0.025):
+
+| against | g_dl c3 (+ filter) | g_dlo c8 (filter for donor600) | g_ctl c9 (control) |
+|---|---|---|---|
+| g_ctl | 14 / 19, p 0.49 | 11 / 18, p 0.26 | -- |
+| std_pool | 11 / 22, p 0.08 | 9 / 22, p 0.029 | 13 / 17, p 0.58 |
+
+Alive at the end: g_dlo vs std 6 / 19 (p 0.015); g_dl vs g_ctl 15 / 11. Starved share: g_dlo vs std 26 / 12 more
+(p 0.034). Per box, the filter arms are worst in the played bed itself (lived median g_dl 87, g_dlo 128, g_ctl 169,
+std 155) and herb_first_colony (87, 102, 129, 139); all trained brains die in the three famine boxes, so the watchdog's
+store question (does g_dlo lose where the store is the buffer?) cannot be read there: every arm is at 0.4-0.5.
+**Verdict: the filter does not lift the game; neither arm beats its control or std_pool.** With 2-5 donor candidates
+a round it chose one or two of a handful the bed's cases had already picked, and its own score fell over the run
+(g_dl 648 -> 608, g_dlo 654 -> 511): the ruler was right, the thing it was ruling was drifting down regardless.
+
+**x10**: H3 + eat (`handdig_h3eat/`, the chambered-nests thread's eat seed on H3; container, bb0d7570), against x9's
+rows: vs std_pool lived 15 / 14 (p 1), alive 17 / 8 (p 0.11), starved share 13 / 23 (p 0.13); vs H3 lived 16 / 12.
+Level with both. The next batch seeds from H3 (the tie rule named before x10, and H3 + eat is already the
+chambered-nests thread's runner screen `chambers-sel1`).
+
+**env7** (launched 14:45Z): selection on the ruler alone. colsel `lex+lab` with the bed's four cases weighted 0
+(`weights=home8:0,starved:0,nestcuts_late:0,nest:0`), so a colony's whole score is its mean headcount in
+played_bed_scrambler + played_bed_understory at 600k, 2 seeds each (`labscens=` the two boxes twice, `labafter=600000`,
+new). No labgate, scalegate, labcase or donor600. Bed rounds of 200k still breed the next generation, as always.
+
+| arm | founder |
+|---|---|
+| L_std | std_pool |
+| L_h3 | H3 (`handdig_h3_pool.txt`, the 30 raws once each in file order) |
+
+32 colonies x 16 rounds, P 31 each. Two colsel changes ride along: `labafter=` (LAB_AFTER from a jobs line) and the
+lab case runs one job per colony x box instead of one per colony (same seeds, same rounding). Smoke (4 colonies, H3,
+labafter=3000): with the new map the round-0 lab column was identical to the old loop's (1370, 1306, 1363, 1427), and
+rank followed the lab case alone (c4: lowest home8, rank 0).
+**Deciding measure, named before launch:** exam x11, each arm's r15 rank-0 colony, lived paired over the 48
+box-seeds against its own founder (std_pool; H3 from x9), Bonferroni over 2 arms, alive and starved share as guards,
+plus the played-bed twins' lived by round in colsel.csv (does the selected score climb, unlike env5/env6).
