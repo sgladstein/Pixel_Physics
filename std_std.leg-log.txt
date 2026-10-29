@@ -1,0 +1,11 @@
+runner: std_std, leg 1
+built from: 22d6d3bbec4b8d4c42ae91f5651251172a3d1caf
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40872886031
+started: 2026-10-29T12:28:37Z
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+CPU(s) scaling MHz:                      125%
+16:57:41 std_std: done, exit 0
+-rw-r--r-- 1 runner runner 19969755 Oct 29 16:57 /tmp/batch/pub/std_std.tgz
+std_std done exit 0
+finished: 2026-10-29T16:57:45Z
