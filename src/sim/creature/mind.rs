@@ -7239,19 +7239,7 @@ pub mod scratch_log {
             down,
             tdepth,
             if blank { 0.0 } else if light_on() { light_at(world, organism, t.0, t.1) } else { f32::from(u8::from(sky)) },
-            // PP_FRESHCUT=W (SCRATCH, nest lane 2026-10-30): slot 4 reads the fresh-cut mark at the target instead --
-            // 1 beside a cut made this frame, fading to 0 over W frames (`World::fresh_at`). Slot 4 because under the
-            // default light sense it is exactly 1 - slot 3, so nothing is lost; the hand-written head reads it with
-            // one unit (`scratch/nest/handdig/make.py fresh=`), every other head with whatever weight it has there.
-            if World::fresh_cut_window() > 0 {
-                world.fresh_at(t.0, t.1)
-            } else if blank {
-                0.0
-            } else if light_on() {
-                1.0 - light_at(world, organism, t.0, t.1)
-            } else {
-                roof as f32 / 8.0
-            },
+            if blank { 0.0 } else if light_on() { 1.0 - light_at(world, organism, t.0, t.1) } else { roof as f32 / 8.0 },
             nb as f32 / 8.0,
             ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
             adepth,
