@@ -590,7 +590,8 @@ fn main() {
             sd.heap_sealed,
             // Held or fell under the floor at some 30-frame check, whatever ended the seat's season first (her own
             // death ends the card, not the colony's season).
-            if sd.low < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
+            // Sealed, the seat judges at spring: the colony at the season's end against the floor.
+            if (if sd.heap_sealed { scout::ants(&lab.world).len() } else { sd.low }) < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
             scout::ants(&lab.world).len(),
             sd.low,
             sd.harvest,

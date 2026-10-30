@@ -140,6 +140,8 @@ pub struct ScoutDemo {
     /// The near trickle in the lean season: every this many frames, or 0 for
     /// none (`trickle=`).
     pub trickle: u64,
+    /// The colony when a sealed season was lost at spring, for the card.
+    pub spring: usize,
 }
 
 /// **The sealed heap's books and its marks** ([`seal_tick`], [`seal_watch`]).
@@ -160,6 +162,11 @@ pub struct Seal {
     pub leaks: u32,
     /// Distinct ants turned away at least once.
     pub turned_ids: std::collections::BTreeSet<OrganismId>,
+    /// Each leak: the ant, the frame, the cell, and where her head was at
+    /// the last pre-step look (`None`: not near enough to be checked).
+    pub leak_log: Vec<(OrganismId, u64, (i32, i32), Option<(i32, i32)>)>,
+    /// Heads of ants in the seal's columns at the last pre-step look.
+    pub looked: BTreeMap<OrganismId, (i32, i32)>,
 }
 
 /// How the lean season ended.
@@ -177,6 +184,17 @@ pub enum SeasonEnd {
 pub const SEASON: u64 = 18_000;
 /// The colony may not fall below this share of its size at the hand-over.
 pub const FLOOR: f32 = 0.5;
+
+/// **With the heap sealed the season is judged at spring** (round 3): lost
+/// if fewer than this share of the hand-over's colony came through. The
+/// colony at spring is the season's births (rounds 1-2's trace: 1-21 of the
+/// hand-over's ants live to its end, in every arm), so the old rule's check
+/// at every half-second read the old cohort dying of age -- its trough --
+/// which no teaching moves; every sealed season fell under half by frame
+/// 4,000-8,000, patient player or none (12 of 12 each). Measured at the end,
+/// sealed, 12 paired seeds: see the README's Round 3 table for the share
+/// each player brought through and why 0.2.
+pub const SPRING_FLOOR: f32 = 0.2;
 /// **The far heap in the lean season**, cells a drop (every 6,000 frames):
 /// the sandbox's own 120. Measured (gain 10, arm A, 8 paired seeds, colony
 /// alive at the season's end, patient player against teaching off): at 120
@@ -252,7 +270,7 @@ impl ScoutDemo {
             routes: BTreeMap::new(),
             stakes: args.get("stakes").is_none_or(|v| v != "0"),
             season: args.get("season").and_then(|s| s.parse().ok()).unwrap_or(SEASON),
-            floor: args.get("floor").and_then(|s| s.parse().ok()).unwrap_or(FLOOR),
+            floor: args.get("floor").and_then(|s| s.parse().ok()).unwrap_or(if args.get("sealed").is_none_or(|v| v != "0") { SPRING_FLOOR } else { FLOOR }),
             season_start: 0,
             by_gen: [0; 3],
             harvest: 0,
@@ -268,6 +286,7 @@ impl ScoutDemo {
             heap_sealed: args.get("sealed").is_none_or(|v| v != "0"),
             seal: Seal::default(),
             trickle: args.get("trickle").and_then(|s| s.parse().ok()).unwrap_or(0),
+            spring: 0,
         }
     }
 }
@@ -316,8 +335,13 @@ pub fn start_season(lab: &mut Lab) {
         }
     }
     let floor = (alive as f32 * s.floor).ceil() as usize;
+    let sealed = s.heap_sealed;
     lab.world.log_player_action("scout demo: the lean season begins, the near trickle stops");
-    lab.ui.say(format!("LEAN SEASON: THE NEAR FOOD HAS STOPPED. KEEP {floor}+ ALIVE TILL SPRING"));
+    lab.ui.say(if sealed {
+        format!("SEALED HEAP: ONLY ANTS LED THERE CAN CARRY. {floor}+ ALIVE BY SPRING")
+    } else {
+        format!("LEAN SEASON: THE NEAR FOOD HAS STOPPED. KEEP {floor}+ ALIVE TILL SPRING")
+    });
 }
 
 /// **The colony's stores, in full tanks**: what its ants carry in their own
@@ -597,9 +621,14 @@ pub fn seal_tick(lab: &mut Lab) {
     let w = &lab.world;
     let in_run = |w: &World, id: OrganismId| w.tandem.as_deref().is_some_and(|t| t.pairs.iter().any(|p| p.follower == id || p.leader == id));
     let mut turn: Vec<(OrganismId, i8)> = Vec::new();
+    let mut looked = BTreeMap::new();
     if live {
         for id in ants(w) {
             let Some(h) = head(w, id) else { continue };
+            if (h.0 - heap_x).abs() > SEAL_R + SEAL_NEAR + 4 {
+                continue;
+            }
+            looked.insert(id, h);
             if (h.0 - heap_x).abs() > SEAL_R + SEAL_NEAR || knows_heap(w, id, heap_x) || in_run(w, id) {
                 continue;
             }
@@ -629,6 +658,7 @@ pub fn seal_tick(lab: &mut Lab) {
         lab.world.log_player_action(format!("scout demo: the sealed heap turned away {} ant(s)", fresh.len()));
     }
     let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
+    s.seal.looked = looked;
     for id in stale {
         s.seal.bounced.remove(&id);
     }
@@ -666,6 +696,7 @@ fn seal_watch(lab: &mut Lab) {
             && !steer::is_steered(w, id);
         seen.push((id, lf, picked.then(|| knows_heap(w, id, heap_x))));
     }
+    let mut caught: Vec<(OrganismId, i8)> = Vec::new();
     let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
     for (id, lf, picked) in seen {
         if s.seal.seen_food.insert(id, lf) == Some(lf) {
@@ -676,10 +707,27 @@ fn seal_watch(lab: &mut Lab) {
                 s.seal.carried += 1;
                 s.seal.marks.push((id, true, frame));
             }
-            Some(false) => s.seal.leaks += 1,
+            Some(false) => {
+                s.seal.leaks += 1;
+                let before = s.seal.looked.get(&id).copied();
+                s.seal.leak_log.push((id, frame, (lf.0, lf.1), before));
+                // **A scramble's crumb stays one crumb**: she is turned away at once. Traced (the seal's unit
+                // test): a sister checked a cell off the heap's food at the pre-step look took a cell that a
+                // taught ant dropped beside her within the same step -- food that moved after the look.
+                caught.push((id, if lf.0 > heap_x { 1 } else { -1 }));
+                if s.seal.bounced.insert(id, (frame + BOUNCE_FRAMES, caught.last().unwrap().1)).is_none() {
+                    s.seal.turned_away += 1;
+                    s.seal.turned_ids.insert(id);
+                    s.seal.marks.push((id, false, frame));
+                }
+            }
             None => {}
         }
     }
+    for (id, dx) in caught {
+        steer::force(&mut lab.world, id, steer::ForcedPick { dir: Some((dx, 0)), verb: None, once: false });
+    }
+    let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
     s.seal.marks.retain(|&(_, _, f)| frame.saturating_sub(f) <= 90);
     if frame.is_multiple_of(600) {
         let live: std::collections::BTreeSet<OrganismId> = ants(&lab.world).into_iter().collect();
@@ -766,9 +814,14 @@ fn season_tick(lab: &mut Lab) {
     if me.is_none() {
         s.outcome = Some(SeasonEnd::Died(frame));
         notes.push("YOU STARVED -- THE SEASON GOES ON WITHOUT YOU".to_string());
-    } else if alive < floor {
+    } else if alive == 0 || (!s.heap_sealed && alive < floor) || (s.heap_sealed && frame >= end && alive < floor) {
         s.outcome = Some(SeasonEnd::Starved(frame));
-        notes.push(format!("THE COLONY FELL TO {alive}, UNDER {floor} -- THE SEASON IS LOST"));
+        s.spring = alive;
+        notes.push(if s.heap_sealed {
+            format!("SPRING: ONLY {alive} CAME THROUGH, {floor} NEEDED -- THE SEASON IS LOST")
+        } else {
+            format!("THE COLONY FELL TO {alive}, UNDER {floor} -- THE SEASON IS LOST")
+        });
     } else if frame >= end {
         s.outcome = Some(SeasonEnd::Endured(alive));
         notes.push(format!("SPRING: {alive} OF {} CAME THROUGH -- YOUR TREE BROUGHT {} HOME", s.alive_at_start, s.harvest));
@@ -1061,7 +1114,8 @@ pub fn panel(lab: &Lab) -> Vec<(String, [u8; 4])> {
         let clock = if left > 0 { format!("LEAN SEASON {} SPRING IN {left}", bar(left as f32 / s.season.max(1) as f32, 10)) } else { "SPRING: THE LEAN SEASON IS OVER".to_string() };
         out.push((clock, WINTER));
         let danger = alive < floor + floor / 5 + 1;
-        out.push((format!("COLONY {alive} OF {} -- LOST BELOW {floor}", s.alive_at_start), if danger { RED } else { WHITE }));
+        let rule = if s.heap_sealed { format!("SPRING NEEDS {floor}") } else { format!("LOST BELOW {floor}") };
+        out.push((format!("COLONY {alive} OF {} -- {rule}", s.alive_at_start), if danger { RED } else { WHITE }));
         out.push((format!("STORES {} {:.0} TANKS IN THEIR BELLIES", bar(s.larder / s.larder_peak.max(1.0), 10), s.larder), WINTER));
         out.push((format!("YOUR TREE'S HARVEST {} -- PUPILS {}, THEIRS {} (X2), ON {} (X3)", s.harvest, s.by_gen[0], s.by_gen[1], s.by_gen[2]), GREEN));
         if s.heap_sealed {
@@ -1107,6 +1161,7 @@ pub fn end_card(lab: &Lab) -> Option<(String, Vec<String>, bool)> {
     let when = |f: u64| f.saturating_sub(s.season_start);
     let first = match o {
         SeasonEnd::Endured(n) => format!("{n} OF {} CAME THROUGH THE LEAN SEASON (FLOOR {floor})", s.alive_at_start),
+        SeasonEnd::Starved(_) if s.heap_sealed => format!("{} OF {} CAME THROUGH -- SPRING NEEDED {floor}", s.spring, s.alive_at_start),
         SeasonEnd::Starved(f) => format!("UNDER {floor} OF {} AFTER {} OF {} FRAMES", s.alive_at_start, when(f), s.season),
         SeasonEnd::Died(f) => format!("YOUR BANK RAN OUT AFTER {} OF {} FRAMES", when(f), s.season),
     };
@@ -1254,6 +1309,88 @@ mod tests {
             let paired = w.tandem.as_deref().unwrap().pairs.iter().any(|p| p.leader == leader);
             assert_eq!(paired, !on, "timeout {on}");
         }
+    }
+
+    /// **The sealed heap turns away an ant who does not know it** (round 3):
+    /// an untaught ant with heap food all round her head is walked off and
+    /// never takes a cell of it; the same ant taught, or the same box with
+    /// `sealed=0` (the positive control: the food is reachable and she does
+    /// take it), is left to her own mind.
+    #[test]
+    fn the_sealed_heap_turns_away_the_untaught_and_not_the_taught() {
+        let mut took = BTreeMap::new();
+        for case in ["untaught", "taught", "open"] {
+            let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            while lab.world.frame < 600 {
+                lab.tick_for_harness();
+            }
+            let w = &lab.world;
+            let mut ids = ants(w);
+            ids.sort_unstable();
+            let id = ids
+                .into_iter()
+                .find(|&id| {
+                    crate::sim::creature::mind::has(w, id)
+                        && w.organism(id).is_some_and(|s| s.crop.is_none_or(|c| c.cells == 0))
+                        && head(w, id).is_some_and(|h| w.room_surface_at(h.0).is_some_and(|top| h.1 <= top + 1))
+                })
+                .expect("a minded ant on the surface with an empty crop");
+            let h = head(&lab.world, id).unwrap();
+            // The heap's food on every free cell round her head: a pick-up is one decision away.
+            let food = lab.world.materials.id_of("provisions").expect("provisions");
+            for dx in -2..=2 {
+                for dy in -2..=2 {
+                    if lab.world.is_empty(h.0 + dx, h.1 + dy) {
+                        lab.world.set(h.0 + dx, h.1 + dy, crate::sim::cell::Cell::new(food, 0));
+                    }
+                }
+            }
+            let mut args = BTreeMap::new();
+            if case == "open" {
+                args.insert("sealed".to_string(), "0".to_string());
+            }
+            let mut seat = ScoutDemo::from_args(&args, 1);
+            (seat.started, seat.season_start, seat.heap_x) = (true, lab.world.frame, h.0);
+            let mut demo = Demo::new(DemoSeat::Scout);
+            demo.scout = Some(seat);
+            lab.demo = Some(demo);
+            start_tandems(&mut lab.world, Arm::Scout, None, GAIN);
+            if case == "taught" {
+                lab.world.tandem.as_mut().unwrap().lessons.insert(id, 1.0);
+            }
+            let start = lab.world.frame;
+            lab.tick_for_harness();
+            let forced = lab.world.mind_force.contains_key(&id);
+            let mut taken = false;
+            let mut anyone = false;
+            for _ in 0..600 {
+                lab.tick_for_harness();
+                let took = |w: &World, a: OrganismId| w.organism(a).and_then(|s| s.last_food).is_some_and(|(x, _, f)| f >= start && (x - h.0).abs() <= SEAL_R);
+                taken |= took(&lab.world, id);
+                anyone |= ants(&lab.world).into_iter().any(|a| took(&lab.world, a));
+            }
+            let seal = &lab.demo.as_ref().unwrap().scout.as_ref().unwrap().seal;
+            assert_eq!(forced, case == "untaught", "{case}: turned away {forced}");
+            // A leak is a sister who took food that moved after the pre-step look (a taught ant's drop); she is
+            // turned away at once, so it is one cell, and never the ant the food was laid round.
+            assert!(seal.leak_log.iter().all(|l| l.0 != id || case != "untaught") && seal.leak_log.iter().all(|l| seal.turned_ids.contains(&l.0)), "{case}: leaks {:?}", seal.leak_log);
+            if case == "untaught" {
+                assert_eq!(seal.leaks, 0, "an ant who does not know the heap carried from it: {:?}", seal.leak_log);
+                assert!(seal.turned_away >= 1 && seal.turned_ids.contains(&id) && !taken, "{case}: {seal:?}, took {taken}");
+            }
+            if case == "taught" {
+                assert!(seal.carried >= 1, "a taught ant took from the sealed heap and no carry was booked");
+            }
+            if case == "open" {
+                assert_eq!(seal.turned_away, 0, "sealed=0 turned an ant away");
+            }
+            took.insert(case, (taken, anyone));
+        }
+        // The positive control: without the seal the food is taken (by her or a sister), and taught she takes it.
+        assert!(took["open"].1 && took["taught"].0, "food all round her and nobody took it: the test proves nothing ({took:?})");
     }
 
     /// **The tree's generations**: her pupil is 1, that pupil's pupil 2.
