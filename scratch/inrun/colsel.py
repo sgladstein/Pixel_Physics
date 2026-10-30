@@ -332,6 +332,14 @@ EXTRA = [x for x in EXTRA if not x.startswith('labgate=')]
 # the same way, and widebed1's scalegate arm (+scale with labgate=50) dug 220 against 165.
 SCALEGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('scalegate=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('scalegate=')]
+# nestgate=Q (teacher lane, 2026-10-30, after exam x11): a donor must also have an open nest (nestcount `nest_open`:
+# roofed nest cells still open air, not stored food or crumbs) at or above the Q-th percentile of the round's donors on
+# its training bed, applied after scalegate=. **Why**: env7 selected on lab survival alone and its pools beat std_pool
+# in the game (L_h3 c12 lived 26/8) but barely dig (nest lane, garden worlds: 100-200 cells against 800-1,000). A
+# size floor rather than scalegate's nest / need, because the watchdog's env6 audit found the need ratio pays a colony
+# for storing less, and the nest lane's size is the shape measure that repeats world to world (Spearman 0.25-0.29).
+NESTGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('nestgate=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('nestgate=')]
 assert LABGATE is None or LAB, 'labgate= needs +lab'
 # +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
 # end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
@@ -931,6 +939,13 @@ for r in range(R0, R):
                 sv = sorted(res[c][17] for c in donors)
                 bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
                 donors = [c for c in donors if res[c][17] >= bar] or donors
+            if NESTGATE is not None and len(donors) > 1:
+                nv = {c: nestcount.count(dirs[c], F).get('nest_open', 0) if os.path.exists(f'{dirs[c]}/nestmap.txt') else 0 for c in donors}
+                srt = sorted(nv.values())
+                bar = srt[min(len(srt) - 1, int(len(srt) * NESTGATE / 100))]
+                kept = [c for c in donors if nv[c] >= bar] or donors
+                print(f'round {r}: nestgate ' + ' '.join(f'c{c}={nv[c]}' for c in donors) + f' -> {kept}', flush=True)
+                donors = kept
             if DONOR_LONG is not None and len(donors) > 1:
                 with ThreadPoolExecutor(P) as ex:
                     lv = dict(zip(donors, ex.map(lambda c: long_alive(c, r, carry[c]), donors)))

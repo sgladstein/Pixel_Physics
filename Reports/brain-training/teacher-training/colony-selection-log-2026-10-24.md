@@ -1654,3 +1654,28 @@ selection on the lab boxes alone bred digging out through the core. Scott's rule
 this is a trade until a picture says otherwise. (3) On the training bed L_h3's colonies died out more each round
 (12 of 32 alive at r14) because nothing scored the bed. (4) sel1 c9 is level with both std_pool and its own founder:
 16 rounds of the standard score kept the tunnel line, it did not improve it.
+
+## 2026-10-30 (09:00Z): env8 -- keep env7's survival score, add a floor on the open nest
+
+**Question:** can a batch keep L_h3's survival gain and get the digging back? env8 starts both arms from L_h3 c12
+(`genomes/env7_h3c12_pool.txt`, the ratchet), with env7's job line unchanged (lab case alone, the two played-bed
+boxes at 600k, 2 seeds each, bed cases weighted 0).
+
+| arm | change from env7 |
+|---|---|
+| N_ctl | none (16 more rounds of env7: does more of the same keep climbing or keep losing the nest?) |
+| N_gate | `nestgate=50` (new): after the lab ranking picks the better half, a donor must also have an open nest (`nest_open`) at or above the donors' median on its 200k training bed |
+
+Why a size floor and not `scalegate=`: the watchdog's env6 audit found nest / need pays a colony for storing less;
+the Nest lane (10-30 08:31Z) asked for the gate on size, `nest_open`, the shape measure that repeats world to world.
+Smoke (4 colonies, 2 rounds, 20k, labafter=3000, from L_h3 c12): round 1's gate read c2=7 c1=7 open cells,
+equal to `nestcount.count` on the same run folders, and kept both (a tie at the median); on distinct values the same
+arithmetic keeps the upper half (3/40/12/25 -> c2, c4). At 20k every nest is 4-9 cells, so the smoke shows the
+plumbing, not the pressure.
+
+**Deciding measure, named before launch:** exam x13, each arm's r15 rank-0 colony, against L_h3 c12 and std_pool
+(rows reused from x11, same engine unless a merge moves it, then rerun all three). Two conditions, both needed for N_gate to win:
+(1) lived paired over the 48 exam box-seeds not worse than L_h3 c12 (a sign test with N_gate behind at p < 0.05 fails it);
+(2) `nest_open` at 200k in the Nest lane's garden worlds 61-68 bigger than L_h3 c12's in at least 6 of 8
+(one-sided sign test p 0.145 alone, so also report the medians), with the chambers judge's `tunnels` and pictures beside it, not scored.
+N_ctl is judged on (1) against L_h3 c12 only, to say whether more rounds alone still pay.
