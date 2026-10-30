@@ -144,4 +144,6 @@
     // lamina punctures at almost nothing.
     penetration_resistance: 0.1,
     food_class: -1.0,
+    // Feeds a fungus garden when it lies in the dark nest (`garden.rs`).
+    garden_fodder: true,
 )

@@ -196,7 +196,7 @@ fn hash01(x: i32, y: i32, salt: u64) -> f32 {
 }
 
 /// The sky at one moment: two colours and the rows they span.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Sky {
     zenith: [u8; 3],
     horizon: [u8; 3],
@@ -217,6 +217,15 @@ pub struct Sky {
     /// does. The gradient runs between them and clamps outside.
     top_y: i32,
     horizon_y: i32,
+    /// The gradient, one entry per row from `top_y` to `horizon_y`, built
+    /// whenever the two colours are set. **Every empty pixel on screen reads
+    /// it**, and computed per pixel it was a `powf` each -- ~27 M
+    /// instructions a frame on the shipped world, a third of the pixel loop,
+    /// for a value that depends on the row alone. Entry `i` is
+    /// `compute_gradient(top_y + i)`, and that function clamps outside the
+    /// range to exactly the two end entries, so a table read is the same
+    /// bits as the computation it replaces.
+    rows: std::sync::Arc<[[u8; 4]]>,
 }
 
 /// Where the horizon colour lands, as a fraction of world height.
@@ -300,7 +309,25 @@ impl Sky {
             None
         };
 
-        Self { zenith: to_u8(zenith), horizon: to_u8(horizon), star_alpha, moon, min_x, max_x, top_y, horizon_y }
+        let mut sky = Self {
+            zenith: to_u8(zenith),
+            horizon: to_u8(horizon),
+            star_alpha,
+            moon,
+            min_x,
+            max_x,
+            top_y,
+            horizon_y,
+            rows: std::sync::Arc::from([]),
+        };
+        sky.build_rows();
+        sky
+    }
+
+    /// Fill `rows` from the current colours. See the field.
+    fn build_rows(&mut self) {
+        let span = (self.horizon_y - self.top_y).max(1);
+        self.rows = (0..=span).map(|i| self.compute_gradient(self.top_y + i)).collect();
     }
 
     /// Sky colour at a world position, stars and moon included.
@@ -370,6 +397,11 @@ impl Sky {
 
     /// The plain vertical gradient, with nothing in front of it.
     fn gradient_at(&self, y: i32) -> [u8; 4] {
+        self.rows[(y - self.top_y).clamp(0, self.rows.len() as i32 - 1) as usize]
+    }
+
+    /// [`Sky::gradient_at`] from first principles; what `rows` caches.
+    fn compute_gradient(&self, y: i32) -> [u8; 4] {
         let span = (self.horizon_y - self.top_y).max(1) as f32;
         let t = ((y - self.top_y) as f32 / span).clamp(0.0, 1.0);
         // Eased so the horizon colour concentrates in the lower sky rather
@@ -426,6 +458,7 @@ impl Sky {
         if o > 0.55 {
             self.moon = None;
         }
+        self.build_rows();
         self
     }
 
