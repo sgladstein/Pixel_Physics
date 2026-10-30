@@ -2837,6 +2837,36 @@ const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
     SKY_TRANSMISSION,
 ];
 
+/// The distinct chunk columns among `coords`, ascending -- what
+/// `apply_sky_to` and `apply_sky_temperature_to` walk.
+///
+/// **Marked in a table over the column range, not sorted and deduplicated.**
+/// Both sky passes run every frame over every chunk in the world, and at
+/// 8192x2560 that was two sorts of 5,120 `i32`s holding 128 distinct values:
+/// ~1.9% of the shipped world's tick under callgrind, for a list that never
+/// changes (big-world speed lane, 2026-10-30). The answer is the same
+/// ascending, duplicate-free list. A world whose chunks are scattered so
+/// thinly that the range dwarfs the count -- nothing streams like that
+/// today -- takes the sort rather than a huge table.
+fn distinct_columns(coords: &[ChunkCoord]) -> Vec<i32> {
+    let (lo, hi) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
+    if lo > hi {
+        return Vec::new();
+    }
+    let span = (i64::from(hi) - i64::from(lo) + 1) as usize;
+    if span > 4 * coords.len() + 64 {
+        let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
+        columns.sort_unstable();
+        columns.dedup();
+        return columns;
+    }
+    let mut seen = vec![false; span];
+    for c in coords {
+        seen[(c.x - lo) as usize] = true;
+    }
+    seen.iter().enumerate().filter(|&(_, &s)| s).map(|(i, _)| lo + i as i32).collect()
+}
+
 /// Direct sunlight, cast **down each column** from open sky.
 ///
 /// **Replaces seeding only the topmost chunk's top row and letting
@@ -2889,9 +2919,7 @@ fn apply_sky_to(
     // through untouched, which is what makes a world with sparse chunks
     // behave the same as one with empty chunks allocated.
     let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
-    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
-    columns.sort_unstable();
-    columns.dedup();
+    let columns = distinct_columns(coords);
 
     // **One tile fetch per (column, chunk-row), not one per (column, lx,
     // chunk-row).** The walk is per *field* column (`lx`), but the tile a
@@ -3169,9 +3197,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut Chunk
         return;
     }
     let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
-    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
-    columns.sort_unstable();
-    columns.dedup();
+    let columns = distinct_columns(coords);
 
     // One tile fetch per (column, chunk-row) rather than one per (column,
     // lx, chunk-row) -- `apply_sky_to`'s restructure, applied to its sibling
