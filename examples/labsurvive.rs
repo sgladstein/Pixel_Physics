@@ -157,9 +157,36 @@ fn main() {
     if declog {
         lab.world.decision_log = Some(Vec::new());
     }
+    // SCRATCH (chambers `labbed`, 2026-10-30): `laycap=T:D` -- inrun's `lay_cap` brought to the lab box, as a test, not
+    // a game rule: every 250 frames the ant's laying bar is the species' own times 2^((adults + brood - T) / D), never
+    // below it. The training bed has had it since brood1 (48:8); the lab never had one, and its colonies sit at 150-400
+    // ants and starve thousands. Asks whether the colony's size is what keeps the nest from being dug. Unset: no change.
+    let laycap: Option<(f64, f64)> = arg::<String>("laycap").map(|v| {
+        let (t, d) = v.split_once(':').expect("laycap=T:D");
+        (t.parse().unwrap(), d.parse::<f64>().unwrap().max(1.0))
+    });
+    let base_lay_at = {
+        let w = &lab.world;
+        w.species.id_of("ant").and_then(|sp| w.species.get(sp).creature.as_ref().and_then(|d| d.brood.as_ref()).map(|b| b.lay_at)).unwrap_or(0.0)
+    };
     loop {
         lab.tick_for_harness();
         let f = lab.world.frame;
+        if let Some((t, d)) = laycap.filter(|_| f.is_multiple_of(250)) {
+            let w = &mut lab.world;
+            if let Some(sp) = w.species.id_of("ant") {
+                let brood = w.live_brood_ids().into_iter().filter(|&i| w.organism(i).is_some_and(|s| s.species == sp)).count();
+                let adults = w.live_organism_ids().into_iter().filter(|&i| w.organism(i).is_some_and(|s| s.species == sp)).count();
+                let lay_at = base_lay_at as f64 * 2f64.powf(((adults + brood) as f64 - t).max(0.0) / d);
+                let mut def = w.species.get(sp).creature.clone().expect("creature");
+                if let Some(b) = def.brood.as_mut() {
+                    if (b.lay_at as f64 - lay_at).abs() > 0.5 {
+                        b.lay_at = lay_at as f32;
+                        w.species.set_creature(sp, def);
+                    }
+                }
+            }
+        }
         if declog && f.is_multiple_of(16) {
             if let Some(log) = lab.world.decision_log.as_mut() {
                 log.retain(|r| r.frame + 4 >= f);
@@ -243,7 +270,10 @@ fn write_nest(lab: &pixel_physics::lab::Lab, bed: &pixel_physics::lab::scene::La
     for x in 0..NEST + HW + 1 {
         writeln!(sf, "{}", surf(x + shift)).unwrap();
     }
-    let (y0, y1) = (surf(door) - 48, (surf(door) + 40).min(bed.height));
+    // SCRATCH (chambers `labbed`, 2026-10-30): `nestrows=N` rows under the datum instead of 40 -- the played bed has 80
+    // rows of soil, so a lab nest deeper than 40 was cut off the map (the garden's window reaches its stone floor).
+    let deep: i32 = arg("nestrows").unwrap_or(40);
+    let (y0, y1) = (surf(door) - 48, (surf(door) + deep).min(bed.height));
     let food = w.materials.id_of("provisions");
     let mut legend: Vec<String> = Vec::new();
     let (mut rows, mut occ) = (Vec::new(), Vec::new());

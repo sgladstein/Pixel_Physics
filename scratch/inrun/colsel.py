@@ -23,6 +23,7 @@ Writes OUT/colsel.csv (one row per colony-round) and OUT/cg.csv (one row per col
 import csv, os, subprocess, sys, gzip, random, shutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nestcount
+import nestshape
 import roomshape
 from concurrent.futures import ThreadPoolExecutor
 
@@ -304,8 +305,17 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
+    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale', 'gallery', 'crumbs'), k
     EXTRA_CASES.append(k)
+# +gallery and +crumbs (chambers selection run, 2026-10-29; opt-in, unset the run is unchanged): crumb-proof nest-shape
+# cases from scratch/inrun/nestshape.py, logged as colsel.csv columns `gallery`, `crumbs` after the lab columns (so no
+# earlier column moves). gallery = open passage cells (crumbs and food are wall; open pieces of 20+ cells, outside every
+# 5x5 room and the crater), higher better; crumbs = crumb cells / nest space, lower better. **Why**: the gallery share
+# the Nest lane judged H3 by counts a narrow crumb-packed shaft as passages (copy 3 read 20-41% on nests with none,
+# dead-ends creatures:192), and roomshape reads stored food as room unless shapeopen=1. Every arm also writes
+# OUT/nestshape.csv (every colony, every round, these measures and more) whether or not the cases are on, so a
+# tunnel that fades to a cone between rounds shows in the log, not only at the end.
+NSHAPE = [k for k in ('gallery', 'crumbs') if k in EXTRA_CASES]
 # +craterfull (nest lane, 2026-10-28): the crater case, counting the hole with what fills it (nestcount `crater_full`:
 # the crumbs and food in the sky-open space under a widened mouth, as well as its open air). Use it in place of +crater.
 # **Why**: the trained ant cuts the door's rim and its mouth widens from 5 to 9-12 cells, but the crumb pile fills the
@@ -705,7 +715,9 @@ def cases(v):
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
     c = c + (v[16],) if 'slay' in EXTRA_CASES else c
     c = c + (v[17],) if 'scale' in EXTRA_CASES else c
-    return c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
+    c = c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
+    n0 = 18 + (1 + len(LAB_CASES) if LAB else 0)  # +gallery / +crumbs ride after the lab values
+    return c + tuple(v[n0 + k] if k_ == 'gallery' else -v[n0 + k] for k, k_ in enumerate(NSHAPE))
 
 
 def case_names():
@@ -714,7 +726,7 @@ def case_names():
     n += ['spoil'] if SPOIL else []
     n += ['crater'] if 'crater' in EXTRA_CASES or CRATER_FULL else []
     n += [k for k in ('rooms', 'shape', 'guard', 'slay', 'scale') if k in EXTRA_CASES]
-    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else [])
+    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else []) + NSHAPE
 
 
 # weights=NAME:W,... (selection lane, 2026-10-28; the selection review's "one case per goal, with an explicit weight
@@ -769,10 +781,19 @@ def garden(r, carry):
     def one(c):
         d = run([f'founders={carry[c]}', f'seed={seed_of("garden", c)}'] + spider_args(with_spiders(with_cap(CGC), r)), f'{OUT}/cg/r{r}/c{c}')
         v = result(d, 200000)
+        shp[c] = nestshape.measure(d)  # the garden's nest shape, read before its folder goes (OUT/cgshape.csv)
         shutil.rmtree(d, ignore_errors=True)
         return c, v
+    shp = {}
     with ThreadPoolExecutor(P) as ex:
         got = dict(ex.map(one, live))
+    new_s = not os.path.exists(f'{OUT}/cgshape.csv')
+    with open(f'{OUT}/cgshape.csv', 'a') as f:
+        if new_s:
+            f.write('round,colony,' + ','.join(nestshape.KEYS) + '\n')
+        for c in sorted(shp):
+            if shp[c]:
+                f.write(f'{r},{c},' + ','.join(str(shp[c][k]) for k in nestshape.KEYS) + '\n')
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
@@ -795,7 +816,7 @@ if os.path.exists(statep):
     import json
     st0 = json.load(open(statep))
     R0 = st0['r']
-    for fn in ('colsel.csv', 'cg.csv', 'donor600.csv'):
+    for fn in ('colsel.csv', 'cg.csv', 'donor600.csv', 'nestshape.csv', 'cgshape.csv'):
         fp = f'{OUT}/{fn}'
         if os.path.exists(fp):
             rows = open(fp).read().splitlines(True)
@@ -808,7 +829,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' + ''.join(f'lab2_{sc},' for sc in LAB_CASES) if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' + ''.join(f'lab2_{sc},' for sc in LAB_CASES) if LAB else '') + ''.join(f'{k},' for k in NSHAPE) + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -905,6 +926,18 @@ for r in range(R0, R):
             # Each labcase= scenario keeps its seed offset past LAB_SCENS', so adding one never moves the summed case.
             lab2 = [dict(zip(ok, ex.map(lambda c, k=k, sc=sc: lab_alive(c, r, carry[c], [sc], 'labcase', k), ok))) for k, sc in enumerate(LAB_CASES)]
         res = {c: (v + (labv.get(c, 0),) + tuple(d.get(c, 0) for d in lab2) if v else v) for c, v in res.items()}
+    # nest shape of every colony every round (nestshape.py; +gallery / +crumbs read two of its values)
+    shp = {c: nestshape.measure(dirs[c]) for c in sorted(dirs)}
+    newshp = not os.path.exists(f'{OUT}/nestshape.csv')
+    with open(f'{OUT}/nestshape.csv', 'a') as f:
+        if newshp:
+            f.write('round,colony,' + ','.join(nestshape.KEYS) + '\n')
+        for c in sorted(shp):
+            if shp[c]:
+                f.write(f'{r},{c},' + ','.join(str(shp[c][k]) for k in nestshape.KEYS) + '\n')
+    if NSHAPE:
+        res = {c: (v + tuple((shp[c] or {}).get('galleryc' if k == 'gallery' else 'crumb_share', 0) for k in NSHAPE) if v else v)
+               for c, v in res.items()}
     # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
@@ -997,7 +1030,7 @@ for r in range(R0, R):
                 nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
         print(f'round {r}: migration ' + ' '.join(f'c{best[g]}->island{(g + 1) % NISL}' for g in range(NISL)), flush=True)
     for c in cols:
-        v = res[c] or (0,) * (19 + len(LAB_CASES) if LAB else 18)
+        v = res[c] or (0,) * ((19 + len(LAB_CASES) if LAB else 18) + len(NSHAPE))
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):

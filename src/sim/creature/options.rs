@@ -1122,7 +1122,89 @@ fn build_remembering(world: &World, organism: OrganismId, def: &CreatureDef, roo
             }
         }
     }
+    // SCRATCH (chambers crumbs lane, 2026-10-30): `PP_ROOMBESIDE=1`, **room above a put-down spot**, on the
+    // `f::BUILDING` slot of every Drop option that would put down crop food (every other option keeps what it had,
+    // the last-food memory included, so the switch alone moves only a genome that weights slot 18 -- founders carry
+    // none). The box is 7 wide and 5 tall with the target in its bottom row's middle; open = empty or an animal
+    // (not ground, not food). The sense is (open - 16) / 18 clamped to 0..1: a 2-tall passage holds ~13 open cells
+    // and a 2-wide shaft ~10, so both read 0, and a roofed room 5+ tall reads ~1. A sense, graded, with no direction:
+    // what a weight does with it is the genome's. **Why**: the crumb trace (scratch/nest/crumbs/crumbsrc.py) found
+    // the store spread into the passages by fed ants re-handling it at home, and a Drop target is an empty cell whose
+    // one-hot reads air wherever it is, so nothing told a put-down in a room from one in a passage. Off unless set.
+    //
+    // **Every other option's slot 18 is zeroed under the switch** (as `PP_FOODBESIDE` does), so the switch alone
+    // equals `PP_LASTFOOD=off` and an arm is compared against a baseline run with it on. The first screen (2026-10-30)
+    // left the last-food memory on the other options: the seed's K=32 links on units 12 and 2 then read it on every
+    // Walk, and all 8 colonies stopped digging (nest space ~30 cells, alive 7-16 at round 2) -- a confound, not a test.
+    if room_beside() {
+        for o in out.iter_mut() {
+            o.feats[f::BUILDING] = 0.0;
+        }
+    }
+    // SCRATCH (chambers crumbs lane, 2026-10-30, step 2): `PP_STORESENSE=1`, **this food lies in the nest store**, on
+    // the `f::BUILDING` slot of every PickUp option: 0 unless the target is in the hole (`in_the_hole`: a cell some ant
+    // cut, below the surface), then how deep it lies, (rows below the surface) / 6 clamped to 0..1 -- food on the
+    // ground or the mound reads 0, food in the door's first rows a little, the store in the chambers 1. Every other
+    // option's slot 18 is zeroed (so the switch alone is the last-food memory off; compare against a baseline with it
+    // on). A world fact, graded, with no direction: what a weight does with it is the genome's. **Why**: the crumb
+    // trace put 72% of the crumbs standing in an H3+eat nest (82% of those in passages) on loads FED ants picked up
+    // at home and put down again within a few cells; a pick-up target's one-hot reads "food" wherever the food lies,
+    // so nothing told the store from a forager's find. Off unless set; refuses the switches that write slot 18.
+    if store_sense() {
+        for o in out.iter_mut() {
+            o.feats[f::BUILDING] = if o.verb == Verb::PickUp && in_the_hole(world, o.target.0, o.target.1) {
+                world.room_surface_at(o.target.0).map_or(0.0, |s| ((o.target.1 - s) as f32 / 6.0).clamp(0.0, 1.0))
+            } else {
+                0.0
+            };
+        }
+    }
+    if room_beside() && st.spoil.is_none() && st.crop.is_some_and(|c| c.cells > 0) {
+        let open = |x: i32, y: i32| {
+            world.in_bounds(x, y) && {
+                let c = world.get(x, y);
+                world.is_empty(x, y) || (c.organism_id() != 0 && super::is_animal_cell(world, c))
+            }
+        };
+        for o in out.iter_mut().filter(|o| o.verb == Verb::Drop) {
+            let (tx, ty) = o.target;
+            let n = (-3..=3).flat_map(|dx| (-4..=0).map(move |dy| (dx, dy))).filter(|&(dx, dy)| (dx, dy) != (0, 0) && open(tx + dx, ty + dy)).count();
+            o.feats[f::BUILDING] = ((n as f32 - 16.0) / 18.0).clamp(0.0, 1.0);
+        }
+    }
     DESCRIBED.set(described);
+}
+
+/// SCRATCH (chambers crumbs lane): `PP_ROOMBESIDE=1` writes room above each crop put-down spot on `f::BUILDING`
+/// (see where it is written in [`build_remembering`]). Refuses the switches that write the same slot.
+pub fn room_beside() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("PP_ROOMBESIDE").is_ok_and(|v| v == "1");
+        assert!(
+            !(on && (std::env::var("PP_BOTTOM").is_ok() || std::env::var("PP_HOMELOW").is_ok() || home_dir())),
+            "PP_ROOMBESIDE writes f::BUILDING, as PP_BOTTOM, PP_HOMELOW and PP_HOMEDIR do: run one"
+        );
+        on
+    })
+}
+
+/// SCRATCH (chambers crumbs lane): `PP_STORESENSE=1` writes "this food lies in the nest store" on each PickUp
+/// option's `f::BUILDING` (see [`build_remembering`]). Refuses the switches that write the same slot.
+pub fn store_sense() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("PP_STORESENSE").is_ok_and(|v| v == "1");
+        assert!(
+            !(on && (std::env::var("PP_BOTTOM").is_ok() || std::env::var("PP_HOMELOW").is_ok() || home_dir() || room_beside() || food_beside_set())),
+            "PP_STORESENSE writes f::BUILDING, as PP_BOTTOM, PP_HOMELOW, PP_HOMEDIR, PP_ROOMBESIDE and PP_FOODBESIDE do: run one"
+        );
+        on
+    })
+}
+
+fn food_beside_set() -> bool {
+    std::env::var("PP_FOODBESIDE").is_ok()
 }
 
 /// **Is the shared stomach closed where this head stands?** The colony mind's verb (`Minds::closed_stomach`); false in
