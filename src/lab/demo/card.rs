@@ -89,15 +89,16 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Keeper => SeatCard {
             title: "KEEPER -- A HAND OVER THE BOX",
-            goal: "YOU ARE NOT AN ANT. PICK ANTS UP AND CARRY THEM TO FOOD, OR TREAT THEM, AND WATCH WHAT THE COLONY LEARNS FROM IT.",
-            score: "COLONY SIZE AGAINST THE SAME BOX LEFT ALONE",
-            lose: "THE COLONY DIES OUT",
+            goal: "FOOD FALLS AT FAR SPOTS AND ROTS WHILE YOU WATCH. PICK ANTS UP AND SET THEM ON IT BEFORE IT GOES GREY. CARRIES ARE FEW AND COME BACK SLOWLY, AND A LIFT TIRES THE ANT. AT THE END YOU ARE JUDGED AGAINST THE SAME BOX LEFT ALONE.",
+            score: "FOOD SAVED BEFORE IT ROTS, AND ANTS GAINED OVER THE BOX LEFT ALONE",
+            lose: "FEWER THAN 10 ANTS. THE ROUND ENDS IN ABOUT 7 MINUTES",
             keys: &[
-                ("CLICK", "USE THE HAND"),
+                ("Y", "HAND: CARRY (1 CHARGE)"),
+                ("DRAG", "CARRY AN ANT TO FOOD"),
+                ("U", "HAND: TREAT (10 FOOD)"),
+                ("J", "RINGS / TRAFFIC / OFF"),
+                ("K", "THE VERDICT CARD"),
                 ("WASD", "PAN THE VIEW"),
-                ("Y", "HAND: CARRY"),
-                ("U", "HAND: TREAT"),
-                ("J", "KNOWLEDGE OVERLAY"),
             ],
         },
         DemoSeat::Scout => SeatCard {
