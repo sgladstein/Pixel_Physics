@@ -35,6 +35,9 @@
 //! every pixel is invalidated), `dry` (the first seed with no rain in the run:
 //! the dirty-rect path actually in use), `dig` (a blast every 60 frames).
 //!
+//! `png=PATH` writes the last drawn frame, so two builds' pictures can be
+//! put side by side as well as hashed.
+//!
 //! `cg=1` switches callgrind instrumentation on for the measured window only;
 //! natively the client requests are no-ops. Echoes its own parameters; an
 //! unknown argument is refused rather than ignored.
@@ -93,6 +96,7 @@ fn main() {
     let mut warmup = 60usize;
     let mut cg = false;
     let mut draw = true;
+    let mut png: Option<String> = None;
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or_else(|| panic!("bigworld: expected key=value, got {arg}"));
         match k {
@@ -101,6 +105,7 @@ fn main() {
             "warmup" => warmup = v.parse().expect("warmup=N"),
             "cg" => cg = v == "1",
             "draw" => draw = v != "0",
+            "png" => png = Some(v.to_string()),
             _ => panic!("bigworld: unknown argument {k}"),
         }
     }
@@ -168,5 +173,9 @@ fn main() {
     }
     let over = total.iter().filter(|&&t| t > 16.6).count();
     println!("  {over}/{} frames over 16.6 ms ({:.0}%)", total.len(), over as f64 * 100.0 / total.len() as f64);
+    if let Some(path) = &png {
+        image::save_buffer(path, &buf, WIDTH, HEIGHT, image::ColorType::Rgba8).expect("png= could not be written");
+        println!("  last frame written to {path}");
+    }
     println!("RESULT {} frames {:016x} at {}", hashes::line(&app.world), frames_digest, app.world.frame);
 }
