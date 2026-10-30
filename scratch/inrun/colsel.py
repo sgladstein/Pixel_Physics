@@ -364,7 +364,16 @@ EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
 # k3c23 6/30 against std_pool, env2 s_d6 10/22, env4 f_w6 8/23 against its own founder -- and the watchdog lane found
 # no training case, donor600's bed check included, ranks donors by survival (311 donors, every case within +-0.25).
 # The exam's boxes are lab boxes; this puts a long lab run between a candidate and the next generation.
+# donorlab=FRAMES:Q:A,B,...:lived ranks on mean headcount first (then alive at the end); a box named twice runs twice
+# on two seeds. **Why** (2026-10-28, x7 and the rank checks): at the default boxes the check is a random pick -- the
+# labscen twins agree with themselves seed to seed at -0.09..+0.27 and with the exam at -0.19..+0.11, because 73-93 of
+# 96 trained runs die in them (twinself-1028; twinenv-1028: the box, not the door rule). Two non-exam game boxes do
+# rank colonies as the exam does: played_bed_scrambler + played_bed_understory, 3 seeds each at 600k, Spearman of mean
+# headcount +0.67 against the exam's plant boxes (+0.59 with played_bed left out; 2 seeds each +0.61, 1 seed +0.45),
+# twingame-1028 over the 32 t_fama carries. Both are copied into LAB_DIR for this.
 DONOR_LAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('donorlab=')), None)
+assert DONOR_LAB is None or len(DONOR_LAB) < 4 or DONOR_LAB[3] == 'lived', 'donorlab=FRAMES:Q:A,B,...:lived (a typo ranked alive-first)'
+assert DONOR_LAB is None or len(DONOR_LAB) < 3 or all(DONOR_LAB[2].split(',')), 'donorlab=: name the boxes (an empty name runs no box)'
 EXTRA = [x for x in EXTRA if not x.startswith('donorlab=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
@@ -452,6 +461,12 @@ LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
 assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# labafter=N (jobs arg; teacher lane, 2026-10-29): LAB_AFTER from a jobs line, as labscens= is, since a VM batch passes
+# only P to the driver's environment. **Why**: the rank checks of 2026-10-28 (twinrank, twinself, twingame) found the
+# only lab boxes that rank colonies as the exam does are played_bed_scrambler + played_bed_understory at 600k, 2-3
+# seeds each (+0.61/+0.67); a 15k headcount there was never checked. Used with weights= to make that the whole score.
+LAB_AFTER = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('labafter=')), LAB_AFTER)
+EXTRA = [x for x in EXTRA if not x.startswith('labafter=')]
 # labscore=alive:AFTER[:K] (teacher lane + watchdog lane, 2026-10-28; off by default): a lab run is scored on the colony
 # alive AFTER frames after landing, less K x the ants that starved (default K 0), in place of the mean headcount over
 # LAB_AFTER. **Why**: the watchdog lane reran env1 c's 28 r23 carries on their own lab seeds to 300k; the 15k headcount
@@ -464,6 +479,7 @@ LAB_SCORE = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labscore=')]
 if LAB_SCORE:
     assert LAB_SCORE[0] == 'alive' and len(LAB_SCORE) in (2, 3), 'labscore=alive:AFTER[:K]'
+    assert not any(x.startswith('labafter=') for x in sys.argv), 'labscore= sets its own AFTER; drop labafter='
     LAB_AFTER = LAB_SCORE[1]
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
@@ -870,7 +886,14 @@ for r in range(R0, R):
     ok = [c for c in cols if carry[c] is not None]
     if LAB:
         with ThreadPoolExecutor(P) as ex:
-            labv = dict(zip(ok, ex.map(lambda c: lab_alive(c, r, carry[c]), ok)))
+            # one job per colony x box, summed, rather than one per colony looping its boxes: the same seeds (kind
+            # 'lab', index k) and the same per-run rounding, so the case is unchanged, but a round of 600k boxes
+            # (labafter=600000, env7 2026-10-29) is no longer four runs long end to end on a 64-core VM
+            jobs = [(c, k, sc) for c in ok for k, sc in enumerate(LAB_SCENS)]
+            got = list(ex.map(lambda j: lab_alive(j[0], r, carry[j[0]], [j[2]], 'lab', j[1]), jobs))
+            labv = {c: 0 for c in ok}
+            for (c, _, _), v in zip(jobs, got):
+                labv[c] += v
             # Each labcase= scenario keeps its seed offset past LAB_SCENS', so adding one never moves the summed case.
             lab2 = [dict(zip(ok, ex.map(lambda c, k=k, sc=sc: lab_alive(c, r, carry[c], [sc], 'labcase', k), ok))) for k, sc in enumerate(LAB_CASES)]
         res = {c: (v + (labv.get(c, 0),) + tuple(d.get(c, 0) for d in lab2) if v else v) for c, v in res.items()}
@@ -927,9 +950,10 @@ for r in range(R0, R):
                 with ThreadPoolExecutor(P) as ex:
                     lv = dict(zip(donors, ex.map(lambda c: lab_long(c, r, carry[c]), donors)))
                 q = float(DONOR_LAB[1]) if len(DONOR_LAB) > 1 else 50.0
-                srt = sorted(lv.values())
+                key = (lambda t: (t[1], t[0])) if len(DONOR_LAB) > 3 and DONOR_LAB[3] == 'lived' else (lambda t: t)
+                srt = sorted(key(v) for v in lv.values())
                 bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
-                kept = [c for c in donors if lv[c] >= bar] or donors
+                kept = [c for c in donors if key(lv[c]) >= bar] or donors
                 new_l = not os.path.exists(f'{OUT}/donorlab.csv')
                 with open(f'{OUT}/donorlab.csv', 'a') as f:
                     if new_l:
