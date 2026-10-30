@@ -52,6 +52,16 @@
 //! comes home, and corpses bring home as much as the far heap does; and the
 //! far heap cannot be hidden ([`LEAN_HEAP_X`]). So colony survival is still
 //! the colony's own; her harvest is the score that tracks her skill.
+//!
+//! **Round 3: the sealed heap** (2026-10-30; `sealed=0` restores round 2).
+//! In the lean season only an ant who knows the far heap carries from it
+//! ([`seal_tick`], [`knows_heap`]): one led there by her or by a pupil, or
+//! whose recall memory was taught there. Any other ant that comes up to its
+//! food is turned away -- walked off it, empty -- with a red arrow over her;
+//! a taught ant taking from it gets a green tick; the heap's top cells are
+//! rimmed and a lock stands over it. A seat rule, no engine change. With the
+//! seal the season is judged at spring ([`SPRING_FLOOR`]): the colony then is
+//! the season's births, which is what her teaching feeds.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -144,6 +154,10 @@ pub struct ScoutDemo {
     pub spring: usize,
 }
 
+/// One leak: the ant, the frame, the cell she took, and her head at the last
+/// pre-step look.
+pub type Leak = (OrganismId, u64, (i32, i32), Option<(i32, i32)>);
+
 /// **The sealed heap's books and its marks** ([`seal_tick`], [`seal_watch`]).
 #[derive(Clone, Debug, Default)]
 pub struct Seal {
@@ -164,7 +178,7 @@ pub struct Seal {
     pub turned_ids: std::collections::BTreeSet<OrganismId>,
     /// Each leak: the ant, the frame, the cell, and where her head was at
     /// the last pre-step look (`None`: not near enough to be checked).
-    pub leak_log: Vec<(OrganismId, u64, (i32, i32), Option<(i32, i32)>)>,
+    pub leak_log: Vec<Leak>,
     /// Heads of ants in the seal's columns at the last pre-step look.
     pub looked: BTreeMap<OrganismId, (i32, i32)>,
 }
@@ -192,8 +206,10 @@ pub const FLOOR: f32 = 0.5;
 /// at every half-second read the old cohort dying of age -- its trough --
 /// which no teaching moves; every sealed season fell under half by frame
 /// 4,000-8,000, patient player or none (12 of 12 each). Measured at the end,
-/// sealed, 12 paired seeds: see the README's Round 3 table for the share
-/// each player brought through and why 0.2.
+/// sealed, 12 paired seeds (`examples/scoutdemo.rs`): the share of the
+/// hand-over alive at spring was 0.10-0.68 for a patient player, 0.01-0.30
+/// for one who never waits and 0.04-0.37 with teaching off; at 0.2 the
+/// season comes through on 8, 2 and 1 seeds of 12.
 pub const SPRING_FLOOR: f32 = 0.2;
 /// **The far heap in the lean season**, cells a drop (every 6,000 frames):
 /// the sandbox's own 120. Measured (gain 10, arm A, 8 paired seeds, colony
@@ -685,7 +701,8 @@ fn seal_watch(lab: &mut Lab) {
     }
     let heap_x = s.heap_x;
     let w = &lab.world;
-    let mut seen: Vec<(OrganismId, (i32, i32, u64), Option<bool>)> = Vec::new();
+    type Look = (OrganismId, (i32, i32, u64), Option<bool>);
+    let mut seen: Vec<Look> = Vec::new();
     for id in ants(w) {
         let Some(st) = w.organism(id) else { continue };
         let (Some(lf), Some(&h)) = (st.last_food, st.chain.first()) else { continue };
