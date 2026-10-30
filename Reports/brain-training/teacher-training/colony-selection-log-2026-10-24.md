@@ -1685,3 +1685,10 @@ gate's own measure, `nest_open` at 200k in garden worlds 61-68 (`scratch/nest/po
 nest_r=0`, main 678a4fb4), is starker: std_pool 421 659 608 417 215 668 534 615; H3 573 558 462 399 668 269 536 758;
 L_std c23 21 48 11 24 68 36 37 53; L_h3 c12 23 15 11 21 12 11 15 4. So condition (2) against c12 is a low bar. The
 pass bar stays as named; x13 also reports N_gate against H3 world by world (the level wanted back), unscored.
+
+**Watchdog audit of env7 (10-30 09:33Z, page https://claude.ai/artifact/5PhfJen9ESuBszGLjPxBVr).** Not gamed: in x11's
+plant boxes both pools bring home 2-3x std_pool's food (`trip_deliveries`) and starve fewer per hatchling (45-70% vs
+75-79%). But no nest: at ref 63621e6b (x11 rows reproduced exactly) open nest averaged over 100k-600k, seed 1, was L_h3
+2 (played_bed) / 4 (crowded_bench), L_std 21 / 193, std_pool 216 / 181, hand-built 87 (played_bed). Training drove it:
+on the bed, nest r0 -> r15 828 -> 154 (L_std) and 836 -> 68 (L_h3). Watchdog's advice: not L_h3 as the lab ant;
+env8's gate is the right shape; x13 reports `nest_open` beside lived.
