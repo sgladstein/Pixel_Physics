@@ -778,6 +778,14 @@ impl Chunk {
         self.cells[local_index(x, y)]
     }
 
+    /// Cells `min_x..=max_x` of row `y`, which must all lie in this chunk:
+    /// `get_world` for each of them, as one slice.
+    #[inline]
+    pub fn row_world(&self, min_x: i32, max_x: i32, y: i32) -> &[Cell] {
+        let start = local_index(min_x, y);
+        &self.cells[start..start + (max_x - min_x + 1) as usize]
+    }
+
     /// `(x, y)`'s four neighbours, left, right, up, down, for a cell whose
     /// whole cross lies in this chunk -- the caller's promise, which
     /// `ChunkView::get_four` checks: one index, then a step either way along

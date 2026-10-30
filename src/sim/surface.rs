@@ -141,6 +141,23 @@ pub trait CellSurface {
     fn set(&mut self, x: i32, y: i32, cell: Cell);
     fn in_bounds(&self, x: i32, y: i32) -> bool;
 
+    /// **Row `y` of whatever this surface holds resident, as a slice and the
+    /// world `x` of its first cell** -- `Some((x0, row))` promises that
+    /// `get(x0 + i, y) == row[i]` and `in_bounds(x0 + i, y)` for every `i`
+    /// in the slice. `None` (the default) promises nothing, and a caller
+    /// then reads through `get` as before.
+    ///
+    /// For a scan along a row that would otherwise pay `in_bounds` and
+    /// `get`'s own bounds test on every step: `ChunkView` answers with its
+    /// chunk's row, so the steps that stay inside it are an index each.
+    /// Added for `update::transfer_liquid_horizontal`, which reads up to
+    /// `HORIZONTAL_TRANSFER_REACH` cells each way from every liquid cell it
+    /// visits (big-world speed lane, 2026-10-30).
+    #[inline]
+    fn resident_row(&self, _y: i32) -> Option<(i32, &[Cell])> {
+        None
+    }
+
     /// **A soil cell's new moisture** — the same write as `set`, routed so
     /// that it can be made invisible to the movement sweep.
     ///

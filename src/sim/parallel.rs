@@ -849,6 +849,18 @@ impl CellSurface for ChunkView<'_> {
         self.world.in_bounds(x, y)
     }
 
+    /// `inner`'s span of row `y`, straight from `chunk` -- exactly what `get`
+    /// serves for those cells, and `inner` is already clipped to the world, so
+    /// every one of them is in bounds.
+    #[inline]
+    fn resident_row(&self, y: i32) -> Option<(i32, &[Cell])> {
+        let r = self.inner;
+        if y < r.min_y || y > r.max_y || r.min_x > r.max_x {
+            return None;
+        }
+        Some((r.min_x, self.chunk.row_world(r.min_x, r.max_x, y)))
+    }
+
     fn clear_moved(&mut self, x: i32, y: i32) {
         // Always called on the position currently being visited, which the
         // sweep only ever hands out from `self.coord`'s own bounds.
