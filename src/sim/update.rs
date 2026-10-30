@@ -2661,12 +2661,25 @@ fn transfer_liquid_horizontal<S: CellSurface>(surface: &mut S, x: i32, y: i32, d
     // seen so far. Stops at the first wall (a different, non-empty
     // material) -- nothing past a wall is a real candidate, wall or no wall.
     let mut best: Option<(i32, Cell, u16)> = None;
+    // The steps that land in the surface's resident row are read from it by
+    // index -- the same cell `get` would return, and in bounds by
+    // `resident_row`'s contract -- and only a step past its end pays
+    // `in_bounds` and `get`. Up to 24 steps each way from every liquid cell
+    // the sweep visits made this scan the single costliest function in the
+    // shipped world's tick (big-world speed lane, 2026-10-30).
+    let row = surface.resident_row(y);
     for step in 1..=HORIZONTAL_TRANSFER_REACH {
         let tx = x + dir * step;
-        if !surface.in_bounds(tx, y) {
-            break;
-        }
-        let candidate = surface.get(tx, y);
+        let resident = row.and_then(|(x0, cells)| cells.get(usize::try_from(tx - x0).ok()?).copied());
+        let candidate = match resident {
+            Some(cell) => cell,
+            None => {
+                if !surface.in_bounds(tx, y) {
+                    break;
+                }
+                surface.get(tx, y)
+            }
+        };
         if !candidate.is_empty() && candidate.material != src.material {
             break;
         }

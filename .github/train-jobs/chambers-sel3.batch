@@ -1,0 +1,26 @@
+# Can selection tune the tunnel digger, when its weights can move but it cannot be deleted? (chambers thread,
+# 2026-10-29; the corrected chambers-sel2.) sel2 put the head's slots into the core's structural-event pool, and with
+# the lesson protecting every live core link, every drop event hit the head: all 19 of H3's links were gone by round
+# 15 in every arm and passages fell 189 -> 57 already in round 0 (vs sel1's frozen arms 2/30 worlds, p 2e-7). So sel2
+# measured deleting the digger, not evolving it.
+# Here (examples/inrun.rs, this commit) the head keeps out of the core's events: PP_DIGHEAD_GROW=P is a child's chance
+# of one add-or-drop event of its own in the head, and PP_DIGHEAD_RATE=10 gives its 19 live weights ~0.6 weight steps
+# a child (at kpm 0.003; sel1's 0.1 gave 8 of 822 survivors one changed slot). Smoke (4 x 2 x 20k, rate 10, grow 0.1):
+# median 1 head slot changed, none of the 19 lost.
+#
+# Arms -- otherwise sel1's line, so each plays world c*1000+r for colony c in round r and pairs with sel1's arms:
+#   t10_shape   head rate 10, no head events (tuning only), shape score (sel1 B's weights)
+#   t10_std     head rate 10, no head events, plain score
+#   t10g_shape  head rate 10, head event chance 0.1 a child, shape score
+# Controls: sel1's frozen-head arms h3eat_shape and h3eat_std (batch-results/chambers-sel1), same worlds.
+#
+# DECIDING MEASURE, named before launch (claude/chambers-judge's judge.py, passage measure `tunnels`), at round 15,
+# paired by colony, two-sided sign test on (1) tunnels and (2) alive (extinct = 0):
+#   Q1 does a tunable digger beat the frozen one under the shape score: t10_shape vs sel1 h3eat_shape.
+#   Q2 does the shape score steer a tunable digger: t10_shape vs t10_std.
+# YES needs (1) for the first arm at p < 0.05, (2) not against it at p < 0.05, crumb share not higher at p < 0.05.
+# t10g_shape reported the same way against h3eat_shape, not a test. Also: pictures, head drift (slots changed, links
+# added and lost), eat seed held.
+t10_shape PP_DIGHEAD_RATE=10 colsel 31 lex+spoil+crater+shape+scale+lab+gallery+crumbs 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0 shapeopen=1 weights=shape:2,gallery:2,crumbs:1
+t10_std PP_DIGHEAD_RATE=10 colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0
+t10g_shape PP_DIGHEAD_RATE=10 PP_DIGHEAD_GROW=0.1 colsel 31 lex+spoil+crater+shape+scale+lab+gallery+crumbs 32 16 200000 scratch/inrun/genomes/h3eat/h3eat_pool.txt lesson=scratch/inrun/genomes/c1.raw.txt:0.1 food=mix cg_every=8 labgate=50 labscens=lab_far_mix,lab_far200_fruit labcase=lab_herbs patches=20000:40:120 scalegate=50 setenv=PP_BED_W=448,PP_MIND_DOOR_OPEN=drop scaleopen=1 nestneed=6,3,1 elite=1 kpm=0.003 nest_r=0 shapeopen=1 weights=shape:2,gallery:2,crumbs:1

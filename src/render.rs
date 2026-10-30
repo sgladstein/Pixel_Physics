@@ -3808,6 +3808,17 @@ pub struct Renderer {
     /// field, because the field has already thrown the emitter's position
     /// away -- see `NEAR_GLOW_RADIUS`.
     near_glow: crate::sim::fxhash::ChunkMap<Vec<f32>>,
+    /// Which chunks of `near_glow` have been built since they were last
+    /// invalidated -- including the ones whose splat came out empty, which
+    /// have no entry in `near_glow` and must still not be rebuilt every draw.
+    /// See `refresh_near_glow`: the splat is built **lazily, for the chunks a
+    /// draw can read**, not for the whole world.
+    near_glow_built: ChunkSet,
+    /// The glowing cells of each emitter tile, parallel to `near_glow_key`,
+    /// scanned once and kept until that tile is touched. A destination chunk
+    /// is built from up to nine emitter tiles, so without this a tile would
+    /// be rescanned once per neighbour that needed it.
+    near_glow_cells: Vec<Option<Vec<(i32, i32)>>>,
     /// Which emitter tiles `near_glow` was built from, so a settled world
     /// does not rebuild it every draw.
     near_glow_key: Option<Vec<ChunkCoord>>,
@@ -4105,6 +4116,8 @@ impl Renderer {
             last_look: None,
             glow_tiles: ChunkSet::default(),
             near_glow: crate::sim::fxhash::ChunkMap::default(),
+            near_glow_built: ChunkSet::default(),
+            near_glow_cells: Vec::new(),
             near_glow_key: None,
             near_glow_rebuilds: 0,
             sky: Sky::at(0, 0, 1, 0, 1),
@@ -4236,6 +4249,8 @@ impl Renderer {
     /// deleted with the rest.
     pub fn forget_world(&mut self) {
         self.near_glow.clear();
+        self.near_glow_built.clear();
+        self.near_glow_cells.clear();
         self.near_glow_key = None;
         // Same reason, one pass further on: `sky_light_solid` is a cache of
         // what the *cells* held, and a new world under the same `Renderer`
@@ -5247,7 +5262,15 @@ impl Renderer {
         // reads `Material::glow` off cells and nothing else, so what can
         // invalidate it is a cell changing -- a crystal mined out, a new one
         // exposed -- which is exactly what `touched` reports.
-        let emitters_touched = emitter_tiles.iter().any(|c| touched.contains(c));
+        //
+        // **And it is rebuilt only where it can be read.** Rain falling on a
+        // geode's tiles touches them every frame it rains, and the whole-world
+        // rebuild that followed was ~7 ms of a ~22 ms single-threaded draw on
+        // the shipped 8192x2560 world (11 emitter tiles, 2,897 glowing cells,
+        // 1.76 M splat writes a frame, nearly all of them off screen). So a
+        // touched emitter now invalidates only its own neighbourhood, and a
+        // chunk is (re)built when a draw is about to read it -- see
+        // `refresh_near_glow`.
         // **`force_full` used to be in this condition, and it was the single
         // largest cost in the frame.** It means *"an overlay is on screen
         // with no tracked footprint, so repaint every pixel"* -- and in the
@@ -5264,10 +5287,7 @@ impl Renderer {
         // `Renderer`, and a new world with the same emitter tile coordinates
         // would have kept the old splat whenever the cursor happened to be
         // off the window. `forget_world` now says that plainly.
-        if emitters_touched || self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
-            self.rebuild_near_glow(world, &emitter_tiles);
-            self.near_glow_key = Some(emitter_tiles);
-        }
+        self.refresh_near_glow(world, emitter_tiles, touched, (vx0, vy0, vx1, vy1));
         split("glow scan + near_glow");
 
         let full = force_full
@@ -6972,12 +6992,80 @@ impl Renderer {
     /// glow tiles change or are still converging -- the same condition that
     /// already forces a full redraw -- so a settled world with a geode in it
     /// pays nothing per frame.
-    fn rebuild_near_glow(&mut self, world: &World, emitter_tiles: &[ChunkCoord]) {
-        self.near_glow.clear();
-        if emitter_tiles.is_empty() {
+    fn refresh_near_glow(
+        &mut self,
+        world: &World,
+        emitter_tiles: Vec<ChunkCoord>,
+        touched: &ChunkSet,
+        (vx0, vy0, vx1, vy1): (i32, i32, i32, i32),
+    ) {
+        // How many chunks a disc can reach from the tile its emitter is in:
+        // one while `NEAR_GLOW_RADIUS` is under `CHUNK_SIZE`, which is the
+        // 3x3 `glow_tiles` is built on. Derived rather than assumed, for the
+        // reason the membership test below gives.
+        let reach = (NEAR_GLOW_RADIUS + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        if self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
+            self.near_glow.clear();
+            self.near_glow_built.clear();
+            self.near_glow_cells = vec![None; emitter_tiles.len()];
+            self.near_glow_key = Some(emitter_tiles);
+        } else if let Some(key) = &self.near_glow_key {
+            // **A touched emitter invalidates its own neighbourhood, not the
+            // world.** A destination chunk's splat is the `max` over the
+            // glowing cells of the emitter tiles within `reach` of it, and
+            // nothing else; so the chunks an emitter's change can move are
+            // exactly those, and every other built chunk still holds what a
+            // whole rebuild would have written. That was the old rule's
+            // answer for every chunk at once.
+            for (i, e) in key.iter().enumerate() {
+                if !touched.contains(e) {
+                    continue;
+                }
+                self.near_glow_cells[i] = None;
+                for dy in -reach..=reach {
+                    for dx in -reach..=reach {
+                        let d = ChunkCoord::new(e.x + dx, e.y + dy);
+                        self.near_glow.remove(&d);
+                        self.near_glow_built.remove(&d);
+                    }
+                }
+            }
+        }
+        if self.glow_tiles.is_empty() {
+            return;
+        }
+        // **Built for the chunks this draw can read, and no others.** Every
+        // reader of the splat is `glow_at`, from `cell_colour` and
+        // `background_at`, for a position on (or, for the zoom-out filters'
+        // neighbour reads, one sample off) the screen -- so a chunk off screen
+        // is built the frame the camera reaches it, and until then costs
+        // nothing. The margin is a chunk, or two samples at a wide zoom-out,
+        // whichever is more.
+        let margin = CHUNK_SIZE.max(2 * self.sampling_stride());
+        let lo = ChunkCoord::containing(vx0.min(vx1) - margin, vy0.min(vy1) - margin);
+        let hi = ChunkCoord::containing(vx0.max(vx1) + margin, vy0.max(vy1) + margin);
+        let mut wanted = Vec::new();
+        for cy in lo.y..=hi.y {
+            for cx in lo.x..=hi.x {
+                let d = ChunkCoord::new(cx, cy);
+                if self.glow_tiles.contains(&d) && !self.near_glow_built.contains(&d) {
+                    wanted.push(d);
+                }
+            }
+        }
+        if wanted.is_empty() {
             return;
         }
         self.near_glow_rebuilds += 1;
+        let key = self.near_glow_key.take().expect("set above whenever glow_tiles is non-empty");
+        self.rebuild_near_glow(world, &key, &wanted, reach);
+        self.near_glow_key = Some(key);
+    }
+
+    /// Build the splat for the destination chunks in `wanted`; see
+    /// `refresh_near_glow` for which those are.
+    fn rebuild_near_glow(&mut self, world: &World, emitter_tiles: &[ChunkCoord], wanted: &[ChunkCoord], reach: i32) {
+        let within = |a: ChunkCoord, b: ChunkCoord| (a.x - b.x).abs() <= reach && (a.y - b.y).abs() <= reach;
         let area = (CHUNK_SIZE * CHUNK_SIZE) as usize;
         let r = NEAR_GLOW_RADIUS;
         let span = (2 * r + 1) as usize;
@@ -7010,7 +7098,11 @@ impl Renderer {
             })
             .collect();
         let (mut glowing, mut splat) = (0u64, 0u64);
-        for &tile in emitter_tiles {
+        for (i, &tile) in emitter_tiles.iter().enumerate() {
+            if self.near_glow_cells[i].is_some() || !wanted.iter().any(|&d| within(d, tile)) {
+                continue;
+            }
+            let mut cells = Vec::new();
             // **One chunk lookup per emitter tile, not one per cell** -- the
             // same fix `rebuild_sky_light` records making, in the function
             // directly above, and for the same reason: `World::get` is a
@@ -7052,75 +7144,67 @@ impl Renderer {
                     if glow <= 0.0 {
                         continue;
                     }
+                    cells.push((wx, wy));
+                }
+            }
+            self.near_glow_cells[i] = Some(cells);
+        }
+        // The two fields are borrowed apart: the cell lists are read while the
+        // splat is written.
+        let (cell_lists, near_glow) = (&self.near_glow_cells, &mut self.near_glow);
+        for &dest in wanted {
+            self.near_glow_built.insert(dest);
+            for (i, &tile) in emitter_tiles.iter().enumerate() {
+                if !within(dest, tile) {
+                    continue;
+                }
+                let Some(cells) = &cell_lists[i] else { continue };
+                for &(wx, wy) in cells {
                     glowing += 1;
-                    // **The destination chunk changes every 64 cells, so it
-                    // must not be hashed every cell.** The disc is 29 cells
-                    // across and `ChunkCoord` is the key of two hash
-                    // containers, so the unhoisted form paid two SipHashes
-                    // for each of ~615 disc cells of each glowing cell --
-                    // measured as 145M instructions of `sip.rs` inside one
-                    // `Renderer::draw`, 22% of it, and the single largest
-                    // thing in the frame at the shipped world size.
+                    // **One destination chunk per pass, never one hash per disc
+                    // cell.** The unhoisted form paid two SipHashes for each of
+                    // ~615 disc cells of each glowing cell -- 145M instructions
+                    // of `sip.rs` in one `Renderer::draw`, once the largest thing
+                    // in the frame at the shipped size. It was walked
+                    // chunk-major after that (up to four lookups per glowing
+                    // cell); now the chunk is fixed for the whole pass and the
+                    // buffer is looked up once per emitter cell that reaches it.
                     //
-                    // So the disc is walked **chunk-major**: take the up-to-
-                    // four chunks its bounding box can touch, look each one
-                    // up once, and splat the part of the disc that lands
-                    // inside it. Four lookups per glowing cell rather than
-                    // 1,230.
+                    // **Bit-identical, and the reason is that this visits the
+                    // same cells with the same values.** A slot's value is the
+                    // `max` over every glowing cell whose disc covers it, the
+                    // radius test is a function of `(nx, ny)` alone, and `max`
+                    // does not care what order the cells come in -- so a chunk
+                    // built alone, from the emitter tiles within `reach` of it,
+                    // holds exactly what the whole-world rebuild wrote there.
                     //
-                    // **Bit-identical, and the reason is that this visits
-                    // the same cells with the same values.** The membership
-                    // test is a function of the chunk alone, the radius test
-                    // is a function of `(nx, ny)` alone, and the
-                    // accumulation is `max` -- so neither the gate nor the
-                    // result depends on the order the disc is walked in.
-                    // Checked at the pixel level as well as by the guards:
-                    // the rendered PNG is byte-for-byte the pre-change one
-                    // on two different worlds.
-                    //
-                    // **Do not "simplify" this by dropping the membership
-                    // test as vacuous.** It is *currently* always true -- a
-                    // disc of radius 14 around a cell of tile T cannot leave
-                    // T's 3x3 neighbourhood, and `glow_tiles` is exactly
-                    // that neighbourhood -- but it is the only thing keeping
-                    // the splat inside the region `glow_at` will ever read,
-                    // and it stops being vacuous the moment
-                    // `NEAR_GLOW_RADIUS` exceeds `CHUNK_SIZE` or the
-                    // neighbourhood stops being 3x3.
-                    // Through `ChunkCoord::containing` rather than a division
-                    // of our own: the world has negative coordinates and
-                    // `containing` is the one place that floors them the same
-                    // way everything else does.
-                    let lo = ChunkCoord::containing(wx - r, wy - r);
-                    let hi = ChunkCoord::containing(wx + r, wy + r);
-                    for cy in lo.y..=hi.y {
-                        for cx in lo.x..=hi.x {
-                            let coord = ChunkCoord::new(cx, cy);
-                            if !self.glow_tiles.contains(&coord) {
+                    // **`dest` is in `glow_tiles` by construction** (`wanted`
+                    // is filtered on it), which is the membership test that
+                    // keeps the splat inside the region `glow_at` will ever
+                    // read. Do not drop that filter as vacuous: it stops being
+                    // so the moment `NEAR_GLOW_RADIUS` exceeds `CHUNK_SIZE` or
+                    // the neighbourhood stops being 3x3.
+                    let (cx, cy) = (dest.x, dest.y);
+                    let (ox, oy) = (cx * CHUNK_SIZE, cy * CHUNK_SIZE);
+                    let x0 = (wx - r).max(ox);
+                    let x1 = (wx + r).min(ox + CHUNK_SIZE - 1);
+                    let y0 = (wy - r).max(oy);
+                    let y1 = (wy + r).min(oy + CHUNK_SIZE - 1);
+                    if x0 > x1 || y0 > y1 {
+                        continue;
+                    }
+                    let buf = near_glow.entry(dest).or_insert_with(|| vec![0.0; area]);
+                    for ny in y0..=y1 {
+                        let krow = (ny - wy + r) as usize * span;
+                        let brow = (ny - oy) * CHUNK_SIZE;
+                        for nx in x0..=x1 {
+                            let v = kernel[krow + (nx - wx + r) as usize];
+                            if v <= 0.0 {
                                 continue;
                             }
-                            let (ox, oy) = (cx * CHUNK_SIZE, cy * CHUNK_SIZE);
-                            let x0 = (wx - r).max(ox);
-                            let x1 = (wx + r).min(ox + CHUNK_SIZE - 1);
-                            let y0 = (wy - r).max(oy);
-                            let y1 = (wy + r).min(oy + CHUNK_SIZE - 1);
-                            if x0 > x1 || y0 > y1 {
-                                continue;
-                            }
-                            let buf = self.near_glow.entry(coord).or_insert_with(|| vec![0.0; area]);
-                            for ny in y0..=y1 {
-                                let krow = (ny - wy + r) as usize * span;
-                                let brow = (ny - oy) * CHUNK_SIZE;
-                                for nx in x0..=x1 {
-                                    let v = kernel[krow + (nx - wx + r) as usize];
-                                    if v <= 0.0 {
-                                        continue;
-                                    }
-                                    let slot = &mut buf[(brow + nx - ox) as usize];
-                                    *slot = slot.max(v);
-                                    splat += 1;
-                                }
-                            }
+                            let slot = &mut buf[(brow + nx - ox) as usize];
+                            *slot = slot.max(v);
+                            splat += 1;
                         }
                     }
                 }
@@ -7128,9 +7212,10 @@ impl Renderer {
         }
         if std::env::var_os("PIXEL_PHYSICS_DRAW_TIMING").is_some() {
             eprintln!(
-                "  near_glow rebuild #{}: {} emitter tiles, {glowing} glowing cells, {splat} splat writes",
+                "  near_glow rebuild #{}: {} emitter tiles, {} chunks built, {glowing} glowing cells splatted, {splat} splat writes",
                 self.near_glow_rebuilds,
-                emitter_tiles.len()
+                emitter_tiles.len(),
+                wanted.len()
             );
         }
     }
@@ -13992,6 +14077,103 @@ mod tests {
                 assert!(left > 0.0, "the halo should reach {d} cells from the emitter, got {left}");
             }
         }
+    }
+
+    /// **The lazily built splat is the whole-world splat, wherever a draw can
+    /// read it.** The splat is built only for the chunks on (or one chunk
+    /// off) screen, and a touched emitter invalidates only its own
+    /// neighbourhood -- so this pans a small view across several emitter
+    /// tiles, mines a crystal out mid-pan and adds one, and after every draw
+    /// compares every cell in view against a brute-force maximum over every
+    /// glowing cell in the world. A neighbourhood rule that missed a chunk,
+    /// or a margin too small for the view, reads as a stale or missing halo
+    /// here.
+    #[test]
+    fn the_lazy_glow_splat_matches_a_whole_world_one_in_view() {
+        let (w, h) = (448i32, 192i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let crystal = world.materials.id_of("crystal").expect("crystal ships in the registry");
+        for y in 40..h {
+            for x in 0..w {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A long sealed gallery with crystals spread along it, several of
+        // them on chunk seams, so discs straddle tiles both ways.
+        for y in 90..130 {
+            for x in 8..w - 8 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        let mut crystals = vec![(30, 100), (63, 110), (64, 111), (128, 128), (200, 95), (255, 100), (256, 120), (380, 115)];
+        for &(x, y) in &crystals {
+            world.set(x, y, Cell::new(crystal, 0));
+        }
+        world.end_step();
+        for _ in 0..300 {
+            crate::sim::field::step(&mut world);
+        }
+
+        let r = NEAR_GLOW_RADIUS;
+        let brute = |crystals: &[(i32, i32)], x: i32, y: i32| -> f32 {
+            let mut best = 0.0f32;
+            for &(cx, cy) in crystals {
+                let (dx, dy) = (x - cx, y - cy);
+                let d2 = (dx * dx + dy * dy) as f32;
+                let rr = r as f32;
+                if d2 > rr * rr {
+                    continue;
+                }
+                let t = 1.0 - d2.sqrt() / rr;
+                best = best.max(t * t);
+            }
+            best
+        };
+
+        let particles = ParticleSystem::new();
+        let (vw, vh) = (96u32, 64u32);
+        let mut buf = vec![0u8; (vw * vh * 4) as usize];
+        let mut renderer = Renderer::new();
+        let mut checked = 0u64;
+        let mut lit = 0u64;
+        for step in 0..40 {
+            renderer.camera_x = step * 9;
+            renderer.camera_y = 80;
+            let mut touched = ChunkSet::default();
+            // Mid-pan, one crystal goes and one appears, each reported the
+            // way the sweep reports a cell change.
+            if step == 15 {
+                world.set(255, 100, Cell::EMPTY);
+                crystals.retain(|&c| c != (255, 100));
+                touched.insert(ChunkCoord::containing(255, 100));
+            }
+            if step == 25 {
+                world.set(300, 105, Cell::new(crystal, 0));
+                crystals.push((300, 105));
+                touched.insert(ChunkCoord::containing(300, 105));
+            }
+            renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), false);
+            let (x0, y0) = renderer.screen_to_world(0, 0);
+            let (x1, y1) = renderer.screen_to_world(vw as i32 - 1, vh as i32 - 1);
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    if !renderer.glow_tiles.contains(&ChunkCoord::containing(x, y)) {
+                        continue;
+                    }
+                    let want = brute(&crystals, x, y);
+                    assert_eq!(
+                        renderer.near_glow_at(x, y).to_bits(),
+                        want.to_bits(),
+                        "step {step}: near glow at ({x}, {y}) differs from the whole-world splat"
+                    );
+                    checked += 1;
+                    lit += u64::from(want > 0.0);
+                }
+            }
+        }
+        // Positive control: the pan crossed real halos, or every comparison
+        // above was 0.0 against 0.0.
+        assert!(lit > 2_000, "vacuous: only {lit} lit cells of {checked} compared");
     }
 
     #[test]

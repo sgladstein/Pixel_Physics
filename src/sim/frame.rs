@@ -304,6 +304,7 @@ pub fn step(
     // so a reader of the split does not go looking for a ninth phase.
     Lap::mark(&mut lap, 3);
     world.step_active_sites();
+    crate::sim::garden::step(world);
     Lap::mark(&mut lap, 4);
     // Particles after the CA sweep, not before: a landing check needs
     // this frame's fully-settled CA state, not last frame's, or a
