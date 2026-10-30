@@ -1,0 +1,49 @@
+// **The crop a colony farms** (`src/sim/garden.rs`, the plants-and-ants lane,
+// 2026-10-30). Scott's repo review found plants and ants barely touch: a leaf
+// an ant cut was worth 40 J and nothing else, so nothing gave a colony a
+// reason to keep plants near home. Plant matter the ants carry home and leave
+// lying in the dark nest -- cut leaf, dead leaf, litter, grass, flowers,
+// crumbs (`garden_fodder`) -- turns into this, spreads through the pile, and
+// ripens while it stays dark: a room the colony stocks with leaves becomes a
+// pale garden it eats from in a famine.
+//
+// **Its worth is in `aux` (`carries_worth`)**, as crumbs' is, because the
+// garden ripens it cell by cell: young fungus is worth what the fodder was,
+// and every garden visit in the dark adds to it up to `garden::RIPE_WORTH`.
+// `food_energy` below is only the fallback for a bare cell.
+//
+// **The shade is the ripeness** (`garden::shade_for`): the palette runs from
+// a dull grey-green, just started, to a bright pale mint, ripe, so a player
+// sees a garden coming on without an overlay. **Mint, not the cream of a real
+// fungus garden**, found from the first picture: cream is the colour of the
+// brood pile (`brood.ron`) that sits in the same rooms, and the two read as
+// one blob.
+//
+// **It does not roll**, for crumbs' reason: a garden on a tunnel floor must
+// not slide down the shaft and pack it. It still drops straight down through
+// open air.
+(
+    name: "fungus",
+    display: "Fungus garden",
+    kind: Powder,
+    density: 0.6,
+    friction_angle: 40.0,
+    colors: [
+        (92, 118, 108),
+        (112, 156, 140),
+        (140, 196, 176),
+        (178, 232, 210),
+    ],
+    flammability: 0.2,
+    burn_temperature: 480.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    insubstantial: true,
+    falls_through_organisms: true,
+    food_energy: 120.0,
+    carries_worth: true,
+    rolls: false,
+    penetration_resistance: 0.2,
+    food_class: -1.0,
+)

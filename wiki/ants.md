@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-25, when **the trained ant got the same way round a trunk** (see *And they get round a trunk*); 2026-10-21, when **soil set down on the mound started rolling a step or two down its side** (see *One door, and a granary under it*); 2026-10-14, when **the nest stopped growing past what its colony needs** (see *A nest that stops growing*); 2026-10-13, when **the colony started keeping its eggs and young in a room at the top of the nest** (see *A nursery under the door*); 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-30, when **plant matter left in the nest started growing into a fungus garden** (see *A fungus garden in the nest*); 2026-10-25, when **the trained ant got the same way round a trunk** (see *And they get round a trunk*); 2026-10-21, when **soil set down on the mound started rolling a step or two down its side** (see *One door, and a granary under it*); 2026-10-14, when **the nest stopped growing past what its colony needs** (see *A nest that stops growing*); 2026-10-13, when **the colony started keeping its eggs and young in a room at the top of the nest** (see *A nursery under the door*); 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1133,6 +1133,35 @@ still digs itself out.
 
 What is not right yet: the galleries are still straight. This keeps the
 nest the size of its colony; it does not give it rounded chambers.
+
+### A fungus garden in the nest
+
+**New on 2026-10-30: plant matter the colony leaves in its nest grows into a
+garden.** Leaf litter, crumbs of half-eaten fruit, cut leaves, grass and
+flowers that come to rest in a dug part of the nest, with ground over them,
+slowly turn into a pale mint fungus. Once one cell has turned, the rest of the
+pile beside it follows quickly, so a stocked corner goes over as a patch
+rather than one speck at a time. The fungus is food, and it ripens: a fresh
+cell is worth a small meal, and while it stays under its roof it brightens
+and grows into a big one over a day and a half of lab time. A cut leaf, which
+is hardly worth eating fresh, is worth twelve times as much once the garden
+has had it.
+
+**It needs a roof.** Real fungus gardens grow in the dark, but the lab's
+light reaches a long way down a tunnel, so "dark" here means "with ground
+over it". A crater floor open to the lights grows nothing; a gallery or a
+room does. Take the roof off a garden, by digging it open or when the ground
+over it falls in, and it wilts back to leaf litter over a few minutes rather
+than vanishing.
+
+**It stays in the nest.** Only cells in or beside the dug nest turn. An early
+version let it creep along the litter buried just under the soil surface, and
+a speckle of fungus ran the length of the bed.
+
+What it looks like today: the trained colony digs a pit rather than rooms, so
+the garden shows as a mint seam along its shallow galleries and the edge of
+its pit, not as a room full of fungus. With rooms, from the colony or from the
+player's DIG tool, there is somewhere for a real garden to stand.
 
 ### They lay two scents, and the two do not keep
 
