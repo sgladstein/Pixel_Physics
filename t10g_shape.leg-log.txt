@@ -1,0 +1,10 @@
+runner: t10g_shape, leg 1
+built from: 90971a7c65cce5bc2e9beb3a64567866dc2fee71
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40973718149
+started: 2026-10-29T23:36:12Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+03:39:05 t10g_shape: done, exit 0
+-rw-r--r-- 1 runner runner 18760739 Oct 30 03:39 /tmp/batch/pub/t10g_shape.tgz
+t10g_shape done exit 0
+finished: 2026-10-30T03:39:09Z

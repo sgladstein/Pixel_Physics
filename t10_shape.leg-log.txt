@@ -1,0 +1,11 @@
+runner: t10_shape, leg 1
+built from: 90971a7c65cce5bc2e9beb3a64567866dc2fee71
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/40973718149
+started: 2026-10-29T23:36:11Z
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      135%
+03:28:38 t10_shape: done, exit 0
+-rw-r--r-- 1 runner runner 19152485 Oct 30 03:28 /tmp/batch/pub/t10_shape.tgz
+t10_shape done exit 0
+finished: 2026-10-30T03:28:41Z
