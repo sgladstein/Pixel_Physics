@@ -3013,6 +3013,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
 /// a bug to count ([`MindCounts::failed`]), not a choice.
 fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, draw: &mut rng::Rng) -> bool {
     let head = world.organism(organism).and_then(|s| s.chain.first().copied());
+    crumb_log::verb(organism, opt.verb);
     match opt.verb {
         Verb::Rest => true,
         Verb::Walk => walk(world, organism, def, opt.target),
@@ -3137,6 +3138,7 @@ fn eat_now(world: &mut World, organism: OrganismId) -> bool {
     match world.organism_mut(organism) {
         Some(s) if s.crop.is_some() => {
             s.eat_lunch_now = true;
+            crumb_log::ate(organism);
             if let Some(m) = world.minds.as_mut() {
                 m.counts.ate += 1;
             }
@@ -3213,6 +3215,7 @@ fn pick_up(
     if passenger.is_some() && seed == plant::SeedBite::SurvivedBare {
         world.bare_seeds_carried += 1;
     }
+    crumb_log::pick(world, organism, (fx, fy), food, worth, at_home, crop.map_or(0, |c| c.cells as u32));
     crop_take(world, organism, food, bite.shade, worth, passenger);
     // SCRATCH (teacher lane, in-run pilot): the harness's food ledger.
     super::note_food(world, organism, (fx, fy), super::FOOD_SWALLOW, worth, at_home);
@@ -3365,6 +3368,7 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         Some(passenger) => plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger),
         None => {
             let cell = held.unit_cell(quantise_worth).into_cell(world);
+            crumb_log::drop(world, organism, (dx, dy), (hx, hy), cell, &held, at_nest);
             world.set(dx, dy, cell);
         }
     }
@@ -5813,6 +5817,113 @@ pub(crate) fn remember_done(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY
     }
     let all_mean = if n > 0 { sum / n as f32 } else { 0.0 };
     remembered(g, ctx, mem0, best, all_mean, verb, &reach(&per_verb))
+}
+
+/// SCRATCH (chambers crumbs lane, 2026-10-30): `PP_CRUMB_LOG=<file>` writes one row per food pick-up (`P`), Eat from
+/// the crop (`E` is counted on the load, not written) and food put-down (`D`), with the load's history (where and when
+/// its first cell was picked up, Eats since, the ant's last 8 acted verbs), for tracing where nest crumbs come from ant
+/// by ant. Read only: off unless the variable is set, and on it writes a file and keeps a per-ant table nothing reads.
+pub mod crumb_log {
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    #[derive(Clone, Default)]
+    struct Load {
+        first_frame: u64,
+        first_at: (i32, i32),
+        first_home: bool,
+        picks: u32,
+        home_picks: u32,
+        eats: u32,
+        verbs: u32,
+    }
+
+    struct Log {
+        f: std::io::BufWriter<std::fs::File>,
+        ants: HashMap<OrganismId, Load>,
+    }
+
+    fn log() -> Option<&'static Mutex<Log>> {
+        static L: OnceLock<Option<Mutex<Log>>> = OnceLock::new();
+        L.get_or_init(|| {
+            std::env::var("PP_CRUMB_LOG").ok().map(|p| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(p).expect("PP_CRUMB_LOG"));
+                let _ = writeln!(f, "# P,frame,id,x,y,mat,worth,at_home,energy,cells_before");
+                let _ = writeln!(f, "# D,frame,id,x,y,land_y,hx,hy,mat_out,worth_out,unit,cells_before,at_nest,energy,trip_cells,first_frame,first_x,first_y,first_home,picks,home_picks,eats,verbs8");
+                Mutex::new(Log { f, ants: HashMap::new() })
+            })
+        })
+        .as_ref()
+    }
+    pub fn flush() {
+        if let Some(l) = log() {
+            let _ = l.lock().unwrap().f.flush();
+        }
+    }
+    fn energy(world: &World, id: OrganismId) -> f32 {
+        world.organism(id).map_or(0.0, |s| world.species.get(s.species).creature.as_ref().map_or(0.0, |d| s.energy / d.start_energy.max(1.0)))
+    }
+    pub fn verb(id: OrganismId, v: Verb) {
+        if let Some(l) = log() {
+            let mut l = l.lock().unwrap();
+            let e = l.ants.entry(id).or_default();
+            e.verbs = (e.verbs << 4) | (v as u32 & 0xF);
+        }
+    }
+    pub fn ate(id: OrganismId) {
+        if let Some(l) = log() {
+            l.lock().unwrap().ants.entry(id).or_default().eats += 1;
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn pick(world: &World, id: OrganismId, at: (i32, i32), mat: crate::sim::material::MaterialId, worth: f32, home: bool, before: u32) {
+        let Some(l) = log() else { return };
+        let (fr, en) = (world.frame, energy(world, id));
+        let name = world.materials.get(mat).name.clone();
+        let mut l = l.lock().unwrap();
+        let e = l.ants.entry(id).or_default();
+        if before == 0 {
+            let verbs = e.verbs;
+            *e = Load { first_frame: fr, first_at: at, first_home: home, verbs, ..Default::default() };
+        }
+        e.picks += 1;
+        e.home_picks += u32::from(home);
+        let _ = writeln!(l.f, "P,{fr},{id},{},{},{name},{worth:.0},{},{en:.3},{before}", at.0, at.1, home as u8);
+    }
+    pub fn drop(world: &World, id: OrganismId, at: (i32, i32), head: (i32, i32), cell: Cell, held: &Crop, at_nest: bool) {
+        let Some(l) = log() else { return };
+        let (fr, en) = (world.frame, energy(world, id));
+        let mut ly = at.1;
+        while world.in_bounds(at.0, ly + 1) && world.is_empty(at.0, ly + 1) {
+            ly += 1;
+        }
+        let name = world.materials.get(cell.material).name.clone();
+        let worth = super::super::food_value(world, cell);
+        let trip = world.organism(id).map_or(0, |s| s.trip_cells);
+        let mut l = l.lock().unwrap();
+        let e = l.ants.get(&id).cloned().unwrap_or_default();
+        let _ = writeln!(
+            l.f,
+            "D,{fr},{id},{},{},{ly},{},{},{name},{worth:.0},{:.0},{},{},{en:.3},{trip},{},{},{},{},{},{},{},{:08x}",
+            at.0,
+            at.1,
+            head.0,
+            head.1,
+            held.unit,
+            held.cells,
+            at_nest as u8,
+            e.first_frame,
+            e.first_at.0,
+            e.first_at.1,
+            e.first_home as u8,
+            e.picks,
+            e.home_picks,
+            e.eats,
+            e.verbs
+        );
+    }
 }
 
 pub mod scratch_log {
