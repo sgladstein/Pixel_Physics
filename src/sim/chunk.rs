@@ -1082,6 +1082,22 @@ impl Chunk {
 
     /// Promote writes made during this sweep into the region for the next one.
     pub fn end_sweep(&mut self) {
+        // **A chunk with no mark in either generation has nothing to
+        // promote, and returns before touching its ~800 bytes of spans.**
+        // Both span arrays are only ever non-empty beside their rect:
+        // `mark_dirty_inner` sets `pending_dirty` before it writes
+        // `pending_rows`, and `dirty_rows` is assigned only together with
+        // `dirty` (below, and in `wake`). So with both rects `None` every
+        // line below is a no-op -- the moisture union sees no span, and the
+        // two replaces swap empty arrays for empty arrays. `World::end_step`
+        // calls this on every chunk in the world every tick, and at
+        // 8192x2560 that is 5,120 chunks of which ~55 are awake: the full
+        // body read and rewrote ~13 cache lines a chunk for nothing
+        // (big-world speed lane, 2026-10-30).
+        if self.pending_dirty.is_none() && self.dirty.is_none() {
+            debug_assert!(self.pending_rows.iter().chain(self.dirty_rows.iter()).all(|d| d.0 > d.1));
+            return;
+        }
         // **Every ordinary write seeds the moisture channel**, and this one
         // line is the whole of that plumbing. A moisture pass has to
         // reconsider a cell whenever anything near it changed — rain landing,
