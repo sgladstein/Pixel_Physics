@@ -214,6 +214,10 @@ fn main() {
     let mut landed_at: Option<u64> = None;
     let mut start_cells: Option<usize> = None;
     let drawcost = flag("drawcost");
+    let gif_from: u64 = arg("gif_from").unwrap_or(0);
+    let gif_to: u64 = arg("gif_to").unwrap_or(u64::MAX);
+    let snap: Option<String> = arg("snap");
+    let mut snapped: Vec<&str> = Vec::new();
     let respawn = flag("respawn");
     let frames: u64 = arg("frames").unwrap_or(u64::MAX);
     let mut cost: Vec<(u64, u64)> = Vec::new();
@@ -538,9 +542,30 @@ fn main() {
             lab.demo = seat;
             cost.push((with, without));
         }
-        if gif.is_some() && (lab.world.frame - t0).is_multiple_of(every) {
+        let since = lab.world.frame - t0;
+        if gif.is_some() && since.is_multiple_of(every) && since >= gif_from && since < gif_to {
             lab.draw(&mut buf, 60.0);
             shots.push(image::RgbaImage::from_raw(WIDTH, HEIGHT, buf.clone()).expect("frame size"));
+        }
+        // `snap=prefix`: stills at the heist's beats -- the first frame a
+        // larva is in the jaws (`-grab`), the first with it in the jaws and
+        // the head out from under the ground (`-out`), the first bank
+        // (`-bank`) -- each with its frame in the name's log line.
+        if let Some(prefix) = snap.as_deref() {
+            let e = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).expect("enemy seat");
+            let head = e.raider.and_then(|id| lab.world.organism(id)).and_then(|s| s.chain.first().copied());
+            let hold = e.raider.is_some_and(|id| pixel_physics::lab::demo::enemy::jaws_hold_brood(&lab.world, id));
+            let out = head.is_some_and(|h| pixel_physics::lab::demo::enemy::cover(&lab.world, h) == 0);
+            let banked: u32 = e.game.iter().map(|l| l.brood).sum::<u32>() + e.brood;
+            for (beat, now_true) in [("grab", hold), ("out", hold && out), ("bank", banked > 0)] {
+                if now_true && !snapped.contains(&beat) {
+                    snapped.push(beat);
+                    lab.draw(&mut buf, 60.0);
+                    let path = format!("{prefix}-{beat}.png");
+                    image::RgbaImage::from_raw(WIDTH, HEIGHT, buf.clone()).expect("frame size").save(&path).expect("snap png");
+                    println!("snap {path} t={since}");
+                }
+            }
         }
     }
     if !cost.is_empty() {

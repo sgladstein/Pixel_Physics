@@ -897,7 +897,10 @@ pub fn after_tick(lab: &mut Lab) {
     let stakes = e.stakes;
     if stakes && alive {
         if let Some(h) = head {
-            let depth = cover(&lab.world, h);
+            // Under ground and within the nest's reach of a door: the box's
+            // walls and lid put "ground" over a raider that climbed them.
+            let by_door = lab.world.nest_sites.iter().any(|s| (s.x - h.0).abs() <= 40);
+            let depth = if by_door { cover(&lab.world, h) } else { 0 };
             if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
                 e.deepest = e.deepest.max(depth);
             }
@@ -1061,15 +1064,18 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
         let (cx, cy) = at(head.0, head.1);
         dot(frame_buf, cx, cy, 6, YOU);
         // The grace: a second, pulsing cyan ring while no bite can take a cell.
-        if e.in_grace(lab.world.frame) && (lab.world.frame / 8) % 2 == 0 {
+        if e.in_grace(lab.world.frame) && (lab.world.frame / 8).is_multiple_of(2) {
             dot(frame_buf, cx, cy, 9, DOOR);
         }
         // A larva in the jaws: a white block on the head, big enough to read.
         if e.raider.is_some_and(|id| jaws_hold_brood(&lab.world, id)) {
-            for dy in -2..=0 {
-                for dx in -1..=1 {
-                    if cy - 3 + dy < top {
-                        hc.put(frame_buf, cx + dx, cy - 3 + dy, LARVA);
+            // Above the ring, not under it, outlined dark so it reads on sky
+            // and on soil alike.
+            for dy in -3i32..=3 {
+                for dx in -3i32..=3 {
+                    let edge = dx.abs() == 3 || dy.abs() == 3;
+                    if cy - 12 + dy < top {
+                        hc.put(frame_buf, cx + dx, cy - 12 + dy, if edge { [20, 20, 20, 255] } else { LARVA });
                     }
                 }
             }
@@ -1192,7 +1198,7 @@ fn stakes_hud(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
     let w = &lab.world;
     let mut out = Vec::new();
     let left = e.raiders_left();
-    let lives = format!("{}{}", "@".repeat(left), "-".repeat(LIVES - left));
+    let lives = format!("{left} OF {LIVES} LEFT");
     out.push(format!(
         "SCORE {}   BEST {}   RAIDERS {lives}{}",
         e.score(),
@@ -1219,15 +1225,15 @@ fn stakes_hud(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
             } else if s.energy >= regrow_at {
                 "REGROWING YOUR TAIL"
             } else {
-                "FILL THE TANK PAST THE | TO REGROW"
+                "FILL THE TANK PAST THE + TO REGROW"
             }
         ));
-        // The tank against the cap, 15 slots; the bar at the regrowth line.
+        // The tank against the cap, 15 slots; a + at the regrowth line (the HUD font has no bar glyph).
         let cap = CAP_TANKS * e.start_energy.max(1.0);
         let slots = 15usize;
         let filled = ((s.energy / cap).clamp(0.0, 1.0) * slots as f32).round() as usize;
         let mark = ((regrow_at / cap).clamp(0.0, 1.0) * slots as f32).round() as usize;
-        let bar: String = (0..slots).map(|i| if i == mark { '|' } else if i < filled { '*' } else { '-' }).collect();
+        let bar: String = (0..slots).map(|i| if i == mark { '+' } else if i < filled { '*' } else { '-' }).collect();
         let tank = s.energy / e.start_energy.max(1.0);
         out.push(format!(
             "TANK {bar} {:>4} J  {}",
@@ -1634,7 +1640,7 @@ mod tests {
         for (x, y) in tail {
             lab.world.set(x, y, crate::sim::cell::Cell::EMPTY);
         }
-        step(&mut lab, 2);
+        step(&mut lab, 12);
         assert_eq!(lab.world.organism(id).map(|s| s.chain.len()), Some(1), "test setup: not cut to the head");
         let grown0 = lab.world.creature_stats.regrown_cells;
         for _ in 0..2_000 {
