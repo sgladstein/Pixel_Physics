@@ -739,12 +739,39 @@ impl PheromonePlane {
         // rather than `any`: `any` stops early, so it is a scalar loop with a
         // branch per cell, and most segments are zero and read to the end
         // anyway; the fold vectorises.
-        let live: Vec<bool> = (0..self.h)
-            .flat_map(|ly| {
-                let row = &self.front[ly * self.w..(ly + 1) * self.w];
-                row.chunks(TILE).map(|seg| seg.iter().fold(0, |acc, &v| acc | v) != 0)
-            })
-            .collect();
+        //
+        // **Folded only for the tiles an awake tile can read, not the whole
+        // plane** (big-world speed lane, 2026-10-30). `quiet` is asked only
+        // for an awake tile's rows and the row either side, in its own tile
+        // column and the one either side -- so every flag ever read lies in
+        // the awake set dilated by one tile, and a flag outside it is never
+        // looked at. The whole-plane fold read all 21M cells of the shipped
+        // 8192x2560 world twice a pass even with no tile awake, and was the
+        // pheromone phase's 12-14 ms spike every `PHEROMONE_INTERVAL`
+        // frames. The flags that are computed are the same fold over the
+        // same segment, so the pass is bit-identical. `awake` is taken once
+        // here and reused by the loop below: nothing in phase 1 writes
+        // `tile_max` or `deposited` (phase 2 does, which is why it still
+        // asks `tile_awake` itself).
+        let awake: Vec<bool> = (0..self.th * self.tw).map(|i| self.tile_awake(i % self.tw, i / self.tw)).collect();
+        let mut live = vec![false; self.h * self.tw];
+        let mut read = vec![false; self.th * self.tw];
+        for (i, _) in awake.iter().enumerate().filter(|(_, &a)| a) {
+            let (tx, ty) = (i % self.tw, i / self.tw);
+            for ny in ty.saturating_sub(1)..=(ty + 1).min(self.th - 1) {
+                for nx in tx.saturating_sub(1)..=(tx + 1).min(self.tw - 1) {
+                    read[ny * self.tw + nx] = true;
+                }
+            }
+        }
+        for (i, _) in read.iter().enumerate().filter(|(_, &r)| r) {
+            let (tx, ty) = (i % self.tw, i / self.tw);
+            let (x0, x1) = (tx * TILE, ((tx + 1) * TILE).min(self.w));
+            for ly in ty * TILE..((ty + 1) * TILE).min(self.h) {
+                let seg = &self.front[ly * self.w + x0..ly * self.w + x1];
+                live[ly * self.tw + tx] = seg.iter().fold(0, |acc, &v| acc | v) != 0;
+            }
+        }
         let quiet = |ly: usize, tx: usize| {
             let lo = tx.saturating_sub(1);
             let hi = (tx + 1).min(self.tw - 1);
@@ -756,7 +783,7 @@ impl PheromonePlane {
         let mut cols = [0u32; TILE + 2];
         for ty in 0..self.th {
             for tx in 0..self.tw {
-                if !self.tile_awake(tx, ty) {
+                if !awake[ty * self.tw + tx] {
                     continue;
                 }
                 processed += 1;
