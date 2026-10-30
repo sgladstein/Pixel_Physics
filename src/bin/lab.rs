@@ -321,8 +321,12 @@ impl Handler {
                     let msg = lab.start_demo_with(seat, kv);
                     lab.ui.say(msg);
                     // The window opens on the seat card (goal, score, keys);
-                    // a headless harness never does (`demo::card`).
-                    lab.open_seat_card(false);
+                    // a headless harness never does (`demo::card`). `card=0`
+                    // opens straight onto the seat, for a screenshot of its
+                    // own panel and the card's reminder.
+                    if !args.iter().any(|a| a == "card=0") {
+                        lab.open_seat_card(false);
+                    }
                 }
                 None => eprintln!("demo {name}: no such seat (queen, keeper, guest, mind, enemy, scout)"),
             }

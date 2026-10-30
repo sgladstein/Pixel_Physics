@@ -70,9 +70,9 @@ pub fn card(seat: DemoSeat) -> SeatCard {
     match seat {
         DemoSeat::Queen => SeatCard {
             title: "QUEEN -- YOU FOUND THE COLONY",
-            goal: "EAT, DIG A CHAMBER AND LAY. YOUR EGGS BECOME WORKERS WHO FEED YOU BACK. A WILD EGG (P) STARTS A NEW FAMILY LINE WITH ITS OWN COLOUR: A GAMBLE THAT MAY BREED A BETTER ANT.",
-            score: "WORKERS ALIVE, AND HOW YOUR BEST LINE DOES",
-            lose: "THE COLONY DIES OUT",
+            goal: "EAT, CARRY FOOD HOME AND LAY. YOUR EGGS BECOME WORKERS. FOOD FALLS ONLY IN SUMMER, SO STORE ENOUGH TO GET THROUGH THREE WINTERS. A WILD EGG STARTS A NEW FAMILY LINE IN ITS OWN COLOUR: A GAMBLE THAT COSTS YOU 300 J (FERAL 700 J).",
+            score: "WORKERS ALIVE AT THE END OF EACH WINTER",
+            lose: "YOU DIE, OR A WINTER ENDS WITH NO WORKERS",
             keys: &[
                 ("ARROWS", "WALK"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
@@ -82,9 +82,10 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("P", "WILD EGG (AGAIN: FERAL)"),
                 ("Y", "NEXT 5 EGGS: CHOSEN LINE"),
-                ("J", "HER LINE: A DEED"),
                 ("K", "PICK A LEDGER ROW"),
+                ("J", "HER LINE: A DEED"),
                 ("U", "LINE COLOURS ON/OFF"),
+                ("R", "NEW COLONY"),
             ],
         },
         DemoSeat::Keeper => SeatCard {
@@ -103,9 +104,9 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Scout => SeatCard {
             title: "SCOUT -- ONE WORKER WHO KNOWS THE WAY",
-            goal: "FOOD LIES FAR TO THE EAST. TAP A SISTER (Y) AND LEAD HER THERE. WALK SLOWLY: WHEN HER MARKER TURNS AMBER SHE IS LOST, SO WAIT. EVERY ANT SHE TEACHES CAN TEACH ANOTHER.",
-            score: "FOOD BROUGHT HOME BY THE ANTS YOU TAUGHT",
-            lose: "NOTHING YET: THE COLONY LIVES WITHOUT YOU",
+            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST. TAP A SISTER AND LEAD HER THERE, AND WHEN SHE STOPS, WAIT FOR HER. EVERY TRIP HOME YOUR PUPILS MAKE SCORES, AND THEIR OWN PUPILS SCORE MORE.",
+            score: "FOOD YOUR PUPILS BRING HOME: 1 A TRIP, 2 FOR THEIR PUPILS, 3 AFTER THAT",
+            lose: "THE COLONY FALLS BELOW HALF ITS SIZE, OR YOU STARVE",
             keys: &[
                 ("ARROWS", "WALK"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
@@ -115,6 +116,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("P", "SNIFF THE TRAIL"),
                 ("E", "EAT"),
                 ("Q", "DROP WHAT YOU CARRY"),
+                ("R", "NEW SEASON"),
             ],
         },
         DemoSeat::Guest => SeatCard {
@@ -259,12 +261,14 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     let x = super::super::WIDTH as i32 - w - 4;
     let y = REMINDER_Y;
     crate::render::paint_owner::set("SEAT CARD");
-    hc.blend_rect(frame_buf, x, y, w, ROW + 2, [12, 14, 18, 255], 0.6);
-    hc.text(frame_buf, x + 4, y + 3, t, MUTED);
+    hc.blend_rect(frame_buf, x, y, w, GLYPH_HEIGHT + 2, [12, 14, 18, 255], 0.6);
+    hc.text(frame_buf, x + 4, y + 1, t, MUTED);
 }
 
-/// The reminder's top edge.
-const REMINDER_Y: i32 = 4;
+/// The reminder's top edge: the row of the lab's own FRAME counter, above
+/// where every seat's panel starts (the queen's ledger and the scout's panel
+/// both open at about 12).
+const REMINDER_Y: i32 = 1;
 
 #[cfg(test)]
 mod tests {
