@@ -250,11 +250,12 @@ fn main() {
     let c: Option<f32> = arg("c");
     let trace = arg::<u8>("trace").unwrap_or(0) == 1;
     println!(
-        "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?}",
+        "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?} sealed={:?}",
         arm.letter(),
         arg::<f32>("gain"),
         arg::<f32>("floor"),
-        arg::<u8>("off")
+        arg::<u8>("off"),
+        arg::<u8>("sealed")
     );
 
     let mut sc = Scenario::load("demo_scout").expect("demo_scout.ron ships");
@@ -290,6 +291,13 @@ fn main() {
     }
     if let Some(h) = arg::<i32>("heapx") {
         args.insert("heapx".to_string(), h.to_string());
+    }
+    // `sealed=0`: the far heap open to every forager, as in rounds 1-2 (the seal is on with the stakes).
+    if let Some(v) = arg::<u64>("trickle") {
+        args.insert("trickle".to_string(), v.to_string());
+    }
+    if let Some(v) = arg::<u8>("sealed") {
+        args.insert("sealed".to_string(), v.to_string());
     }
     let mut seat = scout::ScoutDemo::from_args(&args, seed);
     // The season's heap (it moves at the hand-over with stakes on): where the script leads and the probe looks.
@@ -350,12 +358,26 @@ fn main() {
     let mut gate_rows: Vec<String> = Vec::new();
     let mut casc: Casc = Casc::new();
     let end = start + frames;
+    let mut player_dead = false;
     while lab.world.frame < end {
         let w = &mut lab.world;
         let Some(at) = head(w, player) else {
-            let cause = w.death_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == player)).map(|r| r.cause);
-            println!("frame {}: the player died ({cause:?})", w.frame);
-            break;
+            // **The colony's season goes on without her** (round 3): the deciding number is the colony alive at the
+            // season's end, and a teaching-off player who never walks to the heap starves first on most seeds (7 of
+            // 12 sealed), which used to end the run early and read the colony at her death.
+            if !player_dead {
+                let cause = w.death_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == player)).map(|r| r.cause);
+                println!("frame {}: the player died ({cause:?})", w.frame);
+                player_dead = true;
+            }
+            if off {
+                lab.world.tandem = None;
+            }
+            lab.tick_for_harness();
+            if off {
+                lab.world.tandem = Some(Box::new(tandem::Tandems::new(arm, None)));
+            }
+            continue;
         };
         let pairs: Vec<_> = w.tandem.as_ref().map_or(&[][..], |t| &t.pairs[..]).iter().filter(|p| p.leader == player).cloned().collect();
         for p in &pairs {
@@ -564,12 +586,20 @@ fn main() {
             None => "none".to_string(),
         };
         println!(
-            "SEASON seed={seed} rude={rude} off={off} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0}",
+            "SEASON seed={seed} rude={rude} off={off} sealed={} colony={} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0} seal: carried {} turned_away {} ants_turned {} leaks {}",
+            sd.heap_sealed,
+            // Held or fell under the floor at some 30-frame check, whatever ended the seat's season first (her own
+            // death ends the card, not the colony's season).
+            if sd.low < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
             scout::ants(&lab.world).len(),
             sd.low,
             sd.harvest,
             sd.by_gen,
-            sd.larder
+            sd.larder,
+            sd.seal.carried,
+            sd.seal.turned_away,
+            sd.seal.turned_ids.len(),
+            sd.seal.leaks
         );
     }
     if probe {

@@ -132,6 +132,34 @@ pub struct ScoutDemo {
     pub outcome: Option<SeasonEnd>,
     /// The frame `R` was first pressed mid-season (a second press restarts).
     pub restart_asked: u64,
+    /// **The sealed heap** (round 3; on with the stakes, `sealed=0` off): in
+    /// the lean season only an ant who knows the place carries from the far
+    /// heap ([`seal_tick`]).
+    pub heap_sealed: bool,
+    pub seal: Seal,
+    /// The near trickle in the lean season: every this many frames, or 0 for
+    /// none (`trickle=`).
+    pub trickle: u64,
+}
+
+/// **The sealed heap's books and its marks** ([`seal_tick`], [`seal_watch`]).
+#[derive(Clone, Debug, Default)]
+pub struct Seal {
+    /// Ants turned away and when their bounce ends, with its heading.
+    pub bounced: BTreeMap<OrganismId, (u64, i8)>,
+    /// Each ant's last-food memory at the last look, to see a pick-up.
+    pub seen_food: BTreeMap<OrganismId, (i32, i32, u64)>,
+    /// Fresh marks: `(ant, carried, frame)` -- a taught ant's pick-up
+    /// (`true`) or an untaught ant turned away (`false`).
+    pub marks: Vec<(OrganismId, bool, u64)>,
+    /// Bounces (each a fresh turn-away, not a frame of one), pick-ups by ants
+    /// who know the place, and pick-ups by ants who do not (leaks: the rule's
+    /// own failure count, which should stay 0).
+    pub turned_away: u32,
+    pub carried: u32,
+    pub leaks: u32,
+    /// Distinct ants turned away at least once.
+    pub turned_ids: std::collections::BTreeSet<OrganismId>,
 }
 
 /// How the lean season ended.
@@ -237,6 +265,9 @@ impl ScoutDemo {
             low: 0,
             outcome: None,
             restart_asked: 0,
+            heap_sealed: args.get("sealed").is_none_or(|v| v != "0"),
+            seal: Seal::default(),
+            trickle: args.get("trickle").and_then(|s| s.parse().ok()).unwrap_or(0),
         }
     }
 }
@@ -254,7 +285,7 @@ pub fn start_season(lab: &mut Lab) {
     if !s.stakes {
         return;
     }
-    let (heap, heap_x, c_arg) = (s.heap, s.heap_x, s.c);
+    let (heap, heap_x, c_arg, trickle) = (s.heap, s.heap_x, s.c, s.trickle);
     if let Some(t) = lab.world.tandem.as_mut() {
         t.patch = Some(Patch { x: heap_x, r: 10 });
         t.knobs.cascade_unstick = true;
@@ -269,7 +300,13 @@ pub fn start_season(lab: &mut Lab) {
                 continue;
             }
             match &mut e.what {
-                crate::lab::scenario::Placement::Heap { x, .. } if *x == TRICKLE_X => e.until = frame,
+                crate::lab::scenario::Placement::Heap { x, .. } if *x == TRICKLE_X => {
+                    if trickle == 0 {
+                        e.until = frame;
+                    } else {
+                        e.every = trickle;
+                    }
+                }
                 crate::lab::scenario::Placement::Heap { x, cells, .. } if *x != TRICKLE_X => {
                     *cells = heap as i32;
                     *x = heap_x;
@@ -497,12 +534,165 @@ pub fn frame(lab: &mut Lab) {
     }
 }
 
-/// Before each simulated tick (the tandem tick itself runs in `tick_world`).
-pub fn before_tick(_lab: &mut Lab) {}
+/// Before each simulated tick (the tandem tick itself runs in `tick_world`):
+/// the sealed heap turns away the ants who do not know it.
+pub fn before_tick(lab: &mut Lab) {
+    seal_tick(lab);
+}
+
+/// **Columns either side of the heap's drop that the seal covers**: the
+/// patch's own 10 and the pile's spread past it (a 120-cell drop is a
+/// pyramid 21 wide that slumps a few columns further).
+pub const SEAL_R: i32 = 16;
+/// An ant who does not know the heap is turned away when her head comes
+/// within this many cells of a sealed food cell: a pick-up reaches 1
+/// (`options::build`, the eight neighbours), so 2 is a step of margin.
+pub const SEAL_NEAR: i32 = 2;
+/// How long a turned-away ant is walked off the heap before her mind has
+/// her back (about 40 steps at the modal pace).
+pub const BOUNCE_FRAMES: u64 = 240;
+
+/// Is the seal in force now: the lean season, stakes on, `sealed` not 0.
+pub fn seal_live(s: &ScoutDemo, frame: u64) -> bool {
+    s.started && s.stakes && s.heap_sealed && frame >= s.season_start && frame < s.season_start + s.season
+}
+
+/// **Does `id` know the far heap?** She was led there (the tandem module's
+/// lesson, by the player or by a pupil: a broken run that learned a landmark
+/// counts, at its strength), or the recall head's taught-place memory points
+/// into the heap, or she is the player.
+pub fn knows_heap(world: &World, id: OrganismId, heap_x: i32) -> bool {
+    steer::is_steered(world, id)
+        || world.tandem.as_deref().is_some_and(|t| t.lessons.contains_key(&id))
+        || world.recall.as_ref().and_then(|r| r.provenance.get(&id)).is_some_and(|p| (p.place.0 - heap_x).abs() <= SEAL_R)
+}
+
+/// A provisions cell of the sealed heap within `r` of `at`.
+fn sealed_food_near(world: &World, at: (i32, i32), heap_x: i32, r: i32) -> bool {
+    let Some(food) = world.materials.id_of("provisions") else { return false };
+    (-r..=r).any(|dx| {
+        let x = at.0 + dx;
+        (x - heap_x).abs() <= SEAL_R && (-r..=r).any(|dy| world.in_bounds(x, at.1 + dy) && world.get(x, at.1 + dy).material == food)
+    })
+}
+
+/// **The sealed heap** (round 3, 2026-10-30). Rounds 1 and 2 found the
+/// colony's fate was not hers because untaught foragers reached the far heap
+/// wherever it lay (37-104 a season at every place tried). In the lean
+/// season, an ant who does not know the place ([`knows_heap`]) and comes
+/// within [`SEAL_NEAR`] of the heap's food is walked off it for
+/// [`BOUNCE_FRAMES`] (`steer::force`, a heading only: a forced heading never
+/// picks up, so she gets nothing, and she is not left standing at the heap).
+/// Followers and leaders in a run are the tandem module's and are left
+/// alone. Nothing else in the box changes: the rule is a seat field, read
+/// here, and off it is one `Option` read and a bool.
+pub fn seal_tick(lab: &mut Lab) {
+    let frame = lab.world.frame;
+    let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) else { return };
+    let live = seal_live(s, frame);
+    if !live && s.seal.bounced.is_empty() {
+        return;
+    }
+    let heap_x = s.heap_x;
+    let w = &lab.world;
+    let in_run = |w: &World, id: OrganismId| w.tandem.as_deref().is_some_and(|t| t.pairs.iter().any(|p| p.follower == id || p.leader == id));
+    let mut turn: Vec<(OrganismId, i8)> = Vec::new();
+    if live {
+        for id in ants(w) {
+            let Some(h) = head(w, id) else { continue };
+            if (h.0 - heap_x).abs() > SEAL_R + SEAL_NEAR || knows_heap(w, id, heap_x) || in_run(w, id) {
+                continue;
+            }
+            if sealed_food_near(w, h, heap_x, SEAL_NEAR) {
+                // The shortest way off the heap; the middle goes west, home.
+                turn.push((id, if h.0 > heap_x { 1 } else { -1 }));
+            }
+        }
+    }
+    let stale: Vec<OrganismId> = s
+        .seal
+        .bounced
+        .iter()
+        .filter(|&(&id, &(until, _))| !live || frame >= until || head(w, id).is_none() || in_run(w, id))
+        .map(|(&id, _)| id)
+        .filter(|id| !turn.iter().any(|(t, _)| t == id))
+        .collect();
+    let release: Vec<OrganismId> = stale.iter().copied().filter(|&id| head(w, id).is_some() && !in_run(w, id)).collect();
+    let fresh: Vec<(OrganismId, i8)> = turn.iter().copied().filter(|(id, _)| !s.seal.bounced.contains_key(id)).collect();
+    for &id in &release {
+        steer::unforce(&mut lab.world, id);
+    }
+    for &(id, dx) in &turn {
+        steer::force(&mut lab.world, id, steer::ForcedPick { dir: Some((dx, 0)), verb: None, once: false });
+    }
+    if !fresh.is_empty() {
+        lab.world.log_player_action(format!("scout demo: the sealed heap turned away {} ant(s)", fresh.len()));
+    }
+    let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
+    for id in stale {
+        s.seal.bounced.remove(&id);
+    }
+    for (id, dx) in turn {
+        let e = s.seal.bounced.entry(id).or_insert((0, dx));
+        e.0 = frame + BOUNCE_FRAMES;
+    }
+    for (id, _) in fresh {
+        s.seal.turned_away += 1;
+        s.seal.turned_ids.insert(id);
+        s.seal.marks.push((id, false, frame));
+    }
+}
+
+/// **Who carried from the sealed heap**, every tick after the step: an ant
+/// whose last-food memory moved to a heap cell beside her head with food in
+/// her crop has just picked it up. One who knows the place gets the carry
+/// mark; one who does not is a leak, the rule's own failure count.
+fn seal_watch(lab: &mut Lab) {
+    let frame = lab.world.frame;
+    let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) else { return };
+    if !seal_live(s, frame) {
+        return;
+    }
+    let heap_x = s.heap_x;
+    let w = &lab.world;
+    let mut seen: Vec<(OrganismId, (i32, i32, u64), Option<bool>)> = Vec::new();
+    for id in ants(w) {
+        let Some(st) = w.organism(id) else { continue };
+        let (Some(lf), Some(&h)) = (st.last_food, st.chain.first()) else { continue };
+        let picked = (lf.0 - heap_x).abs() <= SEAL_R
+            && lf.2 + 2 >= frame
+            && st.crop.is_some_and(|c| c.cells > 0)
+            && (h.0 - lf.0).abs().max((h.1 - lf.1).abs()) <= 3
+            && !steer::is_steered(w, id);
+        seen.push((id, lf, picked.then(|| knows_heap(w, id, heap_x))));
+    }
+    let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
+    for (id, lf, picked) in seen {
+        if s.seal.seen_food.insert(id, lf) == Some(lf) {
+            continue;
+        }
+        match picked {
+            Some(true) => {
+                s.seal.carried += 1;
+                s.seal.marks.push((id, true, frame));
+            }
+            Some(false) => s.seal.leaks += 1,
+            None => {}
+        }
+    }
+    s.seal.marks.retain(|&(_, _, f)| frame.saturating_sub(f) <= 90);
+    if frame.is_multiple_of(600) {
+        let live: std::collections::BTreeSet<OrganismId> = ants(&lab.world).into_iter().collect();
+        if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
+            s.seal.seen_food.retain(|id, _| live.contains(id));
+        }
+    }
+}
 
 /// After each simulated tick: sample the routes home of fresh pupils, and
 /// keep the season's books.
 pub fn after_tick(lab: &mut Lab) {
+    seal_watch(lab);
     if lab.world.frame.is_multiple_of(30) {
         season_tick(lab);
     }
@@ -607,6 +797,9 @@ const AMBER: [u8; 4] = [255, 200, 40, 255];
 const GREY: [u8; 4] = [150, 150, 150, 255];
 const RED: [u8; 4] = [235, 60, 50, 255];
 const TREE: [u8; 4] = [120, 200, 255, 255];
+/// The sealed heap's rim and lock: the "knows the heap" violet, a shade
+/// paler so a taught ant on the heap still reads against it.
+const LOCK: [u8; 4] = [225, 175, 255, 255];
 
 /// **Marks over the world**: a full replace on fixed colours (CLAUDE.md: a
 /// debug readout must not be a blend of the thing it shows). The player
@@ -734,6 +927,60 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             }
         }
     }
+    // **The sealed heap**: its top cells rimmed and a lock over it, in the violet of "knows the heap" (violet
+    // opens violet); a green tick over a taught ant as she takes food from it, a red arrow over an untaught one
+    // as she is turned away, pointing the way she is sent.
+    if let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()).filter(|s| seal_live(s, world.frame)) {
+        if let Some(food) = world.materials.id_of("provisions") {
+            let h = lab.spec.height;
+            let mut peak: Option<(i32, i32)> = None;
+            for x in s.heap_x - SEAL_R..=s.heap_x + SEAL_R {
+                if let Some(y) = (0..h).find(|&y| world.in_bounds(x, y) && world.get(x, y).material == food) {
+                    cell(frame_buf, x, y, LOCK);
+                    if peak.is_none_or(|p| y < p.1) {
+                        peak = Some((x, y));
+                    }
+                }
+            }
+            let top_y = peak.map(|p| p.1).or_else(|| world.room_surface_at(s.heap_x)).unwrap_or(0);
+            let (lx, ly) = at(s.heap_x, top_y);
+            let (bx, by) = (lx - 4, ly - 14);
+            if by - 6 > 0 && by + 6 < top {
+                hc.fill_rect(frame_buf, bx - 1, by - 7, 11, 14, [10, 12, 16, 255]);
+                hc.fill_rect(frame_buf, bx, by, 9, 6, LOCK);
+                hc.fill_rect(frame_buf, bx + 4, by + 2, 1, 2, [10, 12, 16, 255]);
+                for dy in 1..=4 {
+                    dot(frame_buf, (bx + 2, by - dy), LOCK);
+                    dot(frame_buf, (bx + 6, by - dy), LOCK);
+                }
+                for dx in 3..=5 {
+                    dot(frame_buf, (bx + dx, by - 5), LOCK);
+                }
+                let label = "SEALED";
+                hc.fill_rect(frame_buf, bx + 11, by - 1, crate::hud::text_width(label) + 3, crate::hud::GLYPH_HEIGHT + 2, [10, 12, 16, 255]);
+                hc.text(frame_buf, bx + 13, by, label, LOCK);
+            }
+        }
+        for &(id, carried, f) in &s.seal.marks {
+            let Some(hd) = head(world, id) else { continue };
+            let (x, y) = at(hd.0, hd.1 - 4);
+            if carried {
+                for (dx, dy) in [(-2, 0), (-1, 1), (0, 2), (1, 1), (2, 0), (3, -1), (4, -2)] {
+                    dot(frame_buf, (x + dx, y + dy), GREEN);
+                    dot(frame_buf, (x + dx, y + dy - 1), GREEN);
+                }
+            } else if world.frame.saturating_sub(f) <= 60 {
+                let d = s.seal.bounced.get(&id).map_or(-1, |&(_, d)| i32::from(d));
+                for i in -3..=3 {
+                    dot(frame_buf, (x + i, y), RED);
+                }
+                for k in 1..=2 {
+                    dot(frame_buf, (x + d * (3 - k), y - k), RED);
+                    dot(frame_buf, (x + d * (3 - k), y + k), RED);
+                }
+            }
+        }
+    }
     // The player: white body, and a ring round her.
     if let Some(me) = steer::steered_id(world).and_then(|id| world.organism(id)) {
         for &(x, y) in &me.chain {
@@ -817,6 +1064,9 @@ pub fn panel(lab: &Lab) -> Vec<(String, [u8; 4])> {
         out.push((format!("COLONY {alive} OF {} -- LOST BELOW {floor}", s.alive_at_start), if danger { RED } else { WHITE }));
         out.push((format!("STORES {} {:.0} TANKS IN THEIR BELLIES", bar(s.larder / s.larder_peak.max(1.0), 10), s.larder), WINTER));
         out.push((format!("YOUR TREE'S HARVEST {} -- PUPILS {}, THEIRS {} (X2), ON {} (X3)", s.harvest, s.by_gen[0], s.by_gen[1], s.by_gen[2]), GREEN));
+        if s.heap_sealed {
+            out.push((format!("SEALED HEAP: ONLY THE TAUGHT CARRY -- CARRIED {}, TURNED AWAY {}", s.seal.carried, s.seal.turned_away), KNOWS));
+        }
     } else {
         let income = t.income_over(world.frame, 3_600);
         let bar: String = std::iter::repeat_n('|', income.min(40)).collect();
