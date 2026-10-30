@@ -190,6 +190,9 @@ TOPICS = {
         "Grass regrowth status \u2014 a tussock grows back from its crown, and the garden keeps seeding",
         "Planted bed status \u2014 a bitten herb grows back, and a herb lives one season",
         "Roots required status \u2014 only roots drink, and a plant keeps its roots",
+        # The plants-and-ants link: plant matter feeds the colony's garden,
+        # and the player's PRUNE harvests a plant without killing it.
+        "Fungus garden status — the colony farms what it carries home, and the player can prune",
         "Plant lines merged: the genome, and the ecology",
         "Inheritance status \u2014 the growth program has no fallback under it",
         "Parameter-genome status \u2014 a species file is a starting point, and it ships inert",
@@ -248,6 +251,8 @@ TOPICS = {
         # What a colony builds: the door, the dug entrance and the digging
         # rules that keep it one nest, and the granary with its nest workers.
         "Nest status — one door, a dug entrance, and a granary kept for the hungry",
+        # What grows in the nest: the colony farms the plant matter it carries home.
+        "Fungus garden status — the colony farms what it carries home, and the player can prune",
         # Breeding as a behaviour: the brain's Lay output, and where an egg goes.
         "Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile",
     ],
