@@ -495,6 +495,7 @@ impl Lab {
         }
         match seat {
             DemoSeat::Queen => queen::frame(self),
+            DemoSeat::Keeper => keeper::frame(self),
             DemoSeat::Scout => scout::frame(self),
             DemoSeat::Guest => guest::frame(self),
             DemoSeat::Enemy => enemy::frame(self),

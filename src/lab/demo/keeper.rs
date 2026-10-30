@@ -62,8 +62,57 @@
 //! asked for 10 ants and lifted about 6, because the nearest ants to the nest
 //! were stacked on one another and [`creature::set_down`] refuses a stack.
 //! The hand now picks the nearest ant it can lift (`creature::can_carry`).
+//!
+//! ## Stakes: windfalls, a limited hand, a round and a verdict (2026-10-30)
+//!
+//! The 10-30 review (`/mnt/project-files/seat-demos/review-2026-10-30/
+//! keeper/review.md`) found no loop: one burst of carries in the first
+//! minute, then watching a colony that thrived alone on a free station, with
+//! a hidden price (13 ants carried left the colony +42, -24 and -35 ants
+//! against the same seed idle, and the HUD never said so). **On by default;
+//! `stakes=0` is the sandbox above, unchanged**, for the paired comparison.
+//!
+//! - **Windfalls** ([`Patch`]): no station and no top-up. A heap of
+//!   provisions lands at a random far column every [`Rules::patch_every`]
+//!   frames (the first as the demo opens) and **rots** [`Rules::patch_life`]
+//!   frames later: what is left turns to ash, a grey heap the ants cannot eat
+//!   -- the mark a patch nobody reached leaves behind. The column sequence
+//!   comes from the box's seed, so the same seed drops the same windfalls.
+//! - **The nest ration is cut** to [`Rules::ration`] cells a 1,000 frames
+//!   once the round opens (the warm-up keeps the sandbox ration, so the
+//!   opening box is the sandbox's).
+//! - **The hand has charges** ([`Rules::charges`], one back every
+//!   [`Rules::recharge`] frames): a carry spends one. A carried ant is also
+//!   a forager or digger taken off its route, which the paired runs show is
+//!   a real price.
+//! - **Treats are bought from the pantry**: every windfall cell the colony
+//!   saves puts one in; a treat costs [`Rules::treat_cost`].
+//! - **Score: food saved**, the windfall cells the colony took before they
+//!   rotted (eaten there or carried off), from the cells left on each
+//!   windfall. **Not cells home** (`trip_deliveries`), which the brief
+//!   asked for and which is still counted and shown beside it: measured on
+//!   4 paired seeds, a good keeper stripped 7 of 8 windfalls against idle's
+//!   1 and still brought *fewer* cells home (19 against 24, seed 1), because
+//!   a taught ant eats at the windfall; and the hand-built ant (`-- oldant`)
+//!   books almost no `trip_deliveries` at all (0 on every idle seed), so a
+//!   score on it would read 0 on the ant the fun hunt plays.
+//! - **The lift tires the ant** ([`Rules::lift_cost`], a share of its
+//!   energy): set down on food it eats and recovers; set down on empty
+//!   ground it may not make it home. Without it, carrying ants out to bare
+//!   ground *helped* (careless above idle in 3 of 4 seeds): the hand moved
+//!   foragers into the field for free.
+//! - **The round** is [`Rules::round`] frames from the opening; **it is lost**
+//!   if the colony falls under [`Rules::lose_at`] ants. Either way the
+//!   verdict card comes up and the clock stops.
+//! - **The verdict** compares the colony with **the same seed left alone**: a
+//!   twin box built and run on a background thread by the window
+//!   ([`spawn_twin`]), from the same scenario and seed, with nobody's hand on
+//!   it. Its opening is fingerprinted against the player's ([`fingerprint`]),
+//!   and a twin that does not match is labelled as such on the card rather
+//!   than trusted. One extra core for ~15 s of a ~7 minute round at 1x.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use crate::sim::cell::{Cell, OrganismId};
 use crate::sim::creature::{self, recall};
@@ -73,14 +122,19 @@ use crate::sim::world::World;
 
 use super::super::Lab;
 
-/// The keeper seat's own keys, as the help line prints them.
-pub const SEAT_KEYS: &str = "Y CARRY, U TREAT, P LISTENING, J OVERLAY";
+/// The keeper seat's own keys, as the help line prints them. **`P`
+/// (listening) is not listed** (10-30 review: a developer A/B switch whose
+/// "scripted" broke the fiction); `listening=0` on the command line is the
+/// honest arm.
+pub const SEAT_KEYS: &str = "Y CARRY, U TREAT, J RINGS, K CARD";
 
 /// Food within this many cells of where an ant is set down (or treated) is
 /// what it remembers. The station heap spreads ~10 columns either side.
 pub const LESSON_R: i32 = 12;
 /// A press picks the ant whose head is nearest, within this many cells.
-const PICK_R: i32 = 6;
+/// **10, was 6** (10-30 review: 7 of 10 presses on the nest mouth missed a
+/// 1-3 px ant). A press snaps to the nearest liftable ant this close.
+const PICK_R: i32 = 10;
 /// Frames the box runs before the player gets it (`warmup=`): the landing's
 /// die-off (about 30 of 52 founders by frame 3,000, on every landing tried,
 /// `nest_goal`'s own included) happens before the demo opens, and the nest
@@ -109,6 +163,134 @@ const TOP_UP_EVERY: u64 = 60;
 /// as neutral, so the HUD has copies to count.
 pub const DEFAULT_GAIN: f32 = 6.0;
 pub const DEFAULT_COPY: f32 = 0.5;
+
+/// Columns either side of a windfall's landing column counted as "at" it:
+/// for its cells left, for "taken at a windfall", and for its rot. A
+/// 60-cell heap piles ~8 columns either side and slumps a little wider.
+pub const PATCH_R: i32 = 14;
+/// Rows above and below a windfall's landing surface its cells are looked
+/// for in (a heap stands ~8 rows; ants drop stray cells in their tunnels).
+const PATCH_UP: i32 = 30;
+const PATCH_DOWN: i32 = 12;
+/// Windfalls land between these columns: far from the nest (column 107),
+/// short of the east wall.
+pub const PATCH_MIN_X: i32 = 220;
+pub const PATCH_MAX_X: i32 = 490;
+/// The twin's read-out step, in frames.
+const TWIN_EVERY: u64 = 100;
+/// Frames a windfall's end ("STRIPPED", "ROTTED") stays written over it.
+const PATCH_NOTE: u64 = 1500;
+
+/// **The round's rules under stakes**, each a demo argument of the same name
+/// (`patch_every=3000` ...) so a sweep can move one without a rebuild.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rules {
+    /// Frames between windfalls; the first lands as the demo opens.
+    pub patch_every: u64,
+    /// Frames a windfall lies before what is left of it rots.
+    pub patch_life: u64,
+    /// Provisions cells in a windfall.
+    pub patch_cells: i32,
+    /// The hand's charges (and how many it opens with).
+    pub charges: u32,
+    /// Frames for one charge to come back.
+    pub recharge: u64,
+    /// Frames from the opening to the verdict.
+    pub round: u64,
+    /// The round is lost when fewer ants than this are alive.
+    pub lose_at: usize,
+    /// Nest ration cells a 1,000 frames once the round opens (the warm-up
+    /// keeps [`KeeperDemo::ration`]).
+    pub ration: u32,
+    /// Pantry cells a treat costs.
+    pub treat_cost: u32,
+    /// Share of a carried ant's energy the lift takes.
+    pub lift_cost: f32,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Self { patch_every: 3000, patch_life: 4500, patch_cells: 60, charges: 3, recharge: 1000, round: 24_000, lose_at: 10, ration: 0, treat_cost: 10, lift_cost: 0.5 }
+    }
+}
+
+/// How a windfall ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatchEnd {
+    /// The colony took every cell before it rotted.
+    Stripped,
+    /// It rotted with `left` cells uneaten (now ash).
+    Rotted { left: u32 },
+}
+
+/// **One windfall**: where it landed, when it rots, and what the colony made
+/// of it.
+#[derive(Clone, Copy, Debug)]
+pub struct Patch {
+    pub x: i32,
+    /// The surface it landed on.
+    pub y: i32,
+    pub landed: u64,
+    pub rots: u64,
+    /// Cells placed.
+    pub size: u32,
+    /// Cells still there at the last scan.
+    pub left: u32,
+    /// Cells taken here and put down at home.
+    pub home: u32,
+    /// Ants the hand set down within reach of it.
+    pub taught: u32,
+    pub ended: Option<(u64, PatchEnd)>,
+}
+
+impl Patch {
+    pub fn live(&self) -> bool {
+        self.ended.is_none()
+    }
+}
+
+/// Why the round ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ending {
+    /// The clock ran out.
+    Time,
+    /// The colony fell under [`Rules::lose_at`] ants.
+    Lost,
+}
+
+/// **The round's result, frozen when it ends**, so ticks that run on after
+/// it (the box does not stop for a harness) cannot move the card.
+#[derive(Clone, Copy, Debug)]
+pub struct RoundEnd {
+    pub frame: u64,
+    pub why: Ending,
+    pub ants: usize,
+    pub saved: u64,
+    pub home: u64,
+}
+
+/// One read-out of the idle twin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TwinPoint {
+    pub frame: u64,
+    pub ants: usize,
+    pub saved: u64,
+    pub home: u64,
+}
+
+/// **What the twin thread has written so far.** Shared with the thread
+/// behind a mutex; read on the HUD, a lock a displayed frame.
+#[derive(Debug, Default)]
+pub struct TwinLog {
+    /// The twin's [`fingerprint`] at its opening.
+    pub opening: Option<u64>,
+    pub points: Vec<TwinPoint>,
+    /// The twin reached the round's end (or lost).
+    pub done: bool,
+    /// The twin's own round ended this way, if it did.
+    pub ended: Option<RoundEnd>,
+    pub failed: Option<String>,
+}
 
 /// Which verb a press over the world is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -150,6 +332,23 @@ pub struct KeeperCounts {
     /// awake or dormant).
     pub arrivals: u64,
     pub taught_arrivals: u64,
+    /// **The score under stakes**: windfall cells taken at a windfall and
+    /// put down at home.
+    pub patch_home: u64,
+    /// **The score under stakes**: windfall cells the colony took before
+    /// they rotted, eaten there or carried off.
+    pub saved: u64,
+    pub patches: u64,
+    pub stripped: u64,
+    pub rotted: u64,
+    /// Cells that rotted uneaten.
+    pub rotted_cells: u64,
+    /// Carries the hand set down within reach of a live windfall.
+    pub carried_to_food: u64,
+    /// Presses refused for want of a charge, or treats for want of pantry.
+    pub refused: u64,
+    /// The fewest ants alive at any scan since the opening.
+    pub min_ants: usize,
 }
 
 /// The keeper seat's running state.
@@ -183,6 +382,38 @@ pub struct KeeperDemo {
     /// Ant-head counts per cell, halved every [`HEAT_HALF`] frames: the
     /// traffic overlay. Empty until the overlay is first shown.
     heat: Vec<u16>,
+    /// **Stakes on** (the default): windfalls, charges, the round and the
+    /// verdict. `stakes=0` is the sandbox.
+    pub stakes: bool,
+    pub rules: Rules,
+    /// Run the idle twin for the verdict (`twin=0` turns it off; a harness
+    /// starts it itself with [`start_twin`]).
+    pub twin_on: bool,
+    /// The warm-up is running: no round yet.
+    warming: bool,
+    /// The frame the round opened on, and the ants alive then.
+    pub opened: Option<u64>,
+    pub ants_at_open: usize,
+    /// [`fingerprint`] of the box at the opening, before any hand.
+    pub opening_print: Option<u64>,
+    pub patches: Vec<Patch>,
+    rng: u64,
+    next_patch: u64,
+    pub charges: u32,
+    recharge_at: u64,
+    /// Treats on hand: windfall cells saved, less treats bought.
+    pub pantry: u64,
+    treats_spent: u64,
+    pub ended: Option<RoundEnd>,
+    /// The verdict card is up (`K`; it comes up by itself at the end).
+    pub card: bool,
+    /// Where the pointer is while an ant is in the hand.
+    pub hand_at: Option<(i32, i32)>,
+    /// The idle twin, once started.
+    pub twin: Option<Arc<Mutex<TwinLog>>>,
+    /// Ants seen taking food at a windfall: their `trip_deliveries` then,
+    /// and which windfall (an index into `patches`).
+    patch_haul: BTreeMap<OrganismId, (u32, usize)>,
 }
 
 impl Default for KeeperDemo {
@@ -204,16 +435,75 @@ impl Default for KeeperDemo {
             held: None,
             warmup: DEFAULT_WARMUP,
             heat: Vec::new(),
+            stakes: true,
+            rules: Rules::default(),
+            twin_on: true,
+            warming: false,
+            opened: None,
+            ants_at_open: 0,
+            opening_print: None,
+            patches: Vec::new(),
+            rng: 0,
+            next_patch: 0,
+            charges: Rules::default().charges,
+            recharge_at: 0,
+            pantry: 0,
+            treats_spent: 0,
+            ended: None,
+            card: false,
+            hand_at: None,
+            twin: None,
+            patch_haul: BTreeMap::new(),
         }
     }
 }
 
 impl KeeperDemo {
+    /// **The same settings, every running count cleared**: what a rebuilt
+    /// box (`Lab::reset`) starts from.
+    fn fresh(&self) -> Self {
+        Self {
+            gain: self.gain,
+            copy: self.copy,
+            listening: self.listening,
+            station_x: self.station_x,
+            ration: self.ration,
+            tool: self.tool,
+            overlay: self.overlay,
+            warmup: self.warmup,
+            stakes: self.stakes,
+            rules: self.rules,
+            twin_on: self.twin_on,
+            charges: self.rules.charges,
+            ..KeeperDemo::default()
+        }
+    }
+
     /// The demo's settings from the command line: `gain=`, `copy=`,
-    /// `station=`, `ration=`, `listening=0`.
+    /// `station=`, `ration=`, `listening=0`, `stakes=0`, `twin=0`, and each
+    /// of [`Rules`]' fields by name.
     pub fn from_args(args: &BTreeMap<String, String>) -> Self {
         let mut k = Self::default();
         let num = |key: &str| args.get(key).map(|v| v.parse::<f32>().unwrap_or_else(|_| panic!("demo=keeper: {key}={v:?} is not a number")));
+        let int = |key: &str| args.get(key).map(|v| v.parse::<u64>().unwrap_or_else(|_| panic!("demo=keeper: {key}={v:?} is not a whole number")));
+        if let Some(s) = int("stakes") {
+            k.stakes = s != 0;
+        }
+        if let Some(t) = int("twin") {
+            k.twin_on = t != 0;
+        }
+        let r = &mut k.rules;
+        r.patch_every = int("patch_every").unwrap_or(r.patch_every).max(1);
+        r.patch_life = int("patch_life").unwrap_or(r.patch_life);
+        r.patch_cells = int("patch_cells").map_or(r.patch_cells, |v| v as i32);
+        r.charges = int("charges").map_or(r.charges, |v| v as u32);
+        r.recharge = int("recharge").unwrap_or(r.recharge).max(1);
+        r.round = int("round").unwrap_or(r.round);
+        r.lose_at = int("lose_at").map_or(r.lose_at, |v| v as usize);
+        r.ration = int("stakes_ration").map_or(r.ration, |v| v as u32);
+        r.treat_cost = int("treat_cost").map_or(r.treat_cost, |v| v as u32);
+        r.lift_cost = num("lift_cost").unwrap_or(r.lift_cost).clamp(0.0, 1.0);
+        k.charges = k.rules.charges;
         if let Some(g) = num("gain") {
             k.gain = g;
         }
@@ -252,7 +542,7 @@ pub fn station_place(world: &World, k: &KeeperDemo) -> (i32, i32) {
 
 /// The ground (or the top of the heap) in column `x`, looked for from under
 /// the lid: the first non-empty row from the top is the box's own ceiling.
-fn surface_under(world: &World, x: i32) -> i32 {
+pub fn surface_under(world: &World, x: i32) -> i32 {
     let top = world.enclosure().map_or(0, |e| e.ceiling_y + 1);
     creature::colony_surface(world, x, top).unwrap_or(super::super::HEIGHT as i32 / 2)
 }
@@ -298,9 +588,74 @@ fn ensure_recall(lab: &mut Lab) {
 /// `seed=`): run the warm-up with nobody watching.
 pub fn on_start(lab: &mut Lab) {
     let warmup = keeper(lab).map_or(0, |k| k.warmup);
+    if let Some(k) = keeper_mut(lab) {
+        k.warming = true;
+    }
     for _ in 0..warmup {
         lab.tick_for_harness();
     }
+    let seed = lab.spec.seed;
+    let print = fingerprint(&lab.world);
+    let frame = lab.world.frame;
+    let alive = live_ants(&lab.world);
+    if let Some(k) = keeper_mut(lab) {
+        k.warming = false;
+        k.opening_print = Some(print);
+        open_round(k, frame, alive, seed);
+    }
+}
+
+/// **Open the round** at `frame`: the windfall sequence is seeded from the
+/// box's seed, so the same seed drops the same windfalls in the same order
+/// (the twin's and the player's box alike).
+fn open_round(k: &mut KeeperDemo, frame: u64, alive: usize, seed: u64) {
+    k.opened = Some(frame);
+    k.ants_at_open = alive;
+    k.counts.min_ants = alive;
+    k.rng = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x6B65_6570_6572;
+    k.next_patch = frame;
+    k.charges = k.rules.charges;
+    k.recharge_at = frame + k.rules.recharge;
+}
+
+/// splitmix64: the windfall columns. The demo's own stream, so it never
+/// draws from (and never shifts) the world's.
+fn next_rand(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+fn live_ants(world: &World) -> usize {
+    let Some(ant) = world.species.id_of("ant") else { return 0 };
+    world.live_organism_ids().into_iter().filter(|&id| world.organism(id).is_some_and(|s| s.species == ant)).count()
+}
+
+/// **The box's fingerprint**: every cell's material and every live ant's
+/// head, FNV-1a. Two boxes built from the same scenario and seed agree on
+/// it at the opening; a twin that does not is not the player's box left
+/// alone, and the card says so instead of trusting it.
+pub fn fingerprint(world: &World) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |v: u64| {
+        h ^= v;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    };
+    let (w, ht) = (super::super::WIDTH as i32, super::super::HEIGHT as i32);
+    for y in 0..ht {
+        for x in 0..w {
+            eat(u64::from(world.get(x, y).material.0));
+        }
+    }
+    for id in world.live_organism_ids() {
+        if let Some(&(x, y)) = world.organism(id).and_then(|s| s.chain.first()) {
+            eat(((x as u64) << 32) ^ (y as u32 as u64));
+        }
+    }
+    eat(world.frame);
+    h
 }
 
 /// One of the seat keys (`Y U P J K R`) was pressed.
@@ -310,16 +665,25 @@ pub fn seat_key(lab: &mut Lab, key: char) {
         'Y' => {
             k.tool = if k.tool == Tool::Carry { Tool::None } else { Tool::Carry };
             k.held = None;
-            if k.tool == Tool::Carry { "CARRY: PRESS ON AN ANT, RELEASE WHERE IT GOES -- NEAR FOOD IT REMEMBERS THE PLACE" } else { "CARRY OFF" }.to_string()
+            k.hand_at = None;
+            if k.tool == Tool::Carry { "CARRY: PRESS ON AN ANT, DRAG IT TO FOOD, LET GO" } else { "CARRY OFF" }.to_string()
         }
         'U' => {
             k.tool = if k.tool == Tool::Treat { Tool::None } else { Tool::Treat };
             k.held = None;
-            if k.tool == Tool::Treat { "TREAT: CLICK AN ANT TO FEED IT A MOUTHFUL -- AWAY FROM HOME IT REMEMBERS WHERE" } else { "TREAT OFF" }.to_string()
+            k.hand_at = None;
+            if k.stakes {
+                format!("TREAT: CLICK AN ANT TO FEED IT -- COSTS {} FROM THE PANTRY", k.rules.treat_cost)
+            } else {
+                "TREAT: CLICK AN ANT TO FEED IT A MOUTHFUL -- AWAY FROM HOME IT REMEMBERS WHERE".to_string()
+            }
         }
-        'P' => {
-            k.listening = !k.listening;
-            listening_line(k)
+        // `P` (listening) is no longer a player's key: `listening=0` on the
+        // command line. Swallowed, so it does not fall through to the lab.
+        'P' => return,
+        'K' => {
+            k.card = !k.card;
+            if k.card { "THE CARD: YOUR COLONY AGAINST THE SAME SEED LEFT ALONE (K CLOSES)" } else { "CARD CLOSED" }.to_string()
         }
         'J' => {
             k.overlay = match k.overlay {
@@ -340,39 +704,168 @@ pub fn seat_key(lab: &mut Lab, key: char) {
     lab.ui.say(msg);
 }
 
-fn listening_line(k: &KeeperDemo) -> String {
-    if k.listening {
-        format!("LISTENING: SCRIPTED GAIN {} (TAUGHT ANTS LEAN TOWARD WHAT THEY REMEMBER)", k.gain)
-    } else {
-        "LISTENING: OFF (TODAY'S ANTS)".to_string()
+/// **Once a displayed frame** (the window only; a harness never calls it):
+/// start the idle twin the first time, so the verdict has its comparison.
+pub fn frame(lab: &mut Lab) {
+    let want = keeper(lab).is_some_and(|k| k.stakes && k.twin_on && k.twin.is_none() && k.opened.is_some());
+    if want {
+        start_twin(lab);
     }
 }
 
-/// Once a displayed frame.
-pub fn frame(_lab: &mut Lab) {}
+/// **Start the idle twin** for this box: the same scenario, seed and
+/// arguments, built and run on its own thread with nobody's hand on it, to
+/// the end of the round. Its read-outs land in [`KeeperDemo::twin`].
+pub fn start_twin(lab: &mut Lab) {
+    let Some(demo) = lab.demo.as_ref() else { return };
+    let mut args = demo.args.clone();
+    args.insert("seed".to_string(), lab.spec.seed.to_string());
+    // The twin thinks with the same brain as the player's box (`-- oldant`).
+    args.insert("twin_oldant".to_string(), if lab.new_ant { "0" } else { "1" }.to_string());
+    let Some(k) = keeper(lab) else { return };
+    let until = k.opened.unwrap_or(k.warmup) + k.rules.round;
+    let log = spawn_twin(args, until);
+    if let Some(k) = keeper_mut(lab) {
+        k.twin = Some(log);
+    }
+}
+
+/// [`start_twin`]'s thread. Public so a harness can check the twin against
+/// an idle arm it ran itself (they must agree to the ant).
+pub fn spawn_twin(mut args: BTreeMap<String, String>, until: u64) -> Arc<Mutex<TwinLog>> {
+    let log = Arc::new(Mutex::new(TwinLog::default()));
+    let out = log.clone();
+    args.insert("twin".to_string(), "0".to_string());
+    let spawned = std::thread::Builder::new().name("keeper-twin".to_string()).spawn(move || {
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_twin(args, until, &out)));
+        if let Err(e) = ran {
+            let why = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+            if let Ok(mut l) = out.lock() {
+                l.failed = Some(why);
+                l.done = true;
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        if let Ok(mut l) = log.lock() {
+            l.failed = Some(e.to_string());
+            l.done = true;
+        }
+    }
+    log
+}
+
+fn run_twin(args: BTreeMap<String, String>, until: u64, out: &Arc<Mutex<TwinLog>>) {
+    let sc = match super::super::scenario::Scenario::load("demo_keeper") {
+        Ok(s) => s,
+        Err(e) => {
+            if let Ok(mut l) = out.lock() {
+                l.failed = Some(e);
+                l.done = true;
+            }
+            return;
+        }
+    };
+    let mut lab = Lab::new(sc.bed.clone());
+    lab.set_new_ant(args.get("twin_oldant").is_none_or(|v| v != "1"));
+    lab.start_demo_with(super::DemoSeat::Keeper, args);
+    let print = keeper(&lab).and_then(|k| k.opening_print);
+    if let Ok(mut l) = out.lock() {
+        l.opening = print;
+    }
+    loop {
+        let f = lab.world.frame;
+        let k = keeper(&lab);
+        let ended = k.and_then(|k| k.ended);
+        if f.is_multiple_of(TWIN_EVERY) || f >= until || ended.is_some() {
+            let point = TwinPoint { frame: f, ants: live_ants(&lab.world), saved: k.map_or(0, |k| k.counts.saved), home: k.map_or(0, |k| k.counts.patch_home) };
+            if let Ok(mut l) = out.lock() {
+                l.points.push(point);
+                l.ended = ended;
+            }
+        }
+        if f >= until || ended.is_some() {
+            break;
+        }
+        lab.tick_for_harness();
+    }
+    if let Ok(mut l) = out.lock() {
+        l.done = true;
+    }
+}
+
+/// What the twin says, for the HUD and the card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwinRead {
+    /// No twin (`twin=0`, `stakes=0`, or not started yet).
+    Off,
+    /// The twin has not reached this frame yet.
+    Behind { at: u64 },
+    /// The twin's opening did not match this box's.
+    Mismatch,
+    Failed,
+    /// The twin at (or just before) the frame asked for.
+    At(TwinPoint),
+}
+
+/// **The twin at `frame`**: its last read-out at or before `frame`, once it
+/// has got that far. A twin whose round ended earlier (lost) holds its last
+/// point.
+pub fn twin_at(k: &KeeperDemo, frame: u64) -> TwinRead {
+    let Some(t) = k.twin.as_ref() else { return TwinRead::Off };
+    let Ok(l) = t.lock() else { return TwinRead::Failed };
+    if l.failed.is_some() {
+        return TwinRead::Failed;
+    }
+    if let (Some(a), Some(b)) = (l.opening, k.opening_print) {
+        if a != b {
+            return TwinRead::Mismatch;
+        }
+    }
+    let last = l.points.last().copied();
+    match last {
+        Some(p) if p.frame >= frame || l.done => {
+            let at = l.points.iter().rev().find(|p| p.frame <= frame).copied().unwrap_or(p);
+            TwinRead::At(at)
+        }
+        _ => TwinRead::Behind { at: last.map_or(0, |p| p.frame) },
+    }
+}
 
 /// Before each simulated tick.
 pub fn before_tick(lab: &mut Lab) {
     ensure_recall(lab);
 }
 
-/// After each simulated tick: the counters, the station top-up, the ration.
+/// After each simulated tick: the counters, the station top-up (sandbox) or
+/// the windfalls, charges and the round (stakes), the ration.
 pub fn after_tick(lab: &mut Lab) {
     let frame = lab.world.frame;
     let Some(mut k) = lab.demo.as_mut().and_then(|d| d.keeper.take()) else { return };
     // **A rebuilt box starts the counts again** (`Lab::reset` makes a new
     // `World` whose frame restarts): yesterday's ids mean other ants now.
+    // The round opens again on the rebuilt box's first tick (no warm-up).
     if frame < k.last_scan {
-        k = KeeperDemo { gain: k.gain, copy: k.copy, listening: k.listening, station_x: k.station_x, ration: k.ration, tool: k.tool, overlay: k.overlay, warmup: k.warmup, ..KeeperDemo::default() };
+        k = k.fresh();
+        open_round(&mut k, frame, live_ants(&lab.world), lab.spec.seed);
     }
+    let playing = k.stakes && !k.warming && k.opened.is_some();
     if frame.is_multiple_of(SCAN_EVERY) {
+        let since = k.last_scan;
         scan(&mut lab.world, &mut k, frame);
+        if playing {
+            scan_patches(lab, &mut k, frame, since);
+        }
     }
-    if frame.is_multiple_of(TOP_UP_EVERY) {
+    if !k.stakes && frame.is_multiple_of(TOP_UP_EVERY) {
         top_up_station(lab, &mut k);
     }
-    if frame.is_multiple_of(1000) && k.ration > 0 {
-        give_ration(&mut lab.world, &mut k);
+    let ration = if playing { k.rules.ration } else { k.ration };
+    if frame.is_multiple_of(1000) && ration > 0 {
+        give_ration(&mut lab.world, &mut k, ration);
+    }
+    if playing && k.ended.is_none() {
+        play(lab, &mut k, frame);
     }
     if frame.is_multiple_of(600) {
         recall::prune(&mut lab.world);
@@ -455,13 +948,227 @@ fn top_up_station(lab: &mut Lab, k: &mut KeeperDemo) {
     k.station_cells = station_food(&lab.world, k);
 }
 
+/// Seconds at 1x, for the notices and the HUD.
+fn secs(frames: u64) -> u64 {
+    frames.div_ceil(60)
+}
+
+/// **The round under stakes, one tick**: a charge back, a windfall due, a
+/// windfall rotting, and the round's end.
+fn play(lab: &mut Lab, k: &mut KeeperDemo, frame: u64) {
+    if k.charges >= k.rules.charges {
+        k.recharge_at = frame + k.rules.recharge;
+    } else if frame >= k.recharge_at {
+        k.charges += 1;
+        k.recharge_at = frame + k.rules.recharge;
+    }
+    if frame >= k.next_patch {
+        k.next_patch = frame + k.rules.patch_every;
+        drop_patch(lab, k, frame);
+    }
+    for i in 0..k.patches.len() {
+        if k.patches[i].live() && frame >= k.patches[i].rots {
+            rot_patch(lab, k, i, frame);
+        }
+    }
+    if frame.is_multiple_of(SCAN_EVERY) {
+        let alive = live_ants(&lab.world);
+        k.counts.min_ants = k.counts.min_ants.min(alive);
+        let opened = k.opened.unwrap_or(frame);
+        let why = if alive < k.rules.lose_at {
+            Some(Ending::Lost)
+        } else if frame >= opened + k.rules.round {
+            Some(Ending::Time)
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            k.ended = Some(RoundEnd { frame, why, ants: alive, saved: k.counts.saved, home: k.counts.patch_home });
+            k.card = true;
+            k.held = None;
+            k.hand_at = None;
+            lab.time.pause();
+            lab.ui.say(match why {
+                Ending::Lost => format!("THE COLONY IS LOST: {alive} ANTS LEFT -- THE CARD IS UP (K CLOSES)"),
+                Ending::Time => "THE ROUND IS OVER -- THE CARD IS UP (K CLOSES)".to_string(),
+            });
+        }
+    }
+}
+
+/// **Drop a windfall** at a seeded random far column, clear of every live
+/// one, and say where.
+fn drop_patch(lab: &mut Lab, k: &mut KeeperDemo, frame: u64) {
+    let span = (PATCH_MAX_X - PATCH_MIN_X + 1) as u64;
+    let mut x = PATCH_MIN_X;
+    for _ in 0..16 {
+        x = PATCH_MIN_X + (next_rand(&mut k.rng) % span) as i32;
+        if k.patches.iter().all(|p| !p.live() || (p.x - x).abs() > 2 * PATCH_R + 6) {
+            break;
+        }
+    }
+    let y = surface_under(&lab.world, x);
+    let placed = super::super::scenario::apply_placements(
+        &mut lab.world,
+        &[super::super::scenario::Placement::Heap { material: "provisions".into(), x, cells: k.rules.patch_cells }],
+        &lab.spec,
+    );
+    if placed.cells == 0 {
+        return;
+    }
+    let size = placed.cells as u32;
+    k.patches.push(Patch { x, y, landed: frame, rots: frame + k.rules.patch_life, size, left: size, home: 0, taught: 0, ended: None });
+    k.counts.patches += 1;
+    lab.ui.say(format!("A WINDFALL LANDED AT {x} -- IT ROTS IN {}S. CARRY ANTS TO IT", secs(k.rules.patch_life)));
+}
+
+/// A windfall's cells: (x0, x1, y0, y1), inclusive.
+fn patch_rect(p: &Patch) -> (i32, i32, i32, i32) {
+    let (w, h) = (super::super::WIDTH as i32, super::super::HEIGHT as i32);
+    ((p.x - PATCH_R).max(0), (p.x + PATCH_R).min(w - 1), (p.y - PATCH_UP).max(0), (p.y + PATCH_DOWN).min(h - 1))
+}
+
+fn patch_food(world: &World, p: &Patch) -> u32 {
+    let Some(food) = world.materials.id_of("provisions") else { return 0 };
+    let (x0, x1, y0, y1) = patch_rect(p);
+    let mut n = 0;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if world.get(x, y).material == food {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// **A windfall rots**: what is left of it turns to ash, a grey heap the
+/// ants cannot eat, where everyone can see the food that was lost.
+fn rot_patch(lab: &mut Lab, k: &mut KeeperDemo, i: usize, frame: u64) {
+    let world = &mut lab.world;
+    let (Some(food), Some(ash)) = (world.materials.id_of("provisions"), world.materials.id_of("ash")) else { return };
+    let (x0, x1, y0, y1) = patch_rect(&k.patches[i]);
+    let mut left = 0u32;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if world.get(x, y).material == food {
+                world.set(x, y, Cell::new(ash, 0));
+                left += 1;
+            }
+        }
+    }
+    let p = &mut k.patches[i];
+    p.left = 0;
+    p.ended = Some((frame, PatchEnd::Rotted { left }));
+    k.counts.rotted += 1;
+    k.counts.rotted_cells += u64::from(left);
+    lab.ui.say(format!("THE WINDFALL AT {} ROTTED: {left} CELLS LOST, {} HOME", p.x, p.home));
+}
+
+/// **The windfalls' scan**: cells left on each (a windfall eaten to nothing
+/// is stripped), and the windfall cells ants carry home -- the score, by
+/// `trip_deliveries` exactly as the station's count is.
+fn scan_patches(lab: &mut Lab, k: &mut KeeperDemo, frame: u64, since: u64) {
+    for i in 0..k.patches.len() {
+        if !k.patches[i].live() {
+            continue;
+        }
+        let left = patch_food(&lab.world, &k.patches[i]);
+        let p = &mut k.patches[i];
+        p.left = left;
+        if left == 0 {
+            p.ended = Some((frame, PatchEnd::Stripped));
+            k.counts.stripped += 1;
+            let (x, home) = (p.x, p.home);
+            lab.ui.say(format!("THE WINDFALL AT {x} IS STRIPPED BARE -- {home} CELLS HOME SO FAR"));
+        }
+    }
+    k.counts.saved = k
+        .patches
+        .iter()
+        .map(|p| {
+            let gone = match p.ended {
+                Some((_, PatchEnd::Rotted { left })) => left,
+                _ => p.left,
+            };
+            u64::from(p.size.saturating_sub(gone))
+        })
+        .sum();
+    k.pantry = k.counts.saved.saturating_sub(k.treats_spent);
+    let world = &lab.world;
+    let Some(ant) = world.species.id_of("ant") else { return };
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if st.species != ant {
+            continue;
+        }
+        let trips = st.life.trip_deliveries;
+        let at = st.last_food.and_then(|(x, _, _)| k.patches.iter().rposition(|p| (x - p.x).abs() <= PATCH_R));
+        let fresh = st.last_food.is_some_and(|(_, _, f)| f > since);
+        if let Some(&(before, i)) = k.patch_haul.get(&id) {
+            if trips > before {
+                let d = trips - before;
+                k.patches[i].home += d;
+                k.counts.patch_home += u64::from(d);
+                k.patch_haul.remove(&id);
+            } else if at != Some(i) {
+                k.patch_haul.remove(&id);
+            }
+        } else if let (Some(i), true, true) = (at, fresh, st.crop.is_some()) {
+            k.patch_haul.insert(id, (trips, i));
+        }
+    }
+    k.patch_haul.retain(|&id, _| world.organism(id).is_some());
+}
+
+/// The hand is limited now: stakes on, the round open and not over.
+fn limited(k: &KeeperDemo) -> bool {
+    k.stakes && k.opened.is_some() && k.ended.is_none() && !k.warming
+}
+
+/// **The hand's CARRY**, the player's and a harness's one path: set `ant`
+/// down at `to`, spend a charge, and teach it the food there if any. Under
+/// stakes with no charge left it refuses, and says when one comes back.
+/// Returns where it landed and what it was taught.
+pub fn hand_carry(lab: &mut Lab, ant: OrganismId, to: (i32, i32)) -> Result<((i32, i32), Option<(i32, i32)>), String> {
+    let frame = lab.world.frame;
+    let Some(k) = keeper_mut(lab) else { return Err("NO KEEPER DEMO".to_string()) };
+    let limit = limited(k);
+    if limit && k.charges == 0 {
+        k.counts.refused += 1;
+        return Err(format!("NO CHARGES LEFT -- ONE COMES BACK IN {}S", secs(k.recharge_at.saturating_sub(frame))));
+    }
+    let at = creature::set_down(&mut lab.world, ant, to).map_err(|why| format!("CANNOT SET IT DOWN THERE: {}", why.to_uppercase()))?;
+    if limit {
+        let cost = keeper(lab).map_or(0.0, |k| k.rules.lift_cost);
+        if let Some(st) = lab.world.organism_mut(ant) {
+            st.energy *= 1.0 - cost;
+        }
+    }
+    let taught = teach_near(lab, ant, at);
+    lab.world.log_player_action(format!("KEEPER CARRIED ANT {ant:?} TO {},{}{}", at.0, at.1, if taught.is_some() { ", TAUGHT" } else { "" }));
+    if let Some(k) = keeper_mut(lab) {
+        k.counts.carried += 1;
+        if limit {
+            k.charges -= 1;
+        }
+        if let Some(f) = taught {
+            if let Some(i) = k.patches.iter().rposition(|p| p.live() && (f.0 - p.x).abs() <= PATCH_R) {
+                k.patches[i].taught += 1;
+                k.counts.carried_to_food += 1;
+            }
+        }
+    }
+    Ok((at, taught))
+}
+
 /// **The ration**: up to `ration` provisions cells onto empty home cells
 /// with ground under them, deepest first (inside the chamber, not on the
 /// mound), never more than four rations standing. No home dug yet: nothing.
-fn give_ration(world: &mut World, k: &mut KeeperDemo) {
+fn give_ration(world: &mut World, k: &mut KeeperDemo, ration: u32) {
     let Some(food) = world.materials.id_of("provisions") else { return };
     k.ration_cells.retain(|&(x, y)| world.get(x, y).material == food);
-    let room = (4 * k.ration as usize).saturating_sub(k.ration_cells.len()).min(k.ration as usize);
+    let room = (4 * ration as usize).saturating_sub(k.ration_cells.len()).min(ration as usize);
     if room == 0 {
         return;
     }
@@ -591,42 +1298,68 @@ pub fn mouse(lab: &mut Lab, cell: (i32, i32), act: super::MouseAct) -> bool {
     match (tool, act) {
         (Tool::None, _) => false,
         (Tool::Carry, super::MouseAct::Press { .. }) => {
+            let frame = lab.world.frame;
+            if let Some(k) = keeper_mut(lab).filter(|k| limited(k) && k.charges == 0) {
+                k.counts.refused += 1;
+                let wait = secs(k.recharge_at.saturating_sub(frame));
+                lab.ui.say(format!("NO CHARGES LEFT -- ONE COMES BACK IN {wait}S"));
+                return true;
+            }
             let ant = ant_at(&lab.world, cell);
             if let Some(k) = keeper_mut(lab) {
                 k.held = ant;
+                k.hand_at = ant.map(|_| cell);
             }
-            if ant.is_none() {
-                lab.ui.say("CARRY: NO ANT UNDER THE HAND".to_string());
+            lab.ui.say(if ant.is_some() { "IN THE HAND -- DRAG IT TO A WINDFALL AND LET GO".to_string() } else { format!("CARRY: NO ANT WITHIN {PICK_R} CELLS OF THE HAND") });
+            true
+        }
+        (Tool::Carry, super::MouseAct::Drag) => {
+            if let Some(k) = keeper_mut(lab).filter(|k| k.held.is_some()) {
+                k.hand_at = Some(cell);
             }
             true
         }
-        (Tool::Carry, super::MouseAct::Drag) => true,
         (Tool::Carry, super::MouseAct::Release) => {
-            let Some(ant) = keeper_mut(lab).and_then(|k| k.held.take()) else { return true };
-            let msg = match creature::set_down(&mut lab.world, ant, cell) {
-                Ok(at) => {
-                    if let Some(k) = keeper_mut(lab) {
-                        k.counts.carried += 1;
-                    }
-                    match teach_near(lab, ant, at) {
-                        Some(f) => format!("SET DOWN AT {}, {} -- IT REMEMBERS THE FOOD AT {}, {}", at.0, at.1, f.0, f.1),
-                        None => format!("SET DOWN AT {}, {} -- NO FOOD AWAY FROM HOME WITHIN {LESSON_R} CELLS, SO NOTHING TO REMEMBER", at.0, at.1),
+            let Some(ant) = keeper_mut(lab).and_then(|k| {
+                k.hand_at = None;
+                k.held.take()
+            }) else {
+                return true;
+            };
+            let msg = match hand_carry(lab, ant, cell) {
+                Ok((_, Some(f))) => {
+                    let k = keeper(lab);
+                    let charges = k.map_or(0, |k| k.charges);
+                    match k.and_then(|k| k.patches.iter().rev().find(|p| p.live() && (f.0 - p.x).abs() <= PATCH_R)) {
+                        Some(p) => format!("SET DOWN -- IT KNOWS THE WINDFALL AT {} ({charges} CHARGES LEFT)", p.x),
+                        None => format!("SET DOWN -- IT REMEMBERS THE FOOD AT {}, {}", f.0, f.1),
                     }
                 }
-                Err(why) => format!("CANNOT SET IT DOWN THERE: {}", why.to_uppercase()),
+                Ok((_, None)) => "SET DOWN AWAY FROM FOOD -- TIRED BY THE LIFT, NOTHING TO EAT".to_string(),
+                Err(why) => why,
             };
             lab.ui.say(msg);
             true
         }
         (Tool::Treat, super::MouseAct::Press { .. }) => {
+            if let Some(k) = keeper_mut(lab).filter(|k| limited(k) && k.pantry < u64::from(k.rules.treat_cost)) {
+                k.counts.refused += 1;
+                lab.ui.say("PANTRY EMPTY -- BRING WINDFALL FOOD HOME TO EARN TREATS".to_string());
+                return true;
+            }
             let msg = match ant_at(&lab.world, cell) {
-                None => "TREAT: NO ANT UNDER THE HAND".to_string(),
+                None => format!("TREAT: NO ANT WITHIN {PICK_R} CELLS OF THE HAND"),
                 Some(ant) => {
                     let Some(food) = lab.world.materials.id_of("provisions") else { return true };
                     let worth = creature::food_value(&lab.world, Cell::new(food, 0));
                     if creature::treat(&mut lab.world, ant, food, worth) {
+                        lab.world.log_player_action(format!("KEEPER TREATED ANT {ant:?}"));
                         if let Some(k) = keeper_mut(lab) {
                             k.counts.treated += 1;
+                            if limited(k) {
+                                k.pantry -= u64::from(k.rules.treat_cost);
+                                k.treats_spent += u64::from(k.rules.treat_cost);
+                            }
                         }
                         let at = lab.world.organism(ant).and_then(|s| s.chain.first().copied()).unwrap_or(cell);
                         let taught = (!creature::is_home_for(&lab.world, ant, at)).then(|| {
@@ -699,45 +1432,306 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             }
         }
     }
-    if k.overlay != Overlay::Off {
+    if k.overlay != Overlay::Off && !k.stakes {
         let st = station_place(&lab.world, k);
         ring(lab, frame_buf, st, STATION_R, [80, 220, 80, 255]);
     }
-    if let Some(&head) = k.held.and_then(|id| lab.world.organism(id)).and_then(|s| s.chain.first()) {
-        ring(lab, frame_buf, head, 3, [80, 220, 255, 255]);
+    if k.stakes {
+        draw_patches(lab, k, frame_buf);
+    }
+    if let Some((id, st)) = k.held.and_then(|id| lab.world.organism(id).map(|s| (id, s))) {
+        let Some(&head) = st.chain.first() else { return };
+        // **The ant rides the hand** (10-30 review: dragging did nothing and
+        // the release teleported it). The real ant stays put until the
+        // release (`set_down` is the one move); its body is drawn at the
+        // pointer, ringed in cyan, with a dim ring where it was picked up.
+        // The ring under the pointer turns green over food it would learn.
+        ring(lab, frame_buf, head, 3, [40, 110, 130, 255]);
+        let at = k.hand_at.unwrap_or(head);
+        let body = [255, 230, 90, 255];
+        for &(x, y) in &st.chain {
+            let (dx, dy) = (x - head.0, y - head.1);
+            for (ox, oy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                put_world(lab, frame_buf, (at.0 + 2 * dx + ox, at.1 + 2 * dy + oy), body);
+            }
+        }
+        let learns = food_near(&lab.world, at).is_some_and(|f| !creature::is_home_for(&lab.world, id, f));
+        ring(lab, frame_buf, at, 5, if learns { [80, 240, 100, 255] } else { [80, 220, 255, 255] });
+    }
+}
+
+/// Time-left colours for a windfall: fresh, half gone, about to rot.
+const PATCH_FRESH: [u8; 4] = [90, 230, 110, 255];
+const PATCH_HALF: [u8; 4] = [240, 200, 60, 255];
+const PATCH_LATE: [u8; 4] = [240, 80, 50, 255];
+const PATCH_ROT: [u8; 4] = [140, 140, 140, 255];
+
+/// **The windfalls on the box**: a ring around each live one coloured by
+/// how long it has left, a bar that empties as it ages, and the seconds and
+/// cells home written over it; a stripped or rotted one keeps its verdict
+/// written over it for a while.
+fn draw_patches(lab: &Lab, k: &KeeperDemo, frame_buf: &mut [u8]) {
+    let hc = super::super::ui::hud_canvas(&lab.renderer);
+    let frame = lab.world.frame;
+    let text = |x: i32, y: i32, s: &str, colour: [u8; 4], frame_buf: &mut [u8]| {
+        if let Some((sx, sy)) = lab.renderer.world_to_logical(x, y) {
+            hc.text(frame_buf, sx - crate::hud::text_width(s) / 2, sy, s, colour);
+        }
+    };
+    for p in &k.patches {
+        let top = p.y - 22;
+        match p.ended {
+            None => {
+                let life = p.rots.saturating_sub(p.landed).max(1);
+                let left = p.rots.saturating_sub(frame);
+                let frac = left as f32 / life as f32;
+                let colour = if frac > 0.5 {
+                    PATCH_FRESH
+                } else if frac > 0.2 {
+                    PATCH_HALF
+                } else {
+                    PATCH_LATE
+                };
+                ring(lab, frame_buf, (p.x, p.y - 6), 11, colour);
+                let w = (2 * PATCH_R) as f32;
+                let fill = (w * frac).round() as i32;
+                for dx in 0..=(2 * PATCH_R) {
+                    let c = if dx <= fill { colour } else { PATCH_ROT };
+                    put_world(lab, frame_buf, (p.x - PATCH_R + dx, top), c);
+                    put_world(lab, frame_buf, (p.x - PATCH_R + dx, top + 1), c);
+                }
+                let label = if p.home > 0 { format!("{}S  +{}", secs(left), p.home) } else { format!("{}S", secs(left)) };
+                text(p.x, top - 9, &label, colour, frame_buf);
+            }
+            Some((at, end)) if frame.saturating_sub(at) < PATCH_NOTE => {
+                let (label, colour) = match end {
+                    PatchEnd::Stripped => (format!("STRIPPED +{}", p.home), [255, 255, 255, 255]),
+                    PatchEnd::Rotted { left } => (format!("ROTTED -{left}"), PATCH_ROT),
+                };
+                text(p.x, top - 9, &label, colour, frame_buf);
+            }
+            Some(_) => {}
+        }
     }
 }
 
 /// Whether [`draw_world`] drew anything this frame.
 pub fn marks_world(lab: &Lab) -> bool {
-    keeper(lab).is_some_and(|k| k.overlay != Overlay::Off || k.held.is_some())
+    keeper(lab).is_some_and(|k| {
+        let f = lab.world.frame;
+        k.overlay != Overlay::Off || k.held.is_some() || (k.stakes && k.patches.iter().any(|p| p.ended.is_none_or(|(at, _)| f.saturating_sub(at) < PATCH_NOTE)))
+    })
 }
+
+/// **What the rings show**, counted the way they are drawn: ants with a
+/// taught or fed record whose lesson is awake (white, amber, red), and those
+/// whose record is asleep (grey). The 10-30 review found the HUD's "KNOW IT
+/// 8" beside ~60 rings: it counted strength x freshness >= 0.25 at the
+/// station, the rings any record. The HUD now prints this.
+pub fn ring_counts(world: &World) -> (usize, usize) {
+    let Some(r) = world.recall.as_ref() else { return (0, 0) };
+    let mut awake = 0;
+    let mut asleep = 0;
+    for &id in r.provenance.keys() {
+        if world.organism(id).is_none() {
+            continue;
+        }
+        if recall::lesson(world, id).is_some() {
+            awake += 1;
+        } else {
+            asleep += 1;
+        }
+    }
+    (awake, asleep)
+}
+
+const WHITE: [u8; 4] = [235, 235, 235, 255];
+const DIM: [u8; 4] = [160, 160, 160, 255];
+const GOOD: [u8; 4] = [110, 235, 120, 255];
+const BAD: [u8; 4] = [255, 110, 80, 255];
+const WARN: [u8; 4] = [255, 200, 90, 255];
 
 /// The keeper's panel, under the frame counter.
 pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     let Some(k) = keeper(lab) else { return };
-    let (alive, knows, starved) = census(lab);
+    if k.stakes {
+        draw_stakes_hud(lab, k, hc, frame_buf);
+        return;
+    }
+    let (alive, _, starved) = census(lab);
+    let (awake, asleep) = ring_counts(&lab.world);
     let c = k.counts;
     let r = lab.world.recall.as_ref().map(|r| r.counts).unwrap_or_default();
-    let tool = match k.tool {
+    let first = c.first_station_delivery.map_or("NOT YET".to_string(), |f| format!("FRAME {f}"));
+    // Short lines: the panel is 512 logical pixels wide, ~80 glyphs.
+    let mut lines = vec![
+        (format!("KEEPER (SANDBOX)  Y CARRY  U TREAT  J RINGS  -- HAND: {}", tool_name(k)), WHITE),
+        (format!("STATION: {} VISITS ({} TAUGHT OR FED) -- {} CELLS HOME -- FIRST {first}", c.arrivals, c.taught_arrivals, c.station_deliveries), [200, 200, 200, 255]),
+        (format!("RINGS: {awake} AWAKE, {asleep} ASLEEP, OF {alive} -- CARRIED {}, TREATED {} -- PASSED ON {}", c.carried, c.treated, r.copies), [200, 200, 200, 255]),
+        (format!("RATION {} CELLS -- STARVED {starved}", c.ration_given), [150, 150, 150, 255]),
+    ];
+    if !k.listening {
+        lines.push(("LISTENING OFF (LISTENING=0): TODAY'S ANTS".to_string(), WARN));
+    }
+    for (i, (line, colour)) in lines.iter().enumerate() {
+        hc.text(frame_buf, 4, 16 + 10 * i as i32, line, *colour);
+    }
+}
+
+fn tool_name(k: &KeeperDemo) -> &'static str {
+    match k.tool {
         Tool::None => "NONE",
         Tool::Carry => "CARRY",
         Tool::Treat => "TREAT",
+    }
+}
+
+/// **The game panel** (stakes): what the hand has, the score, the colony,
+/// and the same seed left alone -- four lines, the nest left clear.
+fn draw_stakes_hud(lab: &Lab, k: &KeeperDemo, hc: crate::render::Hud, frame_buf: &mut [u8]) {
+    let frame = lab.world.frame;
+    let alive = live_ants(&lab.world);
+    let end = k.ended.map_or(frame, |e| e.frame);
+    let left = k.opened.map_or(k.rules.round, |o| (o + k.rules.round).saturating_sub(end));
+    let x0 = 4;
+    let mut y = 16;
+    hc.text(frame_buf, x0, y, &format!("KEEPER  Y CARRY  U TREAT  J RINGS  K CARD  -- HAND: {}", tool_name(k)), WHITE);
+    y += 10;
+    // The charges as pips: filled is a carry in the hand.
+    let label = "CHARGES";
+    hc.text(frame_buf, x0, y, label, if k.charges == 0 { WARN } else { WHITE });
+    let mut x = x0 + crate::hud::text_width(label) + 5;
+    for i in 0..k.rules.charges {
+        let full = i < k.charges;
+        hc.fill_rect(frame_buf, x, y, 7, 7, if full { [90, 220, 255, 255] } else { [60, 60, 70, 255] });
+        x += 10;
+    }
+    let next = if k.charges < k.rules.charges && k.ended.is_none() { format!("NEXT {}S", secs(k.recharge_at.saturating_sub(frame))) } else { String::new() };
+    let rest = format!("{next:<9}  PANTRY {} (A TREAT IS {})   {}:{:02} LEFT", k.pantry, k.rules.treat_cost, secs(left) / 60, secs(left) % 60);
+    hc.text(frame_buf, x + 4, y, &rest, WHITE);
+    y += 10;
+    let danger = alive < k.rules.lose_at + 5;
+    hc.text(
+        frame_buf,
+        x0,
+        y,
+        &format!("FOOD SAVED {} (HOME {})   ANTS {alive} ({} AT START, LOST UNDER {})", k.counts.saved, k.counts.patch_home, k.ants_at_open, k.rules.lose_at),
+        if danger { BAD } else { WHITE },
+    );
+    y += 10;
+    let (twin, colour) = twin_line(k, end, alive);
+    hc.text(frame_buf, x0, y, &twin, colour);
+    if k.overlay == Overlay::Knows {
+        y += 10;
+        let (awake, asleep) = ring_counts(&lab.world);
+        hc.text(frame_buf, x0, y, &format!("RINGS: {awake} AWAKE (WHITE BY HAND, AMBER/RED FED), {asleep} ASLEEP (GREY)"), DIM);
+    }
+    if k.card {
+        draw_card(lab, hc, frame_buf);
+    }
+}
+
+/// The HUD's twin line: the same seed left alone, now.
+fn twin_line(k: &KeeperDemo, frame: u64, alive: usize) -> (String, [u8; 4]) {
+    match twin_at(k, frame) {
+        TwinRead::At(t) => {
+            let d = alive as i64 - t.ants as i64;
+            let colour = match d.signum() {
+                1 => GOOD,
+                -1 => BAD,
+                _ => WHITE,
+            };
+            (format!("LEFT ALONE: {} ANTS, {} SAVED -- YOUR HAND {}", t.ants, t.saved, signed(d, "ANT")), colour)
+        }
+        TwinRead::Behind { at } => (format!("LEFT ALONE: THE TWIN BOX IS STILL AT FRAME {at}"), DIM),
+        TwinRead::Off => ("LEFT ALONE: NOT RUN -- COMPARING WITH THE START".to_string(), DIM),
+        TwinRead::Mismatch => ("LEFT ALONE: THE TWIN DID NOT MATCH YOUR BOX -- NOT SHOWN".to_string(), WARN),
+        TwinRead::Failed => ("LEFT ALONE: THE TWIN FAILED -- NOT SHOWN".to_string(), WARN),
+    }
+}
+
+fn signed(d: i64, unit: &str) -> String {
+    let s = if d.abs() == 1 { "" } else { "S" };
+    if d >= 0 {
+        format!("+{d} {unit}{s}")
+    } else {
+        format!("{d} {unit}{s}")
+    }
+}
+
+/// **The verdict card**: the round against the same seed left alone. At the
+/// end it is the result; before it (`K`), the round so far.
+pub fn card_lines(lab: &Lab) -> Vec<(String, [u8; 4])> {
+    let Some(k) = keeper(lab) else { return Vec::new() };
+    let c = k.counts;
+    let (frame, ants, saved) = match k.ended {
+        Some(e) => (e.frame, e.ants, e.saved),
+        None => (lab.world.frame, live_ants(&lab.world), c.saved),
     };
-    let first = c.first_station_delivery.map_or("NOT YET".to_string(), |f| format!("FRAME {f}"));
-    // Short lines: the panel is 512 logical pixels wide, ~80 glyphs.
-    let lines = [
-        (format!("KEEPER  Y CARRY  U TREAT  P LISTEN  J OVERLAY  -- HAND: {tool}"), [230, 230, 230, 255]),
-        (
-            if k.listening { format!("LISTENING: SCRIPTED GAIN {}", k.gain) } else { "LISTENING: OFF (TODAY'S ANTS)".to_string() },
-            if k.listening { [120, 230, 120, 255] } else { [230, 170, 90, 255] },
-        ),
-        (format!("STATION: {} VISITS ({} TAUGHT OR FED) -- {} CELLS HOME -- FIRST {first}", c.arrivals, c.taught_arrivals, c.station_deliveries), [200, 200, 200, 255]),
-        (format!("KNOW IT: {knows} OF {alive} -- CARRIED {}, TREATED {} -- PASSED ON {}", c.carried, c.treated, r.copies), [200, 200, 200, 255]),
-        (format!("RATION {} CELLS -- STARVED {starved}", c.ration_given), [150, 150, 150, 255]),
-    ];
+    let head = match k.ended.map(|e| e.why) {
+        Some(Ending::Lost) => "-- THE COLONY IS LOST --",
+        Some(Ending::Time) => "-- THE ROUND IS OVER --",
+        None => "-- THE ROUND SO FAR --",
+    };
+    let mut out = vec![(format!("{head}   (K CLOSES)"), WARN)];
+    out.push((format!("FOOD SAVED {saved} OF {} CELLS: {} WINDFALLS STRIPPED, {} ROTTED", k.patches.iter().map(|p| u64::from(p.size)).sum::<u64>(), c.stripped, c.rotted), WHITE));
+    out.push((format!("ANTS {ants} AT THE END, {} AT THE START, {} AT THE WORST", k.ants_at_open, c.min_ants.min(ants)), WHITE));
+    let read = twin_at(k, frame);
+    let base = match read {
+        TwinRead::At(t) => t.ants,
+        _ => k.ants_at_open,
+    };
+    let d = ants as i64 - base as i64;
+    match read {
+        TwinRead::At(t) => {
+            out.push((format!("THE SAME SEED LEFT ALONE: {} ANTS, {} CELLS SAVED", t.ants, t.saved), WHITE));
+            let (line, colour) = match d.signum() {
+                1 => (format!("YOUR HAND GAVE THEM {d} ANTS AND {} CELLS SAVED", saved as i64 - t.saved as i64), GOOD),
+                -1 => (format!("YOUR HAND COST THEM {} ANTS", -d), BAD),
+                _ => ("THEY DID EXACTLY AS WELL AS THEY WOULD ALONE".to_string(), WHITE),
+            };
+            out.push((line, colour));
+        }
+        TwinRead::Behind { at } => out.push((format!("THE TWIN BOX IS STILL RUNNING (FRAME {at}) -- THE VERDICT WAITS"), DIM)),
+        why => {
+            let reason = match why {
+                TwinRead::Mismatch => "THE TWIN DID NOT MATCH YOUR BOX",
+                TwinRead::Failed => "THE TWIN FAILED",
+                _ => "NO TWIN RAN",
+            };
+            out.push((format!("{reason}: AGAINST THE START, {}", signed(d, "ANT")), DIM));
+        }
+    }
+    out.push((format!("CARRIED {} ANTS ({} TO A WINDFALL), {} TREATS, {} REFUSED", c.carried, c.carried_to_food, c.treated, c.refused), DIM));
+    if let Some(e) = k.ended {
+        let rel = d as f32 / base.max(10) as f32;
+        let (grade, colour) = if e.why == Ending::Lost {
+            ("THE COLONY IS LOST", BAD)
+        } else if rel <= -0.25 {
+            ("A HEAVY HAND", BAD)
+        } else if rel < -0.05 {
+            ("A CLUMSY KEEPER", WARN)
+        } else if rel <= 0.05 {
+            ("THEY BARELY NOTICED YOU", WHITE)
+        } else if rel < 0.25 {
+            ("A GOOD KEEPER", GOOD)
+        } else {
+            ("A MASTER KEEPER", GOOD)
+        };
+        out.push((format!("VERDICT: {grade}"), colour));
+    }
+    out
+}
+
+/// The card, on the right of the box: the nest is at the west end.
+fn draw_card(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
+    let lines = card_lines(lab);
+    let wpx = lines.iter().map(|(l, _)| crate::hud::text_width(l)).max().unwrap_or(0) + 12;
+    let x0 = (super::super::WIDTH as i32 - wpx - 2).max(8);
+    let y0 = 72;
+    hc.fill_rect(frame_buf, x0 - 6, y0 - 6, wpx, 10 * lines.len() as i32 + 10, [10, 10, 14, 235]);
     for (i, (line, colour)) in lines.iter().enumerate() {
-        hc.text(frame_buf, 4, 16 + 10 * i as i32, line, *colour);
+        hc.text(frame_buf, x0, y0 + 10 * i as i32, line, *colour);
     }
 }
 
