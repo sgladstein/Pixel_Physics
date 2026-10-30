@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-28 (**a shrub stripped by ants sprouts again from its base**: the ants eat leaf off every low plant at the same rate, the herb outgrows it, and a stripped shrub used to keep its bare wood and starve. Now a plant with no growing shoot and no bud left grows a new stem from the bottom of its trunk, so shrubs and the fruiting thicket live alongside the colony -- see *A plant that has been bitten*). Also 2026-10-27 (**a hungry plant goes pale**: leaves fade toward yellow-green in three steps as a plant runs short of soil food, so the nutrient a plant reaches shows on screen -- see *Colour is a readout* and *What trouble looks like*). Also 2026-10-25 (**a bred population of first plants exists but is off in the lab**: beds selected for keeping all four kinds alive keep the creeper and more kinds, but feed the ant colony a quarter less, so the lab still sows from the species pages -- see *Species*). Also 2026-10-24 (**a plant is fed by how much root it has, not only by how rich its soil is**: one root in rich ground used to feed any crown; now the roots' total reach is weighed against the leaves they feed, so a root-starved plant builds dearly and grows root to catch up -- see *Roots*). Also 2026-10-23 (**only roots drink, and a plant keeps its roots**: a plant short of food used to trim its own roots first and then live on through stems lying on the soil, so a third of a mixed bed's leafy plants had no root at all. Now a stem drinks nothing, a starving plant keeps its last roots, and a plant left rootless puts a new root down from a stem touching damp ground or dries out leaf by leaf -- see *The three things a plant needs*, under water). Also 2026-10-23 (**big trees die of old age and leave gaps**: a tree used to age far more slowly than its lifespan said, so the canopy never opened; now it does, and shrubs come up in the gaps -- see *A plant that has lost its shoots*). Also 2026-10-22 (**the shrub is bred, not written**: its shape and economy came from the plant trainer, and it now lives under the trees in a mixed bed where the old shrub died out -- see *Species*). Also 2026-10-21 (**drier soil grows a smaller plant, gradually**: a seedling in dry ground grows less and leafs out less rather than growing exactly as in wet ground -- see *The three things a plant needs*, under water). Also 2026-10-21 (**a plant that has lost every growing shoot starts a new one from what it has stored**, so a shrub no longer stops for good at a few cells, and **a shrub dies of old age** -- see *A plant that has lost its shoots*). Also 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-30 (**the player can prune a plant**: the lab's PRUNE brush clips leaves, flowers and grass to litter for the ants, and the plant grows them back -- see *Pruning in the lab*). Also 2026-10-30 (**the lab colony stops eating the seeds it planted**: every herb and tree by the nest door is one the ants carried there, and they used to eat about two of those seeds for every one that sprouted -- see *The seed bank*; and **with shrubs now living alongside the colony, trees come up less** -- see *A plant that has been bitten*). Also 2026-10-28 (**a shrub stripped by ants sprouts again from its base**: the ants eat leaf off every low plant at the same rate, the herb outgrows it, and a stripped shrub used to keep its bare wood and starve. Now a plant with no growing shoot and no bud left grows a new stem from the bottom of its trunk, so shrubs and the fruiting thicket live alongside the colony -- see *A plant that has been bitten*). Also 2026-10-27 (**a hungry plant goes pale**: leaves fade toward yellow-green in three steps as a plant runs short of soil food, so the nutrient a plant reaches shows on screen -- see *Colour is a readout* and *What trouble looks like*). Also 2026-10-25 (**a bred population of first plants exists but is off in the lab**: beds selected for keeping all four kinds alive keep the creeper and more kinds, but feed the ant colony a quarter less, so the lab still sows from the species pages -- see *Species*). Also 2026-10-24 (**a plant is fed by how much root it has, not only by how rich its soil is**: one root in rich ground used to feed any crown; now the roots' total reach is weighed against the leaves they feed, so a root-starved plant builds dearly and grows root to catch up -- see *Roots*). Also 2026-10-23 (**only roots drink, and a plant keeps its roots**: a plant short of food used to trim its own roots first and then live on through stems lying on the soil, so a third of a mixed bed's leafy plants had no root at all. Now a stem drinks nothing, a starving plant keeps its last roots, and a plant left rootless puts a new root down from a stem touching damp ground or dries out leaf by leaf -- see *The three things a plant needs*, under water). Also 2026-10-23 (**big trees die of old age and leave gaps**: a tree used to age far more slowly than its lifespan said, so the canopy never opened; now it does, and shrubs come up in the gaps -- see *A plant that has lost its shoots*). Also 2026-10-22 (**the shrub is bred, not written**: its shape and economy came from the plant trainer, and it now lives under the trees in a mixed bed where the old shrub died out -- see *Species*). Also 2026-10-21 (**drier soil grows a smaller plant, gradually**: a seedling in dry ground grows less and leafs out less rather than growing exactly as in wet ground -- see *The three things a plant needs*, under water). Also 2026-10-21 (**a plant that has lost every growing shoot starts a new one from what it has stored**, so a shrub no longer stops for good at a few cells, and **a shrub dies of old age** -- see *A plant that has lost its shoots*). Also 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -560,6 +560,16 @@ like:
   the regrowing shrubs feed them too.
 - **The herb and the tree give a little ground.** Each is gone on a bed or two
   more than before, which is within what chance does between runs.
+
+**The tree pays for the shrubs coming back** (2026-10-30). Before this, the
+colony grazed the shrubs out, and trees seeded into the space they left: a
+long game ended with a dozen or more young trees on half the beds. With the
+shrubs holding on, tree seedlings mostly fail to take under them, and the bed
+looks like a bed with no colony at all: a shrub layer and few trees. Trees
+are fewer on seven beds in twelve. The trade runs both ways: where the shrubs
+die out anyway, the trees fill in. It is the same see-saw a real woodland has
+between browsers, bushes and saplings. What the tree is missing is a way into
+a standing shrub layer, and that is the next thing to measure.
 
 ## A herb lives one season
 
@@ -1329,6 +1339,20 @@ of trunk are still anchored, so they are still the plant. What they do not
 yet do is regrow — a topped tree sits there indefinitely rather than
 resprouting, which is a separate piece of work.
 
+## Pruning in the lab
+
+**New on 2026-10-30: the player can harvest a plant without killing it.** The
+lab's PRUNE brush clips the leaves, flowers and grass blades it is dragged
+over. The clippings fall as leaf litter, a heap under the plant that the ants
+eat on the spot or carry home, where litter left in the nest grows into the
+colony's fungus garden. Stems, wood and roots are never touched, so the plant
+is left standing as a bare frame, and a shrub puts out new leaves within a
+few minutes of lab time. Pruning one shrub on the played bed clipped about
+two hundred cells and left a visible orange-brown heap beneath it.
+
+Before this the only things a player could do to a plant were plant it, kill
+it, burn it, or water it.
+
 ## Bending in the wind
 
 **New on 2026-08-29.** Wind pushes on a plant, and the parts of a plant that
@@ -1509,6 +1533,21 @@ eating, which is usually somewhere else entirely: near the nest, on the spoil
 the colony has piled up, along whatever route it walks. So the bank does not
 only sit and wait to be found — it also gets *moved*, by the same mouths that
 used to end it, and the ground around a nest is where a lot of it ends up.
+
+**Since 2026-10-30, the lab colony no longer eats the seeds it planted.** On
+the lab bed nothing is sown near the nest, so every herb and tree that comes
+up by the door is one the ants carried there. A carried seed lands on ground
+wet enough to sprout about half the time, against one in twelve for a seed
+left where it was bitten. But the bare seed a bitten fruit leaves behind was
+still just worth eating to the lab's ant, so the colony picked its own garden
+over: about two seeds eaten again by the door for every one that sprouted.
+That seed is now worth too little to the lab's ant to notice, though a colony
+that evolves toward eating plants can still learn to take it. Over twelve
+beds, seeds eaten again fell from about 470 a bed to none, and plants grown
+from carried seed rose on every bed, by half. Watch the ground around the
+door in the first third of a game. By the end of a long game the community
+looks much the same as before, because by then the shrubs and the trees are
+settling who holds the bed (see *A plant that has been bitten*).
 
 **Since 2026-10-03, a seed with ground on top of it is out of the ants'
 reach.** Soil, sand or rock falling over a seed, or a spoil heap tipped onto

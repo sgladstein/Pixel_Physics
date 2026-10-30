@@ -14939,6 +14939,30 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     world.set(x, landing, Cell::new(litter, shade));
 }
 
+/// **The player's PRUNE: clip one cell of living foliage off a plant**, and
+/// let it fall as litter (`shed_to_litter`, the same fall a shed leaf
+/// takes). The plants-and-ants lane's verb (2026-10-30): Scott's repo review
+/// found plants and ants barely touch and the player had no way to make them,
+/// so the lab's PRUNE brush turns a crown into a pile of clippings the colony
+/// eats or carries home, where it feeds the fungus garden (`garden.rs`).
+///
+/// **Foliage only**: a living plant cell whose material is `garden_fodder`
+/// (leaf, flower, grass blade). Never stem, wood or root, so a prune never
+/// severs a crown; never a fruit or seed, which belong to the seed's own
+/// rules. Returns whether it clipped. Booked as a cull: the player did it.
+pub fn prune_cell(world: &mut World, x: i32, y: i32) -> bool {
+    let c = world.get(x, y);
+    if c.organism_id() == 0 || world.materials.kind(c.material) != MaterialKind::Plant || !world.materials.get(c.material).garden_fodder {
+        return false;
+    }
+    if world.organism(c.organism_id()).is_none_or(|s| s.dormant_seed) {
+        return false;
+    }
+    shed_to_litter(world, x, y, organism::DeathCause::Culled);
+    world.pruned_cells += 1;
+    true
+}
+
 /// The ablation switch for the buried-remains rule, on by default.
 ///
 /// `PIXEL_PHYSICS_BURIED_REMAINS=litter` puts the pre-2026-09-06 behaviour
@@ -29080,6 +29104,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
     /// `pip.ron`'s `food_energy` and this must go red before it goes
     /// green -- watched by hand at 500.0 (both arms clear the bar, both
     /// assertions fail) before landing at the shipped 40.0.
+    ///
+    /// **The lab's founder gut is the third arm (2026-10-30).** 40.0 was
+    /// argued against the neutral gut alone; the lab's ant lands at -0.8
+    /// (`lab::scene`'s gut trait), where a 40 J pip pays 32 J, so the lab
+    /// colony ate the seeds it had carried home (`Reports/plants-and-ants-
+    /// 2026-10-30.md` §2). Shipped at 14.0; watched red at 40.0 on this arm
+    /// alone before landing.
     #[test]
     fn a_neutral_gut_cannot_see_a_pip_but_a_seed_specialist_can() {
         let w = test_world();
@@ -29088,7 +29119,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
 
         let neutral = super::super::creature::diet_yield(&w, cell, 0.0);
         let specialist = super::super::creature::diet_yield(&w, cell, -1.0);
+        let lab_founder = super::super::creature::diet_yield(&w, cell, -0.8);
 
+        assert!(
+            lab_founder < super::super::creature::EAT_YIELD_THRESHOLD,
+            "the lab's founder gut (-0.8) must not see a pip as food, or the colony eats the garden it plants: got {lab_founder}, threshold {}",
+            super::super::creature::EAT_YIELD_THRESHOLD
+        );
         assert!(
             neutral < super::super::creature::EAT_YIELD_THRESHOLD,
             "the shipped neutral gut must not be able to see a pip as food: got {neutral}, threshold {}",

@@ -804,6 +804,18 @@ by somebody about to try it on creatures.
   colony cost; shrubs born defended save them too but take over and shrink
   the colony mid-game (dead end).
 
+- [plants-and-ants-2026-10-30.md](plants-and-ants-2026-10-30.md)
+  — **Who needs whom in the lab bed, the garden the colony already plants,
+  and why the tree went missing.** 99.9% of the colony's food is plant; with
+  no plants every founder starves. Ants re-sort the stand (herbs gain,
+  shrubs lose) and carry 1,000+ seeds a run to wetter ground, planting the
+  herbs and trees by the nest door -- then ate two of those seeds for every
+  one that sprouted, because the lab ant's gut could see a pip. Pip food
+  40 -> 14: pips eaten 470 -> 0, plants from carried seed up on 12 of 12
+  beds. With resprout on, surviving shrubs crowd out tree seedlings (trees
+  at 450k fewer on 7 of 12 beds); `plant_m0 mode=stand bed=played` is the
+  invasion test (rungs 5-6) on this bed with the colony.
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
   handoff carrying the state and the queue -- read that first.** Revision 4
@@ -6472,6 +6484,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
   itself gets 41%, against the hand-built ant's own 50% under other dice (addendum): the shortfall sits in turning round,
   picking up and digging. So: the landing bill plus three rare moves, not the scorer. Tools in `scratch/copytest/`.
+- [brain-training/research/famine-wall-trap-2026-10-30.md](brain-training/research/famine-wall-trap-2026-10-30.md) —
+  **why every trained pool starves in the three famine exam boxes: the wall trap (deep trace, measurement).** The
+  trained ant walks away from home, harder when hungry, until an end wall stops it, and never comes back: 548 of 548
+  trained ants that reached a wall stayed there, against 15 of 427 hand-built ants. The food in those boxes is near
+  the nest, and the brain bill gives a one-tank trained ant ~2,000 frames. Cutting the outward links removes the trap
+  (209 -> 8 wall arrivals) but not the deaths: walking out was its only search. Side finding: two_larders' meat room
+  kills the hand-built ant too. New `labsurvive` options `food=`, `png=`, `knock=`.
+- [brain-training/research/chambered-nests-2026-10-30.md](brain-training/research/chambered-nests-2026-10-30.md) —
+  **can the brain dig chambers joined by tunnels? Not yet: twelve probes, and what stands in the way (measurement).**
+  A hand-set tunnel digger plus a hand-set eat seed keeps colonies alive and doubles passages; 16 rounds of selection
+  keep it but don't improve it, and a tunable digger wears down under the plain score. In the lab the uncapped colony
+  leaves nobody free to dig; the crumbs in every passage are the food store, and two fixes for them failed; a
+  room-distance sense did not make rooms. Rain, buried food and layered soil gave tunnels no edge. New `tunnels`
+  measure, `labsurvive laycap=`/`nestrows=`, `inrun PP_DIGHEAD_RATE`/`GROW`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1

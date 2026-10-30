@@ -18964,8 +18964,10 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
     // whole life end-to-end (`Reports/lanes/evolution-lab-garden-
     // loop.md`): bitten, survived the gut roll, carried home, dead five
     // frames after being set down -- and the bite verb could not have
-    // taken it. A neutral gut's `diet_yield` on a `pip` is 40 * 0.25 =
-    // 10, under `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
+    // taken it. A neutral gut's `diet_yield` on a `pip` is 14 * 0.25 =
+    // 3.5 (the lab founder's, at gut -0.8, 14 * 0.81 = 11.3; `pip.ron`
+    // was 40 until 2026-10-30, which the lab ant could see), under
+    // `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
     // own gate (`gain <= EAT_YIELD_THRESHOLD { continue }`) never lets
     // the bite verb's target scan select one -- confirmed by reading
     // that gate, not assumed. `pip` and `windfall` are `Powder`-kind

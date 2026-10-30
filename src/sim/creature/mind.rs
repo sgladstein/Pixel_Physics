@@ -2701,6 +2701,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 super::recall::note_tilt(world, moved, flipped);
             }
             if let Some(d) = d.as_ref() {
+                scratch_log::dig_trace(world, organism, (x, y), &ctx, &opts, d);
                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
                 // SCRATCH (foraging-loop thread): the carry-home teacher's label rides the copy log as a 16th field.
                 if scratch_log::copy_on() && scratch_log::carry_act().is_some() {
@@ -3012,6 +3013,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
 /// a bug to count ([`MindCounts::failed`]), not a choice.
 fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, draw: &mut rng::Rng) -> bool {
     let head = world.organism(organism).and_then(|s| s.chain.first().copied());
+    crumb_log::verb(organism, opt.verb);
     match opt.verb {
         Verb::Rest => true,
         Verb::Walk => walk(world, organism, def, opt.target),
@@ -3136,6 +3138,7 @@ fn eat_now(world: &mut World, organism: OrganismId) -> bool {
     match world.organism_mut(organism) {
         Some(s) if s.crop.is_some() => {
             s.eat_lunch_now = true;
+            crumb_log::ate(organism);
             if let Some(m) = world.minds.as_mut() {
                 m.counts.ate += 1;
             }
@@ -3212,6 +3215,7 @@ fn pick_up(
     if passenger.is_some() && seed == plant::SeedBite::SurvivedBare {
         world.bare_seeds_carried += 1;
     }
+    crumb_log::pick(world, organism, (fx, fy), food, worth, at_home, crop.map_or(0, |c| c.cells as u32));
     crop_take(world, organism, food, bite.shade, worth, passenger);
     // SCRATCH (teacher lane, in-run pilot): the harness's food ledger.
     super::note_food(world, organism, (fx, fy), super::FOOD_SWALLOW, worth, at_home);
@@ -3364,6 +3368,7 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         Some(passenger) => plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger),
         None => {
             let cell = held.unit_cell(quantise_worth).into_cell(world);
+            crumb_log::drop(world, organism, (dx, dy), (hx, hy), cell, &held, at_nest);
             world.set(dx, dy, cell);
         }
     }
@@ -5814,6 +5819,113 @@ pub(crate) fn remember_done(g: &[f32], ctx: &[f32; CONTEXT], mem0: &[f32; MEMORY
     remembered(g, ctx, mem0, best, all_mean, verb, &reach(&per_verb))
 }
 
+/// SCRATCH (chambers crumbs lane, 2026-10-30): `PP_CRUMB_LOG=<file>` writes one row per food pick-up (`P`), Eat from
+/// the crop (`E` is counted on the load, not written) and food put-down (`D`), with the load's history (where and when
+/// its first cell was picked up, Eats since, the ant's last 8 acted verbs), for tracing where nest crumbs come from ant
+/// by ant. Read only: off unless the variable is set, and on it writes a file and keeps a per-ant table nothing reads.
+pub mod crumb_log {
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    #[derive(Clone, Default)]
+    struct Load {
+        first_frame: u64,
+        first_at: (i32, i32),
+        first_home: bool,
+        picks: u32,
+        home_picks: u32,
+        eats: u32,
+        verbs: u32,
+    }
+
+    struct Log {
+        f: std::io::BufWriter<std::fs::File>,
+        ants: HashMap<OrganismId, Load>,
+    }
+
+    fn log() -> Option<&'static Mutex<Log>> {
+        static L: OnceLock<Option<Mutex<Log>>> = OnceLock::new();
+        L.get_or_init(|| {
+            std::env::var("PP_CRUMB_LOG").ok().map(|p| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(p).expect("PP_CRUMB_LOG"));
+                let _ = writeln!(f, "# P,frame,id,x,y,mat,worth,at_home,energy,cells_before");
+                let _ = writeln!(f, "# D,frame,id,x,y,land_y,hx,hy,mat_out,worth_out,unit,cells_before,at_nest,energy,trip_cells,first_frame,first_x,first_y,first_home,picks,home_picks,eats,verbs8");
+                Mutex::new(Log { f, ants: HashMap::new() })
+            })
+        })
+        .as_ref()
+    }
+    pub fn flush() {
+        if let Some(l) = log() {
+            let _ = l.lock().unwrap().f.flush();
+        }
+    }
+    fn energy(world: &World, id: OrganismId) -> f32 {
+        world.organism(id).map_or(0.0, |s| world.species.get(s.species).creature.as_ref().map_or(0.0, |d| s.energy / d.start_energy.max(1.0)))
+    }
+    pub fn verb(id: OrganismId, v: Verb) {
+        if let Some(l) = log() {
+            let mut l = l.lock().unwrap();
+            let e = l.ants.entry(id).or_default();
+            e.verbs = (e.verbs << 4) | (v as u32 & 0xF);
+        }
+    }
+    pub fn ate(id: OrganismId) {
+        if let Some(l) = log() {
+            l.lock().unwrap().ants.entry(id).or_default().eats += 1;
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn pick(world: &World, id: OrganismId, at: (i32, i32), mat: crate::sim::material::MaterialId, worth: f32, home: bool, before: u32) {
+        let Some(l) = log() else { return };
+        let (fr, en) = (world.frame, energy(world, id));
+        let name = world.materials.get(mat).name.clone();
+        let mut l = l.lock().unwrap();
+        let e = l.ants.entry(id).or_default();
+        if before == 0 {
+            let verbs = e.verbs;
+            *e = Load { first_frame: fr, first_at: at, first_home: home, verbs, ..Default::default() };
+        }
+        e.picks += 1;
+        e.home_picks += u32::from(home);
+        let _ = writeln!(l.f, "P,{fr},{id},{},{},{name},{worth:.0},{},{en:.3},{before}", at.0, at.1, home as u8);
+    }
+    pub fn drop(world: &World, id: OrganismId, at: (i32, i32), head: (i32, i32), cell: Cell, held: &Crop, at_nest: bool) {
+        let Some(l) = log() else { return };
+        let (fr, en) = (world.frame, energy(world, id));
+        let mut ly = at.1;
+        while world.in_bounds(at.0, ly + 1) && world.is_empty(at.0, ly + 1) {
+            ly += 1;
+        }
+        let name = world.materials.get(cell.material).name.clone();
+        let worth = super::super::food_value(world, cell);
+        let trip = world.organism(id).map_or(0, |s| s.trip_cells);
+        let mut l = l.lock().unwrap();
+        let e = l.ants.get(&id).cloned().unwrap_or_default();
+        let _ = writeln!(
+            l.f,
+            "D,{fr},{id},{},{},{ly},{},{},{name},{worth:.0},{:.0},{},{},{en:.3},{trip},{},{},{},{},{},{},{},{:08x}",
+            at.0,
+            at.1,
+            head.0,
+            head.1,
+            held.unit,
+            held.cells,
+            at_nest as u8,
+            e.first_frame,
+            e.first_at.0,
+            e.first_at.1,
+            e.first_home as u8,
+            e.picks,
+            e.home_picks,
+            e.eats,
+            e.verbs
+        );
+    }
+}
+
 pub mod scratch_log {
     use super::*;
     use std::collections::HashMap;
@@ -7106,12 +7218,67 @@ pub mod scratch_log {
     pub fn dig_bonus(t: (i32, i32)) -> f32 {
         DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
     }
+    /// SCRATCH (chambers `labbed`, 2026-10-30): `PP_DIGTRACE=path` writes one `D` row for a sample (1 in
+    /// `PP_DIGTRACE_K`, default 8, by frame and id) of the decisions that offered a Dig: what the dig head saw on
+    /// every Dig option and what the ant chose, to ask why H3 tunnels in the garden and not in the lab box.
+    /// `D,frame,id,ax,ay,spoil,crop,energy,pick_verb,ptx,pty,dig_job,when,door,ctx(22)|tx ty score bonus f0..f11;...`.
+    /// Draws nothing and changes no branch. Unset: nothing.
+    pub fn dig_trace(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], d: &Decision) {
+        static F: OnceLock<Option<(Mutex<std::io::LineWriter<std::fs::File>>, u64)>> = OnceLock::new();
+        let Some((f, k)) = F
+            .get_or_init(|| {
+                std::env::var("PP_DIGTRACE").ok().map(|p| {
+                    let k = std::env::var("PP_DIGTRACE_K").ok().and_then(|v| v.parse().ok()).unwrap_or(8u64);
+                    (Mutex::new(std::io::LineWriter::new(std::fs::File::create(p).expect("digtrace"))), k)
+                })
+            })
+            .as_ref()
+        else {
+            return;
+        };
+        if !(world.frame.wrapping_mul(2654435761) ^ (organism as u64).wrapping_mul(40503)).is_multiple_of(*k) {
+            return;
+        }
+        if !opts.iter().any(|o| o.verb == Verb::Dig) {
+            return;
+        }
+        let Some(s) = world.organism(organism) else { return };
+        let o = &opts[d.pick];
+        let door = world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map_or(-1, |s| s.x);
+        let rows: Vec<String> = DIG_OPTS.with(|v| {
+            v.borrow()
+                .iter()
+                .map(|(t, fe, b)| {
+                    let k = opts.iter().position(|o| o.verb == Verb::Dig && o.target == *t).unwrap_or(0);
+                    let fs: Vec<String> = fe.iter().map(|x| format!("{x:.3}")).collect();
+                    format!("{} {} {:.3} {:.3} {}", t.0, t.1, d.scores[k], b, fs.join(" "))
+                })
+                .collect()
+        });
+        let line = format!(
+            "D,{},{organism},{},{},{},{},{:.1},{},{},{},{:.3},{:.3},{door},{}|{}",
+            world.frame,
+            at.0,
+            at.1,
+            u8::from(s.spoil.is_some()),
+            u8::from(s.crop.is_some_and(|c| c.cells > 0)),
+            s.energy,
+            o.verb as usize,
+            o.target.0,
+            o.target.1,
+            d.jobs[Verb::Dig as usize].unwrap_or(f32::NAN),
+            dig_when(),
+            ctx.iter().map(|x| format!("{x:.3}")).collect::<Vec<_>>().join(" "),
+            rows.join(";")
+        );
+        let _ = writeln!(f.lock().unwrap(), "{line}");
+    }
     /// Fill [`DIG_OPTS`] for this decision (cleared first).
     pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], head: Option<&DigHead>) {
         DIG_OPTS.with(|d| {
             let mut d = d.borrow_mut();
             d.clear();
-            let mut ctxf: Option<(i32, f32, f32, f32)> = None;
+            let mut ctxf: Option<DigCtx> = None;
             let mut when = f32::NEG_INFINITY;
             for o in opts.iter().filter(|o| o.verb == Verb::Dig) {
                 let c = *ctxf.get_or_insert_with(|| dig_ctx(world, organism, at));
@@ -7174,8 +7341,79 @@ pub mod scratch_log {
         (roof, sky)
     }
     /// What the dig features share: the door column, the ant's own depth, whether it stands sky-open, the open
-    /// share of the 7x7 round it.
-    fn dig_ctx(world: &World, organism: OrganismId, at: (i32, i32)) -> (i32, f32, f32, f32) {
+    /// share of the 7x7 round it, and (`PP_DIGROOM`) the room distance, else 0.
+    pub type DigCtx = (i32, f32, f32, f32, f32);
+    /// `PP_DIGROOM=1` (chambersense lane, 2026-10-30; **opt-in, off by default**): dig feature slot 8 -- the ant's own
+    /// light, which no hand-set head reads (H3's weights there are 0) -- reads [`room_dist`] / 8 instead (0 inside a
+    /// wide space, up to 3 at [`ROOM_REACH`] or none in reach). **Why**: H3 digs branching arms and never rooms. Its
+    /// only sense of "how much space is here" is the open share of the 7x7 round the ant (slot 9), which reads the same
+    /// at a tunnel's tip whether the tip is 2 cells from a chamber or 30, so no weight on it can say "widen here: this
+    /// tip is far from any room" against "keep the passage narrow: a room is just behind you". The new reading is a
+    /// world fact (how far, walking through open ground, to the nearest place wide enough to turn round in), not an
+    /// instruction; the head's weights decide what to do with it. Layout-compatible: DIG_ND stays 12, so every
+    /// genome and side file loads; only a head with weight on slot 8 reads differently, and only with the switch on.
+    fn room_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGROOM").is_ok_and(|v| v == "1" || v == "open" || v == "below"))
+    }
+    /// How far [`room_dist`] walks before it gives up (cells of path).
+    pub const ROOM_REACH: i32 = 24;
+    /// **The room sense**: the shortest 4-connected walk through open cells, from the ant's head, to the nearest "wide"
+    /// cell -- one whose whole 5x5 block is open (the 5x5 opening `scratch/inrun/roomshape.py` calls a room). Ants and
+    /// their bodies count open (as [`open_cell`]); crumbs, spoil, stored food and soil do not. So it reads 0 inside a
+    /// room, a crater or the open air, and grows along a passage with every cell walked from the last such space.
+    /// [`ROOM_REACH`] when none is in reach. Cost: a flood of at most the open cells within ROOM_REACH of the ant, only
+    /// on decisions with a Dig option, stopping at the first wide cell (inside a room, at once).
+    /// **The open air counts as a wide space** (`PP_DIGROOM=below` walks and counts only below the datum, the first
+    /// version): with the sky not counted, a young colony has no room anywhere, every ant reads "far from any room"
+    /// from frame 0, and the hand head widened the door into a pit (garden worlds 61-62, round 0: open rooms 0 and 0
+    /// against H3+eat's 2 and 3, a pink crater at the door in both pictures). With the sky counted, a passage is "far"
+    /// only once it has run far from the surface or from a room -- which is where a chamber should go.
+    ///
+    /// **Loose fill counts as dug** (`PP_DIGROOM=1`; `=open` is the strict version, `=below` strict and underground
+    /// only): crumbs and stored food are walked through and count toward a wide block, as `scratch/nest/selrun/
+    /// tunnels.py`'s flood passes them. Strict, a crumb-packed nest reads "far from any room" from inside it, so the
+    /// head digs harder exactly where the crumbs are, and the crumbs grow (garden worlds 61-62, round 0: every
+    /// strict arm a crumb-packed cone, two of eight colonies dead). What an ant feels by touch: loose fill or solid soil.
+    pub fn room_dist(world: &World, organism: OrganismId, at: (i32, i32)) -> i32 {
+        type Mode = (bool, bool, [Option<crate::sim::material::MaterialId>; 2]);
+        static MODE: OnceLock<Mode> = OnceLock::new();
+        let (below_only, strict, fill) = *MODE.get_or_init(|| {
+            let v = std::env::var("PP_DIGROOM").unwrap_or_default();
+            (v == "below", v == "below" || v == "open", [world.materials.id_of("crumbs"), world.materials.id_of("provisions")])
+        });
+        let below = |x: i32, y: i32| !below_only || world.room_surface_at(x).is_some_and(|s| y > s);
+        let dug = |x: i32, y: i32| open_cell(world, organism, x, y) || (!strict && fill.contains(&Some(world.get(x, y).material)));
+        let open = |x: i32, y: i32| below(x, y) && dug(x, y);
+        let wide = |x: i32, y: i32| (-2..=2).all(|dx| (-2..=2).all(|dy| open(x + dx, y + dy)));
+        let mut seen = std::collections::HashSet::new();
+        let mut q = std::collections::VecDeque::new();
+        q.push_back((at, 0));
+        seen.insert(at);
+        while let Some(((x, y), d)) = q.pop_front() {
+            if wide(x, y) {
+                return d;
+            }
+            if d >= ROOM_REACH {
+                continue;
+            }
+            for n in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                if !seen.contains(&n) && open(n.0, n.1) {
+                    seen.insert(n);
+                    q.push_back((n, d + 1));
+                }
+            }
+        }
+        ROOM_REACH
+    }
+    /// The room sense's readings over a run, by band of walk (0, 1-4, 5-8, 9-12, 13-16, 17-23, 24+): what share of
+    /// dig decisions a head's weights on it could ever act in. `room_hist_report` prints it.
+    pub static ROOM_HIST: [std::sync::atomic::AtomicU64; 7] = [const { std::sync::atomic::AtomicU64::new(0) }; 7];
+    pub fn room_hist_report() -> String {
+        let v: Vec<u64> = ROOM_HIST.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        format!("room sense at dig decisions: 0 {} | 1-4 {} | 5-8 {} | 9-12 {} | 13-16 {} | 17-23 {} | 24+ {}", v[0], v[1], v[2], v[3], v[4], v[5], v[6])
+    }
+    fn dig_ctx(world: &World, organism: OrganismId, at: (i32, i32)) -> DigCtx {
         let nx = world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map_or(128, |s| s.x);
         let depth = world.room_surface_at(at.0).map_or(0.0, |s| ((at.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
         let (_, sky) = column_above(world, organism, at.0, at.1);
@@ -7187,12 +7425,28 @@ pub mod scratch_log {
                 }
             }
         }
-        (nx, depth, f32::from(u8::from(sky)), open as f32 / 49.0)
+        let room = if room_on() {
+            let d = room_dist(world, organism, at);
+            let b = match d {
+                0 => 0,
+                1..=4 => 1,
+                5..=8 => 2,
+                9..=12 => 3,
+                13..=16 => 4,
+                17..=23 => 5,
+                _ => 6,
+            };
+            ROOM_HIST[b].fetch_add(1, Ordering::Relaxed);
+            d as f32 / 8.0
+        } else {
+            0.0
+        };
+        (nx, depth, f32::from(u8::from(sky)), open as f32 / 49.0, room)
     }
     /// The Dig option's features ([`DIG_ND`]): 0 away from the door (+1) or toward it (-1) in columns; 1 down (+1)
     /// or up (-1); 2 the target's depth below the datum / 8; 3 its column open to the sky; 4 ground over it / 8;
     /// 5 its open 8-neighbours / 8; 6 its distance from the door / 16; 7 the ant's depth / 8; 8 the ant stands
-    /// sky-open; 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
+    /// sky-open (`PP_DIGROOM=1`: the room distance / 8, [`room_dist`]); 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
     /// row within 3 of the head / 4 (the Teacher lane's bottom sense).
     /// **Light** (owner, 2026-10-23: replace the exact soil count with "a more general light sense that ants actually
     /// have"): daylight at (x, y), halved by every non-open cell between it and the surface (2 rows above the datum),
@@ -7212,8 +7466,8 @@ pub mod scratch_log {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| options::switch_on("PP_DIGLIGHT"))
     }
-    pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: (i32, f32, f32, f32)) -> [f32; DIG_ND] {
-        let (nx, adepth, asky, aopen) = c;
+    pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: DigCtx) -> [f32; DIG_ND] {
+        let (nx, adepth, asky, aopen, room) = c;
         // PP_DIGLIGHT=1: slots 3, 4 and 8 read light instead of the sky test and the exact soil count (up to 8): light
         // at the cut where the sky test was, darkness (1 - light) where the count was, so dh7's weights keep their
         // sign, and the ant's own light where its own sky test was.
@@ -7243,7 +7497,13 @@ pub mod scratch_log {
             nb as f32 / 8.0,
             ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
             adepth,
-            if blank { 0.0 } else { asky },
+            if room_on() {
+                room
+            } else if blank {
+                0.0
+            } else {
+                asky
+            },
             aopen,
             f32::from(u8::from(t.1 == at.1)),
             ((t.1 - low) as f32 / 4.0).clamp(-2.0, 2.0),

@@ -149,4 +149,6 @@
     // so had anything ever given this a food value without this line, a
     // sward would have read as half meat.
     food_class: -1.0,
+    // Feeds a fungus garden when it lies in the dark nest (`garden.rs`).
+    garden_fodder: true,
 )

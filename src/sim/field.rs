@@ -2837,6 +2837,36 @@ const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
     SKY_TRANSMISSION,
 ];
 
+/// The distinct chunk columns among `coords`, ascending -- what
+/// `apply_sky_to` and `apply_sky_temperature_to` walk.
+///
+/// **Marked in a table over the column range, not sorted and deduplicated.**
+/// Both sky passes run every frame over every chunk in the world, and at
+/// 8192x2560 that was two sorts of 5,120 `i32`s holding 128 distinct values:
+/// ~1.9% of the shipped world's tick under callgrind, for a list that never
+/// changes (big-world speed lane, 2026-10-30). The answer is the same
+/// ascending, duplicate-free list. A world whose chunks are scattered so
+/// thinly that the range dwarfs the count -- nothing streams like that
+/// today -- takes the sort rather than a huge table.
+fn distinct_columns(coords: &[ChunkCoord]) -> Vec<i32> {
+    let (lo, hi) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
+    if lo > hi {
+        return Vec::new();
+    }
+    let span = (i64::from(hi) - i64::from(lo) + 1) as usize;
+    if span > 4 * coords.len() + 64 {
+        let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
+        columns.sort_unstable();
+        columns.dedup();
+        return columns;
+    }
+    let mut seen = vec![false; span];
+    for c in coords {
+        seen[(c.x - lo) as usize] = true;
+    }
+    seen.iter().enumerate().filter(|&(_, &s)| s).map(|(i, _)| lo + i as i32).collect()
+}
+
 /// Direct sunlight, cast **down each column** from open sky.
 ///
 /// **Replaces seeding only the topmost chunk's top row and letting
@@ -2889,9 +2919,7 @@ fn apply_sky_to(
     // through untouched, which is what makes a world with sparse chunks
     // behave the same as one with empty chunks allocated.
     let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
-    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
-    columns.sort_unstable();
-    columns.dedup();
+    let columns = distinct_columns(coords);
 
     // **One tile fetch per (column, chunk-row), not one per (column, lx,
     // chunk-row).** The walk is per *field* column (`lx`), but the tile a
@@ -3169,9 +3197,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut Chunk
         return;
     }
     let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
-    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
-    columns.sort_unstable();
-    columns.dedup();
+    let columns = distinct_columns(coords);
 
     // One tile fetch per (column, chunk-row) rather than one per (column,
     // lx, chunk-row) -- `apply_sky_to`'s restructure, applied to its sibling
@@ -3821,6 +3847,39 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
     });
 }
 
+/// The tiles `read` names as they stand now -- from `next` where the solve
+/// has written them, else from the live map -- for `step_velocity` and
+/// `step_advection` to sample while they write `next`. Only ever looked up
+/// by key, never iterated.
+///
+/// **The clones are made in parallel**, because this is the serial half of
+/// an otherwise threaded pass. `read` is the solve set plus one ring --
+/// ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six boxed
+/// slices this was on the order of 9,000 allocations per pass and 18,000 per
+/// frame, all of it on one worker while the rest waited. It is what held
+/// `par_solve_tiles`' speedup to 2-2.8x rather than 4x on this machine. The
+/// arrays are inline now (2026-09-06), so a clone is a copy rather than
+/// seven mallocs, but ~1,500 copies of ~1 KB is still worth spreading.
+///
+/// **Into an indexed `Vec` and a map sized up front, not `filter_map` and
+/// `collect`** (big-world speed lane, 2026-10-30). Rayon collects an
+/// unindexed `filter_map` into per-worker `Vec`s grown by push, and std's
+/// map grows from empty: every growth re-copies kilobyte tiles. Measured at
+/// 8192x2560, the growth alone (`grow_one` and `realloc`'s copy) was ~2.6%
+/// of the tick. Contents are identical: the map is keyed by `ChunkCoord`,
+/// every key in `read` is distinct, and nothing reads the map's order.
+fn snapshot_tiles(read: &[ChunkCoord], next: &ChunkMap<FieldTile>, old: &ChunkMap<FieldTile>) -> ChunkMap<FieldTile> {
+    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
+    let mut out = ChunkMap::with_capacity_and_hasher(read.len(), Default::default());
+    if !tiles_parallel(read.len()) {
+        out.extend(read.iter().filter_map(snapshot));
+    } else {
+        let tiles: Vec<Option<(ChunkCoord, FieldTile)>> = read.par_iter().map(snapshot).collect();
+        out.extend(tiles.into_iter().flatten());
+    }
+    out
+}
+
 /// `v += -gradient(pressure) * coupling`, damped, reflected off walls. Reads
 /// the pressure `step_pressure` just wrote into `next` — the deliberate
 /// pressure-then-velocity coupling order that makes disturbances propagate
@@ -3851,29 +3910,7 @@ fn step_velocity(
     // looks plausible. The outer ring can sleep outside the subset `next`
     // now holds, so it falls back to the old map — the same state the
     // full-map clone used to carry forward for it.
-    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
-    let new_pressure: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
-        read.iter().filter_map(snapshot).collect()
-    } else {
-        read
-        // **Built in parallel**, because this clone is the serial half of an
-        // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
-        // boxed slices this was on the order of 9,000 allocations per pass
-        // and 18,000 per frame, all of it on one worker while the rest
-        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
-        // rather than 4x on this machine. The arrays are inline now
-        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
-        // ~1,500 copies of ~1 KB is still worth spreading.
-        //
-        // Contents are identical: the map is keyed by `ChunkCoord` and every
-        // key in `read` is distinct, so no entry can collide and the finished
-        // map does not depend on the order entries were inserted in. Only the
-        // *build* order changes, and nothing reads that.
-        .par_iter()
-        .filter_map(snapshot)
-        .collect()
-    };
+    let new_pressure = snapshot_tiles(read, next, old);
 
     par_solve_tiles(coords, next, |coord, tile| {
         let old_near = TileNear::new(old, coord);
@@ -4278,29 +4315,7 @@ fn step_advection(
     // Over `read` rather than `coords` — see `step_velocity` for why, and
     // for why the ring falls back to the old map now that `next` holds only
     // the solved subset.
-    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
-    let pre_advection: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
-        read.iter().filter_map(snapshot).collect()
-    } else {
-        read
-        // **Built in parallel**, because this clone is the serial half of an
-        // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
-        // boxed slices this was on the order of 9,000 allocations per pass
-        // and 18,000 per frame, all of it on one worker while the rest
-        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
-        // rather than 4x on this machine. The arrays are inline now
-        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
-        // ~1,500 copies of ~1 KB is still worth spreading.
-        //
-        // Contents are identical: the map is keyed by `ChunkCoord` and every
-        // key in `read` is distinct, so no entry can collide and the finished
-        // map does not depend on the order entries were inserted in. Only the
-        // *build* order changes, and nothing reads that.
-        .par_iter()
-        .filter_map(snapshot)
-        .collect()
-    };
+    let pre_advection = snapshot_tiles(read, next, old);
 
     par_solve_tiles(coords, next, |coord, tile| {
         let pre = TileNear::new(&pre_advection, coord);

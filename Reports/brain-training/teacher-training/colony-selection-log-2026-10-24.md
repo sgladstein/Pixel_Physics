@@ -1473,3 +1473,209 @@ t_fama carries, 3 seeds, beside herb_first_colony, played_bed and crowded_bench 
 (before launch): a box can steer if its seed-to-seed Spearman of lived over the 32 colonies (mean of the 3 seed pairs)
 is >= 0.3, and its 3-seed lived sum ranks the exam boxes' 9-run sum at Spearman >= 0.3 with permutation p < 0.01
 (0.05 / 5 boxes). The famine twins are left out: every trained colony is dead there, so they cannot rank siblings.
+
+## 2026-10-28 (21:30Z): twinself -- no lab twin can steer at 600k either; the exam's plant boxes can
+
+twinself-1028 (816 runs, ref 3c0ebbc6, 19:18-21:15Z), `data-1027/twinself/twinself.csv`, `twinself_an.py`. The 32
+t_fama r23 carries, 3 seeds. "self" is the box's seed-to-seed Spearman of lived over the 32 colonies (mean of the 3
+seed pairs); "vs exam" is its 3-seed lived sum against the exam plant boxes' sum (for an exam box, the other two):
+
+| box | self | vs exam | perm p | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|---|---|---|
+| lab_herbs | -0.00 | +0.11 | 0.28 | 73 | 3 | 93 | 74 |
+| lab_far_mix | +0.22 | -0.18 | 0.84 | 82 | 103 | 489 | 119 |
+| lab_mid_fruit | -0.09 | -0.19 | 0.85 | 90 | 79 | 301 | 97 |
+| lab_far_wild | +0.08 | +0.09 | 0.30 | 93 | 49 | 306 | 52 |
+| lab_far200_fruit | +0.27 | -0.01 | 0.52 | 91 | 84 | 311 | 110 |
+| herb_first_colony (exam) | +0.47 | +0.62 | <0.0001 | 3 | 142 | 278 | 134 |
+| played_bed (exam) | +0.16 | +0.41 | 0.010 | 1 | 143 | 292 | 172 |
+| crowded_bench (exam) | +0.24 | +0.64 | <0.0001 | 1 | 204 | 649 | 211 |
+
+(hand-built and std_pool: 3-seed mean lived.) All five twins summed against the exam: -0.08. **Verdict against the
+measure named at launch: no twin steers** (none reaches self >= 0.3; none ranks the exam). The three exam plant boxes
+rank colonies alike (+0.41 to +0.64), so sibling colonies do differ in a way the game sees.
+
+**The dead column is the finding.** At 600k most trained colonies are dead in every twin (73-93 of 96 runs, where
+`dead` is 0 ants at the end), against 1-3 of 96 in the exam plant boxes. lab_herbs differs from herb_first_colony
+only in where its two herbs stand (x 240/270, at the nest, against 128/384), yet 73 against 3 dead. The twin runs
+also carry colsel's lab env (`PP_MIND_DOOR_OPEN=drop`, which every colsel job since env1 sets; `PP_BED_W` only
+widens the in-run bed). So either the box or the door rule kills them. **twinenv-1028** (204 runs, launched 21:30Z)
+separates the two: herb_first_colony with `door=drop`, lab_herbs without, same founders and seeds.
+
+## 2026-10-28 (22:10Z): twinenv -- the box kills, not the door rule; twingame launched
+
+twinenv-1028 (204 runs, ref e9ed27cd, same engine as twinsself), `data-1027/twinenv/`, `twinenv_an.py`, paired per
+colony-seed (32 x 3) against twinself's rows:
+
+| arm | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|
+| herb_first_colony, plain (twinself) | 3 | 142 | 278 | 134 |
+| herb_first_colony, `door=drop` | 2 | 137 | 278 | 134 |
+| lab_herbs, plain | 75 | 1.1 | 93 | 33 |
+| lab_herbs, lab env (twinself) | 73 | 2.5 | 93 | 74 |
+
+door=drop against plain: herb_first_colony 46/50 (p 0.76), lab_herbs 17/15 (p 0.86): **the door rule does nothing
+measurable at 600k**, so the watchdog's plugged-door lead is closed for these boxes. With the rule held, lab_herbs
+against herb_first_colony is 1/95 (p 2e-27): moving the two herbs from x 128/384 to 240/270, at the nest, kills 3 in
+4 trained colonies and costs the hand-built ant two thirds of its headcount. The twins are harsher boxes, not
+broken ones: they kill what the exam boxes keep, so they cannot rank siblings that all die in them.
+
+**twingame-1028** (714 runs, launched 22:10Z): seven game boxes that are not among the six exam boxes
+(played_bed_scrambler, played_bed_understory, played_bed_windfall_reach, steady_income, the_bank, far_larder,
+boom_bust), same 34 founders, 3 seeds, 600k, plain env. Deciding measure as twinself's (self >= 0.3 and vs exam >= 0.3
+at p < 0.01, now 0.05 / 7), against twinself's exam rows (same engine). A box that passes is a candidate steering
+case; the three played_bed variants are close kin of an exam box, so a pass there is weaker evidence of a general
+signal than one in steady_income, the_bank, far_larder or boom_bust.
+
+## 2026-10-28 (23:45Z): twingame -- two played_bed variants rank colonies as the exam does; env6 launched on them
+
+twingame-1028 (714 runs, ref f948010c, 22:12-23:22Z), `data-1027/twingame/`, `twingame_an.py`, against twinself's
+exam rows (same engine):
+
+| box | self | vs exam | perm p | dead / 96 | median lived | hand-built | std_pool |
+|---|---|---|---|---|---|---|---|
+| played_bed_scrambler | +0.00 | **+0.52** | 0.0010 | 1 | 143 | 271 | 145 |
+| played_bed_understory | +0.27 | **+0.52** | 0.0015 | 0 | 171 | 261 | 153 |
+| played_bed_windfall_reach | +0.04 | +0.13 | 0.25 | 2 | 160 | 226 | 155 |
+| steady_income | +0.01 | -0.15 | 0.80 | 18 | 133 | 277 | 155 |
+| the_bank | +0.21 | +0.03 | 0.43 | 96 | 0.2 | 0.4 | 0.2 |
+| far_larder | +0.00 | +0.00 | 1.0 | 96 | 0.2 | 0.4 | 0.2 |
+| boom_bust | +0.16 | -0.04 | 0.59 | 96 | 13 | 20 | 9 |
+
+**Against the measure as named, no box passes**: none reaches self >= 0.3. Two pass the exam half at p < 0.05/7.
+the_bank and far_larder kill even the hand-built ant (lived 0.4) under labsurvive's plain landing, so they say
+nothing here. After the named measure (exploratory, so weaker): scrambler + understory summed over their 6 runs rank
+the exam at **+0.67** (p < 0.0001); with 2 seeds each +0.61, 1 seed each +0.45. The variants are played_bed with one
+thing added, so the kinship control ranks them against herb_first_colony + crowded_bench only: +0.59 (p 0.0002),
+where played_bed itself scores +0.41. The self bar was too strict for a summed check: the exam's own played_bed
+agrees with itself at +0.16 and still ranks the other two at +0.41.
+
+**env6** (launched 23:45Z): t_fam's setup from std_pool on this build, three arms, P 21 each:
+
+| arm | change |
+|---|---|
+| g_ctl | none (t_fam with donor600: the control, rerun on this engine) |
+| g_dl | + `donorlab=600000:50:played_bed_scrambler,played_bed_understory,played_bed_scrambler,played_bed_understory:lived` |
+| g_dlo | the same donorlab in place of donor600 |
+
+colsel's `donorlab` gains a fourth field, `lived`, that ranks on mean headcount first (the quantity the rank checks
+validated) and runs a box named twice on two seeds. Smoke (4 colonies, 1 round, 3k): c1 had more alive at the end
+(145 vs 128) and lower lived (138.2 vs 140.8), and `:lived` kept c2 where the default would keep c1.
+**Deciding measure, named before launch:** exam x8 (6 boxes x 8 seeds at 600k), each arm's r23 rank-0 colony, lived
+paired over the 48 box-seeds against g_ctl's and against std_pool (Bonferroni over 2 arms), alive and starved share
+as guards. The donorlab log's own lived by round says whether the filter lifts the next generation (it did not in env5).
+
+## 2026-10-29 (11:30Z): exam `x9` -- the hand-written dig head (H3) lives in the game as well as std_pool
+
+H3 (the Nest lane's poolH3: std_pool with a hand-written dig head, g[2797:3279] only; Scott: seed training with it only
+if colonies live) through the six exam boxes x 8 seeds at 600k, run in this lane's container on bb0d7570 (same engine
+as x7: std_pool played_bed seed 1 rerun beside it gave the identical row). `data-1027/x9/lab600k.csv` (H3 rows + x7's
+std, old, famc7), `x9an.py`. Paired over 48 box-seeds:
+
+| H3 against | lived | alive at the end | starved share |
+|---|---|---|---|
+| std_pool | 19 / 14, p 0.49 | 13 / 13 | 21 / 15, p 0.41 |
+| hand-built ant | 2 / 46 | 8 / 27 | 48 / 0 more |
+
+Per box (lived median): played_bed 178 vs std 155, crowded_bench 229 vs 203, herb_first_colony 126 vs 139; all three
+famine boxes 0.4-0.5 like every trained brain. Median lived over 48: H3 71, std 70. **H3 passes Scott's gate**: the
+colonies live as well as std_pool's in the game, with the tunnels the Nest lane measured on the bed. The founders are
+in `scratch/inrun/genomes/handdig_h3/` (30 raws, each once). H3+eat (the chambered-nests thread's eat seed on H3,
+`handdig_h3eat/`) gets the same exam on the VM after env6, beside env6's own exam (x8).
+
+## 2026-10-29 (14:45Z): exam `x8` -- the played-bed filter did not help; x10 -- H3 + eat level too; env7 selects on survival alone
+
+**x8** (144 runs, ref 00d18fe3; std, old, famc7 from x7, same engine), `data-1027/x8/`, `x8an.py`. env6's r23 rank-0
+colonies, lived paired over 48 box-seeds (Bonferroni over the 2 filter arms: p < 0.025):
+
+| against | g_dl c3 (+ filter) | g_dlo c8 (filter for donor600) | g_ctl c9 (control) |
+|---|---|---|---|
+| g_ctl | 14 / 19, p 0.49 | 11 / 18, p 0.26 | -- |
+| std_pool | 11 / 22, p 0.08 | 9 / 22, p 0.029 | 13 / 17, p 0.58 |
+
+Alive at the end: g_dlo vs std 6 / 19 (p 0.015); g_dl vs g_ctl 15 / 11. Starved share: g_dlo vs std 26 / 12 more
+(p 0.034). Per box, the filter arms are worst in the played bed itself (lived median g_dl 87, g_dlo 128, g_ctl 169,
+std 155) and herb_first_colony (87, 102, 129, 139); all trained brains die in the three famine boxes, so the watchdog's
+store question (does g_dlo lose where the store is the buffer?) cannot be read there: every arm is at 0.4-0.5.
+**Verdict: the filter does not lift the game; neither arm beats its control or std_pool.** With 2-5 donor candidates
+a round it chose one or two of a handful the bed's cases had already picked, and its own score fell over the run
+(g_dl 648 -> 608, g_dlo 654 -> 511): the ruler was right, the thing it was ruling was drifting down regardless.
+
+**x10**: H3 + eat (`handdig_h3eat/`, the chambered-nests thread's eat seed on H3; container, bb0d7570), against x9's
+rows: vs std_pool lived 15 / 14 (p 1), alive 17 / 8 (p 0.11), starved share 13 / 23 (p 0.13); vs H3 lived 16 / 12.
+Level with both. The next batch seeds from H3 (the tie rule named before x10, and H3 + eat is already the
+chambered-nests thread's runner screen `chambers-sel1`).
+
+**env7** (launched 14:45Z): selection on the ruler alone. colsel `lex+lab` with the bed's four cases weighted 0
+(`weights=home8:0,starved:0,nestcuts_late:0,nest:0`), so a colony's whole score is its mean headcount in
+played_bed_scrambler + played_bed_understory at 600k, 2 seeds each (`labscens=` the two boxes twice, `labafter=600000`,
+new). No labgate, scalegate, labcase or donor600. Bed rounds of 200k still breed the next generation, as always.
+
+| arm | founder |
+|---|---|
+| L_std | std_pool |
+| L_h3 | H3 (`handdig_h3_pool.txt`, the 30 raws once each in file order) |
+
+32 colonies x 16 rounds, P 31 each. Two colsel changes ride along: `labafter=` (LAB_AFTER from a jobs line) and the
+lab case runs one job per colony x box instead of one per colony (same seeds, same rounding). Smoke (4 colonies, H3,
+labafter=3000): with the new map the round-0 lab column was identical to the old loop's (1370, 1306, 1363, 1427), and
+rank followed the lab case alone (c4: lowest home8, rank 0).
+**Deciding measure, named before launch:** exam x11, each arm's r15 rank-0 colony, lived paired over the 48
+box-seeds against its own founder (std_pool; H3 from x9), Bonferroni over 2 arms, alive and starved share as guards,
+plus the played-bed twins' lived by round in colsel.csv (does the selected score climb, unlike env5/env6).
+
+## 2026-10-30 (08:40Z): exam `x11` -- the first trained pools that beat std_pool in the game; x12 -- the selected tunnel line is level
+
+x11 + x12 (144 runs, ref 63621e6b, same engine as x7; std, old from x7, H3 from x9, H3+eat from x10),
+`data-1027/x11/lab600k.csv`, `x11an.py`. env7's r15 rank-0 colonies (selection on mean headcount in
+played_bed_scrambler + played_bed_understory at 600k alone, 16 rounds) and the chambered-nests thread's sel1 c9
+(Scott's lab-ant candidate). Paired over 48 box-seeds, up / down, Bonferroni over env7's 2 arms (p < 0.025):
+
+| | lived | alive at the end | starved share |
+|---|---|---|---|
+| **L_h3 c12 vs its founder H3** | **25 / 8, p 0.0046** | **20 / 5, p 0.004** | fewer 4 / 33, p 1e-6 |
+| L_h3 c12 vs std_pool | 26 / 8, p 0.003 | 23 / 2, p 2e-5 | fewer 8 / 30, p 0.0005 |
+| **L_std c23 vs its founder std_pool** | 23 / 14, p 0.19 | **20 / 5, p 0.004** | fewer 12 / 26, p 0.034 |
+| sel1 c9 vs std_pool | 16 / 18 | 17 / 8 | 16 / 21 |
+| sel1 c9 vs H3+eat as built | 14 / 17 | 9 / 15 | 23 / 15 |
+
+Lived median per plant box (std_pool / hand-built / L_std / L_h3): played_bed 155 / 238 / **304** / 237;
+herb_first_colony 139 / 238 / **318** / 261; crowded_bench 203 / 678 / 376 / **552**. In the three famine boxes every
+brain still dies (lived 0.3-0.5), so 10-15 of the 48 pairs tie and the sign tests run on the plant boxes.
+**Verdict against the measure named at launch:** L_h3 beats its founder on lived (p 0.0046, passes 0.025); L_std
+does not on lived (p 0.19) but does on alive at the end (p 0.004). Both beat std_pool on the guards. This is the
+first batch since std_pool whose winner beats it in the game, after ten exams of level-or-worse.
+
+Caveats, before calling it: (1) the two selection boxes are played_bed variants, so the played_bed gain is the
+nearest kin of what was selected; herb_first_colony and crowded_bench are not played beds and gained as much.
+(2) The Nest lane (08:05Z) ran both pools on its garden worlds: nests of 100-200 cells against 800-1,000 for the
+untrained pools, no tunnels in 15 of 16 runs, L_h3 extinct in 4 of 8 garden worlds, with H3's dig head intact --
+selection on the lab boxes alone bred digging out through the core. Scott's rule is dig and forage all game, so
+this is a trade until a picture says otherwise. (3) On the training bed L_h3's colonies died out more each round
+(12 of 32 alive at r14) because nothing scored the bed. (4) sel1 c9 is level with both std_pool and its own founder:
+16 rounds of the standard score kept the tunnel line, it did not improve it.
+
+## 2026-10-30 (09:00Z): env8 -- keep env7's survival score, add a floor on the open nest
+
+**Question:** can a batch keep L_h3's survival gain and get the digging back? env8 starts both arms from L_h3 c12
+(`genomes/env7_h3c12_pool.txt`, the ratchet), with env7's job line unchanged (lab case alone, the two played-bed
+boxes at 600k, 2 seeds each, bed cases weighted 0).
+
+| arm | change from env7 |
+|---|---|
+| N_ctl | none (16 more rounds of env7: does more of the same keep climbing or keep losing the nest?) |
+| N_gate | `nestgate=50` (new): after the lab ranking picks the better half, a donor must also have an open nest (`nest_open`) at or above the donors' median on its 200k training bed |
+
+Why a size floor and not `scalegate=`: the watchdog's env6 audit found nest / need pays a colony for storing less;
+the Nest lane (10-30 08:31Z) asked for the gate on size, `nest_open`, the shape measure that repeats world to world.
+Smoke (4 colonies, 2 rounds, 20k, labafter=3000, from L_h3 c12): round 1's gate read c2=7 c1=7 open cells,
+equal to `nestcount.count` on the same run folders, and kept both (a tie at the median); on distinct values the same
+arithmetic keeps the upper half (3/40/12/25 -> c2, c4). At 20k every nest is 4-9 cells, so the smoke shows the
+plumbing, not the pressure.
+
+**Deciding measure, named before launch:** exam x13, each arm's r15 rank-0 colony, against L_h3 c12 and std_pool
+(rows reused from x11, same engine unless a merge moves it, then rerun all three). Two conditions, both needed for N_gate to win:
+(1) lived paired over the 48 exam box-seeds not worse than L_h3 c12 (a sign test with N_gate behind at p < 0.05 fails it);
+(2) `nest_open` at 200k in the Nest lane's garden worlds 61-68 bigger than L_h3 c12's in at least 6 of 8
+(one-sided sign test p 0.145 alone, so also report the medians), with the chambers judge's `tunnels` and pictures beside it, not scored.
+N_ctl is judged on (1) against L_h3 c12 only, to say whether more rounds alone still pay.

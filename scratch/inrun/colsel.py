@@ -23,6 +23,7 @@ Writes OUT/colsel.csv (one row per colony-round) and OUT/cg.csv (one row per col
 import csv, os, subprocess, sys, gzip, random, shutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nestcount
+import nestshape
 import roomshape
 from concurrent.futures import ThreadPoolExecutor
 
@@ -304,8 +305,17 @@ MODE = MODE.removesuffix('+inherit')
 EXTRA_CASES = []
 while '+' in MODE:
     MODE, k = MODE.rsplit('+', 1)
-    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale'), k
+    assert k in ('spoil', 'crater', 'craterfull', 'rooms', 'shape', 'guard', 'slay', 'lab', 'scale', 'gallery', 'crumbs'), k
     EXTRA_CASES.append(k)
+# +gallery and +crumbs (chambers selection run, 2026-10-29; opt-in, unset the run is unchanged): crumb-proof nest-shape
+# cases from scratch/inrun/nestshape.py, logged as colsel.csv columns `gallery`, `crumbs` after the lab columns (so no
+# earlier column moves). gallery = open passage cells (crumbs and food are wall; open pieces of 20+ cells, outside every
+# 5x5 room and the crater), higher better; crumbs = crumb cells / nest space, lower better. **Why**: the gallery share
+# the Nest lane judged H3 by counts a narrow crumb-packed shaft as passages (copy 3 read 20-41% on nests with none,
+# dead-ends creatures:192), and roomshape reads stored food as room unless shapeopen=1. Every arm also writes
+# OUT/nestshape.csv (every colony, every round, these measures and more) whether or not the cases are on, so a
+# tunnel that fades to a cone between rounds shows in the log, not only at the end.
+NSHAPE = [k for k in ('gallery', 'crumbs') if k in EXTRA_CASES]
 # +craterfull (nest lane, 2026-10-28): the crater case, counting the hole with what fills it (nestcount `crater_full`:
 # the crumbs and food in the sky-open space under a widened mouth, as well as its open air). Use it in place of +crater.
 # **Why**: the trained ant cuts the door's rim and its mouth widens from 5 to 9-12 cells, but the crumb pile fills the
@@ -332,6 +342,14 @@ EXTRA = [x for x in EXTRA if not x.startswith('labgate=')]
 # the same way, and widebed1's scalegate arm (+scale with labgate=50) dug 220 against 165.
 SCALEGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('scalegate=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('scalegate=')]
+# nestgate=Q (teacher lane, 2026-10-30, after exam x11): a donor must also have an open nest (nestcount `nest_open`:
+# roofed nest cells still open air, not stored food or crumbs) at or above the Q-th percentile of the round's donors on
+# its training bed, applied after scalegate=. **Why**: env7 selected on lab survival alone and its pools beat std_pool
+# in the game (L_h3 c12 lived 26/8) but barely dig (nest lane, garden worlds: 100-200 cells against 800-1,000). A
+# size floor rather than scalegate's nest / need, because the watchdog's env6 audit found the need ratio pays a colony
+# for storing less, and the nest lane's size is the shape measure that repeats world to world (Spearman 0.25-0.29).
+NESTGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('nestgate=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('nestgate=')]
 assert LABGATE is None or LAB, 'labgate= needs +lab'
 # +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
 # end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
@@ -364,7 +382,16 @@ EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
 # k3c23 6/30 against std_pool, env2 s_d6 10/22, env4 f_w6 8/23 against its own founder -- and the watchdog lane found
 # no training case, donor600's bed check included, ranks donors by survival (311 donors, every case within +-0.25).
 # The exam's boxes are lab boxes; this puts a long lab run between a candidate and the next generation.
+# donorlab=FRAMES:Q:A,B,...:lived ranks on mean headcount first (then alive at the end); a box named twice runs twice
+# on two seeds. **Why** (2026-10-28, x7 and the rank checks): at the default boxes the check is a random pick -- the
+# labscen twins agree with themselves seed to seed at -0.09..+0.27 and with the exam at -0.19..+0.11, because 73-93 of
+# 96 trained runs die in them (twinself-1028; twinenv-1028: the box, not the door rule). Two non-exam game boxes do
+# rank colonies as the exam does: played_bed_scrambler + played_bed_understory, 3 seeds each at 600k, Spearman of mean
+# headcount +0.67 against the exam's plant boxes (+0.59 with played_bed left out; 2 seeds each +0.61, 1 seed +0.45),
+# twingame-1028 over the 32 t_fama carries. Both are copied into LAB_DIR for this.
 DONOR_LAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('donorlab=')), None)
+assert DONOR_LAB is None or len(DONOR_LAB) < 4 or DONOR_LAB[3] == 'lived', 'donorlab=FRAMES:Q:A,B,...:lived (a typo ranked alive-first)'
+assert DONOR_LAB is None or len(DONOR_LAB) < 3 or all(DONOR_LAB[2].split(',')), 'donorlab=: name the boxes (an empty name runs no box)'
 EXTRA = [x for x in EXTRA if not x.startswith('donorlab=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
@@ -452,6 +479,12 @@ LAB_CASES = next((x.split('=', 1)[1].split(',') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labcase=')]
 assert not LAB_CASES or 'lab' in EXTRA_CASES, 'labcase= needs +lab'
 LAB_AFTER = os.environ.get('LAB_AFTER', '15000')
+# labafter=N (jobs arg; teacher lane, 2026-10-29): LAB_AFTER from a jobs line, as labscens= is, since a VM batch passes
+# only P to the driver's environment. **Why**: the rank checks of 2026-10-28 (twinrank, twinself, twingame) found the
+# only lab boxes that rank colonies as the exam does are played_bed_scrambler + played_bed_understory at 600k, 2-3
+# seeds each (+0.61/+0.67); a 15k headcount there was never checked. Used with weights= to make that the whole score.
+LAB_AFTER = next((x.split('=', 1)[1] for x in EXTRA if x.startswith('labafter=')), LAB_AFTER)
+EXTRA = [x for x in EXTRA if not x.startswith('labafter=')]
 # labscore=alive:AFTER[:K] (teacher lane + watchdog lane, 2026-10-28; off by default): a lab run is scored on the colony
 # alive AFTER frames after landing, less K x the ants that starved (default K 0), in place of the mean headcount over
 # LAB_AFTER. **Why**: the watchdog lane reran env1 c's 28 r23 carries on their own lab seeds to 300k; the 15k headcount
@@ -464,6 +497,7 @@ LAB_SCORE = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labscore=')]
 if LAB_SCORE:
     assert LAB_SCORE[0] == 'alive' and len(LAB_SCORE) in (2, 3), 'labscore=alive:AFTER[:K]'
+    assert not any(x.startswith('labafter=') for x in sys.argv), 'labscore= sets its own AFTER; drop labafter='
     LAB_AFTER = LAB_SCORE[1]
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
@@ -681,7 +715,9 @@ def cases(v):
     c = c + (-v[15],) if 'guard' in EXTRA_CASES else c
     c = c + (v[16],) if 'slay' in EXTRA_CASES else c
     c = c + (v[17],) if 'scale' in EXTRA_CASES else c
-    return c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
+    c = c + tuple(v[18:19 + len(LAB_CASES)]) if LAB else c
+    n0 = 18 + (1 + len(LAB_CASES) if LAB else 0)  # +gallery / +crumbs ride after the lab values
+    return c + tuple(v[n0 + k] if k_ == 'gallery' else -v[n0 + k] for k, k_ in enumerate(NSHAPE))
 
 
 def case_names():
@@ -690,7 +726,7 @@ def case_names():
     n += ['spoil'] if SPOIL else []
     n += ['crater'] if 'crater' in EXTRA_CASES or CRATER_FULL else []
     n += [k for k in ('rooms', 'shape', 'guard', 'slay', 'scale') if k in EXTRA_CASES]
-    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else [])
+    return n + (['lab'] + [f'lab2_{sc}' for sc in LAB_CASES] if LAB else []) + NSHAPE
 
 
 # weights=NAME:W,... (selection lane, 2026-10-28; the selection review's "one case per goal, with an explicit weight
@@ -745,10 +781,19 @@ def garden(r, carry):
     def one(c):
         d = run([f'founders={carry[c]}', f'seed={seed_of("garden", c)}'] + spider_args(with_spiders(with_cap(CGC), r)), f'{OUT}/cg/r{r}/c{c}')
         v = result(d, 200000)
+        shp[c] = nestshape.measure(d)  # the garden's nest shape, read before its folder goes (OUT/cgshape.csv)
         shutil.rmtree(d, ignore_errors=True)
         return c, v
+    shp = {}
     with ThreadPoolExecutor(P) as ex:
         got = dict(ex.map(one, live))
+    new_s = not os.path.exists(f'{OUT}/cgshape.csv')
+    with open(f'{OUT}/cgshape.csv', 'a') as f:
+        if new_s:
+            f.write('round,colony,' + ','.join(nestshape.KEYS) + '\n')
+        for c in sorted(shp):
+            if shp[c]:
+                f.write(f'{r},{c},' + ','.join(str(shp[c][k]) for k in nestshape.KEYS) + '\n')
     new = not os.path.exists(f'{OUT}/cg.csv')
     with open(f'{OUT}/cg.csv', 'a') as f:
         if new:
@@ -771,7 +816,7 @@ if os.path.exists(statep):
     import json
     st0 = json.load(open(statep))
     R0 = st0['r']
-    for fn in ('colsel.csv', 'cg.csv', 'donor600.csv'):
+    for fn in ('colsel.csv', 'cg.csv', 'donor600.csv', 'nestshape.csv', 'cgshape.csv'):
         fp = f'{OUT}/{fn}'
         if os.path.exists(fp):
             rows = open(fp).read().splitlines(True)
@@ -784,7 +829,7 @@ if os.path.exists(statep):
 logp = f'{OUT}/colsel.csv'
 log = open(logp, 'a')
 if os.path.getsize(logp) == 0:
-    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' + ''.join(f'lab2_{sc},' for sc in LAB_CASES) if LAB else '') + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
+    log.write('round,colony,home8,late_cuts,starved,rooms,alive,cuts,dug,pit,nest,nestcuts,nestcuts_late,crater,spoil,spoil_in,shape,killed,slay,scale,' + ('lab,' + ''.join(f'lab2_{sc},' for sc in LAB_CASES) if LAB else '') + ''.join(f'{k},' for k in NSHAPE) + 'passed_gate,rank,refounded_from,pilecap,spider_at,dist\n')
 def expand_pool(path):
     """A pool file (assets/minds/std_pool.txt: member 0 whole, later members as their differences from it) written
     out as one .raw.txt per member under OUT/pool, and round 0's founders string: each member once, as a carry is."""
@@ -870,10 +915,29 @@ for r in range(R0, R):
     ok = [c for c in cols if carry[c] is not None]
     if LAB:
         with ThreadPoolExecutor(P) as ex:
-            labv = dict(zip(ok, ex.map(lambda c: lab_alive(c, r, carry[c]), ok)))
+            # one job per colony x box, summed, rather than one per colony looping its boxes: the same seeds (kind
+            # 'lab', index k) and the same per-run rounding, so the case is unchanged, but a round of 600k boxes
+            # (labafter=600000, env7 2026-10-29) is no longer four runs long end to end on a 64-core VM
+            jobs = [(c, k, sc) for c in ok for k, sc in enumerate(LAB_SCENS)]
+            got = list(ex.map(lambda j: lab_alive(j[0], r, carry[j[0]], [j[2]], 'lab', j[1]), jobs))
+            labv = {c: 0 for c in ok}
+            for (c, _, _), v in zip(jobs, got):
+                labv[c] += v
             # Each labcase= scenario keeps its seed offset past LAB_SCENS', so adding one never moves the summed case.
             lab2 = [dict(zip(ok, ex.map(lambda c, k=k, sc=sc: lab_alive(c, r, carry[c], [sc], 'labcase', k), ok))) for k, sc in enumerate(LAB_CASES)]
         res = {c: (v + (labv.get(c, 0),) + tuple(d.get(c, 0) for d in lab2) if v else v) for c, v in res.items()}
+    # nest shape of every colony every round (nestshape.py; +gallery / +crumbs read two of its values)
+    shp = {c: nestshape.measure(dirs[c]) for c in sorted(dirs)}
+    newshp = not os.path.exists(f'{OUT}/nestshape.csv')
+    with open(f'{OUT}/nestshape.csv', 'a') as f:
+        if newshp:
+            f.write('round,colony,' + ','.join(nestshape.KEYS) + '\n')
+        for c in sorted(shp):
+            if shp[c]:
+                f.write(f'{r},{c},' + ','.join(str(shp[c][k]) for k in nestshape.KEYS) + '\n')
+    if NSHAPE:
+        res = {c: (v + tuple((shp[c] or {}).get('galleryc' if k == 'gallery' else 'crumb_share', 0) for k in NSHAPE) if v else v)
+               for c, v in res.items()}
     # The gate is late original-ground cuts only. A room in the final nest map no longer passes it: colsel-1022 found
     # 47 of 64 gate-arm colonies passing on a "room" with 0-1 late cuts (the nest score finds a chamber or niche in
     # nearly any nest, dug or not), and that arm's digging went to 0 by round 7. Rooms stay a lexicase case.
@@ -908,6 +972,13 @@ for r in range(R0, R):
                 sv = sorted(res[c][17] for c in donors)
                 bar = sv[min(len(sv) - 1, int(len(sv) * SCALEGATE / 100))]
                 donors = [c for c in donors if res[c][17] >= bar] or donors
+            if NESTGATE is not None and len(donors) > 1:
+                nv = {c: nestcount.count(dirs[c], F).get('nest_open', 0) if os.path.exists(f'{dirs[c]}/nestmap.txt') else 0 for c in donors}
+                srt = sorted(nv.values())
+                bar = srt[min(len(srt) - 1, int(len(srt) * NESTGATE / 100))]
+                kept = [c for c in donors if nv[c] >= bar] or donors
+                print(f'round {r}: nestgate ' + ' '.join(f'c{c}={nv[c]}' for c in donors) + f' -> {kept}', flush=True)
+                donors = kept
             if DONOR_LONG is not None and len(donors) > 1:
                 with ThreadPoolExecutor(P) as ex:
                     lv = dict(zip(donors, ex.map(lambda c: long_alive(c, r, carry[c]), donors)))
@@ -927,9 +998,10 @@ for r in range(R0, R):
                 with ThreadPoolExecutor(P) as ex:
                     lv = dict(zip(donors, ex.map(lambda c: lab_long(c, r, carry[c]), donors)))
                 q = float(DONOR_LAB[1]) if len(DONOR_LAB) > 1 else 50.0
-                srt = sorted(lv.values())
+                key = (lambda t: (t[1], t[0])) if len(DONOR_LAB) > 3 and DONOR_LAB[3] == 'lived' else (lambda t: t)
+                srt = sorted(key(v) for v in lv.values())
                 bar = srt[min(len(srt) - 1, int(len(srt) * q / 100))]
-                kept = [c for c in donors if lv[c] >= bar] or donors
+                kept = [c for c in donors if key(lv[c]) >= bar] or donors
                 new_l = not os.path.exists(f'{OUT}/donorlab.csv')
                 with open(f'{OUT}/donorlab.csv', 'a') as f:
                     if new_l:
@@ -958,7 +1030,7 @@ for r in range(R0, R):
                 nxt[b], src[b] = (mutate_carry(carry[d], b, r) if REFOUND_MUT else carry[d]), str(d)
         print(f'round {r}: migration ' + ' '.join(f'c{best[g]}->island{(g + 1) % NISL}' for g in range(NISL)), flush=True)
     for c in cols:
-        v = res[c] or (0,) * (19 + len(LAB_CASES) if LAB else 18)
+        v = res[c] or (0,) * ((19 + len(LAB_CASES) if LAB else 18) + len(NSHAPE))
         log.write(f'{r},{c},' + ','.join(str(x) for x in v) + f',{int(passed[c])},{order.index(c)},{src[c]},{"" if cap_now is None else cap_now},{spider_log(r)},{"" if dist_now is None else dist_now}\n')
     log.flush()
     if CG_EVERY and (r % CG_EVERY == CG_EVERY - 1 or r == R - 1):

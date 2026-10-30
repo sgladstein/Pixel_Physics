@@ -1,0 +1,80 @@
+// The played bed with a thicket -- M2's question, 2026-09-10.
+//
+// `played_bed.ron` is the owner's mix (grass, herb, shrub) and it has no LOW
+// fruiting plant: herb's flowers and fruit stand 22-40 rows up a stem, so
+// the loop "an ant bites a fallen fruit" almost never fires -- measured on
+// PR #301, **two bites in 360,000 frames** across three seeds
+// (`Reports/dead-ends.md` line 1636's finding, reproduced independently).
+// `scrambler` (`assets/species/scrambler.ron`) is a sprawling determinate
+// thicket that carries flowers and fruit at ground level at every axis end
+// -- exactly the shape the played bed is missing. This file is the played
+// bed with four scramblers added, everything else byte-identical, so a
+// difference in the mechanism's counters is attributable to the thicket and
+// nothing else.
+//
+// **Four columns, chosen to keep the mix and stay off two things**: the
+// existing thirteen placements (grass/herb/shrub at x in {25, 50, 75, 105,
+// 130, 155, 180, 330, 355, 380, 410, 435, 465}) and, more importantly,
+// `played_bed.ron`'s own nest band, columns 210..310, which that file's own
+// header explains must stay bare of founders or `found_colony_of` seats a
+// colony of 8 instead of ~13-33 (measured there, not re-derived here). A
+// scrambler standing in the band at frame 6,000 would cost the same
+// founders the empty band exists to protect, so the four go at 15, 195,
+// 315 and 495 -- bracketing the band from outside it rather than the
+// 90/215/300/490 first sketched, which put two of the four inside it.
+//
+// **Nothing else differs.** Same bed size, same soil/ground/lamp geometry,
+// same seed, same colony timeline at frame 6,000. A finding here is a
+// finding about the thicket, not about a second confound riding along with
+// it -- the sibling of the played-bed file's own "prove the edit touched
+// only its target" discipline.
+(
+    name: "played_bed_scrambler",
+    title: "THE PLAYED BED WITH A THICKET",
+    question: "The owner's mix plus scrambler, a low fruiting thicket at ground level -- does fruit reach the floor, do ants bite it, and does the colony eat better for it?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "grass",     x: 25),
+        Plant(species: "herb",      x: 50),
+        Plant(species: "shrub",     x: 75),
+        Plant(species: "grass",     x: 105),
+        Plant(species: "herb",     x: 130),
+        Plant(species: "grass",     x: 155),
+        Plant(species: "shrub",    x: 180),
+        // The four added scramblers -- see the header for why these
+        // columns and not the first sketch.
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 195),
+        Plant(species: "scrambler", x: 315),
+        Plant(species: "scrambler", x: 495),
+        Plant(species: "grass",    x: 330),
+        Plant(species: "herb",     x: 355),
+        Plant(species: "shrub",    x: 380),
+        Plant(species: "grass",    x: 410),
+        Plant(species: "herb",     x: 435),
+        Plant(species: "grass",    x: 465),
+    ],
+    timeline: [
+        // Identical to `played_bed.ron`'s own timeline entry -- see that
+        // file's header for why the band must stay bare rather than being
+        // swept with an explicit `Clear`.
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+    ],
+    horizon: 120000,
+)

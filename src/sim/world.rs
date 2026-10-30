@@ -6245,6 +6245,23 @@ pub struct World {
     /// this is false. Starts at `decay::windfall_rots_default()` (true unless
     /// `PIXEL_PHYSICS_WINDFALL_ROT=off`); the lab's BOX page flips it live.
     pub windfall_rots: bool,
+    /// **Whether the fungus garden runs** (`garden::step`): plant matter
+    /// lying in the dark nest turns to fungus, spreads and ripens. Starts at
+    /// `garden::garden_default()` (on unless `PIXEL_PHYSICS_GARDEN=off`).
+    pub garden_on: bool,
+    /// Gardens started: fodder beside worked nest ground that turned to
+    /// fungus with no fungus touching it. The *it fired* counter.
+    pub garden_started: u64,
+    /// Fodder that turned because fungus was touching it: the garden
+    /// spreading through a pile.
+    pub garden_spread: u64,
+    /// Joules the garden's ripening has added, over the life of the world.
+    pub garden_ripened_j: u64,
+    /// Fungus cells that wilted to litter in the light.
+    pub garden_wilted: u64,
+    /// Foliage cells the player clipped with the lab's PRUNE brush
+    /// (`plant::prune_cell`).
+    pub pruned_cells: u64,
     /// **Whether a big plant ticks less often than a seedling.**
     ///
     /// `step_organisms` costs almost exactly its cells (measured flat at
@@ -7738,6 +7755,12 @@ impl World {
             root_mats_repay: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
+            garden_on: crate::sim::garden::garden_default(),
+            garden_started: 0,
+            garden_spread: 0,
+            garden_ripened_j: 0,
+            garden_wilted: 0,
+            pruned_cells: 0,
             plant_size_cadence: false,
             annual: super::plant::annual_from_env(),
             annual_deaths: 0,

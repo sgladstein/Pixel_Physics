@@ -2624,6 +2624,7 @@ impl Lab {
                 ui::Tool::Food => format!("PAINTED FOOD AT {x},{y} -- {} CELLS", stroke.cells),
                 ui::Tool::Soil => format!("PAINTED SOIL AT {x},{y} -- {} CELLS", stroke.cells),
                 ui::Tool::Dig => format!("DUG AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Prune => format!("PRUNED AT {x},{y} -- {} CELLS", stroke.cells),
                 ui::Tool::Scent => format!("LAID SCENT AT {x},{y}"),
                 _ => return,
             }
@@ -2743,6 +2744,11 @@ impl Lab {
         if !erase && self.ui.tool() == ui::Tool::Dig {
             return self.dig_span(from, to);
         }
+        // **`Prune` clips foliage rather than painting a material**, so it
+        // is intercepted here for `Dig`'s reason.
+        if !erase && self.ui.tool() == ui::Tool::Prune {
+            return self.prune_span(from, to);
+        }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
             (material::EMPTY, 0)
@@ -2840,6 +2846,33 @@ impl Lab {
         crate::sim::creature::hand_dig(&mut self.world, &cells)
     }
 
+    /// **[`ui::Tool::Prune`] along one span of the brush**: every living
+    /// leaf, flower or grass blade within the brush radius of the segment is
+    /// clipped off its plant and falls as litter (`plant::prune_cell`), for
+    /// the colony to eat or carry home to its fungus garden. Stems, wood,
+    /// roots, fruit and seeds are left alone, so a prune never fells a plant.
+    /// Returns the cells clipped.
+    fn prune_span(&mut self, from: (i32, i32), to: (i32, i32)) -> u32 {
+        let r = self.ui.brush().max(0);
+        let (ax, ay, bx, by) = (from.0 as f32, from.1 as f32, to.0 as f32, to.1 as f32);
+        let (dx, dy) = (bx - ax, by - ay);
+        let len2 = (dx * dx + dy * dy).max(1e-6);
+        let reach = r as f32 + 0.5;
+        let mut clipped = 0u32;
+        // Bottom row first, so a clipping falling out of a clipped cell above
+        // never lands in a cell this same span is about to read.
+        for y in ((from.1.min(to.1) - r)..=(from.1.max(to.1) + r)).rev() {
+            for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                let t = (((x as f32 - ax) * dx + (y as f32 - ay) * dy) / len2).clamp(0.0, 1.0);
+                let (px, py) = (ax + t * dx - x as f32, ay + t * dy - y as f32);
+                if px * px + py * py <= reach * reach && self.world.in_bounds(x, y) && crate::sim::plant::prune_cell(&mut self.world, x, y) {
+                    clipped += 1;
+                }
+            }
+        }
+        clipped
+    }
+
     /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
     /// `paint_span`'s own capsule shape, over a pheromone plane instead of a
     /// material.
@@ -2921,7 +2954,7 @@ impl Lab {
             ui::Tool::Fire => self.fire_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
+            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent | ui::Tool::Prune => {}
         }
     }
 
@@ -8191,6 +8224,63 @@ mod tests {
         run(&mut lab, 600);
         let after = census(&lab);
         assert!(after.2 > before.2, "the fire left no ash: {before:?} -> {after:?}");
+    }
+
+    /// **The prune tool clips foliage to litter and leaves the plant alive.**
+    /// The plants-and-ants lane's verb (2026-10-30). A grown stand, PRUNE
+    /// armed through the `ADD` cell, a click on a leaf: leaf cells go, litter
+    /// arrives, and the plant that lost them is still alive. **The control is
+    /// a click on bare soil**, which must clip nothing.
+    #[test]
+    fn the_prune_tool_clips_leaves_to_litter_and_the_plant_lives() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        run(&mut lab, 3_000);
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut frame, 60.0);
+        let litter = lab.world.materials.id_of("litter").expect("litter");
+        let foliage = |w: &World, c: crate::sim::cell::Cell| {
+            c.organism_id() != 0 && w.materials.kind(c.material) == crate::sim::material::MaterialKind::Plant && w.materials.get(c.material).garden_fodder
+        };
+        let census = |lab: &Lab| {
+            let (mut leaf, mut lit) = (0usize, 0usize);
+            for y in 0..lab.spec.height {
+                for x in 0..lab.spec.width {
+                    let c = lab.world.get(x, y);
+                    leaf += foliage(&lab.world, c) as usize;
+                    lit += (c.material == litter) as usize;
+                }
+            }
+            (leaf, lit)
+        };
+        for _ in 0..ui::PLACEABLE.len() {
+            if lab.ui.tool() == ui::Tool::Prune {
+                break;
+            }
+            lab.act(ui::Action::Place);
+        }
+        assert_eq!(lab.ui.tool(), ui::Tool::Prune, "the ADD cell never reached PRUNE");
+        let r = lab.ui.brush();
+        let bare = (r..lab.spec.width - r)
+            .find(|&x| ((x - r)..=(x + r)).all(|xx| ((lab.spec.ground_y - 30)..lab.spec.ground_y + r + 1).all(|yy| lab.world.get(xx, yy).organism_id() == 0)))
+            .expect("test setup: no bare stretch of bed");
+        let before = census(&lab);
+        let soil_y = lab.spec.ground_y + 2;
+        click_cell(&mut lab, bare, soil_y);
+        assert_eq!(census(&lab), before, "a click on bare soil clipped something");
+        assert_eq!(lab.world.pruned_cells, 0);
+
+        let (px, py) = (0..lab.spec.width)
+            .flat_map(|x| (0..lab.spec.ground_y - 2).map(move |y| (x, y)))
+            .find(|&(x, y)| foliage(&lab.world, lab.world.get(x, y)))
+            .expect("test setup: no foliage above ground");
+        let owner = lab.world.get(px, py).organism_id();
+        click_cell(&mut lab, px, py);
+        let after = census(&lab);
+        assert!(lab.world.pruned_cells > 0, "a click on a leaf clipped nothing");
+        assert_eq!(before.0 - after.0, lab.world.pruned_cells as usize, "foliage lost should be exactly what was pruned: {before:?} -> {after:?}");
+        assert!(after.1 > before.1, "the clippings did not come down as litter: {before:?} -> {after:?}");
+        assert!(lab.world.organism(owner).is_some(), "pruning killed the plant");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.

@@ -76,7 +76,7 @@
 //! reason chunk rows are ordered rather than parity-split: see `step`.
 
 use super::cell::OrganismId;
-use std::collections::HashMap;
+use super::fxhash::PosMap;
 
 use rayon::prelude::*;
 
@@ -478,7 +478,7 @@ struct ChunkOutcome {
     coord: ChunkCoord,
     chunk: Chunk,
     field: FieldTile,
-    remote_writes: HashMap<(i32, i32), Cell>,
+    remote_writes: PosMap<Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
@@ -573,7 +573,14 @@ struct ChunkView<'w> {
     /// `fire::FireTraits` per material, built once a frame by `step` and
     /// served by `fire_traits_of`.
     fire_traits: &'w [crate::sim::fire::FireTraits],
-    remote_writes: HashMap<(i32, i32), Cell>,
+    /// `fxhash`, not std's SipHash: this is probed by every `get` that
+    /// leaves the chunk once anything is queued, and at 8192x2560 the
+    /// SipHash of `(i32, i32)` was ~1% of the tick on its own (big-world
+    /// speed lane, 2026-10-30). Replay order is not a question this map has
+    /// to answer -- std's map was randomly seeded per process and the run
+    /// was reproducible anyway, because no two queued writes share a
+    /// position (`run_pass`'s replay comment).
+    remote_writes: PosMap<Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     /// Same shape as `field_writes`, one channel over — queued cross-chunk
@@ -670,7 +677,7 @@ impl<'w> ChunkView<'w> {
             field,
             world,
             fire_traits,
-            remote_writes: HashMap::new(),
+            remote_writes: PosMap::default(),
             dirty_touches: Vec::new(),
             field_writes: Vec::new(),
             light_writes: Vec::new(),
@@ -840,6 +847,18 @@ impl CellSurface for ChunkView<'_> {
 
     fn in_bounds(&self, x: i32, y: i32) -> bool {
         self.world.in_bounds(x, y)
+    }
+
+    /// `inner`'s span of row `y`, straight from `chunk` -- exactly what `get`
+    /// serves for those cells, and `inner` is already clipped to the world, so
+    /// every one of them is in bounds.
+    #[inline]
+    fn resident_row(&self, y: i32) -> Option<(i32, &[Cell])> {
+        let r = self.inner;
+        if y < r.min_y || y > r.max_y || r.min_x > r.max_x {
+            return None;
+        }
+        Some((r.min_x, self.chunk.row_world(r.min_x, r.max_x, y)))
     }
 
     fn clear_moved(&mut self, x: i32, y: i32) {
