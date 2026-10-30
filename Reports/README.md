@@ -6479,6 +6479,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the nest, and the brain bill gives a one-tank trained ant ~2,000 frames. Cutting the outward links removes the trap
   (209 -> 8 wall arrivals) but not the deaths: walking out was its only search. Side finding: two_larders' meat room
   kills the hand-built ant too. New `labsurvive` options `food=`, `png=`, `knock=`.
+- [brain-training/research/chambered-nests-2026-10-30.md](brain-training/research/chambered-nests-2026-10-30.md) —
+  **can the brain dig chambers joined by tunnels? Not yet: twelve probes, and what stands in the way (measurement).**
+  A hand-set tunnel digger plus a hand-set eat seed keeps colonies alive and doubles passages; 16 rounds of selection
+  keep it but don't improve it, and a tunable digger wears down under the plain score. In the lab the uncapped colony
+  leaves nobody free to dig; the crumbs in every passage are the food store, and two fixes for them failed; a
+  room-distance sense did not make rooms. Rain, buried food and layered soil gave tunnels no edge. New `tunnels`
+  measure, `labsurvive laycap=`/`nestrows=`, `inrun PP_DIGHEAD_RATE`/`GROW`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
