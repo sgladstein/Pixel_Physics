@@ -5075,6 +5075,13 @@ pub struct World {
     /// §5). All eight flag bits on a cell are taken, which is why it is a
     /// set here rather than a bit there.
     pub dug_cells: crate::sim::fxhash::PosSet,
+    /// SCRATCH (nest lane, 2026-10-30, the fun-hunt plan's nest track): **the fresh-cut mark**, the frame each
+    /// ground cell last stood beside a cut, written by [`World::mark_cut`] wherever `dug_cells` is (the dig verb,
+    /// `pack_behind`'s cut ahead, `escape_cut`, the founding shaft) and only while `PP_FRESHCUT` is on. A fact about
+    /// the soil, not a direction: it does not spread. Read by the dig head's slot 4 (`mind::dig_feats`). A map rather
+    /// than a grid because the world is to stop being bounded (M10); pruned to the fade window as it grows, so it holds
+    /// only the last few hundred frames' cuts.
+    pub fresh_cut: crate::sim::fxhash::PosMap<u64>,
     /// **What each nest needs, for the forage drive**, in `[0, 1]`: under
     /// `hunger` its animals' mean hunger, under `larder` how far the food
     /// standing at home falls short of a store (`creature::nest_needs`).
@@ -7628,6 +7635,7 @@ impl World {
             nest_dug: Default::default(),
             nest_dug_sizes: Vec::new(),
             dug_cells: Default::default(),
+            fresh_cut: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
             food_brake: None,
@@ -11180,6 +11188,36 @@ impl World {
     }
 
     #[inline]
+    /// `PP_FRESHCUT=W`: the fresh-cut mark's fade, in frames (off, 0, by default). SCRATCH, nest lane 2026-10-30.
+    pub fn fresh_cut_window() -> u64 {
+        static W: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        *W.get_or_init(|| std::env::var("PP_FRESHCUT").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0))
+    }
+    /// Stamp the fresh-cut mark on the cut cell's eight neighbours and the cell itself ([`World::fresh_cut`]). Free
+    /// while `PP_FRESHCUT` is off.
+    pub fn mark_cut(&mut self, x: i32, y: i32) {
+        let w = Self::fresh_cut_window();
+        if w == 0 {
+            return;
+        }
+        let f = self.frame;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                self.fresh_cut.insert((x + dx, y + dy), f);
+            }
+        }
+        if self.fresh_cut.len() > 4096 {
+            self.fresh_cut.retain(|_, s| f.saturating_sub(*s) < w);
+        }
+    }
+    /// How fresh the mark at (x, y) is: 1 for a cut beside it this frame, fading linearly to 0 over the window.
+    pub fn fresh_at(&self, x: i32, y: i32) -> f32 {
+        let w = Self::fresh_cut_window();
+        if w == 0 {
+            return 0.0;
+        }
+        self.fresh_cut.get(&(x, y)).map_or(0.0, |s| 1.0 - (self.frame.saturating_sub(*s) as f32 / w as f32).min(1.0))
+    }
     pub fn in_bounds(&self, x: i32, y: i32) -> bool {
         match self.bounds {
             Some(b) => b.contains(x, y),

@@ -1,11 +1,13 @@
 # A hand-written dig head (8 units over 45 option features + 12 dig features), written into every std_pool founder.
 # Dig features: 0 out, 1 down, 2 tdepth, 3 light@t, 4 dark@t, 5 open nbrs/8, 6 door dist/16, 7 ant depth/8,
 # 8 ant light, 9 open share 7x7 round the ant, 10 level cut, 11 bottom sense.
-# usage: make.py POOLDIR OUTDIR [key=val ...]   keys: lvl dn out flr far stop thr c door
+# usage: make.py POOLDIR OUTDIR [key=val ...]   keys: lvl dn out flr far stop thr c door fresh
 # POOLDIR holds the std_pool founders (*.raw.txt, layout 5: the dig head is g[2797:3279], the lay gate rides last).
 # The arm the nest lane ran (H3, 2026-10-29): thr=0.2 out=3 door=8.
+# fresh=K (2026-10-30, the fun-hunt nest track): unit 7 reads dig slot 4, the fresh-cut mark under PP_FRESHCUT=W, and
+# ranks a face beside a recent cut up by about K. Without PP_FRESHCUT slot 4 is darkness, so run fresh= arms with it on.
 import sys, os, glob, numpy as np
-pool, out = sys.argv[1], sys.argv[2]; P = dict(lvl=6, dn=3, out=1, flr=2, far=4, stop=12, thr=0.45, c=0.0, door=0)
+pool, out = sys.argv[1], sys.argv[2]; P = dict(lvl=6, dn=3, out=1, flr=2, far=4, stop=12, thr=0.45, c=0.0, door=0, fresh=0)
 for a in sys.argv[3:]: k, v = a.split('='); P[k] = float(v)
 H, NF, ND = 8, 45, 12; N = NF + ND
 W = np.zeros((H, N)); b = np.zeros(H); a = np.zeros(H); e = np.zeros(H)
@@ -17,6 +19,7 @@ W[3, f(11)] = 4; a[3] = P['flr']                                    # at the flo
 W[4, f(1)] = 2; W[4, f(6)] = 2; b[4] = -4; a[4] = P['far']          # far from the door, turn down: a new level
 W[5, f(9)] = 8; b[5] = -8 * P['thr']; e[5] = -P['stop']             # when: in a wide room, dig less; tight, dig more
 W[6, f(6)] = -4; b[6] = 2; e[6] = -P['door']                       # when: near the door (within ~8 cols), dig less
+W[7, f(4)] = 4; b[7] = -2; a[7] = P['fresh']                       # beside a fresh cut: dig here (amplify a front)
 v = np.concatenate([W.ravel(), b, a, [P['c']], e, [0.0]])
 os.makedirs(out, exist_ok=True)
 for p in sorted(glob.glob(f'{pool}/*.raw.txt')):
