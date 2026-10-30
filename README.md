@@ -11546,6 +11546,19 @@ correction for the three measures read. 610-1,298 garden cells grown per bed.
 On screen it is a mint seam along the shallow galleries and the pit edge, not
 a room, because the trained colony digs a pit, not rooms.
 
+**The long run, with the mister** (the Plants lane's census, 2026-10-30:
+played_bed `mister=1`, 450k frames, beds 1-12, main c2a3f826, garden on vs
+off, paired by bed, both arms on pip 40 since PR #994 landed after): the colony
+is much bigger with the garden -- median ants 326 vs 245 at 100k, 338 vs 132 at
+250k, 304 vs 107 at 450k, higher on 10, 9 and 10 of 12 beds, sign p 0.039,
+0.15, 0.039; no colony died with the garden against 2 without. Holm over the
+three readings leaves none significant alone; the direction holds at every
+one. **The plants hold under three times the colony**: four or more kinds
+survive on 8 of 12 beds in both arms, every role's alive count is unchanged
+but the scrambler's (8 vs 9), and herb (median 34 vs 18), grass and shrub
+differences are not significant. The garden-off arm reproduces the old main
+bed for bed, so the control is the shipped game.
+
 **PRUNE** (`lab::ui::Tool::Prune`, on the ADD cell; `plant::prune_cell`) clips
 living foliage under the brush to litter and leaves stems, wood and roots, so
 the plant regrows: one prune of the shrubs at columns 40-140 on seed 1 at 30k
