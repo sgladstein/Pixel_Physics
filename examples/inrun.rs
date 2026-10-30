@@ -2903,6 +2903,7 @@ fn main() {
     write_nestmap(&w, &out.join("nestmap.txt"));
     write_occupants(&w, &out.join("occupants.txt"));
     creature::mind::scratch_log::copy_flush();
+    creature::mind::crumb_log::flush();
     println!("{}", creature::mind::scratch_log::carry_report());
     if creature::mind::scratch_log::oldlab_on() {
         eprintln!("{}", creature::mind::scratch_log::oldlab_report());
