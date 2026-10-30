@@ -2480,6 +2480,9 @@ impl Lab {
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
         self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
+        if self.demo.is_some() {
+            demo::draw_card(self, hc, frame_buf);
+        }
         // The pages last, because they are modal: a page covers the box *and*
         // the bar, and a control you can see but not reach is worse than one
         // that is plainly behind a page.
@@ -3592,6 +3595,10 @@ impl Lab {
     /// is the key a player reaches for to close it, and got the window shut
     /// instead.
     pub fn escape(&mut self) -> bool {
+        if self.demo.as_ref().is_some_and(|d| d.card) {
+            self.close_seat_card();
+            return false;
+        }
         if self.show_help {
             self.show_help = false;
             return false;

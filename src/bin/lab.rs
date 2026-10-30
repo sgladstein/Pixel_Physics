@@ -320,6 +320,9 @@ impl Handler {
                     let kv = args.iter().filter_map(|a| a.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
                     let msg = lab.start_demo_with(seat, kv);
                     lab.ui.say(msg);
+                    // The window opens on the seat card (goal, score, keys);
+                    // a headless harness never does (`demo::card`).
+                    lab.open_seat_card(false);
                 }
                 None => eprintln!("demo {name}: no such seat (queen, keeper, guest, mind, enemy, scout)"),
             }
@@ -628,6 +631,10 @@ impl Handler {
             }
             // The speed dial's second home while the arrows steer.
             if pressed {
+                // `Space` over the seat card is "play" (`Lab::demo_space`).
+                if code == KeyCode::Space && self.lab.demo_space() {
+                    return;
+                }
                 match code {
                     KeyCode::PageUp => return self.lab.act(Action::Faster),
                     KeyCode::PageDown => return self.lab.act(Action::Slower),
