@@ -26,19 +26,29 @@
 //! `MindCounts::delivered`, how-we-test §4), the frame of the first one, and
 //! how many ants know the station.
 //!
-//! **The player's verbs** are the seat keys (`Y U P J`, the launcher's), so
+//! **The player's verbs** are the seat keys (`Y U J K`, the launcher's), so
 //! nothing in the lab's own bar or key map moves:
 //!
-//! - `Y` **CARRY**: press on an ant to pick it up, release to set it down
-//!   (`creature::set_down`). Set down within [`LESSON_R`] of food that is not
-//!   at home, it remembers that food as a lesson (`recall::plant`);
+//! - `Y` **CARRY**: press near an ant (it snaps to the nearest liftable one
+//!   within `PICK_R`), drag -- the ant rides the pointer -- and release to
+//!   set it down (`creature::set_down`). Set down within [`LESSON_R`] of
+//!   food that is not at home, it remembers that food as a lesson
+//!   (`recall::plant`). Under stakes it spends a charge and tires the ant;
 //! - `U` **TREAT**: click an ant to put a mouthful of provisions in its crop
 //!   (`creature::treat`, booked as granted food). Away from home it also
-//!   remembers the place it was treated;
-//! - `P` **LISTENING**: the scripted gain on and off. Off is today's ant, and
-//!   the HUD names which arm is live;
-//! - `J` **OVERLAY**: off, who knows the station (a ring per taught or fed
-//!   ant, by generation), or traffic (where heads have been lately).
+//!   remembers the place it was treated. Under stakes it is bought from the
+//!   pantry;
+//! - `J` **RINGS**: off, who knows a taught place (a ring per taught or fed
+//!   ant, by generation), or traffic (where heads have been lately);
+//! - `K` **CARD**: the verdict card, the round so far (it comes up by
+//!   itself when the round ends).
+//!
+//! `P` (listening) was a key until 10-30; it is swallowed now, and
+//! `listening=0` on the command line is the honest arm. **On the hand-built
+//! ant** (`-- oldant`) the recall head is inert -- only a mind reads
+//! `last_food` (`options::f::FOOD_WAY`) -- so a carry there teaches nothing
+//! remembered: it puts a forager on the food, which finds it, eats and lays
+//! its trail home. The verb still works (see the measurements below).
 //!
 //! **What the measurement says this can and cannot show** (build step 4,
 //! `examples/keeperdemo.rs`, 12 paired seeds, the 24,000 frames after the
@@ -1141,11 +1151,15 @@ fn limited(k: &KeeperDemo) -> bool {
     k.stakes && k.opened.is_some() && k.ended.is_none() && !k.warming
 }
 
+/// What a carry did: the cell the ant landed on, and the food it was
+/// taught, if any.
+pub type Carried = ((i32, i32), Option<(i32, i32)>);
+
 /// **The hand's CARRY**, the player's and a harness's one path: set `ant`
 /// down at `to`, spend a charge, and teach it the food there if any. Under
 /// stakes with no charge left it refuses, and says when one comes back.
 /// Returns where it landed and what it was taught.
-pub fn hand_carry(lab: &mut Lab, ant: OrganismId, to: (i32, i32)) -> Result<((i32, i32), Option<(i32, i32)>), String> {
+pub fn hand_carry(lab: &mut Lab, ant: OrganismId, to: (i32, i32)) -> Result<Carried, String> {
     let frame = lab.world.frame;
     let Some(k) = keeper_mut(lab) else { return Err("NO KEEPER DEMO".to_string()) };
     let limit = limited(k);

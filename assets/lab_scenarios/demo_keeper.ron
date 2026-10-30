@@ -8,6 +8,13 @@
 // (column 390 by default, ~180 columns past the colony band's east edge)
 // and the ration inside the nest are kept by `keeper.rs`, not by this file,
 // because a top-up reads the box: the timeline cannot say "back up to 80".
+//
+// **Stakes (2026-10-30, on by default; `stakes=0` is the box above):** no
+// station and no top-up. `keeper.rs` drops windfalls at seeded random far
+// columns that rot to ash, cuts the nest ration once the round opens, and
+// runs the round, the hand's charges and the verdict card. They are not
+// timeline events because each reads the box (a seeded column clear of the
+// live windfalls, the cells left on one when it rots).
 (
     name: "demo_keeper",
     title: "DEMO: THE KEEPER",
