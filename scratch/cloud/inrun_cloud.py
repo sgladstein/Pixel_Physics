@@ -11,7 +11,8 @@ per vCPU, through scratch/inrun/rounds.sh, and put each finished job's folder to
   delete NAME          delete the VM (only after pull shows DONE)
 
 A jobs line is: OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]  (the rounds.sh arguments, OUT a bare name),
-or `OUT colsel P ...` (colsel.py), or `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` (exam.py's lab boxes).
+or `OUT colsel P ...` (colsel.py), or `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` (exam.py's lab boxes), or `OUT sh SCRIPT [ARGS]` (a script
+in the repo, run as `bash SCRIPT OUTDIR [ARGS]`).
 Trailing blanks are stripped on the VM: xargs -L joins a line that ends in a blank onto the next one, which once ran
 the control arm with the next arm's arguments and dropped that arm (rimshape-1022).
 """
@@ -104,6 +105,11 @@ run_one() {
   if [ "$1" = colsel ]; then P=$2 python3 -I scratch/inrun/colsel.py $W/out/$o "${@:3}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
   # `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]`: the held-out exam's lab boxes only (exam.py, WORLDS=0), P runs at once
   elif [ "$1" = exam ]; then P=$2 BOXES=$3 LAB_SEEDS=$4 AFTER=$5 WORLDS=0 python3 -I scratch/inrun/exam.py $W/out $o "${@:6}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
+  # `OUT sh SCRIPT [ARGS]`: another lane's script from the repo at REF, run as `bash SCRIPT OUTDIR [ARGS]` with
+  # OUTDIR inside the job folder (teacher lane, 2026-10-30: the plants lane's container suspends when idle and killed
+  # its 16-process run three times; one VM at a time, so it rides a teacher batch). It sizes its own parallelism. Its own
+  # target dir, so a script's cargo build (other RUSTFLAGS) never rebuilds the crate under the batch's inrun/labsurvive.
+  elif [ "$1" = sh ]; then mkdir -p $W/out/$o; CARGO_TARGET_DIR=$W/target-sh bash "$2" $W/out/$o/run "${@:3}" > $W/out/$o.log 2>&1; cp $W/out/$o.log $W/out/$o/driver.log
   else bash scratch/inrun/rounds.sh $W/out/$o "$@"; fi
   tar -C $W/out -czf $W/tgz/$o.tgz $o && put $W/tgz/$o.tgz jobs/$o.tgz && rm -f $W/tgz/$o.tgz
   # the small copy pull fetches: everything but the event log and the 4k-frame maps and ant lists (last one of each kept)
