@@ -14939,6 +14939,30 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     world.set(x, landing, Cell::new(litter, shade));
 }
 
+/// **The player's PRUNE: clip one cell of living foliage off a plant**, and
+/// let it fall as litter (`shed_to_litter`, the same fall a shed leaf
+/// takes). The plants-and-ants lane's verb (2026-10-30): Scott's repo review
+/// found plants and ants barely touch and the player had no way to make them,
+/// so the lab's PRUNE brush turns a crown into a pile of clippings the colony
+/// eats or carries home, where it feeds the fungus garden (`garden.rs`).
+///
+/// **Foliage only**: a living plant cell whose material is `garden_fodder`
+/// (leaf, flower, grass blade). Never stem, wood or root, so a prune never
+/// severs a crown; never a fruit or seed, which belong to the seed's own
+/// rules. Returns whether it clipped. Booked as a cull: the player did it.
+pub fn prune_cell(world: &mut World, x: i32, y: i32) -> bool {
+    let c = world.get(x, y);
+    if c.organism_id() == 0 || world.materials.kind(c.material) != MaterialKind::Plant || !world.materials.get(c.material).garden_fodder {
+        return false;
+    }
+    if world.organism(c.organism_id()).is_none_or(|s| s.dormant_seed) {
+        return false;
+    }
+    shed_to_litter(world, x, y, organism::DeathCause::Culled);
+    world.pruned_cells += 1;
+    true
+}
+
 /// The ablation switch for the buried-remains rule, on by default.
 ///
 /// `PIXEL_PHYSICS_BURIED_REMAINS=litter` puts the pre-2026-09-06 behaviour

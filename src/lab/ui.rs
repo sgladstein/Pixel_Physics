@@ -913,6 +913,13 @@ pub enum Tool {
     ///
     /// **Off the bar**, for `Food`'s own reason.
     Lamp,
+    /// **Clip leaves, flowers and grass off the plants you drag over**
+    /// (`plant::prune_cell`). They fall as litter: food the colony eats on
+    /// the spot or carries home, where it feeds the fungus garden
+    /// (`sim::garden`). The plants-and-ants lane's player verb (2026-10-30):
+    /// before it the player could kill a plant but never harvest one. A brush,
+    /// reached through the `ADD` cell like `Food`.
+    Prune,
 }
 
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
@@ -955,7 +962,7 @@ pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull]
 /// **Everything a player puts into the box by hand**, in the order the bar's
 /// `ADD` cell steps through them. Material first (soil, water, food), then
 /// the fixtures (wall, lamp), then the trail, then fire. See [`TOOLS`].
-pub const PLACEABLE: [Tool; 8] = [Tool::Soil, Tool::Dig, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
+pub const PLACEABLE: [Tool; 9] = [Tool::Soil, Tool::Dig, Tool::Water, Tool::Food, Tool::Prune, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
 
 impl Tool {
     /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
@@ -981,6 +988,7 @@ impl Tool {
             Tool::Fling => "FLING",
             Tool::Lamp => "LAMP",
             Tool::Fire => "FIRE",
+            Tool::Prune => "PRUNE",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -1025,6 +1033,8 @@ impl Tool {
             Tool::Fire => "B",
             // The same, and one press after soil: every letter is taken.
             Tool::Dig => "B",
+            // The same: reached through the `ADD` cell.
+            Tool::Prune => "B",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -1048,7 +1058,7 @@ impl Tool {
     /// (`Lab::press`), which `is_brush`'s continuous-paint model has no
     /// slot for.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Dig | Tool::Water | Tool::Food | Tool::Scent)
+        matches!(self, Tool::Soil | Tool::Dig | Tool::Water | Tool::Food | Tool::Scent | Tool::Prune)
     }
     fn note(self) -> &'static str {
         match self {
@@ -1066,6 +1076,7 @@ impl Tool {
             Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
             Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
             Tool::Fire => "CLICK TO START A FIRE. EVERYTHING IN THE BRUSH THAT CAN BURN -- PLANTS, LITTER, ANIMALS -- CATCHES, AND BARE SOIL AND STONE DO NOT. IT SPREADS BY ITSELF TO WHATEVER WILL BURN BESIDE IT AND LEAVES ASH, WHICH WEATHERS BACK INTO SOIL. THE BRUSH DIAL SETS HOW BIG A FIRE YOU START.",
+            Tool::Prune => "DRAG OVER PLANTS TO CLIP THEIR LEAVES, FLOWERS AND GRASS. THE CLIPPINGS FALL AS LITTER: THE ANTS EAT THEM OR CARRY THEM HOME, AND LEAVES LEFT IN A DARK ROOM OF THE NEST GROW INTO A FUNGUS GARDEN THAT RIPENS INTO FOOD. STEMS, WOOD AND ROOTS ARE LEFT, SO THE PLANT GROWS BACK. A HARVEST, NOT A KILL.",
             Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
         }
     }

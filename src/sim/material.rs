@@ -635,6 +635,14 @@ pub struct MaterialDef {
     /// writes its support distance there.
     #[serde(default)]
     pub carries_worth: bool,
+    /// **A loose cell of this material feeds a fungus garden** (`garden.rs`):
+    /// lying in the dark beside worked nest ground, or touching fungus, it can
+    /// turn into `fungus`, the crop a colony farms. Cut leaf, dead leaf,
+    /// litter, grass, flowers and crumbs -- the plant matter a colony carries
+    /// home. Never fruit, a windfall or a seed: they carry a seed organism,
+    /// and a seed's fate belongs to `plant.rs`.
+    #[serde(default)]
+    pub garden_fodder: bool,
     /// **Whether a powder of this material slides**: diagonally down, along a
     /// slope, or sideways past an organism. `true` for every powder but one.
     /// A powder that does not roll still drops straight down through open air
@@ -1927,6 +1935,8 @@ pub struct Material {
     pub worth_in_aux: bool,
     /// See `MaterialDef::carries_worth`.
     pub carries_worth: bool,
+    /// See `MaterialDef::garden_fodder`.
+    pub garden_fodder: bool,
     /// See `MaterialDef::rolls`.
     pub rolls: bool,
     /// See `MaterialDef::reinforces_powder`.
@@ -2369,6 +2379,7 @@ impl From<MaterialDef> for Material {
             food_class: def.food_class,
             worth_in_aux: def.worth_in_aux,
             carries_worth: def.carries_worth,
+            garden_fodder: def.garden_fodder,
             rolls: def.rolls,
             reinforces_powder: def.reinforces_powder,
             self_supporting: def.self_supporting,
@@ -2788,6 +2799,9 @@ const EMBEDDED: &[&str] = &[
     // Appended. The guest seat's rove beetle (`species/rove.ron`), addressed
     // by name.
     include_str!("../../assets/materials/rove.ron"),
+    // Appended. The crop a colony farms from the plant matter it carries home
+    // (`src/sim/garden.rs`), addressed by name.
+    include_str!("../../assets/materials/fungus.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2882,6 +2896,7 @@ impl MaterialRegistry {
             food_class: 0.0,
             worth_in_aux: false,
             carries_worth: false,
+            garden_fodder: false,
             rolls: true,
             reinforces_powder: false,
             self_supporting: false,
@@ -2967,6 +2982,7 @@ impl MaterialRegistry {
             food_class: 0.0,
             worth_in_aux: false,
             carries_worth: false,
+            garden_fodder: false,
             rolls: true,
             reinforces_powder: false,
             self_supporting: false,
