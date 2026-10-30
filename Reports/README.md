@@ -6472,6 +6472,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
   itself gets 41%, against the hand-built ant's own 50% under other dice (addendum): the shortfall sits in turning round,
   picking up and digging. So: the landing bill plus three rare moves, not the scorer. Tools in `scratch/copytest/`.
+- [brain-training/research/famine-wall-trap-2026-10-30.md](brain-training/research/famine-wall-trap-2026-10-30.md) —
+  **why every trained pool starves in the three famine exam boxes: the wall trap (deep trace, measurement).** The
+  trained ant walks away from home, harder when hungry, until an end wall stops it, and never comes back: 548 of 548
+  trained ants that reached a wall stayed there, against 15 of 427 hand-built ants. The food in those boxes is near
+  the nest, and the brain bill gives a one-tank trained ant ~2,000 frames. Cutting the outward links removes the trap
+  (209 -> 8 wall arrivals) but not the deaths: walking out was its only search. Side finding: two_larders' meat room
+  kills the hand-built ant too. New `labsurvive` options `food=`, `png=`, `knock=`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1
