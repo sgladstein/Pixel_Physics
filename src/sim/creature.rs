@@ -15179,7 +15179,7 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         pellet.material = hauled;
     }
     world.dug_cells.insert(ahead);
-    world.mark_cut(ahead.0, ahead.1);
+    world.mark_cut_from(head, ahead);
     // The cut log too (`World::cut_log`): this cut had been missing from it since the log was built, so a reader that
     // rebuilds the hole from the log disagreed with `dug_cells` once a run reached it (Teacher lane, 2026-10-25: the
     // option test's hole check failed at the cheaper link price, frame 525, a cell only this cut had opened).
@@ -22714,7 +22714,7 @@ fn cut_cell(world: &mut World, organism: OrganismId, (x, y): (i32, i32), (tx, ty
     // The census's record of the act (`World::dug_cells`): read by
     // nothing in the simulation, so it cannot move a run.
     world.dug_cells.insert((tx, ty));
-    world.mark_cut(tx, ty);
+    world.mark_cut_from((x, y), (tx, ty));
     let frame = world.frame;
     if let Some(log) = world.cut_log.as_mut() {
         log.push((tx, ty, frame, organism));

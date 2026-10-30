@@ -11210,6 +11210,31 @@ impl World {
             self.fresh_cut.retain(|_, s| f.saturating_sub(*s) < w);
         }
     }
+    /// `PP_FRESHCUT_TIP=1`: the mark goes only on the face straight on from the cutter through the cut, not all
+    /// round it. Day 1 (8 garden worlds) showed the all-round mark widening H3's tunnels into fewer, fatter arms
+    /// (tunnels fewer 8/8 at the strong weight): the side walls of a fresh tunnel were as marked as its tip.
+    pub fn fresh_cut_tip() -> bool {
+        static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *T.get_or_init(|| std::env::var("PP_FRESHCUT_TIP").is_ok_and(|v| v == "1"))
+    }
+    /// [`World::mark_cut`] for a cut made by an animal standing at `from`: under `PP_FRESHCUT_TIP` only the cut
+    /// cell and the one beyond it, in line, are stamped.
+    pub fn mark_cut_from(&mut self, from: (i32, i32), to: (i32, i32)) {
+        if !Self::fresh_cut_tip() {
+            return self.mark_cut(to.0, to.1);
+        }
+        if Self::fresh_cut_window() == 0 {
+            return;
+        }
+        let f = self.frame;
+        let d = ((to.0 - from.0).signum(), (to.1 - from.1).signum());
+        self.fresh_cut.insert(to, f);
+        self.fresh_cut.insert((to.0 + d.0, to.1 + d.1), f);
+        if self.fresh_cut.len() > 4096 {
+            let w = Self::fresh_cut_window();
+            self.fresh_cut.retain(|_, s| f.saturating_sub(*s) < w);
+        }
+    }
     /// How fresh the mark at (x, y) is: 1 for a cut beside it this frame, fading linearly to 0 over the window.
     pub fn fresh_at(&self, x: i32, y: i32) -> f32 {
         let w = Self::fresh_cut_window();
