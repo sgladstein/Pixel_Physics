@@ -57,7 +57,7 @@ fn main() {
     });
     for k in args.keys() {
         assert!(
-            ["seed", "frames", "every", "carry", "gain", "copy", "station", "ration", "listening", "trace", "warmup", "png", "shots", "gif", "gif_every", "gif_from", "overlay", "up", "nodemo", "costab", "keeper", "twin", "endshot", "stakes", "oldant"].contains(&k.as_str())
+            ["seed", "frames", "every", "carry", "gain", "copy", "station", "ration", "listening", "trace", "warmup", "png", "shots", "gif", "gif_every", "gif_from", "overlay", "up", "nodemo", "costab", "keeper", "twin", "endshot", "stakes", "oldant", "handshot"].contains(&k.as_str())
                 || RULES.contains(&k.as_str()),
             "unknown argument {k}= (an unknown key would be silently ignored)"
         );
@@ -170,6 +170,28 @@ fn main() {
             patches_seen = landed;
             if script != "idle" {
                 scripted_keeper(&mut lab, &script);
+            }
+        }
+        // `handshot=F`: the player's own mouse path at frame F -- CARRY,
+        // press on the nearest surface ant, drag it half way to the newest
+        // windfall, a still with the ant riding the hand, then the drag on
+        // to the windfall and the release.
+        if get("handshot", 0) == f {
+            use pixel_physics::lab::demo::MouseAct;
+            let target = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).and_then(|k| k.patches.last().copied());
+            let picked = surface_ants(&lab, 1).first().and_then(|&id| lab.world.organism(id).and_then(|s| s.chain.first().copied()));
+            if let (Some(p), Some(from)) = (target, picked) {
+                keeper::seat_key(&mut lab, 'Y');
+                keeper::mouse(&mut lab, (from.0 + 2, from.1 - 1), MouseAct::Press { erase: false });
+                let mid = ((from.0 + p.x) / 2, p.y - 30);
+                keeper::mouse(&mut lab, mid, MouseAct::Drag);
+                let dir = args.get("png").map_or(".", |s| s.as_str());
+                let path = format!("{dir}/keeper_s{seed}_hand_f{f}.png");
+                grab(&mut lab).save(&path).expect("save png");
+                println!("  wrote {path} (pressed beside {from:?}, held {:?})", lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).and_then(|k| k.held));
+                keeper::mouse(&mut lab, (p.x - 3, p.y - 2), MouseAct::Drag);
+                keeper::mouse(&mut lab, (p.x - 3, p.y - 2), MouseAct::Release);
+                keeper::seat_key(&mut lab, 'Y');
             }
         }
         if shots.contains(&f) {
@@ -332,7 +354,7 @@ fn main() {
 }
 
 /// Every [`keeper::Rules`] field, by its demo-argument name.
-const RULES: [&str; 9] = ["patch_every", "patch_life", "patch_cells", "charges", "recharge", "round", "lose_at", "stakes_ration", "treat_cost"];
+const RULES: [&str; 10] = ["patch_every", "patch_life", "patch_cells", "charges", "recharge", "round", "lose_at", "stakes_ration", "treat_cost", "lift_cost"];
 
 /// **A scripted keeper's turn**, as a windfall lands: every charge in the
 /// hand, on the nearest unladen ants on the surface by the nest (the ones a
@@ -353,7 +375,10 @@ fn scripted_keeper(lab: &mut Lab, script: &str) {
             .unwrap_or(250);
         (x, keeper::surface_under(&lab.world, x) - 2)
     };
-    for id in surface_ants(lab, charges) {
+    // The careless hand does not look which ant it takes: the nearest to the
+    // nest site at any depth (nurses and diggers as often as foragers).
+    let picks = if script == "good" { surface_ants(lab, charges) } else { nearest_nest_ants(lab, charges) };
+    for id in picks {
         match keeper::hand_carry(lab, id, to) {
             Ok((at, taught)) => println!("  f {}: {script} hand: ant {id:?} to {at:?}, taught {taught:?}", lab.world.frame),
             Err(e) => println!("  f {}: {script} hand: ant {id:?} refused: {e}", lab.world.frame),

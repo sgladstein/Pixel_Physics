@@ -176,6 +176,9 @@ const PATCH_DOWN: i32 = 12;
 /// short of the east wall.
 pub const PATCH_MIN_X: i32 = 220;
 pub const PATCH_MAX_X: i32 = 490;
+/// [`Rules::patch_life`] on the hand-built ant (`-- oldant`): see
+/// [`on_start`].
+pub const OLDANT_PATCH_LIFE: u64 = 2400;
 /// The twin's read-out step, in frames.
 const TWIN_EVERY: u64 = 100;
 /// Frames a windfall's end ("STRIPPED", "ROTTED") stays written over it.
@@ -588,8 +591,20 @@ fn ensure_recall(lab: &mut Lab) {
 /// `seed=`): run the warm-up with nobody watching.
 pub fn on_start(lab: &mut Lab) {
     let warmup = keeper(lab).map_or(0, |k| k.warmup);
+    // **The hand-built ant's windfalls rot sooner** (`-- oldant`, the fun
+    // hunt's ant): it forages far better (65 ants at the opening against
+    // ~25 trained, and idle it took 378-436 of 480 windfall cells at the
+    // trained life of 4,500 frames, 4 seeds), so at that life there is
+    // little left for a hand to save. At 2,400 the idle colony takes
+    // 299-377 and a good keeper beat idle in ants 4 of 4 (+5 to +74).
+    // A `patch_life=` on the command line wins.
+    let given = lab.demo.as_ref().is_some_and(|d| d.args.contains_key("patch_life"));
+    let new_ant = lab.new_ant;
     if let Some(k) = keeper_mut(lab) {
         k.warming = true;
+        if !new_ant && !given {
+            k.rules.patch_life = OLDANT_PATCH_LIFE;
+        }
     }
     for _ in 0..warmup {
         lab.tick_for_harness();
@@ -1675,7 +1690,8 @@ pub fn card_lines(lab: &Lab) -> Vec<(String, [u8; 4])> {
     };
     let mut out = vec![(format!("{head}   (K CLOSES)"), WARN)];
     out.push((format!("FOOD SAVED {saved} OF {} CELLS: {} WINDFALLS STRIPPED, {} ROTTED", k.patches.iter().map(|p| u64::from(p.size)).sum::<u64>(), c.stripped, c.rotted), WHITE));
-    out.push((format!("ANTS {ants} AT THE END, {} AT THE START, {} AT THE WORST", k.ants_at_open, c.min_ants.min(ants)), WHITE));
+    let when = if k.ended.is_some() { "AT THE END" } else { "NOW" };
+    out.push((format!("ANTS {ants} {when}, {} AT THE START, {} AT THE WORST", k.ants_at_open, c.min_ants.min(ants)), WHITE));
     let read = twin_at(k, frame);
     let base = match read {
         TwinRead::At(t) => t.ants,
@@ -1758,7 +1774,8 @@ mod tests {
     /// before the carry, and the head absent straight after the reset.
     #[test]
     fn the_hand_carries_and_teaches_and_survives_a_rebuild() {
-        let mut lab = demo(&[("warmup", "300")]);
+        // The sandbox (`stakes=0`): the station this test carries to.
+        let mut lab = demo(&[("warmup", "300"), ("stakes", "0")]);
         assert!(lab.world.minds.is_some(), "the demo must run the trained ant");
         assert_eq!(lab.world.recall.as_ref().map(|r| r.gain), Some(DEFAULT_GAIN));
         let (ant, head) = lab
@@ -1785,5 +1802,50 @@ mod tests {
         lab.tick_for_harness();
         assert!(lab.world.recall.is_some(), "the recall head did not come back after a rebuild");
         assert_eq!(counts(&lab).map(|c| c.carried), Some(0), "the counts outlived the box they counted");
+    }
+
+    /// **The stakes end to end**: a windfall lands as the round opens; a
+    /// carry to it spends a charge and teaches it; with the charges gone the
+    /// hand refuses (the positive control that the budget is live); the
+    /// windfall rots to ash with no provisions left on it; the round ends
+    /// with the card up. And the sandbox (`stakes=0`) drops no windfall, so
+    /// `stakes=0` is still today's box.
+    #[test]
+    fn windfalls_charges_rot_and_the_round_ends() {
+        let mut lab = demo(&[("warmup", "300"), ("patch_life", "240"), ("round", "900"), ("charges", "2"), ("recharge", "100000")]);
+        let opened = keeper(&lab).and_then(|k| k.opened).expect("the round opened after the warm-up");
+        assert_eq!(opened, lab.world.frame);
+        lab.tick_for_harness();
+        let p = *keeper(&lab).and_then(|k| k.patches.first()).expect("a windfall lands as the round opens");
+        assert!(p.size > 0 && (PATCH_MIN_X..=PATCH_MAX_X).contains(&p.x), "{p:?}");
+        assert_eq!(patch_food(&lab.world, &p), p.size, "the windfall's cells are not where it says");
+        let ants: Vec<OrganismId> = lab.world.live_organism_ids().into_iter().filter(|&id| creature::can_carry(&lab.world, id)).take(3).collect();
+        assert_eq!(ants.len(), 3, "three ants to lift");
+        for &id in &ants[..2] {
+            let (_, taught) = hand_carry(&mut lab, id, (p.x - 3, p.y - 2)).expect("a charged hand carries");
+            assert!(taught.is_some(), "set down on the windfall and taught nothing");
+        }
+        let k = keeper(&lab).expect("keeper");
+        assert_eq!((k.charges, k.counts.carried_to_food, k.patches[0].taught), (0, 2, 2));
+        assert!(hand_carry(&mut lab, ants[2], (p.x - 3, p.y - 2)).is_err(), "an empty hand still carried");
+        assert_eq!(counts(&lab).map(|c| (c.carried, c.refused)), Some((2, 1)));
+        while keeper(&lab).is_some_and(|k| k.patches[0].live()) && lab.world.frame <= p.rots + 1 {
+            lab.tick_for_harness();
+        }
+        let p = keeper(&lab).expect("keeper").patches[0];
+        assert!(p.ended.is_some(), "the windfall outlived its life: {p:?}");
+        assert_eq!(patch_food(&lab.world, &p), 0, "food left on a rotted windfall");
+        while keeper(&lab).is_some_and(|k| k.ended.is_none()) && lab.world.frame <= opened + 912 {
+            lab.tick_for_harness();
+        }
+        let k = keeper(&lab).expect("keeper");
+        assert!(k.ended.is_some() && k.card, "the round did not end with the card up");
+        assert!(card_lines(&lab).iter().any(|(l, _)| l.starts_with("VERDICT")), "the card has no verdict");
+
+        let mut sandbox = demo(&[("warmup", "300"), ("stakes", "0")]);
+        for _ in 0..60 {
+            sandbox.tick_for_harness();
+        }
+        assert!(keeper(&sandbox).is_some_and(|k| k.patches.is_empty() && k.counts.station_given > 0), "stakes=0 is not the sandbox");
     }
 }
