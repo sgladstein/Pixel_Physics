@@ -15,7 +15,7 @@
 // `Crop::unit`'s own `min` guard exists to stop and exactly the shape
 // evolution finds first.
 //
-// `food_energy: 40.0` closes it, checkably, against `creature.rs`'s own
+// `food_energy: 14.0` closes it, checkably, against `creature.rs`'s own
 // numbers rather than by argument. `diet_yield` (`creature.rs:3468`)
 // multiplies face value by `diet_quality` -- a squared gut-match term that
 // peaks at 1.0 when the animal's `gut_bias` exactly matches the material's
@@ -23,10 +23,24 @@
 // the eat verb only sees a mouthful worth more than `EAT_YIELD_THRESHOLD`
 // (12.0, `creature.rs:3517`):
 //
-//   shipped neutral gut (bias  0.0): quality (1 - |0 - -1| / 2)^2 = 0.25
-//                                    40 * 0.25 = 10   < 12 -- invisible
-//   plant specialist   (bias -1.0): quality (1 - |-1 - -1| / 2)^2 = 1.0
-//                                    40 * 1.0  = 40   > 12 -- edible
+//   neutral gut       (bias  0.0): quality (1 - |0 - -1| / 2)^2    = 0.25
+//                                  14 * 0.25 = 3.5  < 12 -- invisible
+//   the lab's founder (bias -0.8): quality (1 - |-0.8 - -1| / 2)^2 = 0.81
+//                                  14 * 0.81 = 11.3 < 12 -- invisible
+//   plant specialist  (bias -1.0): quality 1.0, 14 J  > 12 -- edible
+//
+// **It was 40 until 2026-10-30, and 40 was argued against the neutral gut
+// alone** (40 * 0.25 = 10). The lab's ant lands at -0.8, where a 40 J pip
+// is worth 32 J, so the lab colony *could* see every pip and ate the garden
+// it planted: one 150k bed, 469 pips eaten again, 220 of them within 32
+// columns of the door, against 235 that sprouted (`labforage`'s pip exits
+// line). At 14, twelve paired lab beds: pips eaten 470 -> 0 (median),
+// plants grown from pips 225 -> 333 (12 of 12 beds), 91 -> 144 within 32
+// columns of the door (10 of 12); colony and plant kinds at 450k level
+// (`Reports/plants-and-ants-2026-10-30.md` §3). The margin is deliberately
+// thin -- a gut at -0.86 or beyond sees 14 J again -- so seed predation is
+// still a niche a lineage can evolve into, just not one the founder starts
+// in.
 //
 // So the shipped ant cannot see a pip at all -- the pump cannot run, the
 // same fruit cannot feed an ant twice -- and a lineage that drifts its gut
@@ -38,7 +52,7 @@
 //
 // A material is warranted when its physics genuinely differ on numbers
 // that already exist (`flower.ron`'s own test): a pip differs from `seed`
-// on food value (40 against 480), on rot (below), and on colour, and the
+// on food value (14 against 480), on rot (below), and on colour, and the
 // colour is what makes it read as a *different* object rather than a fifth
 // silent label change (`flower.ron` names four that fired, counted, and
 // changed nothing anyone could see).
@@ -92,7 +106,7 @@
     // not a shelf spanning the wood's whole depth.
     falls_through_organisms: true,
 
-    food_energy: 40.0,
+    food_energy: 14.0,
     // In MPa like every other value of this field. Same as `seed`: the hard
     // part of plant matter is the coat, not the flesh, and a pip's coat is
     // the same coat.

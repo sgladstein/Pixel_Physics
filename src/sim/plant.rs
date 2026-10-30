@@ -29080,6 +29080,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
     /// `pip.ron`'s `food_energy` and this must go red before it goes
     /// green -- watched by hand at 500.0 (both arms clear the bar, both
     /// assertions fail) before landing at the shipped 40.0.
+    ///
+    /// **The lab's founder gut is the third arm (2026-10-30).** 40.0 was
+    /// argued against the neutral gut alone; the lab's ant lands at -0.8
+    /// (`lab::scene`'s gut trait), where a 40 J pip pays 32 J, so the lab
+    /// colony ate the seeds it had carried home (`Reports/plants-and-ants-
+    /// 2026-10-30.md` §2). Shipped at 14.0; watched red at 40.0 on this arm
+    /// alone before landing.
     #[test]
     fn a_neutral_gut_cannot_see_a_pip_but_a_seed_specialist_can() {
         let w = test_world();
@@ -29088,7 +29095,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
 
         let neutral = super::super::creature::diet_yield(&w, cell, 0.0);
         let specialist = super::super::creature::diet_yield(&w, cell, -1.0);
+        let lab_founder = super::super::creature::diet_yield(&w, cell, -0.8);
 
+        assert!(
+            lab_founder < super::super::creature::EAT_YIELD_THRESHOLD,
+            "the lab's founder gut (-0.8) must not see a pip as food, or the colony eats the garden it plants: got {lab_founder}, threshold {}",
+            super::super::creature::EAT_YIELD_THRESHOLD
+        );
         assert!(
             neutral < super::super::creature::EAT_YIELD_THRESHOLD,
             "the shipped neutral gut must not be able to see a pip as food: got {neutral}, threshold {}",

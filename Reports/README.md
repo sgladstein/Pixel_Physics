@@ -804,6 +804,18 @@ by somebody about to try it on creatures.
   colony cost; shrubs born defended save them too but take over and shrink
   the colony mid-game (dead end).
 
+- [plants-and-ants-2026-10-30.md](plants-and-ants-2026-10-30.md)
+  — **Who needs whom in the lab bed, the garden the colony already plants,
+  and why the tree went missing.** 99.9% of the colony's food is plant; with
+  no plants every founder starves. Ants re-sort the stand (herbs gain,
+  shrubs lose) and carry 1,000+ seeds a run to wetter ground, planting the
+  herbs and trees by the nest door -- then ate two of those seeds for every
+  one that sprouted, because the lab ant's gut could see a pip. Pip food
+  40 -> 14: pips eaten 470 -> 0, plants from carried seed up on 12 of 12
+  beds. With resprout on, surviving shrubs crowd out tree seedlings (trees
+  at 450k fewer on 7 of 12 beds); `plant_m0 mode=stand bed=played` is the
+  invasion test (rungs 5-6) on this bed with the colony.
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
   handoff carrying the state and the queue -- read that first.** Revision 4

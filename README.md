@@ -103,11 +103,11 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Grass regrowth status — a tussock grows back from its crown, and the garden keeps seeding](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) | 11091 |
 | [Planted bed status — a bitten herb grows back, and a herb lives one season](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) | 11114 |
 | [Roots required status — only roots drink, and a plant keeps its roots](#roots-required-status--only-roots-drink-and-a-plant-keeps-its-roots) | 11161 |
-| [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11214 |
-| [Spider status — a trained predator in the box, and a meal that takes time](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) | 11283 |
-| [Nest raider status — a centipede that fits the ants' shaft](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) | 11320 |
-| [Lone scout status — you lead a sister to food by touch, and she goes back](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) | 11366 |
-| [Brain gate status — a scorer unit the ant's own state can switch off](#brain-gate-status--a-scorer-unit-the-ants-own-state-can-switch-off) | 11415 |
+| [Colony training status — the new ant in the box, and selection you can watch](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) | 11230 |
+| [Spider status — a trained predator in the box, and a meal that takes time](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) | 11299 |
+| [Nest raider status — a centipede that fits the ants' shaft](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) | 11336 |
+| [Lone scout status — you lead a sister to food by touch, and she goes back](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) | 11382 |
+| [Brain gate status — a scorer unit the ant's own state can switch off](#brain-gate-status--a-scorer-unit-the-ants-own-state-can-switch-off) | 11431 |
 
 ### Milestones, in numeric order
 
@@ -182,10 +182,10 @@ your time goes, not a rule about what you may read.
 | **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7692 |
 | **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 7227 |
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7876 |
-| **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11214, [Brain gate status](#brain-gate-status--a-scorer-unit-the-ants-own-state-can-switch-off) 11415 |
+| **colony training in the box, and the new ant** | lab | [Colony training status](#colony-training-status--the-new-ant-in-the-box-and-selection-you-can-watch) 11230, [Brain gate status](#brain-gate-status--a-scorer-unit-the-ants-own-state-can-switch-off) 11431 |
 | **the held world — the third game, and time you carry** | held | [Held world status](#held-world-status--the-third-game-and-time-you-carry-in-a-circle) 9372 |
-| **playing one ant: the seat demos** | lab | [Lone scout status](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) 11366 |
-| **the spider: a trained predator, and a meal that takes time** | engine | [Spider status](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) 11283, [Nest raider status](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) 11320 |
+| **playing one ant: the seat demos** | lab | [Lone scout status](#lone-scout-status--you-lead-a-sister-to-food-by-touch-and-she-goes-back) 11382 |
+| **the spider: a trained predator, and a meal that takes time** | engine | [Spider status](#spider-status--a-trained-predator-in-the-box-and-a-meal-that-takes-time) 11299, [Nest raider status](#nest-raider-status--a-centipede-that-fits-the-ants-shaft) 11336 |
 
 <!-- END GENERATED TOC -->
 
@@ -11210,6 +11210,22 @@ against 4, colony median 107 against 52 ants at 450k (n.s.), herb and tree a
 bed or two down (n.s.). Founding defence for the shrub was the other arm and
 is a dead end (`Reports/dead-ends.md`). Record:
 `Reports/shrub-grazing-2026-10-28.md`.
+
+**The colony stops eating the seeds it plants, since 2026-10-30**
+(`pip.ron` `food_energy` 40 -> 14). The colony's seed loop -- a bitten seed
+carried in the crop and set down where the ant finishes eating -- plants
+every herb and tree by the lab bed's nest door, but the lab founder's gut
+(-0.8) could see a 40 J pip as 32 J of food, so the colony ate two seeds by
+the door for every one that sprouted. At 14 J the founder sees 11.3 J,
+under `EAT_YIELD_THRESHOLD`; a -1.0 seed specialist still sees 14 J. On 12
+paired beds at 150k: pips eaten again 470 -> 0, plants from pips 225 -> 333
+(12 of 12), within 32 columns of the door 91 -> 144 (10 of 12); at 450k
+colony and plant kinds level. Guarded by
+`a_neutral_gut_cannot_see_a_pip_but_a_seed_specialist_can`, which now has a
+lab-founder arm. Same record: with resprout on, surviving shrubs crowd out
+tree seedlings (trees fewer on 7 of 12 beds), and `plant_m0 mode=stand
+bed=played` runs the invasion test (rungs 5-6) on this bed with the colony.
+Record: `Reports/plants-and-ants-2026-10-30.md`.
 
 ## Colony training status — the new ant in the box, and selection you can watch
 
