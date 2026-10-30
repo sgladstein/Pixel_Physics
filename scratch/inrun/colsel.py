@@ -345,7 +345,7 @@ EXTRA = [x for x in EXTRA if not x.startswith('scalegate=')]
 # nestgate=Q (teacher lane, 2026-10-30, after exam x11): a donor must also have an open nest (nestcount `nest_open`:
 # roofed nest cells still open air, not stored food or crumbs) at or above the Q-th percentile of the round's donors on
 # its training bed, applied after scalegate=. **Why**: env7 selected on lab survival alone and its pools beat std_pool
-# in the game (L_h3 c12 lived 26/8) but barely dig (nest lane, garden worlds: 100-200 cells against 800-1,000). A
+# in the game (L_h3 c12 lived 26/8) but barely dig (nest lane, garden worlds 61-68 at 200k: nest_open 4-23 cells, H3 269-758). A
 # size floor rather than scalegate's nest / need, because the watchdog's env6 audit found the need ratio pays a colony
 # for storing less, and the nest lane's size is the shape measure that repeats world to world (Spearman 0.25-0.29).
 NESTGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('nestgate=')), None)

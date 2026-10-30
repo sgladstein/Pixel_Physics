@@ -1648,7 +1648,7 @@ first batch since std_pool whose winner beats it in the game, after ten exams of
 
 Caveats, before calling it: (1) the two selection boxes are played_bed variants, so the played_bed gain is the
 nearest kin of what was selected; herb_first_colony and crowded_bench are not played beds and gained as much.
-(2) The Nest lane (08:05Z) ran both pools on its garden worlds: nests of 100-200 cells against 800-1,000 for the
+(2) The Nest lane (08:05Z) ran both pools on its garden worlds: dug 100-200 cells against 800-1,000 for the
 untrained pools, no tunnels in 15 of 16 runs, L_h3 extinct in 4 of 8 garden worlds, with H3's dig head intact --
 selection on the lab boxes alone bred digging out through the core. Scott's rule is dig and forage all game, so
 this is a trade until a picture says otherwise. (3) On the training bed L_h3's colonies died out more each round
@@ -1679,3 +1679,9 @@ plumbing, not the pressure.
 (2) `nest_open` at 200k in the Nest lane's garden worlds 61-68 bigger than L_h3 c12's in at least 6 of 8
 (one-sided sign test p 0.145 alone, so also report the medians), with the chambers judge's `tunnels` and pictures beside it, not scored.
 N_ctl is judged on (1) against L_h3 c12 only, to say whether more rounds alone still pay.
+
+**Correction and baseline (Nest lane, 10-30 09:20Z).** The x11 caveat's "100-200 cells" was nest.csv's `dug`; the
+gate's own measure, `nest_open` at 200k in garden worlds 61-68 (`scratch/nest/poolrounds.sh OUT SEED 1 200000 POOLDIR
+nest_r=0`, main 678a4fb4), is starker: std_pool 421 659 608 417 215 668 534 615; H3 573 558 462 399 668 269 536 758;
+L_std c23 21 48 11 24 68 36 37 53; L_h3 c12 23 15 11 21 12 11 15 4. So condition (2) against c12 is a low bar. The
+pass bar stays as named; x13 also reports N_gate against H3 world by world (the level wanted back), unscored.
