@@ -39,6 +39,19 @@
 //! three from the third generation on) -- not every ant's, which is what the
 //! old headline counted. **Lost** if the colony falls below [`FLOOR`] of its
 //! size at the hand-over, or she starves.
+//!
+//! **Round 2** (2026-10-30, the goal: her teaching should decide the
+//! colony's fate). The cascade now works in the season: a pupil home from
+//! the heap taps a sister at chance [`LEAN_C`] and leads her out, and her
+//! leader is unstuck (`tandem::Knobs::cascade_unstick`, which only this seat
+//! sets) -- every round-1 cascade run stood at the mound until the pupil
+//! starved. Her pupils' pupils now bring food home and score x2. What did
+//! *not* follow, traced ant by ant with `examples/scoutdemo.rs probe=1`:
+//! the colony at spring is mostly ants born in the season (of 99-138 alive
+//! at the hand-over, 1-29 are alive at its end, in every arm), fed by what
+//! comes home, and corpses bring home as much as the far heap does; and the
+//! far heap cannot be hidden ([`LEAN_HEAP_X`]). So colony survival is still
+//! the colony's own; her harvest is the score that tracks her skill.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -111,6 +124,9 @@ pub struct ScoutDemo {
     pub larder_peak: f32,
     /// The far heap's cells a drop through the season (`heap=`).
     pub heap: u32,
+    /// **Where the season's food falls** (`heapx=`): [`LEAN_HEAP_X`] with
+    /// stakes on, the warm-up's [`HEAP_X`] in the sandbox.
+    pub heap_x: i32,
     /// The fewest ants the colony has had this season.
     pub low: usize,
     pub outcome: Option<SeasonEnd>,
@@ -142,6 +158,29 @@ pub const FLOOR: f32 = 0.5;
 /// richer heap did not help: at 160 still 4 of 8; at 240 the box is no
 /// longer lean (colonies boomed to 150-200 and off beat patient on 5 of 8).
 pub const LEAN_HEAP: u32 = 120;
+
+/// **Where the lean season's food falls** (`heapx=`): the warm-up's own
+/// heap. Round 2 (2026-10-30) moved it to hide it from untaught foragers,
+/// and it cannot be hidden: the probe (`examples/scoutdemo.rs probe=1`,
+/// seeds 3-4, teaching off) found 37-104 untaught ants reaching it at every
+/// place tried -- x 60, 248, 330, 400, 440 -- because a third of the colony
+/// walks to one wall or the other whatever the food does. Farther only
+/// lengthened her leads (at 400 her tree brought 9 cells home in a season).
+/// Moving the warm-up's heap away instead (west, or none at all) starved the
+/// colony before the hand-over on seed 4.
+pub const LEAN_HEAP_X: i32 = HEAP_X;
+
+/// **The cascade chance in the lean season** (`c=` overrides): a pupil home
+/// from the heap taps a sister on every trip she can. With the leaders
+/// unstuck (`tandem::Knobs::cascade_unstick`) a cascade run arrives, so
+/// her tree grows by itself: seed 4, 7 cascade runs, 6 arrived, and her
+/// pupils' pupils brought food home 8 times (0 in every round-1 run).
+pub const LEAN_C: f32 = 1.0;
+
+/// A pupil's own run to the heap with a sister in tow is given up after this
+/// many frames (`tandem::Knobs::cascade_timeout`): two walks out at a
+/// follower's pace.
+pub const CASCADE_TIMEOUT: u64 = 4_000;
 
 /// **Her pupils' memory pull in the lean season** (the recall head's gain,
 /// scripted and named on the panel, `gain=`): 10 against the sandbox's 6.
@@ -194,6 +233,7 @@ impl ScoutDemo {
             larder: 0.0,
             larder_peak: 0.0,
             heap: args.get("heap").and_then(|s| s.parse().ok()).unwrap_or(LEAN_HEAP),
+            heap_x: args.get("heapx").and_then(|s| s.parse().ok()).unwrap_or(if args.get("stakes").is_none_or(|v| v != "0") { LEAN_HEAP_X } else { HEAP_X }),
             low: 0,
             outcome: None,
             restart_asked: 0,
@@ -214,7 +254,15 @@ pub fn start_season(lab: &mut Lab) {
     if !s.stakes {
         return;
     }
-    let heap = s.heap;
+    let (heap, heap_x, c_arg) = (s.heap, s.heap_x, s.c);
+    if let Some(t) = lab.world.tandem.as_mut() {
+        t.patch = Some(Patch { x: heap_x, r: 10 });
+        t.knobs.cascade_unstick = true;
+        t.knobs.cascade_timeout = CASCADE_TIMEOUT;
+        if t.arm == tandem::Arm::Scout && c_arg.is_none() {
+            t.knobs.cascade_c = LEAN_C;
+        }
+    }
     if let Some(sc) = lab.scenario.as_mut() {
         for e in &mut sc.timeline {
             if e.every == 0 {
@@ -222,7 +270,10 @@ pub fn start_season(lab: &mut Lab) {
             }
             match &mut e.what {
                 crate::lab::scenario::Placement::Heap { x, .. } if *x == TRICKLE_X => e.until = frame,
-                crate::lab::scenario::Placement::Heap { x, cells, .. } if *x == HEAP_X => *cells = heap as i32,
+                crate::lab::scenario::Placement::Heap { x, cells, .. } if *x != TRICKLE_X => {
+                    *cells = heap as i32;
+                    *x = heap_x;
+                }
                 _ => {}
             }
         }
@@ -881,6 +932,77 @@ mod tests {
             } else {
                 assert_eq!((trickle, far), before, "stakes=0 changed the box");
             }
+        }
+    }
+
+    /// **The season arms the cascade**: leaders unstuck, a timeout, the
+    /// lean-season chance; `stakes=0` leaves the sandbox's knobs (the control).
+    #[test]
+    fn the_season_unsticks_the_cascade_and_stakes_0_does_not() {
+        for stakes in [true, false] {
+            let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.tick_for_harness();
+            let mut args = BTreeMap::new();
+            args.insert("stakes".to_string(), if stakes { "1" } else { "0" }.to_string());
+            let mut demo = Demo::new(DemoSeat::Scout);
+            demo.scout = Some(ScoutDemo::from_args(&args, 1));
+            lab.demo = Some(demo);
+            start_tandems(&mut lab.world, Arm::Scout, None, GAIN);
+            start_season(&mut lab);
+            let k = &lab.world.tandem.as_deref().expect("armed").knobs;
+            let got = (k.cascade_unstick, k.cascade_timeout, k.cascade_c);
+            if stakes {
+                assert_eq!(got, (true, CASCADE_TIMEOUT, LEAN_C));
+            } else {
+                assert_eq!(got, (false, 0, tandem::Knobs::default().cascade_c));
+            }
+        }
+    }
+
+    /// **A boxed cascade leader tries another heading, and a run that never
+    /// arrives is given up** (round 2: every round-1 cascade run stood at the
+    /// mound until the pupil starved). The same pair with the knobs off is the
+    /// control: same heading after 90 frames of no progress, and still paired.
+    #[test]
+    fn a_stuck_cascade_leader_turns_and_her_run_times_out() {
+        for on in [true, false] {
+            let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            while lab.world.frame < 600 {
+                lab.tick_for_harness();
+            }
+            let mut t = Tandems::new(Arm::Scout, Some(Patch { x: HEAP_X, r: 10 }));
+            (t.knobs.weak, t.knobs.accept_hi, t.knobs.accept_lo, t.knobs.accept_full) = (0.0, 1.0, 1.0, 1.0);
+            t.knobs.cascade_unstick = on;
+            t.knobs.cascade_timeout = if on { 100 } else { 0 };
+            lab.world.tandem = Some(Box::new(t));
+            let w = &mut lab.world;
+            let mut ids = ants(w);
+            ids.sort_unstable();
+            let leader = ids
+                .into_iter()
+                .find(|&id| crate::sim::creature::mind::has(w, id) && head(w, id).is_some_and(|h| h.0 < HEAP_X - 20) && !tandem::candidates(w, id, 3).is_empty())
+                .expect("an ant west of the heap with a sister in reach");
+            assert!(matches!(tandem::tap(w, leader), TapResult::Accepted(_)));
+            w.tandem.as_mut().unwrap().pairs[0].cascade = true;
+            let y = head(w, leader).unwrap().1;
+            let frame = w.frame;
+            w.organism_mut(leader).unwrap().last_food = Some((HEAP_X, y, frame));
+            let dir = |w: &World| w.mind_force.get(&leader).and_then(|f| f.pick.dir);
+            tandem::steer_cascade_leaders(w);
+            let first = dir(w);
+            assert_eq!(first, Some((1, 0)), "she heads for the heap");
+            w.frame += 90;
+            tandem::steer_cascade_leaders(w);
+            assert_eq!(dir(w), if on { Some((0, -1)) } else { first }, "unstick {on}");
+            w.frame += 200;
+            tandem::tick(w);
+            let paired = w.tandem.as_deref().unwrap().pairs.iter().any(|p| p.leader == leader);
+            assert_eq!(paired, !on, "timeout {on}");
         }
     }
 
