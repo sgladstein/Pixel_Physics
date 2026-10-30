@@ -372,6 +372,8 @@ EXTRA = [x for x in EXTRA if not x.startswith('donor600=')]
 # headcount +0.67 against the exam's plant boxes (+0.59 with played_bed left out; 2 seeds each +0.61, 1 seed +0.45),
 # twingame-1028 over the 32 t_fama carries. Both are copied into LAB_DIR for this.
 DONOR_LAB = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('donorlab=')), None)
+assert DONOR_LAB is None or len(DONOR_LAB) < 4 or DONOR_LAB[3] == 'lived', 'donorlab=FRAMES:Q:A,B,...:lived (a typo ranked alive-first)'
+assert DONOR_LAB is None or len(DONOR_LAB) < 3 or all(DONOR_LAB[2].split(',')), 'donorlab=: name the boxes (an empty name runs no box)'
 EXTRA = [x for x in EXTRA if not x.startswith('donorlab=')]
 SCALE_W = tuple(float(x) for x in os.environ.get('NEST_NEED', '6,3,2').split(','))
 SCALE_CAP = float(os.environ.get('SCALE_CAP', '1.25'))
@@ -477,6 +479,7 @@ LAB_SCORE = next((x.split('=', 1)[1].split(':') for x in EXTRA if x.startswith('
 EXTRA = [x for x in EXTRA if not x.startswith('labscore=')]
 if LAB_SCORE:
     assert LAB_SCORE[0] == 'alive' and len(LAB_SCORE) in (2, 3), 'labscore=alive:AFTER[:K]'
+    assert not any(x.startswith('labafter=') for x in sys.argv), 'labscore= sets its own AFTER; drop labafter='
     LAB_AFTER = LAB_SCORE[1]
 # The arm's own sense switches reach the lab box too (a lab case judged on another mind's senses judges nothing): every
 # setenv= pair but the training scaffolds (PP_BODYRULES*, PP_HOMEEAT*, which the lab never runs).
