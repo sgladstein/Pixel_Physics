@@ -1,0 +1,44 @@
+diff --git a/src/sim/creature/mind.rs b/src/sim/creature/mind.rs
+index 72eb0bbf..5da04297 100644
+--- a/src/sim/creature/mind.rs
++++ b/src/sim/creature/mind.rs
+@@ -7107,6 +7107,31 @@ pub mod scratch_log {
+         DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
+     }
+     /// Fill [`DIG_OPTS`] for this decision (cleared first).
++    /// TEMP (nest lane, 2026-10-28, uncommitted): `PP_ROOMS_TRACE=path` logs every dig option below the datum with the
++    /// room rule's verdict, the 12 dig features, the head's bonus, and two candidate raw senses: the open run through
++    /// the target's column after the cut (up + down, capped 8 each) and the nearest open cell above / below past ground
++    /// (within 8).
++    fn rooms_trace(world: &World, organism: OrganismId, t: (i32, i32), feats: &[f32; FEATURES], fe: &[f32; DIG_ND], bonus: f32) {
++        use std::io::Write;
++        static OUT: std::sync::OnceLock<Option<std::sync::Mutex<std::io::BufWriter<std::fs::File>>>> = std::sync::OnceLock::new();
++        let Some(out) = OUT.get_or_init(|| std::env::var("PP_ROOMS_TRACE").ok().map(|p| std::sync::Mutex::new(std::io::BufWriter::new(std::fs::File::create(p).unwrap())))) else {
++            return;
++        };
++        let Some(top) = world.room_surface_at(t.0).or_else(|| world.nest_sites.first().map(|s| s.surface)) else { return };
++        if t.1 <= top + 1 {
++            return;
++        }
++        let verdict = crate::sim::creature::shaft_room_refuses(world, t).map_or(0, |w| 1 + w as u8);
++        let open = |x: i32, y: i32| open_cell(world, organism, x, y);
++        let up = (1..=8).take_while(|k| open(t.0, t.1 - k)).count();
++        let dn = (1..=8).take_while(|k| open(t.0, t.1 + k)).count();
++        let gap_up = (1 + up as i32..=8).find(|&k| open(t.0, t.1 - k) && !open(t.0, t.1 - k + 1)).unwrap_or(0);
++        let gap_dn = (1 + dn as i32..=8).find(|&k| open(t.0, t.1 + k) && !open(t.0, t.1 + k - 1)).unwrap_or(0);
++        let mut o = out.lock().unwrap();
++        let f: Vec<String> = fe.iter().chain(feats.iter()).map(|v| format!("{v:.4}")).collect();
++        writeln!(o, "{},{},{},{},{verdict},{},{bonus:.3},{up},{dn},{gap_up},{gap_dn}", world.frame, organism, t.0, t.1, f.join(",")).unwrap();
++        o.flush().unwrap();
++    }
+     pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], head: Option<&DigHead>) {
+         DIG_OPTS.with(|d| {
+             let mut d = d.borrow_mut();
+@@ -7118,6 +7143,7 @@ pub mod scratch_log {
+                 let fe = dig_feats(world, organism, at, o.target, c);
+                 let (bonus, w) = head.map_or((0.0, 0.0), |h| h.eval2(&o.feats, &fe));
+                 when = when.max(w);
++                rooms_trace(world, organism, o.target, &o.feats, &fe, bonus);
+                 d.push((o.target, fe, bonus));
+             }
+             // `PP_DIGHEAD_GATE=1`: the "when" read-out only in the empty-jaw dig states the old ant was asked about

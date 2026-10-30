@@ -6278,7 +6278,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it, food carried home falls by about 60%.
 
 - [brain-training/evolvable-pheromones-2026-10-25.md](brain-training/evolvable-pheromones-2026-10-25.md) — **letting
-  ants evolve their own scents (owner's ask, 2026-10-25): signals emerge but do not pay: B stays at 0.03, palette parked, emit rows stay frozen (§9.7).** A planned
+  ants evolve their own scents (owner's ask, 2026-10-25): signals emerge but do not pay: B stays at 0.03, palette parked, emit rows stay frozen (§9.7); closed as a dead end after six far-food repeats (§9.15).** A planned
   palette of fixed molecules picked by a gene is parked after
   [an adversarial review](brain-training/evolvable-pheromones-review-2026-10-25.md) put a new convention under 10%
   in today's training (individual-score culls, one shared convention, fixed heaps, too few generations). Decode,
@@ -6300,6 +6300,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   is 28-34% of the trained pools' deliveries.
   On far food (§9.14, wide bed, heap 100-250 out, scored on heap food) the signalling arm won 1.56x and
   reinvented a laden-only trail (7.8x), but its colony relied on it only 15-17%: fails the pre-set 20% bar.
+  **Closed by E4 (§9.15, 2026-10-28):** six repeats of that test, signalling higher in 3 of 6 pairs (0.99x), 0 of 6
+  colonies relying on their signal by 20%: a dead end, and the 1.56x was the top of the spread.
 
 - [brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md](brain-training/evolvable-pheromones-e4-readiness-2026-10-27.md) —
   **independent review of the decisive scent test before it ran: not ready.** Food stored was counted in larder
@@ -6381,7 +6383,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (Spearman 0.96 -> 0.64 over 3 rounds). Kept-cell scores audited for kJ. Screens vs clean1 k3 (32 x 48): islands
   keep more colonies alive (23 of 30 pairs) but starve no less and still fall to one family (round 38 vs 17), and
   the winner loses to std_pool at 600k in the game boxes (6 of 31); case weights starved more (9 of 32 better); the
-  first one-world-per-round run was void (no per-colony births' stream; inrun `sseed=` fixes it), rerun pending.
+  one-world-per-round rerun (inrun `sseed=`) ranks more steadily (rank-sum retest 0.18 vs 0.07) but is level in the
+  garden. The weights winner digs a bigger nest, but it is a wider crater, not rooms; room shape does not repeat
+  world to world (retest about 0), so selection cannot pick for rooms yet.
 
 - [brain-training/research/parallel-training-and-merging-2026-10-23.md](brain-training/research/parallel-training-and-merging-2026-10-23.md) —
   **can ant brains be trained in parallel and merged later? Only as lessons that each touch their own weights.** Two
@@ -6468,6 +6472,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   still collapses (5.8); copies match the choices ~90% as well as an unconstrained net on the same senses, which
   itself gets 41%, against the hand-built ant's own 50% under other dice (addendum): the shortfall sits in turning round,
   picking up and digging. So: the landing bill plus three rare moves, not the scorer. Tools in `scratch/copytest/`.
+- [brain-training/research/famine-wall-trap-2026-10-30.md](brain-training/research/famine-wall-trap-2026-10-30.md) —
+  **why every trained pool starves in the three famine exam boxes: the wall trap (deep trace, measurement).** The
+  trained ant walks away from home, harder when hungry, until an end wall stops it, and never comes back: 548 of 548
+  trained ants that reached a wall stayed there, against 15 of 427 hand-built ants. The food in those boxes is near
+  the nest, and the brain bill gives a one-tank trained ant ~2,000 frames. Cutting the outward links removes the trap
+  (209 -> 8 wall arrivals) but not the deaths: walking out was its only search. Side finding: two_larders' meat room
+  kills the hand-built ant too. New `labsurvive` options `food=`, `png=`, `knock=`.
 
 - [brain-training/playtest/playtest-report-2026-10-22.md](brain-training/playtest/playtest-report-2026-10-22.md) —
   **playtest lane: watching the new mind-brain ant in the in-run colony bed.** Every ant after the founders starts on 1

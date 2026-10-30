@@ -1,0 +1,8 @@
+{'rep': '1', 'free': 568.7, 'deaf': 730.2, 'ratio': 0.779, 'comm': False, 'info': 1.51, 'drop': {'deaf': 0.057, 'shift': 0.07, 'const': 0.064}, 'lower': {'deaf': 12, 'shift': 13, 'const': 9}}
+{'rep': '2', 'free': 616.1, 'deaf': 595.0, 'ratio': 1.035, 'comm': False, 'info': 100.33, 'drop': {'deaf': 0.077, 'shift': 0.055, 'const': 0.056}, 'lower': {'deaf': 10, 'shift': 10, 'const': 8}}
+{'rep': '3', 'free': 605.5, 'deaf': 652.5, 'ratio': 0.928, 'comm': False, 'info': 0.0, 'drop': {'deaf': 0.015, 'shift': -0.077, 'const': -0.002}, 'lower': {'deaf': 9, 'shift': 7, 'const': 7}}
+{'rep': '4', 'free': 684.5, 'deaf': 706.6, 'ratio': 0.969, 'comm': False, 'info': 6.67, 'drop': {'deaf': 0.118, 'shift': 0.1, 'const': 0.129}, 'lower': {'deaf': 11, 'shift': 13, 'const': 15}}
+{'rep': '5', 'free': 632.7, 'deaf': 622.5, 'ratio': 1.016, 'comm': False, 'info': 18.03, 'drop': {'deaf': 0.141, 'shift': 0.067, 'const': 0.099}, 'lower': {'deaf': 11, 'shift': 10, 'const': 12}}
+{'rep': '6', 'free': 784.6, 'deaf': 615.7, 'ratio': 1.274, 'comm': False, 'info': 18.63, 'drop': {'deaf': 0.059, 'shift': 0.171, 'const': 0.068}, 'lower': {'deaf': 12, 'shift': 13, 'const': 11}}
+pairs 6; free runs communicating 0/6; guard free/deaf geometric mean 0.99; free higher 3/6 (two-sided sign test p = 1.000; bar 6/6)
+VERDICT: DEAD END; signalling arm forages better: NO
