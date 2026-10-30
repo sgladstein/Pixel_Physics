@@ -88,6 +88,7 @@ def classify(d, logp=None):
             nd['drops'] += 1
     out = collections.Counter()
     rows = []
+    allplace = collections.Counter(place(c, room, surf) for c in crumbs)  # every standing crumb, joined or not
     for c in crumbs:
         r = last.get(c)
         if r is None or picked.get(c, -1) > r['frame']:
@@ -116,7 +117,7 @@ def classify(d, logp=None):
         out[('cells', min(5, r['cells']))] += 1
         out[('worthq', min(9, int(10 * r['worth'] / max(1.0, r['unit']))))] += 1
         rows.append(dict(r, _cell=c, _place=pl))
-    return dict(space=len(sp), crumbs=len(crumbs), food=len(food), out=out, nd=nd, rows=rows, ev=ev, crumb_cells=crumbs)
+    return dict(space=len(sp), crumbs=len(crumbs), food=len(food), out=out, nd=nd, rows=rows, ev=ev, crumb_cells=crumbs, allplace=allplace)
 
 
 def report(d, logp=None):

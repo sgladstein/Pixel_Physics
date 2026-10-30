@@ -21,14 +21,14 @@ def alive(d):
 def one(arm, w):
     d = f'{runs}/{arm}_w{w}/r{rnd}'
     if not os.path.exists(f'{d}/.done'):
-        return None if not os.path.exists(f'{runs}/{arm}_w{w}/EXTINCT') else dict(alive=0, tunnels=0, crumb=1.0, home=float('nan'), ext=1)
+        return None if not os.path.exists(f'{runs}/{arm}_w{w}/EXTINCT') else dict(alive=0, tunnels=0, crumb=1.0, pcr=float('nan'), home=float('nan'), ext=1)
     t = tunnels.measure(d) or {}
     n = nestshape.measure(d) or {}
     c = crumbsrc.classify(d, f'{runs}/{arm}_w{w}/r{rnd}.crumb.log')
     j = len(c['rows'])
     home = sum(1 for r in c['rows'] if r['first_home']) / j if j else float('nan')
     pas = sum(1 for r in c['rows'] if r['_place'] == 'passage') / j if j else float('nan')
-    return dict(alive=alive(d), tunnels=t.get('tunnels', 0), crumb=n.get('crumb_share', 0.0), crumbs=c['crumbs'],
+    return dict(alive=alive(d), tunnels=t.get('tunnels', 0), crumb=n.get('crumb_share', 0.0), crumbs=c['crumbs'], pcr=c['allplace']['passage'],
                 space=c['space'], home=home, pas=pas, ext=0)
 
 
@@ -41,7 +41,7 @@ def sign(pairs):
 worlds = sorted({int(p.rsplit('_w', 1)[1]) for p in glob.glob(f'{runs}/{arms[0]}_w*')})
 res = {a: {w: one(a, w) for w in worlds} for a in arms}
 print(f'round {rnd}; worlds {worlds}')
-print('arm   world  alive tunnels crumb_share crumbs/space  from_home  in_passage')
+print('arm   world  alive tunnels crumb_share crumbs/space  from_home  in_passage(joined)  passage_crumbs')
 for a in arms:
     for w in worlds:
         r = res[a][w]
@@ -49,12 +49,12 @@ for a in arms:
             print(f'{a:5} {w:5}  (not finished)'); continue
         if r['ext']:
             print(f'{a:5} {w:5}  EXTINCT'); continue
-        print(f'{a:5} {w:5} {r["alive"]:6} {r["tunnels"]:7} {r["crumb"]:11.3f} {r["crumbs"]:6}/{r["space"]:<6} {r["home"]:9.2f} {r["pas"]:10.2f}')
+        print(f'{a:5} {w:5} {r["alive"]:6} {r["tunnels"]:7} {r["crumb"]:11.3f} {r["crumbs"]:6}/{r["space"]:<6} {r["home"]:9.2f} {r["pas"]:10.2f} {r["pcr"]:14}')
 for a in arms[1:]:
     ok = [w for w in worlds if res[a][w] and res[arms[0]][w]]
-    for k in ('alive', 'tunnels', 'crumb'):
-        pr = [(res[arms[0]][w][k], res[a][w][k]) for w in ok]
+    for k in ('alive', 'tunnels', 'crumb', 'pcr'):
+        pr = [(res[arms[0]][w][k], res[a][w][k]) for w in ok if not (k == 'pcr' and (res[arms[0]][w]['ext'] or res[a][w]['ext']))]
         hi, lo, p = sign(pr)
         med = lambda xs: sorted(xs)[len(xs) // 2] if xs else float('nan')
-        print(f'{a} vs {arms[0]}  {k:8} higher {hi} / lower {lo} of n={len(ok)}  sign p {p:.3f}   '
+        print(f'{a} vs {arms[0]}  {k:8} higher {hi} / lower {lo} of n={len(pr)}  sign p {p:.3f}   '
               f'median {med([x for x, _ in pr]):.3g} -> {med([y for _, y in pr]):.3g}')
