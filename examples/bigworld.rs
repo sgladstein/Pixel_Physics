@@ -14,8 +14,14 @@
 //!   p50, p99 and the share of frames over 16.6 ms;
 //! - **`RESULT` lines that must match across a speed-up**: the grid, the
 //!   field and the organisms (`common/hashes.rs`, the digests every perf
-//!   harness here prints), plus a digest of the last drawn frame buffer, so a
+//!   harness here prints), plus a digest of every drawn frame buffer, so a
 //!   render change is held to the same bar as a simulation change.
+//!
+//! **Run it from the repository root.** Some assets are read from disk
+//! relative to the working directory, and a run from elsewhere builds a
+//! different (equally deterministic) world -- whose digests then match
+//! nothing, which looks exactly like a speed-up that changed the
+//! simulation.
 //!
 //! ```text
 //! cargo run --release --example bigworld -- scene=settled frames=300
@@ -120,6 +126,9 @@ fn main() {
     }
     let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     let (mut tick_ms, mut draw_ms) = (Vec::new(), Vec::new());
+    // Every drawn frame folded in, not just the last: a render change that
+    // differs on one frame mid-run and converges again must still show.
+    let mut frames_digest: u64 = 0xcbf2_9ce4_8422_2325;
     for i in 0..warmup + frames {
         let measured = i >= warmup;
         if measured && i == warmup && cg {
@@ -139,6 +148,9 @@ fn main() {
             app.draw(&mut buf, None);
         }
         let t2 = std::time::Instant::now();
+        if draw {
+            frames_digest = (frames_digest ^ fnv(&buf)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
         if measured {
             tick_ms.push((t1 - t0).as_secs_f64() * 1000.0);
             draw_ms.push((t2 - t1).as_secs_f64() * 1000.0);
@@ -156,5 +168,5 @@ fn main() {
     }
     let over = total.iter().filter(|&&t| t > 16.6).count();
     println!("  {over}/{} frames over 16.6 ms ({:.0}%)", total.len(), over as f64 * 100.0 / total.len() as f64);
-    println!("RESULT {} frame {:016x} at {}", hashes::line(&app.world), fnv(&buf), app.world.frame);
+    println!("RESULT {} frames {:016x} at {}", hashes::line(&app.world), frames_digest, app.world.frame);
 }
