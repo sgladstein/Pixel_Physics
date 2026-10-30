@@ -57,6 +57,68 @@ enum State {
     Stalk,
     Flee,
     Heal,
+    /// `policy=heist`: down the galleries to the nearest larva, by a path.
+    Dive,
+    /// `policy=heist`: back up and out to the lair, larva in the jaws or not.
+    Escape,
+    /// `policy=camp`: sits where it landed and never bites (the hunger's
+    /// positive control: with the stakes on it must starve).
+    Camp,
+}
+
+/// **A crawl path** from `from` to the first cell `goal` accepts, through
+/// open cells and cells ants stand in (they move), each beside solid ground
+/// -- a centipede walks on surfaces, it does not fly -- breadth first, so the
+/// path is shortest in steps. `None` if no such cell is reachable.
+fn crawl_path(world: &World, me: u32, from: (i32, i32), goal: &dyn Fn(i32, i32) -> bool) -> Option<Vec<(i32, i32)>> {
+    let b = world.bounds()?;
+    let (w, h) = (b.max_x - b.min_x + 1, b.max_y - b.min_y + 1);
+    let idx = |x: i32, y: i32| ((y - b.min_y) * w + (x - b.min_x)) as usize;
+    let solid = |x: i32, y: i32| world.in_bounds(x, y) && { let c = world.get(x, y); !c.is_empty() && c.organism_id() == 0 };
+    let open = |x: i32, y: i32| {
+        if !world.in_bounds(x, y) {
+            return false;
+        }
+        let c = world.get(x, y);
+        let o = c.organism_id();
+        let ok = c.is_empty() || o == me || (o != 0 && world.organism(o).is_some_and(|s| s.brood.is_none()));
+        ok && (-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && solid(x + dx, y + dy)))
+    };
+    let mut prev = vec![u32::MAX; (w * h) as usize];
+    let mut q = std::collections::VecDeque::new();
+    prev[idx(from.0, from.1)] = idx(from.0, from.1) as u32;
+    q.push_back(from);
+    while let Some((x, y)) = q.pop_front() {
+        if (x, y) != from && goal(x, y) {
+            let mut path = vec![(x, y)];
+            let mut i = idx(x, y);
+            while i != idx(from.0, from.1) {
+                i = prev[i] as usize;
+                path.push(((i as i32 % w) + b.min_x, (i as i32 / w) + b.min_y));
+            }
+            path.reverse();
+            return Some(path);
+        }
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if world.in_bounds(nx, ny) && prev[idx(nx, ny)] == u32::MAX && open(nx, ny) {
+                prev[idx(nx, ny)] = idx(x, y) as u32;
+                q.push_back((nx, ny));
+            }
+        }
+    }
+    None
+}
+
+/// Every living larva's cell.
+fn larvae(world: &World) -> Vec<(i32, i32)> {
+    world
+        .live_brood_ids()
+        .into_iter()
+        .filter_map(|id| world.organism(id))
+        .filter(|s| s.brood.is_some_and(|b| b.stage == pixel_physics::sim::organism::BroodStage::Larva))
+        .filter_map(|s| s.chain.first().copied().or_else(|| s.cells.keys().next().copied()))
+        .collect()
 }
 
 /// The keys the script holds this frame, as the layer's levels.
@@ -88,12 +150,33 @@ fn main() {
     let seed: u64 = arg("seed").unwrap_or(1);
     let after: u64 = arg("after").unwrap_or(12_000);
     let oldant = flag("oldant");
-    let skulk = arg::<String>("policy").as_deref() == Some("skulk");
+    let policy = arg::<String>("policy").unwrap_or_else(|| "door".to_string());
+    // `heist` feeds on the surface like `skulk`, and dives for brood when fed and whole.
+    let heist = policy == "heist";
+    let camp = policy == "camp";
+    let skulk = policy == "skulk" || heist;
     let sprints = arg::<u8>("sprint") != Some(0);
     let gif: Option<String> = arg("gif");
     let every: u64 = arg("every").unwrap_or(6);
     let row_every: u64 = arg("rows").unwrap_or(600);
-    println!("enemyhunt seed={seed} after={after} brain={} policy={} gif={gif:?} every={every}", if oldant { "hand-built" } else { "trained" }, if skulk { "skulk" } else { "door" });
+    // `dive=` the tank share a heist waits for (default 0.8 of a full tank).
+    let dive_at: f32 = arg("dive").unwrap_or(0.8);
+    println!(
+        "enemyhunt seed={seed} after={after} brain={} policy={policy} stakes={} gif={gif:?} every={every} dive={dive_at}",
+        if oldant { "hand-built" } else { "trained" },
+        arg::<String>("stakes").as_deref() != Some("0")
+    );
+    let start_state = if camp {
+        State::Camp
+    } else if skulk {
+        State::Stalk
+    } else {
+        State::Approach
+    };
+    let mut path_cache: Option<(u64, Vec<(i32, i32)>)> = None;
+    let mut dives = 0u32;
+    let mut brood_seen = 0u32;
+    let mut dumped = false;
     let mut home_x: Option<i32> = None;
 
     let mut sc = Scenario::load("demo_enemy").expect("demo_enemy ships");
@@ -117,7 +200,7 @@ fn main() {
     lab.demo_bind_body();
 
     let mut hold = Hold::default();
-    let mut state = if skulk { State::Stalk } else { State::Approach };
+    let mut state = start_state;
     let mut state_since = 0u64;
     let mut last_head: Option<(i32, i32)> = None;
     let mut still = 0u64;
@@ -162,14 +245,15 @@ fn main() {
             continue;
         };
         let now = lab.world.frame;
-        if now >= t0 + after || !respawn && e.ended.is_some_and(|(f, _)| now > f + 300) {
+        if now >= t0 + after || (!respawn || e.over) && e.ended.is_some_and(|(f, _)| now > f + 300) {
             break;
         }
         // `respawn`: R 300 frames after each death, as a player would, so one
         // run plays season after season against the same colony.
-        if respawn && e.ended.is_some_and(|(f, _)| now == f + 300) {
+        if respawn && !e.over && e.ended.is_some_and(|(f, _)| now == f + 300) {
             lab.demo_key(DemoKey::Letter('R'), true);
-            state = if skulk { State::Stalk } else { State::Approach };
+            state = start_state;
+            path_cache = None;
             state_since = now;
             home_x = None;
             start_cells = None;
@@ -183,6 +267,8 @@ fn main() {
             .filter(|_| e.ended.is_none())
             .map(|s| (s.chain.first().copied().unwrap_or((0, 0)), s.chain.len(), s.gnawed, s.crop.map_or(0.0, |c| c.worth()), s.energy));
         let mut want = Hold::default();
+        let tank = 1600.0f32;
+        let holding = e.raider.is_some_and(|id| pixel_physics::lab::demo::enemy::jaws_hold_brood(&lab.world, id));
         if let Some((head, cells, gnawed, crop, energy)) = body {
             let start_cells = *start_cells.get_or_insert(cells);
             let (door_x, surface) = nearest_door(&lab.world, head.0).unwrap_or((head.0, head.1));
@@ -219,14 +305,104 @@ fn main() {
                 State::Retreat if depth <= 0 && (head.0 - door_x).abs() >= 20 && !crowded => State::Rest,
                 State::Rest if crowded => State::Retreat,
                 State::Rest if now - state_since >= 1500 && (gnawed < 0.05 && cells >= start_cells || now - state_since >= 6000) => State::Approach,
+                // A hungry raider stops resting and hunts (the stakes' hunger).
+                State::Heal if energy < 0.35 * tank => State::Stalk,
+                // **The heist**: fed, whole, healed and with its wind, it goes in.
+                State::Stalk if heist && !larvae(&lab.world).is_empty() && energy >= dive_at * tank && cells >= start_cells && gnawed < 0.05 && e.spent < 0.05 && !e.in_grace(now) => {
+                    dives += 1;
+                    State::Dive
+                }
+                State::Dive if holding => State::Escape,
+                State::Dive if larvae(&lab.world).is_empty() => State::Stalk,
+                // Lost two cells with nothing in the jaws, or too long under: get out.
+                State::Dive if cells + 2 <= start_cells || now - state_since >= 4000 => State::Escape,
+                State::Escape if e.brood > brood_seen || (!holding && pixel_physics::lab::demo::enemy::cover(&lab.world, head) == 0) || now - state_since >= 4000 => State::Heal,
                 st => st,
             };
+            brood_seen = e.brood;
             if next != state {
                 state = next;
                 state_since = now;
+                path_cache = None;
             }
             let mut press: Option<char> = None;
             match state {
+                State::Camp => {}
+                State::Dive | State::Escape => {
+                    // Re-plan every 8 frames: ants move, and so does the body.
+                    let stale = path_cache.as_ref().is_none_or(|(f, _)| now >= f + 8);
+                    if stale {
+                        let me = e.raider.unwrap_or(0);
+                        let path = if state == State::Dive {
+                            let lv = larvae(&lab.world);
+                            crawl_path(&lab.world, me, head, &|x, y| lv.iter().any(|l| (l.0 - x).abs().max((l.1 - y).abs()) <= 2))
+                        } else {
+                            let lair = e.lair.unwrap_or((home, surface));
+                            crawl_path(&lab.world, me, head, &|x, y| (x - lair.0).abs() <= 3 && (y - lair.1).abs() <= 3)
+                        };
+                        if path.is_none() && flag("dump") && !dumped {
+                            dumped = true;
+                            let lv = larvae(&lab.world);
+                            println!("DUMP head={head:?} larvae={}", lv.len());
+                            for y in head.1 - 30..head.1 + 50 {
+                                let row: String = (head.0 - 90..head.0 + 30)
+                                    .map(|x| {
+                                        if !lab.world.in_bounds(x, y) {
+                                            return ' ';
+                                        }
+                                        let c = lab.world.get(x, y);
+                                        let o = c.organism_id();
+                                        if o == me {
+                                            'R'
+                                        } else if lv.contains(&(x, y)) {
+                                            'L'
+                                        } else if o != 0 {
+                                            if lab.world.organism(o).is_some_and(|s| s.brood.is_some()) { 'b' } else { 'a' }
+                                        } else if c.is_empty() {
+                                            '.'
+                                        } else {
+                                            '#'
+                                        }
+                                    })
+                                    .collect();
+                                println!("{y:4} {row}");
+                            }
+                        }
+                        path_cache = Some((now, path.unwrap_or_default()));
+                    }
+                    let path = path_cache.as_ref().map(|(_, p)| p.as_slice()).unwrap_or(&[]);
+                    // Follow the path from where the head is on it now.
+                    let at = path.iter().position(|&p| p == head).unwrap_or(0);
+                    // The next cell on the path; when stuck, a farther one (a corner the body cannot take square).
+                    let ahead = if still >= 40 { 2 + (still / 40) as usize % 3 } else { 1 };
+                    match path.get((at + ahead).min(path.len().saturating_sub(1))) {
+                        Some(&(tx, ty)) if path.len() > 1 => {
+                            want.left = tx < head.0;
+                            want.right = tx > head.0;
+                            want.up = ty < head.1;
+                            want.down = ty > head.1;
+                        }
+                        _ if state == State::Dive => {
+                            // No path: at the door, push down.
+                            if (head.0 - door_x).abs() > 1 {
+                                want.left = head.0 > door_x;
+                                want.right = head.0 < door_x;
+                            } else {
+                                want.down = true;
+                            }
+                        }
+                        _ => {
+                            want.up = true;
+                        }
+                    }
+                    want.sprint = sprints && (state == State::Escape || depth >= -2 || (head.0 - door_x).abs() <= 12);
+                    if state == State::Dive && larvae(&lab.world).iter().any(|l| (l.0 - head.0).abs().max((l.1 - head.1).abs()) <= pixel_physics::lab::demo::enemy::JAW_REACH) {
+                        press = Some('B');
+                    } else if state == State::Dive && nearest.is_some_and(|(_, d)| d <= 2) && cells + 1 >= start_cells {
+                        // An ant in the way: bite through it.
+                        press = Some('B');
+                    }
+                }
                 State::Approach => {
                     if (head.0 - door_x).abs() > 1 {
                         want.left = head.0 > door_x;
@@ -323,7 +499,7 @@ fn main() {
             }
             if (now - t0).is_multiple_of(row_every) {
                 println!(
-                    "row t={} state={state:?} head={head:?} depth={depth} cells={cells} gnawed={gnawed:.2} crop={:.2} energy={:.2} kills={} given={} taken={} taken_in_nest={taken_in_nest} ants={} trips={}",
+                    "row t={} state={state:?} head={head:?} depth={depth} cells={cells} gnawed={gnawed:.2} crop={:.2} energy={:.2} kills={} given={} taken={} taken_in_nest={taken_in_nest} ants={} trips={} grabbed={} brood={} holding={holding} score={} path={:?}",
                     now - t0,
                     crop,
                     energy,
@@ -332,6 +508,10 @@ fn main() {
                     e.bites_taken,
                     ants(&lab.world).len(),
                     lab.world.creature_stats.trip_deliveries - e.trips_at_landing,
+                    e.grabbed,
+                    e.brood,
+                    e.score(),
+                    path_cache.as_ref().map(|(_, p)| (p.len(), p.get(1).copied(), p.get(4).copied())),
                 );
             }
         }
@@ -389,7 +569,7 @@ fn main() {
     println!(
         "RESULT seed={seed} brain={} policy={} ran={ran} end={} in_nest_frames={in_nest_frames} deepest={deepest} kills={} given={} taken={} taken_in_nest={taken_in_nest} taken_per_min_in_nest={per_min:.1} cells_lost={} ants_at_landing={} ants_end={} trips_since={} sprint_frames={} regrown={}",
         if oldant { "hand-built" } else { "trained" },
-        if skulk { "skulk" } else { "door" },
+        policy,
         e.ended.map_or("alive".to_string(), |(_, why)| why.replace(' ', "_")),
         e.kills,
         e.bites_given,
@@ -429,6 +609,36 @@ fn main() {
         );
     }
     println!("MUTANTS total={} ants_end={}", e.mutants, ants(&lab.world).len());
+    // The stakes: one LIFE line a raider of the game (the one still alive
+    // last, marked ALIVE), then the GAME line.
+    if e.stakes {
+        let mut lives = e.game.clone();
+        if e.ended.is_none() && e.raider.is_some() {
+            lives.push(pixel_physics::lab::demo::enemy::Life {
+                frames: lab.world.frame.saturating_sub(e.landed.unwrap_or(lab.world.frame)),
+                kills: e.kills,
+                grabbed: e.grabbed,
+                brood: e.brood,
+                deepest: e.deepest,
+                how: "ALIVE",
+            });
+        }
+        for (i, l) in lives.iter().enumerate() {
+            println!(
+                "LIFE seed={seed} policy={policy} n={} frames={} kills={} grabbed={} brood={} deepest={} below={} points={} how={}",
+                i + 1,
+                l.frames,
+                l.kills,
+                l.grabbed,
+                l.brood,
+                l.deepest,
+                u8::from(l.deepest >= pixel_physics::lab::demo::enemy::BELOW),
+                l.points(),
+                l.how
+            );
+        }
+        println!("GAME seed={seed} policy={policy} lives={} over={} score={} dives={dives} hunger_j={:.0} capped_j={:.0}", lives.len(), e.over, e.score().max(lives.iter().map(|l| l.points()).sum()), e.hunger_j, e.capped_j);
+    }
     if let Some(path) = gif {
         let delay = image::Delay::from_numer_denom_ms(every as u32 * 1000, 60);
         let frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();

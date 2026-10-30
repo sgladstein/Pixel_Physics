@@ -252,6 +252,7 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
 pub fn seat_takes(seat: DemoSeat, c: char) -> bool {
     match seat {
         DemoSeat::Guest => guest::takes(c),
+        DemoSeat::Enemy => enemy::takes(c),
         _ => false,
     }
 }
