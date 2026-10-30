@@ -2932,6 +2932,7 @@ fn main() {
     println!("mind acts: bites {} kills {} flesh {} | scent laid A {:.0} B {:.0} alarm {:.1}", k.bites, k.kills, k.flesh, k.laid[0], k.laid[1], k.laid[2]);
     println!("done: {frames} frames in {:.1}s ({:.0} frames/s)", t0.elapsed().as_secs_f64(), frames as f64 / t0.elapsed().as_secs_f64());
     println!("home_eat_forced {}", creature::options::HOME_EAT_FORCED.load(std::sync::atomic::Ordering::Relaxed));
+    println!("{}", creature::mind::scratch_log::room_hist_report());
     if homepick > 0 {
         println!("homepick {homepick}: re-carries unpaid {recarried}, deliveries paid {food_home}");
     }

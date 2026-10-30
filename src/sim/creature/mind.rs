@@ -7111,7 +7111,7 @@ pub mod scratch_log {
         DIG_OPTS.with(|d| {
             let mut d = d.borrow_mut();
             d.clear();
-            let mut ctxf: Option<(i32, f32, f32, f32)> = None;
+            let mut ctxf: Option<DigCtx> = None;
             let mut when = f32::NEG_INFINITY;
             for o in opts.iter().filter(|o| o.verb == Verb::Dig) {
                 let c = *ctxf.get_or_insert_with(|| dig_ctx(world, organism, at));
@@ -7174,8 +7174,79 @@ pub mod scratch_log {
         (roof, sky)
     }
     /// What the dig features share: the door column, the ant's own depth, whether it stands sky-open, the open
-    /// share of the 7x7 round it.
-    fn dig_ctx(world: &World, organism: OrganismId, at: (i32, i32)) -> (i32, f32, f32, f32) {
+    /// share of the 7x7 round it, and (`PP_DIGROOM`) the room distance, else 0.
+    pub type DigCtx = (i32, f32, f32, f32, f32);
+    /// `PP_DIGROOM=1` (chambersense lane, 2026-10-30; **opt-in, off by default**): dig feature slot 8 -- the ant's own
+    /// light, which no hand-set head reads (H3's weights there are 0) -- reads [`room_dist`] / 8 instead (0 inside a
+    /// wide space, up to 3 at [`ROOM_REACH`] or none in reach). **Why**: H3 digs branching arms and never rooms. Its
+    /// only sense of "how much space is here" is the open share of the 7x7 round the ant (slot 9), which reads the same
+    /// at a tunnel's tip whether the tip is 2 cells from a chamber or 30, so no weight on it can say "widen here: this
+    /// tip is far from any room" against "keep the passage narrow: a room is just behind you". The new reading is a
+    /// world fact (how far, walking through open ground, to the nearest place wide enough to turn round in), not an
+    /// instruction; the head's weights decide what to do with it. Layout-compatible: DIG_ND stays 12, so every
+    /// genome and side file loads; only a head with weight on slot 8 reads differently, and only with the switch on.
+    fn room_on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PP_DIGROOM").is_ok_and(|v| v == "1" || v == "open" || v == "below"))
+    }
+    /// How far [`room_dist`] walks before it gives up (cells of path).
+    pub const ROOM_REACH: i32 = 24;
+    /// **The room sense**: the shortest 4-connected walk through open cells, from the ant's head, to the nearest "wide"
+    /// cell -- one whose whole 5x5 block is open (the 5x5 opening `scratch/inrun/roomshape.py` calls a room). Ants and
+    /// their bodies count open (as [`open_cell`]); crumbs, spoil, stored food and soil do not. So it reads 0 inside a
+    /// room, a crater or the open air, and grows along a passage with every cell walked from the last such space.
+    /// [`ROOM_REACH`] when none is in reach. Cost: a flood of at most the open cells within ROOM_REACH of the ant, only
+    /// on decisions with a Dig option, stopping at the first wide cell (inside a room, at once).
+    /// **The open air counts as a wide space** (`PP_DIGROOM=below` walks and counts only below the datum, the first
+    /// version): with the sky not counted, a young colony has no room anywhere, every ant reads "far from any room"
+    /// from frame 0, and the hand head widened the door into a pit (garden worlds 61-62, round 0: open rooms 0 and 0
+    /// against H3+eat's 2 and 3, a pink crater at the door in both pictures). With the sky counted, a passage is "far"
+    /// only once it has run far from the surface or from a room -- which is where a chamber should go.
+    ///
+    /// **Loose fill counts as dug** (`PP_DIGROOM=1`; `=open` is the strict version, `=below` strict and underground
+    /// only): crumbs and stored food are walked through and count toward a wide block, as `scratch/nest/selrun/
+    /// tunnels.py`'s flood passes them. Strict, a crumb-packed nest reads "far from any room" from inside it, so the
+    /// head digs harder exactly where the crumbs are, and the crumbs grow (garden worlds 61-62, round 0: every
+    /// strict arm a crumb-packed cone, two of eight colonies dead). What an ant feels by touch: loose fill or solid soil.
+    pub fn room_dist(world: &World, organism: OrganismId, at: (i32, i32)) -> i32 {
+        type Mode = (bool, bool, [Option<crate::sim::material::MaterialId>; 2]);
+        static MODE: OnceLock<Mode> = OnceLock::new();
+        let (below_only, strict, fill) = *MODE.get_or_init(|| {
+            let v = std::env::var("PP_DIGROOM").unwrap_or_default();
+            (v == "below", v == "below" || v == "open", [world.materials.id_of("crumbs"), world.materials.id_of("provisions")])
+        });
+        let below = |x: i32, y: i32| !below_only || world.room_surface_at(x).is_some_and(|s| y > s);
+        let dug = |x: i32, y: i32| open_cell(world, organism, x, y) || (!strict && fill.contains(&Some(world.get(x, y).material)));
+        let open = |x: i32, y: i32| below(x, y) && dug(x, y);
+        let wide = |x: i32, y: i32| (-2..=2).all(|dx| (-2..=2).all(|dy| open(x + dx, y + dy)));
+        let mut seen = std::collections::HashSet::new();
+        let mut q = std::collections::VecDeque::new();
+        q.push_back((at, 0));
+        seen.insert(at);
+        while let Some(((x, y), d)) = q.pop_front() {
+            if wide(x, y) {
+                return d;
+            }
+            if d >= ROOM_REACH {
+                continue;
+            }
+            for n in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                if !seen.contains(&n) && open(n.0, n.1) {
+                    seen.insert(n);
+                    q.push_back((n, d + 1));
+                }
+            }
+        }
+        ROOM_REACH
+    }
+    /// The room sense's readings over a run, by band of walk (0, 1-4, 5-8, 9-12, 13-16, 17-23, 24+): what share of
+    /// dig decisions a head's weights on it could ever act in. `room_hist_report` prints it.
+    pub static ROOM_HIST: [std::sync::atomic::AtomicU64; 7] = [const { std::sync::atomic::AtomicU64::new(0) }; 7];
+    pub fn room_hist_report() -> String {
+        let v: Vec<u64> = ROOM_HIST.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        format!("room sense at dig decisions: 0 {} | 1-4 {} | 5-8 {} | 9-12 {} | 13-16 {} | 17-23 {} | 24+ {}", v[0], v[1], v[2], v[3], v[4], v[5], v[6])
+    }
+    fn dig_ctx(world: &World, organism: OrganismId, at: (i32, i32)) -> DigCtx {
         let nx = world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map_or(128, |s| s.x);
         let depth = world.room_surface_at(at.0).map_or(0.0, |s| ((at.1 - s) as f32 / 8.0).clamp(-1.0, 3.0));
         let (_, sky) = column_above(world, organism, at.0, at.1);
@@ -7187,12 +7258,28 @@ pub mod scratch_log {
                 }
             }
         }
-        (nx, depth, f32::from(u8::from(sky)), open as f32 / 49.0)
+        let room = if room_on() {
+            let d = room_dist(world, organism, at);
+            let b = match d {
+                0 => 0,
+                1..=4 => 1,
+                5..=8 => 2,
+                9..=12 => 3,
+                13..=16 => 4,
+                17..=23 => 5,
+                _ => 6,
+            };
+            ROOM_HIST[b].fetch_add(1, Ordering::Relaxed);
+            d as f32 / 8.0
+        } else {
+            0.0
+        };
+        (nx, depth, f32::from(u8::from(sky)), open as f32 / 49.0, room)
     }
     /// The Dig option's features ([`DIG_ND`]): 0 away from the door (+1) or toward it (-1) in columns; 1 down (+1)
     /// or up (-1); 2 the target's depth below the datum / 8; 3 its column open to the sky; 4 ground over it / 8;
     /// 5 its open 8-neighbours / 8; 6 its distance from the door / 16; 7 the ant's depth / 8; 8 the ant stands
-    /// sky-open; 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
+    /// sky-open (`PP_DIGROOM=1`: the room distance / 8, [`room_dist`]); 9 the open share of the 7x7 round the ant; 10 a level cut; 11 target row minus the lowest open
     /// row within 3 of the head / 4 (the Teacher lane's bottom sense).
     /// **Light** (owner, 2026-10-23: replace the exact soil count with "a more general light sense that ants actually
     /// have"): daylight at (x, y), halved by every non-open cell between it and the surface (2 rows above the datum),
@@ -7212,8 +7299,8 @@ pub mod scratch_log {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| options::switch_on("PP_DIGLIGHT"))
     }
-    pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: (i32, f32, f32, f32)) -> [f32; DIG_ND] {
-        let (nx, adepth, asky, aopen) = c;
+    pub fn dig_feats(world: &World, organism: OrganismId, at: (i32, i32), t: (i32, i32), c: DigCtx) -> [f32; DIG_ND] {
+        let (nx, adepth, asky, aopen, room) = c;
         // PP_DIGLIGHT=1: slots 3, 4 and 8 read light instead of the sky test and the exact soil count (up to 8): light
         // at the cut where the sky test was, darkness (1 - light) where the count was, so dh7's weights keep their
         // sign, and the ant's own light where its own sky test was.
@@ -7243,7 +7330,13 @@ pub mod scratch_log {
             nb as f32 / 8.0,
             ((t.0 - nx).abs() as f32 / 16.0).min(3.0),
             adepth,
-            if blank { 0.0 } else { asky },
+            if room_on() {
+                room
+            } else if blank {
+                0.0
+            } else {
+                asky
+            },
             aopen,
             f32::from(u8::from(t.1 == at.1)),
             ((t.1 - low) as f32 / 4.0).clamp(-2.0, 2.0),
