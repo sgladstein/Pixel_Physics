@@ -53,6 +53,7 @@ const COL_W: i32 = (PANEL_W - 2 * PAD) / 2;
 
 /// Longest description a key may carry and still fit its column.
 pub const KEY_DESC_MAX: usize = ((COL_W - KEY_W - 6) / 6) as usize;
+const _: () = assert!(KEY_DESC_MAX >= 20, "key column too narrow");
 /// Characters per wrapped prose line.
 const LINE_CHARS: usize = ((PANEL_W - 2 * PAD) / 6) as usize;
 
@@ -121,18 +122,20 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Guest => SeatCard {
             title: "GUEST -- A ROVE BEETLE IN THE NEST",
-            goal: "THE ANTS KNOW YOU BY SMELL. RUB THEM UNTIL YOU SMELL LIKE FAMILY, THEN BEG FOOD FROM THEM. GET CAUGHT AND THEY BITE.",
-            score: "FOOD YOU WERE GIVEN, AND YOUR GRADE AS A GUEST",
-            lose: "THE ANTS KILL YOU",
+            goal: "THE ANTS KNOW YOU BY SMELL. RUB THEM UNTIL YOU SMELL LIKE FAMILY, THEN BEG FOR FOOD. EVERY BEG MAKES THEM WARIER, SO SPACE YOUR ASKS AND RUB IN BETWEEN. WITH ENERGY TO SPARE, SLIP INTO THE NEST AND LAY AN EGG.",
+            score: "1 A SECOND ALIVE, 100 AN EGG (200 BESIDE THEIR BROOD), PLUS ENERGY LEFT. A VISIT LASTS 5 MINUTES",
+            lose: "ALL THREE OF YOUR BEETLES ARE KILLED",
             keys: &[
                 ("ARROWS", "MOVE"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
                 ("R", "RUB AN ANT (TAKE SMELL)"),
                 ("P", "SOAK IN SMELL ON/OFF"),
                 ("Y", "BEG FOR FOOD"),
+                ("L", "LAY AN EGG"),
                 ("B", "KILL A LARVA"),
                 ("E", "EAT A CORPSE"),
                 ("J", "JUMP"),
+                ("K", "NEW VISIT AT THE END"),
             ],
         },
         DemoSeat::Enemy => SeatCard {
@@ -280,7 +283,6 @@ mod tests {
     /// the column, so a description one character too long fails here.
     #[test]
     fn every_card_fits_its_panel() {
-        assert!(KEY_DESC_MAX >= 20, "key column too narrow: {KEY_DESC_MAX}");
         for seat in DemoSeat::ALL {
             let c = card(seat);
             let bottom = PANEL_Y + panel_height(&c);
