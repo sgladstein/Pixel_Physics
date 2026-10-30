@@ -3847,6 +3847,39 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Field
     });
 }
 
+/// The tiles `read` names as they stand now -- from `next` where the solve
+/// has written them, else from the live map -- for `step_velocity` and
+/// `step_advection` to sample while they write `next`. Only ever looked up
+/// by key, never iterated.
+///
+/// **The clones are made in parallel**, because this is the serial half of
+/// an otherwise threaded pass. `read` is the solve set plus one ring --
+/// ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six boxed
+/// slices this was on the order of 9,000 allocations per pass and 18,000 per
+/// frame, all of it on one worker while the rest waited. It is what held
+/// `par_solve_tiles`' speedup to 2-2.8x rather than 4x on this machine. The
+/// arrays are inline now (2026-09-06), so a clone is a copy rather than
+/// seven mallocs, but ~1,500 copies of ~1 KB is still worth spreading.
+///
+/// **Into an indexed `Vec` and a map sized up front, not `filter_map` and
+/// `collect`** (big-world speed lane, 2026-10-30). Rayon collects an
+/// unindexed `filter_map` into per-worker `Vec`s grown by push, and std's
+/// map grows from empty: every growth re-copies kilobyte tiles. Measured at
+/// 8192x2560, the growth alone (`grow_one` and `realloc`'s copy) was ~2.6%
+/// of the tick. Contents are identical: the map is keyed by `ChunkCoord`,
+/// every key in `read` is distinct, and nothing reads the map's order.
+fn snapshot_tiles(read: &[ChunkCoord], next: &ChunkMap<FieldTile>, old: &ChunkMap<FieldTile>) -> ChunkMap<FieldTile> {
+    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
+    let mut out = ChunkMap::with_capacity_and_hasher(read.len(), Default::default());
+    if !tiles_parallel(read.len()) {
+        out.extend(read.iter().filter_map(snapshot));
+    } else {
+        let tiles: Vec<Option<(ChunkCoord, FieldTile)>> = read.par_iter().map(snapshot).collect();
+        out.extend(tiles.into_iter().flatten());
+    }
+    out
+}
+
 /// `v += -gradient(pressure) * coupling`, damped, reflected off walls. Reads
 /// the pressure `step_pressure` just wrote into `next` — the deliberate
 /// pressure-then-velocity coupling order that makes disturbances propagate
@@ -3877,29 +3910,7 @@ fn step_velocity(
     // looks plausible. The outer ring can sleep outside the subset `next`
     // now holds, so it falls back to the old map — the same state the
     // full-map clone used to carry forward for it.
-    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
-    let new_pressure: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
-        read.iter().filter_map(snapshot).collect()
-    } else {
-        read
-        // **Built in parallel**, because this clone is the serial half of an
-        // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
-        // boxed slices this was on the order of 9,000 allocations per pass
-        // and 18,000 per frame, all of it on one worker while the rest
-        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
-        // rather than 4x on this machine. The arrays are inline now
-        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
-        // ~1,500 copies of ~1 KB is still worth spreading.
-        //
-        // Contents are identical: the map is keyed by `ChunkCoord` and every
-        // key in `read` is distinct, so no entry can collide and the finished
-        // map does not depend on the order entries were inserted in. Only the
-        // *build* order changes, and nothing reads that.
-        .par_iter()
-        .filter_map(snapshot)
-        .collect()
-    };
+    let new_pressure = snapshot_tiles(read, next, old);
 
     par_solve_tiles(coords, next, |coord, tile| {
         let old_near = TileNear::new(old, coord);
@@ -4304,29 +4315,7 @@ fn step_advection(
     // Over `read` rather than `coords` — see `step_velocity` for why, and
     // for why the ring falls back to the old map now that `next` holds only
     // the solved subset.
-    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
-    let pre_advection: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
-        read.iter().filter_map(snapshot).collect()
-    } else {
-        read
-        // **Built in parallel**, because this clone is the serial half of an
-        // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
-        // boxed slices this was on the order of 9,000 allocations per pass
-        // and 18,000 per frame, all of it on one worker while the rest
-        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
-        // rather than 4x on this machine. The arrays are inline now
-        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
-        // ~1,500 copies of ~1 KB is still worth spreading.
-        //
-        // Contents are identical: the map is keyed by `ChunkCoord` and every
-        // key in `read` is distinct, so no entry can collide and the finished
-        // map does not depend on the order entries were inserted in. Only the
-        // *build* order changes, and nothing reads that.
-        .par_iter()
-        .filter_map(snapshot)
-        .collect()
-    };
+    let pre_advection = snapshot_tiles(read, next, old);
 
     par_solve_tiles(coords, next, |coord, tile| {
         let pre = TileNear::new(&pre_advection, coord);
