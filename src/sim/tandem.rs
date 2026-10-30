@@ -121,7 +121,26 @@ pub struct Knobs {
     /// The cascade: chance per trip home from the patch that a taught ant
     /// taps a sister of her own (arm A only).
     pub cascade_c: f32,
+    /// **A cascade leader works her way out of a box** (off by default; the
+    /// scout seat's lean season sets it, round 2, 2026-10-30). Traced in the
+    /// round-1 season: every cascade run started at the nest, where the
+    /// pupil's teacher had just put her food down, and none got out of the
+    /// mound -- one leader stood at x 133 for 6,000 frames with her pupil in
+    /// contact and the pupil starved while led; another 9,000 frames. Forced
+    /// one heading at the target, a body boxed by the mound, the spoil and the
+    /// provisions has nowhere to go (the headless player was boxed the same
+    /// way and needed the same cure). On: when she has come no nearer her
+    /// target for [`UNSTICK_FRAMES`], she tries the upward headings in turn,
+    /// then digs.
+    pub cascade_unstick: bool,
+    /// A cascade run not arrived after this many frames is given up (the
+    /// pupil released with what she learned); 0 is never (the default).
+    pub cascade_timeout: u64,
 }
+
+/// Frames without getting nearer before a cascade leader tries another
+/// heading ([`Knobs::cascade_unstick`]); the headless player's own number.
+pub const UNSTICK_FRAMES: u64 = 40;
 
 impl Default for Knobs {
     fn default() -> Self {
@@ -151,6 +170,8 @@ impl Default for Knobs {
             accept_lo: 0.4,
             accept_full: 0.15,
             cascade_c: 0.25,
+            cascade_unstick: false,
+            cascade_timeout: 0,
         }
     }
 }
@@ -295,6 +316,9 @@ pub struct Tandems {
     pub income: VecDeque<u64>,
     /// Lesson planted on arrival, by pupil, 0..1 (also what recall gets).
     pub lessons: BTreeMap<OrganismId, f32>,
+    /// Each cascade leader's nearest approach to her target and the frame
+    /// she made it ([`Knobs::cascade_unstick`]).
+    progress: BTreeMap<OrganismId, (i32, u64)>,
 }
 
 impl Tandems {
@@ -315,6 +339,7 @@ impl Tandems {
             trips_seen: BTreeMap::new(),
             income: VecDeque::new(),
             lessons: BTreeMap::new(),
+            progress: BTreeMap::new(),
         }
     }
 
@@ -687,6 +712,12 @@ pub fn tick(world: &mut World) {
             release(world, i, true);
             continue;
         }
+        // A cascade run that has not arrived in time is given up (the seat's knob; 0 is never).
+        if p.cascade && k.cascade_timeout > 0 && frame.saturating_sub(p.since) > k.cascade_timeout {
+            world.tandem.as_mut().expect("checked").pairs[i] = p;
+            release(world, i, false);
+            continue;
+        }
         // Arm B's column gives up after its timeout.
         if p.column && frame.saturating_sub(p.since) > k.column_timeout {
             world.tandem.as_mut().expect("checked").pairs[i] = p;
@@ -900,11 +931,37 @@ pub fn steer_cascade_leaders(world: &mut World) {
         .filter(|p| p.cascade)
         .map(|p| (p.leader, !matches!(p.phase, Phase::Following)))
         .collect();
+    let unstick = t.knobs.cascade_unstick;
+    let frame = world.frame;
+    if let Some(t) = world.tandem.as_mut() {
+        t.progress.retain(|id, _| leaders.iter().any(|(l, _)| l == id));
+    }
     for (leader, wait) in leaders {
         let target = world.organism(leader).and_then(|s| s.last_food).map(|(x, y, _)| (x, y));
         let at = head(world, leader);
         let dir = if wait { None } else { at.zip(target).and_then(|(a, b)| toward(a, b)) };
-        force(world, leader, dir);
+        if !unstick {
+            force(world, leader, dir);
+            continue;
+        }
+        // **Out of the box**: progress is getting nearer the target, not merely moving (a chain that turns
+        // round in place moves its head every decision and gets nowhere). Standing for her pupil is not stuck.
+        let dist = at.zip(target).map_or(0, |(a, b)| gap(a, b));
+        let t = world.tandem.as_mut().expect("read above");
+        let e = t.progress.entry(leader).or_insert((dist, frame));
+        if wait || dist < e.0 {
+            *e = (dist, frame);
+        }
+        let stuck = frame.saturating_sub(e.1);
+        let mut pick = crate::sim::steer::ForcedPick { dir, verb: None, once: false };
+        if let Some(d) = dir.filter(|_| stuck > UNSTICK_FRAMES) {
+            let alts = [(d.0, -1), (0, -1), (-d.0, -1), (-d.0, 0), (d.0, 1)];
+            pick.dir = Some(alts[((stuck / UNSTICK_FRAMES - 1) as usize) % alts.len()]);
+            if stuck > 5 * UNSTICK_FRAMES {
+                pick.verb = Some(crate::sim::creature::options::Verb::Dig);
+            }
+        }
+        crate::sim::steer::force(world, leader, pick);
     }
 }
 

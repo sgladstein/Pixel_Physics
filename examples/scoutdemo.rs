@@ -42,10 +42,188 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
 }
 
-use scout::{BODY_X as TAP_X, HEAP_X, NEST_X};
+use scout::{BODY_X as TAP_X, NEST_X};
 
 fn head(world: &World, id: OrganismId) -> Option<(i32, i32)> {
     world.organism(id).and_then(|s| s.chain.first().copied())
+}
+
+/// One ant through the season (`probe=1`).
+#[derive(Debug, Clone, Default)]
+struct AntRow {
+    first: u64,
+    min_x: i32,
+    /// Ant-looks per 16-column bin (all ants pooled on the first row's entry: see `probe_report`).
+    occ: Vec<u32>,
+    max_east: i32,
+    reached: Option<u64>,
+    trips_seen: u32,
+    heap_cells: u32,
+    other_cells: u32,
+    taught: Option<u8>,
+    died: Option<u64>,
+    bank0: f32,
+}
+
+type Casc = std::collections::BTreeMap<OrganismId, (OrganismId, u64, (i32, i32), (i32, i32), String)>;
+
+fn probe_tick(w: &World, rows: &mut std::collections::BTreeMap<OrganismId, AntRow>, gates: &mut Vec<String>, player: OrganismId, casc: &mut Casc, heap_x: i32) {
+    let patch = tandem::Patch { x: heap_x, r: 10 };
+    let frame = w.frame;
+    let live = scout::ants(w);
+    let t = w.tandem.as_deref();
+    // **Every cascade run, start to end**: where the pair started, where each was last seen, its phase, and how
+    // it ended (in the tree = taught; a mark says arrived or broke).
+    if let Some(t) = t {
+        for p in t.pairs.iter().filter(|p| p.cascade) {
+            let (lh, fh) = (head(w, p.leader).unwrap_or((0, 0)), head(w, p.follower).unwrap_or((0, 0)));
+            let lf = w.organism(p.leader).and_then(|s| s.last_food).map(|(x, y, _)| (x, y));
+            let e = casc.entry(p.follower).or_insert((p.leader, frame, lh, fh, String::new()));
+            e.2 = lh;
+            e.3 = fh;
+            e.4 = format!("{:?} learned {} met {} leader last_food {lf:?}", p.phase, p.learned, p.met);
+        }
+        let gone: Vec<OrganismId> = casc.keys().copied().filter(|f| !t.pairs.iter().any(|p| p.cascade && p.follower == *f)).collect();
+        for f in gone {
+            let (l, f0, lh, fh, last) = casc.remove(&f).expect("listed");
+            let mark = t.marks.iter().rev().find(|m| m.0 == f).map(|m| format!("{:?}", m.1));
+            gates.push(format!(
+                "CASC f{f0}..f{frame} leader #{l} pupil #{f} last seen leader {lh:?} pupil {fh:?} [{last}] -> tree {} lesson {:?} mark {mark:?} pupil alive {}",
+                t.tree.contains_key(&f),
+                t.lessons.get(&f),
+                head(w, f).is_some()
+            ));
+        }
+    }
+    for &id in &live {
+        let Some(st) = w.organism(id) else { continue };
+        let Some(h) = st.chain.first().copied() else { continue };
+        let bank = tandem::energy_sense(w, id).map_or(0.0, |s| s / (1.0 - s).max(1e-3));
+        let r = rows.entry(id).or_insert_with(|| AntRow { first: frame, max_east: h.0 - NEST_X, trips_seen: st.life.trip_deliveries, bank0: bank, ..AntRow::default() });
+        r.max_east = r.max_east.max(h.0 - NEST_X);
+        r.min_x = if r.min_x == 0 { h.0 } else { r.min_x.min(h.0) };
+        if r.occ.is_empty() {
+            r.occ = vec![0; 32];
+        }
+        let surface = w.room_surface_at(h.0).is_some_and(|top| h.1 <= top + 1);
+        if surface {
+            r.occ[(h.0.clamp(0, 511) / 16) as usize] += 1;
+        }
+        if patch.holds_column(h.0) && r.reached.is_none() {
+            r.reached = Some(frame);
+        }
+        if let Some(t) = t {
+            if t.tree.contains_key(&id) && r.taught.is_none() {
+                let mut g = 1u8;
+                let mut at = id;
+                while let Some(&up) = t.tree.get(&at) {
+                    if !t.tree.contains_key(&up) || g >= 8 {
+                        break;
+                    }
+                    g += 1;
+                    at = up;
+                }
+                r.taught = Some(g);
+            }
+        }
+        let trips = st.life.trip_deliveries;
+        if trips > r.trips_seen {
+            let n = trips - r.trips_seen;
+            let from = st.last_food.is_some_and(|(x, _, _)| patch.holds_column(x));
+            if from {
+                r.heap_cells += n;
+            } else {
+                r.other_cells += n;
+            }
+            r.trips_seen = trips;
+            // **The cascade's gates, read at the trip-home instant** for a taught ant (not the player).
+            if from && id != player && t.is_some_and(|t| t.tree.contains_key(&id)) {
+                let t = t.expect("checked");
+                let full = t.pairs.len() >= t.knobs.max_pairs;
+                let leads = t.leads(id);
+                let c3 = tandem::candidates(w, id, 3);
+                let c8 = tandem::candidates(w, id, 8);
+                let c20 = tandem::candidates(w, id, 20);
+                let near = c3.first().or(c8.first()).copied();
+                let sense = near.and_then(|n| tandem::energy_sense(w, n));
+                let p = sense.and_then(|s| tandem::accept_chance(&t.knobs, s));
+                let all = w.live_organism_ids().into_iter().filter(|&o| o != id && w.organism(o).is_some_and(|s| s.species == st.species) && head(w, o).is_some_and(|q| (q.0 - h.0).abs().max((q.1 - h.1).abs()) <= 3)).count();
+                let surf = w.room_surface_at(h.0).map_or(0, |top| h.1 - top);
+                gates.push(format!(
+                    "f{frame} #{id} at ({},{}) depth {surf} full {full} leads {leads} ants<=3 {all} cand<=3 {} <=8 {} <=20 {} near sense {:?} accept {:?}",
+                    h.0,
+                    h.1,
+                    c3.len(),
+                    c8.len(),
+                    c20.len(),
+                    sense.map(|s| (s * 100.0).round() / 100.0),
+                    p.map(|p| (p * 100.0).round() / 100.0)
+                ));
+            }
+        }
+    }
+    for (id, r) in rows.iter_mut() {
+        if r.died.is_none() && !live.contains(id) {
+            r.died = Some(frame);
+        }
+    }
+}
+
+fn probe_report(w: &World, rows: &std::collections::BTreeMap<OrganismId, AntRow>, gates: &[String]) {
+    println!("PROBE ants traced {}", rows.len());
+    let mut by = std::collections::BTreeMap::new();
+    for r in rows.values() {
+        let class = match (r.taught, r.reached.is_some()) {
+            (Some(g), _) => format!("taught g{g}"),
+            (None, true) => "untaught, reached heap".to_string(),
+            (None, false) => "untaught, never reached".to_string(),
+        };
+        let e = by.entry(class).or_insert((0u32, 0u32, 0u32, 0u32, 0f32));
+        e.0 += 1;
+        e.1 += u32::from(r.died.is_some());
+        e.2 += r.heap_cells;
+        e.3 += r.other_cells;
+        e.4 += r.bank0;
+    }
+    for (k, (n, dead, heap, other, bank)) in &by {
+        println!("PROBE {k}: n {n} died {dead} heap cells home {heap} other cells home {other} mean bank at first look {:.2}", bank / *n as f32);
+    }
+    let mut hist = [0u32; 10];
+    for r in rows.values() {
+        hist[((r.max_east.max(0) / 40) as usize).min(9)] += 1;
+    }
+    println!("PROBE furthest east of the nest, 40-col bins (0-39 .. 360+): {hist:?}");
+    let first = rows.values().map(|r| r.first).min().unwrap_or(0);
+    let (old, born): (Vec<&AntRow>, Vec<&AntRow>) = rows.values().partition(|r| r.first == first);
+    let heap_all: u32 = rows.values().map(|r| r.heap_cells).sum();
+    let other_all: u32 = rows.values().map(|r| r.other_cells).sum();
+    println!(
+        "PROBE cohort: at hand-over {} alive at end {} | born in season {} alive at end {} | cells home: heap {heap_all} other {other_all}",
+        old.len(),
+        old.iter().filter(|r| r.died.is_none()).count(),
+        born.len(),
+        born.iter().filter(|r| r.died.is_none()).count()
+    );
+    let mut occ = [0u32; 32];
+    let mut west = [0u32; 9];
+    for r in rows.values() {
+        for (i, n) in r.occ.iter().enumerate() {
+            occ[i] += n;
+        }
+        west[((r.min_x.max(0)) / 16).min(8) as usize] += 1;
+    }
+    println!("PROBE surface ant-looks per 16-col bin (x 0..511): {occ:?}");
+    println!("PROBE furthest west, 16-col bins of x (0-15 .. 128+): {west:?}");
+    let far: Vec<_> = rows.iter().filter(|(_, r)| r.max_east >= 300).take(8).map(|(id, r)| (*id, r.max_east, r.first, r.died, w.organism(*id).map(|s| s.chain.clone()))).collect();
+    println!("PROBE far rangers (id, max east, first seen, died, chain now): {far:?}");
+    let mut finders: Vec<_> = rows.iter().filter(|(_, r)| r.taught.is_none() && r.heap_cells > 0).map(|(id, r)| (r.heap_cells, *id, r.reached, r.first)).collect();
+    finders.sort_by(|a, b| b.cmp(a));
+    println!("PROBE untaught heap haulers (cells, id, first reached, first seen): {:?}", &finders[..finders.len().min(20)]);
+    println!("PROBE cascade gate rows {}", gates.len());
+    for g in gates {
+        println!("GATE {g}");
+    }
+    let _ = w;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +288,12 @@ fn main() {
     if let Some(h) = arg::<u32>("heap") {
         args.insert("heap".to_string(), h.to_string());
     }
+    if let Some(h) = arg::<i32>("heapx") {
+        args.insert("heapx".to_string(), h.to_string());
+    }
     let mut seat = scout::ScoutDemo::from_args(&args, seed);
+    // The season's heap (it moves at the hand-over with stakes on): where the script leads and the probe looks.
+    let heap_x = seat.heap_x;
     seat.started = true;
     seat.alive_at_start = alive0;
     demo.scout = Some(seat);
@@ -159,6 +342,13 @@ fn main() {
     let mut best_dist = i32::MAX;
     let mut last_goal = 0;
     let mut moved_at = 0u64;
+    // `probe=1`: every ant traced through the season (how far east she went, whether she reached the far heap,
+    // what she brought home from it, whether she was taught, when she died), and every trip home from the heap by
+    // a taught ant with the cascade's gates read at that instant. Individuals, not a population statistic.
+    let probe = arg::<u8>("probe").unwrap_or(0) == 1;
+    let mut ants_seen: std::collections::BTreeMap<OrganismId, AntRow> = std::collections::BTreeMap::new();
+    let mut gate_rows: Vec<String> = Vec::new();
+    let mut casc: Casc = Casc::new();
     let end = start + frames;
     while lab.world.frame < end {
         let w = &mut lab.world;
@@ -223,12 +413,12 @@ fn main() {
                         });
                     if wait {
                         None
-                    } else if at.0 >= HEAP_X - 8 {
+                    } else if (heap_x - at.0).abs() <= 8 {
                         // She stops at the near edge of the heap, not on it: the heap's next drop lands on
                         // whoever stands in it, and a body under it has no option but to turn round.
                         None
                     } else {
-                        Some(((HEAP_X - at.0).signum() as i8, 0))
+                        Some(((heap_x - at.0).signum() as i8, 0))
                     }
                 }
             }
@@ -277,7 +467,7 @@ fn main() {
         let goal = match plan {
             Plan::Home => TAP_X,
             Plan::Tapping => NEST_X,
-            Plan::Leading => HEAP_X - 8,
+            Plan::Leading => heap_x - 8 * (heap_x - TAP_X).signum(),
         };
         let dist = (goal - at.0).abs();
         if dir.is_none() || dist < best_dist || goal != last_goal {
@@ -308,8 +498,15 @@ fn main() {
         if off {
             lab.world.tandem = Some(Box::new(tandem::Tandems::new(arm, None)));
         }
+        if probe && lab.world.frame.is_multiple_of(30) {
+            probe_tick(&lab.world, &mut ants_seen, &mut gate_rows, player, &mut casc, heap_x);
+        }
         if gif && (lab.world.frame - start).is_multiple_of(shot) {
-            if let Some((hx, hy)) = head(&lab.world, player) {
+            // `cam=cascade`: on a pupil leading a sister of her own while one is under way (round 2's picture).
+            let casc_leader = (arg::<String>("cam").as_deref() == Some("cascade"))
+                .then(|| lab.world.tandem.as_deref().and_then(|t| t.pairs.iter().find(|p| p.cascade).map(|p| p.leader)))
+                .flatten();
+            if let Some((hx, hy)) = head(&lab.world, casc_leader.unwrap_or(player)) {
                 // Centred: the seat panel is in the sky at the top now (2026-10-30), not over the lower half.
                 lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
             }
@@ -323,7 +520,7 @@ fn main() {
             // Food left in the far heap and by the nest: is the heap the bottleneck, or the walk to it?
             let food = lab.world.materials.id_of("provisions");
             let cells = |x0: i32, x1: i32| (x0..=x1).map(|x| (0..lab.spec.height).filter(|&y| Some(lab.world.get(x, y).material) == food).count()).sum::<usize>();
-            println!("  food: far heap {} near nest {}", cells(HEAP_X - 15, HEAP_X + 15), cells(NEST_X - 40, NEST_X + 40));
+            println!("  food: far heap {} near nest {}", cells(heap_x - 15, heap_x + 15), cells(NEST_X - 40, NEST_X + 40));
             let t = lab.world.tandem.as_ref().unwrap();
             let knows = t.lessons.len();
             println!(
@@ -374,6 +571,9 @@ fn main() {
             sd.by_gen,
             sd.larder
         );
+    }
+    if probe {
+        probe_report(&lab.world, &ants_seen, &gate_rows);
     }
     let t = lab.world.tandem.as_ref().unwrap();
     println!("END arm={} seed={seed} rude={rude}: leads {leads_done} alive {}->{} {:?}", arm.letter(), alive0, scout::ants(&lab.world).len(), t.counts);
