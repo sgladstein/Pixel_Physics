@@ -45,7 +45,7 @@ use crate::train::challenges::colony_bed;
 use super::super::Lab;
 
 /// The queen seat's own keys, as the help line prints them.
-pub const SEAT_KEYS: &str = "P WILD EGG (AGAIN: FERAL) -- Y NEXT 5 EGGS HER LINE (LOOK-CLICK OR K) -- J DEED -- K ROW -- U COLOURS";
+pub const SEAT_KEYS: &str = "P WILD EGG (AGAIN: FERAL) -- Y NEXT 5 EGGS HER LINE (LOOK-CLICK OR K) -- J DEED -- K ROW -- U COLOURS -- R NEW COLONY";
 
 /// **Her hold, in frames past her last egg.** Provisional until the scripted
 /// founding (`examples/queendemo.rs`, M0c) measures her lay interval; the
