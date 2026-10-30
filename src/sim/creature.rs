@@ -5470,12 +5470,17 @@ fn regrow_tail(world: &mut World, organism: OrganismId, def: &CreatureDef) {
         return;
     }
     let Some(st) = world.organism(organism) else { return };
-    if st.chain.len() < 2 || st.chain.len() >= usize::from(plan) || st.gnawed > 0.0 || st.energy < def.start_energy + def.body_energy {
+    // **A head alone regrows too** (seat review 2026-10-30): this was `len < 2`, so a raider bitten down to
+    // its head -- the case `REGROW_FRAMES`' doc promises -- never grew a cell (`regrown_cells` 0 in 11 of 11
+    // enemy-seat runs, one parked at 1/5 cells for 12,000 frames with 5,300 J banked while the HUD said
+    // REGROWING). The first cell behind a lone head is a copy of the head re-typed `Segment`, so the body
+    // keeps exactly one head.
+    if st.chain.is_empty() || st.chain.len() >= usize::from(plan) || st.gnawed > 0.0 || st.energy < def.start_energy + def.body_energy {
         return;
     }
-    let (tx, ty) = *st.chain.last().expect("two cells or more");
+    let (tx, ty) = *st.chain.last().expect("one cell or more");
     let colony = st.colony;
-    let cell = world.get(tx, ty);
+    let cell = if st.chain.len() == 1 { world.get(tx, ty).with_aux(pack_cell_type(CellType::Segment)) } else { world.get(tx, ty) };
     let Some((x, y)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (tx + dx, ty + dy)).find(|&(x, y)| world.in_bounds(x, y) && world.get(x, y).material == crate::sim::material::EMPTY) else {
         return;
     };

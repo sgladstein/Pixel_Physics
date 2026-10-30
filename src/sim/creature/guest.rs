@@ -114,6 +114,29 @@ const BEG_MAX: f32 = 30.0;
 /// Events kept for the ledger.
 const EVENTS_KEPT: usize = 64;
 
+/// **Beg wariness** (guest seat stakes, 2026-10-30; [`Wariness`]): what one
+/// beg adds to the colony's wariness of the guest, and to the asked ant's
+/// own, in gap units. The 10-30 review measured a disguised beggar fed on
+/// 76-92% of begs with no cost to asking again, so begging was a toggle.
+/// Starting values; tuned by the seat's paired scripts (`guestgif
+/// script=good|spam`), whose numbers are in the seat's README.
+pub const WARY_BEG_COLONY: f32 = 0.06;
+pub const WARY_BEG_ANT: f32 = 0.25;
+/// Time constants the wariness fades on, in seconds at 1x.
+const WARY_COLONY_TAU_S: f32 = 20.0;
+const WARY_ANT_TAU_S: f32 = 30.0;
+/// The most either term can add to the gap.
+const WARY_COLONY_MAX: f32 = 0.6;
+const WARY_ANT_MAX: f32 = 1.0;
+/// The share of the wariness a ladder roll reads (a beg's acceptance reads
+/// all of it). At the full term a disguised spammer lost all three roves in
+/// 45-110 s on four seeds (18-27 nips each), which read as a trap rather
+/// than as greed catching up with you.
+const WARY_ROLL_SHARE: f32 = 0.5;
+/// A rub takes this much off the colony's wariness, and halves the rubbed
+/// ant's own: grooming is how a guest buys trust back.
+pub const WARY_RUB_CALM: f32 = 0.08;
+
 const RNG_SLOT_LADDER: u64 = 50;
 const RNG_SLOT_PICK: u64 = 51;
 const RNG_SLOT_BEG: u64 = 52;
@@ -209,6 +232,72 @@ pub struct VisitEvent {
     pub joules: f32,
 }
 
+/// **How wary the colony is of the guest's begging** (guest seat stakes,
+/// 2026-10-30). `Visitors::wary`, `None` unless the seat's stakes are on, so
+/// `stakes=0` and every test written before it run the ladder unchanged.
+///
+/// Every beg adds [`WARY_BEG_COLONY`] to a colony-wide term and
+/// [`WARY_BEG_ANT`] to the asked ant's own; both fade, and a rub calms them
+/// ([`WARY_RUB_CALM`]). The sum is added to the gap the beg's acceptance and
+/// every ladder roll read, so greed is graded: the same ant asked again soon
+/// refuses, a colony asked too often starts displaying, and a refused beg's
+/// roll lands on the nip side once the sum passes the nip line. Stored with
+/// the frame it was last written and faded lazily on read, so an idle guest
+/// costs nothing per tick.
+#[derive(Clone, Debug, Default)]
+pub struct Wariness {
+    colony: f32,
+    colony_at: u64,
+    ants: crate::sim::fxhash::FxHashMap<OrganismId, (f32, u64)>,
+}
+
+fn faded(v: f32, at: u64, now: u64, tau_s: f32) -> f32 {
+    v * (-(now.saturating_sub(at) as f32) / (FPS * tau_s)).exp()
+}
+
+impl Wariness {
+    /// The colony-wide term now.
+    pub fn colony(&self, now: u64) -> f32 {
+        faded(self.colony, self.colony_at, now, WARY_COLONY_TAU_S)
+    }
+
+    /// One ant's own term now.
+    pub fn ant(&self, ant: OrganismId, now: u64) -> f32 {
+        self.ants.get(&ant).map_or(0.0, |&(v, at)| faded(v, at, now, WARY_ANT_TAU_S))
+    }
+
+    /// The whole addition to `ant`'s gap now.
+    pub fn term(&self, ant: OrganismId, now: u64) -> f32 {
+        self.colony(now) + self.ant(ant, now)
+    }
+
+    /// Add `colony` to the colony's term and `own` to `ant`'s (either may be
+    /// negative), each kept in `[0, max]`.
+    pub fn add(&mut self, now: u64, ant: Option<OrganismId>, colony: f32, own: f32) {
+        self.colony = (self.colony(now) + colony).clamp(0.0, WARY_COLONY_MAX);
+        self.colony_at = now;
+        if let Some(a) = ant {
+            let v = (self.ant(a, now) + own).clamp(0.0, WARY_ANT_MAX);
+            self.ants.insert(a, (v, now));
+        }
+    }
+
+    /// A rub of `ant`: the colony calms by [`WARY_RUB_CALM`], the ant halves.
+    pub fn calm(&mut self, now: u64, ant: OrganismId) {
+        let own = self.ant(ant, now);
+        self.add(now, Some(ant), -WARY_RUB_CALM, -0.5 * own);
+    }
+
+    fn prune(&mut self, now: u64) {
+        self.ants.retain(|_, &mut (v, at)| faded(v, at, now, WARY_ANT_TAU_S) > 0.01);
+    }
+}
+
+/// The wariness term for `ant`, 0 with the stakes off.
+fn wary_term(world: &World, ant: OrganismId) -> f32 {
+    world.visitors.as_ref().and_then(|v| v.wary.as_ref()).map_or(0.0, |w| w.term(ant, world.frame))
+}
+
 /// **The visitors an ant colony judges by smell**, and everything the ladder
 /// keeps. `World::visitors`; `None` everywhere but the guest demo.
 #[derive(Clone, Debug)]
@@ -223,6 +312,9 @@ pub struct Visitors {
     /// Running mean of the tolerance radii the ladder has read, for the
     /// visitor's [`Visitor::gap`] when no ant is touching it.
     pub mean_radius: f32,
+    /// The guest seat's beg wariness ([`Wariness`]): `None` (the default)
+    /// is the ladder as it was before the seat had stakes.
+    pub wary: Option<Wariness>,
 }
 
 impl Visitors {
@@ -235,6 +327,7 @@ impl Visitors {
             events: VecDeque::new(),
             input: GuestInput::default(),
             mean_radius: 1.0,
+            wary: None,
         }
     }
 
@@ -381,7 +474,7 @@ fn roll(world: &mut World, ant: OrganismId, visitor: OrganismId, cell: (i32, i32
         .organism(ant)
         .zip(world.species.creature_shared(world.organism(ant).map_or(SpeciesId(0), |s| s.species)))
         .map_or(0.0, |(s, d)| (1.0 - s.energy / d.start_energy.max(1.0)).clamp(0.0, 1.0));
-    let g_eff = g + (0.5 * alarm).min(ALARM_TERM_MAX) + pick(world, ant) + HUNGER_TERM * hunger + penalty;
+    let g_eff = g + (0.5 * alarm).min(ALARM_TERM_MAX) + pick(world, ant) + HUNGER_TERM * hunger + penalty + WARY_ROLL_SHARE * wary_term(world, ant);
     let (p1, p2, p3) = odds(g_eff, scale);
     let u = rng::stream(world.seed, ant as u64, frame, RNG_SLOT_LADDER).unit_f32();
     let rung = if u < p3 {
@@ -517,11 +610,11 @@ pub fn force_options(world: &World, ant: OrganismId, opts: &mut Vec<Opt>) {
 }
 
 /// An ant beside the guest: its id, its cell, and the guest's cell it touches.
-type Beside = (OrganismId, (i32, i32), (i32, i32));
+pub type Beside = (OrganismId, (i32, i32), (i32, i32));
 
 /// The adult ants beside any cell of `guest`, nearest-first by ring order,
 /// without repeats.
-fn ants_beside(world: &World, host: SpeciesId, guest: OrganismId) -> Vec<Beside> {
+pub fn ants_beside(world: &World, host: SpeciesId, guest: OrganismId) -> Vec<Beside> {
     let Some(st) = world.organism(guest) else { return Vec::new() };
     let mut out: Vec<Beside> = Vec::new();
     for &(gx, gy) in &st.chain {
@@ -621,9 +714,13 @@ pub fn tick(world: &mut World) {
     }
     if world.frame.is_multiple_of(600) {
         let dead: Vec<OrganismId> = world.visitors.as_ref().map_or(Vec::new(), |v| v.marks.keys().copied().filter(|&id| world.organism(id).is_none()).collect());
+        let now = world.frame;
         if let Some(v) = world.visitors.as_mut() {
             for id in dead {
                 v.marks.remove(&id);
+            }
+            if let Some(w) = v.wary.as_mut() {
+                w.prune(now);
             }
         }
     }
@@ -649,6 +746,9 @@ pub fn rub(world: &mut World, host: SpeciesId, guest: OrganismId) -> bool {
     }
     let rung = roll(world, ant, guest, gcell, at, 0.5, 0.0);
     if let Some(v) = world.visitors.as_mut() {
+        if let Some(w) = v.wary.as_mut() {
+            w.calm(frame, ant);
+        }
         v.counts.rubs += 1;
         if let Some(m) = v.marks.get_mut(&ant) {
             m.rub_until = frame + RUB_COOLDOWN;
@@ -666,7 +766,8 @@ pub fn rub(world: &mut World, host: SpeciesId, guest: OrganismId) -> bool {
 /// a grey `-` and nothing is rolled; else it accepts with chance `1.2 - g'`
 /// and gives [`BEG_SHARE`] of its spare bank, booked `SharedOut` on its colony
 /// and `SharedIn` on yours; refused, it rolls the ladder with
-/// [`BEG_PENALTY`]. Returns the joules given.
+/// [`BEG_PENALTY`]. Returns the joules given. With the seat's stakes on,
+/// `g'` also carries the colony's [`Wariness`], and every ask adds to it.
 pub fn beg(world: &mut World, host: SpeciesId, guest: OrganismId) -> f32 {
     let frame = world.frame;
     let ready = |w: &World, a: OrganismId| w.visitors.as_ref().is_none_or(|v| v.marks.get(&a).is_none_or(|m| frame >= m.rub_until));
@@ -704,8 +805,12 @@ pub fn beg(world: &mut World, host: SpeciesId, guest: OrganismId) -> f32 {
     }
     let Some(vs) = visitor_scent(world, guest) else { return 0.0 };
     let Some((g, _)) = gap(world, ant, vs) else { return 0.0 };
-    let g_eff = g + pick(world, ant);
+    // The wariness this ask meets is read before the ask adds its own.
+    let g_eff = g + pick(world, ant) + wary_term(world, ant);
     let p = (1.2 - g_eff).clamp(0.0, 1.0);
+    if let Some(w) = world.visitors.as_mut().and_then(|v| v.wary.as_mut()) {
+        w.add(frame, Some(ant), WARY_BEG_COLONY, WARY_BEG_ANT);
+    }
     if rng::stream(world.seed, ant as u64, frame, RNG_SLOT_BEG).unit_f32() < p {
         let amount = (BEG_SHARE * spare).min(BEG_MAX);
         if let Some(s) = world.organism_mut(ant) {
@@ -737,7 +842,7 @@ pub fn beg(world: &mut World, host: SpeciesId, guest: OrganismId) -> f32 {
 }
 
 /// A larva beside any cell of `guest`: its id and cell.
-fn brood_beside(world: &World, guest: OrganismId) -> Option<(OrganismId, (i32, i32))> {
+pub fn brood_beside(world: &World, guest: OrganismId) -> Option<(OrganismId, (i32, i32))> {
     let st = world.organism(guest)?;
     for &(gx, gy) in &st.chain {
         for (dx, dy) in crate::sim::structural::NEIGHBOURS_8 {
@@ -954,6 +1059,51 @@ mod tests {
         let empty = w.visitors.as_ref().expect("on").counts.empty;
         assert_eq!(beg(&mut w, host, rove), 0.0, "an ant under the floor gave");
         assert_eq!(w.visitors.as_ref().expect("on").counts.empty, empty + 1);
+    }
+
+    /// **Begging the same ant again and again pays less with the stakes on,
+    /// and a rub buys some of it back** ([`Wariness`]). The rove smells of
+    /// the ant's own nest and the ant is kept rich, so without wariness every
+    /// beg is all but sure to pay: that arm is the positive control, and the
+    /// wary arm must be fed less, refused more, and nipped at least once by
+    /// a refusal's roll. Watched red with the `wary_term` taken out of
+    /// `beg`'s acceptance.
+    #[test]
+    fn a_wary_colony_feeds_a_repeat_beggar_less_and_a_rub_calms_it() {
+        let run = |wary: bool| {
+            let (mut w, rove, ant, host) = rove_beside_ant();
+            let home = scent_of(&w.organism(ant).expect("ant").traits);
+            register(&mut w, host, rove, home);
+            if wary {
+                w.visitors.as_mut().expect("on").wary = Some(Wariness::default());
+            }
+            let grant = w.species.creature_shared(host).expect("creature").start_energy;
+            for _ in 0..12 {
+                w.organism_mut(ant).expect("ant").energy = 3.0 * grant;
+                if w.organism(rove).is_none() {
+                    break;
+                }
+                beg(&mut w, host, rove);
+                w.frame += RUB_COOLDOWN;
+            }
+            let c = w.visitors.as_ref().expect("on").counts;
+            (c.fed, c.refused, c.nipped + c.displayed + c.antennated, w, rove, ant, host)
+        };
+        let (fed_off, refused_off, ..) = run(false);
+        let (fed_on, refused_on, rolled_on, mut w, rove, ant, host) = run(true);
+        assert!(fed_off >= 11, "test setup: a rove smelling of the nest was refused without wariness ({fed_off} fed, {refused_off} refused)");
+        assert!(fed_on + 4 <= fed_off && refused_on >= 4, "wariness did not cut a repeat beggar's gifts: {fed_on} fed / {refused_on} refused, against {fed_off} without");
+        assert!(rolled_on > 0, "a wary colony's refusals rolled nothing");
+        let now = w.frame;
+        let before = w.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|x| x.term(ant, now)).expect("on");
+        if w.organism(rove).is_some() {
+            w.frame += RUB_COOLDOWN;
+            let now = w.frame;
+            let faded_only = w.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|x| x.term(ant, now)).expect("on");
+            assert!(rub(&mut w, host, rove), "no ant rubbed");
+            let after = w.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|x| x.term(ant, now)).expect("on");
+            assert!(after < faded_only - 0.05 && faded_only <= before, "a rub did not calm: {before} -> faded {faded_only} -> rubbed {after}");
+        }
     }
 
     /// **A rub moves the guest's scent four times as far as the ant's**

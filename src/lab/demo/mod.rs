@@ -39,11 +39,13 @@
 //!   `G` dig, `B` bite, `L` lay, `T` (held) trail;
 //! - **`Y U P J K R` are the seat's own keys** (only one demo runs at a time,
 //!   so seats may reuse them); `R` never rebuilds the box in a demo;
-//! - `H` the seat's help line, `Tab` camera-follow on and off.
+//! - `H` the seat card (`card`: goal, score, how you lose, every key),
+//!   `Tab` camera-follow on and off.
 //!
 //! Above [`STEER_CAP`] the keyboard lets go and her genome drives her, the
 //! state slice 0 measured her in: a 64x body cannot be steered by a hand.
 
+pub mod card;
 pub mod keeper;
 pub mod guest;
 pub mod enemy;
@@ -183,6 +185,15 @@ pub struct Demo {
     pub guest: Option<guest::GuestDemo>,
     /// The enemy seat's own state.
     pub enemy: Option<enemy::EnemyDemo>,
+    /// The seat card is up ([`card`]). Opened by the window at start
+    /// (`Lab::open_seat_card`), never by a headless harness, whose keys must
+    /// reach the seat rather than close a card nobody can see.
+    pub card: bool,
+    /// `H` paused a running clock to show the card, so closing it resumes.
+    pub card_resume: bool,
+    /// The clock's multiple last frame, so the card can tell a seat's
+    /// warm-up ending (the dial dropping to play speed) while it is up.
+    pub card_seen_multiple: u32,
 }
 
 impl Demo {
@@ -198,6 +209,9 @@ impl Demo {
             scout: None,
             guest: (seat == DemoSeat::Guest).then(guest::GuestDemo::default),
             enemy: (seat == DemoSeat::Enemy).then(enemy::EnemyDemo::default),
+            card: false,
+            card_resume: false,
+            card_seen_multiple: 0,
         }
     }
 }
@@ -243,6 +257,14 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     }
 }
 
+/// **The seat card and its reminder** ([`card`]), drawn after the lab's own
+/// chrome (`Lab::paint`) so the card covers the cell readout and the seat's
+/// panel rather than sitting under them.
+pub fn draw_card(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
+    card::draw_reminder(lab, hc, frame_buf);
+    card::draw(lab, hc, frame_buf);
+}
+
 /// **Whether a seat routes a body letter itself** (`E Q F G B L T`) rather
 /// than handing it to the steered body. A seat that does adds its arm here
 /// and routes the letter in `demo_key` beside `queen::seat_key`.
@@ -252,11 +274,27 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
 pub fn seat_takes(seat: DemoSeat, c: char) -> bool {
     match seat {
         DemoSeat::Guest => guest::takes(c),
+        DemoSeat::Enemy => enemy::takes(c),
         _ => false,
     }
 }
 
-/// The one-line key reminder each seat shows on `H` and at start.
+/// The seat's name as the player knows it (the enemy seat is the raider).
+pub fn seat_title(seat: DemoSeat) -> &'static str {
+    match seat {
+        DemoSeat::Queen => "QUEEN",
+        DemoSeat::Keeper => "KEEPER",
+        DemoSeat::Guest => "GUEST",
+        DemoSeat::Mind => "COLONY MIND",
+        DemoSeat::Enemy => "RAIDER",
+        DemoSeat::Scout => "SCOUT",
+    }
+}
+
+/// The one-line key list each seat used to show on `H` and at start. The
+/// ticker clips it at about 72 characters, so the window now shows the seat
+/// card ([`card`]) instead; this stays for the log line a headless run
+/// prints.
 pub fn help_line(seat: DemoSeat) -> String {
     let body = "ARROWS STEER -- E EAT, Q DROP, F FEED, G DIG, B BITE, L LAY, T TRAIL -- TAB FOLLOW -- PGUP/PGDN SPEED";
     match seat {
@@ -291,12 +329,17 @@ impl Lab {
         self.demo = Some(demo);
         // `seed=N` on the command line reseeds the demo's box.
         let seed = self.demo.as_ref().and_then(|d| d.args.get("seed")).and_then(|v| v.parse::<u64>().ok());
+        // The ticker clips at about 72 characters: the window's line is the
+        // seat and the two keys that matter, and the card says the rest. The
+        // scenario's own load line went to the log only.
         let msg = match super::scenario::Scenario::load(&seat.scenario_name()) {
             Ok(mut s) => {
                 if let Some(sd) = seed {
                     s.bed.seed = sd;
                 }
-                self.load_scenario(s)
+                let loaded = self.load_scenario(s);
+                eprintln!("demo {}: {loaded} -- {}", seat.name(), help_line(seat));
+                format!("{} DEMO -- SPACE TO PLAY, H FOR THE GOAL AND KEYS", seat_title(seat))
             }
             Err(e) => format!("NO SCENARIO {} YET ({e}) -- OPENING ON THE SAVED BOX", seat.scenario_name().to_uppercase()),
         };
@@ -311,9 +354,59 @@ impl Lab {
         }
         self.demo_bind_body();
         // The lab's welcome window would cover the box: a demo opens on its
-        // own help line instead (`H` shows it again).
+        // own seat card instead (`H` shows it again).
         self.show_help = false;
-        format!("{msg} -- {}", help_line(seat))
+        msg
+    }
+
+    /// **Put the seat card up.** With `pause`, a running clock stops under
+    /// it and resumes when it closes (`H` mid-game). Without, the clock is
+    /// left alone: at start a demo is either paused already or in a seat's
+    /// warm-up (the raider, the scout, the guest run the colony at the top
+    /// of the dial before the player lands), and the warm-up is exactly
+    /// when there is time to read. If the warm-up ends with the card still
+    /// up, [`Lab::demo_frame`] pauses then, so the game waits for the reader.
+    pub fn open_seat_card(&mut self, pause: bool) {
+        let multiple = self.time.multiple();
+        let Some(d) = self.demo.as_mut() else { return };
+        d.card = true;
+        d.card_seen_multiple = multiple;
+        d.card_resume = pause && multiple > 0;
+        if d.card_resume {
+            self.time.pause();
+        }
+        self.touch_chrome();
+    }
+
+    /// **`Space` while the card is up means "play"**: the card closes and a
+    /// paused clock runs. A running one (a warm-up) is left running, where
+    /// the lab's own `Space` would have paused it. `false` when no card is
+    /// up and `Space` is the lab's.
+    pub fn demo_space(&mut self) -> bool {
+        if !self.demo.as_ref().is_some_and(|d| d.card) {
+            return false;
+        }
+        if let Some(d) = self.demo.as_mut() {
+            d.card_resume = false;
+        }
+        self.close_seat_card();
+        if self.time.multiple() == 0 {
+            self.time.toggle_phase();
+        }
+        true
+    }
+
+    /// Take the seat card down; resume the clock if opening it paused it.
+    pub fn close_seat_card(&mut self) {
+        let Some(d) = self.demo.as_mut() else { return };
+        if !d.card {
+            return;
+        }
+        d.card = false;
+        if std::mem::take(&mut d.card_resume) && self.time.multiple() == 0 {
+            self.time.toggle_phase();
+        }
+        self.touch_chrome();
     }
 
     /// Mark the seat's body if it wants one and none is marked. Called after
@@ -402,16 +495,28 @@ impl Lab {
     /// lab must not also act on it.
     pub fn demo_key(&mut self, key: DemoKey, pressed: bool) -> bool {
         let Some(seat) = self.demo.as_ref().map(|d| d.seat) else { return false };
+        // The card first: `H` toggles it, and any other press only closes it
+        // (a key that also steered or bit would act on a world the player
+        // has not looked at yet). Releases pass, so a key held across the
+        // card is not left stuck down.
+        if pressed {
+            let open = self.demo.as_ref().is_some_and(|d| d.card);
+            if open {
+                self.close_seat_card();
+                return true;
+            }
+            if key == DemoKey::Letter('H') {
+                self.open_seat_card(true);
+                return true;
+            }
+        }
         // The seat's own keys first, so a seat can claim one even with no
         // body (the keeper, the colony mind) -- and a body letter it routes
         // by its own rules (`seat_takes`: the guest seat's B and E).
         if let DemoKey::Letter(c) = key {
             if matches!(c, 'Y' | 'U' | 'P' | 'J' | 'K' | 'R' | 'H') || seat_takes(seat, c) {
                 if pressed {
-                    if c == 'H' {
-                        let line = help_line(seat);
-                        self.ui.say(line);
-                    } else if seat == DemoSeat::Queen {
+                    if seat == DemoSeat::Queen {
                         queen::seat_key(self, c);
                     } else if seat == DemoSeat::Keeper {
                         keeper::seat_key(self, c);
@@ -476,6 +581,22 @@ impl Lab {
     pub fn demo_frame(&mut self) {
         let Some(demo) = self.demo.as_ref() else { return };
         let (seat, held, follow) = (demo.seat, demo.held, demo.follow);
+        // A seat's warm-up ending under the card (the dial dropping from the
+        // top to play speed) waits for the reader: pause, and resume when
+        // the card closes.
+        if demo.card {
+            let (was, now) = (demo.card_seen_multiple, self.time.multiple());
+            if was > STEER_CAP && (1..=STEER_CAP).contains(&now) {
+                self.time.pause();
+                if let Some(d) = self.demo.as_mut() {
+                    d.card_resume = true;
+                }
+                self.touch_chrome();
+            }
+            if let Some(d) = self.demo.as_mut() {
+                d.card_seen_multiple = self.time.multiple();
+            }
+        }
         self.demo_bind_body();
         if seat.body().is_some() {
             let steering = self.time.multiple() <= STEER_CAP;
@@ -495,6 +616,7 @@ impl Lab {
         }
         match seat {
             DemoSeat::Queen => queen::frame(self),
+            DemoSeat::Keeper => keeper::frame(self),
             DemoSeat::Scout => scout::frame(self),
             DemoSeat::Guest => guest::frame(self),
             DemoSeat::Enemy => enemy::frame(self),
