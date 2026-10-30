@@ -1104,8 +1104,8 @@ fn scan_patches(lab: &mut Lab, k: &mut KeeperDemo, frame: u64, since: u64) {
         if left == 0 {
             p.ended = Some((frame, PatchEnd::Stripped));
             k.counts.stripped += 1;
-            let (x, home) = (p.x, p.home);
-            lab.ui.say(format!("THE WINDFALL AT {x} IS STRIPPED BARE -- {home} CELLS HOME SO FAR"));
+            let (x, size) = (p.x, p.size);
+            lab.ui.say(format!("THE WINDFALL AT {x} IS STRIPPED BARE -- ALL {size} CELLS SAVED"));
         }
     }
     k.counts.saved = k
@@ -1529,12 +1529,14 @@ fn draw_patches(lab: &Lab, k: &KeeperDemo, frame_buf: &mut [u8]) {
                     put_world(lab, frame_buf, (p.x - PATCH_R + dx, top), c);
                     put_world(lab, frame_buf, (p.x - PATCH_R + dx, top + 1), c);
                 }
-                let label = if p.home > 0 { format!("{}S  +{}", secs(left), p.home) } else { format!("{}S", secs(left)) };
+                // Seconds to the rot, and the cells already saved from it.
+                let taken = p.size.saturating_sub(p.left);
+                let label = if taken > 0 { format!("{}S  +{taken}", secs(left)) } else { format!("{}S", secs(left)) };
                 text(p.x, top - 9, &label, colour, frame_buf);
             }
             Some((at, end)) if frame.saturating_sub(at) < PATCH_NOTE => {
                 let (label, colour) = match end {
-                    PatchEnd::Stripped => (format!("STRIPPED +{}", p.home), [255, 255, 255, 255]),
+                    PatchEnd::Stripped => (format!("STRIPPED +{}", p.size), [255, 255, 255, 255]),
                     PatchEnd::Rotted { left } => (format!("ROTTED -{left}"), PATCH_ROT),
                 };
                 text(p.x, top - 9, &label, colour, frame_buf);
@@ -1619,7 +1621,11 @@ fn tool_name(k: &KeeperDemo) -> &'static str {
 /// and the same seed left alone -- four lines, the nest left clear.
 fn draw_stakes_hud(lab: &Lab, k: &KeeperDemo, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     let frame = lab.world.frame;
-    let alive = live_ants(&lab.world);
+    // **After the end the panel shows the round's result, frozen** (as the
+    // card does): a box resumed after a loss runs on, and its live counts
+    // beside a "lost" card read as a contradiction.
+    let alive = k.ended.map_or_else(|| live_ants(&lab.world), |e| e.ants);
+    let (saved, home) = k.ended.map_or((k.counts.saved, k.counts.patch_home), |e| (e.saved, e.home));
     let end = k.ended.map_or(frame, |e| e.frame);
     let left = k.opened.map_or(k.rules.round, |o| (o + k.rules.round).saturating_sub(end));
     let x0 = 4;
@@ -1644,7 +1650,7 @@ fn draw_stakes_hud(lab: &Lab, k: &KeeperDemo, hc: crate::render::Hud, frame_buf:
         frame_buf,
         x0,
         y,
-        &format!("FOOD SAVED {} (HOME {})   ANTS {alive} ({} AT START, LOST UNDER {})", k.counts.saved, k.counts.patch_home, k.ants_at_open, k.rules.lose_at),
+        &format!("FOOD SAVED {saved} (HOME {home})   ANTS {alive} ({} AT START, LOST UNDER {})", k.ants_at_open, k.rules.lose_at),
         if danger { BAD } else { WHITE },
     );
     y += 10;
@@ -1672,6 +1678,8 @@ fn twin_line(k: &KeeperDemo, frame: u64, alive: usize) -> (String, [u8; 4]) {
             };
             (format!("LEFT ALONE: {} ANTS, {} SAVED -- YOUR HAND {}", t.ants, t.saved, signed(d, "ANT")), colour)
         }
+        // Before its first read-out the twin is in its own warm-up.
+        TwinRead::Behind { at: 0 } => ("LEFT ALONE: THE TWIN BOX IS STILL WARMING UP".to_string(), DIM),
         TwinRead::Behind { at } => (format!("LEFT ALONE: THE TWIN BOX IS STILL AT FRAME {at}"), DIM),
         TwinRead::Off => ("LEFT ALONE: NOT RUN -- COMPARING WITH THE START".to_string(), DIM),
         TwinRead::Mismatch => ("LEFT ALONE: THE TWIN DID NOT MATCH YOUR BOX -- NOT SHOWN".to_string(), WARN),
