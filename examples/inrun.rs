@@ -1560,7 +1560,7 @@ fn main() {
     let trace = num("trace", 0);
     let mut trace_log = (trace > 0).then(|| std::io::BufWriter::new(std::fs::File::create(out.join("trace.csv")).unwrap()));
     if let Some(tl) = trace_log.as_mut() {
-        writeln!(tl, "frame,id,x,y,tank,crop,trip,spoil,since_nest,still,scent_a,scent_b").unwrap();
+        writeln!(tl, "frame,id,x,y,tank,crop,trip,spoil,since_nest,still,scent_a,scent_b,ax,ay,verb").unwrap();
     }
     let mut scent_log = (trace > 0).then(|| std::io::BufWriter::new(std::fs::File::create(out.join("scent.csv")).unwrap()));
     if let Some(sl) = scent_log.as_mut() {
@@ -2778,7 +2778,9 @@ fn main() {
                     let (x, y) = s.chain.first().copied().unwrap_or((0, 0));
                     let crop = s.crop.map_or(0, |c| c.cells);
                     let (sa, sb) = (w.pheromone_at(pheromone::Channel::A, x, y), w.pheromone_at(pheromone::Channel::B, x, y));
-                    writeln!(tl, "{fr},{id},{x},{y},{:.2},{crop},{},{},{},{},{sa},{sb}", s.energy as f64 / start_e, s.trip_cells, u8::from(s.spoil.is_some()), s.since_nest, s.still_ticks).unwrap();
+                    // SCRATCH (chambers-trace, 2026-10-29, local only): the home anchor the home senses read, and the last verb.
+                    let verb = creature::mind::last_verb_of(&w, id).map_or("-".to_string(), |v| format!("{v:?}"));
+                    writeln!(tl, "{fr},{id},{x},{y},{:.2},{crop},{},{},{},{},{sa},{sb},{},{},{verb}", s.energy as f64 / start_e, s.trip_cells, u8::from(s.spoil.is_some()), s.since_nest, s.still_ticks, s.forage_anchor.0, s.forage_anchor.1).unwrap();
                 }
             }
             // The trail planes over the bed's middle: what the minds have laid, and how much of it stands.
