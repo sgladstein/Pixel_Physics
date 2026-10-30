@@ -21,6 +21,14 @@
 //!
 //! `rude=1` is the positive control for the pauses: a leader who walks on
 //! through every stop must break runs that a waiting leader keeps.
+//!
+//! **The lean season** (on by default, as in the binary; `stakes=0` is the
+//! sandbox before it; `season=` and `floor=` as the seat reads them): the
+//! near trickle stops at the hand-over and the run lasts the season unless
+//! `frames=` says otherwise. The `END` line carries the deciding numbers:
+//! the colony alive when the season ended, the outcome, and her tree's
+//! harvest by generation. `oldant=1` runs the hand-built ant instead of the
+//! trained pool.
 
 use pixel_physics::lab::demo::{scout, Demo, DemoSeat};
 use pixel_physics::lab::scenario::Scenario;
@@ -55,18 +63,29 @@ fn main() {
     };
     let seed: u64 = arg("seed").unwrap_or(1);
     let start: u64 = arg("start").unwrap_or(18_000);
-    let frames: u64 = arg("frames").unwrap_or(36_000);
+    let stakes = arg::<u8>("stakes").unwrap_or(1) == 1;
+    let season: u64 = arg("season").unwrap_or(scout::SEASON);
+    let frames: u64 = arg("frames").unwrap_or(if stakes { season + 60 } else { 36_000 });
+    let oldant = arg::<u8>("oldant").unwrap_or(0) == 1;
     let every: u64 = arg("every").unwrap_or(3_000);
     let rude = arg::<u8>("rude").unwrap_or(0) == 1;
     let c: Option<f32> = arg("c");
     let trace = arg::<u8>("trace").unwrap_or(0) == 1;
-    println!("scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?}", arm.letter(), arg::<f32>("gain"));
+    println!(
+        "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?}",
+        arm.letter(),
+        arg::<f32>("gain"),
+        arg::<f32>("floor"),
+        arg::<u8>("off")
+    );
 
     let mut sc = Scenario::load("demo_scout").expect("demo_scout.ron ships");
     sc.bed.seed = seed;
     let mut lab = Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
-    lab.set_new_ant(true);
+    if !oldant {
+        lab.set_new_ant(true);
+    }
     while lab.world.frame < start {
         lab.tick_for_harness();
     }
@@ -74,7 +93,7 @@ fn main() {
     // **The seat's own start**, so this run and `--bin lab -- demo=scout` begin the same way: the seat's
     // tandem set-up, the seat's choice of body, the worker's role (her colony keeps its own breeding rule),
     // and the seat's overlays and panel in every captured frame.
-    let gain: f32 = arg("gain").unwrap_or(scout::GAIN);
+    let gain: f32 = arg("gain").unwrap_or(if stakes { scout::LEAN_GAIN } else { scout::GAIN });
     scout::start_tandems(&mut lab.world, arm, c, gain);
     let mut demo = Demo::new(DemoSeat::Scout);
     let mut args = std::collections::BTreeMap::new();
@@ -83,12 +102,22 @@ fn main() {
         args.insert("c".to_string(), c.to_string());
     }
     args.insert("gain".to_string(), gain.to_string());
+    args.insert("stakes".to_string(), if stakes { "1" } else { "0" }.to_string());
+    args.insert("season".to_string(), season.to_string());
+    if let Some(f) = arg::<f32>("floor") {
+        args.insert("floor".to_string(), f.to_string());
+    }
+    if let Some(h) = arg::<u32>("heap") {
+        args.insert("heap".to_string(), h.to_string());
+    }
     let mut seat = scout::ScoutDemo::from_args(&args, seed);
     seat.started = true;
     seat.alive_at_start = alive0;
     demo.scout = Some(seat);
     demo.args = args;
     lab.demo = Some(demo);
+    // The seat's own season start: the near trickle stops here, as in the binary.
+    scout::start_season(&mut lab);
     lab.world.death_log = Some(Vec::new());
     let Some(player) = scout::pick_body(&lab.world) else {
         println!("no player body: {alive0} ants alive at {start}");
@@ -281,8 +310,8 @@ fn main() {
         }
         if gif && (lab.world.frame - start).is_multiple_of(shot) {
             if let Some((hx, hy)) = head(&lab.world, player) {
-                // A third of the way down, not centred: the seat panel and the bar cover the lower half.
-                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 3, (full_w, full_h), Some(bounds));
+                // Centred: the seat panel is in the sky at the top now (2026-10-30), not over the lower half.
+                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
             }
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);
@@ -291,6 +320,10 @@ fn main() {
             }
         }
         if (lab.world.frame - start).is_multiple_of(every) {
+            // Food left in the far heap and by the nest: is the heap the bottleneck, or the walk to it?
+            let food = lab.world.materials.id_of("provisions");
+            let cells = |x0: i32, x1: i32| (x0..=x1).map(|x| (0..lab.spec.height).filter(|&y| Some(lab.world.get(x, y).material) == food).count()).sum::<usize>();
+            println!("  food: far heap {} near nest {}", cells(HEAP_X - 15, HEAP_X + 15), cells(NEST_X - 40, NEST_X + 40));
             let t = lab.world.tandem.as_ref().unwrap();
             let knows = t.lessons.len();
             println!(
@@ -326,6 +359,22 @@ fn main() {
     }
     println!("tap outcomes: {refusals:?}");
     println!("tick cost: {:.3} ms mean over {ticks} ticks (off={off})", tick_ns as f64 / ticks.max(1) as f64 / 1e6);
+    if let Some(sd) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) {
+        let out = match sd.outcome {
+            Some(scout::SeasonEnd::Endured(_)) => "endured".to_string(),
+            Some(scout::SeasonEnd::Starved(f)) => format!("starved@{}", f - sd.season_start),
+            Some(scout::SeasonEnd::Died(f)) => format!("died@{}", f - sd.season_start),
+            None => "none".to_string(),
+        };
+        println!(
+            "SEASON seed={seed} rude={rude} off={off} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0}",
+            scout::ants(&lab.world).len(),
+            sd.low,
+            sd.harvest,
+            sd.by_gen,
+            sd.larder
+        );
+    }
     let t = lab.world.tandem.as_ref().unwrap();
     println!("END arm={} seed={seed} rude={rude}: leads {leads_done} alive {}->{} {:?}", arm.letter(), alive0, scout::ants(&lab.world).len(), t.counts);
 }

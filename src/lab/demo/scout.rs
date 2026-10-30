@@ -25,6 +25,20 @@
 //! frames (step-0 census, 44 of 52 on seed 1), so the demo runs the box at
 //! the dial's top until frame [`HANDOVER`] and only then hands the player her
 //! body: a modal-pace adult on the surface by the near trickle.
+//!
+//! **The lean season** (the stakes, 2026-10-30; `stakes=0` is the sandbox
+//! before them; review `/mnt/project-files/seat-demos/review-2026-10-30/scout/review.md`
+//! E1 + E2). At the hand-over the near trickle stops, so the far heap is the
+//! only real food ([`LEAN_HEAP`] cells a drop, `heap=`), her pupils' memory
+//! pulls at [`LEAN_GAIN`] rather than [`GAIN`], and a meter shows the
+//! colony's stores draining: what its ants carry in their own banks, since
+//! the food lying by the nest is eaten as it lands (measured 0-3 cells all
+//! season on seeds 3 and 4).
+//! The season lasts [`SEASON`] frames. **Score: her tree's harvest**, trips
+//! home from the far heap by her pupils (one point) and by their pupils (two;
+//! three from the third generation on) -- not every ant's, which is what the
+//! old headline counted. **Lost** if the colony falls below [`FLOOR`] of its
+//! size at the hand-over, or she starves.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -36,7 +50,7 @@ use crate::sim::world::World;
 use super::super::Lab;
 
 /// The seat's keys, as the help line prints them.
-pub const SEAT_KEYS: &str = "Y TAP (B: CALL) -- U PIN PUPIL -- P SNIFF";
+pub const SEAT_KEYS: &str = "Y TAP (B: CALL) -- U PIN PUPIL -- P SNIFF -- R NEW SEASON";
 
 /// The frame the player gets her body (step-0 census: past the landing die-off).
 pub const HANDOVER: u64 = 18_000;
@@ -76,7 +90,64 @@ pub struct ScoutDemo {
     /// Each pupil's way home after arrival, sampled every 10 frames, for the
     /// fading route line (plan v2 §5: the payoff must be visible in seconds).
     pub routes: BTreeMap<OrganismId, VecDeque<(i32, i32)>>,
+    /// **The lean season** (on by default; `stakes=0` the sandbox before it).
+    pub stakes: bool,
+    /// Its length in frames from the hand-over (`season=`).
+    pub season: u64,
+    /// The colony may not fall below this share of its size at the hand-over (`floor=`).
+    pub floor: f32,
+    /// The frame the season began (the hand-over).
+    pub season_start: u64,
+    /// Her tree's harvest: trips home from the far heap by generation (her
+    /// pupils, theirs, and every generation after), and the points they make.
+    pub by_gen: [u32; 3],
+    pub harvest: u32,
+    /// Each tree ant's deliveries at the last look, and the fresh `+N` pips.
+    pub seen: BTreeMap<OrganismId, u32>,
+    pub pops: Vec<(OrganismId, u64, u8)>,
+    /// **The colony's stores**: the full tanks its ants carry in their own
+    /// banks (`tandem::energy_sense`), now and at most this season.
+    pub larder: f32,
+    pub larder_peak: f32,
+    /// The far heap's cells a drop through the season (`heap=`).
+    pub heap: u32,
+    /// The fewest ants the colony has had this season.
+    pub low: usize,
+    pub outcome: Option<SeasonEnd>,
+    /// The frame `R` was first pressed mid-season (a second press restarts).
+    pub restart_asked: u64,
 }
+
+/// How the lean season ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeasonEnd {
+    /// The colony fell below the floor, at this frame.
+    Starved(u64),
+    /// She died, at this frame.
+    Died(u64),
+    /// The season ran out with the colony this size.
+    Endured(usize),
+}
+
+/// **The lean season's length**, frames from the hand-over: five minutes at 1x.
+pub const SEASON: u64 = 18_000;
+/// The colony may not fall below this share of its size at the hand-over.
+pub const FLOOR: f32 = 0.5;
+/// **The far heap in the lean season**, cells a drop (every 6,000 frames):
+/// the sandbox's own 120. Measured (gain 10, arm A, 8 paired seeds, colony
+/// alive at the season's end, patient player against teaching off): at 120
+/// the untaught colony on seed 4 left 90-165 cells in the heap while it
+/// starved from 105 to 18 and a taught one stripped it and kept 69, but on
+/// seed 3 untaught ants stripped it too -- patient beat off on 4 of 8. A
+/// richer heap did not help: at 160 still 4 of 8; at 240 the box is no
+/// longer lean (colonies boomed to 150-200 and off beat patient on 5 of 8).
+pub const LEAN_HEAP: u32 = 120;
+
+/// **Her pupils' memory pull in the lean season** (the recall head's gain,
+/// scripted and named on the panel, `gain=`): 10 against the sandbox's 6.
+/// On seed 1 it took her tree's harvest from 6 trips to 17-19 in the
+/// season, so the score she plays for moves while she watches.
+pub const LEAN_GAIN: f32 = 10.0;
 
 impl ScoutDemo {
     pub fn from_args(args: &BTreeMap<String, String>, box_seed: u64) -> ScoutDemo {
@@ -106,14 +177,80 @@ impl ScoutDemo {
             sealed,
             label: if sealed { raw.clone() } else { arm.letter().to_string() },
             c: args.get("c").and_then(|s| s.parse().ok()),
-            gain: args.get("gain").and_then(|s| s.parse().ok()).unwrap_or(GAIN),
+            gain: args.get("gain").and_then(|s| s.parse().ok()).unwrap_or(if args.get("stakes").is_none_or(|v| v != "0") { LEAN_GAIN } else { GAIN }),
             started: false,
             alive_at_start: 0,
             last_pupil: None,
             pin: false,
             routes: BTreeMap::new(),
+            stakes: args.get("stakes").is_none_or(|v| v != "0"),
+            season: args.get("season").and_then(|s| s.parse().ok()).unwrap_or(SEASON),
+            floor: args.get("floor").and_then(|s| s.parse().ok()).unwrap_or(FLOOR),
+            season_start: 0,
+            by_gen: [0; 3],
+            harvest: 0,
+            seen: BTreeMap::new(),
+            pops: Vec::new(),
+            larder: 0.0,
+            larder_peak: 0.0,
+            heap: args.get("heap").and_then(|s| s.parse().ok()).unwrap_or(LEAN_HEAP),
+            low: 0,
+            outcome: None,
+            restart_asked: 0,
         }
     }
+}
+
+/// **Start the lean season** at the hand-over: the near trickle stops (its
+/// timeline event gets an `until`), so the far heap is the only food that
+/// still comes. The binary and `examples/scoutdemo.rs` both call this, after
+/// the seat's state is set.
+pub fn start_season(lab: &mut Lab) {
+    let frame = lab.world.frame;
+    let alive = ants(&lab.world).len();
+    let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
+    s.season_start = frame;
+    s.low = alive;
+    if !s.stakes {
+        return;
+    }
+    let heap = s.heap;
+    if let Some(sc) = lab.scenario.as_mut() {
+        for e in &mut sc.timeline {
+            if e.every == 0 {
+                continue;
+            }
+            match &mut e.what {
+                crate::lab::scenario::Placement::Heap { x, .. } if *x == TRICKLE_X => e.until = frame,
+                crate::lab::scenario::Placement::Heap { x, cells, .. } if *x == HEAP_X => *cells = heap as i32,
+                _ => {}
+            }
+        }
+    }
+    let floor = (alive as f32 * s.floor).ceil() as usize;
+    lab.world.log_player_action("scout demo: the lean season begins, the near trickle stops");
+    lab.ui.say(format!("LEAN SEASON: THE NEAR FOOD HAS STOPPED. KEEP {floor}+ ALIVE TILL SPRING"));
+}
+
+/// **The colony's stores, in full tanks**: what its ants carry in their own
+/// banks. The food by the nest is eaten as it lands, so this is the store
+/// that drains once the near trickle stops.
+fn larder(world: &World) -> f32 {
+    ants(world).into_iter().filter_map(|id| tandem::energy_sense(world, id)).map(|s| s / (1.0 - s).max(1e-3)).sum()
+}
+
+/// Her generation in the tree: 1 for her own pupil, 2 for a pupil's pupil.
+fn generation(t: &Tandems, id: OrganismId) -> u8 {
+    let mut g = 1u8;
+    let mut at = id;
+    while let Some(&teacher) = t.tree.get(&at) {
+        if !t.tree.contains_key(&teacher) || g >= 8 {
+            break;
+        }
+        g += 1;
+        at = teacher;
+    }
+    g
 }
 
 fn head(world: &World, id: OrganismId) -> Option<(i32, i32)> {
@@ -176,6 +313,10 @@ pub const GAIN: f32 = 6.0;
 
 /// One of the seat keys (`Y U P J K R`) was pressed.
 pub fn seat_key(lab: &mut Lab, key: char) {
+    if key == 'R' {
+        restart(lab);
+        return;
+    }
     let Some(me) = steer::steered_id(&lab.world) else {
         if !lab.demo.as_ref().and_then(|d| d.scout.as_ref()).is_some_and(|s| s.started) {
             lab.ui.say("THE COLONY IS STILL SETTLING -- YOUR BODY COMES AT THE HAND-OVER");
@@ -209,6 +350,26 @@ pub fn seat_key(lab: &mut Lab, key: char) {
         }
         _ => {}
     }
+}
+
+/// **`R`: a new season** -- at once when the season is over (or she is
+/// dead), else on a second press within 3 seconds. The same args, so the
+/// arm, `stakes=0` and the knobs carry over; the box warms up again.
+fn restart(lab: &mut Lab) {
+    let frame = lab.world.frame;
+    let over = lab.demo.as_ref().and_then(|d| d.scout.as_ref()).is_some_and(|s| s.outcome.is_some());
+    let asked = lab.demo.as_ref().and_then(|d| d.scout.as_ref()).map_or(0, |s| s.restart_asked);
+    if !over && (asked == 0 || frame > asked + 180) {
+        if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
+            s.restart_asked = frame.max(1);
+        }
+        lab.ui.say("R AGAIN TO START A NEW SEASON");
+        return;
+    }
+    let args = lab.demo.as_ref().map(|d| d.args.clone()).unwrap_or_default();
+    let msg = lab.start_demo_with(super::DemoSeat::Scout, args);
+    lab.world.log_player_action("scout demo: R, a new season");
+    lab.ui.say(msg);
 }
 
 /// One line on the sister nearest `me`: what she knows, how hungry she is.
@@ -255,6 +416,7 @@ pub fn frame(lab: &mut Lab) {
         }
         lab.demo_bind_body();
         lab.ui.say(format!("YOU HATCH: ONE WORKER AMONG {alive}. FOOD LIES FAR TO THE EAST. {SEAT_KEYS}"));
+        start_season(lab);
         return;
     }
     let Some(me) = steer::steered_id(&lab.world) else { return };
@@ -287,8 +449,12 @@ pub fn frame(lab: &mut Lab) {
 /// Before each simulated tick (the tandem tick itself runs in `tick_world`).
 pub fn before_tick(_lab: &mut Lab) {}
 
-/// After each simulated tick: sample the routes home of fresh pupils.
+/// After each simulated tick: sample the routes home of fresh pupils, and
+/// keep the season's books.
 pub fn after_tick(lab: &mut Lab) {
+    if lab.world.frame.is_multiple_of(30) {
+        season_tick(lab);
+    }
     if !lab.world.frame.is_multiple_of(10) {
         return;
     }
@@ -312,13 +478,79 @@ pub fn after_tick(lab: &mut Lab) {
     s.routes.retain(|id, _| fresh.contains(id));
 }
 
+/// **The season's books**, every 30 frames: her tree's harvest by
+/// generation (a trip home whose food lay in the far heap, as `tandem`'s own
+/// `tree_trips` counts it), the larder, and the end.
+fn season_tick(lab: &mut Lab) {
+    let frame = lab.world.frame;
+    if !lab.demo.as_ref().and_then(|d| d.scout.as_ref()).is_some_and(|s| s.started) {
+        return;
+    }
+    let mut fresh: Vec<(OrganismId, u32, u8)> = Vec::new();
+    if let Some(t) = lab.world.tandem.as_deref() {
+        let patch = t.patch;
+        for &id in t.tree.keys() {
+            let Some(st) = lab.world.organism(id) else { continue };
+            let from_patch = st.last_food.is_some_and(|(x, _, _)| patch.is_some_and(|p| p.holds_column(x)));
+            fresh.push((id, st.life.trip_deliveries, if from_patch { generation(t, id) } else { 0 }));
+        }
+    }
+    let alive = ants(&lab.world).len();
+    let me = steer::steered_id(&lab.world);
+    let food = frame.is_multiple_of(90).then(|| larder(&lab.world));
+    let mut notes = Vec::new();
+    let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
+    for (id, trips, g) in fresh {
+        let before = s.seen.insert(id, trips);
+        let Some(before) = before else { continue };
+        if trips <= before || g == 0 {
+            continue;
+        }
+        let gi = usize::from(g.min(3)) - 1;
+        s.by_gen[gi] += 1;
+        s.harvest += u32::from(g.min(3));
+        s.pops.push((id, frame, g.min(3)));
+    }
+    s.pops.retain(|&(_, f, _)| frame.saturating_sub(f) <= 150);
+    if let Some(f) = food {
+        s.larder = f;
+        s.larder_peak = s.larder_peak.max(f);
+    }
+    s.low = s.low.min(alive);
+    if !s.stakes || s.outcome.is_some() {
+        return;
+    }
+    let floor = (s.alive_at_start as f32 * s.floor).ceil() as usize;
+    let end = s.season_start + s.season;
+    if me.is_none() {
+        s.outcome = Some(SeasonEnd::Died(frame));
+        notes.push("YOU STARVED -- THE SEASON GOES ON WITHOUT YOU".to_string());
+    } else if alive < floor {
+        s.outcome = Some(SeasonEnd::Starved(frame));
+        notes.push(format!("THE COLONY FELL TO {alive}, UNDER {floor} -- THE SEASON IS LOST"));
+    } else if frame >= end {
+        s.outcome = Some(SeasonEnd::Endured(alive));
+        notes.push(format!("SPRING: {alive} OF {} CAME THROUGH -- YOUR TREE BROUGHT {} HOME", s.alive_at_start, s.harvest));
+    }
+    if let Some(o) = s.outcome {
+        lab.world.log_player_action(format!("scout demo: the lean season ended, {o:?}"));
+    }
+    for n in notes {
+        lab.ui.say(n);
+    }
+}
+
 /// The pointer over the world; the scout seat does not take it.
 pub fn mouse(_lab: &mut Lab, _cell: (i32, i32), _act: super::MouseAct) -> bool {
     false
 }
 
 const WHITE: [u8; 4] = [255, 255, 255, 255];
-const ORANGE: [u8; 4] = [255, 150, 30, 255];
+/// **"Knows the heap"**: violet, not the orange it was (review 2026-10-30,
+/// item 3) -- the surface is strewn with yellow-orange provisions, and at
+/// zoom 4 an orange ant was a crumb of food.
+const KNOWS: [u8; 4] = [200, 120, 255, 255];
+const WINTER: [u8; 4] = [160, 210, 255, 255];
 const GREEN: [u8; 4] = [80, 230, 90, 255];
 const AMBER: [u8; 4] = [255, 200, 40, 255];
 const GREY: [u8; 4] = [150, 150, 150, 255];
@@ -327,7 +559,7 @@ const TREE: [u8; 4] = [120, 200, 255, 255];
 
 /// **Marks over the world**: a full replace on fixed colours (CLAUDE.md: a
 /// debug readout must not be a blend of the thing it shows). The player
-/// white with a ring; ants that know the heap orange by how well; a pip over
+/// white with a ring; ants that know the heap violet by how well; a pip over
 /// each follower (green in contact, amber stopping, grey lost) with a tick
 /// per landmark learned; the ground bracket of a search; the teaching tree;
 /// each fresh pupil's way home; a red cross over a refusal.
@@ -362,7 +594,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             .unwrap_or(s);
         if let Some(st) = world.organism(id) {
             let k = 0.45 + 0.55 * s.clamp(0.0, 1.0);
-            let c = [(ORANGE[0] as f32 * k) as u8, (ORANGE[1] as f32 * k) as u8, (ORANGE[2] as f32 * k) as u8, 255];
+            let c = [(KNOWS[0] as f32 * k) as u8, (KNOWS[1] as f32 * k) as u8, (KNOWS[2] as f32 * k) as u8, 255];
             for &(x, y) in &st.chain {
                 cell(frame_buf, x, y, c);
             }
@@ -436,6 +668,21 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             dot(frame_buf, (x + d, y - d), c);
         }
     }
+    // **Her tree's harvest, where it happens**: a `+1` (a grand-pupil's
+    // `+2`) rising over each tree ant the moment she brings far-heap food home.
+    if let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) {
+        for &(id, f, g) in &s.pops {
+            let Some(h) = head(world, id) else { continue };
+            let (x, y) = at(h.0, h.1);
+            let rise = (world.frame.saturating_sub(f) / 10) as i32;
+            let y = y - 10 - rise;
+            if y > 0 && y + crate::hud::GLYPH_HEIGHT < top {
+                let text = format!("+{g}");
+                hc.fill_rect(frame_buf, x - 2, y - 1, crate::hud::text_width(&text) + 3, crate::hud::GLYPH_HEIGHT + 2, [10, 12, 16, 255]);
+                hc.text(frame_buf, x, y, &text, GREEN);
+            }
+        }
+    }
     // The player: white body, and a ring round her.
     if let Some(me) = steer::steered_id(world).and_then(|id| world.organism(id)) {
         for &(x, y) in &me.chain {
@@ -458,41 +705,196 @@ pub fn marks_world(lab: &Lab) -> bool {
     lab.world.tandem.is_some()
 }
 
-/// **The scout's panel**: her bank and her pupil's, the heap's income, and
-/// the run counters; in a sealed arm, nothing that names the arm.
+/// **The scout's panel**, in the sky at the top with a dark backing
+/// (review 2026-10-30: at the bottom its sixth line hid under the tab strip,
+/// and with no backing it was unreadable over the mound): the season and the
+/// colony against its floor, the larder, her tree's harvest, her bank and her
+/// pupil's, the run counters; in a sealed arm, nothing that names the arm.
 pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
-    let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) else { return };
-    let line_h = crate::hud::GLYPH_HEIGHT + 2;
-    let x = 4;
-    let mut y = super::super::ui::bar_top() - 6 * line_h - 4;
-    let mut say = |text: String, c: [u8; 4]| {
-        hc.text(frame_buf, x, y, &text, c);
-        y += line_h;
-    };
-    if !s.started {
-        say(format!("SCOUT DEMO, ARM {} -- THE COLONY IS SETTLING", s.label), WHITE);
+    let lines = panel(lab);
+    if lines.is_empty() {
         return;
     }
-    let Some(t) = lab.world.tandem.as_deref() else { return };
+    let row = crate::hud::GLYPH_HEIGHT + 3;
+    let (x, top) = (4, 14);
+    let w = lines.iter().map(|(t, _)| crate::hud::text_width(t)).max().unwrap_or(0) + 8;
+    hc.blend_rect(frame_buf, x, top, w, row * lines.len() as i32 + 4, [14, 16, 20, 255], 0.72);
+    for (i, (t, c)) in lines.iter().enumerate() {
+        hc.text(frame_buf, x + 4, top + 3 + row * i as i32, t, *c);
+    }
+    if let Some((title, card, good)) = end_card(lab) {
+        let tw = 2 * crate::hud::text_width(&title);
+        let w = card.iter().map(|t| crate::hud::text_width(t)).max().unwrap_or(0).max(tw) + 20;
+        let h = 2 * crate::hud::GLYPH_HEIGHT + 16 + row * card.len() as i32;
+        let x = (super::super::WIDTH as i32 - w) / 2;
+        let y = top + row * lines.len() as i32 + 16;
+        hc.blend_rect(frame_buf, x, y, w, h, [10, 12, 16, 255], 0.88);
+        let edge = if good { GREEN } else { RED };
+        hc.fill_rect(frame_buf, x, y, w, 2, edge);
+        hc.fill_rect(frame_buf, x, y + h - 2, w, 2, edge);
+        big_text(hc, frame_buf, x + (w - tw) / 2, y + 6, &title, edge);
+        for (i, t) in card.iter().enumerate() {
+            hc.text(frame_buf, x + 10, y + 2 * crate::hud::GLYPH_HEIGHT + 12 + row * i as i32, t, if i + 1 == card.len() { WHITE } else { GREY });
+        }
+    }
+}
+
+/// A text bar of `n` cells, `left` of it full.
+fn bar(left: f32, n: usize) -> String {
+    let k = (left.clamp(0.0, 1.0) * n as f32).round() as usize;
+    format!("[{}{}]", "=".repeat(k), ".".repeat(n - k))
+}
+
+/// The panel's lines, as `(text, colour)`; also what the harness prints.
+pub fn panel(lab: &Lab) -> Vec<(String, [u8; 4])> {
+    let Some(s) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) else { return Vec::new() };
+    let mut out = Vec::new();
+    if !s.started {
+        out.push((format!("SCOUT DEMO, ARM {} -- THE COLONY IS SETTLING", s.label), WHITE));
+        return out;
+    }
+    let Some(t) = lab.world.tandem.as_deref() else { return out };
     let world = &lab.world;
+    let alive = ants(world).len();
+    if s.stakes {
+        let end = s.season_start + s.season;
+        let left = end.saturating_sub(world.frame);
+        let floor = (s.alive_at_start as f32 * s.floor).ceil() as usize;
+        let clock = if left > 0 { format!("LEAN SEASON {} SPRING IN {left}", bar(left as f32 / s.season.max(1) as f32, 10)) } else { "SPRING: THE LEAN SEASON IS OVER".to_string() };
+        out.push((clock, WINTER));
+        let danger = alive < floor + floor / 5 + 1;
+        out.push((format!("COLONY {alive} OF {} -- LOST BELOW {floor}", s.alive_at_start), if danger { RED } else { WHITE }));
+        out.push((format!("STORES {} {:.0} TANKS IN THEIR BELLIES", bar(s.larder / s.larder_peak.max(1.0), 10), s.larder), WINTER));
+        out.push((format!("YOUR TREE'S HARVEST {} -- PUPILS {}, THEIRS {} (X2), ON {} (X3)", s.harvest, s.by_gen[0], s.by_gen[1], s.by_gen[2]), GREEN));
+    } else {
+        let income = t.income_over(world.frame, 3_600);
+        let bar: String = std::iter::repeat_n('|', income.min(40)).collect();
+        out.push((format!("FOOD HOME FROM THE FAR HEAP, LAST MINUTE: {income} {bar}"), KNOWS));
+    }
     let tanks = |id: OrganismId| tandem::energy_sense(world, id).map_or(0.0, |s| s / (1.0 - s).max(1e-3));
     let me = steer::steered_id(world);
     let mine = me.map_or("YOU HAVE DIED".to_string(), |id| format!("YOUR BANK {:.1} TANKS", tanks(id)));
+    let low = me.is_some_and(|id| tanks(id) < 1.0);
     let pupil = t.pairs.iter().find(|p| Some(p.leader) == me).map_or(String::new(), |p| format!(" -- PUPIL {:.1} TANKS", tanks(p.follower)));
-    say(format!("SCOUT DEMO, ARM {} -- {mine}{pupil}", s.label), WHITE);
-    let income = t.income_over(world.frame, 3_600);
-    let bar: String = std::iter::repeat_n('|', income.min(40)).collect();
-    say(format!("FOOD HOME FROM THE FAR HEAP, LAST MINUTE: {income} {bar}"), ORANGE);
+    out.push((format!("ARM {} -- {mine}{pupil}", s.label), if low { RED } else { WHITE }));
     let c = &t.counts;
-    say(format!("RUNS {} STARTED, {} ARRIVED, {} LOST ({} FOUND IT ANYWAY)", c.started, c.done, c.broken, c.broken_still_arrived), GREEN);
-    say(format!("KNOW THE HEAP {} -- TRIPS HOME BY THEM {} -- STARVED WHILE LED {}", t.lessons.len(), c.tree_trips, c.starved_while_led), TREE);
-    let alive = ants(world).len();
-    say(format!("COLONY {alive} (WAS {} AT HATCH) -- TAPS {} REFUSED {}", s.alive_at_start, c.taps, c.refusals), GREY);
+    out.push((format!("RUNS {} STARTED, {} ARRIVED, {} LOST ({} FOUND IT ANYWAY)", c.started, c.done, c.broken, c.broken_still_arrived), GREEN));
+    out.push((format!("KNOW THE HEAP {} -- STARVED WHILE LED {} -- TAPS {} REFUSED {}", t.lessons.len(), c.starved_while_led, c.taps, c.refusals), TREE));
+    if !s.stakes {
+        out.push((format!("COLONY {alive} (WAS {} AT HATCH)", s.alive_at_start), GREY));
+    }
     if !s.sealed {
         let gain = world.recall.as_ref().map_or(0.0, |r| r.gain);
-        say(
+        out.push((
             format!("KNOBS: C {:.2}/TRIP, CASCADE RUNS {}, PAUSE 1/{:.0} STEPS, MEMORY PULL {gain:.0} (SCRIPTED)", t.knobs.cascade_c, c.cascade_runs, 1.0 / t.knobs.pause_chance),
             GREY,
-        );
+        ));
+    }
+    out
+}
+
+/// The end card: a title, its lines, and whether it is good news.
+pub fn end_card(lab: &Lab) -> Option<(String, Vec<String>, bool)> {
+    let s = lab.demo.as_ref().and_then(|d| d.scout.as_ref())?;
+    let o = s.outcome?;
+    let floor = (s.alive_at_start as f32 * s.floor).ceil() as usize;
+    let (title, good) = match o {
+        SeasonEnd::Endured(_) => ("SPRING CAME".to_string(), true),
+        SeasonEnd::Starved(_) => ("THE COLONY STARVED".to_string(), false),
+        SeasonEnd::Died(_) => ("YOU STARVED".to_string(), false),
+    };
+    let when = |f: u64| f.saturating_sub(s.season_start);
+    let first = match o {
+        SeasonEnd::Endured(n) => format!("{n} OF {} CAME THROUGH THE LEAN SEASON (FLOOR {floor})", s.alive_at_start),
+        SeasonEnd::Starved(f) => format!("UNDER {floor} OF {} AFTER {} OF {} FRAMES", s.alive_at_start, when(f), s.season),
+        SeasonEnd::Died(f) => format!("YOUR BANK RAN OUT AFTER {} OF {} FRAMES", when(f), s.season),
+    };
+    let lines = vec![
+        first,
+        format!("YOUR TREE'S HARVEST: {} POINTS", s.harvest),
+        format!("PUPILS' TRIPS {} -- THEIR PUPILS' {} -- LATER {}", s.by_gen[0], s.by_gen[1], s.by_gen[2]),
+        format!("FEWEST ALIVE {}", s.low),
+        "R: A NEW SEASON".to_string(),
+    ];
+    Some((title, lines, good))
+}
+
+/// Text at twice the size: drawn small into a scratch buffer, then each lit
+/// pixel as a 2x2 block.
+fn big_text(hc: crate::render::Hud, frame_buf: &mut [u8], x: i32, y: i32, text: &str, c: [u8; 4]) {
+    let w = crate::hud::text_width(text).max(1) as u32;
+    let h = crate::hud::GLYPH_HEIGHT as u32;
+    let mut tmp = vec![0u8; (w * h * 4) as usize];
+    crate::hud::draw_text(&mut tmp, w, h, 0, 0, text, [255, 255, 255, 255]);
+    for py in 0..h {
+        for px in 0..w {
+            if tmp[((py * w + px) * 4 + 3) as usize] > 0 {
+                hc.fill_rect(frame_buf, x + 2 * px as i32, y + 2 * py as i32, 2, 2, c);
+            }
+        }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lab::demo::{Demo, DemoSeat};
+    use crate::lab::scenario::Placement;
+
+    /// The trickle's and the far heap's repeating events, as `(cells, until)`.
+    fn heaps(lab: &Lab) -> ((i32, u64), (i32, u64)) {
+        let sc = lab.scenario.as_ref().expect("the scenario stays loaded");
+        let find = |want: i32| {
+            sc.timeline
+                .iter()
+                .find_map(|e| match e.what {
+                    Placement::Heap { x, cells, .. } if x == want && e.every > 0 => Some((cells, e.until)),
+                    _ => None,
+                })
+                .expect("the heap event")
+        };
+        (find(TRICKLE_X), find(HEAP_X))
+    }
+
+    /// **The lean season starts at the hand-over**: the near trickle gets an
+    /// `until` (so no more drops) and the far heap its lean-season size;
+    /// `stakes=0` leaves both as the sandbox had them (the positive control:
+    /// the same call, the other answer).
+    #[test]
+    fn the_lean_season_stops_the_trickle_and_stakes_0_keeps_it() {
+        for stakes in [true, false] {
+            let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.tick_for_harness();
+            let mut args = BTreeMap::new();
+            args.insert("stakes".to_string(), if stakes { "1" } else { "0" }.to_string());
+            let mut demo = Demo::new(DemoSeat::Scout);
+            demo.scout = Some(ScoutDemo::from_args(&args, 1));
+            lab.demo = Some(demo);
+            let before = heaps(&lab);
+            start_season(&mut lab);
+            let (trickle, far) = heaps(&lab);
+            if stakes {
+                assert_eq!(trickle.1, lab.world.frame, "the near trickle did not stop");
+                assert_eq!(far.0, LEAN_HEAP as i32, "the far heap is not the lean season's");
+            } else {
+                assert_eq!((trickle, far), before, "stakes=0 changed the box");
+            }
+        }
+    }
+
+    /// **The tree's generations**: her pupil is 1, that pupil's pupil 2.
+    #[test]
+    fn a_pupils_pupil_is_the_second_generation() {
+        let mut t = Tandems::new(Arm::Scout, Some(Patch { x: HEAP_X, r: 10 }));
+        // She is 1 (never a pupil); 2 is hers, 3 is 2's, 4 is 3's.
+        t.tree.insert(2, 1);
+        t.tree.insert(3, 2);
+        t.tree.insert(4, 3);
+        assert_eq!(generation(&t, 2), 1);
+        assert_eq!(generation(&t, 3), 2);
+        assert_eq!(generation(&t, 4), 3);
+    }
+}
+
