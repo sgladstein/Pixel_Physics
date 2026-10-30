@@ -2701,6 +2701,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 super::recall::note_tilt(world, moved, flipped);
             }
             if let Some(d) = d.as_ref() {
+                scratch_log::dig_trace(world, organism, (x, y), &ctx, &opts, d);
                 scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
                 // SCRATCH (foraging-loop thread): the carry-home teacher's label rides the copy log as a 16th field.
                 if scratch_log::copy_on() && scratch_log::carry_act().is_some() {
@@ -7105,6 +7106,61 @@ pub mod scratch_log {
     /// The head's addition for the Dig option aimed at `t`, 0 when none.
     pub fn dig_bonus(t: (i32, i32)) -> f32 {
         DIG_OPTS.with(|d| d.borrow().iter().find(|e| e.0 == t).map_or(0.0, |e| e.2))
+    }
+    /// SCRATCH (chambers `labbed`, 2026-10-30): `PP_DIGTRACE=path` writes one `D` row for a sample (1 in
+    /// `PP_DIGTRACE_K`, default 8, by frame and id) of the decisions that offered a Dig: what the dig head saw on
+    /// every Dig option and what the ant chose, to ask why H3 tunnels in the garden and not in the lab box.
+    /// `D,frame,id,ax,ay,spoil,crop,energy,pick_verb,ptx,pty,dig_job,when,door,ctx(22)|tx ty score bonus f0..f11;...`.
+    /// Draws nothing and changes no branch. Unset: nothing.
+    pub fn dig_trace(world: &World, organism: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], opts: &[Opt], d: &Decision) {
+        static F: OnceLock<Option<(Mutex<std::io::LineWriter<std::fs::File>>, u64)>> = OnceLock::new();
+        let Some((f, k)) = F
+            .get_or_init(|| {
+                std::env::var("PP_DIGTRACE").ok().map(|p| {
+                    let k = std::env::var("PP_DIGTRACE_K").ok().and_then(|v| v.parse().ok()).unwrap_or(8u64);
+                    (Mutex::new(std::io::LineWriter::new(std::fs::File::create(p).expect("digtrace"))), k)
+                })
+            })
+            .as_ref()
+        else {
+            return;
+        };
+        if !(world.frame.wrapping_mul(2654435761) ^ (organism as u64).wrapping_mul(40503)).is_multiple_of(*k) {
+            return;
+        }
+        if !opts.iter().any(|o| o.verb == Verb::Dig) {
+            return;
+        }
+        let Some(s) = world.organism(organism) else { return };
+        let o = &opts[d.pick];
+        let door = world.nest_sites.iter().min_by_key(|s| (s.x - at.0).abs()).map_or(-1, |s| s.x);
+        let rows: Vec<String> = DIG_OPTS.with(|v| {
+            v.borrow()
+                .iter()
+                .map(|(t, fe, b)| {
+                    let k = opts.iter().position(|o| o.verb == Verb::Dig && o.target == *t).unwrap_or(0);
+                    let fs: Vec<String> = fe.iter().map(|x| format!("{x:.3}")).collect();
+                    format!("{} {} {:.3} {:.3} {}", t.0, t.1, d.scores[k], b, fs.join(" "))
+                })
+                .collect()
+        });
+        let line = format!(
+            "D,{},{organism},{},{},{},{},{:.1},{},{},{},{:.3},{:.3},{door},{}|{}",
+            world.frame,
+            at.0,
+            at.1,
+            u8::from(s.spoil.is_some()),
+            u8::from(s.crop.is_some_and(|c| c.cells > 0)),
+            s.energy,
+            o.verb as usize,
+            o.target.0,
+            o.target.1,
+            d.jobs[Verb::Dig as usize].unwrap_or(f32::NAN),
+            dig_when(),
+            ctx.iter().map(|x| format!("{x:.3}")).collect::<Vec<_>>().join(" "),
+            rows.join(";")
+        );
+        let _ = writeln!(f.lock().unwrap(), "{line}");
     }
     /// Fill [`DIG_OPTS`] for this decision (cleared first).
     pub fn dig_prepare(world: &World, organism: OrganismId, at: (i32, i32), opts: &[Opt], head: Option<&DigHead>) {
