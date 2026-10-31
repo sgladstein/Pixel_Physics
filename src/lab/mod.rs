@@ -315,6 +315,15 @@ pub struct Lab {
     /// binary turns it on at launch since 2026-10-24** (`-- oldant` keeps it off).
     /// See [`Lab::set_new_ant`].
     pub new_ant: bool,
+    /// **Which trained ant ANT BRAIN: NEW gives** -- an index into
+    /// [`training::LAB_ANTS`], never its hand-built entry (that is `new_ant`
+    /// off). The standard pool in a `Lab::new`; the player picks another with
+    /// [`Lab::pick_ant`] (`` ` ``, the ANT row, `lab -- ant=`).
+    pub lab_ant: usize,
+    /// Set when a harness or a seat demo handed in a pool of its own
+    /// ([`Lab::set_new_ant_pool`]), so the clock line does not name a pick
+    /// that is not what the ants think with.
+    own_pool: bool,
     /// The new mind, built once on first use.
     new_ant_mind: Option<Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>>,
     /// The lab predators' trained pools (`training::predator_minds`: the spider's, the centipede's), each built once
@@ -662,6 +671,8 @@ impl Lab {
             training_settings: training::Settings::default(),
             training_seed: 1,
             new_ant: false,
+            lab_ant: 0,
+            own_pool: false,
             new_ant_mind: None,
             predator_mind: Default::default(),
             view_dirty: false,
@@ -1043,7 +1054,7 @@ impl Lab {
         if on {
             let n = self.give_new_ant_minds();
             self.world.log_player_action("ANT BRAIN: NEW".to_string());
-            format!("ANT BRAIN: TRAINED -- {n} ANTS NOW THINK WITH THE TRAINED MINDS (THE STANDARD POOL)")
+            format!("ANT: {} -- {n} ANTS NOW THINK WITH ITS TRAINED MINDS", self.ant_name())
         } else {
             self.world.minds = None;
             self.world.log_player_action("ANT BRAIN: OLD".to_string());
@@ -1059,6 +1070,73 @@ impl Lab {
     /// reads both.
     fn log_ant_brain(&mut self) {
         self.world.log_player_action(if self.new_ant { "ANT BRAIN: NEW" } else { "ANT BRAIN: OLD" }.to_string());
+        self.log_ant_pick();
+    }
+
+    /// **Which ant, by its `ant=` word, as a chronicle line of its own** -- the
+    /// ANT BRAIN line says only trained or not, and since the picker
+    /// (2026-10-31) trained is three ants. A line of its own rather than a
+    /// longer ANT BRAIN line, so whatever reads that one reads it unchanged.
+    fn log_ant_pick(&mut self) {
+        let key = match self.ant_index() {
+            Some(i) => training::LAB_ANTS[i].key,
+            None => "own-pool",
+        };
+        self.world.log_player_action(format!("LAB ANT: {key}"));
+    }
+
+    /// **The picked ant** as an index into [`training::LAB_ANTS`]: the
+    /// hand-built entry while ANT BRAIN is off, [`Lab::lab_ant`] while it is on,
+    /// `None` while the ants think with a pool a harness or a seat demo handed
+    /// in ([`Lab::set_new_ant_pool`]).
+    pub fn ant_index(&self) -> Option<usize> {
+        if !self.new_ant {
+            training::lab_ant_index("hand")
+        } else if self.own_pool {
+            None
+        } else {
+            Some(self.lab_ant)
+        }
+    }
+
+    /// What the clock line and the ANT row call the ants' brain now.
+    pub fn ant_name(&self) -> &'static str {
+        self.ant_index().map_or("OWN POOL", |i| training::LAB_ANTS[i].name)
+    }
+
+    /// **The ant picker** (owner, 2026-10-31, to playtest each ant in turn):
+    /// every ant in the box, brood too, thinks with [`training::LAB_ANTS`]`[i]`
+    /// from now on -- the minds they had are taken away and the new pool's
+    /// handed out at once, so a switch mid-game is the same colony with a
+    /// different brain. REBUILD starts a fresh box on it.
+    pub fn pick_ant(&mut self, i: usize) -> String {
+        let i = i % training::LAB_ANTS.len();
+        if self.training.is_some() {
+            return "THE TRAINING BED'S ANTS ARE ALWAYS NEW ANTS".to_string();
+        }
+        self.own_pool = false;
+        let said = if training::LAB_ANTS[i].pool.is_none() {
+            self.set_new_ant(false)
+        } else {
+            if i != self.lab_ant || self.new_ant_mind.is_none() {
+                self.lab_ant = i;
+                self.new_ant_mind = None;
+            }
+            // Every mind goes, as ANT BRAIN: OLD takes them; the predators'
+            // come back on the next sweep (`give_predator_minds`).
+            self.world.minds = None;
+            self.set_new_ant(true)
+        };
+        self.log_ant_pick();
+        said
+    }
+
+    /// [`Lab::pick_ant`] one step along [`training::LAB_ANTS`] from the ant
+    /// now picked (`step` -1 goes back); from a harness's own pool, the first.
+    pub fn cycle_ant(&mut self, step: i32) -> String {
+        let n = training::LAB_ANTS.len() as i32;
+        let next = self.ant_index().map_or(0, |i| (i as i32 + step).rem_euclid(n) as usize);
+        self.pick_ant(next)
     }
 
     /// **ANT BRAIN: NEW with another pool**: the minds every ant without one
@@ -1068,6 +1146,7 @@ impl Lab {
     pub fn set_new_ant_pool(&mut self, minds: Vec<std::sync::Arc<crate::sim::creature::mind::MindGenome>>) -> String {
         assert!(!minds.is_empty(), "an empty pool");
         self.new_ant_mind = Some(minds);
+        self.own_pool = true;
         self.set_new_ant(true)
     }
 
@@ -1095,7 +1174,11 @@ impl Lab {
     /// released or a scenario loaded get it.
     fn give_new_ant_minds(&mut self) -> usize {
         let Some(sp) = self.world.species.id_of("ant") else { return 0 };
-        let minds = self.new_ant_mind.get_or_insert_with(training::new_ant_minds).clone();
+        let pick = self.lab_ant;
+        let minds = self
+            .new_ant_mind
+            .get_or_insert_with(|| training::lab_ant_minds(pick).unwrap_or_else(training::new_ant_minds))
+            .clone();
         let mut ids: Vec<_> = self
             .world
             .live_organism_ids()
@@ -2393,6 +2476,20 @@ impl Lab {
         self.chrome_painted = Some((now, self.world.frame));
         crate::render::paint_owner::set("CLOCK");
         self.time.draw(hc, frame_buf, &self.world);
+        // **Which ant the box is being played with, on the clock's line**
+        // (owner, 2026-10-31: the picker is for playtesting each ant, so the
+        // one in play has to be on screen, not behind a page). After the
+        // frame count, in the pages' amber, and not over a seat demo, whose
+        // own panel says what its ants are.
+        if self.demo.is_none() && self.training.is_none() {
+            let clock = self.time.readout(self.world.frame).into_iter().next().map_or(0, |(l, _)| crate::hud::text_width(&l));
+            let x = 4 + clock + 10;
+            let label = format!("ANT: {}  (` SWITCHES)", self.ant_name());
+            // On a dark plate: the line sits over the lid's bright lamps,
+            // where amber on its own reads as a smudge.
+            hc.blend_rect(frame_buf, x - 3, 2, crate::hud::text_width(&label) + 6, crate::hud::GLYPH_HEIGHT + 4, [0, 0, 0, 255], 0.7);
+            hc.text(frame_buf, x, 4, &label, [255, 206, 110, 255]);
+        }
         if self.demo.is_some() {
             demo::draw_hud(self, hc, frame_buf);
         }
@@ -2476,7 +2573,7 @@ impl Lab {
             (Some(ui::Panel::Training), Some(t)) => Some(t.view(&self.world)),
             _ => None,
         };
-        self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
+        self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.ant_name());
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
         self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
@@ -3872,8 +3969,8 @@ impl Lab {
                     self.ui.say(said);
                 }
             }
-            ui::Action::ToggleNewAnt => {
-                let said = self.set_new_ant(!self.new_ant);
+            ui::Action::CycleAnt(step) => {
+                let said = self.cycle_ant(step);
                 self.ui.say(said);
             }
             // An index into `Ui::scenarios()`, read fresh rather than
@@ -4867,7 +4964,7 @@ const HELP: [&str; 30] = [
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
-    "",
+    "`          NEXT ANT TO PLAY WITH   SHIFT+` BACK",
 ];
 
 /// **The card a fresh lab opens on**: what the box is, the three keys that
@@ -5669,6 +5766,41 @@ mod tests {
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The ant picker swaps every ant's brain at once** (owner, 2026-10-31).
+    /// Picking SURVIVOR gives every ant the member of *that* pool its id
+    /// picks, not the standard one it had; the hand-built entry takes every
+    /// mind away; `-1` steps back round the list. Drop the `world.minds =
+    /// None` from `pick_ant` and the first check goes red: the ants keep the
+    /// standard minds they already had.
+    #[test]
+    fn picking_an_ant_rethinks_every_ant() {
+        let mut lab = Lab::new(rack_bed(1));
+        lab.set_new_ant(true);
+        scenario::place_colony(&mut lab.world, "ant", 128, 12, None);
+        run(&mut lab, NEW_ANT_SWEEP as u32 + 1);
+        let sp = lab.world.species.id_of("ant").expect("ant");
+        let ants: Vec<_> = lab.world.live_organism_ids().into_iter().filter(|&id| lab.world.organism(id).is_some_and(|s| s.species == sp)).collect();
+        assert!(ants.len() >= 4, "{} ants", ants.len());
+        let survivor = training::lab_ant_index("survivor").unwrap();
+        lab.pick_ant(survivor);
+        assert_eq!(lab.ant_name(), "SURVIVOR");
+        let pool = lab.new_ant_mind.clone().unwrap();
+        for &id in &ants {
+            let g = crate::sim::creature::mind::genome_of(&lab.world, id).expect("an ant without a mind");
+            assert!(std::sync::Arc::ptr_eq(&g, &training::new_ant_mind_for(&pool, id)), "ant {id} kept its old mind");
+        }
+        let hand = training::lab_ant_index("hand").unwrap();
+        lab.pick_ant(hand);
+        assert_eq!(lab.ant_index(), Some(hand));
+        assert!(ants.iter().all(|&id| !crate::sim::creature::mind::has(&lab.world, id)));
+        lab.cycle_ant(-1);
+        assert_eq!(lab.ant_index(), Some(hand - 1));
+        assert!(ants.iter().all(|&id| crate::sim::creature::mind::has(&lab.world, id)));
+        lab.cycle_ant(1);
+        lab.cycle_ant(1);
+        assert_eq!(lab.ant_index(), Some(0), "past the hand-built ant is the standard pool again");
     }
 
     /// **One run, one chronicle file, rewritten in place; a rebuild starts
