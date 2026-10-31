@@ -6194,6 +6194,18 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **Whether a piece cut from a plant that still stands comes down even
+    /// with `plant_load_failure` off** -- on by default (2026-10-31), and
+    /// `PIXEL_PHYSICS_CUT_FALLS=off` starts a world with it off. A cut is
+    /// not a load: with this off, a crown burned or cut through at its foot
+    /// in a box with COLLAPSE UNDER LOAD off hung in the air and withered
+    /// from the top over thousands of frames, which is what the owner saw.
+    /// Reads nothing while `plant_load_failure` is on, where a cut crown has
+    /// always fallen. A whole plant that has lost its footing (`anchors 0`)
+    /// is still held by the switch: that is the defect it exists to mask.
+    /// See `structural::organism_structural_tick` and
+    /// `plant::shed_cut_off_tissue`.
+    pub plant_cut_falls: bool,
     /// **Whether water flows through a plant along real paths** rather than
     /// being one tank every leaf reads equally (`plant::sap_flow`).
     ///
@@ -7745,6 +7757,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            plant_cut_falls: crate::sim::structural::cut_crowns_fall(),
             sap_flow: super::plant::sap_flow_default(),
             rootless_dries: super::plant::rootless_dries_default(),
             seed_dry_keeps: super::plant::seed_bank_default().0,
