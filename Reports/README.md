@@ -2116,6 +2116,13 @@ drift that two of these documents still reflect.**
   touching the walk at all** — the verb is a separate opt-in path, the
   shipped ant authors no weight into it, and falls per move on the foraging
   scene is unchanged.
+- [ant-sprite-layer-design-2026-10-31.md](ant-sprite-layer-design-2026-10-31.md)
+  — **design 2026-10-31, not built; awaiting the owner's style pick.** A
+  render-only creature layer that draws an ant over the two cells: glide
+  between cells, a walking tripod gait, the pellet in the jaws, a crop-swollen
+  abdomen. Three styles mocked up over a 250-ant recording (blind key in §3);
+  independent code review in §9 corrected four engine facts and closed eight
+  holes. Not the rejected sprite *body plan*: the animal stays its cells.
 - [creature-appearance-design.md](creature-appearance-design.md) —
   **design + measured study.** Why a two-cell ant cannot be found in a
   picture, and what does: extent is the only lever, the dark palette is
