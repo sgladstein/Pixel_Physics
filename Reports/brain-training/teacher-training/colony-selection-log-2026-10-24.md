@@ -1714,3 +1714,10 @@ rounds 13-15 and kept the upper half each time, so it fired, but it did not stee
 H3 and std_pool, 6 boxes x 8 seeds at 600k, all rerun on the one build (the engine moved since x11), plus the plants
 lane's rungs 5-6 stage-0 run as a `sh` job. Deciding measure as named at env8's launch; garden `nest_open` from the
 Nest lane on worlds 61-68.
+
+**env8 garden nest (Nest lane, 10-31 00:39Z, worlds 61-68, 200k, main a4a15fe0; page https://claude.ai/artifact/Jnzf4Raro16z7wddNsQFq5#env8).**
+`nest_open` median (range): N_gate c10 40 (13-85), N_ctl c12 30 (8-69), L_h3 c12 14 (4-23), H3 547 (269-758), std_pool 571
+(215-668). Condition (2) passes: N_gate > c12 in 8 / 8 (p 0.008), but so does N_ctl (8 / 8), and N_gate vs N_ctl is 4 / 4 --
+the nest came back a little from more rounds, not from the gate. Tunnels 1 / 8 each env8 arm, 0 / 8 c12, 8 / 8 founders;
+lines extinct N_gate 1 / 8, N_ctl 2 / 8, c12 4 / 8. Reading: a median gate over donors that all dig ~1/15 of the founders
+cannot pull the line back; a next try needs an absolute floor near the founders' level or `nest_open` as a scored case.
