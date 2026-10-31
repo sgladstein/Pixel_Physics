@@ -1320,11 +1320,56 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // measured as pieces up to 75 cells, every one of them the entire
     // organism at `anchors 0` and, in half the cases, with no root tissue
     // left at all. See `Reports/open-bugs-handoff.md`.
-    if detached && !world.plant_load_failure && world.organism(organism_id).is_some_and(|st| !st.senescent) {
+    //
+    // **But a cut is not a load, and the switch now holds only a plant that
+    // has lost its footing whole** (2026-10-31). Owner, from play in the lab:
+    // *"if I burn and destroy the bottom of a tree ... totally disconnected
+    // from the ground, it'll still just hang there floating for a really long
+    // time ... disintegrating very very slowly from the top down. Sometimes
+    // it still kind of grows a little more."* That is this return, read
+    // exactly: with the switch off the crown never came down, and the only
+    // thing left to remove it was `plant::shed_cut_off_tissue`'s wither at
+    // two percent of the plant per tick, row-major -- the top first.
+    // Measured on `examples/treecut` (`played_bed` seed 1, the tree burned
+    // through at its foot): with the switch on the crown is down as pieces
+    // inside 600 frames; off, 1,849 of its 2,610 cells are still standing
+    // in the air 6,000 frames later and it has grown 26 new ones.
+    //
+    // The defect this return exists to mask is the **whole** organism at
+    // `anchors 0`, so that is what it now keeps: a piece cut from a plant
+    // that still stands on its roots (`anchor_cells > 0`) is a cut, and it
+    // comes down as it does outdoors -- one set of physics for a blow, a
+    // fire and the brush in every game. `PIXEL_PHYSICS_CUT_FALLS=off`
+    // restores the old reading, where the switch held cut crowns up too.
+    if detached
+        && !world.plant_load_failure
+        && world.organism(organism_id).is_some_and(|st| !st.senescent && (st.anchor_cells == 0 || !world.plant_cut_falls))
+    {
         return Vec::new();
     }
     if detached {
         let region = detached_organism_piece(world, x, y, organism_id);
+        // **`FELL_PROBE=1` says what came down and from what**, the felling
+        // counterpart of `SNAP_PROBE`: a count of severed cells cannot tell a
+        // burned crown from a twig stranded by die-back, and those want
+        // opposite answers. One line per piece: frame, where, organism,
+        // species, piece size, how many anchors the plant still had, and
+        // which materials the piece held.
+        if std::env::var("FELL_PROBE").as_deref() == Ok("1") {
+            let (species, anchors, senescent) = world.organism(organism_id).map_or((String::new(), 0, false), |st| {
+                (world.species.get(st.species).name.clone(), st.anchor_cells, st.senescent)
+            });
+            let mut mats: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+            for &(rx, ry) in &region {
+                *mats.entry(world.materials.get(world.get(rx, ry).material).name.clone()).or_default() += 1;
+            }
+            eprintln!(
+                "[fell] frame {} at ({x},{y}) organism {organism_id} {species} piece {} anchors {anchors} senescent {senescent} load_failure {} {mats:?}",
+                world.frame,
+                region.len(),
+                world.plant_load_failure
+            );
+        }
         record_damage_reach_over(world, &region);
         let (severed, as_pieces) = rigid::fell_severed_tissue(world, &region, (x, y));
         // Counted, where the rock path's grit deliberately is not (see
@@ -1401,6 +1446,17 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: OrganismId) -> u16
         }
     }
     load
+}
+
+/// The starting value of `World::plant_cut_falls`: on, unless
+/// `PIXEL_PHYSICS_CUT_FALLS=off` asks for the old behaviour, where
+/// `plant_load_failure` off held a burned or cut crown in the air and
+/// `plant::shed_cut_off_tissue` withered it from the top. Read once per
+/// process, so one binary runs both arms of an A/B.
+pub(crate) fn cut_crowns_fall() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_CUT_FALLS").as_deref(), Ok("off")))
 }
 
 /// Every cell of the **piece** that `(x, y)` belongs to: the 8-connected
@@ -7271,9 +7327,13 @@ mod tests {
     fn the_load_failure_switch_holds_a_living_plant_that_lost_its_anchor_and_not_a_dead_one() {
         const BASE: i32 = 10;
         const SPAN: std::ops::Range<i32> = BASE..BASE + 10;
-        let build = |rule: bool, senescent: bool| -> (World, OrganismId) {
+        // `anchors` is `OrganismState::anchor_cells`: 0 is a plant that has
+        // lost its footing whole, more is one that still stands on its roots
+        // elsewhere, so the unreached beam is a piece **cut** from it.
+        let build_with = |rule: bool, senescent: bool, anchors: u32, cut_falls: bool| -> (World, OrganismId) {
             let mut w = test_world();
             w.plant_load_failure = rule;
+            w.plant_cut_falls = cut_falls;
             let tree = w.species.id_of("tree").expect("tree species must be loaded");
             let organism_id = w.push_organism(tree).expect("an organism slot is free");
             for x in SPAN {
@@ -7282,6 +7342,7 @@ mod tests {
             }
             if let Some(st) = w.organism_mut(organism_id) {
                 st.senescent = senescent;
+                st.anchor_cells = anchors;
             }
             // Unreached: nothing this piece connects to touches the ground.
             // This is exactly what `plant::anchor_support` leaves behind
@@ -7296,6 +7357,7 @@ mod tests {
             let _ = tick(&mut w, &ActiveSite { x: BASE + 9, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
             (w, organism_id)
         };
+        let build = |rule: bool, senescent: bool| build_with(rule, senescent, 0, true);
         let standing = |w: &World, organism_id: OrganismId| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
 
         // The positive control, first, because everything below is a claim
@@ -7315,6 +7377,20 @@ mod tests {
         let left = standing(&dead, organism_id);
         assert!(left < 10, "a senescent plant must still come apart with the rule off, or culling and rot stop bringing anything down: {left}/10 cells left");
         assert_eq!(dead.structural_failures.severed_living_cells, 0, "a senescent plant's cells were counted as living");
+
+        // **A cut is not a load** (2026-10-31). The same unreached beam, but
+        // the plant still stands on anchors elsewhere: it is a crown burned
+        // or cut off, and it comes down with the rule off too. The owner's
+        // floating tree was this arm held up.
+        let (cut, organism_id) = build_with(false, false, 5, true);
+        let left = standing(&cut, organism_id);
+        assert!(left < 10, "with the rule off, a piece cut from a plant that still stands stayed up: {left}/10 cells left");
+        assert!(cut.structural_failures.severed_living_cells > 0, "a living cut piece coming down must be counted as living");
+        // ...and `PIXEL_PHYSICS_CUT_FALLS=off` is the old reading, the
+        // control that says the arm above moved because of the new rule.
+        let (held_cut, organism_id) = build_with(false, false, 5, false);
+        let left = standing(&held_cut, organism_id);
+        assert_eq!(left, 10, "with plant_cut_falls off the switch must hold a cut piece as it used to: {left}/10 cells left");
     }
 
     #[test]
