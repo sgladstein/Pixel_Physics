@@ -250,11 +250,12 @@ fn main() {
     let c: Option<f32> = arg("c");
     let trace = arg::<u8>("trace").unwrap_or(0) == 1;
     println!(
-        "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?}",
+        "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?} sealed={:?}",
         arm.letter(),
         arg::<f32>("gain"),
         arg::<f32>("floor"),
-        arg::<u8>("off")
+        arg::<u8>("off"),
+        arg::<u8>("sealed")
     );
 
     let mut sc = Scenario::load("demo_scout").expect("demo_scout.ron ships");
@@ -291,6 +292,13 @@ fn main() {
     if let Some(h) = arg::<i32>("heapx") {
         args.insert("heapx".to_string(), h.to_string());
     }
+    // `sealed=0`: the far heap open to every forager, as in rounds 1-2 (the seal is on with the stakes).
+    if let Some(v) = arg::<u64>("trickle") {
+        args.insert("trickle".to_string(), v.to_string());
+    }
+    if let Some(v) = arg::<u8>("sealed") {
+        args.insert("sealed".to_string(), v.to_string());
+    }
     let mut seat = scout::ScoutDemo::from_args(&args, seed);
     // The season's heap (it moves at the hand-over with stakes on): where the script leads and the probe looks.
     let heap_x = seat.heap_x;
@@ -317,7 +325,8 @@ fn main() {
     let shot: u64 = arg("shot").unwrap_or(60);
     let zoom: i32 = arg("zoom").unwrap_or(2);
     let (full_w, full_h) = (pixel_physics::lab::WIDTH, pixel_physics::lab::HEIGHT);
-    if gif {
+    let endshot: Option<String> = arg("endshot");
+    if gif || endshot.is_some() {
         // The welcome card a fresh lab opens on would sit over every shot.
         lab.show_help = false;
         for _ in 1..zoom {
@@ -350,12 +359,26 @@ fn main() {
     let mut gate_rows: Vec<String> = Vec::new();
     let mut casc: Casc = Casc::new();
     let end = start + frames;
+    let mut player_dead = false;
     while lab.world.frame < end {
         let w = &mut lab.world;
         let Some(at) = head(w, player) else {
-            let cause = w.death_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == player)).map(|r| r.cause);
-            println!("frame {}: the player died ({cause:?})", w.frame);
-            break;
+            // **The colony's season goes on without her** (round 3): the deciding number is the colony alive at the
+            // season's end, and a teaching-off player who never walks to the heap starves first on most seeds (7 of
+            // 12 sealed), which used to end the run early and read the colony at her death.
+            if !player_dead {
+                let cause = w.death_log.as_ref().and_then(|l| l.iter().rev().find(|r| r.id == player)).map(|r| r.cause);
+                println!("frame {}: the player died ({cause:?})", w.frame);
+                player_dead = true;
+            }
+            if off {
+                lab.world.tandem = None;
+            }
+            lab.tick_for_harness();
+            if off {
+                lab.world.tandem = Some(Box::new(tandem::Tandems::new(arm, None)));
+            }
+            continue;
         };
         let pairs: Vec<_> = w.tandem.as_ref().map_or(&[][..], |t| &t.pairs[..]).iter().filter(|p| p.leader == player).cloned().collect();
         for p in &pairs {
@@ -501,12 +524,14 @@ fn main() {
         if probe && lab.world.frame.is_multiple_of(30) {
             probe_tick(&lab.world, &mut ants_seen, &mut gate_rows, player, &mut casc, heap_x);
         }
-        if gif && (lab.world.frame - start).is_multiple_of(shot) {
+        if gif && (lab.world.frame - start).is_multiple_of(shot) && lab.world.frame >= arg::<u64>("gifstart").unwrap_or(0) {
             // `cam=cascade`: on a pupil leading a sister of her own while one is under way (round 2's picture).
             let casc_leader = (arg::<String>("cam").as_deref() == Some("cascade"))
                 .then(|| lab.world.tandem.as_deref().and_then(|t| t.pairs.iter().find(|p| p.cascade).map(|p| p.leader)))
                 .flatten();
-            if let Some((hx, hy)) = head(&lab.world, casc_leader.unwrap_or(player)) {
+            // `cam=heap`: on the sealed heap, where the turn-aways and the carry marks are (round 3's picture).
+            let heap_cam = (arg::<String>("cam").as_deref() == Some("heap")).then(|| (heap_x, lab.world.room_surface_at(heap_x).unwrap_or(150) - 6));
+            if let Some((hx, hy)) = heap_cam.or_else(|| head(&lab.world, casc_leader.unwrap_or(player))) {
                 // Centred: the seat panel is in the sky at the top now (2026-10-30), not over the lower half.
                 lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
             }
@@ -554,6 +579,19 @@ fn main() {
             Err(e) => eprintln!("scoutdemo: cannot write {out}: {e}"),
         }
     }
+    // `endshot=x.png`: the seat's frame at the end of the run (the end card over the box), camera between the nest
+    // and the heap -- taken whether or not the player lived, since the card is the colony's.
+    if let Some(path) = endshot {
+        let mid = (NEST_X + heap_x) / 2;
+        let y = lab.world.room_surface_at(mid).unwrap_or(150);
+        lab.renderer.set_camera(mid - span_x / 2, y - span_y / 2, (full_w, full_h), Some(bounds));
+        let mut full = vec![0u8; (full_w * full_h * 4) as usize];
+        lab.draw(&mut full, 60.0);
+        match image::RgbaImage::from_raw(full_w, full_h, full).map(|img| img.save(&path)) {
+            Some(Ok(())) => println!("endshot -> {path}"),
+            other => eprintln!("scoutdemo: endshot failed: {other:?}"),
+        }
+    }
     println!("tap outcomes: {refusals:?}");
     println!("tick cost: {:.3} ms mean over {ticks} ticks (off={off})", tick_ns as f64 / ticks.max(1) as f64 / 1e6);
     if let Some(sd) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) {
@@ -564,12 +602,21 @@ fn main() {
             None => "none".to_string(),
         };
         println!(
-            "SEASON seed={seed} rude={rude} off={off} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0}",
+            "SEASON seed={seed} rude={rude} off={off} sealed={} colony={} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0} seal: carried {} turned_away {} ants_turned {} leaks {}",
+            sd.heap_sealed,
+            // Held or fell under the floor at some 30-frame check, whatever ended the seat's season first (her own
+            // death ends the card, not the colony's season).
+            // Sealed, the seat judges at spring: the colony at the season's end against the floor.
+            if (if sd.heap_sealed { scout::ants(&lab.world).len() } else { sd.low }) < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
             scout::ants(&lab.world).len(),
             sd.low,
             sd.harvest,
             sd.by_gen,
-            sd.larder
+            sd.larder,
+            sd.seal.carried,
+            sd.seal.turned_away,
+            sd.seal.turned_ids.len(),
+            sd.seal.leaks
         );
     }
     if probe {
