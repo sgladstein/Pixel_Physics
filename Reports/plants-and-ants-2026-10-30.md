@@ -4,8 +4,10 @@
 measured on `main` 678a4fb4 (collar resprout on; before PR #990's fungus
 garden). Pip food value lowered 40 -> 14 and shipped (§3); the tree's loss
 traced to shrub competition and handed to the invasion test (§4-5);
-stage 0 of that test ran on the VM 2026-10-31 (§6): its gates pass, and no
-role grows from four seeds on more than one bed in four. New player-facing interactions (leaf garden, guarded
+stage 0 of that test ran on the VM 2026-10-31 (§6): its gates pass. Stage 1
+(§7, 12 beds per role): every role gets back in from four seeds on a third
+to two-thirds of beds, tree and shrub significantly; big colonies eat sown
+seeds, but that does not decide whether a role gets back in. New player-facing interactions (leaf garden, guarded
 plants, a planting verb) belong to the plants-and-ants interaction lane and
 are not designed here. Pictures: <https://claude.ai/artifact/KSsVbrwiPbC4vDqwMbXprw>.*
 
@@ -229,11 +231,67 @@ the role with 20+ shoot cells; four were sown.
 - Stage 1, 12 beds per role, on the VM.
 - Add a sown-seed fate count to the harness first: eaten, carried, rotted or germinated. Then the predation reading becomes a measurement.
 
+## 7. Stage 1 result: four seeds into a grown bed, twelve beds per role
+
+Run on the Google VM (2026-10-31, built from `main` a31f93f7: pip 14,
+fungus garden on before PR #1005, resprout on), `run.sh` in
+`/mnt/project-files/plants/rungs56-stage1/`. Same design as §6, beds 1-12,
+with `trace=150000` so every sown seed's death is booked with its cause.
+**Deciding measure, fixed before the run:** `E` of the role at 150k,
+shipped against the crippled role, paired by bed, sign test, Holm over the
+four roles.
+
+| role | beds the role got back in (`E` >= 1 at 150k) | crippled arm | sign test | Holm |
+|---|---|---|---|---|
+| tree | **8 / 12** | 0 / 12 | 8-0, p 0.008 | **0.031** |
+| shrub | **7 / 12** | 1 / 12 | 7-0, p 0.016 | **0.047** |
+| scrambler | 6 / 12 | 0 / 12 | 6-0, p 0.031 | 0.063 |
+| herb | 4 / 12 | 0 / 12 | 4-0, p 0.125 | 0.125 |
+
+**Gates.**
+- **Determinism:** passes. The two resident-only clones on bed 1 hash the same, for all four roles. Beds 1-4 also reproduce stage 0's `E` exactly on a later build (tree 0, 1, 9, 0; scrambler 3, 2, 2, 4).
+- **Known answer:** passes. The crippled role established on 1 of 48 bed-roles (shrub, bed 11, one plant).
+- **Rung 5 predicts rung 6** (§8 of the plan asked for it): `E` at 30k against 150k, Spearman 0.79 over the 48 bed-roles; 24 of the 30 that were established at 30k still were at 150k, and only one bed-role came up later.
+
+**The reading.** With the colony in the bed, every one of the four roles can
+come back from four seeds; the tree and the shrub do so on two-thirds of
+beds and pass Holm. The herb, the colony's favourite food, does worst. So
+G4's four roles are not shut out of the lab bed by the colony: a role that
+dies out can be re-sown, and on most beds it takes.
+
+**What happened to the 192 sown seeds** (shipped arm, by booked cause):
+
+| fate | seeds | of which in the first 1,000 frames |
+|---|---|---|
+| lost every vital cell (a plant, later) | 42 | 1 |
+| left the slice from a seed heap (`Spread`) | 36 | 26 |
+| rotted as a seed | 34 | 7 |
+| still alive at 150k | 32 | - |
+| felled | 19 | 8 |
+| **eaten** | **14** | **14** |
+| starved / old age / overrun | 7 / 7 / 1 | 0 |
+
+**§6's hypothesis, tested.** Big colonies do eat sown seeds: 12 of 56 seeds
+on bed-roles sown under 500+ ants, against 2 of 136 under fewer (Fisher
+p < 0.0001). Every eaten seed went in its first thousand frames. But it does
+not decide whether a role gets back in: 6 of 14 big-colony bed-roles
+established against 19 of 34 (Fisher p 0.53), and trees came up under 601
+and 710 ants. §6's perfect split (4 against 4) was a small-sample
+accident. The seed-heap rule (`DeathCause::Spread`) takes more sown seeds
+early than the ants do: a sown seed that lands on a heap of other seed
+leaves the slice.
+
+**Next:** the four roles can re-enter; what is left for G4 is keeping them
+in through 450k. The ants-help-plants design
+(<https://claude.ai/artifact/UT4mXFWbSiL92FzSB69JJW>) proposes making the
+colony's own ground richer, so that the door garden it plants grows rather
+than just survives.
+
 ## Reproduce
 
 ```text
 latecensus scenario=played_bed mister=1 seed=S frames=450000 sample=50000      # [no_colony=1]
 planttrace scenario=played_bed seed=S frames=450000 life=1 bites=1 out=DIR      # PIXEL_PHYSICS_COLLAR_SPROUT=0|1
 labforage scenario=played_bed seed=S frames=150000                              # pip exits line
-plant_m0 mode=stand bed=played role=R seed=S grow=300000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,cripple
+plant_m0 mode=stand bed=played role=R seed=S grow=300000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,cripple trace=150000
 ```
