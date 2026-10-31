@@ -101,6 +101,7 @@ pub mod pheromone;
 pub mod plant;
 pub mod plant_pool;
 pub mod player;
+pub mod rich_earth;
 pub mod rigid;
 pub mod rng;
 pub mod scheduler;

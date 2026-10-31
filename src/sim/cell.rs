@@ -221,6 +221,17 @@ pub struct Cell {
     /// `is_burning()`; 0 otherwise. Split out from `aux` specifically so
     /// burning never disturbs whatever `aux` is holding — see `aux`'s own
     /// doc.
+    ///
+    /// **A second reading while the cell is not burning: soil richness**
+    /// (`rich_earth`, 2026-10-31), read and written only through
+    /// [`Cell::richness`] / [`Cell::set_richness`]. The ants' finished
+    /// fungus leaves the ground beside it rich, and that has to ride with
+    /// the grain -- dug out as spoil, packed into a wall, fallen down a
+    /// bank -- which a side table keyed by position cannot do. The ground
+    /// that carries it (`plant::cell_carries_nutrient`: soil, packed soil,
+    /// spoil) authors no flammability, so the two readings never meet; and
+    /// a fire that did reach one would `extinguish` it to 0, which spends
+    /// the richness rather than inventing a burn.
     burn_timer: u16,
     /// Kind-specific, genuinely kind-specific now that burning no longer
     /// aliases it:
@@ -478,6 +489,28 @@ impl Cell {
         self.burn_timer = self.burn_timer.saturating_sub(1);
         if self.burn_timer == 0 {
             self.set_flag(FLAG_BURNING, false);
+        }
+    }
+
+    /// **How rich this ground is** -- root draws left before it is plain
+    /// soil again (`rich_earth`). 0 while burning, and on anything that is
+    /// not nutrient-carrying ground: only `rich_earth` writes it, and only
+    /// on such cells.
+    #[inline]
+    pub fn richness(self) -> u16 {
+        if self.is_burning() {
+            0
+        } else {
+            self.burn_timer
+        }
+    }
+
+    /// Set the richness (`rich_earth`). Does nothing to a burning cell,
+    /// whose timer this field is.
+    #[inline]
+    pub fn set_richness(&mut self, draws: u16) {
+        if !self.is_burning() {
+            self.burn_timer = draws;
         }
     }
 

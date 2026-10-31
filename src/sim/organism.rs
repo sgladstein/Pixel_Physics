@@ -5893,6 +5893,11 @@ pub struct OrganismState {
     /// one axis, and erases the stomatal locus's fitness signal. It prices
     /// *construction* instead — see `Behavior::Grow`.
     pub nutrient_status: f32,
+    /// **The share of this plant's nutrient faces in rich ground**
+    /// (`rich_earth`), `0.0..=1.0`, from the same walk as `nutrient_status`.
+    /// What `rich_earth::income_bonus` multiplies income by; 0 for a plant
+    /// with no soil faces, and in a world with rich earth off.
+    pub rich_share: f32,
     pub shoot_cells: u32,
     /// **Flower and fruit cells**, counted apart from `shoot_cells` above.
     ///

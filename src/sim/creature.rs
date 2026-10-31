@@ -21468,6 +21468,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     world.loss_context = Some(organism::DeathCause::Eaten);
                     world.set(fxx, fyy, Cell::EMPTY);
                     world.loss_context = None;
+                    // **Rich earth** (`rich_earth`): fungus eaten here leaves
+                    // the ground round it rich. The one place a fungus cell
+                    // leaves the world by a mouth, so the stock is bounded by
+                    // what the colony actually ate.
+                    if world.rich_earth != super::rich_earth::RichEarth::Off
+                        && world.materials.id_of("fungus") == Some(bite.material)
+                    {
+                        super::rich_earth::fungus_eaten(world, fxx, fyy);
+                    }
                 }
                 // **A2 -- ride home instead of standing.** `seed_saved` just
                 // converted the bitten cell to `pip` *in place*; if this

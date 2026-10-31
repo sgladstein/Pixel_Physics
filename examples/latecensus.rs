@@ -439,6 +439,31 @@ fn main() {
                 "        kinds {}",
                 kinds.iter().map(|(n, (p, l, h))| format!("{n}={p}/{l}/{h}")).collect::<Vec<_>>().join(" ")
             );
+            // **Rich earth** (`rich_earth`): what the colony's eaten garden
+            // has made and what is standing, beside the plants it feeds.
+            // `door_shoot` is the design's deciding measure: shoot cells of
+            // plants whose cells sit, on average, within 48 columns of a
+            // nest column; `fed` counts plants with any root face in rich
+            // ground.
+            let mut door_shoot = 0u64;
+            let mut fed = 0usize;
+            for (_, st) in world.live_organisms() {
+                if world.species.get(st.species).creature.is_some() || st.cells.is_empty() {
+                    continue;
+                }
+                fed += (st.rich_share > 0.0) as usize;
+                let mx = st.cells.keys().map(|&(x, _)| x as f64).sum::<f64>() / st.cells.len() as f64;
+                if nest_cols.iter().any(|&c| (mx - c as f64).abs() <= 48.0) {
+                    door_shoot += u64::from(st.shoot_cells);
+                }
+            }
+            println!(
+                "        rich standing={} made={} draws={} fed={} door_shoot={door_shoot}",
+                pixel_physics::sim::rich_earth::census(&world),
+                world.rich_cells_made,
+                world.rich_draws,
+                fed
+            );
             // **The two numbers that separate the two candidate channels for
             // the 2026-09-12 baseline shift**, measured beside the census
             // rather than inferred from it.
