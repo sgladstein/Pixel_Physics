@@ -1839,3 +1839,47 @@ the garden test decides. Copies in `/mnt/project-files/teacher/env9-1031/`; sent
 every arm reruns on one build. Deciding measure unchanged (env9 section above). The Plants lane's rich-earth paired
 run rides along as an `sh` job at their branch head (`scratch/inrun/jobs/branchrun.sh SHA SCRIPT`: fetch the SHA,
 worktree, own target dir).
+
+**Garden half (Nest lane, 18:05Z; inrun on main 86b788ce, worlds 61-68, 200k; N_gate, std, H3 bit-identical to the
+a4a15fe0 build).** `nest_open` per world 61..68 (median):
+
+| | nest_open | median | alive at 200k | tunnels |
+|---|---|---|---|---|
+| F_std c9 | 347 253 323 400 255 356 352 340 | 343.5 | 43 60 41 52 43 4 52 52 | 45-98 |
+| F_h3 c22 | 141 320 23 146 250 170 115 16 | 143.5 | 57 51 24 65 55 61 54 57 | 0-85 |
+| N_gate c10 | 40 85 13 49 39 40 19 48 | 40 | 61 7 60 63 46 62 73 0 | 0-19 |
+| std_pool | 421 659 608 417 215 668 534 615 | 571 | 61 69 79 68 16 67 67 71 | |
+| H3 | 573 558 462 399 668 269 536 758 | 547 | 64 74 49 39 66 2 44 41 | |
+
+**F_std c9 passes the garden half** (median 343.5 >= 250, above N_gate 8/8, p 0.008); **F_h3 c22 fails** (above
+N_gate 7/8 but median 143.5). Context, not scored: F_std is still smaller than untrained std_pool in 7/8 worlds
+(p 0.07) -- a cone like std's, narrower. Pictures: the Nest lane's page, `#env9`; raw per-run numbers `/mnt/project-files/nest/garden-env8-env9/`.
+
+## 2026-10-31 (20:10Z): exam `x15` -- env9's std-line winner passes both halves; NESTER added to the lab's ant picker
+
+x15-1031 (8d37b4d0 = main 86b788ce + scratch), 4 arms x 6 boxes x 8 seeds at 600k, 192 rows, none missing. Data
+`data-1027/x15/` (`lab600k.csv`, `collect.py`, `x15an.py`). Paired over 48, better/worse, sign test:
+
+| | lived | alive at end | starved share lower | trip deliveries | digs |
+|---|---|---|---|---|---|
+| fstd (F_std c9) vs std_pool | **29/10, p 0.003** | 2/2 | 29/9 p 0.002 | 38/6 | 40/8 |
+| fh3 (F_h3 c22) vs std_pool | **33/1, p 4e-9** | 1/1 | 38/3 | 39/4 | 39/9 |
+| fstd vs N_gate c10 | 19/16 p 0.74 | 2/2 | 14/25 p 0.11 | 17/29 p 0.10 | 43/5 |
+| fh3 vs N_gate c10 | 24/17 p 0.35 | 1/1 | 20/22 | 15/30 p 0.04 | 41/7 |
+| N_gate vs std_pool | 26/12 p 0.034 | 0/0 | 31/7 | 36/4 | 18/30 |
+
+Mean lived per plant box (fstd / fh3 / N_gate / std): crowded_bench 419 / 436 / 582 / 256; herb_first 367 / 357 /
+354 / 170; played_bed 338 / 325 / 340 / 207. Every arm is alive at the end in 7-8 of 8 on the plant boxes on this
+build (in x13, std_pool had died in most: the garden retune #1005 is the likely mover, not tested here). The famine
+boxes still die (two_larders 1-2 of 8, the other two 0).
+
+**Verdict on the named measure:** **fstd (env9 F_std c9) passes both halves**: garden nest median 343.5 and above
+N_gate 8/8, and exam lived ahead of std_pool at p 0.003 (< 0.025). fh3 passes the exam but fails the garden
+(median 143.5). So F_std c9 is env9's pick. Against N_gate c10 (today's SURVIVOR) it is level on survival and digs
+about eight times its garden nest; against std_pool it lives better and its garden nest is smaller in 7 of 8 (p 0.07,
+not significant, five comparisons) -- not a measured trade-off, but the one Scott asked about.
+
+Shipped to the lab's ant picker as **NESTER** (`training::LAB_ANTS`, `assets/minds/env9_stdc9_pool.txt`, byte copy of
+the exam's file). Not the default: that is Scott's card (B1, and his 06:43Z "wait for the nest-floor batch"). Load check: `labsurvive
+founders=ant:nester scenario=played_bed` seeds 1-2 at 600k reproduce x15's fstd rows exactly (593 / 502.1, 255 / 264.5),
+and `ant:std` its std rows (156 / 329.1, 291 / 195.6). Pictures: the Teacher page, `#x15`.

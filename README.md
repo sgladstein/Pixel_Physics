@@ -11385,9 +11385,10 @@ page, under ANIMALS WEAR).
 which ant you want ... so we don't always have to decide"*, to playtest each).
 `` ` `` in the box steps every ant to the next of `training::LAB_ANTS` —
 STANDARD (the default), SURVIVOR (env8 N_gate colony 10, exam x13's best),
-TUNNEL DIGGER (H3, the Nest lane's hand-written dig head) and HAND-BUILT —
+NESTER (env9 F_std colony 9, exam x15's pick: survives like SURVIVOR, digs a
+nest about eight times its size, smaller than STANDARD's), TUNNEL DIGGER (H3, the Nest lane's hand-written dig head) and HAND-BUILT —
 and SHIFT+`` ` `` steps back; the ANT row does the same on a click, and
-`lab -- ant=survivor` (`std`, `digger`, `hand`) opens on one. The switch is
+`lab -- ant=survivor` (`std`, `nester`, `digger`, `hand`) opens on one. The switch is
 immediate: every ant and every egg loses the mind it had and takes the new
 pool's member for its id, so the same colony carries on with a different
 brain; REBUILD starts a fresh box on it. The clock line names the ant in
