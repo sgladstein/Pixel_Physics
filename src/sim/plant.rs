@@ -12916,7 +12916,13 @@ fn nutrient_availability(status: f32, half: f32) -> f32 {
 /// The two callers still differ *after* this point, correctly: the pool
 /// scales by the hour (money) and `supportable` does not (policy).
 fn noon_income(world: &World, organism_id: OrganismId, intercepted: f32, leaf_cluster: u8) -> f32 {
-    intercepted / l_node(leaf_cluster) * INCOME_PER_NODE * nutrient_income_multiplier(world, organism_id)
+    // Rich earth's bonus above full (`rich_earth::income_bonus`) rides the
+    // same one expression, so the pool and `supportable` agree about it.
+    let rich = world.organism(organism_id).map_or(0.0, |st| st.rich_share);
+    intercepted / l_node(leaf_cluster)
+        * INCOME_PER_NODE
+        * nutrient_income_multiplier(world, organism_id)
+        * super::rich_earth::income_bonus(world, rich)
 }
 
 fn nutrient_draw_per_tick() -> u8 {
@@ -13174,6 +13180,8 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // the same reason: a running mean would weight early cells more.
     let mut nutrient_faces = 0u32;
     let mut nutrient_available = 0.0f32;
+    // Of those faces, the ones in rich ground (`rich_earth`).
+    let mut rich_faces = 0u32;
     let turnover_rate = root_turnover_per_tick();
     let mut turnover_candidates: Vec<(i32, i32, f32)> = Vec::new();
     // The crown's overturning demand, accumulated as `Σ y` and turned into
@@ -13314,6 +13322,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         let f = world.soil_nutrient_fraction(cx + dx, cy + dy);
                         nutrient_faces += 1;
                         nutrient_available += f;
+                        rich_faces += u32::from(super::rich_earth::is_rich(world, n));
                         here_faces += 1;
                         here_nutrient += f;
                     }
@@ -13551,6 +13560,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         } else {
             1.0
         };
+        state.rich_share = if nutrient_faces > 0 { rich_faces as f32 / nutrient_faces as f32 } else { 0.0 };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;

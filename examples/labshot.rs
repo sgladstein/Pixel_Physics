@@ -962,6 +962,19 @@ fn main() {
             // count cannot answer. `snapped` and `over span` are the two the
             // switch governs; `severed` folds in limbs that simply lost their
             // anchor, which it deliberately does not.
+            // **Rich earth beside the picture** (`rich_earth`): dark ground
+            // and a shadow look alike at sheet size, so the count says
+            // whether any of it is richness. `fed` = plants with a root face
+            // in rich ground.
+            let fed = world.live_organisms().filter(|(_, st)| st.rich_share > 0.0).count();
+            println!(
+                "            rich earth {:?}: standing {:>5} | made {:>6} | root draws from it {:>7} | plants fed {:>3}",
+                world.rich_earth,
+                pixel_physics::sim::rich_earth::census(&world),
+                world.rich_cells_made,
+                world.rich_draws,
+                fed
+            );
             let f = world.structural_failures;
             println!(
                 "            felling: snapped under load {:>4} | severed by support check {:>4} ({:>3} of them alive) | leaned {:>4} | shed {:>4} | rotted {:>4} | load rule {}",

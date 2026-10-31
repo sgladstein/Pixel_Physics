@@ -7855,6 +7855,20 @@ impl Renderer {
         } else {
             0
         };
+        // **Rich earth draws dark** (`rich_earth`): the ground the ants'
+        // eaten garden fed, in two steps so a root spending it repaints the
+        // cell twice over its life. Same `water_capacity` gate as the damp
+        // darkening below -- only nutrient-carrying ground is ever rich.
+        if mat.water_capacity > 0 && world.rich_earth != crate::sim::rich_earth::RichEarth::Off {
+            let step = crate::sim::rich_earth::render_step(cell.richness()) as usize;
+            if step > 0 {
+                let pull = crate::sim::rich_earth::RICH_PULL[step];
+                let target = crate::sim::rich_earth::RICH_TARGET;
+                for (c, t) in base.iter_mut().take(3).zip(target) {
+                    *c = (*c as f32 + (t - *c as f32) * pull).round() as u8;
+                }
+            }
+        }
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
             let scale = (256 - t) as u16;
