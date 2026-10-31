@@ -375,8 +375,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98
         with:
           components: clippy
-          targets: aarch64-apple-darwin,x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+      # **From inside the checkout, not through the action's `targets:`.** The
+      # action installs targets on its own toolchain name (`1.98`), but
+      # `rust-toolchain.toml` pins `1.98.0`, which cargo then uses -- so the
+      # first run of this job had no macOS std and failed with "can't find
+      # crate for `core`". `rustup target add` here resolves the pinned one.
+      - run: rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo clippy --lib --bins --release --locked --features audio-alsa -- -D warnings
       - run: cargo check --locked --bin lab --target aarch64-apple-darwin
