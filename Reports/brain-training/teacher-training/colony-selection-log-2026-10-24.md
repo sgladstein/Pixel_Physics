@@ -1774,3 +1774,43 @@ p < 0.05, two-sided, no correction -- the stricter reading for a harm test), or 
 alive at the end in >= 6 of 8 seeds and the braked one in <= 2. Lived (mean headcount) is reported but not a harm test:
 a brake on laying lowers the headcount by design. Starved share and deliveries reported. Pictures: played_bed seeds 1-2,
 std_pool with and without, `nestrows=88` (the full 80-row bed).
+
+## 2026-10-31 (07:00Z): exam `x14` brake -- not harmful by the named test; ships on in the lab game, stays off in the exam
+
+96 braked runs (std_pool and N_gate c10, `LAB_ARGS=laycap=48:8`, 6 boxes x 8 seeds at 600k) on env9b-1031
+(a31f93f7), paired with x13's unbraked rows (f245c3a9; no `src/`, `examples/` or `assets/` change between the two
+builds, so the pair differs only by the brake). Cardinality 2 brains x 6 boxes x 8 seeds = 96 rows, none missing.
+Data `data-1027/x14brake/` (`lab600k.csv`, `collect.py`, `x14an.py` reads it beside `x13/lab600k.csv`).
+
+**The named harm test passes for both brains.** Alive at the end, braked better/worse: std 0/1 (p 1), N_gate 0/1
+(p 1). No box goes from >= 6/8 alive to <= 2/8: per box braked/unbraked alive, std crowded_bench 7/8, herb_first 8/8,
+played_bed 8/8; N_gate 8/8, 8/8, 7/8; the three famine boxes die either way (0/0, two_larders N_gate 1/1). The two
+flips are std crowded_bench s3 and N_gate played_bed s1.
+
+Reported, not tests (paired seeds, of 48; famine-box ties excluded by the sign test):
+
+| | std braked better/worse | N_gate braked better/worse |
+|---|---|---|
+| lived (mean headcount) | 0/24 | 0/25 |
+| starved share of births lower | 22/2 (p 4e-5) | 11/15 (p 0.56) |
+| trip deliveries | 19/5 (p 0.007) | 12/13 |
+| births | 0/24 | 0/26 |
+
+Per box, mean of 8, braked/unbraked (std): played_bed lived 68/205, starved 348/3,459, digs 1,148/3,901;
+crowded_bench 67/259, starved 639/7,736, digs 1,720/11,305; herb_first 66/153, starved 622/3,824, digs 1,088/3,917.
+N_gate: played_bed 66/362, crowded 73/599, herb_first 68/386; digs 1,511-1,955 against 4,067-5,432.
+
+**Two things the harm test does not cover, both said to Scott.** (1) **The colony digs about a third as much over
+the game** -- roughly in step with having a third the ants; the two-seed pictures (`#brake` on the page) show no
+bigger nest at 600k. The chambered-nests thread's "brake grows the nest 4/4" was a different brain at 300k.
+(2) **Braked, the exam goes blind**: every brain sits at ~66 ants on the plant boxes (std 66-68, N_gate 66-73,
+where unbraked it is 153-259 against 361-599). That is the measured reason it stays **off in `labsurvive`** -- the
+exam and colsel `+lab` keep measuring the unbraked box -- and on only in the game.
+
+Shipped: `Lab::lay_brake` (`src/lab/mod.rs`, `lay_brake_bar`), applied at the end of `Lab::tick` every 250 frames,
+`None` in `Lab::new`; `bin/lab` sets 48:8 (`-- laybrake=off`, `-- laybrake=T:D`) and names it on the opening notice.
+It stands down while the TRAINING page runs and while two or more ant colonies live in the box (one per-species
+bar would let one colony stop the other laying -- `dead-ends.md`, rivalbed's `lay_cap_mode`). `labsurvive laycap=`
+now sets the same field; **bit-identical** to the old loop, crowded_bench and played_bed seed 1, 60k, both
+`RESULT` lines equal (alive 72/67, lived 63.5/65.8, births 125/108); the positive control, the new binary unbraked
+on crowded_bench, differs (lived 181.3, peak 408, births 613), so the 60k window does reach the brake.
