@@ -19,7 +19,7 @@
 //!    bank that slumps takes it down with it.
 //! 3. **A root in it is fed, and fed past full** (`RichEarth::Bonus`, the
 //!    default). A rich face reads as full soil, and a plant's income is
-//!    multiplied by up to `1 + RICH_BONUS` for the share of its nutrient
+//!    multiplied by up to `1 + RICH_BONUS` (double) for the share of its nutrient
 //!    faces that are rich (`OrganismState::rich_share`). "It can be rich"
 //!    (Scott, 2026-10-31): on the played bed nutrient is almost never what
 //!    limits a plant (income lost to it: grass 2.3%, herb 1.7%, shrub
@@ -64,8 +64,32 @@ pub enum RichEarth {
 pub const RICH_STOCK: u16 = 240;
 
 /// The largest income bonus, for a plant with every nutrient face in rich
-/// ground: income x (1 + `RICH_BONUS` x share).
-pub const RICH_BONUS: f32 = 0.3;
+/// ground: income x (1 + `RICH_BONUS` x share) -- up to double.
+///
+/// **1.0, not the 0.3 the design proposed, and that was measured.** Paired
+/// over played_bed seeds 1-12 with the colony (`latecensus mister=1`,
+/// 2026-10-31; `Reports/plants-and-ants-2026-10-30.md` §8), shoot cells of
+/// plants within 48 columns of a nest:
+///
+/// - **0.3 moved nothing**: 6-6 at 150k, 8-4 at 300k (p 0.39). The fed
+///   plants do reach it -- 23-64% of their nutrient faces are rich -- so the
+///   lever is connected; a ~13% income bump on plants the colony grazes
+///   hardest is simply lost to the grazing.
+/// - **1.0**: more door plants on 10 of 12 beds at 150k (p 0.039, Holm over
+///   the two readings 0.077), level again by 300k (7-5). Guards: colony at
+///   250k level (6-6), at 450k larger on 10 of 12 (median 457 against 306,
+///   p 0.039, a guard reading, not a planned test); beds with 4+ kinds 10
+///   against 10. Two bonus levels were tried, so read those p values as a
+///   pattern, not a passed test.
+pub const RICH_BONUS: f32 = 1.0;
+
+/// `RICH_BONUS`, or `PIXEL_PHYSICS_RICH_BONUS` for a sweep.
+pub fn rich_bonus() -> f32 {
+    static B: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *B.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_RICH_BONUS").ok().and_then(|v| v.parse().ok()).unwrap_or(RICH_BONUS)
+    })
+}
 
 /// `PIXEL_PHYSICS_RICH_EARTH=off|refill|bonus` sets the version a world
 /// starts with; `bonus` by default.
@@ -162,7 +186,7 @@ pub fn is_rich(world: &World, cell: Cell) -> bool {
 #[inline]
 pub fn income_bonus(world: &World, rich_share: f32) -> f32 {
     if world.rich_earth == RichEarth::Bonus {
-        1.0 + RICH_BONUS * rich_share.clamp(0.0, 1.0)
+        1.0 + rich_bonus() * rich_share.clamp(0.0, 1.0)
     } else {
         1.0
     }
@@ -250,8 +274,8 @@ mod tests {
         let refill = wall(RichEarth::Refill);
         assert_eq!(income_bonus(&refill, 1.0), 1.0);
         let bonus = wall(RichEarth::Bonus);
-        assert_eq!(income_bonus(&bonus, 1.0), 1.0 + RICH_BONUS);
-        assert_eq!(income_bonus(&bonus, 0.5), 1.0 + RICH_BONUS * 0.5);
+        assert_eq!(income_bonus(&bonus, 1.0), 1.0 + rich_bonus());
+        assert_eq!(income_bonus(&bonus, 0.5), 1.0 + rich_bonus() * 0.5);
     }
 
     #[test]

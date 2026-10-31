@@ -447,22 +447,28 @@ fn main() {
             // ground.
             let mut door_shoot = 0u64;
             let mut fed = 0usize;
+            let (mut fed_share, mut fed_shoot) = (0.0f64, 0u64);
             for (_, st) in world.live_organisms() {
                 if world.species.get(st.species).creature.is_some() || st.cells.is_empty() {
                     continue;
                 }
-                fed += (st.rich_share > 0.0) as usize;
+                if st.rich_share > 0.0 {
+                    fed += 1;
+                    fed_share += f64::from(st.rich_share);
+                    fed_shoot += u64::from(st.shoot_cells);
+                }
                 let mx = st.cells.keys().map(|&(x, _)| x as f64).sum::<f64>() / st.cells.len() as f64;
                 if nest_cols.iter().any(|&c| (mx - c as f64).abs() <= 48.0) {
                     door_shoot += u64::from(st.shoot_cells);
                 }
             }
             println!(
-                "        rich standing={} made={} draws={} fed={} door_shoot={door_shoot}",
+                "        rich standing={} made={} draws={} fed={} door_shoot={door_shoot} fed_share={:.2} fed_shoot={fed_shoot}",
                 pixel_physics::sim::rich_earth::census(&world),
                 world.rich_cells_made,
                 world.rich_draws,
-                fed
+                fed,
+                if fed > 0 { fed_share / fed as f64 } else { 0.0 }
             );
             // **The two numbers that separate the two candidate channels for
             // the 2026-09-12 baseline shift**, measured beside the census
