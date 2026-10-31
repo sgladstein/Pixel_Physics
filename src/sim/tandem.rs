@@ -136,6 +136,40 @@ pub struct Knobs {
     /// A cascade run not arrived after this many frames is given up (the
     /// pupil released with what she learned); 0 is never (the default).
     pub cascade_timeout: u64,
+    /// **A lesson graded by the way walked together** (off by default, `None`;
+    /// the scout seat's sealed season sets it -- adversarial review
+    /// 2026-10-31, B1). Off, arrival plants a full lesson (1.0) wherever the
+    /// run began. Traced on seeds 13-24: a player who stood at the foot of
+    /// the sealed heap and tapped the sisters it turned away "led" them six
+    /// cells, and each arrived with the full lesson, so standing at the end
+    /// of the way out-scored leading it 11-1. On, a run's lesson is capped at
+    /// the share of the way it covered -- columns she was led nearer the
+    /// patch over the nest-to-patch distance -- and a run that began within
+    /// `dead_r` columns of the patch teaches nothing.
+    pub lesson_way: Option<LessonWay>,
+}
+
+/// [`Knobs::lesson_way`]: the column the way starts from (the nest) and the
+/// columns either side of the patch where a run teaches nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LessonWay {
+    pub from_x: i32,
+    pub dead_r: i32,
+}
+
+impl LessonWay {
+    /// The share of the way a run from column `start` to column `end` led
+    /// her, 0..1: columns she came nearer the patch, over the nest-to-patch
+    /// distance; 0 for a run that began within `dead_r` of the patch.
+    pub fn share(&self, patch: Patch, start: i32, end: i32) -> f32 {
+        let from = (start - patch.x).abs();
+        if from <= self.dead_r {
+            return 0.0;
+        }
+        let led = (from - (end - patch.x).abs()).max(0);
+        let way = (patch.x - self.from_x).abs().max(1);
+        (led as f32 / way as f32).min(1.0)
+    }
 }
 
 /// Frames without getting nearer before a cascade leader tries another
@@ -172,6 +206,7 @@ impl Default for Knobs {
             cascade_c: 0.25,
             cascade_unstick: false,
             cascade_timeout: 0,
+            lesson_way: None,
         }
     }
 }
@@ -231,6 +266,8 @@ pub struct Pair {
     pub column: bool,
     /// A taught ant leading by the cascade (her target is her memory).
     pub cascade: bool,
+    /// The follower's head when the run began ([`Knobs::lesson_way`]).
+    pub start: (i32, i32),
 }
 
 /// A tap's answer, shown on screen.
@@ -531,6 +568,7 @@ fn start_pair(world: &mut World, leader: OrganismId, follower: OrganismId, colum
         since_landmark: 0,
         column,
         cascade,
+        start: fat,
     });
 }
 
@@ -575,19 +613,29 @@ fn is_landmark(world: &World, crumbs: &VecDeque<(i32, i32)>, at: (i32, i32), pat
 
 fn release(world: &mut World, i: usize, arrived: bool) {
     let frame = world.frame;
+    let end = world.tandem.as_ref().and_then(|t| t.pairs.get(i)).and_then(|p| head(world, p.follower));
     let t = world.tandem.as_mut().expect("caller checked");
     let p = t.pairs.swap_remove(i);
     t.released.push(Released { id: p.follower, at: frame, arrived });
     let id = p.follower;
-    let lesson = if arrived {
+    let mut lesson = if arrived {
         1.0
     } else {
         let met = f32::from(p.met.max(1));
         t.knobs.lost_lesson * f32::from(p.learned) / met
     };
+    // The way walked together caps it (the seat's knob; off, the line above stands alone). A weaker run never
+    // takes away a stronger lesson she already holds.
+    if let (Some(way), Some(patch)) = (t.knobs.lesson_way, t.patch) {
+        let share = way.share(patch, p.start.0, end.map_or(p.start.0, |h| h.0));
+        lesson = lesson.min(share).max(t.lessons.get(&id).copied().unwrap_or(0.0));
+    }
     if arrived {
         t.counts.done += 1;
-        t.tree.insert(id, p.leader);
+        // Off, an arrival's lesson is always 1.0, so this is the old unconditional insert.
+        if lesson > 0.0 {
+            t.tree.insert(id, p.leader);
+        }
         t.mark(id, Mark::Arrived, frame);
     } else {
         t.counts.broken += 1;
@@ -832,6 +880,16 @@ pub fn tick(world: &mut World) {
     watch_trips(world);
 }
 
+/// **Let a pupil go** (the scout seat's `K`): her run ends where she stands,
+/// as a broken run -- she keeps what she learned at the landmarks she stopped
+/// at (and, with [`Knobs::lesson_way`], no more than the way she was led).
+/// The lesson she now holds, or `None` if she was not following anyone.
+pub fn let_go(world: &mut World, follower: OrganismId) -> Option<f32> {
+    let i = world.tandem.as_ref()?.pairs.iter().position(|p| p.follower == follower)?;
+    release(world, i, false);
+    Some(world.tandem.as_ref().and_then(|t| t.lessons.get(&follower).copied()).unwrap_or(0.0))
+}
+
 fn fat_dead(world: &World, id: OrganismId) -> bool {
     head(world, id).is_none()
 }
@@ -1058,6 +1116,52 @@ mod tests {
         let (off, idle, live) = (run(0), run(1), run(2));
         assert_eq!(off, idle, "an armed module with no pair moved the box");
         assert_ne!(off, live, "a live pair changed nothing: the digest is blind or the module never ran");
+    }
+
+    /// **A lesson is the way walked together** (`Knobs::lesson_way`, the scout
+    /// seat's sealed season; review 2026-10-31, B1). Off, an arrival is a full
+    /// lesson wherever the run began (the old rule, and the positive control:
+    /// the same release, the other answer). On, a run that covered half the
+    /// nest-to-patch way teaches half, a run begun at the patch's foot teaches
+    /// nothing and puts no one in the tree, and a weaker run never lowers a
+    /// lesson she holds. `let_go` ends a run as a broken one.
+    #[test]
+    fn a_lesson_is_graded_by_the_way_walked_together() {
+        let way = LessonWay { from_x: 128, dead_r: 16 };
+        assert_eq!(way.share(PATCH, 232, 238), 0.0, "a run begun in the seal's columns taught");
+        assert!((way.share(PATCH, 128, 238) - 110.0 / 120.0).abs() < 1e-6);
+        assert!((way.share(PATCH, 160, 238) - 78.0 / 120.0).abs() < 1e-6);
+        assert_eq!(way.share(PATCH, 200, 150), 0.0, "walking away from the patch taught");
+        let lesson_after = |knob: Option<LessonWay>, start_dx: Option<i32>, prior: Option<f32>| {
+            let mut lab = box_at(600);
+            arm(&mut lab, Arm::Scout);
+            lab.world.tandem.as_mut().unwrap().knobs.lesson_way = knob;
+            let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+            start_pair(&mut lab.world, l, f, false, false);
+            let end = head(&lab.world, f).expect("alive");
+            let t = lab.world.tandem.as_mut().unwrap();
+            if let Some(p) = prior {
+                t.lessons.insert(f, p);
+            }
+            // `start_dx` west of where she stands now, or (None) in the patch's foot.
+            t.pairs[0].start = start_dx.map_or((PATCH.x - 5, end.1), |dx| (end.0 - dx, end.1));
+            release(&mut lab.world, 0, true);
+            let t = lab.world.tandem.as_ref().unwrap();
+            (t.lessons.get(&f).copied(), t.tree.contains_key(&f))
+        };
+        assert_eq!(lesson_after(None, None, None), (Some(1.0), true), "off, an arrival is no longer a full lesson");
+        let (half, in_tree) = lesson_after(Some(way), Some(60), None);
+        assert!(half.is_some_and(|s| (s - 0.5).abs() < 1e-6) && in_tree, "60 of 120 columns taught {half:?}");
+        assert_eq!(lesson_after(Some(way), None, None), (None, false), "a run from the patch's foot taught");
+        assert_eq!(lesson_after(Some(way), None, Some(0.8)).0, Some(0.8), "a short run lowered a lesson she held");
+        // `let_go`: a broken run, so no landmarks learned is no lesson; and nobody to let go is `None`.
+        let mut lab = box_at(600);
+        arm(&mut lab, Arm::Scout);
+        let (l, f) = pair_up(&lab.world, 6).expect("a leader with a sister in reach");
+        start_pair(&mut lab.world, l, f, false, false);
+        assert_eq!(let_go(&mut lab.world, f), Some(0.0));
+        assert!(lab.world.tandem.as_ref().unwrap().pairs.is_empty() && lab.world.tandem.as_ref().unwrap().counts.broken == 1);
+        assert_eq!(let_go(&mut lab.world, f), None);
     }
 
     /// **She follows by touch, behind and not on top**: a leader walked east

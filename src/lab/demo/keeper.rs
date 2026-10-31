@@ -97,9 +97,12 @@
 //!   a real price.
 //! - **Treats are bought from the pantry**: every windfall cell the colony
 //!   saves puts one in; a treat costs [`Rules::treat_cost`].
-//! - **Score: food saved**, the windfall cells the colony took before they
-//!   rotted (eaten there or carried off), from the cells left on each
-//!   windfall. **Not cells home** (`trip_deliveries`), which the brief
+//! - **Score: food saved**, the windfall cells ants took before they
+//!   rotted (eaten there or carried off): cells gone from a windfall, but
+//!   never more than the bites ants standing at it took ([`Patch::taken`];
+//!   until 10-31 any cell gone counted, so an erased windfall read
+//!   "STRIPPED -- ALL 60 CELLS SAVED"; on idle runs the two agree to within
+//!   a few cells, 274 against 274 median). **Not cells home** (`trip_deliveries`), which the brief
 //!   asked for and which is still counted and shown beside it: measured on
 //!   4 paired seeds, a good keeper stripped 7 of 8 windfalls against idle's
 //!   1 and still brought *fewer* cells home (19 against 24, seed 1), because
@@ -119,7 +122,27 @@
 //!   ([`spawn_twin`]), from the same scenario and seed, with nobody's hand on
 //!   it. Its opening is fingerprinted against the player's ([`fingerprint`]),
 //!   and a twin that does not match is labelled as such on the card rather
-//!   than trusted. One extra core for ~15 s of a ~7 minute round at 1x.
+//!   than trusted.
+//! - **Graded on food saved against a band of three twins** ([`grade`],
+//!   2026-10-31): the exact twin and two whose dice were knocked for a
+//!   second at the opening ([`perturb`]). The grade had been ants at the end
+//!   against the one exact twin, and the 10-31 review showed that a coin
+//!   toss on the trained ant; this file's sweep agrees from the other side:
+//!   a knocked idle box with no hand at all, graded that old way against the
+//!   exact twin, was MASTER 4 and HEAVY 4 of 12. Ants are the consequence
+//!   line on the card, never the grade. The band costs no second core: the
+//!   three twins run one after another on the one twin thread, ~8.5 s each
+//!   (0.30 ms a frame, 30,000 frames), so ~26 s of one core in a ~7 minute
+//!   round at 1x, and the verdict waits for the last.
+//! - **What the grade can and cannot tell apart** (trained ant, seeds 25-36,
+//!   paired): good against careless 7 better, 0 worse, 5 the same (sign
+//!   p = 0.016); against the random hand 4 better, 0 worse, 8 the same
+//!   (p = 0.125): on today's trained ant a carry to *anywhere* in the far
+//!   field puts a forager where windfalls fall, and food saved itself only
+//!   separates aim from that 8 to 3 (p = 0.23). The verdict does not invent
+//!   a gap the box does not have.
+//! - **The hand rests when the round is over** (stakes on): carries and
+//!   treats are refused on a box run on past its card.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -191,6 +214,10 @@ pub const PATCH_MAX_X: i32 = 490;
 pub const OLDANT_PATCH_LIFE: u64 = 2400;
 /// The twin's read-out step, in frames.
 const TWIN_EVERY: u64 = 100;
+/// Idle twins in the verdict's band ([`TwinLog`]): run one after another
+/// on the one twin thread, so the band costs time on that core, never a
+/// second core -- see the module doc for the measured cost.
+pub const DEFAULT_TWINS: u32 = 3;
 /// Frames a windfall's end ("STRIPPED", "ROTTED") stays written over it.
 const PATCH_NOTE: u64 = 1500;
 
@@ -249,6 +276,14 @@ pub struct Patch {
     pub size: u32,
     /// Cells still there at the last scan.
     pub left: u32,
+    /// **Cells ants took** (bit off and swallowed or carried), the score:
+    /// at each scan, the cells gone from the windfall's rectangle, but never
+    /// more than the bites ants standing at it took since the last scan
+    /// (`life.bites`, one per cell a mouth removes, on both brains). Cells
+    /// that leave any other way -- erased, slumped out of the count -- are
+    /// not saved (10-31 review: an erase arm scored "STRIPPED -- ALL 60
+    /// CELLS SAVED" on windfalls no ant touched).
+    pub taken: u32,
     /// Cells taken here and put down at home.
     pub home: u32,
     /// Ants the hand set down within reach of it.
@@ -293,14 +328,27 @@ pub struct TwinPoint {
 
 /// **What the twin thread has written so far.** Shared with the thread
 /// behind a mutex; read on the HUD, a lock a displayed frame.
+///
+/// **The twins are a band, not one run** (10-31 review): one thread runs
+/// [`KeeperDemo::twins`] idle boxes one after another. The first is the
+/// player's box exactly, left alone (its read-outs are the HUD's live
+/// line); each after it is the same opening with the world's random stream
+/// knocked once ([`perturb`]), so the band is what "nobody's hand" scatters
+/// to on this seed.
 #[derive(Debug, Default)]
 pub struct TwinLog {
-    /// The twin's [`fingerprint`] at its opening.
+    /// The exact twin's [`fingerprint`] at its opening (every knocked twin's
+    /// is checked against it).
     pub opening: Option<u64>,
+    /// The exact twin's read-outs.
     pub points: Vec<TwinPoint>,
-    /// The twin reached the round's end (or lost).
+    /// The exact twin reached the round's end (or lost).
+    pub exact_done: bool,
+    /// Each twin's last read-out, the exact one first.
+    pub finals: Vec<TwinPoint>,
+    /// Every twin has finished.
     pub done: bool,
-    /// The twin's own round ended this way, if it did.
+    /// The exact twin's own round ended this way, if it did.
     pub ended: Option<RoundEnd>,
     pub failed: Option<String>,
 }
@@ -402,6 +450,9 @@ pub struct KeeperDemo {
     /// Run the idle twin for the verdict (`twin=0` turns it off; a harness
     /// starts it itself with [`start_twin`]).
     pub twin_on: bool,
+    /// How many idle twins make the band (`twins=`, at least 1): the exact
+    /// one, then knocked ones ([`TwinLog`]).
+    pub twins: u32,
     /// The warm-up is running: no round yet.
     warming: bool,
     /// The frame the round opened on, and the ants alive then.
@@ -427,6 +478,9 @@ pub struct KeeperDemo {
     /// Ants seen taking food at a windfall: their `trip_deliveries` then,
     /// and which windfall (an index into `patches`).
     patch_haul: BTreeMap<OrganismId, (u32, usize)>,
+    /// Every ant's `life.bites` at the last windfall scan: a rise by an ant
+    /// standing at a windfall is cells its mouth took there ([`Patch::taken`]).
+    bites: BTreeMap<OrganismId, u32>,
 }
 
 impl Default for KeeperDemo {
@@ -451,6 +505,7 @@ impl Default for KeeperDemo {
             stakes: true,
             rules: Rules::default(),
             twin_on: true,
+            twins: DEFAULT_TWINS,
             warming: false,
             opened: None,
             ants_at_open: 0,
@@ -467,6 +522,7 @@ impl Default for KeeperDemo {
             hand_at: None,
             twin: None,
             patch_haul: BTreeMap::new(),
+            bites: BTreeMap::new(),
         }
     }
 }
@@ -487,6 +543,7 @@ impl KeeperDemo {
             stakes: self.stakes,
             rules: self.rules,
             twin_on: self.twin_on,
+            twins: self.twins,
             charges: self.rules.charges,
             ..KeeperDemo::default()
         }
@@ -504,6 +561,9 @@ impl KeeperDemo {
         }
         if let Some(t) = int("twin") {
             k.twin_on = t != 0;
+        }
+        if let Some(t) = int("twins") {
+            k.twins = (t as u32).max(1);
         }
         let r = &mut k.rules;
         r.patch_every = int("patch_every").unwrap_or(r.patch_every).max(1);
@@ -749,7 +809,7 @@ pub fn start_twin(lab: &mut Lab) {
     args.insert("twin_oldant".to_string(), if lab.new_ant { "0" } else { "1" }.to_string());
     let Some(k) = keeper(lab) else { return };
     let until = k.opened.unwrap_or(k.warmup) + k.rules.round;
-    let log = spawn_twin(args, until);
+    let log = spawn_twin(args, until, k.twins);
     if let Some(k) = keeper_mut(lab) {
         k.twin = Some(log);
     }
@@ -757,12 +817,22 @@ pub fn start_twin(lab: &mut Lab) {
 
 /// [`start_twin`]'s thread. Public so a harness can check the twin against
 /// an idle arm it ran itself (they must agree to the ant).
-pub fn spawn_twin(mut args: BTreeMap<String, String>, until: u64) -> Arc<Mutex<TwinLog>> {
+pub fn spawn_twin(mut args: BTreeMap<String, String>, until: u64, runs: u32) -> Arc<Mutex<TwinLog>> {
     let log = Arc::new(Mutex::new(TwinLog::default()));
     let out = log.clone();
     args.insert("twin".to_string(), "0".to_string());
     let spawned = std::thread::Builder::new().name("keeper-twin".to_string()).spawn(move || {
-        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_twin(args, until, &out)));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for n in 0..runs.max(1) {
+                if !run_twin(&args, until, u64::from(n), &out) {
+                    break;
+                }
+            }
+        }));
+        if let Ok(mut l) = out.lock() {
+            l.done = true;
+            l.exact_done = true;
+        }
         if let Err(e) = ran {
             let why = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
             if let Ok(mut l) = out.lock() {
@@ -780,33 +850,71 @@ pub fn spawn_twin(mut args: BTreeMap<String, String>, until: u64) -> Arc<Mutex<T
     log
 }
 
-fn run_twin(args: BTreeMap<String, String>, until: u64, out: &Arc<Mutex<TwinLog>>) {
+/// Frames a knocked twin runs on a changed seed ([`perturb`]).
+const KNOCK_FRAMES: u64 = 60;
+
+/// **Knock the box's random draws** (`n` > 0) without touching a cell or
+/// an ant: from the opening exactly, [`KNOCK_FRAMES`] ticks run with the
+/// world's seed changed -- the seed every ant's per-frame choice is drawn
+/// from (`rng::stream(world.seed, ..)`) -- and then it is put back, so the
+/// box is the same box and only one second of its dice differ. `n` = 0
+/// does nothing. Public so a harness can run a knocked idle arm itself.
+///
+/// **Not `world.rng`**: knocking that stream instead (tried first, 10-31)
+/// left 45 of 48 knocked twins (seeds 25-36, both ants) saving exactly what
+/// the exact one saved -- the ants never draw from it, so the "band" was
+/// one run three times.
+pub fn perturb(lab: &mut Lab, n: u64) {
+    if n == 0 {
+        return;
+    }
+    let seed = lab.world.seed;
+    lab.world.seed = seed ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    for _ in 0..KNOCK_FRAMES {
+        lab.tick_for_harness();
+    }
+    lab.world.seed = seed;
+}
+
+/// One twin, the `n`th: built, knocked by [`perturb`] after its opening, and
+/// run to `until`. The exact twin (`n` = 0) writes every read-out; each
+/// twin writes its last. False if it could not run (the rest are skipped).
+fn run_twin(args: &BTreeMap<String, String>, until: u64, n: u64, out: &Arc<Mutex<TwinLog>>) -> bool {
     let sc = match super::super::scenario::Scenario::load("demo_keeper") {
         Ok(s) => s,
         Err(e) => {
             if let Ok(mut l) = out.lock() {
                 l.failed = Some(e);
-                l.done = true;
             }
-            return;
+            return false;
         }
     };
     let mut lab = Lab::new(sc.bed.clone());
     lab.set_new_ant(args.get("twin_oldant").is_none_or(|v| v != "1"));
-    lab.start_demo_with(super::DemoSeat::Keeper, args);
+    lab.start_demo_with(super::DemoSeat::Keeper, args.clone());
     let print = keeper(&lab).and_then(|k| k.opening_print);
     if let Ok(mut l) = out.lock() {
-        l.opening = print;
+        if n == 0 {
+            l.opening = print;
+        } else if l.opening != print {
+            l.failed = Some(format!("KNOCKED TWIN {n} OPENED ON ANOTHER BOX"));
+            return false;
+        }
     }
+    perturb(&mut lab, n);
+    let mut last = None;
     loop {
         let f = lab.world.frame;
         let k = keeper(&lab);
         let ended = k.and_then(|k| k.ended);
         if f.is_multiple_of(TWIN_EVERY) || f >= until || ended.is_some() {
             let point = TwinPoint { frame: f, ants: live_ants(&lab.world), saved: k.map_or(0, |k| k.counts.saved), home: k.map_or(0, |k| k.counts.patch_home) };
-            if let Ok(mut l) = out.lock() {
-                l.points.push(point);
-                l.ended = ended;
+            last = Some(point);
+            if n == 0 {
+                if let Ok(mut l) = out.lock() {
+                    l.points.push(point);
+                    l.ended = ended;
+                }
             }
         }
         if f >= until || ended.is_some() {
@@ -815,8 +923,12 @@ fn run_twin(args: BTreeMap<String, String>, until: u64, out: &Arc<Mutex<TwinLog>
         lab.tick_for_harness();
     }
     if let Ok(mut l) = out.lock() {
-        l.done = true;
+        if n == 0 {
+            l.exact_done = true;
+        }
+        l.finals.extend(last);
     }
+    true
 }
 
 /// What the twin says, for the HUD and the card.
@@ -849,7 +961,7 @@ pub fn twin_at(k: &KeeperDemo, frame: u64) -> TwinRead {
     }
     let last = l.points.last().copied();
     match last {
-        Some(p) if p.frame >= frame || l.done => {
+        Some(p) if p.frame >= frame || l.exact_done => {
             let at = l.points.iter().rev().find(|p| p.frame <= frame).copied().unwrap_or(p);
             TwinRead::At(at)
         }
@@ -1042,7 +1154,7 @@ fn drop_patch(lab: &mut Lab, k: &mut KeeperDemo, frame: u64) {
         return;
     }
     let size = placed.cells as u32;
-    k.patches.push(Patch { x, y, landed: frame, rots: frame + k.rules.patch_life, size, left: size, home: 0, taught: 0, ended: None });
+    k.patches.push(Patch { x, y, landed: frame, rots: frame + k.rules.patch_life, size, left: size, taken: 0, home: 0, taught: 0, ended: None });
     k.counts.patches += 1;
     lab.ui.say(format!("A WINDFALL LANDED AT {x} -- IT ROTS IN {}S. CARRY ANTS TO IT", secs(k.rules.patch_life)));
 }
@@ -1090,38 +1202,59 @@ fn rot_patch(lab: &mut Lab, k: &mut KeeperDemo, i: usize, frame: u64) {
     lab.ui.say(format!("THE WINDFALL AT {} ROTTED: {left} CELLS LOST, {} HOME", p.x, p.home));
 }
 
-/// **The windfalls' scan**: cells left on each (a windfall eaten to nothing
-/// is stripped), and the windfall cells ants carry home -- the score, by
-/// `trip_deliveries` exactly as the station's count is.
+/// Columns and rows past a windfall's rectangle an ant's head may stand
+/// while its jaws take a cell at the edge (a bite is a neighbouring cell,
+/// and the head moves a little in the [`SCAN_EVERY`] frames between scans).
+/// Windfalls land at least `2 * PATCH_R + 6` apart, so no head is near two.
+const BITE_REACH: i32 = 3;
+
+/// **The windfalls' scan**: cells left on each, the cells ants took there
+/// ([`Patch::taken`], the score), a windfall eaten to nothing stripped, and
+/// the windfall cells ants carry home -- by `trip_deliveries` exactly as the
+/// station's count is.
 fn scan_patches(lab: &mut Lab, k: &mut KeeperDemo, frame: u64, since: u64) {
-    for i in 0..k.patches.len() {
+    let Some(ant) = lab.world.species.id_of("ant") else { return };
+    // Bites since the last scan by ants standing at each live windfall.
+    let mut bit = vec![0u32; k.patches.len()];
+    for id in lab.world.live_organism_ids() {
+        let Some(st) = lab.world.organism(id) else { continue };
+        if st.species != ant {
+            continue;
+        }
+        let now = st.life.bites;
+        let before = k.bites.insert(id, now).unwrap_or(now);
+        let d = now.saturating_sub(before);
+        if d == 0 {
+            continue;
+        }
+        let Some(&(hx, hy)) = st.chain.first() else { continue };
+        if let Some(i) = k.patches.iter().rposition(|p| {
+            let (x0, x1, y0, y1) = patch_rect(p);
+            p.live() && (x0 - BITE_REACH..=x1 + BITE_REACH).contains(&hx) && (y0 - BITE_REACH..=y1 + BITE_REACH).contains(&hy)
+        }) {
+            bit[i] += d;
+        }
+    }
+    k.bites.retain(|&id, _| lab.world.organism(id).is_some());
+    for (i, &bites) in bit.iter().enumerate() {
         if !k.patches[i].live() {
             continue;
         }
         let left = patch_food(&lab.world, &k.patches[i]);
         let p = &mut k.patches[i];
+        let gone = p.left.saturating_sub(left);
+        p.taken = (p.taken + gone.min(bites)).min(p.size.saturating_sub(left));
         p.left = left;
         if left == 0 {
             p.ended = Some((frame, PatchEnd::Stripped));
             k.counts.stripped += 1;
-            let (x, size) = (p.x, p.size);
-            lab.ui.say(format!("THE WINDFALL AT {x} IS STRIPPED BARE -- ALL {size} CELLS SAVED"));
+            let (x, taken) = (p.x, p.taken);
+            lab.ui.say(format!("THE WINDFALL AT {x} IS STRIPPED BARE -- {taken} CELLS SAVED BY ANTS"));
         }
     }
-    k.counts.saved = k
-        .patches
-        .iter()
-        .map(|p| {
-            let gone = match p.ended {
-                Some((_, PatchEnd::Rotted { left })) => left,
-                _ => p.left,
-            };
-            u64::from(p.size.saturating_sub(gone))
-        })
-        .sum();
+    k.counts.saved = k.patches.iter().map(|p| u64::from(p.taken)).sum();
     k.pantry = k.counts.saved.saturating_sub(k.treats_spent);
     let world = &lab.world;
-    let Some(ant) = world.species.id_of("ant") else { return };
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
         if st.species != ant {
@@ -1151,6 +1284,15 @@ fn limited(k: &KeeperDemo) -> bool {
     k.stakes && k.opened.is_some() && k.ended.is_none() && !k.warming
 }
 
+/// **The hand rests once the round is over** (stakes on). Before 10-31 an
+/// ended round made [`limited`] false, so a box run on past its card had
+/// free carries and treats with no pantry check, on a score already frozen.
+const ROUND_OVER: &str = "THE ROUND IS OVER -- THE HAND RESTS (STAKES=0 IS THE SANDBOX)";
+
+fn resting(k: &KeeperDemo) -> bool {
+    k.stakes && k.ended.is_some()
+}
+
 /// What a carry did: the cell the ant landed on, and the food it was
 /// taught, if any.
 pub type Carried = ((i32, i32), Option<(i32, i32)>);
@@ -1162,6 +1304,10 @@ pub type Carried = ((i32, i32), Option<(i32, i32)>);
 pub fn hand_carry(lab: &mut Lab, ant: OrganismId, to: (i32, i32)) -> Result<Carried, String> {
     let frame = lab.world.frame;
     let Some(k) = keeper_mut(lab) else { return Err("NO KEEPER DEMO".to_string()) };
+    if resting(k) {
+        k.counts.refused += 1;
+        return Err(ROUND_OVER.to_string());
+    }
     let limit = limited(k);
     if limit && k.charges == 0 {
         k.counts.refused += 1;
@@ -1324,6 +1470,10 @@ fn teach_near(lab: &mut Lab, ant: OrganismId, at: (i32, i32)) -> Option<(i32, i3
 /// The pointer over the world; `true` if the keeper seat took it.
 pub fn mouse(lab: &mut Lab, cell: (i32, i32), act: super::MouseAct) -> bool {
     let Some(tool) = keeper(lab).map(|k| k.tool) else { return false };
+    if tool != Tool::None && matches!(act, super::MouseAct::Press { .. }) && keeper(lab).is_some_and(resting) {
+        lab.ui.say(ROUND_OVER.to_string());
+        return true;
+    }
     match (tool, act) {
         (Tool::None, _) => false,
         (Tool::Carry, super::MouseAct::Press { .. }) => {
@@ -1529,14 +1679,14 @@ fn draw_patches(lab: &Lab, k: &KeeperDemo, frame_buf: &mut [u8]) {
                     put_world(lab, frame_buf, (p.x - PATCH_R + dx, top), c);
                     put_world(lab, frame_buf, (p.x - PATCH_R + dx, top + 1), c);
                 }
-                // Seconds to the rot, and the cells already saved from it.
-                let taken = p.size.saturating_sub(p.left);
+                // Seconds to the rot, and the cells ants already saved from it.
+                let taken = p.taken;
                 let label = if taken > 0 { format!("{}S  +{taken}", secs(left)) } else { format!("{}S", secs(left)) };
                 text(p.x, top - 9, &label, colour, frame_buf);
             }
             Some((at, end)) if frame.saturating_sub(at) < PATCH_NOTE => {
                 let (label, colour) = match end {
-                    PatchEnd::Stripped => (format!("STRIPPED +{}", p.size), [255, 255, 255, 255]),
+                    PatchEnd::Stripped => (format!("STRIPPED +{}", p.taken), [255, 255, 255, 255]),
                     PatchEnd::Rotted { left } => (format!("ROTTED -{left}"), PATCH_ROT),
                 };
                 text(p.x, top - 9, &label, colour, frame_buf);
@@ -1654,7 +1804,7 @@ fn draw_stakes_hud(lab: &Lab, k: &KeeperDemo, hc: crate::render::Hud, frame_buf:
         if danger { BAD } else { WHITE },
     );
     y += 10;
-    let (twin, colour) = twin_line(k, end, alive);
+    let (twin, colour) = twin_line(k, end, saved);
     hc.text(frame_buf, x0, y, &twin, colour);
     if k.overlay == Overlay::Knows {
         y += 10;
@@ -1667,16 +1817,18 @@ fn draw_stakes_hud(lab: &Lab, k: &KeeperDemo, hc: crate::render::Hud, frame_buf:
 }
 
 /// The HUD's twin line: the same seed left alone, now.
-fn twin_line(k: &KeeperDemo, frame: u64, alive: usize) -> (String, [u8; 4]) {
+fn twin_line(k: &KeeperDemo, frame: u64, saved: u64) -> (String, [u8; 4]) {
     match twin_at(k, frame) {
+        // **Food saved leads** (the verdict's own number); ants follow as
+        // the consequence, uncoloured: one difference of two chaotic runs.
         TwinRead::At(t) => {
-            let d = alive as i64 - t.ants as i64;
+            let d = saved as i64 - t.saved as i64;
             let colour = match d.signum() {
                 1 => GOOD,
                 -1 => BAD,
                 _ => WHITE,
             };
-            (format!("LEFT ALONE: {} ANTS, {} SAVED -- YOUR HAND {}", t.ants, t.saved, signed(d, "ANT")), colour)
+            (format!("LEFT ALONE: {} SAVED, {} ANTS -- YOUR HAND {} SAVED", t.saved, t.ants, signed(d, "CELL")), colour)
         }
         // Before its first read-out the twin is in its own warm-up.
         TwinRead::Behind { at: 0 } => ("LEFT ALONE: THE TWIN BOX IS STILL WARMING UP".to_string(), DIM),
@@ -1696,8 +1848,112 @@ fn signed(d: i64, unit: &str) -> String {
     }
 }
 
+/// **The verdict's grade.** `Lost` is the colony falling under
+/// [`Rules::lose_at`]; the rest place the food your ants saved against the
+/// band of idle twins ([`TwinLog`]): inside it, give or take
+/// [`BAND_SLACK`], they barely noticed you.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grade {
+    Lost,
+    Heavy,
+    Clumsy,
+    Barely,
+    Good,
+    Master,
+}
+
+impl Grade {
+    pub fn words(self) -> &'static str {
+        match self {
+            Grade::Lost => "THE COLONY IS LOST",
+            Grade::Heavy => "A HEAVY HAND",
+            Grade::Clumsy => "A CLUMSY KEEPER",
+            Grade::Barely => "THEY BARELY NOTICED YOU",
+            Grade::Good => "A GOOD KEEPER",
+            Grade::Master => "A MASTER KEEPER",
+        }
+    }
+
+    fn colour(self) -> [u8; 4] {
+        match self {
+            Grade::Lost | Grade::Heavy => BAD,
+            Grade::Clumsy => WARN,
+            Grade::Barely => WHITE,
+            Grade::Good | Grade::Master => GOOD,
+        }
+    }
+}
+
+/// Cells past either edge of the twins' band still read as "barely
+/// noticed": the band is three samples of a wide scatter, so its edges are
+/// soft. **The thresholds are from the 10-31 sweep** (trained ant, seeds
+/// 25-36; four more knocked idle runs a seed, outside the band, as the
+/// no-hand control, n = 48): idle's own food saved spreads a median 149
+/// cells across three twins, so one knocked run lands above all three a
+/// quarter of the time (12 of 48 called GOOD -- the floor for a band of
+/// three, by exchangeability) and the slack barely moves that (15: 12,
+/// 40: 11); a master bar of 100 over the top is reached by 1 of 48. Five
+/// twins took the no-hand GOOD to 0 of 24 but the scripted good keeper's
+/// GOOD-or-better from 8 to 4 of 12, and good-vs-careless from p = 0.016 to
+/// 0.125: three it is.
+pub const BAND_SLACK: u64 = 25;
+/// Cells over the band's top for a master keeper (over it by less, but by
+/// more than [`BAND_SLACK`], is a good one). 80 gave the careless hand a
+/// MASTER (1 of 12), 100 none, 160 the good keeper none.
+pub const MASTER_OVER: u64 = 100;
+/// Cells under the band's bottom for a heavy hand (under it by less, but by
+/// more than [`BAND_SLACK`], is a clumsy one). The mirror of
+/// [`MASTER_OVER`]: no scripted arm fell under the band at all.
+pub const HEAVY_UNDER: u64 = 100;
+
+/// **Grade a round**: food your ants saved, against the lowest and highest
+/// any idle twin saved on this seed. **Not ants at the end** (10-31 review,
+/// fresh seeds): on the trained ant, ants against one idle twin put the
+/// scripted good keeper above idle 7 of 12 (p = 0.77) and called a careless
+/// hand MASTER 5 of 12; idle's own ants spread 31-88. Food saved is what a
+/// hand aims at, and it tracked aim on the review's seeds 13-24 (good beat
+/// a random hand 12 of 12); on seeds 25-36 it beat careless 10 of 12 and
+/// random 8 of 12 (see the module doc).
+pub fn grade(saved: u64, band: (u64, u64), lost: bool) -> Grade {
+    let (lo, hi) = band;
+    if lost {
+        Grade::Lost
+    } else if saved >= hi + MASTER_OVER {
+        Grade::Master
+    } else if saved > hi + BAND_SLACK {
+        Grade::Good
+    } else if saved + BAND_SLACK >= lo {
+        Grade::Barely
+    } else if saved + HEAVY_UNDER > lo {
+        Grade::Clumsy
+    } else {
+        Grade::Heavy
+    }
+}
+
+/// The twins' band of food saved, once every twin has finished (and the
+/// exact one matched this box's opening).
+pub fn twin_band(k: &KeeperDemo) -> Option<(u64, u64)> {
+    let t = k.twin.as_ref()?;
+    let l = t.lock().ok()?;
+    if !l.done || l.failed.is_some() || l.finals.is_empty() || l.opening != k.opening_print {
+        return None;
+    }
+    let lo = l.finals.iter().map(|p| p.saved).min()?;
+    let hi = l.finals.iter().map(|p| p.saved).max()?;
+    Some((lo, hi))
+}
+
+/// (twins finished, twins asked for), for the card's "waits" line.
+fn twins_run(k: &KeeperDemo) -> (usize, u32) {
+    let n = k.twin.as_ref().and_then(|t| t.lock().ok().map(|l| l.finals.len())).unwrap_or(0);
+    (n, k.twins)
+}
+
 /// **The verdict card**: the round against the same seed left alone. At the
-/// end it is the result; before it (`K`), the round so far.
+/// end it is the result; before it (`K`), the round so far. **Graded on
+/// food your ants saved against the idle twins' band** ([`grade`]); ants
+/// are its consequence, shown, never graded.
 pub fn card_lines(lab: &Lab) -> Vec<(String, [u8; 4])> {
     let Some(k) = keeper(lab) else { return Vec::new() };
     let c = k.counts;
@@ -1711,52 +1967,61 @@ pub fn card_lines(lab: &Lab) -> Vec<(String, [u8; 4])> {
         None => "-- THE ROUND SO FAR --",
     };
     let mut out = vec![(format!("{head}   (K CLOSES)"), WARN)];
-    out.push((format!("FOOD SAVED {saved} OF {} CELLS: {} WINDFALLS STRIPPED, {} ROTTED", k.patches.iter().map(|p| u64::from(p.size)).sum::<u64>(), c.stripped, c.rotted), WHITE));
-    let when = if k.ended.is_some() { "AT THE END" } else { "NOW" };
-    out.push((format!("ANTS {ants} {when}, {} AT THE START, {} AT THE WORST", k.ants_at_open, c.min_ants.min(ants)), WHITE));
+    let total: u64 = k.patches.iter().map(|p| u64::from(p.size)).sum();
+    out.push((format!("YOUR ANTS SAVED {saved} OF {total} CELLS: {} STRIPPED, {} ROTTED", c.stripped, c.rotted), WHITE));
     let read = twin_at(k, frame);
-    let base = match read {
-        TwinRead::At(t) => t.ants,
-        _ => k.ants_at_open,
-    };
-    let d = ants as i64 - base as i64;
-    match read {
-        TwinRead::At(t) => {
-            out.push((format!("THE SAME SEED LEFT ALONE: {} ANTS, {} CELLS SAVED", t.ants, t.saved), WHITE));
-            let (line, colour) = match d.signum() {
-                1 => (format!("YOUR HAND GAVE THEM {d} ANTS AND {} CELLS SAVED", saved as i64 - t.saved as i64), GOOD),
-                -1 => (format!("YOUR HAND COST THEM {} ANTS", -d), BAD),
-                _ => ("THEY DID EXACTLY AS WELL AS THEY WOULD ALONE".to_string(), WHITE),
+    let band = k.ended.and_then(|_| twin_band(k));
+    match (read, band) {
+        (TwinRead::At(_), Some((lo, hi))) => {
+            let range = if lo == hi { format!("{lo}") } else { format!("{lo} TO {hi}") };
+            out.push((format!("THE SAME SEED LEFT ALONE ({} TRIES): {range} SAVED", k.twins), WHITE));
+            let (line, colour) = if saved > hi + BAND_SLACK {
+                (format!("YOUR HAND SAVED {} MORE THAN THE BEST OF THEM", saved - hi), GOOD)
+            } else if saved + BAND_SLACK < lo {
+                (format!("YOUR HAND SAVED {} FEWER THAN THE WORST OF THEM", lo - saved), BAD)
+            } else {
+                ("WITHIN WHAT THE BOX DOES ALONE".to_string(), WHITE)
             };
             out.push((line, colour));
         }
-        TwinRead::Behind { at } => out.push((format!("THE TWIN BOX IS STILL RUNNING (FRAME {at}) -- THE VERDICT WAITS"), DIM)),
-        why => {
+        (TwinRead::At(t), None) => {
+            out.push((format!("THE SAME SEED LEFT ALONE: {} SAVED BY NOW", t.saved), WHITE));
+            if k.ended.is_some() {
+                let (n, of) = twins_run(k);
+                out.push((format!("THE TWIN BOXES ARE STILL RUNNING ({n} OF {of}) -- THE VERDICT WAITS"), DIM));
+            } else {
+                out.push((format!("YOUR HAND {} SAVED SO FAR", signed(saved as i64 - t.saved as i64, "CELL")), DIM));
+            }
+        }
+        (TwinRead::Behind { at }, _) => out.push((format!("THE TWIN BOX IS STILL RUNNING (FRAME {at}) -- THE VERDICT WAITS"), DIM)),
+        (why, _) => {
             let reason = match why {
                 TwinRead::Mismatch => "THE TWIN DID NOT MATCH YOUR BOX",
                 TwinRead::Failed => "THE TWIN FAILED",
                 _ => "NO TWIN RAN",
             };
-            out.push((format!("{reason}: AGAINST THE START, {}", signed(d, "ANT")), DIM));
+            out.push((format!("{reason}: NOTHING TO COMPARE WITH"), DIM));
         }
     }
+    // The consequence: ants, against the exact twin when there is one.
+    let when = if k.ended.is_some() { "AT THE END" } else { "NOW" };
+    let alone = match read {
+        TwinRead::At(t) => format!(" ({} LEFT ALONE)", t.ants),
+        _ => String::new(),
+    };
+    out.push((format!("ANTS {ants} {when}{alone}, {} AT THE START, {} AT THE WORST", k.ants_at_open, c.min_ants.min(ants)), WHITE));
     out.push((format!("CARRIED {} ANTS ({} TO A WINDFALL), {} TREATS, {} REFUSED", c.carried, c.carried_to_food, c.treated, c.refused), DIM));
     if let Some(e) = k.ended {
-        let rel = d as f32 / base.max(10) as f32;
-        let (grade, colour) = if e.why == Ending::Lost {
-            ("THE COLONY IS LOST", BAD)
-        } else if rel <= -0.25 {
-            ("A HEAVY HAND", BAD)
-        } else if rel < -0.05 {
-            ("A CLUMSY KEEPER", WARN)
-        } else if rel <= 0.05 {
-            ("THEY BARELY NOTICED YOU", WHITE)
-        } else if rel < 0.25 {
-            ("A GOOD KEEPER", GOOD)
-        } else {
-            ("A MASTER KEEPER", GOOD)
-        };
-        out.push((format!("VERDICT: {grade}"), colour));
+        let lost = e.why == Ending::Lost;
+        match (band, lost) {
+            (Some(b), _) => {
+                let g = grade(saved, b, lost);
+                out.push((format!("VERDICT: {}", g.words()), g.colour()));
+            }
+            (None, true) => out.push((format!("VERDICT: {}", Grade::Lost.words()), Grade::Lost.colour())),
+            (None, false) if matches!(read, TwinRead::At(_) | TwinRead::Behind { .. }) => {}
+            (None, false) => out.push(("VERDICT: NONE -- NO TWIN TO COMPARE WITH".to_string(), DIM)),
+        }
     }
     out
 }
@@ -1863,11 +2128,58 @@ mod tests {
         let k = keeper(&lab).expect("keeper");
         assert!(k.ended.is_some() && k.card, "the round did not end with the card up");
         assert!(card_lines(&lab).iter().any(|(l, _)| l.starts_with("VERDICT")), "the card has no verdict");
+        // The hand rests after the round: no free carries on a frozen score.
+        let carried = counts(&lab).map(|c| c.carried);
+        assert!(hand_carry(&mut lab, ants[2], (p.x - 3, p.y - 2)).is_err(), "the hand carried after the round was over");
+        assert_eq!(counts(&lab).map(|c| c.carried), carried);
 
         let mut sandbox = demo(&[("warmup", "300"), ("stakes", "0")]);
         for _ in 0..60 {
             sandbox.tick_for_harness();
         }
         assert!(keeper(&sandbox).is_some_and(|k| k.patches.is_empty() && k.counts.station_given > 0), "stakes=0 is not the sandbox");
+    }
+
+    /// **Food saved counts only what ants took** (10-31 review: an erase arm
+    /// read "STRIPPED -- ALL 60 CELLS SAVED" on windfalls no ant reached).
+    /// Half a fresh windfall's cells are emptied by no mouth -- as the lab's
+    /// erase did -- and the scan must book none of them saved. Positive
+    /// control: the cells left *did* fall, so the scan saw the removal.
+    #[test]
+    fn food_saved_counts_only_what_ants_took() {
+        let mut lab = demo(&[("warmup", "300")]);
+        lab.tick_for_harness();
+        let p = *keeper(&lab).and_then(|k| k.patches.first()).expect("a windfall lands as the round opens");
+        let food = lab.world.materials.id_of("provisions").expect("provisions");
+        let (x0, x1, y0, y1) = patch_rect(&p);
+        let mut emptied = 0;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if emptied < p.size / 2 && lab.world.get(x, y).material == food {
+                    lab.world.set(x, y, Cell::EMPTY);
+                    emptied += 1;
+                }
+            }
+        }
+        for _ in 0..2 * SCAN_EVERY {
+            lab.tick_for_harness();
+        }
+        let q = keeper(&lab).expect("keeper").patches[0];
+        assert!(q.left + emptied <= p.size + 2, "the scan did not see the cells go: {q:?} after emptying {emptied}");
+        assert_eq!((q.taken, counts(&lab).map(|c| c.saved)), (0, Some(0)), "cells no ant took were booked saved: {q:?}");
+    }
+
+    /// **The grade is food saved against the twins' band**, every word
+    /// reachable, and a lost colony is lost whatever it saved.
+    #[test]
+    fn the_grade_reads_food_saved_against_the_band() {
+        let band = (200, 260);
+        assert_eq!(grade(260 + MASTER_OVER, band, false), Grade::Master);
+        assert_eq!(grade(260 + BAND_SLACK + 1, band, false), Grade::Good);
+        assert_eq!(grade(260 + BAND_SLACK, band, false), Grade::Barely);
+        assert_eq!(grade(200 - BAND_SLACK, band, false), Grade::Barely);
+        assert_eq!(grade(200 - BAND_SLACK - 1, band, false), Grade::Clumsy);
+        assert_eq!(grade(200 - HEAVY_UNDER, band, false), Grade::Heavy);
+        assert_eq!(grade(999, band, true), Grade::Lost);
     }
 }

@@ -92,7 +92,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         DemoSeat::Keeper => SeatCard {
             title: "KEEPER -- A HAND OVER THE BOX",
             goal: "FOOD FALLS AT FAR SPOTS AND ROTS WHILE YOU WATCH. PICK ANTS UP AND SET THEM ON IT BEFORE IT GOES GREY. CARRIES ARE FEW AND COME BACK SLOWLY, AND A LIFT TIRES THE ANT. AT THE END YOU ARE JUDGED AGAINST THE SAME BOX LEFT ALONE.",
-            score: "THE VERDICT IS ANTS AT THE END AGAINST THE SAME BOX LEFT ALONE. FOOD SAVED IS YOUR RUNNING TALLY",
+            score: "FOOD YOUR ANTS SAVE FROM THE ROT, AGAINST THE SAME BOX LEFT ALONE THREE TIMES. ANTS AT THE END ARE SHOWN, NOT SCORED",
             lose: "FEWER THAN 10 ANTS. THE ROUND ENDS IN ABOUT 7 MINUTES",
             keys: &[
                 ("Y", "HAND: CARRY (1 CHARGE)"),
@@ -105,7 +105,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Scout => SeatCard {
             title: "SCOUT -- ONE WORKER WHO KNOWS THE WAY",
-            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST, SEALED: ONLY AN ANT WHO WAS LED THERE CAN CARRY FROM IT. TAP A SISTER AND LEAD HER, AND WHEN SHE STOPS, WAIT. YOUR PUPILS LEAD SISTERS OF THEIR OWN.",
+            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST, SEALED: ONLY AN ANT WHO WAS LED THERE CAN CARRY FROM IT. LEAD A SISTER ALL THE WAY FROM THE NEST; A SHORT LEAD TEACHES LITTLE. WHEN SHE STOPS, WAIT. HER PUPILS LEAD THEIR OWN.",
             score: "FOOD YOUR PUPILS BRING HOME: 1 A TRIP, 2 FOR THEIR PUPILS, 3 AFTER THAT",
             lose: "FEWER THAN 1 IN 5 OF THE COLONY ALIVE AT SPRING, OR YOU STARVE",
             keys: &[
@@ -113,19 +113,19 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("TAB", "CAMERA FOLLOWS YOU"),
                 ("Y", "TAP A SISTER TO FOLLOW"),
                 ("U", "PIN YOUR PUPIL"),
+                ("K", "LET YOUR PUPIL GO"),
                 ("P", "SNIFF NEAREST SISTER"),
                 ("F", "SHARE FOOD"),
                 ("G", "DIG"),
                 ("E", "EAT"),
-                ("Q", "DROP WHAT YOU CARRY"),
                 ("R", "NEW SEASON"),
             ],
         },
         DemoSeat::Guest => SeatCard {
             title: "GUEST -- A ROVE BEETLE IN THE NEST",
-            goal: "THE ANTS KNOW YOU BY SMELL. RUB THEM UNTIL YOU SMELL LIKE FAMILY, THEN BEG FOR FOOD. EVERY BEG MAKES THEM WARIER, SO SPACE YOUR ASKS AND RUB IN BETWEEN. WITH ENERGY TO SPARE, SLIP INTO THE NEST AND LAY AN EGG.",
-            score: "1 A SECOND ALIVE, 100 AN EGG (200 BESIDE THEIR BROOD), PLUS ENERGY LEFT. A VISIT LASTS 5 MINUTES",
-            lose: "ALL THREE OF YOUR BEETLES ARE KILLED",
+            goal: "RUB ANTS UNTIL YOU SMELL LIKE FAMILY, THEN BEG. EACH BEG MAKES THE COLONY WARIER AND A WARY ANT GIVES LESS. A RUB CALMS THEM ONLY ONCE YOU STOP ASKING: BEG WHEN WARY IS LOW AND Y IS READY. LAY EGGS IN THE DASHED BOX.",
+            score: "1 A SECOND ALIVE, 100 AN EGG (200 BESIDE THEIR BROOD), PLUS ENERGY LEFT / 10. A VISIT LASTS 5 MINUTES",
+            lose: "ALL 3 BEETLES KILLED OR STARVED. THE VISIT ENDS AT 5:00 ANYWAY",
             keys: &[
                 ("ARROWS", "MOVE"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
@@ -268,8 +268,7 @@ pub fn draw(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
         hc.text(frame_buf, kx + KEY_W, ky, what, INK);
     }
     y += ROW * rows as i32 + 6;
-    let foot = "PRESS SPACE TO PLAY -- ANY KEY CLOSES THIS CARD";
-    hc.text(frame_buf, PANEL_X + (PANEL_W - text_width(foot)) / 2, y, foot, MUTED);
+    hc.text(frame_buf, PANEL_X + (PANEL_W - text_width(FOOT)) / 2, y, FOOT, MUTED);
 }
 
 /// **The reminder while the card is shut**: one short line, top right, so
@@ -279,7 +278,7 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     if demo.card {
         return;
     }
-    let t = "H: GOAL AND KEYS";
+    let t = "H: GOAL AND KEYS   \\: DEMOS";
     let w = text_width(t) + 8;
     let x = super::super::WIDTH as i32 - w - 4;
     let y = REMINDER_Y;
@@ -287,6 +286,11 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     hc.blend_rect(frame_buf, x, y, w, GLYPH_HEIGHT + 2, [12, 14, 18, 255], 0.6);
     hc.text(frame_buf, x + 4, y + 1, t, MUTED);
 }
+
+/// **The card's last line.** `\\` is the DEMOS page (`menu`): another seat,
+/// or back to the plain lab. Here rather than in `SHARED_KEYS`, where a
+/// fourth key row put the satchel's card under the bar.
+const FOOT: &str = "SPACE PLAYS -- \\ OTHER DEMOS OR THE LAB -- ANY OTHER KEY CLOSES";
 
 /// The reminder's top edge: the row of the lab's own FRAME counter, above
 /// where every seat's panel starts (the queen's ledger and the scout's panel
@@ -308,6 +312,7 @@ mod tests {
             let bottom = PANEL_Y + panel_height(&c);
             assert!(bottom <= crate::lab::ui::bar_top() - 4, "{seat:?}: card runs to {bottom}, under the bar");
             assert!(text_width(c.title) <= PANEL_W - 2 * PAD, "{seat:?}: title too wide");
+            assert!(text_width(FOOT) <= PANEL_W - 2 * PAD, "the footer is wider than the card");
             for (k, what) in all_keys(&c) {
                 assert!(text_width(k) + 4 <= KEY_W, "{seat:?}: key label {k} too wide");
                 assert!(what.len() <= KEY_DESC_MAX, "{seat:?}: '{what}' is {} > {KEY_DESC_MAX}", what.len());

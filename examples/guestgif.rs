@@ -20,12 +20,22 @@
 //! `rub_for` frames, then begs every 90; `predator` is `beggar` that also
 //! presses B every 30 frames and E every 15 after `kill_at`. The stakes
 //! scripts (2026-10-30), each laying an egg (L) whenever the HUD says
-//! `L READY`: `good` soaks, rubs every 20 frames until the smell bar says
-//! FAMILY and the WARY bar is under 0.2, and then begs at most every
-//! `space` frames (default 180), rubbing between; `spam` soaks and rubs
+//! `L READY`: `good` soaks, rubs every `cadence` frames (10) until the smell bar says
+//! FAMILY, the WARY bar is under 0.2 and the panel says `Y READY`, and then
+//! begs at most every `space` frames (default 180), rubbing between -- it
+//! reads only what the HUD draws (2026-10-31; it used to read the colony
+//! term, which no bar shows); `spam` soaks and rubs
 //! until its rove first smells of family (what the first 20 s teach
 //! everyone), then begs on every press (every 30 frames) and never rubs
-//! again; `idle` presses nothing and does not move.
+//! again; `idle` presses nothing and does not move. From the 10-31
+//! adversarial review: `mash` alternates R and Y every 10 frames, blind,
+//! and `rush` never rubs or begs and lays on landing. `greedy` (10-31) begs
+//! every time the HUD says `Y READY` whatever the WARY bar says, and rubs
+//! otherwise: the strongest opponent that obeys the pacing.
+//!
+//! The seat's wariness knobs pass through (`wary=0`, `wary_rules=legacy`,
+//! `ask_gap=`, `pester=`, `rub_busy=`, `rub_calm=`, `gift_calm=`), so the
+//! 10-30 rules can be run beside the new ones from one binary.
 //!
 //! **The paired mode** (`scripts=` and `seeds=`) warms each seed's colony
 //! once, keeps a copy of the world and the seat just before the landing, and
@@ -69,6 +79,8 @@ struct Knobs {
     /// The stakes scripts lay an egg once the bank reaches this (J); the
     /// seat's own floor is `EGG_J + EGG_KEEP_J`.
     lay_at: f32,
+    /// Frames between `good`'s presses.
+    cadence: u64,
 }
 
 fn seat(lab: &Lab) -> &guest::GuestDemo {
@@ -109,7 +121,7 @@ fn drive(lab: &mut Lab, script: &str, f: u64, p: &mut Player, door: (i32, i32), 
     // stops the rove a column outside the nest (seed 3, x 273 against a
     // door at 256 and a reach of 16).
     let head = me.and_then(|m| m.2);
-    if matches!(script, "good" | "spam") && matches!(want, Some(DemoKey::Left | DemoKey::Right)) && head == p.last_head {
+    if matches!(script, "good" | "spam" | "rush" | "mash" | "greedy") && matches!(want, Some(DemoKey::Left | DemoKey::Right)) && head == p.last_head {
         p.still += 1;
         if p.still >= 120 {
             p.still = 0;
@@ -153,13 +165,53 @@ fn drive(lab: &mut Lab, script: &str, f: u64, p: &mut Player, door: (i32, i32), 
                 }
             }
         }
-        "good" | "spam" => {
+        // From the 10-31 adversarial review (`scratch-guestgif.patch`), kept
+        // as standing opponents. `rush`: never rubs or begs; walks in and lays
+        // whenever L is ready. `mash`: soak on, R and Y alternately every 10
+        // frames with no reading of the HUD, lays when ready -- the arm that
+        // broke the seat (out-egged `good` 225 to 85 on seeds 13-24).
+        "rush" => {
+            if f % 60 == 30 && energy >= guest::EGG_J + guest::EGG_KEEP_J {
+                press(lab, 'L', p);
+            }
+        }
+        "mash" => {
+            if f % 60 == 30 && energy >= guest::EGG_J + guest::EGG_KEEP_J {
+                press(lab, 'L', p);
+            }
+            if f.is_multiple_of(20) {
+                press(lab, 'R', p);
+            } else if f % 20 == 10 {
+                press(lab, 'Y', p);
+            }
+        }
+        "good" | "spam" | "greedy" => {
             if f % 60 == 30 && energy >= k.lay_at.max(guest::EGG_J + guest::EGG_KEEP_J) {
                 press(lab, 'L', p);
             }
+            // **Only what the HUD shows** (10-31 review finding 3: `good`
+            // read the colony term, which no bar draws): the SMELL number,
+            // the WARY number (`wary_near`, colony + the warier ant beside
+            // you) and the `Y READY` flag (`ask_wait` 0).
             let v = lab.world.visitors.as_ref();
             let g = me.and_then(|(id, _, _)| v.and_then(|v| v.list.iter().find(|x| x.id == id))).map_or(f32::NAN, |x| x.gap);
-            let wary = v.and_then(|v| v.wary.as_ref()).map_or(0.0, |w| w.colony(frame));
+            let wary = me.map_or(0.0, |(id, _, _)| guest::wary_near(&lab.world, id));
+            let y_ready = v.and_then(|v| v.wary.as_ref()).is_none_or(|w| w.ask_wait(frame) == 0);
+            if script == "greedy" {
+                // The honest greedy player (2026-10-31): reads the HUD's
+                // `Y READY` and begs every time it lights, whatever the WARY
+                // bar says; rubs otherwise. The strongest opponent that
+                // respects the pacing rules.
+                if !f.is_multiple_of(10) {
+                    return;
+                }
+                if y_ready && g.is_finite() && g < 0.45 {
+                    press(lab, 'Y', p);
+                } else {
+                    press(lab, 'R', p);
+                }
+                return;
+            }
             if script == "spam" {
                 // Disguise once per rove (the first 20 s everyone learns),
                 // then beg on every press and never rub again.
@@ -178,11 +230,20 @@ fn drive(lab: &mut Lab, script: &str, f: u64, p: &mut Player, door: (i32, i32), 
                 }
                 return;
             }
-            if !f.is_multiple_of(20) {
+            // Presses every `cadence` frames (default 10, 2026-10-31; it was
+            // 20): the same rate as `greedy`, so the two differ only in
+            // whether they wait for the WARY bar and space their asks. At 20
+            // the careful rove took the smell half as fast and died raw at
+            // the door on seeds where `greedy` lived (26: 352 -> 1,154 at 10).
+            // Over seeds 25-36 the median went 748 -> 1,078 and the eggs
+            // 87 -> 96, but per seed it is noisy: 29-31 went down, and the
+            // paired sign test against `mash` went 11-1 -> 9-3 (both are in
+            // the 10-31 guest fix report). `cadence=20` is the old script.
+            if !f.is_multiple_of(k.cadence.max(1)) {
                 return;
             }
             let spaced = p.last_beg.is_none_or(|t| frame >= t + k.space);
-            if g.is_finite() && g < 0.45 && wary < 0.2 && spaced {
+            if g.is_finite() && g < 0.45 && wary < 0.2 && spaced && y_ready {
                 p.last_beg = Some(frame);
                 press(lab, 'Y', p);
             } else {
@@ -204,8 +265,11 @@ fn fresh(seed: u64, land: u64, gap: Option<f32>, stakes: &str) -> Lab {
         args.insert("gap".to_string(), g.to_string());
     }
     args.insert("stakes".to_string(), stakes.to_string());
-    if let Some(w) = arg::<String>("wary") {
-        args.insert("wary".to_string(), w);
+    // The seat's wariness switches and knobs (`guest::wary_knobs`).
+    for key in ["wary", "wary_rules", "ask_gap", "pester", "rub_busy", "rub_calm", "quiet", "beg_colony", "gift_calm"] {
+        if let Some(w) = arg::<String>(key) {
+            args.insert(key.to_string(), w);
+        }
     }
     // `start_demo_with` without its by-name load, so `seed=` reaches the bed.
     let mut demo = Demo::new(DemoSeat::Guest);
@@ -227,7 +291,7 @@ fn result_row(lab: &Lab, script: &str, seed: u64, p: &Player, frames: u64) -> St
     let lost = st.lives.saturating_sub(u32::from(st.died_at.is_none() && st.body.is_some_and(|id| lab.world.organism(id).is_some())));
     let brood = st.eggs.iter().filter(|e| e.brood).count();
     format!(
-        "RESULT script={script} seed={seed} stakes={} frames={frames} score={} alive_s={} egg_pts={} energy_pts={} eggs={} brood_eggs={brood} lives_used={} lives_lost={lost} ended={:?} y_presses={} begs={} fed={} fed_j={:.0} refused={} empty={} accept={:.2} per_press={:.2} nips={} cells_lost={} rubs={} r_presses={} l_presses={} grade={}",
+        "RESULT script={script} seed={seed} stakes={} frames={frames} score={} alive_s={} egg_pts={} energy_pts={} eggs={} brood_eggs={brood} lives_used={} lives_lost={lost} ended={:?} y_presses={} begs={} fed={} fed_j={:.0} refused={} empty={} too_soon={} accept={:.2} per_press={:.2} nips={} cells_lost={} rubs={} r_presses={} l_presses={} grade={}",
         st.stakes,
         sc.total(),
         sc.alive_s,
@@ -242,6 +306,7 @@ fn result_row(lab: &Lab, script: &str, seed: u64, p: &Player, frames: u64) -> St
         c.fed_j,
         c.refused,
         c.empty,
+        c.too_soon,
         c.fed as f64 / (c.fed + c.refused).max(1) as f64,
         c.fed as f64 / p.y_presses.max(1) as f64,
         c.nipped,
@@ -260,7 +325,7 @@ fn paired(scripts: &str, seeds: &str, land: u64, gap: Option<f32>, stakes: &str,
     };
     let scripts: Vec<&str> = scripts.split(',').collect();
     let len: u64 = arg("len").unwrap_or(guest::VISIT_FRAMES + 120);
-    println!("paired: scripts={scripts:?} seeds={seeds:?} land={land} gap={gap:?} stakes={stakes} len={len} space={} lay_at={}", k.space, k.lay_at);
+    println!("paired: scripts={scripts:?} seeds={seeds:?} land={land} gap={gap:?} stakes={stakes} len={len} space={} lay_at={} cadence={}", k.space, k.lay_at, k.cadence);
     for seed in seeds {
         let t0 = std::time::Instant::now();
         let mut lab = fresh(seed, land, gap, stakes);
@@ -301,7 +366,7 @@ fn main() {
     let land: u64 = arg("land").unwrap_or(30_000);
     let gap: Option<f32> = arg("gap");
     let stakes: String = arg("stakes").unwrap_or_else(|| "1".into());
-    let k = Knobs { rub_for: arg("rub_for").unwrap_or(1_200), kill_at: arg("kill_at").unwrap_or(2_400), space: arg("space").unwrap_or(180), lay_at: arg("lay_at").unwrap_or(0.0) };
+    let k = Knobs { rub_for: arg("rub_for").unwrap_or(1_200), kill_at: arg("kill_at").unwrap_or(2_400), space: arg("space").unwrap_or(180), lay_at: arg("lay_at").unwrap_or(0.0), cadence: arg("cadence").unwrap_or(10) };
     if let (Some(scripts), Some(seeds)) = (arg::<String>("scripts"), arg::<String>("seeds")) {
         return paired(&scripts, &seeds, land, gap, &stakes, &k);
     }
@@ -314,7 +379,7 @@ fn main() {
     let gif: bool = arg::<u8>("gif").unwrap_or(1) == 1;
     // `png=f1,f2` saves those run frames as stills beside `out`.
     let pngs: Vec<u64> = arg::<String>("png").map(|s| s.split(',').filter_map(|v| v.parse().ok()).collect()).unwrap_or_default();
-    assert!(matches!(script.as_str(), "raw" | "beggar" | "predator" | "none" | "good" | "spam" | "idle"), "script= is raw, beggar, predator, good, spam, idle or none");
+    assert!(matches!(script.as_str(), "raw" | "beggar" | "predator" | "none" | "good" | "spam" | "idle" | "rush" | "mash" | "greedy"), "script= is raw, beggar, predator, good, spam, greedy, mash, rush, idle or none");
     println!("guestgif: script={script} seed={seed} land={land} gap={gap:?} stakes={stakes} frames={frames} every={every} zoom={zoom} rub_for={} kill_at={} space={} out={out} gif={gif} png={pngs:?}", k.rub_for, k.kill_at, k.space);
 
     let mut lab = fresh(seed, land, gap, &stakes);
@@ -372,7 +437,7 @@ fn main() {
                 lab.world.frame,
                 f / 60,
                 head,
-                head.is_some_and(|h| guest::in_nest(&lab.world, h)),
+                head.is_some_and(|h| guest::in_nest(&lab, h)),
                 body.map(|(id, e, n)| (id, e as i32, n)),
                 st.lives,
                 guest::score_now(&lab).total(),

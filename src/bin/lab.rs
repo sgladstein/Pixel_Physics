@@ -35,6 +35,7 @@
 //! | `WASD` | pan; `-` / `=` zoom |
 //! | left / right mouse | the armed tool / the eraser |
 //! | `R` | rebuild the box |
+//! | `\\` | the DEMOS page: every seat demo, and PLAIN LAB back |
 //! | `Esc` | quit |
 //!
 //! **And none of them is the only way in.** `lab::ui` draws every one of the
@@ -96,6 +97,11 @@
 //! or the older `oldant`, on the hand-built brain), and `-- training` opens
 //! the COLONY TRAINING page with round 0 founded on the training bed
 //! (`lab::training`).
+//!
+//! **Every seat demo is one click away**: MENU's top row, PLAY A DEMO (or
+//! `\\`), lists queen, raider, keeper, guest, scout and satchel with a line
+//! each, starts one on the spot, and its PLAIN LAB row comes back to the box
+//! and ant you left (`lab::demo::menu`). `-- demo=queen` still opens on one.
 //!
 //! **The laying brake is on at 48:8** since 2026-10-31 (`Lab::lay_brake`):
 //! past 48 ants each 8 more double what a queen must bank before an egg, so
@@ -331,6 +337,9 @@ impl Handler {
             None => 0,
         };
         lab.pick_ant(ant);
+        // A person is at the keys: a demo started from here or from the
+        // DEMOS page gets its seat card and its landing pause.
+        lab.windowed = true;
         // **The laying brake, on at 48:8** (owner's card, 2026-10-31: test it
         // in the lab, and it ships on if not measured harmful;
         // `Lab::lay_brake`). Without it a lab colony booms to 150-600 ants and
@@ -355,18 +364,14 @@ impl Handler {
                 Some(seat) => {
                     lab.show_help = false;
                     let kv = args.iter().filter_map(|a| a.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                    let msg = lab.start_demo_with(seat, kv);
+                    // The same launch the DEMOS page uses (`demo::menu`): it
+                    // remembers this plain lab for PLAIN LAB, and with a
+                    // window opens the seat card (goal, score, keys) and arms
+                    // the landing pause; a headless harness never does.
+                    // `card=0` opens straight onto the seat, for a screenshot
+                    // of its own panel and the card's reminder.
+                    let msg = lab.launch_demo(seat, kv);
                     lab.ui.say(msg);
-                    // The window opens on the seat card (goal, score, keys);
-                    // a headless harness never does (`demo::card`). `card=0`
-                    // opens straight onto the seat, for a screenshot of its
-                    // own panel and the card's reminder.
-                    if let Some(d) = lab.demo.as_mut() {
-                        d.window = true;
-                    }
-                    if !args.iter().any(|a| a == "card=0") {
-                        lab.open_seat_card(false);
-                    }
                 }
                 None => eprintln!("demo {name}: no such seat (queen, keeper, guest, mind, enemy, scout)"),
             }
@@ -682,6 +687,11 @@ impl Handler {
         if pressed && self.lab.demo.as_ref().is_some_and(|d| d.card) && self.lab.ui.typing().is_none() {
             if code == KeyCode::Space {
                 self.lab.demo_space();
+            } else if code == KeyCode::Backslash {
+                // The card lists `\` as OTHER DEMOS: it goes there, rather
+                // than only closing the card and needing a second press.
+                self.lab.close_seat_card();
+                self.lab.act(Action::Panel(Panel::Demos));
             } else {
                 self.lab.close_seat_card();
             }
@@ -804,6 +814,12 @@ impl Handler {
             // number row reaches without looking; SHIFT steps back. The seat
             // demos' key layer passes it through.
             KeyCode::Backquote => self.lab.act(Action::CycleAnt(if self.shift { -1 } else { 1 })),
+            // **`\` -- the DEMOS page** (owner, 2026-10-31: *"a menu in the
+            // game to access all these demos"*): every seat, and PLAIN LAB
+            // back. One of the three keys `` ` `` left unbound, and not one the
+            // seat layer reads, so it works inside a demo -- which is where
+            // the way back is needed. Also MENU's top row.
+            KeyCode::Backslash => self.lab.act(Action::Panel(Panel::Demos)),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
             // control does rather than two that can drift.
