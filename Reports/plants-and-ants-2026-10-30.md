@@ -3,7 +3,9 @@
 *Plant lane, goal G4: a plant community that lives with the colony. Status:
 measured on `main` 678a4fb4 (collar resprout on; before PR #990's fungus
 garden). Pip food value lowered 40 -> 14 and shipped (§3); the tree's loss
-traced to shrub competition and handed to the invasion test (§4-5). New player-facing interactions (leaf garden, guarded
+traced to shrub competition and handed to the invasion test (§4-5);
+stage 0 of that test ran on the VM 2026-10-31 (§6): its gates pass, and no
+role grows from four seeds on more than one bed in four. New player-facing interactions (leaf garden, guarded
 plants, a planting verb) belong to the plants-and-ants interaction lane and
 are not designed here. Pictures: <https://claude.ai/artifact/KSsVbrwiPbC4vDqwMbXprw>.*
 

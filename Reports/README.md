@@ -814,7 +814,9 @@ by somebody about to try it on creatures.
   40 -> 14: pips eaten 470 -> 0, plants from carried seed up on 12 of 12
   beds. With resprout on, surviving shrubs crowd out tree seedlings (trees
   at 450k fewer on 7 of 12 beds); `plant_m0 mode=stand bed=played` is the
-  invasion test (rungs 5-6) on this bed with the colony.
+  invasion test (rungs 5-6) on this bed with the colony; its stage 0
+  (2026-10-31) passes its gates, and no role grows from four seeds on more
+  than one bed in four.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
