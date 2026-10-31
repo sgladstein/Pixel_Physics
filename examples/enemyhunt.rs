@@ -184,6 +184,8 @@ fn main() {
     );
     let mut rebank_digs = 0u32;
     let (mut funnel_frames, mut held_flips, mut held_seen) = (0u64, 0u64, 0u64);
+    // Round 3's levers, over every life: wound meter the door cover and the carrying plate took off (cells), frames the funnel led out.
+    let (mut door_abs, mut door_seen, mut carry_abs, mut carry_seen, mut out_frames, mut out_seen) = (0f32, 0f32, 0f32, 0f32, 0u64, 0u64);
     let mut instinct_set = false;
     let start_state = if camp || instinct {
         State::Camp
@@ -309,6 +311,12 @@ fn main() {
         funnel_frames += u64::from(e.funnel);
         held_flips += if e.held_flips >= held_seen { e.held_flips - held_seen } else { e.held_flips };
         held_seen = e.held_flips;
+        door_abs += if e.door_absorbed >= door_seen { e.door_absorbed - door_seen } else { e.door_absorbed };
+        door_seen = e.door_absorbed;
+        carry_abs += if e.carry_absorbed >= carry_seen { e.carry_absorbed - carry_seen } else { e.carry_absorbed };
+        carry_seen = e.carry_absorbed;
+        out_frames += if e.funnelled_out >= out_seen { e.funnelled_out - out_seen } else { e.funnelled_out };
+        out_seen = e.funnelled_out;
         if now >= t0 + after || (!respawn || e.over) && e.ended.is_some_and(|(f, _)| now > f + 300) {
             break;
         }
@@ -684,7 +692,7 @@ fn main() {
                 let site = lab.world.nest_sites.iter().min_by_key(|s| (s.x - head.0).abs()).map(|s| (s.x, s.surface));
                 let way = site.and_then(|(_, sf)| pixel_physics::lab::demo::enemy::way_in(&lab.world, e.raider.unwrap_or(0), head, sf));
                 let input = lab.world.steered.as_ref().and_then(|s| s.input).map(|i| i.dir);
-                println!("   AS site={site:?} way_in={way:?} funnel={} input={input:?}", e.funnel);
+                println!("   AS site={site:?} way_in={way:?} funnel={} input={input:?} cover_from={:?} door_cells={:.2} carry_cells={:.2}", e.funnel, e.cover_from, e.door_absorbed, e.carry_absorbed);
                 if arg::<u64>("mapat") == Some(now - t0) {
                     for y in head.1 - 8..head.1 + 16 {
                         let row: String = (head.0 - 12..head.0 + 16)
@@ -779,7 +787,9 @@ fn main() {
             let hold = pixel_physics::lab::demo::enemy::carrying_larva(&lab.world, e);
             let out = head.is_some_and(|h| pixel_physics::lab::demo::enemy::cover(&lab.world, h) == 0);
             let banked: u32 = e.game.iter().map(|l| l.brood).sum::<u32>() + e.brood;
-            for (beat, now_true) in [("grab", hold), ("out", hold && out), ("bank", banked > 0)] {
+            // `-deep`: the first frame with a larva in the jaws under 8 rows of roof.
+            let deep = hold && head.is_some_and(|h| pixel_physics::lab::demo::enemy::cover(&lab.world, h) >= 8);
+            for (beat, now_true) in [("grab", hold), ("deep", deep), ("out", hold && out), ("bank", banked > 0)] {
                 if now_true && !snapped.contains(&beat) {
                     snapped.push(beat);
                     lab.draw(&mut buf, 60.0);
@@ -888,7 +898,7 @@ fn main() {
         }
         let lag: u64 = arg("lag").unwrap_or(1).max(1);
         println!(
-            "GAME seed={seed} policy={policy} lag={lag} funnel_frames={funnel_frames} held_flips={held_flips} lives={} over={} score={} kills={} meals={} grabbed={} brood={} ants_start={} ants_end={} rebank_digs={rebank_digs} dives={dives} hunger_j={:.0} capped_j={:.0}",
+            "GAME seed={seed} policy={policy} lag={lag} funnel_frames={funnel_frames} held_flips={held_flips} door_cells={door_abs:.2} carry_cells={carry_abs:.2} out_frames={out_frames} lives={} over={} score={} kills={} meals={} grabbed={} brood={} ants_start={} ants_end={} rebank_digs={rebank_digs} dives={dives} hunger_j={:.0} capped_j={:.0}",
             lives.len(),
             e.over,
             e.score().max(lives.iter().map(|l| l.points()).sum()),

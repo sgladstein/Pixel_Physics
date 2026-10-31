@@ -112,6 +112,36 @@ const FUNNEL_STEPS: i32 = 28;
 /// funnel's first build, fired on 0 frames).
 const INSIDE: i32 = 3;
 
+/// **Cover inside their door** (fix round 3, 2026-10-31; stakes on, the assist
+/// on, **off by default**: `door_grace=300` turns it on): for this many ticks after the head first
+/// goes inside a door ([`inside_door`]: a roof or depth), the crowd's bites take
+/// [`DOOR_SOFT`] of what they would off the wound meter. Round 2's lagged lives
+/// were bitten to death at depth 2-9 within 400-1,200 frames of landing, most on
+/// the first dive: the player has the door, then a moment to find the brood
+/// before the colony closes in. **Inside only**: a raider camped at the mouth,
+/// killing ants as they come up (the massacre), is above the line and gets
+/// nothing. It re-arms only once the head has been out and [`GRACE_REARM`]
+/// cover lengths have passed since the last one began, so bobbing at the line buys
+/// a third of the time at most.
+///
+/// **Off, because it made the massacre stronger** -- the one thing it was not
+/// allowed to do. Seeds 25-36 at lag 15: the camping massacre went in after
+/// ants on seed 34, took 1.19 cells of cover, and scored 12 where it scored 4
+/// with `door_grace=0` (the other eleven seeds identical). And it bought
+/// little: 3.9 cells of wound over 36 coarse lag-15 lives, against 16.6 for the
+/// carrying plate, because the lagged lives die at the *mouth*, where by design
+/// it does not reach (seed 1, traced: bitten to death at rows 152-154 of a
+/// mound whose door line is 160, under no roof).
+pub const DOOR_GRACE: u64 = 300;
+/// What a bite takes off the wound meter under the door's cover (0: nothing).
+pub const DOOR_SOFT: f32 = 0.0;
+/// Cover lengths from one door cover's start before another can begin.
+pub const GRACE_REARM: u64 = 3;
+/// **The plate while a larva is in the jaws** (round 3; `carry_soft=1` turns it
+/// off): a bite takes this share of what it would off the wound meter, so a
+/// cell takes eight ant bites rather than four on the way out with the prize.
+pub const CARRY_SOFT: f32 = 0.5;
+
 /// The frame the raider is set down on: the colony lands at 6,000
 /// (`demo_enemy.ron`) and has 20,000 frames to dig in first.
 pub const WARM_UNTIL: u64 = 26_000;
@@ -274,6 +304,16 @@ pub struct EnemyDemo {
     pub bite_until: u64,
     /// `funnel_walks=1`: no sprint while the funnel steers.
     pub funnel_walks: bool,
+    /// The head was inside a door ([`INSIDE`]) at the last tick, and the tick
+    /// the current door cover began ([`DOOR_GRACE`]).
+    was_inside: bool,
+    pub cover_from: Option<u64>,
+    /// Wound meter taken off by the door cover and by the carrying plate this
+    /// life, in cells (the round-3 levers' own counters: did they fire), and
+    /// frames the funnel led the way out with a larva.
+    pub door_absorbed: f32,
+    pub carry_absorbed: f32,
+    pub funnelled_out: u64,
 }
 
 /// The warmed box, shared rather than copied when the seat's state is cloned
@@ -674,7 +714,14 @@ fn bite_or_grab(lab: &mut Lab) {
     let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
     let grabbed = if stakes { grab_larva(lab) } else { Ok(false) };
     match grabbed {
-        Ok(true) => {}
+        Ok(true) => {
+            // The carrying plate, said where it starts ([`CARRY_SOFT`]).
+            let plate = assisting(lab) && lab.demo.as_ref().and_then(|d| d.args.get("carry_soft")).is_none_or(|v| v != "1");
+            let frame = lab.world.frame;
+            if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).filter(|_| plate) {
+                e.note = Some((frame, "GOT ONE -- YOUR PLATE HOLDS TWICE AS LONG WHILE YOU CARRY IT HOME".to_string()));
+            }
+        }
         Ok(false) => {
             if let Some(s) = lab.world.steered.as_mut() {
                 s.press(steer::SteerInput { bite: true, ..steer::SteerInput::default() });
@@ -883,6 +930,28 @@ fn ground(world: &World, x: i32, y: i32) -> bool {
 /// within [`FUNNEL_STEPS`], to the nearest cell [`INSIDE`] rows under the
 /// door's ground line `surface`. `None` if there is none that near.
 pub fn way_in(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> Option<(i32, i32)> {
+    way(world, me, head, |_, y| y >= surface + INSIDE)
+}
+
+/// **The first step of the way out** with a larva: as [`way_in`], to the
+/// nearest cell with open sky over it above the door's ground line `surface`.
+pub fn way_out(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> Option<(i32, i32)> {
+    way(world, me, head, |x, y| y < surface && cover(world, (x, y)) == 0)
+}
+
+/// **Is the head inside the nest?** Within twice [`FUNNEL_COLS`] of a door (40 took the cover of the mound's flank 40 columns out, seed 1, and spent it there), and either
+/// [`INSIDE`] rows of ground over it or [`INSIDE`] rows under the door's ground
+/// line. Both, because a grown mound holds the nest above the line (seed 1:
+/// every gallery the round-3 coarse arm reached was at or above it, under 6-9
+/// rows of roof) and a door's shaft is open to the sky all the way down. The
+/// mouth, where the massacre camps, is neither.
+pub fn inside_door(world: &World, head: (i32, i32)) -> bool {
+    world.nest_sites.iter().filter(|s| (s.x - head.0).abs() <= 2 * FUNNEL_COLS).min_by_key(|s| (s.x - head.0).abs()).is_some_and(|s| head.1 >= s.surface + INSIDE || cover(world, head) >= INSIDE)
+}
+
+/// The first step, breadth first within [`FUNNEL_STEPS`] over cells a
+/// centipede can walk, toward the nearest cell where `goal` holds.
+fn way(world: &World, me: OrganismId, head: (i32, i32), goal: impl Fn(i32, i32) -> bool) -> Option<(i32, i32)> {
     const SIDE: usize = (2 * FUNNEL_STEPS + 1) as usize;
     let at = |x: i32, y: i32| ((y - head.1 + FUNNEL_STEPS) as usize) * SIDE + (x - head.0 + FUNNEL_STEPS) as usize;
     let mut first = vec![None::<(i32, i32)>; SIDE * SIDE];
@@ -906,7 +975,7 @@ pub fn way_in(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> 
                 }
                 let step = if (x, y) == head { (nx, ny) } else { first[at(x, y)].unwrap_or((nx, ny)) };
                 first[at(nx, ny)] = Some(step);
-                if ny >= surface + INSIDE {
+                if goal(nx, ny) {
                     return Some(step);
                 }
                 next.push((nx, ny));
@@ -932,7 +1001,8 @@ fn assist(lab: &mut Lab) {
     let arg = |k: &str| lab.demo.as_ref().and_then(|d| d.args.get(k)).cloned();
     let flip_hold = arg("flip_hold").and_then(|v| v.parse().ok()).unwrap_or(FLIP_HOLD);
     let walks = arg("funnel_walks").is_some_and(|v| v == "1");
-    let mut held_flip = false;
+    let lead_out = arg("funnel_out").is_none_or(|v| v != "0");
+    let (mut held_flip, mut out_led) = (false, false);
     let dir = lab.world.steered.as_ref().filter(|s| s.id == id).and_then(|s| s.input).and_then(|i| i.dir);
     let chain = lab.world.organism(id).map(|s| s.chain.clone()).filter(|c| !c.is_empty());
     if let (true, Some(mut d), Some(chain)) = (on, dir, chain) {
@@ -943,6 +1013,13 @@ fn assist(lab: &mut Lab) {
             if let Some(step) = way_in(&lab.world, id, head, surface) {
                 d = ((step.0 - head.0).signum() as i8, (step.1 - head.1).signum() as i8);
                 funnel = true;
+            }
+        }
+        // ...and out (round 3, `funnel_out=0` off): up held under the door's line with a larva in the jaws.
+        if let Some(surface) = door.filter(|_| lead_out && d.1 < 0 && carrying && inside_door(&lab.world, head)) {
+            if let Some(step) = way_out(&lab.world, id, head, surface) {
+                d = ((step.0 - head.0).signum() as i8, (step.1 - head.1).signum() as i8);
+                out_led = true;
             }
         }
         // The turn-round hold: an arrow back over the tail soon after a turn stands the body.
@@ -963,6 +1040,7 @@ fn assist(lab: &mut Lab) {
         e.funnel_walks = walks;
         e.funnelled += u64::from(funnel);
         e.held_flips += u64::from(held_flip);
+        e.funnelled_out += u64::from(out_led);
     }
     // The bite hold: B pressed within the last BITE_HOLD frames bites (or grabs) again.
     let biting = on && lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| frame < e.bite_until);
@@ -1030,6 +1108,53 @@ fn stakes_on_body(lab: &mut Lab, hunger: bool) {
     }
 }
 
+/// **The round-3 levers on the wound meter, once a tick** (stakes and the
+/// assist on): under a door's cover ([`DOOR_GRACE`]) and while carrying a
+/// larva ([`CARRY_SOFT`]), what this tick's bites added to the meter is cut
+/// back. Seat-side and after the fact: the engine banks each bite on the meter
+/// and a cell comes off when it fills, so this cannot stop a cell that came off
+/// inside the tick (four bites at once) -- it only keeps the meter from filling.
+fn soften_wounds(lab: &mut Lab) {
+    if !assisting(lab) {
+        return;
+    }
+    let arg = |k: &str| lab.demo.as_ref().and_then(|d| d.args.get(k)).cloned();
+    // Off unless asked for ([`DOOR_GRACE`]'s doc: it fed the massacre).
+    let grace_len = arg("door_grace").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let carry_soft = arg("carry_soft").and_then(|v| v.parse::<f32>().ok()).unwrap_or(CARRY_SOFT).clamp(0.0, 1.0);
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (Some(id), None) = (e.raider, e.ended) else { return };
+    let (last_len, last_gnawed, was_inside, cover_from) = (e.last_len, e.last_gnawed, e.was_inside, e.cover_from);
+    let carrying = carrying_larva(&lab.world, e);
+    let frame = lab.world.frame;
+    let Some((head, len, gnawed)) = lab.world.organism(id).and_then(|s| s.chain.first().map(|&h| (h, s.chain.len(), s.gnawed))) else { return };
+    let inside = inside_door(&lab.world, head);
+    let begins = grace_len > 0 && inside && !was_inside && cover_from.is_none_or(|f| frame >= f + GRACE_REARM * grace_len);
+    let cover_from = if begins { Some(frame) } else { cover_from };
+    let covered = inside && cover_from.is_some_and(|f| frame < f + grace_len);
+    let k = (if covered { DOOR_SOFT } else { 1.0f32 }).min(if carrying { carry_soft } else { 1.0 });
+    let mut taken = 0.0;
+    if k < 1.0 && len == last_len && gnawed > last_gnawed {
+        let kept = last_gnawed + k * (gnawed - last_gnawed);
+        taken = gnawed - kept;
+        if let Some(s) = lab.world.organism_mut(id) {
+            s.gnawed = kept;
+        }
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.was_inside = inside;
+        e.cover_from = cover_from;
+        if covered {
+            e.door_absorbed += taken;
+        } else {
+            e.carry_absorbed += taken;
+        }
+        if begins {
+            e.note = Some((frame, "IN THEIR DOOR -- A MOMENT BEFORE THEY CLOSE IN".to_string()));
+        }
+    }
+}
+
 /// **Before each simulated tick**: spend or recover wind, and tell the body
 /// whether it sprints this tick.
 pub fn before_tick(lab: &mut Lab) {
@@ -1089,6 +1214,7 @@ fn count_births(lab: &mut Lab) {
 /// the world's own logs.
 pub fn after_tick(lab: &mut Lab) {
     count_births(lab);
+    soften_wounds(lab);
     let Some(id) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.raider) else { return };
     let frame = lab.world.frame;
     let w = &mut lab.world;
@@ -1976,6 +2102,55 @@ mod tests {
         step(&mut sand, 1);
         assert!(sand.world.organism(id).expect("alive").energy > cap, "stakes=0 still caps the tank");
         assert!(!sand.demo_mouse((10, 10), super::super::MouseAct::Press { erase: false }), "stakes=0 kept the pointer");
+    }
+
+    /// **The round-3 levers on the wound meter**: the carrying plate halves
+    /// what a bite adds, the door's cover takes it all and only inside and
+    /// only for [`DOOR_GRACE`] ticks, and each has its off switch. Each case
+    /// sets the meter up from 0.2 to 0.6, as one tick's bites would.
+    #[test]
+    fn the_door_cover_and_the_carrying_plate_soften_bites() {
+        let mut lab = quick_lab("600", false);
+        step(&mut lab, 620);
+        let id = raider_of(&lab);
+        let len = lab.world.organism(id).expect("alive").chain.len();
+        let bitten = |lab: &mut Lab| {
+            let e = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat");
+            (e.last_gnawed, e.last_len) = (0.2, len);
+            lab.world.organism_mut(id).expect("alive").gnawed = 0.6;
+            soften_wounds(lab);
+            lab.world.organism(id).expect("alive").gnawed
+        };
+        // Outside, empty-jawed: the bite stands (the control).
+        let head = lab.world.organism(id).and_then(|s| s.chain.first().copied()).expect("alive");
+        assert!(!inside_door(&lab.world, head), "test setup: the raider landed inside a door");
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "a bite outside, empty-jawed, was softened");
+        // Carrying a grabbed larva: half the bite.
+        let corpse = lab.world.materials.known(crate::sim::material::Known::Corpse).expect("corpse ships");
+        lab.world.organism_mut(id).expect("alive").spoil = Some(crate::sim::organism::Spoil { cell: crate::sim::cell::Cell::new(corpse, 0).with_aux(50), store: false });
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").carrying = true;
+        assert!((bitten(&mut lab) - (0.2 + CARRY_SOFT * 0.4)).abs() < 1e-6, "the carrying plate did not soften the bite");
+        assert!(seat(&lab).carry_absorbed > 0.19);
+        lab.demo.as_mut().expect("demo").args.insert("carry_soft".to_string(), "1".to_string());
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "carry_soft=1 still softened the bite");
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").carrying = false;
+        // Inside a door: move the nearest door's ground line over the head.
+        lab.demo.as_mut().expect("demo").args.insert("door_grace".to_string(), DOOR_GRACE.to_string());
+        let site = lab.world.nest_sites.iter_mut().min_by_key(|s| (s.x - head.0).abs()).expect("a door");
+        (site.x, site.surface) = (head.0, head.1 - INSIDE);
+        assert!(inside_door(&lab.world, head));
+        assert!((bitten(&mut lab) - 0.2).abs() < 1e-6, "a bite under the door's cover stood");
+        assert!(seat(&lab).cover_from == Some(lab.world.frame) && seat(&lab).door_absorbed > 0.39, "the cover did not begin or count");
+        // ...and only for the cover's length: then the bite stands, and stepping out and back does not re-arm it yet.
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").cover_from = Some(lab.world.frame - DOOR_GRACE);
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "the cover outlasted DOOR_GRACE");
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").was_inside = false;
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "stepping out and back re-armed the cover at once");
+        // The off switch.
+        let e = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat");
+        (e.cover_from, e.was_inside) = (None, false);
+        lab.demo.as_mut().expect("demo").args.insert("door_grace".to_string(), "0".to_string());
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "door_grace=0 still covered the raider");
     }
 
     /// **A raider bitten down to its head regrows** (`creature::regrow_tail`,
