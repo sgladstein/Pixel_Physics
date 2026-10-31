@@ -5474,8 +5474,11 @@ fn regrow_tail(world: &mut World, organism: OrganismId, def: &CreatureDef) {
     // its head -- the case `REGROW_FRAMES`' doc promises -- never grew a cell (`regrown_cells` 0 in 11 of 11
     // enemy-seat runs, one parked at 1/5 cells for 12,000 frames with 5,300 J banked while the HUD said
     // REGROWING). The first cell behind a lone head is a copy of the head re-typed `Segment`, so the body
-    // keeps exactly one head.
-    if st.chain.is_empty() || st.chain.len() >= usize::from(plan) || st.gnawed > 0.0 || st.energy < def.start_energy + def.body_energy {
+    // keeps exactly one head. **Only for the player's body** (adversarial review 2026-10-31, finding 6: the
+    // ungated change reached every centipede -- lab jars and `train::predator` beds -- with no run showing
+    // the predator baseline unchanged): any other lone head keeps the old `len < 2` rule.
+    let lone_head_stops = st.chain.len() < 2 && !crate::sim::steer::is_steered(world, organism);
+    if st.chain.is_empty() || lone_head_stops || st.chain.len() >= usize::from(plan) || st.gnawed > 0.0 || st.energy < def.start_energy + def.body_energy {
         return;
     }
     let (tx, ty) = *st.chain.last().expect("one cell or more");

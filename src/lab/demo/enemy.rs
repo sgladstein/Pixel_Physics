@@ -36,7 +36,7 @@ use super::super::Lab;
 pub const SEAT_KEYS: &str = "Y SEASON CARD -- R A NEW RAIDER -- BACK OUT TAIL FIRST: THE CELL THEY BITE IS THE CELL YOU LOSE";
 
 /// The keys once the stakes are on (the default): the score, the lair and the brood.
-pub const STAKES_KEYS: &str = "B ON A LARVA GRABS IT -- CARRY IT TO YOUR LAIR (x10) -- ANTS x1 -- 3 RAIDERS";
+pub const STAKES_KEYS: &str = "B ON A LARVA GRABS IT -- CARRY IT TO YOUR LAIR (x20) -- ANTS x1 WHILE YOUR GUT HAS ROOM -- 3 RAIDERS";
 
 /// **The stakes** (seat review 2026-10-30, E2 then E1): before them a raider on
 /// the surface was close to immortal (0 cells lost in 3 of 4 skulk lives that
@@ -48,8 +48,13 @@ pub const STAKES_KEYS: &str = "B ON A LARVA GRABS IT -- CARRY IT TO YOUR LAIR (x
 /// of the nest to the lair scores [`BROOD_POINTS`]; the first seconds after a
 /// landing cannot cost a cell. `stakes=0` puts the sandbox back.
 pub const LIVES: usize = 3;
-/// What one larva banked at the lair is worth, in ants.
-pub const BROOD_POINTS: u32 = 10;
+/// **What one larva banked at the lair is worth, in ants.** 10 until the
+/// adversarial review of 2026-10-31, which found half a heist's score was ants
+/// killed in the queue at the door (1,560 of 3,130 points over 12 games; one
+/// life took 44 in nine seconds) -- a massacre scored about as well as the
+/// heist. Now 20, and an ant scores only while the gut has room for it
+/// ([`EnemyDemo::meals`]): the brood is the prize.
+pub const BROOD_POINTS: u32 = 20;
 /// **The seat's hunger, in joules a frame on top of the body's own bill**
 /// (about 0.1 J a frame for five cells at a walk). With it a full tank lasts
 /// about two and a half minutes at 1x: an ant eaten pays roughly ten to fifteen
@@ -65,10 +70,77 @@ pub const CAP_TANKS: f32 = 1.5;
 pub const GRACE: u64 = 180;
 /// How near the lair (columns, and rows of the surface) a carried larva banks.
 pub const LAIR_REACH: i32 = 6;
-/// How far from the head the jaws reach a larva (cells, any direction).
-pub const JAW_REACH: i32 = 2;
+/// **How far from the head the jaws reach a larva** (cells, any direction,
+/// and only through open cells or bodies -- never through soil:
+/// [`larva_in_reach`]). 2 until the adversarial review of 2026-10-31: the
+/// grab was a frame-perfect act, and with a human's 15-frame reaction lag the
+/// scripted heist grabbed 0 larvae in 12 lives on four seeds.
+pub const JAW_REACH: i32 = 4;
 /// Rows under the surface that count as "in the nest" for a life's record.
 pub const BELOW: i32 = 3;
+
+/// **The steering assist** (fix round 2, 2026-10-31; stakes on, `assist=0`
+/// turns it off for the A/B). With a human's 15-frame reaction lag the heist
+/// died on the mound before it reached any gallery (seed 27: three lives, each
+/// dead 535-855 frames after landing, at depth 0-4): a stale key overshot the
+/// hole at a sprint, the next key said "back", the five-cell chain turned round
+/// -- the head jumps to the far end -- and the door crowd bit while it swung.
+/// Three rules on what the player presses, all in this file, none in the
+/// engine: the **funnel** (a down arrow near a door steps toward the way in),
+/// the **turn-round hold** (no second turn within [`FLIP_HOLD`] frames), and
+/// the **bite hold** ([`BITE_HOLD`]). A fourth, no sprint while funnelled, measured
+/// neutral (4 vs 4 larvae over 36 lag-15 lives) and is off (`funnel_walks=1`).
+///
+/// Frames after a turn-round in which an arrow held back over the tail is not
+/// obeyed: the body stands instead, so a stale "back" cannot flip it twice.
+pub const FLIP_HOLD: u64 = 30;
+/// **Frames one B keeps the jaws working** (the assist's fourth rule): every
+/// frame of it bites again, or grabs a larva that comes into reach. With a
+/// 15-frame reaction lag a press came only every 15 frames, so in the door's
+/// crowd the raider bit about once to the frame-perfect script's three or
+/// four and was bitten to death at depth 2-10 (fix round 2, coarse arm: 36
+/// lives, median 600-1,800 frames). A person mashes B; this is the mash.
+pub const BITE_HOLD: u64 = 15;
+/// Columns from a door within which a held down arrow is funnelled.
+pub const FUNNEL_COLS: i32 = 12;
+/// How many steps the funnel looks for the way in. 16 found nothing on seed 27,
+/// whose shaft lies past a mound pillar about 20 steps over and down.
+const FUNNEL_STEPS: i32 = 28;
+/// Rows under the door's ground line that count as "in" (the funnel's goal).
+/// Rows *below the site's surface*, not ground overhead: a door's shaft is
+/// open to the sky, so [`cover`] reads 0 all the way down it (seed 27, the
+/// funnel's first build, fired on 0 frames).
+const INSIDE: i32 = 3;
+
+/// **Cover inside their door** (fix round 3, 2026-10-31; stakes on, the assist
+/// on, **off by default**: `door_grace=300` turns it on): for this many ticks after the head first
+/// goes inside a door ([`inside_door`]: a roof or depth), the crowd's bites take
+/// [`DOOR_SOFT`] of what they would off the wound meter. Round 2's lagged lives
+/// were bitten to death at depth 2-9 within 400-1,200 frames of landing, most on
+/// the first dive: the player has the door, then a moment to find the brood
+/// before the colony closes in. **Inside only**: a raider camped at the mouth,
+/// killing ants as they come up (the massacre), is above the line and gets
+/// nothing. It re-arms only once the head has been out and [`GRACE_REARM`]
+/// cover lengths have passed since the last one began, so bobbing at the line buys
+/// a third of the time at most.
+///
+/// **Off, because it made the massacre stronger** -- the one thing it was not
+/// allowed to do. Seeds 25-36 at lag 15: the camping massacre went in after
+/// ants on seed 34, took 1.19 cells of cover, and scored 12 where it scored 4
+/// with `door_grace=0` (the other eleven seeds identical). And it bought
+/// little: 3.9 cells of wound over 36 coarse lag-15 lives, against 16.6 for the
+/// carrying plate, because the lagged lives die at the *mouth*, where by design
+/// it does not reach (seed 1, traced: bitten to death at rows 152-154 of a
+/// mound whose door line is 160, under no roof).
+pub const DOOR_GRACE: u64 = 300;
+/// What a bite takes off the wound meter under the door's cover (0: nothing).
+pub const DOOR_SOFT: f32 = 0.0;
+/// Cover lengths from one door cover's start before another can begin.
+pub const GRACE_REARM: u64 = 3;
+/// **The plate while a larva is in the jaws** (round 3; `carry_soft=1` turns it
+/// off): a bite takes this share of what it would off the wound meter, so a
+/// cell takes eight ant bites rather than four on the way out with the prize.
+pub const CARRY_SOFT: f32 = 0.5;
 
 /// The frame the raider is set down on: the colony lands at 6,000
 /// (`demo_enemy.ron`) and has 20,000 frames to dig in first.
@@ -199,6 +271,60 @@ pub struct EnemyDemo {
     /// Joules the hunger took, and the cap burnt off, this life.
     pub hunger_j: f64,
     pub capped_j: f64,
+    /// **This life's kills that scored**: those made while the gut had room
+    /// for the meal ([`EnemyDemo::gut_room`], read before the tick). A kill
+    /// past a full gut (`Steered::bites_when_full`) still comes off the
+    /// colony and still counts in `kills`, but scores nothing: at the door's
+    /// queue one bite was one kill every 13 frames, and that was half the
+    /// heist's score (adversarial review 2026-10-31).
+    pub meals: u32,
+    /// The gut had room before this tick (set in [`before_tick`]).
+    pub gut_room: bool,
+    /// **The jaws closed on brood** ([`grab_larva`]), and what is in them is
+    /// still that grab; cleared the tick the jaws are empty. Only this banks:
+    /// before it any corpse in the jaws banked as a larva, and the raider's
+    /// own mind at 16x banked two with no grab (review finding 4).
+    pub carrying: bool,
+    /// **The box as it was at the first landing**, so R after a game over
+    /// starts the next game from the same warmed colony, not the ruin the
+    /// last one left (review finding 3; `persist=1` keeps "the same colony").
+    pub warm: Option<WarmBox>,
+    /// The frame the body last turned round (its head came out where its tail
+    /// was), for the turn-round hold ([`FLIP_HOLD`]).
+    pub last_flip: Option<u64>,
+    /// Head and tail at the last tick, to see a turn-round.
+    ends: Option<((i32, i32), (i32, i32))>,
+    /// The funnel steered the arrow this frame (and the sprint is off).
+    pub funnel: bool,
+    /// Frames the funnel steered, and turn-rounds the hold refused, this life
+    /// (the assist's own counters: did it fire).
+    pub funnelled: u64,
+    pub held_flips: u64,
+    /// B keeps biting until this frame ([`BITE_HOLD`]).
+    pub bite_until: u64,
+    /// `funnel_walks=1`: no sprint while the funnel steers.
+    pub funnel_walks: bool,
+    /// The head was inside a door ([`INSIDE`]) at the last tick, and the tick
+    /// the current door cover began ([`DOOR_GRACE`]).
+    was_inside: bool,
+    pub cover_from: Option<u64>,
+    /// Wound meter taken off by the door cover and by the carrying plate this
+    /// life, in cells (the round-3 levers' own counters: did they fire), and
+    /// frames the funnel led the way out with a larva.
+    pub door_absorbed: f32,
+    pub carry_absorbed: f32,
+    pub funnelled_out: u64,
+}
+
+/// The warmed box, shared rather than copied when the seat's state is cloned
+/// (a harness clones the seat every frame).
+#[derive(Clone)]
+pub struct WarmBox(pub std::sync::Arc<World>);
+
+impl std::fmt::Debug for WarmBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WarmBox(frame {})", self.0.frame)
+    }
 }
 
 /// **One raider life in a game**: what it scored and how it ended.
@@ -206,6 +332,8 @@ pub struct EnemyDemo {
 pub struct Life {
     pub frames: u64,
     pub kills: u32,
+    /// The kills that scored ([`EnemyDemo::meals`]).
+    pub meals: u32,
     pub grabbed: u32,
     pub brood: u32,
     pub deepest: i32,
@@ -214,14 +342,14 @@ pub struct Life {
 
 impl Life {
     pub fn points(&self) -> u32 {
-        self.kills + BROOD_POINTS * self.brood
+        self.meals + BROOD_POINTS * self.brood
     }
 }
 
 impl EnemyDemo {
-    /// Points this raider has made so far (ants plus banked brood).
+    /// Points this raider has made so far (ants eaten plus banked brood).
     pub fn life_points(&self) -> u32 {
-        self.kills + BROOD_POINTS * self.brood
+        self.meals + BROOD_POINTS * self.brood
     }
 
     /// The game's score: every finished life plus the one running.
@@ -329,8 +457,13 @@ fn land_raider(lab: &mut Lab) -> Option<OrganismId> {
     // A full crop does not stop the player's bite (owner's playtest, 2026-10-25): the swallow is
     // skipped and the cell still comes off. `fullbite=0` puts the sated rule back, for the A/B.
     let full = lab.demo.as_ref().and_then(|d| d.args.get("fullbite")).is_none_or(|v| v != "0");
+    // **The body takes a gallery's bends while an arrow is held** (adversarial
+    // review 2026-10-31: the heist only paid at frame-perfect input). Stakes on
+    // only, so `stakes=0` is the old sandbox; `follow=0` turns it off for the A/B.
+    let follows = stakes && lab.demo.as_ref().and_then(|d| d.args.get("follow")).is_none_or(|v| v != "0");
     if let Some(s) = lab.world.steered.as_mut() {
         s.bites_when_full = full;
+        s.follows_gallery = follows;
     }
     lab.world.encounter_log = Some(Default::default());
     let (trips, ants) = (lab.world.creature_stats.trip_deliveries, live_ants(&lab.world));
@@ -345,6 +478,7 @@ fn land_raider(lab: &mut Lab) -> Option<OrganismId> {
     *e = EnemyDemo {
         stakes: kept.stakes,
         stakes_read: kept.stakes_read,
+        warm: kept.warm,
         game: kept.game,
         best: kept.best,
         game_ants_at_start: if new_game { ants } else { kept.game_ants_at_start },
@@ -410,31 +544,66 @@ pub fn cover(world: &World, (x, y): (i32, i32)) -> i32 {
     (1..=30).filter(|&k| world.in_bounds(x, y - k) && { let c = world.get(x, y - k); !c.is_empty() && c.organism_id() == 0 }).count() as i32
 }
 
-/// The larva nearest the raider's head within [`JAW_REACH`]: its id and cell.
-fn larva_in_reach(world: &World, head: (i32, i32)) -> Option<(OrganismId, (i32, i32))> {
-    let mut best: Option<(i32, OrganismId, (i32, i32))> = None;
-    for dy in -JAW_REACH..=JAW_REACH {
-        for dx in -JAW_REACH..=JAW_REACH {
-            let (x, y) = (head.0 + dx, head.1 + dy);
-            if !world.in_bounds(x, y) {
-                continue;
-            }
-            let o = world.get(x, y).organism_id();
-            if o != 0 && world.organism(o).and_then(|s| s.brood).is_some_and(|b| b.stage == crate::sim::organism::BroodStage::Larva) {
-                let d = dx.abs().max(dy.abs());
-                if best.is_none_or(|b| d < b.0) {
-                    best = Some((d, o, (x, y)));
+fn is_larva(world: &World, o: OrganismId) -> bool {
+    o != 0 && world.organism(o).and_then(|s| s.brood).is_some_and(|b| b.stage == crate::sim::organism::BroodStage::Larva)
+}
+
+/// **Every larva the jaws reach from `head`**: within [`JAW_REACH`] steps
+/// (any of the eight directions) through open cells and bodies, never through
+/// ground -- so a wider reach is a forgiving grab, not a grab through a wall.
+/// Nearest first (steps, then scan order), each with its id.
+pub fn larvae_in_reach(world: &World, head: (i32, i32)) -> Vec<(OrganismId, (i32, i32))> {
+    const SIDE: usize = (2 * JAW_REACH + 1) as usize;
+    let mut steps = [[u8::MAX; SIDE]; SIDE];
+    let at = |x: i32, y: i32| ((y - head.1 + JAW_REACH) as usize, (x - head.0 + JAW_REACH) as usize);
+    let mut ring = vec![head];
+    let mut out = Vec::new();
+    steps[JAW_REACH as usize][JAW_REACH as usize] = 0;
+    for k in 1..=JAW_REACH as u8 {
+        let mut next = Vec::new();
+        for &(x, y) in &ring {
+            for (dx, dy) in crate::sim::creature::DIRS {
+                let (nx, ny) = (x + dx, y + dy);
+                if (nx - head.0).abs() > JAW_REACH || (ny - head.1).abs() > JAW_REACH || !world.in_bounds(nx, ny) {
+                    continue;
+                }
+                let (r, c) = at(nx, ny);
+                if steps[r][c] != u8::MAX {
+                    continue;
+                }
+                steps[r][c] = k;
+                let cell = world.get(nx, ny);
+                let o = cell.organism_id();
+                if is_larva(world, o) {
+                    out.push((o, (nx, ny)));
+                }
+                // Open air and bodies pass the reach on; ground stops it.
+                if cell.is_empty() || o != 0 {
+                    next.push((nx, ny));
                 }
             }
         }
+        ring = next;
     }
-    best.map(|b| (b.1, b.2))
+    out
 }
 
-/// Whether the raider's jaws hold a corpse (a grabbed larva).
+/// The larva nearest the raider's head within the jaws' reach: its id and cell.
+fn larva_in_reach(world: &World, head: (i32, i32)) -> Option<(OrganismId, (i32, i32))> {
+    larvae_in_reach(world, head).into_iter().next()
+}
+
+/// Whether the raider's jaws hold a corpse (what a grabbed larva becomes; any
+/// corpse passes this, so [`carrying_larva`] is what banks).
 pub fn jaws_hold_brood(world: &World, id: OrganismId) -> bool {
     let corpse = world.materials.known(crate::sim::material::Known::Corpse);
     world.organism(id).and_then(|s| s.spoil).is_some_and(|sp| Some(sp.cell.material) == corpse)
+}
+
+/// **The raider is carrying a larva it grabbed** ([`EnemyDemo::carrying`]):
+/// the grab's flag, and the corpse still in its jaws.
+pub fn carrying_larva(world: &World, e: &EnemyDemo) -> bool {
+    e.carrying && e.ended.is_none() && e.raider.is_some_and(|id| jaws_hold_brood(world, id))
 }
 
 /// **B: the heist's grab.** A larva within the jaws' reach is killed where it
@@ -469,6 +638,7 @@ fn grab_larva(lab: &mut Lab) -> Result<bool, &'static str> {
     lab.world.log_player_action(format!("raider grabbed a larva at ({}, {})", at.0, at.1));
     if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
         e.grabbed += 1;
+        e.carrying = true;
         e.marks.push((lab.world.frame, at, Mark::Grab));
     }
     Ok(true)
@@ -482,7 +652,8 @@ fn grab_larva(lab: &mut Lab) -> Result<bool, &'static str> {
 fn bank_at_lair(lab: &mut Lab, id: OrganismId) {
     let Some(lair) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.lair) else { return };
     let Some(head) = lab.world.organism(id).and_then(|s| s.chain.first().copied()) else { return };
-    if (head.0 - lair.0).abs() > LAIR_REACH || (head.1 - lair.1).abs() > LAIR_REACH || !jaws_hold_brood(&lab.world, id) {
+    let carrying = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| carrying_larva(&lab.world, e));
+    if (head.0 - lair.0).abs() > LAIR_REACH || (head.1 - lair.1).abs() > LAIR_REACH || !carrying {
         return;
     }
     let w = &lab.world;
@@ -504,6 +675,7 @@ fn bank_at_lair(lab: &mut Lab, id: OrganismId) {
     let frame = lab.world.frame;
     if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
         e.brood += 1;
+        e.carrying = false;
         e.marks.push((frame, (x, y), Mark::Banked));
         e.note = Some((frame, format!("LARVA BANKED: +{BROOD_POINTS}")));
     }
@@ -518,49 +690,105 @@ pub fn seat_key(lab: &mut Lab, key: char) {
             }
         }
         'B' => {
-            let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
-            let grabbed = if stakes { grab_larva(lab) } else { Ok(false) };
-            match grabbed {
-                Ok(true) => {}
-                Ok(false) => {
-                    if let Some(s) = lab.world.steered.as_mut() {
-                        s.press(steer::SteerInput { bite: true, ..steer::SteerInput::default() });
-                    }
-                }
-                Err(why) => {
-                    let frame = lab.world.frame;
-                    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
-                        e.note = Some((frame, why.to_string()));
-                    }
+            let frame = lab.world.frame;
+            if assisting(lab) {
+                if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+                    e.bite_until = frame + BITE_HOLD;
                 }
             }
+            bite_or_grab(lab);
         }
         'R' => {
             let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
             if e.ended.is_none() {
                 return;
             }
-            let (stakes, over) = (e.stakes, e.over);
-            if stakes && over {
-                if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
-                    e.game.clear();
-                    e.over = false;
-                    e.new_best = false;
-                }
-            }
-            if land_raider(lab).is_some() {
-                let left = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).map_or(0, EnemyDemo::raiders_left);
-                if !stakes {
-                    lab.ui.say("A NEW RAIDER ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT");
-                } else if over {
-                    lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY IS AS YOU LEFT IT");
-                } else {
-                    lab.ui.say(format!("RAIDER {} OF {LIVES} ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT", LIVES + 1 - left));
-                }
-            }
+            r_key(lab);
         }
         _ => {}
     }
+}
+
+/// B's act: grab a larva in reach, else bite; a grab refused says why.
+fn bite_or_grab(lab: &mut Lab) {
+    let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
+    let grabbed = if stakes { grab_larva(lab) } else { Ok(false) };
+    match grabbed {
+        Ok(true) => {
+            // The carrying plate, said where it starts ([`CARRY_SOFT`]).
+            let plate = assisting(lab) && lab.demo.as_ref().and_then(|d| d.args.get("carry_soft")).is_none_or(|v| v != "1");
+            let frame = lab.world.frame;
+            if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).filter(|_| plate) {
+                e.note = Some((frame, "GOT ONE -- YOUR PLATE HOLDS TWICE AS LONG WHILE YOU CARRY IT HOME".to_string()));
+            }
+        }
+        Ok(false) => {
+            if let Some(s) = lab.world.steered.as_mut() {
+                s.press(steer::SteerInput { bite: true, ..steer::SteerInput::default() });
+            }
+        }
+        Err(why) => {
+            let frame = lab.world.frame;
+            if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+                e.note = Some((frame, why.to_string()));
+            }
+        }
+    }
+}
+
+/// R with the raider dead: the next raider, or a new game.
+fn r_key(lab: &mut Lab) {
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (stakes, over) = (e.stakes, e.over);
+    let warm = e.warm.clone().filter(|_| stakes && over && !persists(lab));
+    if stakes && over {
+        if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+            e.game.clear();
+            e.over = false;
+            e.new_best = false;
+        }
+    }
+    // **Every game from the same warmed colony** (review finding 3:
+    // one good heist left 0-15 ants on 4 of 12 seeds, and the next
+    // game was played in that ruin, so BEST compared games against
+    // different colonies).
+    let fresh = warm.is_some();
+    if let Some(WarmBox(world)) = warm {
+        restore_box(lab, &world);
+    }
+    if land_raider(lab).is_some() {
+        let left = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).map_or(0, EnemyDemo::raiders_left);
+        if !stakes {
+            lab.ui.say("A NEW RAIDER ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT");
+        } else if fresh {
+            lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY AS IT WAS AT THE FIRST LANDING");
+        } else if over {
+            lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY IS AS YOU LEFT IT");
+        } else {
+            lab.ui.say(format!("RAIDER {} OF {LIVES} ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT", LIVES + 1 - left));
+        }
+    }
+}
+
+/// `persist=1`: R after a game over plays on against the colony as the last
+/// game left it (the seat's old rule), not the warmed box.
+fn persists(lab: &Lab) -> bool {
+    lab.demo.as_ref().and_then(|d| d.args.get("persist")).is_some_and(|v| v == "1")
+}
+
+/// **Put the warmed box back on screen**: the world, and what the lab keeps
+/// about the box on screen (particles, blasts, the census, the drawn view),
+/// as `Lab::reset` replaces them.
+fn restore_box(lab: &mut Lab, world: &World) {
+    lab.world = world.clone();
+    lab.particles = crate::sim::particle::ParticleSystem::new();
+    lab.blasts = crate::sim::explosion::Blasts::new();
+    let showing = lab.stats.showing();
+    lab.stats = super::super::stats::Stats::new();
+    lab.stats.set_showing(showing);
+    lab.thumb = None;
+    lab.stroke = None;
+    lab.view_dirty = true;
 }
 
 /// **Arm the birth mutation**: before the colony lands, every ant's mind is
@@ -621,6 +849,21 @@ pub fn frame(lab: &mut Lab) {
     }
     let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
     if e.raider.is_some() {
+        assist(lab);
+        let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+        // **The dial stops at the steering cap while a raider is alive**, stakes
+        // on (review finding 5: above 4x the body's own mind hunts and its kills
+        // scored, median 23.5 on fresh seeds with no key pressed). Between
+        // raiders, and in the sandbox, the dial is free.
+        if e.stakes && e.ended.is_none() && lab.time.multiple() > super::STEER_CAP {
+            if let Some(i) = crate::lab::time::PRESETS.iter().rposition(|&m| m <= super::STEER_CAP) {
+                lab.time.set_preset(i);
+            }
+            let frame = lab.world.frame;
+            if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+                e.note = Some((frame, format!("THE DIAL STOPS AT {}X WHILE YOU RAID", super::STEER_CAP)));
+            }
+        }
         return;
     }
     // `warm=` moves the landing (a test, or a player who wants straight in).
@@ -638,7 +881,13 @@ pub fn frame(lab: &mut Lab) {
         }
         return;
     }
+    // The box as it is now, before the first raider touches it: every later
+    // game starts here (R after a game over).
+    let warm = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes && e.warm.is_none()).then(|| WarmBox(std::sync::Arc::new(lab.world.clone())));
     if land_raider(lab).is_some() {
+        if let (Some(w), Some(e)) = (warm, lab.demo.as_mut().and_then(|d| d.enemy.as_mut())) {
+            e.warm = Some(w);
+        }
         lab.time.set_preset(0);
         // **In close for the hunt**: the warm-up shows the whole box, where a
         // five-cell body is five pixels; three screen pixels a cell is where
@@ -656,10 +905,147 @@ pub fn frame(lab: &mut Lab) {
         }
         let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
         if stakes {
-            lab.ui.say("RAIDER 1 OF 3 -- EAT ANTS (x1), CARRY LARVAE TO YOUR LAIR (x10)");
+            lab.ui.say(format!("RAIDER 1 OF 3 -- CARRY LARVAE TO YOUR LAIR (x{BROOD_POINTS}), EAT ANTS (x1)"));
         } else {
             lab.ui.say(format!("YOU ARE THE RAIDER -- {}", SEAT_KEYS));
         }
+    }
+}
+
+/// The assist is on: stakes on, and not `assist=0`.
+fn assisting(lab: &Lab) -> bool {
+    lab.demo.as_ref().is_some_and(|d| d.args.get("assist").is_none_or(|v| v != "0")) && lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes)
+}
+
+/// Solid ground at a cell (no animal's).
+fn ground(world: &World, x: i32, y: i32) -> bool {
+    world.in_bounds(x, y) && {
+        let c = world.get(x, y);
+        !c.is_empty() && c.organism_id() == 0
+    }
+}
+
+/// **The first step of the way in**: from the head, through open cells and
+/// bodies each beside ground (a centipede walks on surfaces), breadth first,
+/// within [`FUNNEL_STEPS`], to the nearest cell [`INSIDE`] rows under the
+/// door's ground line `surface`. `None` if there is none that near.
+pub fn way_in(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> Option<(i32, i32)> {
+    way(world, me, head, |_, y| y >= surface + INSIDE)
+}
+
+/// **The first step of the way out** with a larva: as [`way_in`], to the
+/// nearest cell with open sky over it above the door's ground line `surface`.
+pub fn way_out(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> Option<(i32, i32)> {
+    way(world, me, head, |x, y| y < surface && cover(world, (x, y)) == 0)
+}
+
+/// **Is the head inside the nest?** Within twice [`FUNNEL_COLS`] of a door (40 took the cover of the mound's flank 40 columns out, seed 1, and spent it there), and either
+/// [`INSIDE`] rows of ground over it or [`INSIDE`] rows under the door's ground
+/// line. Both, because a grown mound holds the nest above the line (seed 1:
+/// every gallery the round-3 coarse arm reached was at or above it, under 6-9
+/// rows of roof) and a door's shaft is open to the sky all the way down. The
+/// mouth, where the massacre camps, is neither.
+pub fn inside_door(world: &World, head: (i32, i32)) -> bool {
+    world.nest_sites.iter().filter(|s| (s.x - head.0).abs() <= 2 * FUNNEL_COLS).min_by_key(|s| (s.x - head.0).abs()).is_some_and(|s| head.1 >= s.surface + INSIDE || cover(world, head) >= INSIDE)
+}
+
+/// The first step, breadth first within [`FUNNEL_STEPS`] over cells a
+/// centipede can walk, toward the nearest cell where `goal` holds.
+fn way(world: &World, me: OrganismId, head: (i32, i32), goal: impl Fn(i32, i32) -> bool) -> Option<(i32, i32)> {
+    const SIDE: usize = (2 * FUNNEL_STEPS + 1) as usize;
+    let at = |x: i32, y: i32| ((y - head.1 + FUNNEL_STEPS) as usize) * SIDE + (x - head.0 + FUNNEL_STEPS) as usize;
+    let mut first = vec![None::<(i32, i32)>; SIDE * SIDE];
+    let mut seen = vec![false; SIDE * SIDE];
+    seen[at(head.0, head.1)] = true;
+    let mut ring = vec![head];
+    for _ in 0..FUNNEL_STEPS {
+        let mut next = Vec::new();
+        for &(x, y) in &ring {
+            for (dx, dy) in crate::sim::creature::DIRS {
+                let (nx, ny) = (x + dx, y + dy);
+                if (nx - head.0).abs() > FUNNEL_STEPS || (ny - head.1).abs() > FUNNEL_STEPS || !world.in_bounds(nx, ny) || seen[at(nx, ny)] {
+                    continue;
+                }
+                seen[at(nx, ny)] = true;
+                let c = world.get(nx, ny);
+                let o = c.organism_id();
+                let open = c.is_empty() || (o != 0 && o != me);
+                if !open || !crate::sim::creature::DIRS.iter().any(|&(ax, ay)| ground(world, nx + ax, ny + ay)) {
+                    continue;
+                }
+                let step = if (x, y) == head { (nx, ny) } else { first[at(x, y)].unwrap_or((nx, ny)) };
+                first[at(nx, ny)] = Some(step);
+                if goal(nx, ny) {
+                    return Some(step);
+                }
+                next.push((nx, ny));
+            }
+        }
+        ring = next;
+    }
+    None
+}
+
+/// **The steering assist, once a displayed frame**, on the arrow the launcher
+/// just handed the body (`Demo::demo_frame` sets `Steered::input` from the held
+/// keys, then calls the seat): the funnel, then the turn-round hold. See
+/// [`FLIP_HOLD`].
+fn assist(lab: &mut Lab) {
+    let on = assisting(lab);
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (Some(id), None) = (e.raider, e.ended) else { return };
+    let (last_flip, carrying) = (e.last_flip, carrying_larva(&lab.world, e));
+    let frame = lab.world.frame;
+    let mut funnel = false;
+    // `flip_hold=` and `funnel_walks=1` (the sprint off while funnelled) are the A/B knobs.
+    let arg = |k: &str| lab.demo.as_ref().and_then(|d| d.args.get(k)).cloned();
+    let flip_hold = arg("flip_hold").and_then(|v| v.parse().ok()).unwrap_or(FLIP_HOLD);
+    let walks = arg("funnel_walks").is_some_and(|v| v == "1");
+    let lead_out = arg("funnel_out").is_none_or(|v| v != "0");
+    let (mut held_flip, mut out_led) = (false, false);
+    let dir = lab.world.steered.as_ref().filter(|s| s.id == id).and_then(|s| s.input).and_then(|i| i.dir);
+    let chain = lab.world.organism(id).map(|s| s.chain.clone()).filter(|c| !c.is_empty());
+    if let (true, Some(mut d), Some(chain)) = (on, dir, chain) {
+        let head = chain[0];
+        // The funnel: down held near a door, not yet in, not carrying.
+        let door = lab.world.nest_sites.iter().filter(|s| (s.x - head.0).abs() <= FUNNEL_COLS).min_by_key(|s| (s.x - head.0).abs()).map(|s| s.surface);
+        if let Some(surface) = door.filter(|&sf| d.1 > 0 && !carrying && head.1 < sf + INSIDE) {
+            if let Some(step) = way_in(&lab.world, id, head, surface) {
+                d = ((step.0 - head.0).signum() as i8, (step.1 - head.1).signum() as i8);
+                funnel = true;
+            }
+        }
+        // ...and out (round 3, `funnel_out=0` off): up held under the door's line with a larva in the jaws.
+        if let Some(surface) = door.filter(|_| lead_out && d.1 < 0 && carrying && inside_door(&lab.world, head)) {
+            if let Some(step) = way_out(&lab.world, id, head, surface) {
+                d = ((step.0 - head.0).signum() as i8, (step.1 - head.1).signum() as i8);
+                out_led = true;
+            }
+        }
+        // The turn-round hold: an arrow back over the tail soon after a turn stands the body.
+        let mut out = Some(d);
+        if let (Some(f), Some(&tail)) = (last_flip, chain.last()) {
+            let back = (tail.0 - head.0, tail.1 - head.1);
+            if chain.len() > 1 && frame < f + flip_hold && i32::from(d.0) * back.0 + i32::from(d.1) * back.1 > 0 {
+                out = None;
+                held_flip = true;
+            }
+        }
+        if let Some(input) = lab.world.steered.as_mut().and_then(|s| s.input.as_mut()) {
+            input.dir = out;
+        }
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.funnel = funnel;
+        e.funnel_walks = walks;
+        e.funnelled += u64::from(funnel);
+        e.held_flips += u64::from(held_flip);
+        e.funnelled_out += u64::from(out_led);
+    }
+    // The bite hold: B pressed within the last BITE_HOLD frames bites (or grabs) again.
+    let biting = on && lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| frame < e.bite_until);
+    if biting {
+        bite_or_grab(lab);
     }
 }
 
@@ -722,12 +1108,64 @@ fn stakes_on_body(lab: &mut Lab, hunger: bool) {
     }
 }
 
+/// **The round-3 levers on the wound meter, once a tick** (stakes and the
+/// assist on): under a door's cover ([`DOOR_GRACE`]) and while carrying a
+/// larva ([`CARRY_SOFT`]), what this tick's bites added to the meter is cut
+/// back. Seat-side and after the fact: the engine banks each bite on the meter
+/// and a cell comes off when it fills, so this cannot stop a cell that came off
+/// inside the tick (four bites at once) -- it only keeps the meter from filling.
+fn soften_wounds(lab: &mut Lab) {
+    if !assisting(lab) {
+        return;
+    }
+    let arg = |k: &str| lab.demo.as_ref().and_then(|d| d.args.get(k)).cloned();
+    // Off unless asked for ([`DOOR_GRACE`]'s doc: it fed the massacre).
+    let grace_len = arg("door_grace").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let carry_soft = arg("carry_soft").and_then(|v| v.parse::<f32>().ok()).unwrap_or(CARRY_SOFT).clamp(0.0, 1.0);
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (Some(id), None) = (e.raider, e.ended) else { return };
+    let (last_len, last_gnawed, was_inside, cover_from) = (e.last_len, e.last_gnawed, e.was_inside, e.cover_from);
+    let carrying = carrying_larva(&lab.world, e);
+    let frame = lab.world.frame;
+    let Some((head, len, gnawed)) = lab.world.organism(id).and_then(|s| s.chain.first().map(|&h| (h, s.chain.len(), s.gnawed))) else { return };
+    let inside = inside_door(&lab.world, head);
+    let begins = grace_len > 0 && inside && !was_inside && cover_from.is_none_or(|f| frame >= f + GRACE_REARM * grace_len);
+    let cover_from = if begins { Some(frame) } else { cover_from };
+    let covered = inside && cover_from.is_some_and(|f| frame < f + grace_len);
+    let k = (if covered { DOOR_SOFT } else { 1.0f32 }).min(if carrying { carry_soft } else { 1.0 });
+    let mut taken = 0.0;
+    if k < 1.0 && len == last_len && gnawed > last_gnawed {
+        let kept = last_gnawed + k * (gnawed - last_gnawed);
+        taken = gnawed - kept;
+        if let Some(s) = lab.world.organism_mut(id) {
+            s.gnawed = kept;
+        }
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.was_inside = inside;
+        e.cover_from = cover_from;
+        if covered {
+            e.door_absorbed += taken;
+        } else {
+            e.carry_absorbed += taken;
+        }
+        if begins {
+            e.note = Some((frame, "IN THEIR DOOR -- A MOMENT BEFORE THEY CLOSE IN".to_string()));
+        }
+    }
+}
+
 /// **Before each simulated tick**: spend or recover wind, and tell the body
 /// whether it sprints this tick.
 pub fn before_tick(lab: &mut Lab) {
     stakes_on_body(lab, true);
+    let room = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.raider).is_some_and(|id| lab.world.organism(id).is_some() && !crop_full(&lab.world, id));
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.gut_room = room;
+    }
     let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) else { return };
-    let run = e.raider.is_some() && e.ended.is_none() && e.sprint_held && !e.winded;
+    // `funnel_walks=1`: no sprint while the funnel steers (measured neutral, so off by default).
+    let run = e.raider.is_some() && e.ended.is_none() && e.sprint_held && !e.winded && !(e.funnel && e.funnel_walks);
     if run {
         e.spent = (e.spent + 1.0 / SPRINT_FRAMES).min(1.0);
         e.winded = e.spent >= 1.0;
@@ -740,6 +1178,18 @@ pub fn before_tick(lab: &mut Lab) {
     if let Some(s) = lab.world.steered.as_mut() {
         s.sprint = sprint;
     }
+}
+
+/// **No room in the gut for one more cell** at its own unit: the sated rule's
+/// test (`CreatureDef::handling`), which a full-gut bite skips.
+fn crop_full(w: &World, id: OrganismId) -> bool {
+    w.organism(id).is_some_and(|s| {
+        let def = w.species.get(s.species).creature.as_ref();
+        match (s.crop, def) {
+            (Some(c), Some(d)) => c.worth() + c.unit > crate::sim::creature::organism_crop_capacity(w, id, d),
+            _ => false,
+        }
+    })
 }
 
 /// **Eggs that took a mutated mind**, from the store's own log (drained, so it
@@ -764,6 +1214,7 @@ fn count_births(lab: &mut Lab) {
 /// the world's own logs.
 pub fn after_tick(lab: &mut Lab) {
     count_births(lab);
+    soften_wounds(lab);
     let Some(id) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).and_then(|e| e.raider) else { return };
     let frame = lab.world.frame;
     let w = &mut lab.world;
@@ -780,6 +1231,7 @@ pub fn after_tick(lab: &mut Lab) {
         })
     });
     let head = w.organism(id).and_then(|s| s.chain.first().copied());
+    let tail = w.organism(id).and_then(|s| s.chain.last().copied());
     let (len, energy, gnawed, alive) = w.organism(id).map_or((0, 0.0, 0.0, false), |s| (s.chain.len(), s.energy, s.gnawed, true));
     let mut bites = Vec::new();
     if let Some(log) = w.encounter_log.as_mut() {
@@ -793,13 +1245,8 @@ pub fn after_tick(lab: &mut Lab) {
     let kills_len = w.kills_log.len();
     let last_act = w.steered.as_ref().filter(|s| s.id == id).and_then(|s| s.last_act);
     let spoil = w.organism(id).is_some_and(|s| s.spoil.is_some());
-    let crop_full = w.organism(id).is_some_and(|s| {
-        let def = w.species.get(s.species).creature.as_ref();
-        match (s.crop, def) {
-            (Some(c), Some(d)) => c.worth() + c.unit > crate::sim::creature::organism_crop_capacity(w, id, d),
-            _ => false,
-        }
-    });
+    let crop_full = crop_full(w, id);
+    let jaws_corpse = jaws_hold_brood(w, id);
     let ant_at = |w: &World, other: OrganismId| w.organism(other).and_then(|s| s.chain.first().copied());
     let marks: Vec<(u64, (i32, i32), Mark)> = bites
         .iter()
@@ -826,11 +1273,18 @@ pub fn after_tick(lab: &mut Lab) {
     for k in &new_kills {
         if k.detail.attacker == id {
             e.kills += 1;
+            if e.gut_room || !e.stakes {
+                e.meals += 1;
+            } else {
+                e.note = Some((frame, "GUT FULL -- THAT KILL SCORED NOTHING. BROOD IS THE PRIZE".to_string()));
+            }
             if let Some(h) = head {
                 e.marks.push((frame, h, Mark::Kill));
             }
         }
     }
+    // The grab's flag lasts while the corpse is in the jaws: Q, a death, or a bank ends it.
+    e.carrying &= jaws_corpse && alive;
     e.kills_read = kills_len;
     if alive && len < e.last_len {
         // Cells came off: the one at `len` in the old chain and everything
@@ -848,6 +1302,7 @@ pub fn after_tick(lab: &mut Lab) {
             e.game.push(Life {
                 frames: frame.saturating_sub(e.landed.unwrap_or(frame)),
                 kills: e.kills,
+                meals: e.meals,
                 grabbed: e.grabbed,
                 brood: e.brood,
                 deepest: e.deepest,
@@ -877,6 +1332,13 @@ pub fn after_tick(lab: &mut Lab) {
         e.last_len = len;
         e.last_energy = energy;
         e.last_gnawed = gnawed;
+        // A turn-round: the head came out where the tail was.
+        if let (Some(h), Some(t)) = (head, tail) {
+            if len > 1 && e.ends.is_some_and(|(_, old_tail)| old_tail == h) {
+                e.last_flip = Some(frame);
+            }
+            e.ends = Some((h, t));
+        }
     }
     if let Some(a) = last_act.filter(|a| a.frame > e.last_act_read) {
         e.last_act_read = a.frame;
@@ -990,8 +1452,9 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
         // **The brood, in white**: a larva is one cell, the colour of the
         // soil's pale grains, and the heist is for them -- every living larva
         // is a full replace on a fixed white, ringed when it is in the jaws'
-        // reach.
+        // reach (the grab's own test, through open cells only).
         let head = e.raider.and_then(|id| lab.world.organism(id)).and_then(|s| s.chain.first().copied());
+        let reach: Vec<OrganismId> = head.map(|h| larvae_in_reach(&lab.world, h).into_iter().map(|(o, _)| o).collect()).unwrap_or_default();
         for id in lab.world.live_brood_ids() {
             let Some(s) = lab.world.organism(id) else { continue };
             if !s.brood.is_some_and(|b| b.stage == crate::sim::organism::BroodStage::Larva) {
@@ -1006,7 +1469,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
                     }
                 }
             }
-            if head.is_some_and(|h| (h.0 - x).abs().max((h.1 - y).abs()) <= JAW_REACH) {
+            if reach.contains(&id) {
                 let (cx, cy) = at(x, y);
                 dot(frame_buf, cx, cy, 3, LARVA);
             }
@@ -1068,7 +1531,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
             dot(frame_buf, cx, cy, 9, DOOR);
         }
         // A larva in the jaws: a white block on the head, big enough to read.
-        if e.raider.is_some_and(|id| jaws_hold_brood(&lab.world, id)) {
+        if carrying_larva(&lab.world, e) {
             // Above the ring, not under it, outlined dark so it reads on sky
             // and on soil alike.
             for dy in -3i32..=3 {
@@ -1267,7 +1730,7 @@ fn stakes_hud(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
             if cells == 0 { "EMPTY".to_string() } else if gut_cap > 0 { format!("{cells}/{gut_cap}") } else { format!("{cells}") }
         ));
         let larvae = w.live_brood_ids().into_iter().filter(|&b| w.organism(b).and_then(|s| s.brood).is_some_and(|b| b.stage == crate::sim::organism::BroodStage::Larva)).count();
-        let jaws = if e.raider.is_some_and(|id| jaws_hold_brood(w, id)) {
+        let jaws = if carrying_larva(w, e) {
             "JAWS: A LARVA -- TO THE GOLD FLAG!".to_string()
         } else if s.spoil.is_some() {
             "JAWS: A CRUMB (Q)".to_string()
@@ -1276,7 +1739,8 @@ fn stakes_hud(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
         } else {
             format!("{larvae} LARVAE IN THE NEST (WHITE)")
         };
-        out.push(format!("ANTS {} (x1)  BROOD {} (x{BROOD_POINTS})  {jaws}", e.kills, e.brood));
+        let gut = if e.gut_room { "" } else { " GUT FULL" };
+        out.push(format!("BROOD {} (x{BROOD_POINTS})  ANTS {} (x1){gut}  {jaws}", e.brood, e.meals));
     } else if let Some((_, how)) = e.ended {
         out.push(if e.over { format!("{how} -- GAME OVER -- R FOR A NEW GAME") } else { format!("{how} -- R FOR YOUR NEXT RAIDER") });
     }
@@ -1302,9 +1766,10 @@ fn stakes_card(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
     let mut out = Vec::new();
     let row = |i: usize, l: &Life| {
         let secs = l.frames / 60;
-        format!("{:>6}  {:>2}:{:02}  {:>4}  {:>5}  {:>5}  {:>6}  {}", i + 1, secs / 60, secs % 60, l.kills, l.brood, l.deepest.max(0), l.points(), l.how)
+        format!("{:>6}  {:>2}:{:02}  {:>5}  {:>5}  {:>5}  {:>5}  {:>6}  {}", i + 1, secs / 60, secs % 60, l.brood, l.meals, l.kills, l.deepest.max(0), l.points(), l.how)
     };
-    let header = "RAIDER  LIVED  ANTS  BROOD  DEPTH  POINTS  HOW".to_string();
+    // EATEN scores (an ant killed while the gut had room); KILLS is every ant.
+    let header = "RAIDER  LIVED  BROOD  EATEN  KILLS  DEPTH  POINTS  HOW".to_string();
     if e.over {
         out.push(format!("-- GAME OVER: SCORE {}{} (Y CLOSES) --", e.score(), if e.new_best { ", A NEW BEST" } else { "" }));
         out.push(header);
@@ -1320,7 +1785,7 @@ fn stakes_card(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
         } else {
             format!("THE COLONY HELD AT {ants} ANTS.")
         });
-        out.push("R STARTS A NEW GAME AGAINST THE SAME COLONY.".to_string());
+        out.push(if persists(lab) { "R STARTS A NEW GAME AGAINST THE SAME COLONY." } else { "R STARTS A NEW GAME FROM THE COLONY AS IT WAS AT THE FIRST LANDING." }.to_string());
         return out;
     }
     let n = e.game.len() + usize::from(e.ended.is_none());
@@ -1334,6 +1799,7 @@ fn stakes_card(lab: &Lab, e: &EnemyDemo) -> Vec<String> {
         let now = Life {
             frames: w.frame.saturating_sub(e.landed.unwrap_or(w.frame)),
             kills: e.kills,
+            meals: e.meals,
             grabbed: e.grabbed,
             brood: e.brood,
             deepest: e.deepest,
@@ -1562,6 +2028,7 @@ mod tests {
         step(&mut lab, 620);
         let id = raider_of(&lab);
         assert!(seat(&lab).stakes, "the stakes are not on by default");
+        assert!(assisting(&lab), "the steering assist is not on with the stakes");
         assert!(seat(&lab).in_grace(lab.world.frame), "no grace at the landing");
         lab.world.organism_mut(id).expect("alive").gnawed = 0.9;
         step(&mut lab, 1);
@@ -1582,10 +2049,16 @@ mod tests {
         let lair = seat(&lab).lair.expect("a lair");
         let head = lab.world.organism(id).and_then(|s| s.chain.first().copied()).expect("alive");
         assert!((head.0 - lair.0).abs() <= LAIR_REACH, "test setup: the raider walked off its lair ({head:?} vs {lair:?})");
+        // A corpse the jaws did not grab as brood never banks (review finding 4)...
         lab.world.organism_mut(id).expect("alive").spoil = Some(crate::sim::organism::Spoil { cell: crate::sim::cell::Cell::new(corpse, 0).with_aux(50), store: false });
+        step(&mut lab, 1);
+        assert_eq!(seat(&lab).brood, 0, "a corpse nobody grabbed banked as a larva");
+        // ...and one held under the grab's flag does (the positive control).
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").carrying = true;
         let score0 = seat(&lab).score();
         step(&mut lab, 1);
         assert_eq!(seat(&lab).brood, 1, "the larva was not banked at the lair");
+        assert!(!seat(&lab).carrying, "the grab's flag outlived the bank");
         assert_eq!(seat(&lab).score(), score0 + BROOD_POINTS);
         assert!(lab.world.organism(id).is_some_and(|s| s.spoil.is_none()), "the jaws still hold the larva");
         // The pointer is the seat's: the lab's CULL cannot reach the box.
@@ -1611,18 +2084,73 @@ mod tests {
         let e = seat(&lab);
         assert!(e.over && e.best == e.score() && e.best >= BROOD_POINTS, "game over: over {} best {} score {}", e.over, e.best, e.score());
         assert!(card_lines(&lab)[0].contains("GAME OVER"), "{:?}", card_lines(&lab));
+        let warm = seat(&lab).warm.clone().expect("the first landing kept the warmed box");
+        assert!(lab.world.frame > warm.0.frame, "test setup: no time passed since the landing");
         lab.demo_key(DemoKey::Letter('R'), true);
         assert!(seat(&lab).game.is_empty() && !seat(&lab).over && seat(&lab).raider.is_some(), "R after the game did not start a new one");
+        // The new game starts from the box as it was at the first landing (review finding 3).
+        assert_eq!(lab.world.frame, warm.0.frame, "R after a game over did not restore the warmed box");
+        assert_eq!(live_ants(&lab.world), live_ants(&warm.0), "the restored colony is not the warmed one");
         // The sandbox.
         let mut sand = quick_lab("600", false);
         sand.demo.as_mut().expect("demo").args.insert("stakes".to_string(), "0".to_string());
         step(&mut sand, 620);
         let id = raider_of(&sand);
         assert!(!seat(&sand).stakes);
+        assert!(!assisting(&sand), "stakes=0 kept the steering assist");
         sand.world.organism_mut(id).expect("alive").energy = 9_000.0;
         step(&mut sand, 1);
         assert!(sand.world.organism(id).expect("alive").energy > cap, "stakes=0 still caps the tank");
         assert!(!sand.demo_mouse((10, 10), super::super::MouseAct::Press { erase: false }), "stakes=0 kept the pointer");
+    }
+
+    /// **The round-3 levers on the wound meter**: the carrying plate halves
+    /// what a bite adds, the door's cover takes it all and only inside and
+    /// only for [`DOOR_GRACE`] ticks, and each has its off switch. Each case
+    /// sets the meter up from 0.2 to 0.6, as one tick's bites would.
+    #[test]
+    fn the_door_cover_and_the_carrying_plate_soften_bites() {
+        let mut lab = quick_lab("600", false);
+        step(&mut lab, 620);
+        let id = raider_of(&lab);
+        let len = lab.world.organism(id).expect("alive").chain.len();
+        let bitten = |lab: &mut Lab| {
+            let e = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat");
+            (e.last_gnawed, e.last_len) = (0.2, len);
+            lab.world.organism_mut(id).expect("alive").gnawed = 0.6;
+            soften_wounds(lab);
+            lab.world.organism(id).expect("alive").gnawed
+        };
+        // Outside, empty-jawed: the bite stands (the control).
+        let head = lab.world.organism(id).and_then(|s| s.chain.first().copied()).expect("alive");
+        assert!(!inside_door(&lab.world, head), "test setup: the raider landed inside a door");
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "a bite outside, empty-jawed, was softened");
+        // Carrying a grabbed larva: half the bite.
+        let corpse = lab.world.materials.known(crate::sim::material::Known::Corpse).expect("corpse ships");
+        lab.world.organism_mut(id).expect("alive").spoil = Some(crate::sim::organism::Spoil { cell: crate::sim::cell::Cell::new(corpse, 0).with_aux(50), store: false });
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").carrying = true;
+        assert!((bitten(&mut lab) - (0.2 + CARRY_SOFT * 0.4)).abs() < 1e-6, "the carrying plate did not soften the bite");
+        assert!(seat(&lab).carry_absorbed > 0.19);
+        lab.demo.as_mut().expect("demo").args.insert("carry_soft".to_string(), "1".to_string());
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "carry_soft=1 still softened the bite");
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").carrying = false;
+        // Inside a door: move the nearest door's ground line over the head.
+        lab.demo.as_mut().expect("demo").args.insert("door_grace".to_string(), DOOR_GRACE.to_string());
+        let site = lab.world.nest_sites.iter_mut().min_by_key(|s| (s.x - head.0).abs()).expect("a door");
+        (site.x, site.surface) = (head.0, head.1 - INSIDE);
+        assert!(inside_door(&lab.world, head));
+        assert!((bitten(&mut lab) - 0.2).abs() < 1e-6, "a bite under the door's cover stood");
+        assert!(seat(&lab).cover_from == Some(lab.world.frame) && seat(&lab).door_absorbed > 0.39, "the cover did not begin or count");
+        // ...and only for the cover's length: then the bite stands, and stepping out and back does not re-arm it yet.
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").cover_from = Some(lab.world.frame - DOOR_GRACE);
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "the cover outlasted DOOR_GRACE");
+        lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat").was_inside = false;
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "stepping out and back re-armed the cover at once");
+        // The off switch.
+        let e = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()).expect("seat");
+        (e.cover_from, e.was_inside) = (None, false);
+        lab.demo.as_mut().expect("demo").args.insert("door_grace".to_string(), "0".to_string());
+        assert!((bitten(&mut lab) - 0.6).abs() < 1e-6, "door_grace=0 still covered the raider");
     }
 
     /// **A raider bitten down to its head regrows** (`creature::regrow_tail`,
