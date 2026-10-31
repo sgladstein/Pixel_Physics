@@ -323,6 +323,16 @@ pub struct Lab {
     /// binary turns it on at launch since 2026-10-24** (`-- oldant` keeps it off).
     /// See [`Lab::set_new_ant`].
     pub new_ant: bool,
+    /// **The laying brake** `(T, D)`: every [`LAY_BRAKE_EVERY`] frames the
+    /// ant's laying bar is the species' own times `2^((adults + brood - T) / D)`,
+    /// never below it -- see [`lay_brake_bar`]. `None` in a `Lab::new`, so the
+    /// exam (`labsurvive`) and every harness keep measuring what they measured;
+    /// **the lab binary turns it on at 48:8 since 2026-10-31** (`-- laybrake=off`).
+    pub lay_brake: Option<(f64, f64)>,
+    /// The species' own `lay_at`, before the brake raised it, and the value
+    /// the brake last wrote. A `lay_at` that is neither (a rebuilt box, a
+    /// reloaded species, a parameter row) is the new base.
+    lay_brake_base: Option<(f32, f32)>,
     /// **Which trained ant ANT BRAIN: NEW gives** -- an index into
     /// [`training::LAB_ANTS`], never its hand-built entry (that is `new_ant`
     /// off). The standard pool in a `Lab::new`; the player picks another with
@@ -681,6 +691,8 @@ impl Lab {
             training_settings: training::Settings::default(),
             training_seed: 1,
             new_ant: false,
+            lay_brake: None,
+            lay_brake_base: None,
             lab_ant: 0,
             own_pool: false,
             new_ant_mind: None,
@@ -2142,6 +2154,54 @@ impl Lab {
             // ten thousand.
             self.write_chronicle();
         }
+        // **Last, after everything else in the tick**, which is where
+        // `labsurvive laycap=` applied it when it was measured (after the
+        // harness's tick), so the exam's braked rows and the game agree.
+        if self.world.frame.is_multiple_of(LAY_BRAKE_EVERY) && (self.lay_brake.is_some() || self.lay_brake_base.is_some()) {
+            self.apply_lay_brake();
+        }
+    }
+
+    /// Set the ant's laying bar from the colony's size, or put the species'
+    /// own back when the brake is off -- see [`Lab::lay_brake`].
+    ///
+    /// **Stands down while the TRAINING page runs** (its beds have their own
+    /// rules and score what the colony makes of them) **and while two or more
+    /// ant colonies live in the box**: `lay_at` is one per species, so a cap
+    /// counted across both colonies lets the one that grew first stop its
+    /// neighbour laying (`Reports/dead-ends.md`, `rivalbed`'s `lay_cap_mode`).
+    /// A per-colony brake for the battle box is the follow-up, not this.
+    fn apply_lay_brake(&mut self) {
+        let w = &mut self.world;
+        let Some(sp) = w.species.id_of("ant") else { return };
+        let Some(cur) = w.species.get(sp).creature.as_ref().and_then(|d| d.brood.as_ref()).map(|b| b.lay_at) else {
+            return;
+        };
+        let base = match self.lay_brake_base {
+            Some((base, set)) if cur == set || cur == base => base,
+            _ => cur,
+        };
+        let target = match self.lay_brake.filter(|_| self.training.is_none()) {
+            Some(brake) => {
+                let adults: Vec<_> = w.live_organism_ids().into_iter().filter(|&i| w.organism(i).is_some_and(|s| s.species == sp)).collect();
+                let colonies = adults.iter().map(|&i| w.colony_of(i)).collect::<std::collections::HashSet<_>>().len();
+                let brood = w.live_brood_ids().into_iter().filter(|&i| w.organism(i).is_some_and(|s| s.species == sp)).count();
+                lay_brake_bar(base, adults.len() + brood, colonies, brake)
+            }
+            None => base as f64,
+        };
+        let mut now = cur;
+        if (cur as f64 - target).abs() > 0.5 {
+            let mut def = w.species.get(sp).creature.clone().expect("creature");
+            if let Some(b) = def.brood.as_mut() {
+                b.lay_at = target as f32;
+                now = b.lay_at;
+                w.species.set_creature(sp, def);
+            }
+        }
+        // Turned off, the base is put back above and dropped here: nothing
+        // to read until the brake is turned on again.
+        self.lay_brake_base = self.lay_brake.map(|_| (base, now));
     }
 
     /// **One tick, for a harness that needs to advance the world without the
@@ -4850,6 +4910,35 @@ pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 /// every tick of a box full of plants.
 const NEW_ANT_SWEEP: u64 = 16;
 
+/// **How often the laying brake re-reads the colony** ([`Lab::lay_brake`]),
+/// in frames -- `labsurvive laycap=`'s cadence when it was measured, and
+/// `inrun`'s `lay_cap`'s.
+pub const LAY_BRAKE_EVERY: u64 = 250;
+
+/// **The laying bar under the brake** `(T, D)`: the species' own `base` times
+/// `2^((heads - T) / D)`, never below `base`, so each `D` ants (adults plus
+/// brood) past `T` doubles what a queen must bank before the next egg. The
+/// size is set by food, not by a hard cap: a rich colony still grows past `T`.
+///
+/// Measured before it shipped (Teacher lane, exam x14, 2026-10-31, 48:8;
+/// `Reports/brain-training/teacher-training/colony-selection-log-2026-10-24.md`):
+/// std_pool and N_gate c10, six exam boxes x 8 seeds at 600k, paired with the
+/// unbraked x13 rows. **No colony fewer alive at the end** (0 better / 1
+/// worse, both brains) and no box lost; the colony holds at ~65 ants where it
+/// stood at 150-600, and std_pool starves ~8x fewer (391 against 3,594 on
+/// played_bed seed 1). **Off in the exam for a measured reason**: braked, every
+/// brain sits at the same ~66 ants on the plant boxes (std 66-68 against N_gate
+/// 66-73, where unbraked it is 153-259 against 361-599), so the exam's main
+/// measure can no longer tell two brains apart.
+///
+/// `colonies` past one stands the brake down (see [`Lab::apply_lay_brake`]).
+pub fn lay_brake_bar(base: f32, heads: usize, colonies: usize, (t, d): (f64, f64)) -> f64 {
+    if colonies > 1 {
+        return base as f64;
+    }
+    base as f64 * 2f64.powf((heads as f64 - t).max(0.0) / d.max(1.0))
+}
+
 /// The gut at which an animal is placed as a lone hunter -- see
 /// `Lab::is_lone_hunter`. Halfway to a pure carnivore's `+1.0`.
 const LONE_HUNTER_GUT: f32 = 0.5;
@@ -5127,6 +5216,45 @@ mod tests {
     use super::*;
 
     // --------------------------------------------- the zoom-out pixel budget
+
+    // ------------------------------------------------------ the laying brake
+
+    #[test]
+    fn the_laying_brake_doubles_the_bar_every_d_ants_past_t_and_stands_down_for_two_colonies() {
+        assert_eq!(lay_brake_bar(1100.0, 30, 1, (48.0, 8.0)), 1100.0, "under T the species' own bar");
+        assert_eq!(lay_brake_bar(1100.0, 48, 1, (48.0, 8.0)), 1100.0);
+        assert_eq!(lay_brake_bar(1100.0, 56, 1, (48.0, 8.0)), 2200.0, "one D past T doubles it");
+        assert_eq!(lay_brake_bar(1100.0, 64, 1, (48.0, 8.0)), 4400.0);
+        assert_eq!(lay_brake_bar(1100.0, 64, 2, (48.0, 8.0)), 1100.0, "two colonies: one per-species bar would let one starve the other's laying");
+    }
+
+    /// **The brake writes the species' bar, puts it back when turned off, and
+    /// takes a bar someone else set (a parameter row, a reloaded species) as
+    /// its new base** rather than braking from a stale one. An empty bed and a
+    /// negative `T` so the bar is raised with no ants in the box.
+    #[test]
+    fn the_laying_brake_restores_the_species_bar_and_follows_a_new_one() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        let sp = lab.world.species.id_of("ant").expect("ant");
+        let lay_at = |lab: &Lab| lab.world.species.get(sp).creature.as_ref().unwrap().brood.as_ref().unwrap().lay_at;
+        let run = |lab: &mut Lab| (0..LAY_BRAKE_EVERY).for_each(|_| lab.tick_for_harness());
+        let base = lay_at(&lab);
+        run(&mut lab);
+        assert_eq!(lay_at(&lab), base, "no brake, no change");
+        lab.lay_brake = Some((-8.0, 8.0));
+        run(&mut lab);
+        assert_eq!(lay_at(&lab), base * 2.0);
+        run(&mut lab);
+        assert_eq!(lay_at(&lab), base * 2.0, "the brake must not compound on its own bar");
+        let mut def = lab.world.species.get(sp).creature.clone().unwrap();
+        def.brood.as_mut().unwrap().lay_at = 900.0;
+        lab.world.species.set_creature(sp, def);
+        run(&mut lab);
+        assert_eq!(lay_at(&lab), 1800.0, "a bar set from outside is the new base");
+        lab.lay_brake = None;
+        run(&mut lab);
+        assert_eq!(lay_at(&lab), 900.0, "off puts the base back");
+    }
 
     /// A bed big enough to reach the widest zoom rung. Empty of life on
     /// purpose: every guard here is about the *view*, and founders would make

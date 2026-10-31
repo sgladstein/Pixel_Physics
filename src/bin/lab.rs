@@ -102,6 +102,11 @@
 //! `\\`), lists queen, raider, keeper, guest, scout and satchel with a line
 //! each, starts one on the spot, and its PLAIN LAB row comes back to the box
 //! and ant you left (`lab::demo::menu`). `-- demo=queen` still opens on one.
+//!
+//! **The laying brake is on at 48:8** since 2026-10-31 (`Lab::lay_brake`):
+//! past 48 ants each 8 more double what a queen must bank before an egg, so
+//! the colony holds near 65 instead of booming and starving. `-- laybrake=off`
+//! opens without it.
 
 #[path = "lab/layer.rs"]
 mod layer;
@@ -330,7 +335,18 @@ impl Handler {
         // A person is at the keys: a demo started from here or from the
         // DEMOS page gets its seat card and its landing pause.
         lab.windowed = true;
-        lab.ui.say(format!("ANT: {} -- ` SWITCHES TO THE NEXT ANT, SHIFT+` BACK", lab.ant_name()));
+        // **The laying brake, on at 48:8** (owner's card, 2026-10-31: test it
+        // in the lab, and it ships on if not measured harmful;
+        // `Lab::lay_brake`). Without it a lab colony booms to 150-600 ants and
+        // starves thousands; with it it holds near 65 and no exam box lost its
+        // colony. `-- laybrake=off` is the old box, `-- laybrake=T:D` another
+        // setting. Set here, not in `Lab::new`, for the same reason as the ant.
+        lab.lay_brake = match args.iter().find_map(|a| a.strip_prefix("laybrake=")) {
+            Some("off") => None,
+            v => Some(v.and_then(|v| v.split_once(':')).and_then(|(t, d)| Some((t.parse().ok()?, d.parse().ok()?))).unwrap_or((48.0, 8.0))),
+        };
+        let brake = lab.lay_brake.map_or("LAYING BRAKE OFF".to_string(), |(t, d)| format!("LAYING BRAKE {t}:{d}"));
+        lab.ui.say(format!("ANT: {} -- ` SWITCHES TO THE NEXT ANT, SHIFT+` BACK -- {brake}", lab.ant_name()));
         // **`demo=<seat>`: one of the six seat demos** (`lab::demo`, the
         // common launcher, 2026-10-25). After the brain switch, so the
         // demo's scenario is built and its ants given their minds the same
