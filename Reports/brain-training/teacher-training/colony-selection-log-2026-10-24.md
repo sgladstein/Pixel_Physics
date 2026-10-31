@@ -1721,3 +1721,27 @@ Nest lane on worlds 61-68.
 the nest came back a little from more rounds, not from the gate. Tunnels 1 / 8 each env8 arm, 0 / 8 c12, 8 / 8 founders;
 lines extinct N_gate 1 / 8, N_ctl 2 / 8, c12 4 / 8. Reading: a median gate over donors that all dig ~1/15 of the founders
 cannot pull the line back; a next try needs an absolute floor near the founders' level or `nest_open` as a scored case.
+
+## 2026-10-31 (01:50Z): exam `x13` -- env8's gated winner beats std_pool and passes its named measure, but so does the control
+
+x13 (240 runs, ref f245c3a9, after #990 garden / #993 / #994; every brain rerun on it), `data-1027/x13/lab600k.csv`,
+`x13an.py`. Paired over 48 box-seeds, up / down:
+
+| | lived | alive at the end | starved share (fewer) |
+|---|---|---|---|
+| **N_gate c10 vs L_h3 c12** | 22 / 11, p 0.08 | 14 / 11 | 24 / 12 |
+| N_ctl c12 vs L_h3 c12 | 19 / 16 | 12 / 12 | 13 / 24 |
+| N_gate vs N_ctl | 16 / 16 | 12 / 13 | 27 / 11 |
+| **N_gate vs std_pool** | **27 / 11, p 0.014** | **24 / 1** | 32 / 5 |
+| N_ctl vs std_pool | 25 / 16, p 0.21 | 24 / 0 | 29 / 9 |
+| L_h3 c12 vs std_pool | 26 / 9, p 0.006 | 23 / 1 | 30 / 7 |
+| L_h3 c12 vs H3 | 25 / 9, p 0.009 | 23 / 2 | 29 / 7 |
+
+Lived median per plant box (std / H3 / L_h3 / N_ctl / N_gate): played_bed 210 / 186 / 340 / 372 / 370; herb_first_colony
+151 / 211 / 346 / 479 / 385; crowded_bench 259 / 246 / 575 / 554 / 643. Famine boxes: all five die (lived 0.3-0.5).
+**x11 replicates on the new build**: L_h3 c12 vs std 26 / 9 (x11: 26 / 8), so garden + pip food did not move it.
+**Verdict against the measure named at env8's launch:** N_gate passes both conditions -- (1) lived not behind L_h3 c12
+(22 / 11 ahead), (2) garden `nest_open` above c12 in 8 / 8. But N_ctl passes both too, and N_gate vs N_ctl is level on
+lived and on the garden nest (4 / 4): the gain is more rounds, not the gate. N_gate's nest (median 40 open cells) is
+still a fifteenth of the founders' (547-571). Best lab-ant candidate so far on survival: N_gate c10 (vs std_pool lived
+p 0.014, passes Bonferroni 0.025 over 2 arms; alive 24 / 1); the nest trade-off is unchanged and is Scott's call.
