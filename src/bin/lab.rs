@@ -324,6 +324,9 @@ impl Handler {
                     // a headless harness never does (`demo::card`). `card=0`
                     // opens straight onto the seat, for a screenshot of its
                     // own panel and the card's reminder.
+                    if let Some(d) = lab.demo.as_mut() {
+                        d.window = true;
+                    }
                     if !args.iter().any(|a| a == "card=0") {
                         lab.open_seat_card(false);
                     }
@@ -600,6 +603,19 @@ impl Handler {
         // R H` are the seat's own. Releases reach it too, because the arrows
         // and `T` are held levels. With no demo running this is one `Option`
         // read and nothing is consumed.
+        // **The seat card takes every key** (`demo::card`): Space plays and
+        // anything else only closes it. Before, only the keys mapped below
+        // closed it, and PgUp/PgDn, the digits, WASD and the tool keys ran
+        // the game behind a card that said they would close it.
+        if pressed && self.lab.demo.as_ref().is_some_and(|d| d.card) && self.lab.ui.typing().is_none() {
+            if code == KeyCode::Space {
+                self.lab.demo_space();
+            } else {
+                self.lab.close_seat_card();
+            }
+            self.lab.show_help = false;
+            return;
+        }
         if self.lab.demo.is_some() && self.lab.ui.typing().is_none() {
             use pixel_physics::lab::demo::DemoKey;
             let key = match code {
@@ -635,10 +651,6 @@ impl Handler {
             }
             // The speed dial's second home while the arrows steer.
             if pressed {
-                // `Space` over the seat card is "play" (`Lab::demo_space`).
-                if code == KeyCode::Space && self.lab.demo_space() {
-                    return;
-                }
                 match code {
                     KeyCode::PageUp => return self.lab.act(Action::Faster),
                     KeyCode::PageDown => return self.lab.act(Action::Slower),

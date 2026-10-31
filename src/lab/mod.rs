@@ -2479,6 +2479,7 @@ impl Lab {
         self.ui.set_training(view, (self.training_settings.clone(), self.training_seed), self.new_ant);
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
+        self.ui.hover_off = self.demo.is_some();
         self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         if self.demo.is_some() {
             demo::draw_card(self, hc, frame_buf);
@@ -2547,11 +2548,19 @@ impl Lab {
     /// world and a painting tool is armed.
     pub fn press(&mut self, x: i32, y: i32) {
         self.chrome_due = true;
+        // A click over the seat card only closes it (`demo::card`).
+        if self.demo.as_ref().is_some_and(|d| d.card) {
+            self.close_seat_card();
+            return;
+        }
         self.ui.press(x, y);
         if self.show_help || self.ui.covers(x, y) {
             return;
         }
         if self.demo.is_some() && self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Press { erase: false }) {
+            return;
+        }
+        if self.ui.tool() != ui::Tool::Look && self.demo_refuses_world() {
             return;
         }
         // **`Lamp` remembers where the press landed, and nothing else does.**
@@ -2589,6 +2598,9 @@ impl Lab {
             return;
         }
         if self.demo.is_some() && self.demo_mouse(self.renderer.logical_to_world(x, y), demo::MouseAct::Press { erase: true }) {
+            return;
+        }
+        if self.demo_refuses_world() {
             return;
         }
         let at = self.renderer.logical_to_world(x, y);
@@ -2941,6 +2953,9 @@ impl Lab {
     /// **Do the armed verb at a world cell.** Gate 4's three, plus `LOOK`.
     fn use_tool(&mut self, at: (i32, i32)) {
         let (x, y) = at;
+        if self.ui.tool() != ui::Tool::Look && self.demo_refuses_world() {
+            return;
+        }
         match self.ui.tool() {
             ui::Tool::Look => self.ui.inspect(&self.world, at),
             ui::Tool::Plant => self.plant_at(x, y),
@@ -3678,6 +3693,13 @@ impl Lab {
         self.quit_armed = None;
         if action != ui::Action::Reset {
             self.reset_armed = None;
+        }
+        // **A live seat's box is the game board**: rebuilding it, placing
+        // into it or turning its dials mid-round is a way to win without
+        // playing (adversarial review, 2026-10-31: a REBUILD graded the
+        // keeper MASTER for nothing). `stakes=0` is the sandbox again.
+        if matches!(action, ui::Action::Reset | ui::Action::Place | ui::Action::ShelfPlace | ui::Action::ParamAdjust(..)) && self.demo_refuses_world() {
+            return;
         }
         match action {
             // **The speed dial, chronicled** (round 31). `self.time.phase`/

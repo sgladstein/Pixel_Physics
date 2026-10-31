@@ -191,9 +191,15 @@ pub struct Demo {
     pub card: bool,
     /// `H` paused a running clock to show the card, so closing it resumes.
     pub card_resume: bool,
-    /// The clock's multiple last frame, so the card can tell a seat's
-    /// warm-up ending (the dial dropping to play speed) while it is up.
+    /// The clock's multiple last frame, so the layer can tell a seat's
+    /// warm-up ending (the dial dropping to play speed).
     pub card_seen_multiple: u32,
+    /// The warm-up has ended and the landing pause has been taken (once).
+    pub landed: bool,
+    /// A person is at the keys (`bin/lab.rs` sets it). The landing pause
+    /// is theirs; a headless harness drives the clock itself and never
+    /// waits.
+    pub window: bool,
 }
 
 impl Demo {
@@ -212,6 +218,8 @@ impl Demo {
             card: false,
             card_resume: false,
             card_seen_multiple: 0,
+            landed: false,
+            window: false,
         }
     }
 }
@@ -299,7 +307,7 @@ pub fn help_line(seat: DemoSeat) -> String {
     let body = "ARROWS STEER -- E EAT, Q DROP, F FEED, G DIG, B BITE, L LAY, T TRAIL -- TAB FOLLOW -- PGUP/PGDN SPEED";
     match seat {
         DemoSeat::Queen => format!("QUEEN DEMO: {body} -- {}", queen::SEAT_KEYS),
-        DemoSeat::Keeper => format!("KEEPER DEMO: {} -- H HELP -- WASD PAN, THE LAB'S TOOLS WORK WHEN THE HAND IS NONE", keeper::SEAT_KEYS),
+        DemoSeat::Keeper => format!("KEEPER DEMO: {} -- H HELP -- WASD PAN -- THE LAB'S TOOLS NEED stakes=0", keeper::SEAT_KEYS),
         DemoSeat::Scout => format!("SCOUT DEMO: {body} -- {}", scout::SEAT_KEYS),
         DemoSeat::Guest => format!("GUEST DEMO: ARROWS MOVE -- {} -- TAB FOLLOW -- PGUP/PGDN SPEED", guest::SEAT_KEYS),
         DemoSeat::Enemy => format!(
@@ -394,6 +402,23 @@ impl Lab {
             self.time.toggle_phase();
         }
         true
+    }
+
+    /// **Whether the lab's world tools are refused**: in a seat with its
+    /// stakes on, the box is the board, and painting food, placing a
+    /// colony, erasing or rebuilding is a way to win without playing. The
+    /// adversarial review (2026-10-31) beat the intended play with the lab's
+    /// own toolbar in three seats: food paint by the nest graded the keeper
+    /// MASTER in 10 of 12 seeds, ten FOOD dabs a winter rescued the queen,
+    /// one COLONY click turned a lost scout season into SPRING CAME.
+    /// `stakes=0` (the sandbox) unlocks it; LOOK always works. Says why once
+    /// per refusal, on the ticker.
+    pub fn demo_refuses_world(&mut self) -> bool {
+        let locked = self.demo.as_ref().is_some_and(|d| d.args.get("stakes").is_none_or(|v| v != "0"));
+        if locked {
+            self.ui.say("THE BOX IS THE BOARD IN A DEMO -- STAKES=0 TO EDIT IT");
+        }
+        locked
     }
 
     /// Take the seat card down; resume the clock if opening it paused it.
@@ -581,15 +606,24 @@ impl Lab {
     pub fn demo_frame(&mut self) {
         let Some(demo) = self.demo.as_ref() else { return };
         let (seat, held, follow) = (demo.seat, demo.held, demo.follow);
-        // A seat's warm-up ending under the card (the dial dropping from the
-        // top to play speed) waits for the reader: pause, and resume when
-        // the card closes.
-        if demo.card {
+        // **A seat's warm-up ending waits for the player**, card up or not.
+        // The raider, scout and guest run the colony at the top of the dial
+        // and then drop it to play speed at the landing; the first such drop
+        // pauses the clock, so a player who looked away does not lose a life
+        // before they have seen the body (adversarial review, 2026-10-31:
+        // the guest landed at 1x unprompted and lost its first rove).
+        // With the card up, closing it resumes; without, `Space` does.
+        if demo.window && matches!(seat, DemoSeat::Enemy | DemoSeat::Scout | DemoSeat::Guest) && !demo.landed {
             let (was, now) = (demo.card_seen_multiple, self.time.multiple());
             if was > STEER_CAP && (1..=STEER_CAP).contains(&now) {
                 self.time.pause();
+                let card = demo.card;
                 if let Some(d) = self.demo.as_mut() {
-                    d.card_resume = true;
+                    d.landed = true;
+                    d.card_resume = card;
+                }
+                if !card {
+                    self.ui.say("YOUR TURN -- SPACE TO PLAY, H FOR THE GOAL AND KEYS");
                 }
                 self.touch_chrome();
             }
@@ -645,6 +679,66 @@ pub fn oldest_ant(world: &crate::sim::world::World) -> Option<OrganismId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A live seat locks the board; the sandbox does not.** And a
+    /// warm-up's end waits for the player once, card or no card. Positive
+    /// control for the lock: the same lab with `stakes=0` lets the tool
+    /// through, and a real FOOD dab lands only there.
+    #[test]
+    fn a_live_seat_locks_the_board_and_its_landing_waits() {
+        use crate::lab::scenario::Scenario;
+        let sc = Scenario::load("steady_income").expect("steady_income ships");
+        let mut lab = Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.show_help = false;
+        lab.demo = Some(Demo::new(DemoSeat::Scout));
+        assert!(lab.demo_refuses_world(), "a live seat let the lab's tools at the box");
+        let food_id = lab.world.materials.id_of("provisions").expect("the FOOD brush's material");
+        // A dab in open sky, middle of the screen: count provisions around it.
+        let (lx, ly) = (super::super::WIDTH as i32 / 2, 40);
+        let (wx, wy) = lab.renderer.logical_to_world(lx, ly);
+        let food = |lab: &Lab| {
+            let mut n = 0;
+            for y in wy - 12..=wy + 12 {
+                for x in wx - 12..=wx + 12 {
+                    if lab.world.in_bounds(x, y) && lab.world.get(x, y).material == food_id {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        lab.act(super::super::ui::Action::Tool(super::super::ui::Tool::Food));
+        let before = food(&lab);
+        lab.press(lx, ly);
+        lab.end_stroke();
+        let locked = food(&lab);
+        lab.demo.as_mut().unwrap().args.insert("stakes".into(), "0".into());
+        assert!(!lab.demo_refuses_world(), "stakes=0 still locked the box");
+        lab.press(lx, ly);
+        lab.end_stroke();
+        assert_eq!(locked, before, "a FOOD dab landed in a live seat");
+        assert!(food(&lab) > locked, "the positive control painted nothing: the test cannot see a dab");
+
+        lab.demo = Some(Demo::new(DemoSeat::Scout));
+        lab.time.set_preset(5);
+        lab.demo_frame();
+        lab.time.set_preset(0);
+        lab.demo_frame();
+        assert!(lab.time.multiple() > 0, "a headless run waited at the landing: harnesses would stall");
+        lab.demo = Some(Demo::new(DemoSeat::Scout));
+        lab.demo.as_mut().unwrap().window = true;
+        lab.time.set_preset(5);
+        lab.demo_frame();
+        lab.time.set_preset(0);
+        lab.demo_frame();
+        assert_eq!(lab.time.multiple(), 0, "the warm-up ended and the landing did not wait");
+        lab.time.set_preset(5);
+        lab.demo_frame();
+        lab.time.set_preset(0);
+        lab.demo_frame();
+        assert!(lab.time.multiple() > 0, "the landing pause fired twice: a later slow-down paused the game");
+    }
 
     #[test]
     fn every_seat_parses_back_from_its_own_name() {

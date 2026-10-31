@@ -8027,6 +8027,18 @@ reopens it with the clock paused, and a seat warm-up that ends under it waits. I
 one-line key list the ticker clipped at ~72 characters. `card=0` skips it for screenshots.
 Pictures and per-seat READMEs: project folder `seat-demos/build-2026-10-30/`.
 
+**Adversarial review (2026-10-31).** Fresh reviewers set out to win each seat without playing it.
+Every seat fell to the lab's own toolbar, still live under stakes: the FOOD brush painted a
+winter away (queen, 6 of 6 winters), won the keeper round (MASTER on 10 of 12 trained seeds) and
+one COLONY click flipped a lost scout season. **The box is now the board in a demo**
+(`Lab::demo_refuses_world`, at `press`, `press_erase`, `use_tool` and `act`): every world tool
+but LOOK is refused unless `stakes=0`. Also: the card swallows every key (its footer said so and
+was false), the warm-up landing waits for a person at the keys only (`Demo::window`; a harness
+never stalls), the LOOK cell readout is hidden in a seat (it covered the scores), and the card
+says "no way to lose" under `stakes=0`. Seat-by-seat findings (heap camper, greedy queen, keeper
+verdict on ants, raider reaction lag, guest key-mashing): project folder
+`seat-demos/adversarial-2026-10-31/`.
+
 ## Soil nutrient status — ground is worth something water is not
 
 **Shipped ON 2026-09-06.** `PIXEL_PHYSICS_NUTRIENT=0` is the ablation.
