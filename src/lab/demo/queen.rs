@@ -114,6 +114,41 @@ pub struct Seasons {
 /// How many winters a game has.
 pub const WINTERS: u32 = 3;
 
+/// **Winter upkeep** (2026-10-31; `upkeep=0` is the game before it): food
+/// cells each mouth -- a worker or a larva -- eats out of the box's stores per
+/// 1,000 frames of winter. The adversarial review that asked for it
+/// (`/mnt/project-files/seat-demos/adversarial-2026-10-31/queen/review.md`
+/// B1): without it the winters cost a colony nothing it could see, a queen who
+/// laid flat out all game beat the careful one 11-0-1 on fresh seeds, and the
+/// careful one ended winter 2 with 132 food cells uneaten -- eggs bound, food
+/// never did, and "every egg is a mouth" was false. Set from the paired sweep
+/// in `/mnt/project-files/seat-demos/fixes-2026-10-31/queen/REPORT.md`: tuned
+/// on seeds 1-12 over upkeep {0.5, 1} x starve {0.05, 0.12} with three
+/// scripted queens (careful, greedy, reads-the-larder), judged on 25-36. At
+/// 0.5 greedy and careful split but the larder-reader beat neither (7-5 and
+/// 7-3 at best); at 1.0 with a 0.05 starve share she beat greedy 10-1.
+pub const UPKEEP: f32 = 1.0;
+
+/// Frames between two upkeep meals.
+pub const UPKEEP_EVERY: u64 = 200;
+
+/// **Of the mouths an empty store could not feed at one meal, the share that
+/// starve.** Graded on purpose (the owner's first law: an outcome is a
+/// spread): a colony bigger than its larder shrinks toward what it can feed,
+/// a few at a meal, instead of dying at once or not at all. The rest go
+/// hungry and are counted again at the next meal. `starve=` overrides it.
+/// At 0.12 an emptied store took a nest of 25 down to about 7 in winter 1
+/// whoever played, which flattened the decision (tuning seeds 1-12, winter 2:
+/// the larder-reader beat greedy 8-3 and careful 7-4); at 0.05 an unfed mouth
+/// lasts about 20 meals (4,000 frames) on average, so a winter thins a hungry
+/// nest instead of culling it, and the reader beat greedy 10-1.
+pub const STARVE_SHARE: f32 = 0.05;
+
+/// **A fed mouth's floor**, as a share of a fresh worker's bank (a larva's: of
+/// its own target): an upkeep meal tops a mouth that ate up to it, so a nest
+/// whose larder lasts does not starve, whatever its foragers do.
+pub const FED_FLOOR: f32 = 0.75;
+
 impl Default for Seasons {
     fn default() -> Seasons {
         Seasons { first: 14_000, summer: 8_000, winter: 6_000, grow: 2_000 }
@@ -279,6 +314,47 @@ pub struct QueenDemo {
     pub wild_joules: f32,
     /// The frame `R` was first pressed mid-game (a second press restarts).
     restart_asked: u64,
+    /// Winter upkeep, food cells a mouth per 1,000 frames ([`UPKEEP`]; 0 off).
+    pub upkeep: f32,
+    /// Cells owed but not yet a whole cell, carried to the next meal.
+    owed: f32,
+    /// Starvation not yet a whole death, carried to the next meal.
+    hunger: f32,
+    /// The frame of the last upkeep meal.
+    upkeep_at: u64,
+    /// Food cells winter upkeep took, and mouths it starved, this winter and
+    /// over the game.
+    pub winter_eaten: u32,
+    pub winter_starved: u32,
+    pub eaten: u32,
+    pub starved: u32,
+    /// Food cells in the box after the last upkeep meal.
+    pub larder: u32,
+    /// The share of unfed mouths that starve at a meal ([`STARVE_SHARE`]).
+    pub starve: f32,
+    /// Food cells in the box after each winter's last meal (beside `winters`).
+    pub winter_food: Vec<u32>,
+    /// Mouths starved in each winter (beside `winters`).
+    pub winter_deaths: Vec<u32>,
+}
+
+impl QueenDemo {
+    /// **What the coming (or current) winter will eat**, in food cells, if
+    /// every worker and every piece of brood now in the nest lives to eat it:
+    /// the rest of this winter, or all of the next. The number beside FOOD on
+    /// the panel, so a player can read the larder against the nest. `None`
+    /// with no winter left or upkeep off.
+    pub fn winter_need(&self, frame: u64) -> Option<f32> {
+        if !self.stakes || self.upkeep <= 0.0 {
+            return None;
+        }
+        let t = frame.saturating_sub(self.start);
+        let list = self.seasons.list();
+        let s = self.seasons.at(t);
+        let frames = if s.winter { s.end - t } else { list.iter().find(|w| w.winter && w.start >= s.end).map(|w| w.end - w.start)? };
+        let mouths = (self.tally.workers + self.tally.brood) as f32;
+        Some(mouths * self.upkeep * frames as f32 / 1000.0)
+    }
 }
 
 /// **Which ant is the queen**: the oldest ant in the box. The demo's
@@ -347,6 +423,7 @@ fn arm(lab: &mut Lab) {
     let args = lab.demo.as_ref().map(|d| d.args.clone()).unwrap_or_default();
     let stakes = args.get("stakes").is_none_or(|v| v != "0");
     let seasons = Seasons::from_args(&args);
+    let upkeep = if stakes { args.get("upkeep").and_then(|v| v.parse::<f32>().ok()).unwrap_or(UPKEEP).max(0.0) } else { 0.0 };
     if stakes {
         seasonal_food(lab, &seasons, frame);
         // **Her rule holds while she lives** (stakes on): the hold never
@@ -364,6 +441,8 @@ fn arm(lab: &mut Lab) {
     q.colony = colony;
     q.stakes = stakes;
     q.seasons = seasons;
+    q.upkeep = upkeep;
+    q.starve = args.get("starve").and_then(|v| v.parse::<f32>().ok()).unwrap_or(STARVE_SHARE).clamp(0.0, 1.0);
     q.start = frame;
     q.lines = vec![Line {
         mind: None,
@@ -380,8 +459,13 @@ fn arm(lab: &mut Lab) {
         frames: 0,
     }];
     lab.ui.say(format!("QUEEN DEMO -- YOU ARE THE FOUNDING QUEEN. EAT (E), DIG A CHAMBER (G), LAY (L). {SEAT_KEYS}"));
-    if stakes {
-        lab.ui.say("WINTER IS COMING: NO FOOD FALLS THEN. RAISE WORKERS, NOT MOUTHS");
+    // **Advice that is true of the game it is said in** (review 2026-10-31,
+    // B1): "raise workers, not mouths" was said over a game where every egg
+    // paid and none cost, so the player who ignored it won 11 of 12.
+    if stakes && upkeep > 0.0 {
+        lab.ui.say("WINTER IS COMING: EVERY WORKER AND LARVA EATS FROM THE STORE. LAY WHAT THE LARDER CAN FEED");
+    } else if stakes {
+        lab.ui.say("WINTER IS COMING: NO FOOD FALLS THEN");
     }
 }
 
@@ -630,6 +714,7 @@ pub fn after_tick(lab: &mut Lab) {
         count(lab, &mut notes);
         if state(lab).is_some_and(|q| q.stakes) {
             seasons_tick(lab, &mut notes);
+            winter_upkeep(lab, &mut notes);
         }
     }
     for n in notes {
@@ -725,13 +810,139 @@ fn food_cells(world: &World) -> u32 {
     n
 }
 
+/// Every food cell in the box, the larder's first: cells below the ground
+/// nearest her nest door, then the rest by distance from the door. The order
+/// winter upkeep eats them in, so the store it empties is the one the workers
+/// carried down, and the empty chambers are what the player sees go.
+fn food_by_larder(lab: &Lab) -> Vec<(i32, i32)> {
+    let world = &lab.world;
+    let Some(food) = world.materials.id_of("provisions") else { return Vec::new() };
+    let Some(b) = world.bounds() else { return Vec::new() };
+    let ground = lab.spec.ground_y;
+    let door = world.nest_sites.first().map_or(((b.min_x + b.max_x) / 2, ground), |n| (n.x, n.y.max(ground)));
+    let mut out = Vec::new();
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            if world.get(x, y).material == food {
+                out.push((x, y));
+            }
+        }
+    }
+    out.sort_by_key(|&(x, y)| (y <= ground, (x - door.0).abs() + (y - door.1).abs(), x, y));
+    out
+}
+
+/// **Winter eats the store** ([`UPKEEP`]; review 2026-10-31, B1): every
+/// [`UPKEEP_EVERY`] frames of winter, each worker and larva of hers eats its
+/// ration out of the box's food, larder first, and a mouth that ate is kept
+/// off the floor of hunger for the meal ([`FED_FLOOR`]): **a stocked larder
+/// carries the nest through.** When the store runs short, the mouths it could
+/// not feed are a random few; [`STARVE_SHARE`] of them starve at once --
+/// drained to nothing, so the sim's own starvation lays them down as corpses
+/// -- and the rest go hungry to the next meal. The winter's score is counted
+/// after this, so it counts survivors.
+///
+/// Measured before it (the same 12 fresh seeds, `upkeep=0`): workers starved
+/// through winter 2 on their own while 90-134 food cells sat in the careful
+/// queen's larder (the sim's foragers do not go back down for stored food),
+/// so the store bought nothing and the winter killed big and small nests
+/// alike. Charging the store *without* the ration (the first cut of this
+/// function) cut every arm to 2-6 workers at winter 1 and decided nothing:
+/// the summer-1 store is 20-70 cells, whoever played.
+fn winter_upkeep(lab: &mut Lab, notes: &mut Vec<String>) {
+    let frame = lab.world.frame;
+    let Some(q) = state(lab) else { return };
+    if q.upkeep <= 0.0 || q.outcome.is_some() || frame < q.upkeep_at + UPKEEP_EVERY {
+        return;
+    }
+    if !q.seasons.at(frame.saturating_sub(q.start)).winter {
+        return;
+    }
+    let (colony, rate) = (q.colony, q.upkeep * UPKEEP_EVERY as f32 / 1000.0);
+    let Some(ant) = lab.world.species.id_of("ant") else { return };
+    let start_energy = lab.world.species.creature_shared(ant).map_or(200.0, |d| d.start_energy);
+    let queen = steer::steered_id(&lab.world);
+    let mut mouths: Vec<OrganismId> = lab
+        .world
+        .live_organism_ids()
+        .into_iter()
+        .chain(lab.world.live_brood_ids())
+        .filter(|&id| Some(id) != queen)
+        .filter(|&id| {
+            lab.world.organism(id).is_some_and(|s| s.species == ant && s.colony == colony && s.energy > 0.0 && s.brood.is_none_or(|b| b.stage == BroodStage::Larva))
+        })
+        .collect();
+    let owed = state(lab).map_or(0.0, |q| q.owed) + mouths.len() as f32 * rate;
+    let want = owed.floor() as usize;
+    let mut eaten = 0;
+    let store = food_by_larder(lab);
+    let left = store.len().saturating_sub(want) as u32;
+    for &(x, y) in store.iter().take(want) {
+        lab.world.set(x, y, crate::sim::cell::Cell::EMPTY);
+        eaten += 1;
+    }
+    // Who ate: all of them, or a random share as large as the store ran to.
+    let fed = if eaten < want { ((mouths.len() as f32 * eaten as f32 / owed).floor() as usize).min(mouths.len()) } else { mouths.len() };
+    let mut rng = crate::sim::rng::stream(lab.world.seed, 0x51A2_7EED, frame, u64::from(colony));
+    for i in (1..mouths.len()).rev() {
+        let j = rng.below(i as u32 + 1) as usize;
+        mouths.swap(i, j);
+    }
+    let unfed = mouths.split_off(fed);
+    for &id in &mouths {
+        let Some(st) = lab.world.organism_mut(id) else { continue };
+        let floor = match st.brood {
+            Some(b) => FED_FLOOR * b.target,
+            None => FED_FLOOR * start_energy,
+        };
+        let top = (floor - st.energy).max(0.0);
+        st.energy += top;
+        lab.world.book(colony, crate::sim::world::Account::Granted, f64::from(top));
+    }
+    let hunger = {
+        let q = state_mut(lab).expect("read above");
+        q.upkeep_at = frame;
+        q.larder = left;
+        q.owed = if eaten < want { 0.0 } else { owed - eaten as f32 };
+        q.winter_eaten += eaten as u32;
+        q.eaten += eaten as u32;
+        q.hunger += unfed.len() as f32 * q.starve;
+        q.hunger
+    };
+    let deaths = (hunger.floor() as usize).min(unfed.len());
+    if unfed.is_empty() {
+        return;
+    }
+    let mut pool = unfed;
+    for _ in 0..deaths {
+        let i = rng.below(pool.len() as u32) as usize;
+        let id = pool.swap_remove(i);
+        if let Some(st) = lab.world.organism_mut(id) {
+            let bank = st.energy.max(0.0);
+            st.energy = 0.0;
+            // Winter's cold took it: booked as the metabolism it stands for,
+            // so the colony's ledger still closes.
+            lab.world.book(colony, crate::sim::world::Account::Metabolized, f64::from(bank));
+        }
+    }
+    let q = state_mut(lab).expect("read above");
+    q.hunger -= deaths as f32;
+    q.winter_starved += deaths as u32;
+    q.starved += deaths as u32;
+    if deaths > 0 {
+        let n = q.winter_starved;
+        notes.push(format!("THE STORE IS EMPTY -- {deaths} STARVED ({n} THIS WINTER)"));
+    }
+}
+
 /// **The season clock, the score and the end**, after each count: the
 /// turn of a season is a notice; the end of a winter writes its survivors
 /// into the score; her death ends the game.
 fn seasons_tick(lab: &mut Lab, notes: &mut Vec<String>) {
     let frame = lab.world.frame;
     // The whole box is 164k cells: a look every 200 frames is plenty for a meter.
-    let food = state(lab).is_some_and(|q| q.food_peak == 0 || frame >= q.food_at + 200).then(|| food_cells(&lab.world));
+    let turning = state(lab).is_some_and(|q| q.outcome.is_none() && q.season.is_some_and(|s| s != q.seasons.at(frame.saturating_sub(q.start))));
+    let food = state(lab).is_some_and(|q| turning || q.food_peak == 0 || frame >= q.food_at + 200).then(|| food_cells(&lab.world));
     let bank = steer::steered_id(&lab.world).and_then(|id| lab.world.organism(id)).map(|s| s.energy);
     // Dead: `World::steered` still names her, but she no longer lives.
     let dead = lab.world.steered.is_some() && bank.is_none();
@@ -742,6 +953,7 @@ fn seasons_tick(lab: &mut Lab, notes: &mut Vec<String>) {
         q.food_peak = q.food_peak.max(f);
     }
     q.bank = bank.unwrap_or(0.0);
+    let food_now = q.food;
     if q.outcome.is_some() {
         return;
     }
@@ -760,11 +972,24 @@ fn seasons_tick(lab: &mut Lab, notes: &mut Vec<String>) {
         return;
     }
     if now.winter {
-        let len = now.end - now.start;
-        notes.push(format!("WINTER {}: NO FOOD FOR {len} FRAMES -- EVERY EGG IS A MOUTH", now.n));
+        let len = thousands(now.end - now.start);
+        q.winter_eaten = 0;
+        q.winter_starved = 0;
+        q.hunger = 0.0;
+        q.owed = 0.0;
+        q.upkeep_at = frame;
+        if q.upkeep > 0.0 {
+            let need = q.winter_need(frame).unwrap_or(0.0);
+            let food = q.food;
+            notes.push(format!("WINTER {}: NO FOOD FALLS FOR {len} FRAMES -- IT WILL EAT ~{need:.0} OF {food} CELLS", now.n));
+        } else {
+            notes.push(format!("WINTER {}: NO FOOD FALLS FOR {len} FRAMES", now.n));
+        }
     } else {
         let w = q.tally.workers;
         q.winters.push(w);
+        q.winter_deaths.push(q.winter_starved);
+        q.winter_food.push(if q.upkeep > 0.0 { q.larder } else { food_now });
         if w == 0 {
             // **Starved out**: no worker came through, so nobody fetches food
             // for her or her brood. The game ends here, with this winter's 0.
@@ -774,7 +999,11 @@ fn seasons_tick(lab: &mut Lab, notes: &mut Vec<String>) {
             lab.world.log_player_action(format!("queen demo: the colony starved out in winter {}", was.n));
             return;
         }
-        notes.push(format!("WINTER {} SURVIVED WITH {w} WORKERS -- FOOD FALLS AGAIN", was.n));
+        if q.winter_starved > 0 {
+            notes.push(format!("WINTER {} SURVIVED WITH {w} WORKERS, {} STARVED -- FOOD FALLS AGAIN", was.n, q.winter_starved));
+        } else {
+            notes.push(format!("WINTER {} SURVIVED WITH {w} WORKERS -- FOOD FALLS AGAIN", was.n));
+        }
         if was.n >= WINTERS {
             q.outcome = Some(Outcome::Endured);
             q.ended = frame;
@@ -849,7 +1078,17 @@ pub fn status(lab: &Lab) -> Vec<(String, [u8; 4])> {
             .collect();
         out.push((format!("SCORE, WORKERS AT EACH WINTER'S END: {}", marks.join(" / ")), INK));
         let peak = q.food_peak.max(1) as f32;
-        out.push((format!("FOOD {} {} CELLS", bar(q.food as f32 / peak, 10), q.food), if s.winter { WINTER } else { DIM }));
+        // **The larder against the nest** (review 2026-10-31, B1): what the
+        // coming winter will eat beside what is stored, red when the nest has
+        // outgrown its store -- the reading the decision "one more egg?" needs.
+        match q.winter_need(frame).filter(|_| q.outcome.is_none()) {
+            Some(need) => {
+                let short = need > q.food as f32;
+                let what = if s.winter { "WINTER EATS" } else { "NEXT WINTER EATS" };
+                out.push((format!("FOOD {} {}  {what} ~{need:.0}", bar(q.food as f32 / peak, 10), q.food), if short { LAPSED } else if s.winter { WINTER } else { DIM }));
+            }
+            None => out.push((format!("FOOD {} {} CELLS", bar(q.food as f32 / peak, 10), q.food), if s.winter { WINTER } else { DIM })),
+        }
     }
     let left = steer::hold_left(&lab.world).unwrap_or(0.0);
     let store = lab.world.fathers.as_ref().and_then(|f| f.colonies.get(&q.colony));
@@ -861,7 +1100,11 @@ pub fn status(lab: &Lab) -> Vec<(String, [u8; 4])> {
         (_, 0) => "STOCK".to_string(),
         (_, n) => format!("KEPT x{n}"),
     };
-    if q.stakes {
+    if matches!(q.outcome, Some(Outcome::Lost(_))) {
+        // **Her rule dies with her** (review 2026-10-31, W2): the workers lay
+        // their own lines now, and the panel said "only she lays" over it.
+        out.push(("SHE IS DEAD -- HER RULE IS GONE, WORKERS LAY".to_string(), LAPSED));
+    } else if q.stakes {
         out.push((format!("ONLY SHE LAYS -- NEXT EGG: {next}"), INK));
     } else {
         out.push((format!("HOLD {}  NEXT EGG: {next}", bar(left, 10)), if left > 0.0 { INK } else { LAPSED }));
@@ -917,6 +1160,7 @@ pub fn end_card(lab: &Lab) -> Option<(String, Vec<String>)> {
     let mut lines = vec![
         format!("WINTERS SURVIVED: {} OF {WINTERS}", q.winters.iter().filter(|&&w| w > 0).count()),
         if marks.is_empty() { "NO WINTER SURVIVED".to_string() } else { format!("WORKERS AT EACH END -- {}", marks.join("  ")) },
+        if q.upkeep > 0.0 { format!("WINTERS ATE {} FOOD CELLS AND STARVED {} MOUTHS", thousands(u64::from(q.eaten)), q.starved) } else { "WINTERS COST NO FOOD (UPKEEP OFF)".to_string() },
         format!("EGGS {} -- {} WILD, COSTING HER {} J", q.tally.eggs, q.tally.wild_eggs, thousands(q.wild_joules as u64)),
         format!("LINES FOUNDED {}  -- STILL LIVING {}", q.lines.len() - 1, q.lines.iter().skip(1).filter(|l| !l.gone).count()),
     ];
@@ -1075,6 +1319,95 @@ mod tests {
                 assert_eq!(hold, Some(HOLD));
             }
         }
+    }
+
+    /// **Winter eats the store, and an empty store starves some, not all**
+    /// (review 2026-10-31, B1). A game with a 3,000-frame founding summer runs
+    /// 4,000 frames, ten workers of hers are stood up, the heaps stopped, and
+    /// it runs 1,200 more, into winter 1. Three
+    /// arms, each a fresh lab: a stocked store is eaten and starves nobody; an
+    /// emptied one starves at least one mouth and fewer than all of them; and
+    /// `upkeep=0` eats nothing (the positive control for the first arm: food
+    /// that only the upkeep could have taken).
+    #[test]
+    fn winter_eats_the_store_and_an_empty_one_starves_some_not_all() {
+        let run = |upkeep: Option<&str>, empty: bool| {
+            let sc = crate::lab::scenario::Scenario::load("demo_queen").expect("demo_queen ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            // A short founding summer: she lands about frame 1,200, so winter 1
+            // opens about frame 4,200, after the ants are stood up below.
+            let mut args = std::collections::BTreeMap::from([("first".to_string(), "3000".to_string())]);
+            if let Some(u) = upkeep {
+                args.insert("upkeep".to_string(), u.to_string());
+            }
+            lab.start_demo_with(DemoSeat::Queen, args);
+            for _ in 0..4_000 {
+                lab.demo_frame();
+                lab.tick_for_harness();
+            }
+            if let Some(sc) = lab.scenario.as_mut() {
+                sc.timeline.clear();
+            }
+            let food = lab.world.materials.id_of("provisions").expect("provisions");
+            if empty {
+                let b = lab.world.bounds().expect("a box");
+                for y in b.min_y..=b.max_y {
+                    for x in b.min_x..=b.max_x {
+                        if lab.world.get(x, y).material == food {
+                            lab.world.set(x, y, crate::sim::cell::Cell::EMPTY);
+                        }
+                    }
+                }
+            } else {
+                // A store no nest this size can finish in 1,200 frames.
+                for x in 300..340 {
+                    for y in 40..44 {
+                        lab.world.set(x, y, crate::sim::cell::Cell::new(food, 0));
+                    }
+                }
+            }
+            // Workers of hers to feed: an unsteered queen lays nothing in a
+            // test, so stand ten ants on the surface and enrol them.
+            let colony = state(&lab).expect("queen state").colony;
+            let had = lab.world.live_organism_ids();
+            let ground = lab.spec.ground_y;
+            for k in 0..10 {
+                if let Some(site) = crate::sim::creature::plant_creature_seed_in(&mut lab.world, 150 + 6 * k, ground - 3, "ant", Some(colony)) {
+                    lab.world.schedule_active_site(site);
+                }
+            }
+            let new: Vec<OrganismId> = lab.world.live_organism_ids().into_iter().filter(|id| !had.contains(id)).collect();
+            for &id in &new {
+                if let Some(s) = lab.world.organism_mut(id) {
+                    s.colony = colony;
+                }
+            }
+            // Nobody steers her in a test, so she would starve on her own and
+            // end the game (no upkeep runs after an outcome): feed her.
+            steer::grant(&mut lab.world, 20_000.0);
+            let mouths = new.len() as u32;
+            assert!(!state(&lab).expect("queen state").seasons.at(lab.world.frame - state(&lab).expect("queen state").start).winter, "winter came before the ants were stood up");
+            let before = food_cells(&lab.world);
+            for _ in 0..1_200 {
+                lab.demo_frame();
+                lab.tick_for_harness();
+            }
+            let q = state(&lab).expect("queen state").clone();
+            assert!(q.seasons.at(lab.world.frame.saturating_sub(q.start)).winter, "the clock did not reach winter");
+            assert_eq!(q.outcome, None, "the game ended under the test");
+            let alive = lab.world.live_organism_ids().into_iter().filter(|&id| lab.world.organism(id).is_some_and(|s| s.colony == colony)).count();
+            eprintln!("upkeep test: upkeep {upkeep:?} empty {empty}: mouths {mouths} -> colony alive {alive}, food {before} -> {}, eaten {}, starved {}", food_cells(&lab.world), q.eaten, q.starved);
+            (before, food_cells(&lab.world), q.eaten, q.starved, mouths)
+        };
+        let (before, after, eaten, starved, mouths) = run(None, false);
+        assert!(mouths >= 3, "too few mouths to test with: {mouths}");
+        assert!(eaten > 0 && after < before, "a stocked store was not eaten: {before} -> {after}, eaten {eaten}");
+        assert_eq!(starved, 0, "a stocked store starved {starved}");
+        let (_, _, _, starved, mouths) = run(None, true);
+        assert!(starved >= 1, "an empty store starved nobody ({mouths} mouths)");
+        assert!(starved < mouths, "an empty store starved every mouth at once ({starved} of {mouths})");
+        let (_, _, eaten, starved, _) = run(Some("0"), false);
+        assert_eq!((eaten, starved), (0, 0), "upkeep=0 still charged the store");
     }
 
     /// **A line that ended keeps a grey row**, and past [`ROWS`] the oldest
