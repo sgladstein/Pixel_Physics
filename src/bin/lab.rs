@@ -238,6 +238,11 @@ struct Handler {
     /// Whether a frame has been painted yet, which is what a click is tested
     /// against. Only the scripted-click hook reads it.
     drawn: bool,
+    /// **The speaker** (`audio::Output`), `None` when this build has no
+    /// device, none is present, or `sound=off` / `PIXEL_PHYSICS_SOUND=off`
+    /// asked for silence. Fed once per pass from the listener `Lab::paint`
+    /// runs; the design is `Reports/sound-design-2026-10-31.md`.
+    sound: Option<pixel_physics::audio::Output>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -364,6 +369,35 @@ impl Handler {
                 lab.tick_for_harness();
             }
         }
+        // **Sound, on by default** where the build has a device (macOS and
+        // Windows; Linux with `--features audio-alsa`). `sound=off` or
+        // `PIXEL_PHYSICS_SOUND=off` keeps it shut; `sound_style=natural` or
+        // `musical` picks another of the design's three sketches (hybrid is
+        // the recommendation). A box with no device simply runs silent, and
+        // the listener is never built into its frame.
+        let sound_off = std::env::var("PIXEL_PHYSICS_SOUND").is_ok_and(|v| v == "off" || v == "0")
+            || args.iter().any(|a| a == "sound=off" || a == "sound=0");
+        let style = args
+            .iter()
+            .find_map(|a| a.strip_prefix("sound_style="))
+            .and_then(pixel_physics::audio::Style::parse)
+            .unwrap_or_default();
+        let sound = if sound_off {
+            None
+        } else {
+            match pixel_physics::audio::Output::open(0x50_0D, style) {
+                Ok(out) => {
+                    lab.enable_sound();
+                    Some(out)
+                }
+                Err(why) => {
+                    if pixel_physics::audio::DEVICE_COMPILED {
+                        eprintln!("sound: {why}; running silent");
+                    }
+                    None
+                }
+            }
+        };
         Self {
             window: None,
             pixels: None,
@@ -396,6 +430,7 @@ impl Handler {
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
                 .unwrap_or_default(),
             drawn: false,
+            sound,
             result: Ok(()),
         }
     }
@@ -571,6 +606,11 @@ impl Handler {
         if let Some(message) = render_error {
             return self.fail(event_loop, message);
         }
+        // Whatever the listener and the tools queued this pass -- one
+        // `try_send` each, never a wait (`audio::device`).
+        if let Some(out) = &mut self.sound {
+            out.send(self.lab.sound.drain());
+        }
 
         // Skipping the draw also skips the vsync that was throttling this
         // loop, so a dial the box can easily meet would spin a core between
@@ -743,11 +783,16 @@ impl Handler {
             }
             KeyCode::Slash => self.lab.act(Action::Help),
             // **`` ` `` -- the ant picker** (owner, 2026-10-31: switch ants
-            // while playing). One of the four keys still unbound in this
-            // match (`` ` ``, `\`, `F11`, `F12`), and the one a hand on the
-            // number row reaches without looking; SHIFT steps back. The seat
-            // demos' key layer passes it through.
+            // while playing). One of the four keys that were still unbound in
+            // this match (`` ` ``, `\`, `F11`, `F12`), and the one a hand on
+            // the number row reaches without looking; SHIFT steps back. The
+            // seat demos' key layer passes it through.
             KeyCode::Backquote => self.lab.act(Action::CycleAnt(if self.shift { -1 } else { 1 })),
+            // **`\` -- how loud the box is** (off, low, medium, high), the
+            // SOUND row on the menu page. Its neighbour on most layouts, and
+            // the demos' key layer passes it through too. `F11` and `F12` are
+            // what is left unbound.
+            KeyCode::Backslash => self.lab.act(Action::CycleSound),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
             // control does rather than two that can drift.

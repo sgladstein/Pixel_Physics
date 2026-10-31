@@ -18,6 +18,7 @@
 //! buildable headlessly.
 
 pub mod app;
+pub mod audio;
 pub mod druid;
 pub mod dig_marks;
 pub mod food_road;

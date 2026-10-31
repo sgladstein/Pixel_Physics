@@ -23,6 +23,33 @@ ron = "0.12.2"
 serde = { version = "1.0.229", features = ["derive"] }
 winit = "0.30"
 
+# **Sound** (`src/audio/`, design `Reports/sound-design-2026-10-31.md`).
+# The device crate is the only part of sound that is not pure Rust, and it is
+# deliberately *not* an ordinary dependency: on Linux, cpal needs the ALSA
+# development headers to build, and neither the cloud agent containers nor
+# CI's `ubuntu-latest` jobs nor the training VM have them. An unconditional
+# `cpal` would break every one of those builds. So it is a target dependency
+# on macOS and Windows -- where it needs no system packages, and where the
+# owner plays, so `cargo run --release --bin lab` has sound with no flags --
+# and opt-in on Linux through the `audio-alsa` feature below.
+#
+# `default-features = false` and no `realtime`: cpal's `realtime` feature
+# pulls `audio_thread_priority`, which is MPL-2.0 and fails
+# `scripts/licensecheck.sh`. Because `Cargo.lock` resolves every feature, even
+# an opt-in feature would put it in the lockfile, so it is not named at all.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+cpal = { version = "0.18.2", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18.2", default-features = false, optional = true }
+
+[features]
+# Sound on Linux: `cargo run --release --bin lab --features audio-alsa`. Needs
+# `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora). CI builds it
+# in one job of its own (`.github/workflows/ci.yml`, `audio`) so the device
+# file is checked on every push without any other job needing the headers.
+audio-alsa = ["dep:cpal"]
+
 # The simulation is unusably slow in an unoptimized debug build; per-cell work in
 # a hot loop needs at least basic optimization even while developing. Dependencies
 # get full optimization since we never step through them.

@@ -729,6 +729,8 @@ pub enum Action {
     /// hand-built brain among them (`Lab::cycle_ant`). Was ANT BRAIN's
     /// two-way OLD / NEW toggle.
     CycleAnt(i32),
+    /// Step the sound level: off, low, medium, high (`Lab::cycle_sound`).
+    CycleSound,
 }
 
 /// **What a click on the TRAINING page does** (`Lab::training_act`).
@@ -3705,6 +3707,8 @@ pub struct Ui {
     training_next: Option<(super::training::Settings, u64)>,
     /// Mirrors `Lab::ant_name`, for the rows that show it.
     ant: &'static str,
+    /// What the SOUND row shows (`Lab::cycle_sound`); empty until the lab says.
+    sound: &'static str,
 }
 
 /// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
@@ -3863,6 +3867,11 @@ impl Ui {
         self.training_view = view;
         self.training_next = Some(next);
         self.ant = ant;
+    }
+
+    /// What the SOUND row shows, set by `Lab` whenever the level changes.
+    pub fn set_sound(&mut self, label: &'static str) {
+        self.sound = label;
     }
 
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
@@ -5172,6 +5181,8 @@ impl Ui {
             Row::choice("COLONY TRAINING", "MOUSE", Action::Panel(Panel::Training),
                 "SELECTION INSIDE ONE LIVING COLONY OF THE NEW ANT: THE BEST ANTS HAVE CHILDREN, THE WORST ARE CULLED, ROUND AFTER ROUND. START IT, WATCH IT, CHANGE WHAT IT PAYS FOR. NO KEY -- ALSO ON THE ANTS PAGE."),
             Row::choice("ANT", self.ant, Action::CycleAnt(1), ant_note()),
+            Row::choice("SOUND", if self.sound.is_empty() { "NONE" } else { self.sound }, Action::CycleSound,
+                "HOW LOUD THE BOX IS. CLICK, OR \\ IN THE BOX, TO STEP OFF / LOW / MEDIUM / HIGH. YOU HEAR YOUR TOOLS, THE COLONY WALKING, DIGGING AND CARRYING (DUSKIER UNDERGROUND), AND A FALLING NOTE WHEN A LINE ENDS -- SOFT FOR ONE OF MANY, FULL FOR THE LAST FEW. NONE MEANS NO SOUND DEVICE: A HEADLESS RUN, `sound=off`, OR A LINUX BUILD WITHOUT `--features audio-alsa`."),
             Row::choice("REBUILD", "R", Action::Reset,
                 "THROW THIS BOX AWAY AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. ASKS FOR A SECOND PRESS FIRST. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,

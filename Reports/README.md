@@ -42,8 +42,9 @@ by somebody about to try it on creatures.
 
 ## Method and architecture — read these first  ·  `engine`
 
-- [sound-design-2026-10-31.md](sound-design-2026-10-31.md) — **design,
-  nothing built; awaiting the owner's go-ahead.** Sound for the game: four jobs
+- [sound-design-2026-10-31.md](sound-design-2026-10-31.md) — **stage 1
+  built (2026-10-31): the lab box you can hear**, README `Sound status`;
+  stages 2-3 still design. Sound for the game: four jobs
   (verbs, the colony's state, the box's ambience, stakes), three tiers so
   thousands of ants and cells never get a voice each (grains, density-driven
   textures, beds), modes keyed on delivered ticks per frame, a read-only

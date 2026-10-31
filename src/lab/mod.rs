@@ -171,6 +171,19 @@ pub struct Lab {
     /// What the box was built from, kept so a reset rebuilds the same lab and
     /// so the stats page can say what bed these numbers are from.
     pub spec: scene::LabBox,
+    /// **What the box should sound like** (`crate::audio`, design
+    /// `Reports/sound-design-2026-10-31.md`). Reads the world once per drawn
+    /// frame in [`Lab::paint`], read-only, and hears the player's strokes;
+    /// whoever owns a sound device drains it (`bin/lab.rs`,
+    /// `examples/soundtrack.rs`).
+    pub sound: crate::audio::listen::Listener,
+    /// **Off unless a binary turns it on**, so every harness, batch and
+    /// training run that builds a `Lab` pays one untaken branch per drawn
+    /// frame and nothing else (design §8).
+    pub sound_on: bool,
+    /// Index into [`SOUND_LEVELS`]; starts at MEDIUM, the voice bank's own
+    /// first-run level (`audio::synth::DEFAULT_MASTER`).
+    pub sound_level: usize,
     /// **The scenario the box on screen was opened from, if one.**
     ///
     /// `None` for an ordinary hand-built box. `reset()` re-applies it on
@@ -563,6 +576,9 @@ struct Stroke {
     cells: u32,
 }
 
+/// The SOUND row's stops: label and master level (`audio::SoundCmd::Master`).
+pub const SOUND_LEVELS: [(&str, f32); 4] = [("OFF", 0.0), ("LOW", 0.3), ("MEDIUM", crate::audio::synth::DEFAULT_MASTER), ("HIGH", 0.75)];
+
 impl Lab {
     /// Build the box `spec` describes and start it **stopped**. Nothing
     /// ticks until the player presses `SPACE` or asks for a speed.
@@ -625,6 +641,9 @@ impl Lab {
             chronicle_stamp: None,
             ui,
             spec,
+            sound: crate::audio::listen::Listener::new(),
+            sound_on: false,
+            sound_level: 2,
             scenario: None,
             demo: None,
             // Down only when something explicitly asks for it. The one caller
@@ -2454,6 +2473,13 @@ impl Lab {
             viewport,
             force_full,
         );
+        // **Sound hears the frame the renderer just drew**, once per drawn
+        // frame and with the same world, so what is heard and what is seen
+        // cannot disagree about what happened. Read-only; see `crate::audio`.
+        if self.sound_on {
+            let view = self.sound_view();
+            self.sound.observe(&self.world, view, 1.0 / fps.max(1.0));
+        }
         self.ui.draw_world_marks(frame_buf, &self.world, &self.renderer);
         if self.demo.is_some() {
             demo::draw_world(self, frame_buf);
@@ -2759,6 +2785,7 @@ impl Lab {
         }
         let n = self.paint_span(stroke.last, to, stroke.erase);
         self.stroke = Some(Stroke { last: to, cells: stroke.cells + n, ..stroke });
+        self.sound_verb(to, n, false, stroke.erase);
     }
 
     /// **Feed the pinned ant's last decision to the cell page's `WHY` group.**
@@ -2813,6 +2840,59 @@ impl Lab {
         }
         let cells = self.paint_span(at, at, erase);
         self.stroke = Some(Stroke { last: at, erase, start: at, cells });
+        self.sound_verb(at, cells, true, erase);
+    }
+
+    /// **Turn sound on** -- the binary calls this once a device has opened.
+    /// Shows the level on the SOUND row.
+    pub fn enable_sound(&mut self) {
+        self.sound_on = true;
+        self.ui.set_sound(SOUND_LEVELS[self.sound_level].0);
+    }
+
+    /// Step the SOUND row: off, low, medium, high, and round again.
+    pub fn cycle_sound(&mut self) -> String {
+        if !self.sound_on {
+            return "NO SOUND DEVICE -- A HEADLESS RUN, sound=off, OR A LINUX BUILD WITHOUT --features audio-alsa".to_string();
+        }
+        self.sound_level = (self.sound_level + 1) % SOUND_LEVELS.len();
+        let (label, master) = SOUND_LEVELS[self.sound_level];
+        self.sound.push(crate::audio::SoundCmd::Master(master));
+        self.ui.set_sound(label);
+        format!("SOUND {label}")
+    }
+
+    /// What the listener is looking at: the camera's rectangle, in world cells,
+    /// and the bed's ground row.
+    pub fn sound_view(&self) -> crate::audio::listen::View {
+        let (w, h) = self.renderer.visible_span((WIDTH, HEIGHT));
+        crate::audio::listen::View { x0: self.renderer.camera_x, y0: self.renderer.camera_y, w, h, surface_y: self.spec.ground_y }
+    }
+
+    /// **A stroke or click, heard** -- the verb half of sound (design §4).
+    /// `first` is the press that starts a gesture (it gets the interface
+    /// tick); a drag segment is not. Tools without a sound of their own yet
+    /// play the tick only.
+    fn sound_verb(&mut self, at: (i32, i32), cells: u32, first: bool, erase: bool) {
+        if !self.sound_on {
+            return;
+        }
+        use crate::audio::listen::Verb;
+        let verb = if erase {
+            Verb::Erase
+        } else {
+            match self.ui.tool() {
+                ui::Tool::Water => Verb::Water,
+                ui::Tool::Soil => Verb::Soil,
+                ui::Tool::Dig => Verb::Dig,
+                ui::Tool::Food => Verb::Food,
+                ui::Tool::Fling => Verb::Fling,
+                ui::Tool::Fire => Verb::Fire,
+                _ => Verb::Tick,
+            }
+        };
+        let view = self.sound_view();
+        self.sound.verb(&self.world, view, verb, at, cells, first);
     }
 
     /// Lay down (or lift) one span of the brush.
@@ -3061,12 +3141,26 @@ impl Lab {
             ui::Tool::Release => self.release_at(x, y),
             ui::Tool::Wall => self.wall_at(x),
             ui::Tool::Alarm => self.alarm_at(x, y),
-            ui::Tool::Fling => self.fling_at(x, y),
+            ui::Tool::Fling => {
+                // Heard only if something was actually thrown: a click on bare
+                // ground is a tick, not a whoosh (sound comes from the world).
+                let alive = self.world.organism_state(self.world.get(x, y).organism_id()).is_some_and(|s| self.world.species.get(s.species).creature.is_some());
+                self.fling_at(x, y);
+                self.sound_verb(at, alive as u32, true, false);
+                return;
+            }
             ui::Tool::Lamp => self.lamp_at(x),
-            ui::Tool::Fire => self.fire_at(x, y),
+            ui::Tool::Fire => {
+                let lit = self.fire_at(x, y);
+                self.sound_verb(at, lit, true, false);
+                return;
+            }
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent | ui::Tool::Prune => {}
+            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent | ui::Tool::Prune => return,
+        }
+        if self.ui.tool() != ui::Tool::Look {
+            self.sound_verb(at, 1, true, false);
         }
     }
 
@@ -3077,7 +3171,7 @@ impl Lab {
     /// bed away under a click would be a different verb. Each cell burns for
     /// its own material's `burn_duration`; spreading, ash and regrowth are
     /// the engine's own fire from here on.
-    fn fire_at(&mut self, x: i32, y: i32) {
+    fn fire_at(&mut self, x: i32, y: i32) -> u32 {
         let r = self.ui.brush().max(0);
         let mut lit = 0u32;
         for wy in (y - r)..=(y + r) {
@@ -3114,6 +3208,7 @@ impl Lab {
         } else {
             format!("FIRE STARTED -- {lit} CELLS ALIGHT")
         });
+        lit
     }
 
     /// **Drop alarm scent at `(x, y)`, at the strength a real bite writes.**
@@ -3993,6 +4088,10 @@ impl Lab {
             }
             ui::Action::CycleAnt(step) => {
                 let said = self.cycle_ant(step);
+                self.ui.say(said);
+            }
+            ui::Action::CycleSound => {
+                let said = self.cycle_sound();
                 self.ui.say(said);
             }
             // An index into `Ui::scenarios()`, read fresh rather than

@@ -1,6 +1,13 @@
 # Sound for Pixel Physics — what it is for, and how to build it
 
-**Status: design, nothing built** (2026-10-31). Asked for by the owner:
+**Status: stage 1 built** (2026-10-31, the owner's go-ahead on the
+decision card): the lab box you can hear, as §11 stage 1 describes, with
+what it measured in README `Sound status`. One change from this document:
+the mix needed 12 dB of make-up gain after the master (`synth::MAKEUP`) --
+the first render was -41 dB RMS, inaudible on a phone. Stages 2 and 3 are
+still design. The text below is the design as approved, kept as written.
+
+**Original status: design, nothing built** (2026-10-31). Asked for by the owner:
 *"This is important, so let's think really deeply on how we do it before we
 implement it."* No engine code changes until the owner approves stage 1
 (§11). Listening sketches and diagrams for this document are on the
