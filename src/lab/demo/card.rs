@@ -82,9 +82,9 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("L", "LAY AN EGG"),
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("P", "WILD EGG (AGAIN: FERAL)"),
-                ("Y", "NEXT 5 EGGS: CHOSEN LINE"),
-                ("K", "PICK A LEDGER ROW"),
-                ("J", "HER LINE: A DEED"),
+                ("Y", "KEEP LINE: NEXT 5 EGGS"),
+                ("K", "NEXT LEDGER ROW"),
+                ("J", "RANK LINES: DIGS/TRIPS"),
                 ("U", "LINE COLOURS ON/OFF"),
                 ("R", "NEW COLONY"),
             ],
@@ -92,7 +92,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         DemoSeat::Keeper => SeatCard {
             title: "KEEPER -- A HAND OVER THE BOX",
             goal: "FOOD FALLS AT FAR SPOTS AND ROTS WHILE YOU WATCH. PICK ANTS UP AND SET THEM ON IT BEFORE IT GOES GREY. CARRIES ARE FEW AND COME BACK SLOWLY, AND A LIFT TIRES THE ANT. AT THE END YOU ARE JUDGED AGAINST THE SAME BOX LEFT ALONE.",
-            score: "FOOD SAVED BEFORE IT ROTS, AND ANTS GAINED OVER THE BOX LEFT ALONE",
+            score: "THE VERDICT IS ANTS AT THE END AGAINST THE SAME BOX LEFT ALONE. FOOD SAVED IS YOUR RUNNING TALLY",
             lose: "FEWER THAN 10 ANTS. THE ROUND ENDS IN ABOUT 7 MINUTES",
             keys: &[
                 ("Y", "HAND: CARRY (1 CHARGE)"),
@@ -112,9 +112,10 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("ARROWS", "WALK"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
                 ("Y", "TAP A SISTER TO FOLLOW"),
-                ("B", "AFTER Y: CALL HER"),
                 ("U", "PIN YOUR PUPIL"),
-                ("P", "SNIFF THE TRAIL"),
+                ("P", "SNIFF NEAREST SISTER"),
+                ("F", "SHARE FOOD"),
+                ("G", "DIG"),
                 ("E", "EAT"),
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("R", "NEW SEASON"),
@@ -165,6 +166,18 @@ pub fn card(seat: DemoSeat) -> SeatCard {
     }
 }
 
+/// The card as this run shows it: under `stakes=0` the seat is the old
+/// sandbox, and a card promising a score and a way to lose would be wrong
+/// (adversarial review, 2026-10-31).
+pub fn shown_card(demo: &super::Demo) -> SeatCard {
+    let mut c = card(demo.seat);
+    if demo.args.get("stakes").is_some_and(|v| v == "0") {
+        c.score = "NONE -- THIS IS THE SANDBOX (STAKES=0)";
+        c.lose = "NOTHING: NO WAY TO LOSE IN THE SANDBOX";
+    }
+    c
+}
+
 /// `text` broken at spaces into lines of at most `max` characters.
 pub fn wrap(text: &str, max: usize) -> Vec<String> {
     let mut lines = Vec::new();
@@ -205,7 +218,7 @@ pub fn draw(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     if !demo.card {
         return;
     }
-    let c = card(demo.seat);
+    let c = shown_card(demo);
     let h = panel_height(&c);
     // Modal: it is meant to cover the seat's panel and the cell readout.
     crate::render::paint_owner::set(crate::render::paint_owner::MODAL);
@@ -309,6 +322,7 @@ mod tests {
         let mut lab = Lab::new(sc.bed.clone());
         lab.load_scenario(sc);
         lab.demo = Some(Demo::new(DemoSeat::Scout));
+        lab.demo.as_mut().unwrap().window = true;
         let up = |lab: &Lab| lab.demo.as_ref().is_some_and(|d| d.card);
         lab.time.pause();
         lab.open_seat_card(false);

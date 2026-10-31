@@ -3279,6 +3279,11 @@ pub enum Release {
 pub struct Ui {
     /// Where the cursor is, in framebuffer pixels. `None` when it has left.
     cursor: Option<(i32, i32)>,
+    /// The LOOK cell readout is not drawn. A seat demo sets it
+    /// (`Lab::draw_layered`): the readout docks top left, exactly where
+    /// the guest's energy bar and the scout's bank are, the two numbers
+    /// those seats are won and lost on (adversarial review, 2026-10-31).
+    pub hover_off: bool,
     /// The action a press armed. A button fires on *release over the same
     /// button*, which is what lets a press be taken back by sliding off it —
     /// the behaviour every other button in the world has, and cheap here.
@@ -3813,6 +3818,7 @@ const NOTICE_SECONDS: f32 = 3.0;
 impl Ui {
     pub fn new() -> Self {
         Self {
+            hover_off: false,
             // A radius of 6, the sandbox's own default: one click is a
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
@@ -11809,7 +11815,7 @@ impl Ui {
         // hidden — which a contact sheet showed and no test could have. The
         // left column is free below the clock.
         render::paint_owner::set("HOVER");
-        if self.tool == Tool::Look {
+        if self.tool == Tool::Look && !self.hover_off {
             if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
                 let (wx, wy) = renderer.logical_to_world(cx, cy);
                 let mark = mark_at(world, renderer, self.life_marks, (wx, wy));
