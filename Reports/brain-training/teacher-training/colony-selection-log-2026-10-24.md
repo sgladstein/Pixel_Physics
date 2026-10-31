@@ -1814,3 +1814,28 @@ bar would let one colony stop the other laying -- `dead-ends.md`, rivalbed's `la
 now sets the same field; **bit-identical** to the old loop, crowded_bench and played_bed seed 1, 60k, both
 `RESULT` lines equal (alive 72/67, lived 63.5/65.8, births 125/108); the positive control, the new binary unbraked
 on crowded_bench, differs (lived 181.3, peak 408, births 613), so the 60k window does reach the brake.
+
+## 2026-10-31 (18:00Z): env9 done -- the floor held the bed nest; exam `x15` queued on the winners
+
+env9-1031 (resumed as env9b-1031, a31f93f7) ran all 16 rounds. Medians per round, training-bed `nest` and lab case:
+
+| arm | r0 nest / lab | r8 | r15 |
+|---|---|---|---|
+| F_h3 (from H3) | 837 / 8,037 | 615 / 10,251 | 651 / 9,889 |
+| F_std (from std_pool) | 829 / 8,076 | 489 / 8,358 | 594 / 8,883 |
+
+The floor did what env8's median gate could not: the bed nest dipped to ~410-490 mid-run and came back, never near
+env7's under-100. 22-32 of 32 colonies passed the gate every round. Whether that is a nest in the game is the garden
+test's question, not this table's.
+
+**Picks, as named before launch (r15 rank 0):** F_h3 colony 22 (lab 13,600, last gate nest 369) ->
+`genomes/env9_h3c22_pool.txt`; F_std colony 9 (lab 14,959, last gate nest **262, under the floor** -- rank 0 bred
+through the fallback's top-2) -> `genomes/env9_stdc9_pool.txt`. Kept anyway: the pick was named before launch, and
+the garden test decides. Copies in `/mnt/project-files/teacher/env9-1031/`; sent to the Nest lane for garden worlds
+61-68 at 200k with N_gate c10 and std_pool rerun on the same build.
+
+**Exam `x15`** (renamed from the plan's "x14", which the brake rows took): fh3, fstd, N_gate c10, std_pool, 6 boxes x
+8 seeds at 600k on current main (after #1005 garden retune, #1009 brake -- off in the exam, #1011, #1013, #1017), so
+every arm reruns on one build. Deciding measure unchanged (env9 section above). The Plants lane's rich-earth paired
+run rides along as an `sh` job at their branch head (`scratch/inrun/jobs/branchrun.sh SHA SCRIPT`: fetch the SHA,
+worktree, own target dir).
