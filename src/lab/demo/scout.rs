@@ -62,6 +62,21 @@
 //! rimmed and a lock stands over it. A seat rule, no engine change. With the
 //! seal the season is judged at spring ([`SPRING_FLOOR`]): the colony then is
 //! the season's births, which is what her teaching feeds.
+//!
+//! **Round 4: the lesson is the way** (2026-10-31, adversarial review
+//! `/mnt/project-files/seat-demos/adversarial-2026-10-31/scout/review.md`).
+//! The seal made the heap's foot the one place untaught sisters are sure to
+//! come to, and an arrival there was a full lesson: a player who stood there
+//! and tapped the sisters it turned away came through 12 of 12 fresh seasons
+//! and beat the patient leader 11-1. Now, under the seal, a lesson is the
+//! share of the nest-to-heap way she was led (`tandem::Knobs::lesson_way`; a
+//! run begun in the seal's columns teaches nothing), the seal reads it
+//! graded ([`KNOW_LO`]..[`KNOW_HI`]: "knows a little" finds the heap on some
+//! approaches), `Y` on a sister being turned away is refused, the season
+//! counts only her colony, and `K` lets a pupil go (the lag-hold gives up
+//! after [`HOLD_TIMEOUT`] with no closing). Seeds 25-36: the camper's
+//! colony at spring went from beating the patient player 11-1 (post 16
+//! cells west) to losing to her 2-10, harvest median 68 -> 0.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -73,7 +88,7 @@ use crate::sim::world::World;
 use super::super::Lab;
 
 /// The seat's keys, as the help line prints them.
-pub const SEAT_KEYS: &str = "Y TAP (B: CALL) -- U PIN PUPIL -- P SNIFF -- R NEW SEASON";
+pub const SEAT_KEYS: &str = "Y TAP (B: CALL) -- U PIN PUPIL -- P SNIFF -- K LET GO -- R NEW SEASON";
 
 /// The frame the player gets her body (step-0 census: past the landing die-off).
 pub const HANDOVER: u64 = 18_000;
@@ -152,6 +167,14 @@ pub struct ScoutDemo {
     pub trickle: u64,
     /// The colony when a sealed season was lost at spring, for the card.
     pub spring: usize,
+    /// **Her colony** (review 2026-10-31, B2): the season counts only the
+    /// ants of the colony her body was born in, never another colony in the
+    /// box. `None` until her body is bound.
+    pub colony: Option<u32>,
+    /// **The lag-hold's clock** ([`frame`], review 2026-10-31, W2): when the
+    /// hold began and the nearest her pupil has come since. Past
+    /// [`HOLD_TIMEOUT`] with no closing, the hold lets her walk.
+    pub hold: Option<(u64, i32)>,
 }
 
 /// One leak: the ant, the frame, the cell she took, and her head at the last
@@ -181,6 +204,12 @@ pub struct Seal {
     pub leak_log: Vec<Leak>,
     /// Heads of ants in the seal's columns at the last pre-step look.
     pub looked: BTreeMap<OrganismId, (i32, i32)>,
+    /// **"Knows a little"**: an ant whose lesson lies between [`KNOW_LO`] and
+    /// [`KNOW_HI`] finds the way on some approaches and not others. Each
+    /// approach's answer, and the frame it holds until ([`ADMIT_FRAMES`]).
+    pub admit: BTreeMap<OrganismId, (u64, bool)>,
+    /// Taps refused because the sister was being turned away from the heap.
+    pub tap_refused: u32,
 }
 
 /// How the lean season ended.
@@ -303,6 +332,8 @@ impl ScoutDemo {
             seal: Seal::default(),
             trickle: args.get("trickle").and_then(|s| s.parse().ok()).unwrap_or(0),
             spring: 0,
+            colony: None,
+            hold: None,
         }
     }
 }
@@ -327,6 +358,11 @@ pub fn start_season(lab: &mut Lab) {
         t.knobs.cascade_timeout = CASCADE_TIMEOUT;
         if t.arm == tandem::Arm::Scout && c_arg.is_none() {
             t.knobs.cascade_c = LEAN_C;
+        }
+        // **The lesson is the way walked together** (review 2026-10-31, B1), under the seal only: `sealed=0`
+        // is round 2 exactly.
+        if s.heap_sealed {
+            t.knobs.lesson_way = Some(tandem::LessonWay { from_x: NEST_X, dead_r: SEAL_R });
         }
     }
     if let Some(sc) = lab.scenario.as_mut() {
@@ -363,8 +399,8 @@ pub fn start_season(lab: &mut Lab) {
 /// **The colony's stores, in full tanks**: what its ants carry in their own
 /// banks. The food by the nest is eaten as it lands, so this is the store
 /// that drains once the near trickle stops.
-fn larder(world: &World) -> f32 {
-    ants(world).into_iter().filter_map(|id| tandem::energy_sense(world, id)).map(|s| s / (1.0 - s).max(1e-3)).sum()
+fn larder(world: &World, colony: Option<u32>) -> f32 {
+    ants_of(world, colony).into_iter().filter_map(|id| tandem::energy_sense(world, id)).map(|s| s / (1.0 - s).max(1e-3)).sum()
 }
 
 /// Her generation in the tree: 1 for her own pupil, 2 for a pupil's pupil.
@@ -388,6 +424,22 @@ fn head(world: &World, id: OrganismId) -> Option<(i32, i32)> {
 pub fn ants(world: &World) -> Vec<OrganismId> {
     let Some(ant) = world.species.id_of("ant") else { return Vec::new() };
     world.live_organism_ids().into_iter().filter(|&i| world.organism(i).is_some_and(|s| s.species == ant)).collect()
+}
+
+/// The live ants of `colony` (every ant when `None`, before her body is bound).
+pub fn ants_of(world: &World, colony: Option<u32>) -> Vec<OrganismId> {
+    let mut v = ants(world);
+    if let Some(c) = colony {
+        v.retain(|&i| world.organism(i).is_some_and(|s| s.colony == c));
+    }
+    v
+}
+
+/// **The colony the season counts** (review 2026-10-31, B2): her own, not
+/// every ant in the box -- a second colony dropped in is not her harvest.
+pub fn colony_alive(lab: &Lab) -> usize {
+    let colony = lab.demo.as_ref().and_then(|d| d.scout.as_ref()).and_then(|s| s.colony);
+    ants_of(&lab.world, colony).len()
 }
 
 /// **The player's body**: an adult on the surface within 25 columns of
@@ -439,6 +491,10 @@ pub fn start_tandems(world: &mut World, arm: Arm, c: Option<f32>, gain: f32) {
 /// The recall gain the seat runs at unless `gain=` says otherwise.
 pub const GAIN: f32 = 6.0;
 
+/// **The lag-hold gives up** after this many frames in which her pupil has
+/// come no nearer (review 2026-10-31, W2: ten seconds of standing at 1x).
+pub const HOLD_TIMEOUT: u64 = 300;
+
 /// One of the seat keys (`Y U P J K R`) was pressed.
 pub fn seat_key(lab: &mut Lab, key: char) {
     if key == 'R' {
@@ -453,16 +509,21 @@ pub fn seat_key(lab: &mut Lab, key: char) {
     };
     match key {
         'Y' => {
-            let line = match tandem::tap(&mut lab.world, me) {
-                TapResult::Accepted(id) => {
-                    if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
-                        s.last_pupil = Some(id);
-                    }
-                    "SHE TOUCHES YOUR ABDOMEN: LEAD HER -- WAIT WHEN SHE STOPS".to_string()
-                }
-                TapResult::Refused(_, r) => format!("REFUSED: {}", r.words().to_uppercase()),
-                TapResult::NoOne => "NOBODY IN REACH TO TAP".to_string(),
+            let r = tap_for(&mut lab.world, lab.demo.as_mut().and_then(|d| d.scout.as_mut()), me);
+            if let (SeatTap::Tap(TapResult::Accepted(id)), Some(s)) = (r, lab.demo.as_mut().and_then(|d| d.scout.as_mut())) {
+                s.last_pupil = Some(id);
+            }
+            lab.ui.say(tap_line(r));
+        }
+        'K' => {
+            let line = match let_go_nearest(&mut lab.world, me) {
+                Some(s) if s > 0.0 => format!("YOU LET HER GO -- SHE KEEPS WHAT SHE LEARNED ({:.0}% OF THE WAY)", s * 100.0),
+                Some(_) => "YOU LET HER GO -- SHE LEARNED NOTHING OF THE WAY".to_string(),
+                None => "YOU ARE NOT LEADING ANYONE".to_string(),
             };
+            if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
+                s.hold = None;
+            }
             lab.ui.say(line);
         }
         'U' => {
@@ -478,6 +539,57 @@ pub fn seat_key(lab: &mut Lab, key: char) {
         }
         _ => {}
     }
+}
+
+/// A tap through the seat: the engine's tap, unless the sister it would reach
+/// is being turned away from the sealed heap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeatTap {
+    Tap(TapResult),
+    /// **She is being walked off the heap and will not follow** (review
+    /// 2026-10-31, B1): the seal made the heap's foot the one place untaught
+    /// sisters are sure to come to, and a tap there "taught" them the last
+    /// few cells of a way someone else should have led.
+    TurnedAway(OrganismId),
+}
+
+/// **`Y`, as the seat answers it** -- also what a headless harness calls, so
+/// both refuse the same sisters.
+pub fn tap_for(world: &mut World, seat: Option<&mut ScoutDemo>, me: OrganismId) -> SeatTap {
+    let reach = world.tandem.as_ref().map_or(3, |t| t.knobs.tap_reach);
+    if let Some(s) = seat {
+        let near = if world.tandem.as_ref().is_some_and(|t| t.arm == Arm::Column) { None } else { tandem::candidates(world, me, reach).first().copied() };
+        if let Some(id) = near.filter(|id| seal_live(s, world.frame) && s.seal.bounced.contains_key(id)) {
+            s.seal.tap_refused += 1;
+            return SeatTap::TurnedAway(id);
+        }
+    }
+    SeatTap::Tap(tandem::tap(world, me))
+}
+
+/// The ticker's line for a tap.
+pub fn tap_line(r: SeatTap) -> String {
+    match r {
+        SeatTap::Tap(TapResult::Accepted(_)) => "SHE TOUCHES YOUR ABDOMEN: LEAD HER -- WAIT WHEN SHE STOPS".to_string(),
+        SeatTap::Tap(TapResult::Refused(_, r)) => format!("REFUSED: {}", r.words().to_uppercase()),
+        SeatTap::Tap(TapResult::NoOne) => "NOBODY IN REACH TO TAP".to_string(),
+        SeatTap::TurnedAway(_) => "REFUSED: THE HEAP JUST TURNED HER AWAY -- SHE WILL NOT FOLLOW NOW".to_string(),
+    }
+}
+
+/// **`K`: let go of the pupil nearest her** -- the lesson she keeps, or
+/// `None` if she leads nobody.
+pub fn let_go_nearest(world: &mut World, me: OrganismId) -> Option<f32> {
+    let pupil = world
+        .tandem
+        .as_ref()?
+        .pairs
+        .iter()
+        .filter(|p| p.leader == me)
+        .map(|p| (tandem::contact_gap(world, p.follower, me).unwrap_or(i32::MAX), p.follower))
+        .min()?
+        .1;
+    tandem::let_go(world, pupil)
 }
 
 /// **`R`: a new season** -- at once when the season is over (or she is
@@ -537,12 +649,16 @@ pub fn frame(lab: &mut Lab) {
         let (arm, c, gain) = (s.arm, s.c, s.gain);
         start_tandems(&mut lab.world, arm, c, gain);
         lab.time.set_preset(0);
-        let alive = ants(&lab.world).len();
         if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
             s.started = true;
-            s.alive_at_start = alive;
         }
         lab.demo_bind_body();
+        let colony = steer::steered_id(&lab.world).and_then(|id| lab.world.organism(id)).map(|st| st.colony);
+        let alive = ants_of(&lab.world, colony).len();
+        if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
+            s.alive_at_start = alive;
+            s.colony = colony;
+        }
         lab.ui.say(format!("YOU HATCH: ONE WORKER AMONG {alive}. FOOD LIES FAR TO THE EAST. {SEAT_KEYS}"));
         start_season(lab);
         return;
@@ -550,13 +666,37 @@ pub fn frame(lab: &mut Lab) {
     let Some(me) = steer::steered_id(&lab.world) else { return };
     // **The leader keeps her pupil's pace** (plan v2 §3.3): while a pupil of
     // hers is following three or more cells back, the player's step is held.
-    let lagging = lab.world.tandem.as_deref().is_some_and(|t| {
-        t.pairs.iter().any(|p| {
-            p.leader == me
-                && matches!(p.phase, Phase::Following)
-                && tandem::contact_gap(&lab.world, p.follower, me).is_some_and(|g| g >= 3)
-        })
+    let lag = lab.world.tandem.as_deref().and_then(|t| {
+        t.pairs
+            .iter()
+            .filter(|p| p.leader == me && matches!(p.phase, Phase::Following))
+            .filter_map(|p| tandem::contact_gap(&lab.world, p.follower, me).filter(|&g| g >= 3))
+            .min()
     });
+    // **Never a soft-lock** (review 2026-10-31, W2): traced on seed 17, a pupil sat at gap 3 for 2,700 frames
+    // and the player, held the whole time, starved. The hold lasts while she closes; [`HOLD_TIMEOUT`] frames with
+    // no closing and the player walks again, told how to let her go.
+    let frame_now = lab.world.frame;
+    let mut stuck_note = false;
+    let lagging = match (lag, lab.demo.as_mut().and_then(|d| d.scout.as_mut())) {
+        (Some(g), Some(s)) => {
+            let (since, best) = s.hold.get_or_insert((frame_now, g));
+            if g < *best {
+                (*since, *best) = (frame_now, g);
+            }
+            let held_for = frame_now.saturating_sub(*since);
+            stuck_note = held_for == HOLD_TIMEOUT + 1;
+            held_for <= HOLD_TIMEOUT
+        }
+        (None, Some(s)) => {
+            s.hold = None;
+            false
+        }
+        (lag, None) => lag.is_some(),
+    };
+    if stuck_note {
+        lab.ui.say("SHE IS STUCK -- K TO LET HER GO, OR WALK ON");
+    }
     if lagging {
         if let Some(st) = lab.world.steered.as_mut() {
             if let Some(input) = st.input.as_mut() {
@@ -597,14 +737,42 @@ pub fn seal_live(s: &ScoutDemo, frame: u64) -> bool {
     s.started && s.stakes && s.heap_sealed && frame >= s.season_start && frame < s.season_start + s.season
 }
 
-/// **Does `id` know the far heap?** She was led there (the tandem module's
-/// lesson, by the player or by a pupil: a broken run that learned a landmark
-/// counts, at its strength), or the recall head's taught-place memory points
-/// into the heap, or she is the player.
-pub fn knows_heap(world: &World, id: OrganismId, heap_x: i32) -> bool {
-    steer::is_steered(world, id)
-        || world.tandem.as_deref().is_some_and(|t| t.lessons.contains_key(&id))
-        || world.recall.as_ref().and_then(|r| r.provenance.get(&id)).is_some_and(|p| (p.place.0 - heap_x).abs() <= SEAL_R)
+/// **How well `id` knows the far heap**, 0..1: the tandem module's lesson
+/// (by the player or by a pupil; graded by the way walked together,
+/// `tandem::Knobs::lesson_way`), or the recall head's taught-place memory
+/// where it points into the heap, whichever is stronger; 1 for the player.
+pub fn heap_strength(world: &World, id: OrganismId, heap_x: i32) -> f32 {
+    if steer::is_steered(world, id) {
+        return 1.0;
+    }
+    let lesson = world.tandem.as_deref().and_then(|t| t.lessons.get(&id).copied()).unwrap_or(0.0);
+    let memory = world.recall.as_ref().and_then(|r| r.provenance.get(&id)).filter(|p| (p.place.0 - heap_x).abs() <= SEAL_R).map_or(0.0, |p| p.strength);
+    lesson.max(memory)
+}
+
+/// A lesson at or under this finds the sealed heap never; at or over
+/// [`KNOW_HI`], always; between, on a share of her approaches that rises
+/// straight from one to the other (review 2026-10-31, B1: "knows a little"
+/// is graded, not a yes/no). A lead from the trickle (x 160) to the heap's
+/// edge covers 0.65 of the way, from the nest 0.87, so either is full; the
+/// heap camper's six cells are 0.05.
+pub const KNOW_LO: f32 = 0.05;
+pub const KNOW_HI: f32 = 0.6;
+/// One approach's answer holds this long (about two bounces).
+pub const ADMIT_FRAMES: u64 = 600;
+const RNG_SLOT_ADMIT: u64 = 0x5ea1;
+
+/// The chance an ant with lesson strength `s` finds the sealed heap on an approach.
+pub fn admit_chance(s: f32) -> f32 {
+    ((s - KNOW_LO) / (KNOW_HI - KNOW_LO)).clamp(0.0, 1.0)
+}
+
+/// **Does `id` know the far heap, on this approach?** Always at
+/// [`KNOW_HI`] and over, never at [`KNOW_LO`] and under; between, the
+/// approach's draw ([`Seal::admit`], made in [`seal_tick`]).
+pub fn knows_heap(world: &World, seal: &Seal, id: OrganismId, heap_x: i32) -> bool {
+    let s = heap_strength(world, id, heap_x);
+    s >= KNOW_HI || (s > KNOW_LO && seal.admit.get(&id).is_some_and(|&(until, ok)| ok && world.frame < until))
 }
 
 /// A provisions cell of the sealed heap within `r` of `at`.
@@ -638,6 +806,8 @@ pub fn seal_tick(lab: &mut Lab) {
     let in_run = |w: &World, id: OrganismId| w.tandem.as_deref().is_some_and(|t| t.pairs.iter().any(|p| p.follower == id || p.leader == id));
     let mut turn: Vec<(OrganismId, i8)> = Vec::new();
     let mut looked = BTreeMap::new();
+    // Fresh draws for "knows a little", made as she comes up to the band, so seal_watch reads the same answer.
+    let mut admit: Vec<(OrganismId, bool)> = Vec::new();
     if live {
         for id in ants(w) {
             let Some(h) = head(w, id) else { continue };
@@ -645,7 +815,22 @@ pub fn seal_tick(lab: &mut Lab) {
                 continue;
             }
             looked.insert(id, h);
-            if (h.0 - heap_x).abs() > SEAL_R + SEAL_NEAR || knows_heap(w, id, heap_x) || in_run(w, id) {
+            let st = heap_strength(w, id, heap_x);
+            let known = if st >= KNOW_HI {
+                true
+            } else if st <= KNOW_LO {
+                false
+            } else {
+                match s.seal.admit.get(&id) {
+                    Some(&(until, ok)) if frame < until => ok,
+                    _ => {
+                        let ok = crate::sim::rng::stream(w.seed, id as u64, frame, RNG_SLOT_ADMIT).chance(admit_chance(st));
+                        admit.push((id, ok));
+                        ok
+                    }
+                }
+            };
+            if (h.0 - heap_x).abs() > SEAL_R + SEAL_NEAR || known || in_run(w, id) {
                 continue;
             }
             if sealed_food_near(w, h, heap_x, SEAL_NEAR) {
@@ -675,6 +860,12 @@ pub fn seal_tick(lab: &mut Lab) {
     }
     let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
     s.seal.looked = looked;
+    for (id, ok) in admit {
+        s.seal.admit.insert(id, (frame + ADMIT_FRAMES, ok));
+    }
+    if frame.is_multiple_of(600) {
+        s.seal.admit.retain(|_, &mut (until, _)| frame < until);
+    }
     for id in stale {
         s.seal.bounced.remove(&id);
     }
@@ -711,7 +902,7 @@ fn seal_watch(lab: &mut Lab) {
             && st.crop.is_some_and(|c| c.cells > 0)
             && (h.0 - lf.0).abs().max((h.1 - lf.1).abs()) <= 3
             && !steer::is_steered(w, id);
-        seen.push((id, lf, picked.then(|| knows_heap(w, id, heap_x))));
+        seen.push((id, lf, picked.then(|| knows_heap(w, &s.seal, id, heap_x))));
     }
     let mut caught: Vec<(OrganismId, i8)> = Vec::new();
     let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
@@ -801,9 +992,17 @@ fn season_tick(lab: &mut Lab) {
             fresh.push((id, st.life.trip_deliveries, if from_patch { generation(t, id) } else { 0 }));
         }
     }
-    let alive = ants(&lab.world).len();
     let me = steer::steered_id(&lab.world);
-    let food = frame.is_multiple_of(90).then(|| larder(&lab.world));
+    // Her colony, bound lazily: a headless harness binds her body after the seat's start.
+    let my_colony = me.and_then(|id| lab.world.organism(id)).map(|st| st.colony);
+    if let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) {
+        if s.colony.is_none() {
+            s.colony = my_colony;
+        }
+    }
+    let colony = lab.demo.as_ref().and_then(|d| d.scout.as_ref()).and_then(|s| s.colony);
+    let alive = ants_of(&lab.world, colony).len();
+    let food = frame.is_multiple_of(90).then(|| larder(&lab.world, colony));
     let mut notes = Vec::new();
     let Some(s) = lab.demo.as_mut().and_then(|d| d.scout.as_mut()) else { return };
     for (id, trips, g) in fresh {
@@ -1123,7 +1322,7 @@ pub fn panel(lab: &Lab) -> Vec<(String, [u8; 4])> {
     }
     let Some(t) = lab.world.tandem.as_deref() else { return out };
     let world = &lab.world;
-    let alive = ants(world).len();
+    let alive = ants_of(world, s.colony).len();
     if s.stakes {
         let end = s.season_start + s.season;
         let left = end.saturating_sub(world.frame);
@@ -1408,6 +1607,78 @@ mod tests {
         }
         // The positive control: without the seal the food is taken (by her or a sister), and taught she takes it.
         assert!(took["open"].1 && took["taught"].0, "food all round her and nobody took it: the test proves nothing ({took:?})");
+    }
+
+    /// **A sister being turned away will not follow** (review 2026-10-31,
+    /// B1): `Y` on the nearest sister while the seal is walking her off the
+    /// heap is refused with the reason, and the same tap with her not turned
+    /// away (the positive control) reaches the engine's tap.
+    #[test]
+    fn a_sister_being_turned_away_will_not_follow() {
+        let mut got = Vec::new();
+        for bounced in [true, false] {
+            let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+            let mut lab = Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            lab.set_new_ant(true);
+            while lab.world.frame < 600 {
+                lab.tick_for_harness();
+            }
+            start_tandems(&mut lab.world, Arm::Scout, None, GAIN);
+            let w = &lab.world;
+            let mut ids = ants(w);
+            ids.sort_unstable();
+            let (me, near) = ids.into_iter().find_map(|id| tandem::candidates(w, id, 3).first().map(|&n| (id, n))).expect("an ant with a sister in reach");
+            let mut seat = ScoutDemo::from_args(&BTreeMap::new(), 1);
+            (seat.started, seat.season_start) = (true, lab.world.frame);
+            if bounced {
+                seat.seal.bounced.insert(near, (lab.world.frame + BOUNCE_FRAMES, -1));
+            }
+            let r = tap_for(&mut lab.world, Some(&mut seat), me);
+            got.push((r, seat.seal.tap_refused));
+        }
+        assert!(matches!(got[0], (SeatTap::TurnedAway(_), 1)), "a turned-away sister was tapped: {got:?}");
+        assert!(matches!(got[1], (SeatTap::Tap(_), 0)), "the control never reached the engine: {got:?}");
+    }
+
+    /// **"Knows a little" is graded** (review 2026-10-31, B1): under
+    /// [`KNOW_LO`] never, over [`KNOW_HI`] always, and between, the share of
+    /// approaches rises with the lesson -- checked on the chance itself and
+    /// on [`knows_heap`] reading an approach's draw. And the season counts
+    /// only her colony (B2).
+    #[test]
+    fn knowing_the_heap_is_graded_by_the_lesson() {
+        assert_eq!(admit_chance(KNOW_LO), 0.0);
+        assert_eq!(admit_chance(KNOW_HI), 1.0);
+        let mid = admit_chance((KNOW_LO + KNOW_HI) / 2.0);
+        assert!((mid - 0.5).abs() < 1e-5 && admit_chance(0.2) < admit_chance(0.4), "not graded: {mid}");
+        let sc = crate::lab::scenario::Scenario::load("demo_scout").expect("demo_scout ships");
+        let mut lab = Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        lab.set_new_ant(true);
+        while lab.world.frame < 600 {
+            lab.tick_for_harness();
+        }
+        start_tandems(&mut lab.world, Arm::Scout, None, GAIN);
+        let mut ids = ants(&lab.world);
+        ids.sort_unstable();
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        let t = lab.world.tandem.as_mut().unwrap();
+        t.lessons.insert(a, 0.9);
+        t.lessons.insert(b, 0.03);
+        t.lessons.insert(c, 0.3);
+        let mut seal = Seal::default();
+        let f = lab.world.frame;
+        assert!(knows_heap(&lab.world, &seal, a, HEAP_X) && !knows_heap(&lab.world, &seal, b, HEAP_X));
+        assert!(!knows_heap(&lab.world, &seal, c, HEAP_X), "a middling lesson passed with no draw");
+        seal.admit.insert(c, (f + ADMIT_FRAMES, true));
+        seal.admit.insert(b, (f + ADMIT_FRAMES, true));
+        assert!(knows_heap(&lab.world, &seal, c, HEAP_X) && !knows_heap(&lab.world, &seal, b, HEAP_X), "the draw was not read, or overrode the floor");
+        // Only her colony is counted: an ant of another colony is not in `ants_of`.
+        let mine = lab.world.organism(a).unwrap().colony;
+        lab.world.organism_mut(b).unwrap().colony = mine + 7;
+        let of = ants_of(&lab.world, Some(mine));
+        assert!(of.contains(&a) && !of.contains(&b) && ants_of(&lab.world, None).contains(&b));
     }
 
     /// **The tree's generations**: her pupil is 1, that pupil's pupil 2.
