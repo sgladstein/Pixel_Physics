@@ -95,11 +95,16 @@ pub fn render_step(richness: u16) -> u8 {
 /// How far toward [`RICH_TARGET`] each draw step pulls the ground's own
 /// colour (index 0 is plain ground, drawn as itself). Stops short of 1 so
 /// the grain still shows.
-pub const RICH_PULL: [f32; 3] = [0.0, 0.35, 0.6];
-/// The dark, slightly warm brown rich ground darkens toward -- humus, well
-/// below the wet family's darkest tone (44, 30, 20) so it cannot be read as
-/// damp soil.
-pub const RICH_TARGET: [f32; 3] = [26.0, 17.0, 12.0];
+pub const RICH_PULL: [f32; 3] = [0.0, 0.55, 0.85];
+/// The deep red-brown rich ground is pulled toward. **Not near-black, and
+/// that was looked at**: the first target, (26, 17, 12), drew rich nest
+/// walls the same colour as the dug void beside them, (21, 16, 13) on the
+/// played bed at 150k, so the one place richness is made was the one place
+/// it could not be seen. A warmer, redder brown stays darker than loam
+/// and the wet family without reading as a hole; the second try at
+/// (62, 28, 12) and pulls 0.45 / 0.75 showed as a faint halo round the
+/// nest at 4x, so both were pushed further.
+pub const RICH_TARGET: [f32; 3] = [72.0, 30.0, 10.0];
 
 /// **An ant ate the fungus at `(x, y)`**: top up every nutrient-carrying
 /// neighbour to `RICH_STOCK`. Called after the fungus cell is cleared.
