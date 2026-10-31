@@ -146,8 +146,9 @@ pub struct LabAnt {
 /// other argument or environment, and [`parse_pool`] reads it the same way.
 /// The x13 played-bed control (seed 1, 600k frames past landing) is the check
 /// that a pool loads as measured: SURVIVOR 565 alive / lived 434.1, TUNNEL
-/// DIGGER 99 / 287.9, STANDARD 69 / 219.9.
-pub const LAB_ANTS: [LabAnt; 4] = [
+/// DIGGER 99 / 287.9, STANDARD 69 / 219.9; NESTER's is from x15, a later
+/// build (main 86b788ce): 593 / 502.1, STANDARD 156 / 329.1 on that build.
+pub const LAB_ANTS: [LabAnt; 5] = [
     LabAnt {
         key: "std",
         name: "STANDARD",
@@ -159,6 +160,12 @@ pub const LAB_ANTS: [LabAnt; 4] = [
         name: "SURVIVOR",
         pool: Some(include_str!("../../assets/minds/env8_gatec10_pool.txt")),
         note: "ENV8 N_GATE COLONY 10, EXAM X13'S BEST: ABOUT TWICE THE STANDARD COLONY, ALIVE AT THE END 24 TIMES TO ITS 1 -- BUT A SHALLOW CRUMB-PAN NEST.",
+    },
+    LabAnt {
+        key: "nester",
+        name: "NESTER",
+        pool: Some(include_str!("../../assets/minds/env9_stdc9_pool.txt")),
+        note: "ENV9 STANDARD LINE COLONY 9, EXAM X15'S PICK: LIVES AS WELL AS THE SURVIVOR AND DIGS ABOUT EIGHT TIMES ITS NEST -- STILL SMALLER THAN THE STANDARD POOL'S.",
     },
     LabAnt {
         key: "digger",
