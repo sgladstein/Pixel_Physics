@@ -157,7 +157,13 @@ fn main() {
     // `heist` feeds on the surface like `skulk`, and dives for brood when fed and whole.
     let rebank = policy == "rebank";
     let instinct = policy == "instinct";
-    let heist = policy == "heist" || rebank;
+    // `coarse` (fix round 2, 2026-10-31): the heist as a person plays it, holding
+    // only the general direction -- toward the door's chevron, then down, then at
+    // the nearest white larva, then up and to the gold flag -- and B when the
+    // ring says a larva is in reach. Meant with `lag=15`: a fairer model of a
+    // person than `heist`'s next-cell path follower under the same lag.
+    let coarse = policy == "coarse";
+    let heist = policy == "heist" || rebank || coarse;
     let camp = policy == "camp" || policy == "rebanktest";
     // `massacre` (fix round 2026-10-31): camps the nearest door and bites every
     // ant within reach -- the queue at the door -- backing off to heal as
@@ -177,6 +183,7 @@ fn main() {
         arg::<String>("stakes").as_deref() != Some("0")
     );
     let mut rebank_digs = 0u32;
+    let (mut funnel_frames, mut held_flips, mut held_seen) = (0u64, 0u64, 0u64);
     let mut instinct_set = false;
     let start_state = if camp || instinct {
         State::Camp
@@ -298,6 +305,10 @@ fn main() {
             println!("instinct: dial at {}x", lab.time.multiple());
         }
         let now = lab.world.frame;
+        // The assist's counters (`EnemyDemo::funnel`, `held_flips`), over every life.
+        funnel_frames += u64::from(e.funnel);
+        held_flips += if e.held_flips >= held_seen { e.held_flips - held_seen } else { e.held_flips };
+        held_seen = e.held_flips;
         if now >= t0 + after || (!respawn || e.over) && e.ended.is_some_and(|(f, _)| now > f + 300) {
             break;
         }
@@ -413,6 +424,42 @@ fn main() {
                             press = Some('G');
                             rebank_digs += 1;
                         }
+                    }
+                }
+                State::Dive | State::Escape if coarse => {
+                    let site = lab.world.nest_sites.iter().map(|s| s.x).min_by_key(|x| (x - head.0).abs()).unwrap_or(door_x);
+                    let inside = depth >= 3 && (head.0 - site).abs() <= 40;
+                    if state == State::Dive {
+                        if !inside {
+                            // To the door's chevron; within ten columns of it, down and toward it.
+                            let dx = site - head.0;
+                            want.down = dx.abs() <= 10;
+                            want.left = dx < -1;
+                            want.right = dx > 1;
+                        } else if let Some(l) = larvae(&lab.world).into_iter().min_by_key(|l| (l.0 - head.0).abs().max((l.1 - head.1).abs())) {
+                            want.left = l.0 < head.0;
+                            want.right = l.0 > head.0;
+                            want.up = l.1 < head.1;
+                            want.down = l.1 > head.1;
+                        } else {
+                            want.down = true;
+                        }
+                        want.sprint = sprints && depth >= -2;
+                        // B when the ring says a larva is in reach, or an ant is in the way.
+                        let ring = !pixel_physics::lab::demo::enemy::larvae_in_reach(&lab.world, head).is_empty();
+                        if ring || nearest.is_some_and(|(_, d)| d <= 2) && cells + 1 >= start_cells {
+                            press = Some('B');
+                        }
+                    } else {
+                        // Up and out, then along the surface to the flag.
+                        let lair = e.lair.unwrap_or((home, surface));
+                        if depth >= 1 && (head.0 - site).abs() <= 40 {
+                            want.up = true;
+                        } else {
+                            want.left = lair.0 < head.0 - 1;
+                            want.right = lair.0 > head.0 + 1;
+                        }
+                        want.sprint = sprints;
                     }
                 }
                 State::Dive | State::Escape => {
@@ -633,6 +680,33 @@ fn main() {
                     e.grabbed,
                     la.map(|a| (a.frame, a.asked, a.done, a.ok))
                 );
+                // The assist's view: the nearest door, its ground line, the funnel's way in, the input it left.
+                let site = lab.world.nest_sites.iter().min_by_key(|s| (s.x - head.0).abs()).map(|s| (s.x, s.surface));
+                let way = site.and_then(|(_, sf)| pixel_physics::lab::demo::enemy::way_in(&lab.world, e.raider.unwrap_or(0), head, sf));
+                let input = lab.world.steered.as_ref().and_then(|s| s.input).map(|i| i.dir);
+                println!("   AS site={site:?} way_in={way:?} funnel={} input={input:?}", e.funnel);
+                if arg::<u64>("mapat") == Some(now - t0) {
+                    for y in head.1 - 8..head.1 + 16 {
+                        let row: String = (head.0 - 12..head.0 + 16)
+                            .map(|x| {
+                                let c = lab.world.get(x, y);
+                                let o = c.organism_id();
+                                if (x, y) == head {
+                                    'H'
+                                } else if o != 0 && Some(o) == e.raider {
+                                    'R'
+                                } else if o != 0 {
+                                    'a'
+                                } else if c.is_empty() {
+                                    '.'
+                                } else {
+                                    '#'
+                                }
+                            })
+                            .collect();
+                        println!("   MAP {y:4} {row}");
+                    }
+                }
             }
             if let Some(c) = press {
                 lab.demo_key(DemoKey::Letter(c), true);
@@ -814,7 +888,7 @@ fn main() {
         }
         let lag: u64 = arg("lag").unwrap_or(1).max(1);
         println!(
-            "GAME seed={seed} policy={policy} lag={lag} lives={} over={} score={} kills={} meals={} grabbed={} brood={} ants_start={} ants_end={} rebank_digs={rebank_digs} dives={dives} hunger_j={:.0} capped_j={:.0}",
+            "GAME seed={seed} policy={policy} lag={lag} funnel_frames={funnel_frames} held_flips={held_flips} lives={} over={} score={} kills={} meals={} grabbed={} brood={} ants_start={} ants_end={} rebank_digs={rebank_digs} dives={dives} hunger_j={:.0} capped_j={:.0}",
             lives.len(),
             e.over,
             e.score().max(lives.iter().map(|l| l.points()).sum()),

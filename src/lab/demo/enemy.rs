@@ -79,6 +79,39 @@ pub const JAW_REACH: i32 = 4;
 /// Rows under the surface that count as "in the nest" for a life's record.
 pub const BELOW: i32 = 3;
 
+/// **The steering assist** (fix round 2, 2026-10-31; stakes on, `assist=0`
+/// turns it off for the A/B). With a human's 15-frame reaction lag the heist
+/// died on the mound before it reached any gallery (seed 27: three lives, each
+/// dead 535-855 frames after landing, at depth 0-4): a stale key overshot the
+/// hole at a sprint, the next key said "back", the five-cell chain turned round
+/// -- the head jumps to the far end -- and the door crowd bit while it swung.
+/// Three rules on what the player presses, all in this file, none in the
+/// engine: the **funnel** (a down arrow near a door steps toward the way in),
+/// the **turn-round hold** (no second turn within [`FLIP_HOLD`] frames), and
+/// the **bite hold** ([`BITE_HOLD`]). A fourth, no sprint while funnelled, measured
+/// neutral (4 vs 4 larvae over 36 lag-15 lives) and is off (`funnel_walks=1`).
+///
+/// Frames after a turn-round in which an arrow held back over the tail is not
+/// obeyed: the body stands instead, so a stale "back" cannot flip it twice.
+pub const FLIP_HOLD: u64 = 30;
+/// **Frames one B keeps the jaws working** (the assist's fourth rule): every
+/// frame of it bites again, or grabs a larva that comes into reach. With a
+/// 15-frame reaction lag a press came only every 15 frames, so in the door's
+/// crowd the raider bit about once to the frame-perfect script's three or
+/// four and was bitten to death at depth 2-10 (fix round 2, coarse arm: 36
+/// lives, median 600-1,800 frames). A person mashes B; this is the mash.
+pub const BITE_HOLD: u64 = 15;
+/// Columns from a door within which a held down arrow is funnelled.
+pub const FUNNEL_COLS: i32 = 12;
+/// How many steps the funnel looks for the way in. 16 found nothing on seed 27,
+/// whose shaft lies past a mound pillar about 20 steps over and down.
+const FUNNEL_STEPS: i32 = 28;
+/// Rows under the door's ground line that count as "in" (the funnel's goal).
+/// Rows *below the site's surface*, not ground overhead: a door's shaft is
+/// open to the sky, so [`cover`] reads 0 all the way down it (seed 27, the
+/// funnel's first build, fired on 0 frames).
+const INSIDE: i32 = 3;
+
 /// The frame the raider is set down on: the colony lands at 6,000
 /// (`demo_enemy.ron`) and has 20,000 frames to dig in first.
 pub const WARM_UNTIL: u64 = 26_000;
@@ -226,6 +259,21 @@ pub struct EnemyDemo {
     /// starts the next game from the same warmed colony, not the ruin the
     /// last one left (review finding 3; `persist=1` keeps "the same colony").
     pub warm: Option<WarmBox>,
+    /// The frame the body last turned round (its head came out where its tail
+    /// was), for the turn-round hold ([`FLIP_HOLD`]).
+    pub last_flip: Option<u64>,
+    /// Head and tail at the last tick, to see a turn-round.
+    ends: Option<((i32, i32), (i32, i32))>,
+    /// The funnel steered the arrow this frame (and the sprint is off).
+    pub funnel: bool,
+    /// Frames the funnel steered, and turn-rounds the hold refused, this life
+    /// (the assist's own counters: did it fire).
+    pub funnelled: u64,
+    pub held_flips: u64,
+    /// B keeps biting until this frame ([`BITE_HOLD`]).
+    pub bite_until: u64,
+    /// `funnel_walks=1`: no sprint while the funnel steers.
+    pub funnel_walks: bool,
 }
 
 /// The warmed box, shared rather than copied when the seat's state is cloned
@@ -602,59 +650,76 @@ pub fn seat_key(lab: &mut Lab, key: char) {
             }
         }
         'B' => {
-            let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
-            let grabbed = if stakes { grab_larva(lab) } else { Ok(false) };
-            match grabbed {
-                Ok(true) => {}
-                Ok(false) => {
-                    if let Some(s) = lab.world.steered.as_mut() {
-                        s.press(steer::SteerInput { bite: true, ..steer::SteerInput::default() });
-                    }
-                }
-                Err(why) => {
-                    let frame = lab.world.frame;
-                    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
-                        e.note = Some((frame, why.to_string()));
-                    }
+            let frame = lab.world.frame;
+            if assisting(lab) {
+                if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+                    e.bite_until = frame + BITE_HOLD;
                 }
             }
+            bite_or_grab(lab);
         }
         'R' => {
             let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
             if e.ended.is_none() {
                 return;
             }
-            let (stakes, over) = (e.stakes, e.over);
-            let warm = e.warm.clone().filter(|_| stakes && over && !persists(lab));
-            if stakes && over {
-                if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
-                    e.game.clear();
-                    e.over = false;
-                    e.new_best = false;
-                }
-            }
-            // **Every game from the same warmed colony** (review finding 3:
-            // one good heist left 0-15 ants on 4 of 12 seeds, and the next
-            // game was played in that ruin, so BEST compared games against
-            // different colonies).
-            let fresh = warm.is_some();
-            if let Some(WarmBox(world)) = warm {
-                restore_box(lab, &world);
-            }
-            if land_raider(lab).is_some() {
-                let left = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).map_or(0, EnemyDemo::raiders_left);
-                if !stakes {
-                    lab.ui.say("A NEW RAIDER ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT");
-                } else if fresh {
-                    lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY AS IT WAS AT THE FIRST LANDING");
-                } else if over {
-                    lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY IS AS YOU LEFT IT");
-                } else {
-                    lab.ui.say(format!("RAIDER {} OF {LIVES} ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT", LIVES + 1 - left));
-                }
-            }
+            r_key(lab);
         }
         _ => {}
+    }
+}
+
+/// B's act: grab a larva in reach, else bite; a grab refused says why.
+fn bite_or_grab(lab: &mut Lab) {
+    let stakes = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes);
+    let grabbed = if stakes { grab_larva(lab) } else { Ok(false) };
+    match grabbed {
+        Ok(true) => {}
+        Ok(false) => {
+            if let Some(s) = lab.world.steered.as_mut() {
+                s.press(steer::SteerInput { bite: true, ..steer::SteerInput::default() });
+            }
+        }
+        Err(why) => {
+            let frame = lab.world.frame;
+            if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+                e.note = Some((frame, why.to_string()));
+            }
+        }
+    }
+}
+
+/// R with the raider dead: the next raider, or a new game.
+fn r_key(lab: &mut Lab) {
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (stakes, over) = (e.stakes, e.over);
+    let warm = e.warm.clone().filter(|_| stakes && over && !persists(lab));
+    if stakes && over {
+        if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+            e.game.clear();
+            e.over = false;
+            e.new_best = false;
+        }
+    }
+    // **Every game from the same warmed colony** (review finding 3:
+    // one good heist left 0-15 ants on 4 of 12 seeds, and the next
+    // game was played in that ruin, so BEST compared games against
+    // different colonies).
+    let fresh = warm.is_some();
+    if let Some(WarmBox(world)) = warm {
+        restore_box(lab, &world);
+    }
+    if land_raider(lab).is_some() {
+        let left = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).map_or(0, EnemyDemo::raiders_left);
+        if !stakes {
+            lab.ui.say("A NEW RAIDER ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT");
+        } else if fresh {
+            lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY AS IT WAS AT THE FIRST LANDING");
+        } else if over {
+            lab.ui.say("A NEW GAME: THREE RAIDERS, SCORE 0 -- THE COLONY IS AS YOU LEFT IT");
+        } else {
+            lab.ui.say(format!("RAIDER {} OF {LIVES} ON THE SURFACE -- THE COLONY IS AS YOU LEFT IT", LIVES + 1 - left));
+        }
     }
 }
 
@@ -737,6 +802,8 @@ pub fn frame(lab: &mut Lab) {
     }
     let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
     if e.raider.is_some() {
+        assist(lab);
+        let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
         // **The dial stops at the steering cap while a raider is alive**, stakes
         // on (review finding 5: above 4x the body's own mind hunts and its kills
         // scored, median 23.5 on fresh seeds with no key pressed). Between
@@ -795,6 +862,112 @@ pub fn frame(lab: &mut Lab) {
         } else {
             lab.ui.say(format!("YOU ARE THE RAIDER -- {}", SEAT_KEYS));
         }
+    }
+}
+
+/// The assist is on: stakes on, and not `assist=0`.
+fn assisting(lab: &Lab) -> bool {
+    lab.demo.as_ref().is_some_and(|d| d.args.get("assist").is_none_or(|v| v != "0")) && lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| e.stakes)
+}
+
+/// Solid ground at a cell (no animal's).
+fn ground(world: &World, x: i32, y: i32) -> bool {
+    world.in_bounds(x, y) && {
+        let c = world.get(x, y);
+        !c.is_empty() && c.organism_id() == 0
+    }
+}
+
+/// **The first step of the way in**: from the head, through open cells and
+/// bodies each beside ground (a centipede walks on surfaces), breadth first,
+/// within [`FUNNEL_STEPS`], to the nearest cell [`INSIDE`] rows under the
+/// door's ground line `surface`. `None` if there is none that near.
+pub fn way_in(world: &World, me: OrganismId, head: (i32, i32), surface: i32) -> Option<(i32, i32)> {
+    const SIDE: usize = (2 * FUNNEL_STEPS + 1) as usize;
+    let at = |x: i32, y: i32| ((y - head.1 + FUNNEL_STEPS) as usize) * SIDE + (x - head.0 + FUNNEL_STEPS) as usize;
+    let mut first = vec![None::<(i32, i32)>; SIDE * SIDE];
+    let mut seen = vec![false; SIDE * SIDE];
+    seen[at(head.0, head.1)] = true;
+    let mut ring = vec![head];
+    for _ in 0..FUNNEL_STEPS {
+        let mut next = Vec::new();
+        for &(x, y) in &ring {
+            for (dx, dy) in crate::sim::creature::DIRS {
+                let (nx, ny) = (x + dx, y + dy);
+                if (nx - head.0).abs() > FUNNEL_STEPS || (ny - head.1).abs() > FUNNEL_STEPS || !world.in_bounds(nx, ny) || seen[at(nx, ny)] {
+                    continue;
+                }
+                seen[at(nx, ny)] = true;
+                let c = world.get(nx, ny);
+                let o = c.organism_id();
+                let open = c.is_empty() || (o != 0 && o != me);
+                if !open || !crate::sim::creature::DIRS.iter().any(|&(ax, ay)| ground(world, nx + ax, ny + ay)) {
+                    continue;
+                }
+                let step = if (x, y) == head { (nx, ny) } else { first[at(x, y)].unwrap_or((nx, ny)) };
+                first[at(nx, ny)] = Some(step);
+                if ny >= surface + INSIDE {
+                    return Some(step);
+                }
+                next.push((nx, ny));
+            }
+        }
+        ring = next;
+    }
+    None
+}
+
+/// **The steering assist, once a displayed frame**, on the arrow the launcher
+/// just handed the body (`Demo::demo_frame` sets `Steered::input` from the held
+/// keys, then calls the seat): the funnel, then the turn-round hold. See
+/// [`FLIP_HOLD`].
+fn assist(lab: &mut Lab) {
+    let on = assisting(lab);
+    let Some(e) = lab.demo.as_ref().and_then(|d| d.enemy.as_ref()) else { return };
+    let (Some(id), None) = (e.raider, e.ended) else { return };
+    let (last_flip, carrying) = (e.last_flip, carrying_larva(&lab.world, e));
+    let frame = lab.world.frame;
+    let mut funnel = false;
+    // `flip_hold=` and `funnel_walks=1` (the sprint off while funnelled) are the A/B knobs.
+    let arg = |k: &str| lab.demo.as_ref().and_then(|d| d.args.get(k)).cloned();
+    let flip_hold = arg("flip_hold").and_then(|v| v.parse().ok()).unwrap_or(FLIP_HOLD);
+    let walks = arg("funnel_walks").is_some_and(|v| v == "1");
+    let mut held_flip = false;
+    let dir = lab.world.steered.as_ref().filter(|s| s.id == id).and_then(|s| s.input).and_then(|i| i.dir);
+    let chain = lab.world.organism(id).map(|s| s.chain.clone()).filter(|c| !c.is_empty());
+    if let (true, Some(mut d), Some(chain)) = (on, dir, chain) {
+        let head = chain[0];
+        // The funnel: down held near a door, not yet in, not carrying.
+        let door = lab.world.nest_sites.iter().filter(|s| (s.x - head.0).abs() <= FUNNEL_COLS).min_by_key(|s| (s.x - head.0).abs()).map(|s| s.surface);
+        if let Some(surface) = door.filter(|&sf| d.1 > 0 && !carrying && head.1 < sf + INSIDE) {
+            if let Some(step) = way_in(&lab.world, id, head, surface) {
+                d = ((step.0 - head.0).signum() as i8, (step.1 - head.1).signum() as i8);
+                funnel = true;
+            }
+        }
+        // The turn-round hold: an arrow back over the tail soon after a turn stands the body.
+        let mut out = Some(d);
+        if let (Some(f), Some(&tail)) = (last_flip, chain.last()) {
+            let back = (tail.0 - head.0, tail.1 - head.1);
+            if chain.len() > 1 && frame < f + flip_hold && i32::from(d.0) * back.0 + i32::from(d.1) * back.1 > 0 {
+                out = None;
+                held_flip = true;
+            }
+        }
+        if let Some(input) = lab.world.steered.as_mut().and_then(|s| s.input.as_mut()) {
+            input.dir = out;
+        }
+    }
+    if let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) {
+        e.funnel = funnel;
+        e.funnel_walks = walks;
+        e.funnelled += u64::from(funnel);
+        e.held_flips += u64::from(held_flip);
+    }
+    // The bite hold: B pressed within the last BITE_HOLD frames bites (or grabs) again.
+    let biting = on && lab.demo.as_ref().and_then(|d| d.enemy.as_ref()).is_some_and(|e| frame < e.bite_until);
+    if biting {
+        bite_or_grab(lab);
     }
 }
 
@@ -866,7 +1039,8 @@ pub fn before_tick(lab: &mut Lab) {
         e.gut_room = room;
     }
     let Some(e) = lab.demo.as_mut().and_then(|d| d.enemy.as_mut()) else { return };
-    let run = e.raider.is_some() && e.ended.is_none() && e.sprint_held && !e.winded;
+    // `funnel_walks=1`: no sprint while the funnel steers (measured neutral, so off by default).
+    let run = e.raider.is_some() && e.ended.is_none() && e.sprint_held && !e.winded && !(e.funnel && e.funnel_walks);
     if run {
         e.spent = (e.spent + 1.0 / SPRINT_FRAMES).min(1.0);
         e.winded = e.spent >= 1.0;
@@ -931,6 +1105,7 @@ pub fn after_tick(lab: &mut Lab) {
         })
     });
     let head = w.organism(id).and_then(|s| s.chain.first().copied());
+    let tail = w.organism(id).and_then(|s| s.chain.last().copied());
     let (len, energy, gnawed, alive) = w.organism(id).map_or((0, 0.0, 0.0, false), |s| (s.chain.len(), s.energy, s.gnawed, true));
     let mut bites = Vec::new();
     if let Some(log) = w.encounter_log.as_mut() {
@@ -1031,6 +1206,13 @@ pub fn after_tick(lab: &mut Lab) {
         e.last_len = len;
         e.last_energy = energy;
         e.last_gnawed = gnawed;
+        // A turn-round: the head came out where the tail was.
+        if let (Some(h), Some(t)) = (head, tail) {
+            if len > 1 && e.ends.is_some_and(|(_, old_tail)| old_tail == h) {
+                e.last_flip = Some(frame);
+            }
+            e.ends = Some((h, t));
+        }
     }
     if let Some(a) = last_act.filter(|a| a.frame > e.last_act_read) {
         e.last_act_read = a.frame;
@@ -1720,6 +1902,7 @@ mod tests {
         step(&mut lab, 620);
         let id = raider_of(&lab);
         assert!(seat(&lab).stakes, "the stakes are not on by default");
+        assert!(assisting(&lab), "the steering assist is not on with the stakes");
         assert!(seat(&lab).in_grace(lab.world.frame), "no grace at the landing");
         lab.world.organism_mut(id).expect("alive").gnawed = 0.9;
         step(&mut lab, 1);
@@ -1788,6 +1971,7 @@ mod tests {
         step(&mut sand, 620);
         let id = raider_of(&sand);
         assert!(!seat(&sand).stakes);
+        assert!(!assisting(&sand), "stakes=0 kept the steering assist");
         sand.world.organism_mut(id).expect("alive").energy = 9_000.0;
         step(&mut sand, 1);
         assert!(sand.world.organism(id).expect("alive").energy > cap, "stakes=0 still caps the tank");
