@@ -104,7 +104,10 @@ def garden(s):
 
 def lab(job):
     box, sd = job
-    out = subprocess.run([LAB_BIN, f'founders={F}', f'scenario={box}', f'seed={sd}', f'after={AFTER}'], capture_output=True,
+    # LAB_ARGS=a=1;b=2 in ENV (teacher lane, 2026-10-31): extra labsurvive args, ';'-separated, e.g. the lay brake
+    # `LAB_ARGS=laycap=48:8` (Scott's card 10-31 02:44Z: paired lab exams with and without it). Unset: unchanged.
+    extra = [x for x in ENV.get('LAB_ARGS', '').split(';') if x]
+    out = subprocess.run([LAB_BIN, f'founders={F}', f'scenario={box}', f'seed={sd}', f'after={AFTER}'] + extra, capture_output=True,
                          text=True, env={**os.environ, **ENV, 'RAYON_NUM_THREADS': '1',
                                          # the game's boxes unless a job names another folder (the watchdog's twinrank,
                                          # 2026-10-28, runs the selection twins in scratch/inrun/labscen through here)

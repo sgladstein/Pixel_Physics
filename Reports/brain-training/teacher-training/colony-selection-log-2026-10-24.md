@@ -1760,3 +1760,17 @@ N_gate c10 in >= 6 of 8 worlds; (2) exam lived ahead of std_pool, sign test p < 
 against N_gate c10 is reported, not scored: what the floor costs in survival is the trade Scott decides.
 Smoke (H3, 4 colonies x 2 rounds at 20k, nestfloor=8): read 23-30 open cells and kept both donors each round; the
 fallback branch, on values 3/40/12/25 under a floor of 300, keeps the two largest (c2, c4); 350/40/320/25 keeps c1, c3.
+
+## 2026-10-31 (02:55Z): the lay brake in the lab -- Scott's card, measured in x14
+
+Scott (chambered-nests thread card, 10-31 02:44Z) picked "Test it in the lab (Teacher measures)": paired lab exams with
+and without the training bed's brake on laying (`labsurvive laycap=48:8`, PR #992), shipped on in the lab game if not
+measured harmful. exam.py gains `LAB_ARGS=` in a job's ENV (';'-separated extra labsurvive args).
+
+x14 will carry it: std_pool (today's lab ant) and N_gate c10 (the best survival candidate), each with and without
+`laycap=48:8`, 6 boxes x 8 seeds at 600k, on the same build as env9's arms.
+**Harm, named before launch:** for either brain, brake vs no brake with fewer colonies alive at the end (sign test
+p < 0.05, two-sided, no correction -- the stricter reading for a harm test), or any box where the unbraked colony is
+alive at the end in >= 6 of 8 seeds and the braked one in <= 2. Lived (mean headcount) is reported but not a harm test:
+a brake on laying lowers the headcount by design. Starved share and deliveries reported. Pictures: played_bed seeds 1-2,
+std_pool with and without, `nestrows=88` (the full 80-row bed).
