@@ -82,9 +82,9 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("L", "LAY AN EGG"),
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("P", "WILD EGG (AGAIN: FERAL)"),
-                ("Y", "NEXT 5 EGGS: CHOSEN LINE"),
-                ("K", "PICK A LEDGER ROW"),
-                ("J", "HER LINE: A DEED"),
+                ("Y", "KEEP LINE: NEXT 5 EGGS"),
+                ("K", "NEXT LEDGER ROW"),
+                ("J", "RANK LINES: DIGS/TRIPS"),
                 ("U", "LINE COLOURS ON/OFF"),
                 ("R", "NEW COLONY"),
             ],
@@ -92,7 +92,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         DemoSeat::Keeper => SeatCard {
             title: "KEEPER -- A HAND OVER THE BOX",
             goal: "FOOD FALLS AT FAR SPOTS AND ROTS WHILE YOU WATCH. PICK ANTS UP AND SET THEM ON IT BEFORE IT GOES GREY. CARRIES ARE FEW AND COME BACK SLOWLY, AND A LIFT TIRES THE ANT. AT THE END YOU ARE JUDGED AGAINST THE SAME BOX LEFT ALONE.",
-            score: "FOOD SAVED BEFORE IT ROTS, AND ANTS GAINED OVER THE BOX LEFT ALONE",
+            score: "THE VERDICT IS ANTS AT THE END AGAINST THE SAME BOX LEFT ALONE. FOOD SAVED IS YOUR RUNNING TALLY",
             lose: "FEWER THAN 10 ANTS. THE ROUND ENDS IN ABOUT 7 MINUTES",
             keys: &[
                 ("Y", "HAND: CARRY (1 CHARGE)"),
@@ -105,16 +105,17 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Scout => SeatCard {
             title: "SCOUT -- ONE WORKER WHO KNOWS THE WAY",
-            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST. TAP A SISTER AND LEAD HER THERE, AND WHEN SHE STOPS, WAIT FOR HER. EVERY TRIP HOME YOUR PUPILS MAKE SCORES, AND THEIR OWN PUPILS SCORE MORE.",
+            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST, SEALED: ONLY AN ANT WHO WAS LED THERE CAN CARRY FROM IT. TAP A SISTER AND LEAD HER, AND WHEN SHE STOPS, WAIT. YOUR PUPILS LEAD SISTERS OF THEIR OWN.",
             score: "FOOD YOUR PUPILS BRING HOME: 1 A TRIP, 2 FOR THEIR PUPILS, 3 AFTER THAT",
-            lose: "THE COLONY FALLS BELOW HALF ITS SIZE, OR YOU STARVE",
+            lose: "FEWER THAN 1 IN 5 OF THE COLONY ALIVE AT SPRING, OR YOU STARVE",
             keys: &[
                 ("ARROWS", "WALK"),
                 ("TAB", "CAMERA FOLLOWS YOU"),
                 ("Y", "TAP A SISTER TO FOLLOW"),
-                ("B", "AFTER Y: CALL HER"),
                 ("U", "PIN YOUR PUPIL"),
-                ("P", "SNIFF THE TRAIL"),
+                ("P", "SNIFF NEAREST SISTER"),
+                ("F", "SHARE FOOD"),
+                ("G", "DIG"),
                 ("E", "EAT"),
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("R", "NEW SEASON"),
@@ -155,6 +156,13 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("R", "NEXT RAIDER / NEW GAME"),
             ],
         },
+        DemoSeat::Satchel => SeatCard {
+            title: "SATCHEL -- A HAND OF CARDS THE COLONY SETS OFF",
+            goal: "CLICK TO PLAY THE NEXT CARD IN YOUR SATCHEL. WAKE ARMS THE CARD AFTER IT: THE FIRST ANIMAL TO DIE NEAR IT FIRES IT, AND EVERY DEATH THAT CAUSES FIRES IT AGAIN, DEEPER, UNTIL DEPTH 3 PUFFS. RAIDERS LAND ON A CLOCK, MORE EACH WAVE. BURN THEM, OR BURY THEM. A BIG CHAIN SCORES BIG, AND BURNS YOUR OWN.",
+            score: "EVERY CHAIN EFFECT SCORES ITS DEPTH (1 TO 3), EVERY RAIDER YOUR CARDS KILL SCORES 10",
+            lose: "THE COLONY FALLS UNDER 5 ANTS. YOUR OWN CHAINS COUNT",
+            keys: &[("CLICK", "PLAY THE NEXT CARD"), ("Y", "REPACK (WHEN PAUSED)"), ("WASD", "PAN")],
+        },
         DemoSeat::Mind => SeatCard {
             title: "COLONY MIND",
             goal: "NOT BUILT YET: THIS SEAT OPENS ON A PLAIN BOX.",
@@ -163,6 +171,18 @@ pub fn card(seat: DemoSeat) -> SeatCard {
             keys: &[],
         },
     }
+}
+
+/// The card as this run shows it: under `stakes=0` the seat is the old
+/// sandbox, and a card promising a score and a way to lose would be wrong
+/// (adversarial review, 2026-10-31).
+pub fn shown_card(demo: &super::Demo) -> SeatCard {
+    let mut c = card(demo.seat);
+    if demo.args.get("stakes").is_some_and(|v| v == "0") {
+        c.score = "NONE -- THIS IS THE SANDBOX (STAKES=0)";
+        c.lose = "NOTHING: NO WAY TO LOSE IN THE SANDBOX";
+    }
+    c
 }
 
 /// `text` broken at spaces into lines of at most `max` characters.
@@ -205,7 +225,7 @@ pub fn draw(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     if !demo.card {
         return;
     }
-    let c = card(demo.seat);
+    let c = shown_card(demo);
     let h = panel_height(&c);
     // Modal: it is meant to cover the seat's panel and the cell readout.
     crate::render::paint_owner::set(crate::render::paint_owner::MODAL);
@@ -309,6 +329,7 @@ mod tests {
         let mut lab = Lab::new(sc.bed.clone());
         lab.load_scenario(sc);
         lab.demo = Some(Demo::new(DemoSeat::Scout));
+        lab.demo.as_mut().unwrap().window = true;
         let up = |lab: &Lab| lab.demo.as_ref().is_some_and(|d| d.card);
         lab.time.pause();
         lab.open_seat_card(false);

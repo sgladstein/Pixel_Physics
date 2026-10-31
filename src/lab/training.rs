@@ -83,11 +83,22 @@ pub const STD_POOL: &str = include_str!("../../assets/minds/std_pool.txt");
 /// cut off otherwise; a side head of another shape (`PP_DIGHEAD=path`)
 /// replaces it.
 pub fn std_pool() -> Vec<Vec<f32>> {
-    let mut lines = STD_POOL.lines().filter(|l| !l.starts_with('#'));
-    let head = lines.next().expect("std_pool: header");
+    parse_pool(STD_POOL, "std_pool")
+}
+
+/// **Any pool file's members as genomes this build runs** -- [`std_pool`]'s
+/// reading of `text`, which is `scratch/inrun/mkpool.py`'s format: a `pool N
+/// genome L [layout=K]` header, then `member` lines, every member after the
+/// first written as its slots that differ from the first. Each is entered at
+/// its layout and fitted to this build's head exactly as `labsurvive
+/// founders=` enters the same members from their own files, so a pool loaded
+/// here plays as it was measured. `name` is what a panic calls it.
+pub fn parse_pool(text: &str, name: &str) -> Vec<Vec<f32>> {
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    let head = lines.next().unwrap_or_else(|| panic!("{name}: header"));
     let mut h = head.split_whitespace();
-    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "std_pool: {head:?}");
-    let len: usize = h.next().and_then(|n| n.parse().ok()).expect("std_pool: genome length");
+    assert_eq!((h.next(), h.nth(1)), (Some("pool"), Some("genome")), "{name}: {head:?}");
+    let len: usize = h.next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{name}: genome length"));
     let layout = pool_layout(head);
     let mut pool: Vec<Vec<f32>> = Vec::new();
     for l in lines {
@@ -95,9 +106,9 @@ pub fn std_pool() -> Vec<Vec<f32>> {
             pool.push(pool.first().cloned().unwrap_or_else(|| vec![0.0; len]));
             continue;
         }
-        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("std_pool: {l:?} is not `slot value`"));
-        let g = pool.last_mut().expect("std_pool: a slot before the first member");
-        g[i.parse::<usize>().expect("std_pool slot")] = w.parse().expect("std_pool value");
+        let (i, w) = l.split_once(' ').unwrap_or_else(|| panic!("{name}: {l:?} is not `slot value`"));
+        let g = pool.last_mut().unwrap_or_else(|| panic!("{name}: a slot before the first member"));
+        g[i.parse::<usize>().unwrap_or_else(|_| panic!("{name} slot"))] = w.parse().unwrap_or_else(|_| panic!("{name} value"));
     }
     for g in pool.iter_mut() {
         creature::mind::enter_gate(g, layout);
@@ -105,6 +116,80 @@ pub fn std_pool() -> Vec<Vec<f32>> {
         fit_head(g);
     }
     pool
+}
+
+/// **One ant the lab's player can pick** ([`LAB_ANTS`]).
+#[derive(Clone, Copy, Debug)]
+pub struct LabAnt {
+    /// What `lab -- ant=KEY` names it by.
+    pub key: &'static str,
+    /// What the clock line, the ANT row and the chronicle call it.
+    pub name: &'static str,
+    /// Its pool file, `None` for the hand-built brain.
+    pub pool: Option<&'static str>,
+    /// One line on what to expect of it, for the ANT row's hover.
+    pub note: &'static str,
+}
+
+/// **The ants the lab can be played with** (owner, 2026-10-31: *"an easy way in
+/// the lab to select which ant you want ... two or three that we're working on
+/// plus the hand-built ant, so we don't always have to decide"* -- so he can
+/// playtest each). Picked with `` ` `` in the box, the ANT row on MENU and the
+/// ANTS page, or `lab -- ant=KEY` at launch; the clock line names the active
+/// one. The first is the lab's default (B1, owner 2026-10-27: the standard line
+/// being trained).
+///
+/// **An explicit list, not every pool in `assets/minds/`**: the Teacher lane
+/// adds a pool here by PR when one passes its exam (Teacher lane, 2026-10-31).
+/// Each file is a byte-for-byte copy of the one the exam ran, and none needs a
+/// switch: every exam row came from `labsurvive founders=<that file>` with no
+/// other argument or environment, and [`parse_pool`] reads it the same way.
+/// The x13 played-bed control (seed 1, 600k frames past landing) is the check
+/// that a pool loads as measured: SURVIVOR 565 alive / lived 434.1, TUNNEL
+/// DIGGER 99 / 287.9, STANDARD 69 / 219.9.
+pub const LAB_ANTS: [LabAnt; 4] = [
+    LabAnt {
+        key: "std",
+        name: "STANDARD",
+        pool: Some(STD_POOL),
+        note: "THE STANDARD POOL: THE TRAINED LINE EVERY TRAINING BATCH STARTS FROM, AND THE LAB'S DEFAULT.",
+    },
+    LabAnt {
+        key: "survivor",
+        name: "SURVIVOR",
+        pool: Some(include_str!("../../assets/minds/env8_gatec10_pool.txt")),
+        note: "ENV8 N_GATE COLONY 10, EXAM X13'S BEST: ABOUT TWICE THE STANDARD COLONY, ALIVE AT THE END 24 TIMES TO ITS 1 -- BUT A SHALLOW CRUMB-PAN NEST.",
+    },
+    LabAnt {
+        key: "digger",
+        name: "TUNNEL DIGGER",
+        pool: Some(include_str!("../../assets/minds/handdig_h3_pool.txt")),
+        note: "H3, THE NEST LANE'S HAND-WRITTEN DIG HEAD ON THE STANDARD MIND: DIGS REAL NESTS AND LIVES ABOUT AS WELL AS THE STANDARD POOL.",
+    },
+    LabAnt {
+        key: "hand",
+        name: "HAND-BUILT",
+        pool: None,
+        note: "THE HAND-BUILT BRAIN, THE OLD SHIPPED GAME: NO TRAINED MIND AT ALL.",
+    },
+];
+
+/// [`LAB_ANTS`]' index for a `lab -- ant=` word; `oldant`/`old` are the
+/// hand-built brain's older spellings, `newant`/`new` the default's.
+pub fn lab_ant_index(key: &str) -> Option<usize> {
+    let key = match key {
+        "old" | "oldant" => "hand",
+        "new" | "newant" => "std",
+        k => k,
+    };
+    LAB_ANTS.iter().position(|a| a.key == key)
+}
+
+/// [`LAB_ANTS`]`[i]`'s pool as minds, as [`new_ant_minds`] builds the standard
+/// one; `None` for the hand-built brain.
+pub fn lab_ant_minds(i: usize) -> Option<Vec<Arc<MindGenome>>> {
+    let a = &LAB_ANTS[i];
+    a.pool.map(|text| parse_pool(text, a.key).iter().map(|g| colony_bed::mind(g)).collect())
 }
 
 /// **The layout a pool file's header names** (`pool 30 genome 3285 layout=4`, carried from its members' files by
@@ -1782,6 +1867,39 @@ mod tests {
         }
         let more = first_founders(&Settings { founders: 40, ..Settings::default() });
         assert!(more[30..].iter().zip(&pool).filter(|(f, g)| &f.genome != *g).count() >= 8, "founders past the pool are mutants");
+    }
+
+    /// **Every lab ant loads** (the picker, 2026-10-31): each pool parses to
+    /// as many members as its header says, all different, each a mind this
+    /// build runs with live links; the first is the standard pool exactly,
+    /// and the hand-built entry has none. Whether a pool *plays* as its exam
+    /// measured it is `labsurvive founders=ant:KEY` (the x13 control in
+    /// [`LAB_ANTS`]' doc), not this.
+    #[test]
+    fn every_lab_ant_loads() {
+        assert_eq!(LAB_ANTS[0].key, "std", "the lab's default is first");
+        assert!(LAB_ANTS.iter().filter(|a| a.pool.is_none()).count() == 1, "one hand-built entry");
+        for (i, a) in LAB_ANTS.iter().enumerate() {
+            assert_eq!(lab_ant_index(a.key), Some(i));
+            let Some(text) = a.pool else {
+                assert!(lab_ant_minds(i).is_none());
+                continue;
+            };
+            let head = text.lines().find(|l| !l.starts_with('#')).unwrap();
+            let n: usize = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+            let pool = parse_pool(text, a.key);
+            assert_eq!(pool.len(), n, "{}: members", a.key);
+            let distinct: HashSet<Vec<u32>> = pool.iter().map(|g| g.iter().map(|w| w.to_bits()).collect()).collect();
+            assert_eq!(distinct.len(), n, "{}: the members differ", a.key);
+            for g in &pool {
+                assert!(train::is_mind(g.len()), "{}: genome length {}", a.key, g.len());
+                assert!(colony_bed::mind(g).live > 100, "{}: a member with few live links", a.key);
+            }
+        }
+        assert_eq!(parse_pool(LAB_ANTS[0].pool.unwrap(), "std"), std_pool());
+        assert_eq!(lab_ant_index("oldant"), lab_ant_index("hand"));
+        assert_eq!(lab_ant_index("newant"), Some(0));
+        assert_eq!(lab_ant_index("nobody"), None);
     }
 
     /// **A round founds a colony of minds and judges it**: every founder in

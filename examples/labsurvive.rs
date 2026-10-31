@@ -12,7 +12,7 @@
 //! ```
 //!
 //! `founders=` takes inrun's list (`path[@tag]:count`; the count is ignored, each genome is one pool member), `std`
-//! for the shipped pool, or `old` for the hand-built brain. The colony is whatever the scenario lands; the run goes on
+//! for the shipped pool, `old` for the hand-built brain, or `ant:KEY` for one of the lab's picks (`ant:survivor`). The colony is whatever the scenario lands; the run goes on
 //! for `after=` frames past the first frame an ant stands in the box. Prints one `RESULT` line: ants alive at the
 //! end, `lived` (the mean headcount over the `after=` frames, graded where alive is all-or-nothing), the most there were, starved, births, and the frame the colony landed. `grant=K` fills every ant to K full
 //! tanks on the landing frame, the training bed's founding grant (`grants=3`), to tell a thin start from the brain.
@@ -82,6 +82,14 @@ fn main() {
     }
     match founders.as_str() {
         "old" => {}
+        // `ant:KEY` (ant picker, 2026-10-31): one of the lab's own picks (`training::LAB_ANTS`), loaded the way the lab
+        // binary's `ant=KEY` and its `` ` `` key load it -- the check that a pool copied into `assets/minds/` plays as
+        // its exam row measured it from the file.
+        k if k.starts_with("ant:") => {
+            let i = training::lab_ant_index(&k[4..]).unwrap_or_else(|| panic!("founders={k}: no such lab ant"));
+            println!("lab ant {} ({})", training::LAB_ANTS[i].key, training::LAB_ANTS[i].name);
+            lab.pick_ant(i);
+        }
         "std" => match arg::<usize>("member") {
             // `member=K` (queen seat, 2026-10-25): the shipped pool's member K alone, every ant thinking with it --
             // a common garden of the pool, which asks whether choosing *whose* mind an egg carries can change what a
