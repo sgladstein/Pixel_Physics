@@ -30,11 +30,11 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
 }
 
-const KNOWN: [&str; 23] = [
-    "wise", "rest_before", "reclaim", "found", "seed", "frames", "print", "wild_every", "wild_from", "keep_at", "gif", "crop", "up", "every", "stills", "still_at", "hold", "play", "stakes", "first", "summer", "winter", "grow",
+const KNOWN: [&str; 27] = [
+    "upkeep", "starve", "ratio", "cheat", "wise", "rest_before", "reclaim", "found", "seed", "frames", "print", "wild_every", "wild_from", "keep_at", "gif", "crop", "up", "every", "stills", "still_at", "hold", "play", "stakes", "first", "summer", "winter", "grow",
 ];
 /// The demo's own args, passed through to `start_demo_with` as the command line would.
-const DEMO_ARGS: [&str; 5] = ["stakes", "first", "summer", "winter", "grow"];
+const DEMO_ARGS: [&str; 7] = ["stakes", "first", "summer", "winter", "grow", "upkeep", "starve"];
 
 fn main() {
     for a in std::env::args().skip(1) {
@@ -63,7 +63,15 @@ fn main() {
     // lapses and the workers breed on what they forage; `reclaim=` frames
     // before her rest she goes back to eating and laying, which takes the
     // hold back, and through the winter she lays only to keep it.
+    //
+    // **`wise=3`: she reads the larder** (2026-10-31, the winter-upkeep fix).
+    // Through each summer she eats and lays as `wise=0` does while the panel's
+    // FOOD stands at least `ratio=` times what the next winter will eat with one
+    // more egg (`QueenDemo::winter_need`, the number printed beside FOOD); below
+    // it she goes home and rests, which leaves the heap to the workers, and
+    // through each winter she rests. The player the panel is built for.
     let wise: u8 = arg("wise").unwrap_or(1);
+    let ratio: f32 = arg("ratio").unwrap_or(1.0);
     let rest_before: u64 = arg("rest_before").unwrap_or(3_000);
     let reclaim: u64 = arg("reclaim").unwrap_or(3_000);
     let found: u32 = arg("found").unwrap_or(8);
@@ -109,6 +117,7 @@ fn main() {
     // Workers alive the frame winter 2 ends (the deciding measure), whether or
     // not she is.
     let mut w2_end: Option<u32> = None;
+    let mut season_seen = None;
     let (mut eggs_seen, mut last_egg) = (0u32, 0u64);
     for _ in 0..frames {
         lab.demo_frame();
@@ -130,7 +139,7 @@ fn main() {
         }
         if let (Some(q), Some(l)) = (qid, land) {
             if let Some(st) = lab.world.organism(q).filter(|_| steer::is_steered(&lab.world, q)) {
-                if play == 1 || tally.workers < 3 {
+                if play >= 1 || tally.workers < 3 {
                     let (hx, hy) = *st.chain.first().expect("a head");
                     let crop = st.crop.map_or(0.0, |c| c.worth());
                     let door_x = lab.world.nest_sites.first().map_or(256, |n| n.x);
@@ -147,7 +156,12 @@ fn main() {
                         let t = frame.saturating_sub(q.start);
                         let s = q.seasons.at(t);
                         let endless = s.end == u64::MAX;
-                        if s.winter || (!endless && t + rest_before >= s.end) {
+                        if wise == 3 {
+                            // The panel's number with one more mouth in it.
+                            let mouths = (q.tally.workers + q.tally.brood) as f32;
+                            let need = q.winter_need(frame).unwrap_or(0.0) * (mouths + 1.0) / mouths.max(1.0);
+                            (s.winter || (q.food as f32) < ratio * need, false)
+                        } else if s.winter || (!endless && t + rest_before >= s.end) {
                             (true, true)
                         } else if wise == 2 && tally.workers >= found && (endless || t + rest_before + reclaim < s.end) {
                             (true, false)
@@ -155,13 +169,22 @@ fn main() {
                             (false, false)
                         }
                     });
+                    // ADVERSARIAL SCRATCH: `play=2`, the camper -- once she has 3 workers she never leaves the
+                    // nest again: home, E whenever food is beside her, L held every frame.
+                    let camp = play == 2 && tally.workers >= 3;
+                    let rest = rest || camp;
                     if rest {
                         let provisions = lab.world.materials.id_of("provisions");
                         let beside = (-1..=1).any(|ox| (-1..=1).any(|oy| Some(lab.world.get(hx + ox, hy + oy).material) == provisions));
                         if hy > ground_y + 2 {
                             // Home: eat what the workers stored if she is low, and lay only to hold.
-                            input.eat = beside && st.energy < 1_500.0;
-                            input.lay = hold_lay && steer::hold_left(&lab.world).is_some_and(|l| l < 0.2);
+                            input.eat = beside && (camp || st.energy < 1_500.0);
+                            input.lay = (camp || hold_lay) && (camp || steer::hold_left(&lab.world).is_some_and(|l| l < 0.2));
+                            if camp && frame > last_egg + 800 {
+                                let side = if (frame / 400).is_multiple_of(2) { 1 } else { -1 };
+                                input.dir = Some((side, 0));
+                                input.dig = true;
+                            }
                             play_state = 3;
                             play_since = frame;
                         } else if (hx - door_x).abs() <= 1 {
@@ -342,12 +365,54 @@ fn main() {
                 at20 = Some(frame - l);
             }
         }
+        // ADVERSARIAL SCRATCH: `cheat=1` -- at the first frame of each winter the player arms the lab's FOOD brush
+        // (on the bar's placeable chip) and dabs it ten times on the ground by the nest door, as the window would.
+        if arg::<u8>("cheat") == Some(1) {
+            let due = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).filter(|q| q.ready && q.stakes).is_some_and(|q| {
+                q.seasons.list().iter().any(|s| s.winter && lab.world.frame == q.start + s.start + 10)
+            });
+            if due {
+                use pixel_physics::lab::ui::{Action, Tool};
+                lab.show_help = false;
+                let food = lab.world.materials.id_of("provisions");
+                let count = |lab: &Lab| { let mut n = 0; for y in 0..lab.spec.height { for x in 0..lab.spec.width { n += u32::from(Some(lab.world.get(x, y).material) == food); } } n };
+                let before = count(&lab);
+                lab.act(Action::Tool(Tool::Food));
+                let door = lab.world.nest_sites.first().map_or(256, |n| n.x);
+                let (wx, wy) = (door + 6, ground_y - 3);
+                let (x0, y0, x1, y1, _) = lab.renderer.world_rect_to_logical(wx, wy, wx, wy);
+                for k in 0..10 {
+                    let (lx, ly) = ((x0 + x1) / 2 + k % 3, (y0 + y1) / 2);
+                    lab.press(lx, ly);
+                    lab.release(lx, ly);
+                }
+                lab.act(Action::Tool(Tool::Look));
+                println!("CHEAT frame {}: FOOD brush x10 at world ({wx},{wy}) logical ({},{}): provisions {before} -> {}", lab.world.frame, (x0 + x1) / 2, (y0 + y1) / 2, count(&lab));
+            }
+        }
         lab.tick_for_harness();
         let frame = lab.world.frame;
         if let Some(q) = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).filter(|q| q.ready) {
             let w2 = q.seasons.list().into_iter().find(|s| s.winter && s.n == 2).map_or(u64::MAX, |s| q.start + s.end);
             if w2_end.is_none() && frame >= w2 + 50 {
                 w2_end = Some(q.tally.workers);
+            }
+            if q.season != season_seen {
+                season_seen = q.season;
+                if let Some(s) = q.season {
+                    let kind = if s.winter { "WINTER" } else { "SUMMER" };
+                    println!(
+                        "SEASON seed={seed} frame={frame} {kind}{} workers={} brood={} food={} need={:.0} eaten={} starved={} score={:?}",
+                        s.n,
+                        q.tally.workers,
+                        q.tally.brood,
+                        q.food,
+                        q.winter_need(frame).unwrap_or(0.0),
+                        q.eaten,
+                        q.starved,
+                        q.winters
+                    );
+                }
             }
         }
         if land.is_some() && (gif.is_some() && frame.is_multiple_of(every) || still_at.contains(&frame)) {
@@ -390,9 +455,20 @@ fn main() {
     gaps.sort_unstable();
     let pct = |p: f64| gaps.get(((gaps.len() as f64 - 1.0) * p).round() as usize).copied().map_or(-1, |v| v as i64);
     let lines = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).map_or(0, |q| q.lines.len() - 1);
+    if let (Some(f), Some(q)) = (lab.world.fathers.as_ref(), qid) {
+        let nominal: f32 = f.log.iter().filter(|e| e.layer == q && e.wild > 0).map(|e| queen::WILD_COST[usize::from(e.wild.clamp(1, 2)) - 1]).sum();
+        let paid = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).map_or(0.0, |q| q.wild_joules);
+        let n = f.log.iter().filter(|e| e.layer == q && e.wild > 0).count();
+        println!("WILDCOST seed={seed} play={play} wise={wise} wild_eggs_hers={n} nominal={nominal:.0} paid={paid:.0}");
+    }
     let (score, outcome) = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).map_or((String::new(), String::new()), |q| {
         (q.winters.iter().map(|w| w.to_string()).collect::<Vec<_>>().join("/"), format!("{:?}", q.outcome).replace(' ', ""))
     });
+    let join = |v: &[u32]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>().join("/");
+    let (wfood, wdeaths, eaten, starved, w2_score) = lab.demo.as_ref().and_then(|d| d.queen.as_ref()).map_or((String::new(), String::new(), 0, 0, -1), |q| {
+        (join(&q.winter_food), join(&q.winter_deaths), q.eaten, q.starved, q.winters.get(1).map_or(0, |&w| i64::from(w)))
+    });
+    println!("UPKEEP seed={seed} play={play} wise={wise} w2_score={w2_score} score={score} winter_food={wfood} winter_starved={wdeaths} eaten={eaten} starved={starved}");
     println!(
         "RESULT seed={seed} play={play} w2_end={} score={score} outcome={outcome} eggs={} wild_eggs={} kept_eggs={} worker_eggs={} lapses={} returns={} workers={} brood={} hungry_larvae={} wild_lines={lines} at10={} at20={} lay_gaps={} gap_p50={} gap_p90={} gap_max={} queen_died={}",
         w2_end.map_or(-1, |v| v as i64),
