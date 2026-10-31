@@ -8048,6 +8048,26 @@ her colony, `K` lets a pupil go, and the lag-hold gives up after 300 frames. Fre
 patient beats the camper 10-2 (p=0.039; before 1-11), teaching off and never-waits 11-1 each; the
 camper's harvest median fell 68 -> 0. Report: `seat-demos/fixes-2026-10-31/scout/REPORT.md`.
 
+**Keeper verdict, graded on food saved** (2026-10-31). The ants-at-the-end verdict was a coin toss
+on the trained ant (good beat idle 7 of 12; a no-hand box graded MASTER or HEAVY 25 of 48 times).
+The round is now graded on windfall cells taken by ant bites (erased or slumped cells no longer
+count) against a band of three idle twins (the exact twin plus two whose `world.seed` was knocked
+for 60 frames, run in turn on the twin thread, ~26 s of one core per round). Within the band +-25
+cells is BARELY NOTICED, over it GOOD, 100+ over MASTER; ants are shown, not graded. Fresh seeds
+25-36: good beats careless 7-0-5 (p=0.016), careless is never MASTER (was 4 of 12); against a
+random-column hand only 4-0-8 (p=0.125) -- on today's trained ant any far carry finds food. The
+hand rests once the round is over. Report: `seat-demos/fixes-2026-10-31/keeper/REPORT.md`.
+
+**Guest, begging paced** (2026-10-31). Alternating R and Y as fast as the keys allow out-egged the
+careful player (a rub refunded more colony wariness than a beg charged). Now one beg goes through
+every 1.5 s across the whole colony, a press inside that is charged as pestering (`TOO SOON`), a
+rub calms the colony only after 2.5 s without a beg, and a wary ant gives a smaller gift
+(`creature::guest::WaryKnobs`, all off unless the seat sets wariness; `wary_rules=legacy` is the
+10-30 seat). Fresh seeds 25-36: mash fell from 371 eggs to 34; careful beats it 11-1 on score
+(p=0.006) and spam 10-2 (p=0.039); a "beg whenever Y READY" player still ties careful 6-6. Laying
+uses a fixed dashed box round the door; K no longer re-arms wariness under `wary=0`; a gift
+regrows a rove nipped to its head. Report: `seat-demos/fixes-2026-10-31/guest/REPORT.md`.
+
 ## Soil nutrient status — ground is worth something water is not
 
 **Shipped ON 2026-09-06.** `PIXEL_PHYSICS_NUTRIENT=0` is the ablation.
