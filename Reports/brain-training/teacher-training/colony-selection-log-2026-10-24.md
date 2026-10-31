@@ -1883,3 +1883,17 @@ Shipped to the lab's ant picker as **NESTER** (`training::LAB_ANTS`, `assets/min
 the exam's file). Not the default: that is Scott's card (B1, and his 06:43Z "wait for the nest-floor batch"). Load check: `labsurvive
 founders=ant:nester scenario=played_bed` seeds 1-2 at 600k reproduce x15's fstd rows exactly (593 / 502.1, 255 / 264.5),
 and `ant:std` its std rows (156 / 329.1, 291 / 195.6). Pictures: the Teacher page, `#x15`.
+
+## 2026-10-31 (21:00Z): env10 -- from NESTER (the ratchet), does a higher nest floor buy a bigger nest?
+
+NESTER's garden nest (343.5) is still under std_pool's (571). env10 asks whether raising the floor closes that, with a
+paired control so "more rounds from NESTER" is not mistaken for "a higher floor": two arms from
+`assets/minds/env9_stdc9_pool.txt`, env9's F_std line unchanged except the floor -- **E_n450** (`nestfloor=450`) and
+**E_n300** (`nestfloor=300`, env9's) -- 32 colonies x 16 rounds. Started from NESTER whatever Scott's default card says:
+every batch starts from the latest best pool (ratchet, 10-24).
+
+**Deciding measure, named before launch:** each arm's r15 rank-0 colony, garden worlds 61-68 at 200k and exam x16
+(6 boxes x 8 seeds, 600k) with NESTER and std_pool rerun on the same build. E_n450's pick wins if (1) its garden
+`nest_open` is above NESTER's in >= 6 of 8 worlds **and** above E_n300's pick in >= 6 of 8 (the floor, not the rounds),
+and (2) exam lived is not behind NESTER (NESTER not ahead at sign-test p < 0.05). Reported: both picks vs std_pool
+(lived; garden nest), tunnels.
