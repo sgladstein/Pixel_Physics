@@ -87,11 +87,15 @@
 //!
 //! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
 //!
-//! Every ant in it decides by the trained pool (MENU's ANT BRAIN row: NEW)
-//! from the first frame, since 2026-10-24. Two words on the command line
-//! open it otherwise: `cargo run --release --bin lab -- oldant` starts on the
-//! hand-built brain, and `-- training` opens the COLONY TRAINING page with
-//! round 0 founded on the training bed (`lab::training`).
+//! Every ant in it decides by the trained standard pool from the first frame,
+//! since 2026-10-24. **`` ` `` picks another ant** (owner, 2026-10-31: to
+//! playtest each) -- the trained candidates and the hand-built brain, in
+//! `lab::training::LAB_ANTS`; the clock line names the one in play, and the
+//! ANT row on MENU and the ANTS page does the same. On the command line,
+//! `cargo run --release --bin lab -- ant=survivor` opens on one (`ant=hand`,
+//! or the older `oldant`, on the hand-built brain), and `-- training` opens
+//! the COLONY TRAINING page with round 0 founded on the training bed
+//! (`lab::training`).
 
 #[path = "lab/layer.rs"]
 mod layer;
@@ -295,17 +299,29 @@ impl Handler {
             }
         }
         // **The trained ant by default** (owner, 2026-10-24): every ant
-        // decides by the trained pool from the first frame (the ANT BRAIN
-        // row); `-- oldant` opens on the hand-built brain. `-- newant` is
-        // still accepted and changes nothing. `-- training`: open on the
-        // COLONY TRAINING page with round 0 founded, paused. The switch is
-        // set here, not in `Lab::new`, so the harnesses that build a `Lab`
-        // keep measuring what they measured.
+        // decides by the standard pool from the first frame. **`ant=KEY`
+        // picks another** (owner, 2026-10-31; `lab::training::LAB_ANTS`, or
+        // `PIXEL_PHYSICS_LAB_ANT`); `-- oldant` is still `ant=hand` and
+        // `-- newant` still changes nothing. `-- training`: open on the
+        // COLONY TRAINING page with round 0 founded, paused. The pick is made
+        // here, not in `Lab::new`, so the harnesses that build a `Lab` keep
+        // measuring what they measured.
         let args: Vec<String> = std::env::args().skip(1).collect();
-        if !args.iter().any(|a| a == "oldant") {
-            lab.set_new_ant(true);
-            lab.ui.say("ANTS THINK WITH THE TRAINED BRAIN -- MENU > ANT BRAIN SWITCHES TO THE HAND-BUILT ONE".to_string());
-        }
+        let ant_word = std::env::var("PIXEL_PHYSICS_LAB_ANT")
+            .ok()
+            .or_else(|| args.iter().find_map(|a| a.strip_prefix("ant=").map(str::to_string)))
+            .or_else(|| args.iter().any(|a| a == "oldant").then(|| "hand".to_string()));
+        let ant = match ant_word.as_deref().map(|w| (w, pixel_physics::lab::training::lab_ant_index(w))) {
+            Some((_, Some(i))) => i,
+            Some((w, None)) => {
+                let keys: Vec<_> = pixel_physics::lab::training::LAB_ANTS.iter().map(|a| a.key).collect();
+                eprintln!("ant={w}: no such ant ({}) -- opening on the standard pool", keys.join(", "));
+                0
+            }
+            None => 0,
+        };
+        lab.pick_ant(ant);
+        lab.ui.say(format!("ANT: {} -- ` SWITCHES TO THE NEXT ANT, SHIFT+` BACK", lab.ant_name()));
         // **`demo=<seat>`: one of the six seat demos** (`lab::demo`, the
         // common launcher, 2026-10-25). After the brain switch, so the
         // demo's scenario is built and its ants given their minds the same
@@ -714,6 +730,12 @@ impl Handler {
                 }
             }
             KeyCode::Slash => self.lab.act(Action::Help),
+            // **`` ` `` -- the ant picker** (owner, 2026-10-31: switch ants
+            // while playing). One of the four keys still unbound in this
+            // match (`` ` ``, `\`, `F11`, `F12`), and the one a hand on the
+            // number row reaches without looking; SHIFT steps back. The seat
+            // demos' key layer passes it through.
+            KeyCode::Backquote => self.lab.act(Action::CycleAnt(if self.shift { -1 } else { 1 })),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
             // control does rather than two that can drift.
