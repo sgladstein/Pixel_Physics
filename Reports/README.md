@@ -42,6 +42,15 @@ by somebody about to try it on creatures.
 
 ## Method and architecture — read these first  ·  `engine`
 
+- [sound-design-2026-10-31.md](sound-design-2026-10-31.md) — **design,
+  nothing built; awaiting the owner's go-ahead.** Sound for the game: four jobs
+  (verbs, the colony's state, the box's ambience, stakes), three tiers so
+  thousands of ants and cells never get a voice each (grains, density-driven
+  textures, beds), modes keyed on delivered ticks per frame, a read-only
+  listener beside `Lab::paint`, `cpal` gated to macOS/Windows so CI, cloud
+  sessions and training never compile it, procedural first, and a staged plan.
+  Revised after an independent code-checking review (§15). Answers the
+  "no audio" notes in `design-load-telegraph.md` and four other reports.
 - [why-no-emergence-2026-10-14.md](why-no-emergence-2026-10-14.md) —
   **diagnosis, 2026-10-14; nothing built; §5 measured (16 runs), §6 checked
   against the literature. Copied onto main 2026-10-27 from PR #701; it predates the
