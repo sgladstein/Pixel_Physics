@@ -11548,19 +11548,26 @@ Report: `Reports/brain-training/research/brain-design-review-2026-10-26.md`.
 
 ## Fungus garden status — the colony farms what it carries home, and the player can prune
 
-**Shipped on in the lab, 2026-10-30, off in training** (the Teacher lane's
-call: one physics everywhere once it holds, but moving it into the training
-step moves every training result, so that is its own step). The plants-and-ants
+**Shipped 2026-10-30.** It runs in `frame::step`, so in every game (lab,
+outdoor, held) and every harness that steps it -- lab batches and exams, and
+the plant trainer's arena (`train_plant`, where a bed with no colony never
+fires it). Only the ant trainer (`train::challenges`), which steps its own
+phases, does not run it. The first write-up said "on in the lab, off in
+training"; the review of 2026-10-31 found that true of the ant trainer alone. The plants-and-ants
 lane, opened on Scott's repo review: plants and ants barely touched, and there
 was no farming of any kind.
 
 **What it does.** `src/sim/garden.rs`, one stripe of rows per frame from
-`frame::step` (every row once per 64 frames, ~2,600 cell reads a frame on the
-512x320 lab). A loose cell of `garden_fodder` (leaf, dead leaf, litter, grass
+`frame::step` (every row once per 64 frames), inside the box round every cell
+an ant has dug (`garden_reach`, widened 4 cells). The first build scanned the
+whole world's stripe: 0.013 ms a frame on the lab, 0.42 ms on the held world
+and **5.5 ms on the 8192x2560 outdoor world** (the review's timing); a world
+with no colony now pays one empty-set check. A loose cell of `garden_fodder` (leaf, dead leaf, litter, grass
 blade, flower, crumbs) in or beside the dug nest, with ground over it
 (`garden::roofed`), turns to `fungus` (2% a visit, 25% if fungus touches it),
-which ripens 4 J a visit from 120 J to 480 J while roofed and wilts to litter
-at 5% a visit under open sky. Counters: `World::garden_started`,
+which ripens 4 J a visit up to 480 J while roofed and wilts to crumbs of the
+same worth at 5% a visit under open sky. A new fungus cell keeps its
+fodder's worth, never under 120 J. Counters: `World::garden_started`,
 `garden_spread`, `garden_ripened_j`, `garden_wilted`. Switch:
 `PIXEL_PHYSICS_GARDEN=off`.
 
@@ -11591,6 +11598,33 @@ survive on 8 of 12 beds in both arms, every role's alive count is unchanged
 but the scrambler's (8 vs 9), and herb (median 34 vs 18), grass and shrub
 differences are not significant. The garden-off arm reproduces the old main
 bed for bed, so the control is the shipped game.
+
+**The review of 2026-10-31** (two independent adversarial reviewers, one
+on the code, one on the claims and the play) found, and this fixed:
+wilting wrote 480 J litter whatever the fungus held, so uncovering a fresh
+garden multiplied it by four and re-roofing it skipped ripening; ripening
+lifted any part-eaten scrap to 120 J unbooked; a 1,440 J flower was capped to
+480 J going in; PRUNE could take a grass crown (122 of 164 grass plants
+survived a full prune against 139 unpruned); young fungus was a grey-green
+lost in the soil; and four guards were blind -- deleting the organism check,
+the crown check, the prune's log line or the wilt's worth each left every
+test green. Each now has a test that fails with its fault put back. Kept on
+purpose: ants walk through fungus as through crumbs (`carries_worth`), so a
+garden never walls a gallery. Not fixed, and the owner's call after a
+playtest: the garden makes food (a 40 J leaf ripens to 480 J).
+
+**Re-measured after the fixes** (same harness, 12 paired seeds to 100k, main
+a6e73793 + the fix branch, deciding measure ants at 100k): higher with the
+garden on **5 of 12** beds (6 lower), median 85 vs 96, sign p 1.0; at 60k, in
+the crash, higher on 10 of 12, median 73 vs 43, p 0.039, which does not
+survive a correction for the three readings (needs p < 0.017); plants at 100k
+6 of 12, median 97 vs 90. So the garden softens the crash and does not move
+where the colony ends up by 100k. The claims reviewer's own paired seed (3,
+60k, before the fixes) went the other way, 43 ants against 94. The 8-of-12
+and 450k results above were on older builds: a spread, not a law. Standing
+fungus on seeds 1-2 at 60k-100k: 89-363 cells, now plainly mint
+(`fungus.ron`'s palette; the young shade was a soil-coloured grey-green).
+Page: https://claude.ai/artifact/UTqZ2SodRH9wgdUEHrD6jy
 
 **PRUNE** (`lab::ui::Tool::Prune`, on the ADD cell; `plant::prune_cell`) clips
 living foliage under the brush to litter and leaves stems, wood and roots, so

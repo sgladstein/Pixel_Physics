@@ -14947,15 +14947,28 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
 /// eats or carries home, where it feeds the fungus garden (`garden.rs`).
 ///
 /// **Foliage only**: a living plant cell whose material is `garden_fodder`
-/// (leaf, flower, grass blade). Never stem, wood or root, so a prune never
-/// severs a crown; never a fruit or seed, which belong to the seed's own
-/// rules. Returns whether it clipped. Booked as a cull: the player did it.
+/// (leaf, flower, grass blade). Never stem, wood or root, and never the
+/// foliage cell standing on the ground or on its own root (a grass crown),
+/// so a prune never severs a crown; never a fruit or seed, which belong to
+/// the seed's own rules. Returns whether it clipped. Booked as a cull: the
+/// player did it. It does cost the plant: clipped flowers set no seed.
 pub fn prune_cell(world: &mut World, x: i32, y: i32) -> bool {
     let c = world.get(x, y);
     if c.organism_id() == 0 || world.materials.kind(c.material) != MaterialKind::Plant || !world.materials.get(c.material).garden_fodder {
         return false;
     }
     if world.organism(c.organism_id()).is_none_or(|s| s.dormant_seed) {
+        return false;
+    }
+    // **Never the crown.** A grass shoot is `grassblade` from the ground up
+    // (`grass.ron`), so "foliage only" let the brush take the cell the whole
+    // tussock regrows from: a full prune left 122 of 164 grass plants alive
+    // against 139 unpruned (review, 2026-10-31). The cell foliage stands on
+    // the ground with -- unowned ground, or this plant's own root -- stays.
+    let below = world.get(x, y + 1);
+    let ground = below.organism_id() == 0 && matches!(world.materials.kind(below.material), MaterialKind::Solid | MaterialKind::Powder);
+    let own_root = below.organism_id() == c.organism_id() && world.materials.get(below.material).name.contains("root");
+    if ground || own_root {
         return false;
     }
     shed_to_litter(world, x, y, organism::DeathCause::Culled);

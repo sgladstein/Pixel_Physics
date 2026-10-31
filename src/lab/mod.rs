@@ -8280,7 +8280,41 @@ mod tests {
         assert!(lab.world.pruned_cells > 0, "a click on a leaf clipped nothing");
         assert_eq!(before.0 - after.0, lab.world.pruned_cells as usize, "foliage lost should be exactly what was pruned: {before:?} -> {after:?}");
         assert!(after.1 > before.1, "the clippings did not come down as litter: {before:?} -> {after:?}");
+        // The player's action is in the data (owner, 2026-10-24): the review
+        // of 2026-10-31 deleted this line's arm and the test stayed green.
+        assert!(
+            lab.world.run_log.recent().any(|e| e.kind == crate::sim::world::LogKind::PlayerAction && e.detail.starts_with("PRUNED AT")),
+            "the prune is not in the player-actions log"
+        );
+        // Alive after the world has had time to notice, not at the click.
+        run(&mut lab, 600);
         assert!(lab.world.organism(owner).is_some(), "pruning killed the plant");
+    }
+
+    /// **A prune never takes a crown**: foliage standing on the ground or on
+    /// its own root -- a grass blade's base, a shrub's lowest leaf -- is what
+    /// the plant regrows from (review, 2026-10-31: a full prune cost 17 of
+    /// 164 grass plants before this guard). The default box has no grass, so
+    /// this checks every kind of foliage the brush can take.
+    #[test]
+    fn the_prune_spares_the_cell_a_plant_stands_on() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        run(&mut lab, 3_000);
+        let mut crowns = 0;
+        for x in 0..lab.spec.width {
+            for y in 0..lab.spec.height - 1 {
+                let c = lab.world.get(x, y);
+                let below = lab.world.get(x, y + 1);
+                let on_ground = below.organism_id() == 0 && matches!(lab.world.materials.kind(below.material), crate::sim::material::MaterialKind::Solid | crate::sim::material::MaterialKind::Powder);
+                let on_root = below.organism_id() == c.organism_id() && lab.world.materials.get(below.material).name.contains("root");
+                if c.organism_id() != 0 && lab.world.materials.get(c.material).garden_fodder && (on_ground || on_root) {
+                    crowns += 1;
+                    assert!(!crate::sim::plant::prune_cell(&mut lab.world, x, y), "pruned the crown at {x},{y}");
+                }
+            }
+        }
+        assert!(crowns > 0, "test setup: no foliage standing on the ground");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.

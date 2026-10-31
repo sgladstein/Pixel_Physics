@@ -7,13 +7,20 @@
 // ripens while it stays dark: a room the colony stocks with leaves becomes a
 // pale garden it eats from in a famine.
 //
-// **Its worth is in `aux` (`carries_worth`)**, as crumbs' is, because the
+// **Its worth is in `aux` (`carries_worth`)**, as crumbs' is, and so are
+// crumbs' two other rules: an ant walks through it rather than being walled
+// by it (`creature::is_partable`), and a part-eaten unit is set back down
+// holding its remainder. Deliberate since 2026-10-31: a garden must not
+// block the gallery it lies in, and it is food, priced the way crumbs are.
+// The cost, unmeasured: a passing ant's `PackParted::Carry` can shift a
+// fungus cell a few cells along a tunnel, as it does crumbs.
+// because the
 // garden ripens it cell by cell: young fungus is worth what the fodder was,
 // and every garden visit in the dark adds to it up to `garden::RIPE_WORTH`.
 // `food_energy` below is only the fallback for a bare cell.
 //
 // **The shade is the ripeness** (`garden::shade_for`): the palette runs from
-// a dull grey-green, just started, to a bright pale mint, ripe, so a player
+// a mid mint, just started, to a bright pale mint, ripe, so a player
 // sees a garden coming on without an overlay. **Mint, not the cream of a real
 // fungus garden**, found from the first picture: cream is the colour of the
 // brood pile (`brood.ron`) that sits in the same rooms, and the two read as
@@ -28,11 +35,14 @@
     kind: Powder,
     density: 0.6,
     friction_angle: 40.0,
+    // Young fungus was (92, 118, 108) until 2026-10-31: a dull grey-green
+    // the review could not tell from soil and dead grass at play zoom. Every
+    // shade is now plainly mint, and ripe is still the brightest.
     colors: [
-        (92, 118, 108),
-        (112, 156, 140),
-        (140, 196, 176),
-        (178, 232, 210),
+        (120, 184, 160),
+        (138, 204, 178),
+        (158, 222, 196),
+        (186, 244, 220),
     ],
     flammability: 0.2,
     burn_temperature: 480.0,

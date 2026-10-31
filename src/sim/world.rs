@@ -6255,10 +6255,14 @@ pub struct World {
     /// Fodder that turned because fungus was touching it: the garden
     /// spreading through a pile.
     pub garden_spread: u64,
-    /// Joules the garden's ripening has added, over the life of the world.
+    /// Joules the garden has added (the lift of fodder to `START_WORTH` and
+    /// every ripening step), over the life of the world.
     pub garden_ripened_j: u64,
-    /// Fungus cells that wilted to litter in the light.
+    /// Fungus cells that wilted to crumbs in the open.
     pub garden_wilted: u64,
+    /// Where the garden scans: the box round `dug_cells`, refreshed by
+    /// `garden::step` once a `GARDEN_PERIOD` (`garden::garden_reach`).
+    pub garden_reach: Option<crate::sim::chunk::Rect>,
     /// Foliage cells the player clipped with the lab's PRUNE brush
     /// (`plant::prune_cell`).
     pub pruned_cells: u64,
@@ -7760,6 +7764,7 @@ impl World {
             garden_spread: 0,
             garden_ripened_j: 0,
             garden_wilted: 0,
+            garden_reach: None,
             pruned_cells: 0,
             plant_size_cadence: false,
             annual: super::plant::annual_from_env(),
