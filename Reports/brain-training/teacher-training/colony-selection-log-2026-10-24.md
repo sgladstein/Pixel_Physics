@@ -1745,3 +1745,18 @@ Lived median per plant box (std / H3 / L_h3 / N_ctl / N_gate): played_bed 210 / 
 lived and on the garden nest (4 / 4): the gain is more rounds, not the gate. N_gate's nest (median 40 open cells) is
 still a fifteenth of the founders' (547-571). Best lab-ant candidate so far on survival: N_gate c10 (vs std_pool lived
 p 0.014, passes Bonferroni 0.025 over 2 arms; alive 24 / 1); the nest trade-off is unchanged and is Scott's call.
+
+## 2026-10-31 (02:05Z): env9 -- restart from the diggers, survival score, an absolute floor on the open nest
+
+env7's selection (lab case alone) took the founders' training-bed open nest from ~490 to under 100 in 15 rounds, and
+env8's median gate could not pull it back. env9 restarts from the two founders that dig (H3, std_pool) with env7's job
+line plus `nestfloor=300` (new): after the lab ranking picks the better half, a donor needs a training-bed `nest_open`
+of at least 300 (the founders' round-0 median 488-490, p25 379-389); if fewer than 2 clear it, the 2 largest nests
+breed. Arms F_h3 (H3), F_std (std_pool), 32 colonies x 16 rounds, on main after #990/#993/#994.
+
+**Deciding measure, named before launch:** exam x14, each arm's r15 rank-0 colony, with N_gate c10 and std_pool rerun
+on the same build. A winner needs both: (1) garden `nest_open` (Nest lane, worlds 61-68, 200k) median >= 250 and above
+N_gate c10 in >= 6 of 8 worlds; (2) exam lived ahead of std_pool, sign test p < 0.025 (Bonferroni over 2 arms). Lived
+against N_gate c10 is reported, not scored: what the floor costs in survival is the trade Scott decides.
+Smoke (H3, 4 colonies x 2 rounds at 20k, nestfloor=8): read 23-30 open cells and kept both donors each round; the
+fallback branch, on values 3/40/12/25 under a floor of 300, keeps the two largest (c2, c4); 350/40/320/25 keeps c1, c3.

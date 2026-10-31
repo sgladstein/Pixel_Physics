@@ -350,6 +350,14 @@ EXTRA = [x for x in EXTRA if not x.startswith('scalegate=')]
 # for storing less, and the nest lane's size is the shape measure that repeats world to world (Spearman 0.25-0.29).
 NESTGATE = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('nestgate=')), None)
 EXTRA = [x for x in EXTRA if not x.startswith('nestgate=')]
+# nestfloor=N (teacher lane, 2026-10-31, after exam x13): an ABSOLUTE floor on the same training-bed `nest_open`, applied
+# after nestgate=; when fewer than 2 donors clear it, the 2 with the largest open nest are kept, so the floor still
+# pulls toward digging rather than switching itself off. **Why**: env8's nestgate=50 fired every round but did not
+# steer (garden nest_open N_gate 40 vs ungated 30, 4 / 4 worlds; founders 547-571): a median over donors that all dig a
+# fifteenth of the founders keeps a fifteenth. The founders' own bed nest_open at round 0 (env7, 32 colonies each):
+# H3 median 488 (p25 389), std_pool 490 (p25 379), so N=300 passes most founders and fails what env7/env8 bred.
+NESTFLOOR = next((float(x.split('=', 1)[1]) for x in EXTRA if x.startswith('nestfloor=')), None)
+EXTRA = [x for x in EXTRA if not x.startswith('nestfloor=')]
 assert LABGATE is None or LAB, 'labgate= needs +lab'
 # +scale (owner, 2026-10-24 16:34Z: "select for nests that scale with food, brood, ants"): the nest the colony has at the
 # end against the nest it needs, NEED = A x living ants + B x brood (eggs, larvae, pupae) + F x food cells it holds
@@ -978,6 +986,13 @@ for r in range(R0, R):
                 bar = srt[min(len(srt) - 1, int(len(srt) * NESTGATE / 100))]
                 kept = [c for c in donors if nv[c] >= bar] or donors
                 print(f'round {r}: nestgate ' + ' '.join(f'c{c}={nv[c]}' for c in donors) + f' -> {kept}', flush=True)
+                donors = kept
+            if NESTFLOOR is not None and len(donors) > 1:
+                nv = {c: nestcount.count(dirs[c], F).get('nest_open', 0) if os.path.exists(f'{dirs[c]}/nestmap.txt') else 0 for c in donors}
+                kept = [c for c in donors if nv[c] >= NESTFLOOR]
+                if len(kept) < 2:
+                    kept = sorted(donors, key=lambda c: (-nv[c], c))[:2]
+                print(f'round {r}: nestfloor {NESTFLOOR:g} ' + ' '.join(f'c{c}={nv[c]}' for c in donors) + f' -> {kept}', flush=True)
                 donors = kept
             if DONOR_LONG is not None and len(donors) > 1:
                 with ThreadPoolExecutor(P) as ex:
