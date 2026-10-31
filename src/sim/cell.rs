@@ -243,7 +243,7 @@ pub struct Cell {
     ///   (M18/S3). A corpse is worth what the animal was made of, so it is
     ///   the one food whose value cannot live on the material. The same
     ///   for `carries_worth` (today `crumbs`, what is left of a part-eaten
-    ///   piece of plant food), which is a worth and not meat.
+    ///   piece of plant food, and the garden's `fungus`), which is a worth and not meat.
     /// - `Gas`, and any `Powder` that is neither of the two above → unused,
     ///   always 0.
     /// - `Liquid` → compressible-volume fill amount, on the

@@ -30418,7 +30418,9 @@ fn is_partable(world: &World, cell: Cell) -> bool {
 ///   to walk through crumbs?"* The lab's founding cut held 8-14 crumbs of its
 ///   26 cells at every census from frame 10,000 to 65,000 on played-bed
 ///   seed 3 (main `98c5f60c`, `nestdoor dump=1`), and the home never left
-///   founding size. Keyed on `carries_worth`, which only `crumbs` sets.
+///   founding size. Keyed on `carries_worth`, which `crumbs` and, since
+///   2026-10-30, the garden's `fungus` set: a garden must not wall off the
+///   gallery it grows in.
 /// - **Brood.** *"I have a situation right now where it just blocked the
 ///   entrance and now ants can't go in the nest at all cuz there's a tall
 ///   column of brood"*, and then *"we also want ants to be able to just walk

@@ -629,8 +629,10 @@ pub struct MaterialDef {
     /// is the first half alone: `creature::food_value` reads the stamp, a
     /// landing particle keeps it, and nothing counts the cell as meat.
     ///
-    /// Today only `crumbs`, what a part-eaten piece of plant food is put down
-    /// as (open bug §Z33): a fruit or a leaf cannot keep a worth in `aux`,
+    /// Today `crumbs`, what a part-eaten piece of plant food is put down as
+    /// (open bug §Z33), and `fungus`, the garden's crop (`garden.rs`, since
+    /// 2026-10-30), which also takes crumbs' walk-through and merge-at-mean
+    /// rules that key on this flag: a fruit or a leaf cannot keep a worth in `aux`,
     /// because a loose plant cell is structural and the structural pass
     /// writes its support distance there.
     #[serde(default)]
