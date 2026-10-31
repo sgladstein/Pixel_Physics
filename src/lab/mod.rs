@@ -181,6 +181,14 @@ pub struct Lab {
     /// **The seat demo running, if any** (`demo=<seat>`, [`demo`]). `None`
     /// in the lab: every demo hook is then one branch not taken.
     pub demo: Option<demo::Demo>,
+    /// **What the plain lab was before the first demo started from it**
+    /// ([`demo::menu::Home`]): the DEMOS page's PLAIN LAB row puts it back.
+    /// `None` outside a demo.
+    pub demo_home: Option<demo::menu::Home>,
+    /// **A person is at the keys** (`bin/lab.rs` sets it; a harness never
+    /// does). A demo started then gets the seat card and the landing pause
+    /// (`Lab::launch_demo`).
+    pub windowed: bool,
     /// The key list. On by default on a fresh lab and dismissed by any key,
     /// because there is no other way to discover a control here — the sandbox
     /// grew its bindings a key at a time in front of somebody who already knew
@@ -627,6 +635,8 @@ impl Lab {
             spec,
             scenario: None,
             demo: None,
+            demo_home: None,
+            windowed: false,
             // Down only when something explicitly asks for it. The one caller
             // is a headless capture wanting to photograph what is *under* the
             // key list, which is otherwise unreachable without a keypress and
@@ -2577,6 +2587,7 @@ impl Lab {
         let stats_size = (self.stats.showing() && !self.show_help).then(|| self.stats.size(&self.world));
         self.ui.set_stats_size(stats_size);
         self.ui.hover_off = self.demo.is_some();
+        self.ui.demo_playing = demo::menu::playing(self);
         self.ui.draw_chrome(hc, frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         if self.demo.is_some() {
             demo::draw_card(self, hc, frame_buf);
@@ -3995,6 +4006,12 @@ impl Lab {
                 let said = self.cycle_ant(step);
                 self.ui.say(said);
             }
+            // A row of the DEMOS page (`demo::menu`): start that seat, or
+            // go back to the plain lab. The page closes either way.
+            ui::Action::PlayDemo(seat) => {
+                let said = self.play_demo(seat);
+                self.ui.say(said);
+            }
             // An index into `Ui::scenarios()`, read fresh rather than
             // stored: the list can change under a `RELOAD` between the page
             // opening and a row being clicked, and a row that has gone is
@@ -4982,7 +4999,7 @@ const HELP: [&str; 30] = [
     "J Q        ALARM FLING",
     "8 RAIN    9 SAVE CHRONICLE    T ON AN EVENT",
     "F1 F2 F3 F4 F5  PLANTS ANTS BOX RACK HISTORY",
-    "F6 MENU    TAB STATS",
+    "F6 MENU    TAB STATS    \\ DEMOS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
@@ -4994,7 +5011,7 @@ const HELP: [&str; 30] = [
 /// the first screen (`Reports/lab-ui-redesign-2026-10-22.md`): thirty lines
 /// of bindings is the reference a player comes back to, and was the wall
 /// they met before they had seen the box. Any key or click puts it away.
-const WELCOME: [&str; 9] = [
+const WELCOME: [&str; 10] = [
     "THE EVOLUTION LAB",
     "",
     "A SEALED BOX OF SOIL UNDER GROW LIGHTS.",
@@ -5002,6 +5019,7 @@ const WELCOME: [&str; 9] = [
     "",
     "SPACE  RUN OR STOP THE BOX",
     "MENU   EVERY PAGE AND VIEW    ESC  CLOSE A WINDOW",
+    "\\      PLAY A DEMO: QUEEN, RAIDER, KEEPER, SCOUT...",
     "?      EVERY KEY",
     "",
 ];

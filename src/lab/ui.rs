@@ -729,6 +729,10 @@ pub enum Action {
     /// hand-built brain among them (`Lab::cycle_ant`). Was ANT BRAIN's
     /// two-way OLD / NEW toggle.
     CycleAnt(i32),
+    /// **A row of the DEMOS page** (owner, 2026-10-31: *"a menu in the game
+    /// to access all these demos"*): start that seat, or with `None` go
+    /// back to the plain lab (`Lab::play_demo`, `demo::menu`).
+    PlayDemo(Option<super::demo::DemoSeat>),
 }
 
 /// **What a click on the TRAINING page does** (`Lab::training_act`).
@@ -1220,6 +1224,13 @@ pub enum Panel {
     /// to play test the colony evolution training"*. Reached from MENU and
     /// the ANTS page, the bar being full (`Panel::PlantList`).
     Training,
+    /// **Every seat demo, one row each, with what you do in it** -- and
+    /// PLAIN LAB, the way back (owner, 2026-10-31: *"Can we just have a menu
+    /// in the game to access all these demos?"*). A click starts the seat on
+    /// the spot; until this a demo was reached only by relaunching from the
+    /// terminal with `demo=`. The rows are `demo::menu::ENTRIES`. Reached
+    /// from MENU's top row and from `\`, which works inside a demo too.
+    Demos,
 }
 
 impl Panel {
@@ -1242,6 +1253,7 @@ impl Panel {
             Panel::Menu => "MENU",
             Panel::Food => "FOOD",
             Panel::Training => "COLONY TRAINING",
+            Panel::Demos => "DEMOS",
         }
     }
 }
@@ -3284,6 +3296,9 @@ pub struct Ui {
     /// the guest's energy bar and the scout's bank are, the two numbers
     /// those seats are won and lost on (adversarial review, 2026-10-31).
     pub hover_off: bool,
+    /// **The seat demo running now**, set by `Lab` before each draw, so the
+    /// DEMOS page can mark which row is the one being played.
+    pub demo_playing: Option<super::demo::DemoSeat>,
     /// The action a press armed. A button fires on *release over the same
     /// button*, which is what lets a press be taken back by sliding off it —
     /// the behaviour every other button in the world has, and cheap here.
@@ -3819,6 +3834,7 @@ impl Ui {
     pub fn new() -> Self {
         Self {
             hover_off: false,
+            demo_playing: None,
             // A radius of 6, the sandbox's own default: one click is a
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
@@ -5142,6 +5158,8 @@ impl Ui {
     fn menu_rows(&self, world: &World) -> Vec<Row> {
         let ended = ended_lines(world).len();
         vec![
+            Row::choice("PLAY A DEMO", "\\", Action::Panel(Panel::Demos),
+                "EVERY SEAT DEMO -- QUEEN, RAIDER, KEEPER, GUEST, SCOUT, SATCHEL -- WITH WHAT YOU DO IN EACH. A CLICK STARTS ONE; PLAIN LAB COMES BACK."),
             Row::section("WATCH"),
             Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
                 "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
@@ -5215,6 +5233,31 @@ impl Ui {
             Row::choice("MAGNIFY GRAIN", format!("{:.2}", self.magnify_grain), Action::CycleMagnifyGrain,
                 "PAINTED'S GRAIN AMPLITUDE. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
         ]
+    }
+
+    /// **The DEMOS page** (`Panel::Demos`): a row per seat, the seat's name
+    /// on the left and what you do in it on the right, and PLAIN LAB last.
+    /// The one playing now is marked and its line drawn in `MARKER`, so the
+    /// page also answers "where am I". A click is `Action::PlayDemo`.
+    fn demo_rows(&self) -> Vec<Row> {
+        let mut rows = vec![
+            Row::head("BACK TO THE MENU", false, 0, Action::Panel(Panel::Menu), "RETURN TO THE MENU."),
+            Row::value("CLICK ONE TO PLAY IT", "\\ BRINGS THIS PAGE BACK", FAINT,
+                "A DEMO IS A SEAT: YOU PLAY ONE ANIMAL OR ONE HAND IN A BOX BUILT FOR IT, WITH A GOAL, A SCORE AND A WAY TO LOSE. \\ OPENS THIS PAGE FROM INSIDE ANY OF THEM, AND PLAIN LAB GOES BACK TO THE BOX YOU LEFT."),
+        ];
+        for e in &super::demo::menu::ENTRIES {
+            let now = e.seat == self.demo_playing;
+            let label = if now { format!("{} (NOW)", e.name) } else { e.name.to_string() };
+            let note = match e.seat {
+                Some(_) => format!(
+                    "{} -- {}. THE BOX ON SCREEN IS REPLACED BY THE SEAT'S OWN; ITS CARD SAYS THE GOAL AND THE KEYS (H SHOWS IT AGAIN). \\ COMES BACK HERE.",
+                    e.name, e.line
+                ),
+                None => "LEAVE THE DEMO: THE BOX, THE ANT AND THE SETTINGS YOU HAD BEFORE IT COME BACK, PAUSED.".to_string(),
+            };
+            rows.push(Row::choice_tinted(label, e.line, Action::PlayDemo(e.seat), if now { MARKER } else { GOOD }, note));
+        }
+        rows
     }
 
     /// `menu_rows` split at its own `Row::gap()` into the two lists MENU's
@@ -6008,6 +6051,7 @@ impl Ui {
             Panel::Compare => self.compare_rows(world),
             Panel::Food => self.food_rows(world),
             Panel::Training => self.training_rows(),
+            Panel::Demos => self.demo_rows(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -12600,7 +12644,7 @@ mod tests {
         let panels = [
             Panel::Plants, Panel::Ants, Panel::Box, Panel::Params, Panel::Shelf, Panel::Chambers,
             Panel::PlantList, Panel::AntList, Panel::Log, Panel::Scenarios, Panel::History,
-            Panel::Menu, Panel::Food, Panel::Training,
+            Panel::Menu, Panel::Food, Panel::Training, Panel::Demos,
         ];
         // Two colonies, so BATTLE is up too: the code review found MENU
         // drawn over it, in a case the one-colony box never reached.
@@ -12622,7 +12666,7 @@ mod tests {
                 cases += 1;
             }
         }
-        assert_eq!(cases, 56);
+        assert_eq!(cases, 60);
     }
 
     /// **Every cause of death fits the HISTORY page's CAUSE column**, which

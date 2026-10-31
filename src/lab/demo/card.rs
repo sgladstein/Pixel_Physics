@@ -64,7 +64,13 @@ const RED: [u8; 4] = [236, 120, 100, 255];
 const GREEN: [u8; 4] = [140, 210, 130, 255];
 
 /// The keys every seat shares, appended after the seat's own.
-const SHARED_KEYS: &[(&str, &str)] = &[("SPACE", "RUN OR PAUSE THE CLOCK"), ("PGUP/DN", "FASTER / SLOWER"), ("H", "THIS CARD")];
+/// `\\` is the DEMOS page (`menu`): another seat, or back to the plain lab.
+const SHARED_KEYS: &[(&str, &str)] = &[
+    ("SPACE", "RUN OR PAUSE THE CLOCK"),
+    ("PGUP/DN", "FASTER / SLOWER"),
+    ("H", "THIS CARD"),
+    ("\\", "OTHER DEMOS, OR THE LAB"),
+];
 
 /// Each seat's card. Keep it to what the seat does as built.
 pub fn card(seat: DemoSeat) -> SeatCard {
@@ -279,7 +285,7 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     if demo.card {
         return;
     }
-    let t = "H: GOAL AND KEYS";
+    let t = "H: GOAL AND KEYS   \\: DEMOS";
     let w = text_width(t) + 8;
     let x = super::super::WIDTH as i32 - w - 4;
     let y = REMINDER_Y;

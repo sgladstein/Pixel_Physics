@@ -52,6 +52,7 @@ pub mod enemy;
 pub mod queen;
 pub mod scout;
 pub mod satchel;
+pub mod menu;
 
 use crate::sim::cell::OrganismId;
 use crate::sim::steer::{self, SteerInput, SteerRole};
