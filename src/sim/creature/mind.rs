@@ -2642,6 +2642,9 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         // read before the closure, which cannot borrow the world mutably. `None`
         // with nobody steered and no entry, every tick in the shipped game.
         let forced = crate::sim::steer::take_forced(world, organism);
+        // The passage rule's heading (`steer::gallery_heading`): `None` unless a
+        // seat set `Steered::follows_gallery` (the raider), so off for every other body.
+        let follow = forced.and_then(|_| crate::sim::steer::gallery_heading(world, organism));
         let decided = SCRATCH.with(|s| {
             let mut opts = s.borrow_mut();
             options::build_with(
@@ -2884,7 +2887,7 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             if let Some(f) = forced {
                 let list: &[Opt] = redrawn.as_deref().unwrap_or(&opts[..]);
                 let head = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
-                if let Some(i) = crate::sim::steer::choose(list, head, f, |v| mind.genome.w[SWITCH + v as usize] > 0.0) {
+                if let Some(i) = crate::sim::steer::choose_following(list, head, f, follow, |v| mind.genome.w[SWITCH + v as usize] > 0.0) {
                     match d.as_mut() {
                         Some(d) => {
                             if redrawn.is_none() {

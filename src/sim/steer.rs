@@ -156,6 +156,17 @@ pub struct Steered {
     /// [`mark_with`]; the seat sets it each tick from a held key and its own
     /// wind meter, so a sprint cannot be held for ever.
     pub sprint: bool,
+    /// **The body takes a gallery's bends on its own while an arrow is held**
+    /// (raider seat, adversarial review 2026-10-31): `false` from [`mark`] and
+    /// [`mark_with`], so every other seat and every non-player body is
+    /// untouched. Set by a seat, it lets [`choose_following`] take a walk
+    /// square to the held arrow -- never against it -- when the head is in a
+    /// passage ([`gallery_heading`]) and nothing lies within 90 degrees of
+    /// the arrow. Before it, a one-cell gallery's every bend stood the body
+    /// still until the arrow was changed: the scripted heist with a human's
+    /// 15-frame reaction lag banked 2 larvae over 36 lives against 157
+    /// frame-perfect.
+    pub follows_gallery: bool,
     /// **What the body's last forced decision did** (`mind::tick`, a body with
     /// a mind only): the verb the keys asked for (`None`: a direction or
     /// nothing), the verb carried out, and whether its act succeeded -- so a
@@ -225,6 +236,7 @@ pub fn mark_with(world: &mut World, id: OrganismId, input: Option<SteerInput>, r
         may_breed: true,
         bites_when_full: false,
         sprint: false,
+        follows_gallery: false,
         last_act: None,
         born_frame,
         colony,
@@ -510,6 +522,52 @@ pub fn choose(
     pick: ForcedPick,
     on: impl Fn(crate::sim::creature::options::Verb) -> bool,
 ) -> Option<usize> {
+    choose_following(opts, head, pick, None, on)
+}
+
+/// **Rows of wall around a head that make it "in a passage"**: of its eight
+/// neighbours, this many or more are not open (ground, or another body). A
+/// one-cell gallery, straight or at a bend, has six; a chamber's floor or
+/// the open surface three or four.
+pub const PASSAGE_WALLS: usize = 5;
+
+/// **The steered body's heading, when it is in a passage and its seat asked
+/// it to follow one** ([`Steered::follows_gallery`]): the step from its neck
+/// to its head, for [`choose_following`] to break ties with. `None` with
+/// nobody steered, the knob off, a body of one cell, or the head in the
+/// open -- so on the open ground a held arrow means what it always did.
+pub fn gallery_heading(world: &World, organism: OrganismId) -> Option<(i32, i32)> {
+    if !world.steered.as_ref().is_some_and(|s| s.follows_gallery) || !is_steered(world, organism) {
+        return None;
+    }
+    let s = world.organism(organism)?;
+    let (&head, &neck) = (s.chain.first()?, s.chain.get(1)?);
+    let walls = crate::sim::creature::DIRS
+        .iter()
+        .filter(|&&(dx, dy)| {
+            let (x, y) = (head.0 + dx, head.1 + dy);
+            !world.in_bounds(x, y) || {
+                let c = world.get(x, y);
+                !c.is_empty() && c.organism_id() != organism
+            }
+        })
+        .count();
+    (walls >= PASSAGE_WALLS).then_some((head.0 - neck.0, head.1 - neck.1))
+}
+
+/// [`choose`], with the passage rule: `follow` is the body's heading when
+/// [`gallery_heading`] says it is in a passage. **Only after the plain rule
+/// finds no walk within 90 degrees of the arrow**, a walk square to it is
+/// taken (the one nearest the heading), so a held arrow carries the body
+/// round a gallery's bend instead of standing it at the corner. Never a
+/// walk against the arrow, and never on open ground: `None` is [`choose`].
+pub fn choose_following(
+    opts: &[crate::sim::creature::options::Opt],
+    head: (i32, i32),
+    pick: ForcedPick,
+    follow: Option<(i32, i32)>,
+    on: impl Fn(crate::sim::creature::options::Verb) -> bool,
+) -> Option<usize> {
     use crate::sim::creature::options::Verb;
     let toward = |i: usize, dir: (i8, i8)| -> f32 {
         let (dx, dy) = ((opts[i].target.0 - head.0) as f32, (opts[i].target.1 - head.1) as f32);
@@ -552,6 +610,20 @@ pub fn choose(
         }
         if let Some(i) = of_verb(Verb::Walk, Some(dir), true).or_else(|| of_verb(Verb::TurnAround, Some(dir), true)) {
             return Some(i);
+        }
+        // **In a passage, a walk square to the arrow** ([`choose_following`]):
+        // the one nearest the heading, ties to the first listed.
+        if let Some(h) = follow.filter(|_| on(Verb::Walk)) {
+            let mut best: Option<(usize, f32)> = None;
+            for i in (0..opts.len()).filter(|&i| opts[i].verb == Verb::Walk && toward(i, dir) > -1e-6) {
+                let along = toward(i, (h.0.clamp(-1, 1) as i8, h.1.clamp(-1, 1) as i8));
+                if best.is_none_or(|(_, a)| along > a + 1e-6) {
+                    best = Some((i, along));
+                }
+            }
+            if let Some((i, _)) = best {
+                return Some(i);
+            }
         }
         // **Held into a wall, she climbs** (scout seat's ask): a level hold with
         // nothing within 90 degrees takes the walk straight up, before standing.
@@ -631,6 +703,7 @@ mod tests {
                         may_breed: true,
                         bites_when_full: false,
                         sprint: false,
+                        follows_gallery: false,
                         last_act: None,
                         born_frame: 0,
                         colony: u32::MAX,
@@ -697,6 +770,32 @@ mod tests {
         assert_eq!(choose_all(&opts, (0, 0), f(Some((1, 0)), Some(Verb::Feed))), Some(0), "a verb not on the list falls back to the walk");
         let eat = [o(Verb::Eat, (0, 0)), o(Verb::Rest, (0, 0))];
         assert_eq!(choose_all(&eat, (0, 0), f(None, Some(Verb::PickUp))), Some(0), "E with nothing to pick up eats from the crop");
+    }
+
+    /// **The passage rule** ([`choose_following`], the raider's
+    /// `follows_gallery`): at a gallery's bend, held square to the way on, the
+    /// body takes the bend; without the rule it stands, as it always did. It
+    /// never takes a walk against the arrow, and at a fork square to the arrow
+    /// it keeps its heading.
+    #[test]
+    fn in_a_passage_a_held_arrow_takes_the_bend() {
+        use crate::sim::creature::options::{Opt, Verb, FEATURES};
+        let o = |verb, target| Opt { verb, target, feats: [0.0; FEATURES] };
+        let f = |dir| ForcedPick { dir, verb: None, once: false };
+        // Heading down a shaft that turns east; the tail is up.
+        let bend = [o(Verb::Walk, (1, 0)), o(Verb::TurnAround, (0, -4)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose(&bend, (0, 0), f(Some((0, 1))), |_| true), Some(2), "without the rule, held down at the bend she stands");
+        assert_eq!(choose_following(&bend, (0, 0), f(Some((0, 1))), Some((0, 1)), |_| true), Some(0), "with it, the bend is taken");
+        // Held up, back over the tail: the plain rule's turn, not the bend.
+        assert_eq!(choose_following(&bend, (0, 0), f(Some((0, -1))), Some((0, 1)), |_| true), Some(1));
+        // A walk against the arrow is never taken.
+        let against = [o(Verb::Walk, (-1, 0)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_following(&against, (0, 0), f(Some((1, 0))), Some((-1, 0)), |_| true), Some(1), "held east, the only way on is west: she stands");
+        // A fork square to the arrow: the branch along the heading.
+        let fork = [o(Verb::Walk, (-1, 0)), o(Verb::Walk, (1, 0)), o(Verb::Rest, (0, 0))];
+        assert_eq!(choose_following(&fork, (0, 0), f(Some((0, 1))), Some((1, 1)), |_| true), Some(1));
+        assert_eq!(choose_following(&fork, (0, 0), f(Some((0, 1))), Some((-1, 1)), |_| true), Some(0));
+        assert_eq!(choose_following(&fork, (0, 0), f(Some((0, 1))), Some((1, 1)), |v| v != Verb::Walk), Some(2), "walking off in the genome: no bend");
     }
 
     /// The lab's trained colony, one ant in it marked or led, and a hash of
