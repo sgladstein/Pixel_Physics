@@ -1692,3 +1692,25 @@ plant boxes both pools bring home 2-3x std_pool's food (`trip_deliveries`) and s
 2 (played_bed) / 4 (crowded_bench), L_std 21 / 193, std_pool 216 / 181, hand-built 87 (played_bed). Training drove it:
 on the bed, nest r0 -> r15 828 -> 154 (L_std) and 836 -> 68 (L_h3). Watchdog's advice: not L_h3 as the lab ant;
 env8's gate is the right shape; x13 reports `nest_open` beside lived.
+
+## 2026-10-31 (00:30Z): env8 done -- the nest gate did not grow the training-bed nest more than the control; exam x13 queued
+
+env8 (ac9d6b64; lost at r3 to a preemption 11:05Z, resumed as env8b-1030, done 00:09Z). Median over 32 colonies by
+round, training-bed `nest` (cells) and lab case (summed tenths):
+
+| round | N_ctl nest / lab | N_gate nest / lab |
+|---|---|---|
+| 0 | 76 / 8,466 | 76 / 8,466 |
+| 4 | 107 / 10,159 | 96 / 7,539 |
+| 8 | 167 / 9,955 | 139 / 9,994 |
+| 15 | 188 / 10,565 | 129 / 9,979 |
+
+Both arms' bed nests grew from L_h3 c12's 76, the ungated control more; the gate read 4-100 open cells per donor in
+rounds 13-15 and kept the upper half each time, so it fired, but it did not steer. Colonies alive at r15: 20 / 32 (ctl),
+28 / 32 (gate). Rank-0 at r15: N_ctl c12 (lab 14,441, nest 203), N_gate c10 (lab 13,726, nest 128), pools
+`genomes/env8_ctlc12_pool.txt`, `env8_gatec10_pool.txt`. The bed is not the verdict: x13 is.
+
+**x13** (`jobs/x13.txt`, 240 exam runs on main after #990 garden, #993, #994 pip food): N_ctl c12, N_gate c10, L_h3 c12,
+H3 and std_pool, 6 boxes x 8 seeds at 600k, all rerun on the one build (the engine moved since x11), plus the plants
+lane's rungs 5-6 stage-0 run as a `sh` job. Deciding measure as named at env8's launch; garden `nest_open` from the
+Nest lane on worlds 61-68.
