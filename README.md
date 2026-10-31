@@ -8039,6 +8039,15 @@ says "no way to lose" under `stakes=0`. Seat-by-seat findings (heap camper, gree
 verdict on ants, raider reaction lag, guest key-mashing): project folder
 `seat-demos/adversarial-2026-10-31/`.
 
+**Scout, round 4: the lesson is the way** (2026-10-31). The review's heap camper (stand at the
+sealed heap's foot, tap the sisters it turns away) won 12 of 12 seasons. Under the seal a lesson is
+now graded by how much of the nest-to-heap way she was led (`tandem::Knobs::lesson_way`, off by
+default); a run begun in the seal's columns teaches nothing, and the seal reads the grade, so a
+short lead "knows a little". `Y` is refused on a sister being turned away, the season counts only
+her colony, `K` lets a pupil go, and the lag-hold gives up after 300 frames. Fresh seeds 25-36:
+patient beats the camper 10-2 (p=0.039; before 1-11), teaching off and never-waits 11-1 each; the
+camper's harvest median fell 68 -> 0. Report: `seat-demos/fixes-2026-10-31/scout/REPORT.md`.
+
 ## Soil nutrient status — ground is worth something water is not
 
 **Shipped ON 2026-09-06.** `PIXEL_PHYSICS_NUTRIENT=0` is the ablation.
