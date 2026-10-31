@@ -13,17 +13,17 @@
 //!
 //! Scripts: `idle` plays nothing. `burn` plays the next card onto each
 //! spider once it is within `reach` columns of the nest door. `trap` is the
-//! designed combo: as each spider lands it arms the satchel's `WAKE`
+//! designed combo: as each spider lands it arms the satchel's `TRAP`
 //! on the nearest spider, then plays the next card onto
 //! the spider when it comes within `reach`; the spider's death sets the
-//! `WAKE` off, and the deaths that fire causes carry the chain on.
+//! `TRAP` off, and the deaths that fire causes carry the chain on.
 //!
 //! **Every second it prints a COUNT line** (favour, ants, chains, deepest
 //! depth, puffs, card kills against natural deaths, spiders in and killed):
 //! the counter beside the picture that `CLAUDE.md` asks for. One `RESULT`
 //! row per (seed, script) at the end, the same seed meeting every script.
 
-use pixel_physics::lab::demo::{satchel, DemoSeat};
+use pixel_physics::lab::demo::{satchel, DemoSeat, MouseAct};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -62,14 +62,14 @@ fn drive(lab: &mut Lab, script: &str, p: &mut Player, reach: i32) {
     let s = seat(lab);
     let in_now = s.counts.raiders_in;
     let ready = lab.world.frame >= s.ready_at;
-    let next_is_wake = s.deck.get(s.pos) == Some(&satchel::Card::Wake);
+    let next_is_wake = s.deck.get(s.pos) == Some(&satchel::Card::Trap);
     let nearest = spiders(lab).into_iter().min_by_key(|h| (h.0 - d.0).abs());
     if script != "greedy" && nearest.is_none() {
         return;
     }
     let spider = nearest.unwrap_or(d);
     if script == "greedy" {
-        // Push your luck at home: arm the WAKE on the nest door, then play
+        // Push your luck at home: arm the TRAP on the nest door, then play
         // everything after it into the crowd there.
         if ready {
             let f = lab.world.frame;
@@ -97,9 +97,11 @@ fn row(lab: &Lab, script: &str, seed: u64, p: &Player) -> String {
     let c = s.counts;
     let ants = satchel::live_of(&lab.world, "ant");
     format!(
-        "RESULT seed={seed} script={script} frame={} ended={} ants={ants} at_open={} min_ants={} clicks={} plays={} refused={} effects={} chains={} deepest={} puffs={} card_kills={} natural={} raiders_in={} raiders_killed={} raiders_by_cards={} score={} waves={} hatched={} burnt={} soaked={}",
+        "RESULT seed={seed} script={script} frame={} round={} ended={} stars={} ants={ants} at_open={} min_ants={} clicks={} plays={} refused={} effects={} chains={} deepest={} puffs={} card_kills={} natural={} raiders_in={} raiders_killed={} raiders_by_cards={} score={} waves={} hatched={} burnt={} soaked={}",
         lab.world.frame,
+        s.round_no,
         s.ended.map_or("no".to_string(), |e| if e.won { "won".to_string() } else { "lost".to_string() }),
+        s.ended.map_or("-".to_string(), |e| e.stars.iter().map(|&b| if b { '*' } else { '.' }).collect::<String>()),
         s.ants_at_open,
         c.min_ants,
         p.plays,
@@ -141,9 +143,14 @@ fn main() {
     let warmup: u64 = arg("warmup").unwrap_or(9_000);
     let gif = arg::<u8>("gif").unwrap_or(1) == 1;
     let out: String = arg("out").unwrap_or_else(|| "satchel.gif".into());
+    // `png_at=F,F,...`: a still of the whole window (HUD included) at each
+    // of these frames of the run, beside the GIF. `playon=1`: after a round
+    // ends, click once to play on, as a player would, instead of stopping.
+    let png_at: Vec<u64> = arg::<String>("png_at").map(|v| v.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default();
+    let playon = arg::<u8>("playon").unwrap_or(0) == 1;
     let satchel_name: String = arg("satchel").unwrap_or_else(|| "WILDFIRE".into());
     let raider: String = arg("raider").unwrap_or_else(|| "spider".into());
-    println!("satchelgif: scripts={scripts} seeds={:?} frames={frames} every={every} gif_from={gif_from} gif_len={gif_len} reach={reach} zoom={zoom} warmup={warmup} satchel={satchel_name} raider={raider} gif={gif} out={out}", seeds());
+    println!("satchelgif: scripts={scripts} seeds={:?} frames={frames} every={every} gif_from={gif_from} gif_len={gif_len} reach={reach} zoom={zoom} warmup={warmup} satchel={satchel_name} raider={raider} gif={gif} out={out} png_at={png_at:?} playon={playon}", seeds());
     for seed in seeds() {
         for script in scripts.split(',') {
             let mut lab = Lab::new(Default::default());
@@ -152,6 +159,12 @@ fn main() {
             args.insert("warmup".to_string(), warmup.to_string());
             args.insert("satchel".to_string(), satchel_name.clone());
             args.insert("raider".to_string(), raider.clone());
+            // The seat's own rules, passed through when given.
+            for k in ["raider_every", "wave_cap", "round", "lose_at", "favour"] {
+                if let Some(v) = arg::<String>(k) {
+                    args.insert(k.to_string(), v);
+                }
+            }
             let t0 = std::time::Instant::now();
             lab.start_demo_with(DemoSeat::Satchel, args);
             lab.show_help = false;
@@ -170,6 +183,22 @@ fn main() {
             let mut total = 0f64;
             for f in 0..frames {
                 drive(&mut lab, script, &mut p, reach);
+                if png_at.contains(&f) {
+                    let mut full = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+                    lab.draw(&mut full, 60.0);
+                    let path = out.replace(".gif", &format!("-s{seed}-{script}-f{f}.png"));
+                    if let Some(img) = image::RgbaImage::from_raw(WIDTH, HEIGHT, full) {
+                        img.save(&path).expect("png_at= is writable");
+                        println!("  STILL f={f} round={} notice={:?} wrote {path}", seat(&lab).round_no, lab.ui.notice_text());
+                    }
+                }
+                if playon && seat(&lab).ended.is_some_and(|e| lab.world.frame == e.frame + satchel::NEXT_ROUND_AFTER) {
+                    let e = seat(&lab).ended.expect("ended");
+                    println!("{} (round over, playing on)", row(&lab, script, seed, &p));
+                    let d = door(&lab);
+                    satchel::mouse(&mut lab, d, MouseAct::Press { erase: false });
+                    println!("  PLAYON f={f} was {} stars={} now round={} notice={:?}", if e.won { "won" } else { "lost" }, e.star_count(), seat(&lab).round_no, lab.ui.notice_text());
+                }
                 if gif && f >= gif_from && f < gif_from + gif_len && f.is_multiple_of(every) {
                     let mut full = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
                     lab.draw(&mut full, 60.0);
@@ -202,7 +231,7 @@ fn main() {
                         s.armed.len()
                     );
                 }
-                if seat(&lab).ended.is_some_and(|e| lab.world.frame > e.frame + 120) {
+                if !playon && seat(&lab).ended.is_some_and(|e| lab.world.frame > e.frame + 120) {
                     break;
                 }
             }
