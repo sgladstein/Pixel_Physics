@@ -249,6 +249,11 @@ struct Handler {
     /// Whether a frame has been painted yet, which is what a click is tested
     /// against. Only the scripted-click hook reads it.
     drawn: bool,
+    /// **The speaker** (`audio::Output`), `None` when this build has no
+    /// device, none is present, or `sound=off` / `PIXEL_PHYSICS_SOUND=off`
+    /// asked for silence. Fed once per pass from the listener `Lab::paint`
+    /// runs; the design is `Reports/sound-design-2026-10-31.md`.
+    sound: Option<pixel_physics::audio::Output>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -385,6 +390,35 @@ impl Handler {
                 lab.tick_for_harness();
             }
         }
+        // **Sound, on by default** where the build has a device (macOS and
+        // Windows; Linux with `--features audio-alsa`). `sound=off` or
+        // `PIXEL_PHYSICS_SOUND=off` keeps it shut; `sound_style=natural` or
+        // `musical` picks another of the design's three sketches (hybrid is
+        // the recommendation). A box with no device simply runs silent, and
+        // the listener is never built into its frame.
+        let sound_off = std::env::var("PIXEL_PHYSICS_SOUND").is_ok_and(|v| v == "off" || v == "0")
+            || args.iter().any(|a| a == "sound=off" || a == "sound=0");
+        let style = args
+            .iter()
+            .find_map(|a| a.strip_prefix("sound_style="))
+            .and_then(pixel_physics::audio::Style::parse)
+            .unwrap_or_default();
+        let sound = if sound_off {
+            None
+        } else {
+            match pixel_physics::audio::Output::open(0x50_0D, style) {
+                Ok(out) => {
+                    lab.enable_sound();
+                    Some(out)
+                }
+                Err(why) => {
+                    if pixel_physics::audio::DEVICE_COMPILED {
+                        eprintln!("sound: {why}; running silent");
+                    }
+                    None
+                }
+            }
+        };
         Self {
             window: None,
             pixels: None,
@@ -417,6 +451,7 @@ impl Handler {
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
                 .unwrap_or_default(),
             drawn: false,
+            sound,
             result: Ok(()),
         }
     }
@@ -591,6 +626,11 @@ impl Handler {
         };
         if let Some(message) = render_error {
             return self.fail(event_loop, message);
+        }
+        // Whatever the listener and the tools queued this pass -- one
+        // `try_send` each, never a wait (`audio::device`).
+        if let Some(out) = &mut self.sound {
+            out.send(self.lab.sound.drain());
         }
 
         // Skipping the draw also skips the vsync that was throttling this
@@ -990,6 +1030,13 @@ impl Handler {
             // The dig heat map: the next free F key after the battle view, and
             // a view of the colony's own work like `F7`/`F8` (`dig_marks`).
             KeyCode::F10 => self.lab.act(Action::CycleDigOverlay),
+            // **`F12` -- how loud the box is** (off, low, medium, high), the
+            // SOUND row on the menu page (`Reports/sound-design-2026-10-31.md`).
+            // `\` was the design's pick and went to the DEMOS page (PR #1014);
+            // `F11` is macOS's Show Desktop. On a Mac laptop F12 is the volume
+            // key unless FN is held, which is why the menu row is the main
+            // route and this the shortcut.
+            KeyCode::F12 => self.lab.act(Action::CycleSound),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same

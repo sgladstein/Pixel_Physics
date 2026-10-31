@@ -358,6 +358,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --release --locked -- -D warnings
 
+  sound:
+    # **The sound device is the one platform-gated file** (`src/audio/device.rs`,
+    # `Reports/sound-design-2026-10-31.md`): it is compiled on macOS and
+    # Windows, and on Linux only with `--features audio-alsa`, because ALSA's
+    # headers are on no runner, cloud session or training VM by default. So
+    # every other job here builds the silent lab, and without this one the
+    # file the owner actually hears would never be compiled by CI at all.
+    # Three builds: Linux with the feature (clippy, so it is held to the same
+    # bar as the rest), and a type-check of the lab binary for each desktop
+    # target -- `cargo check` needs no linker or SDK for either.
+    name: sound device builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # **From inside the checkout, not through the action's `targets:`.** The
+      # action installs targets on its own toolchain name (`1.98`), but
+      # `rust-toolchain.toml` pins `1.98.0`, which cargo then uses -- so the
+      # first run of this job had no macOS std and failed with "can't find
+      # crate for `core`". `rustup target add` here resolves the pinned one.
+      - run: rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: cargo clippy --lib --bins --release --locked --features audio-alsa -- -D warnings
+      - run: cargo check --locked --bin lab --target aarch64-apple-darwin
+      - run: cargo check --locked --bin lab --target x86_64-pc-windows-msvc
+
   ascii:
     # examples/ascii.rs is written specifically to need no window or GPU,
     # so it "works over a remote shell and in CI" (its own module doc) --
