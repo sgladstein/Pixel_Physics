@@ -3,7 +3,9 @@
 *Plant lane, goal G4: a plant community that lives with the colony. Status:
 measured on `main` 678a4fb4 (collar resprout on; before PR #990's fungus
 garden). Pip food value lowered 40 -> 14 and shipped (§3); the tree's loss
-traced to shrub competition and handed to the invasion test (§4-5). New player-facing interactions (leaf garden, guarded
+traced to shrub competition and handed to the invasion test (§4-5);
+stage 0 of that test ran on the VM 2026-10-31 (§6): its gates pass, and no
+role grows from four seeds on more than one bed in four. New player-facing interactions (leaf garden, guarded
 plants, a planting verb) belong to the plants-and-ants interaction lane and
 are not designed here. Pictures: <https://claude.ai/artifact/KSsVbrwiPbC4vDqwMbXprw>.*
 
@@ -198,6 +200,34 @@ fell from 300k to 400k on 11 of 12 resprout beds, p 0.006); the fallback
 decided in advance is `grow=450000`, then judging residents only against
 their own clone. Stage 1 (12-24 beds per role, 17-33 core-hours) needs the
 Google VM.
+
+## 6. Stage 0 result: can a role get back in from four seeds?
+
+Run on the Google VM (2026-10-31, built from `main` f245c3a9: pip 14,
+fungus garden on, resprout on), `run.sh` in
+`/mnt/project-files/plants/rungs56-stage0/`. For each role, beds 1-4: 300k grow,
+then four seeds sown into 16-column gaps, 150k window. `E` = plants of
+the role with 20+ shoot cells; four were sown.
+
+| role | E at 150k, beds 1-4 | crippled arm | shipped above cripple |
+|---|---|---|---|
+| tree | 0, 1, **9**, 0 | 0, 0, 0, 0 | 2 beds, 2 ties |
+| shrub | 0, 3, 1, 0 | 0, 0, 0, 0 | 2 beds, 2 ties |
+| herb | 0, 2, 0, 0 | 0, 0, 0, 0 | 1 bed, 3 ties |
+| scrambler | 3, 2, 2, 4 | 0, 0, 0, 0 | 4 beds |
+
+**Gates.**
+- **Determinism:** passes. Both resident-only clones on bed 1 hash the same, for all four roles.
+- **Known answer:** passes. The crippled role never established (0 of 16). The shipped role beat it on 9 bed-roles and never lost (9-0, one-sided sign p 0.002, pooled across roles). The instrument can see invasion where it happens.
+- **No trend among residents:** passes. Established residents, f=10k against f=150k, by kind (up / down / same): grass 7/5/4, herb 5/2/5, shrub 4/8/0, scrambler 4/4/4, tree 4/2/6. The grass trend predicted in §5 did not appear here.
+
+**The reading.** No role grew from rare on more than one bed of four. The tree did so once, 4 seeds to 9 established on bed 3. The scrambler held its ground (3, 2, 2, 4). The herb and the shrub mostly failed. Four beds is a gate check, not a verdict: at this n no role's sign test can pass Holm.
+
+**One pattern, found after the fact, so a hypothesis for the next run and not a result.** On the tree and shrub bed-roles, the role established (E >= 1) on four, where the colony numbered 258-392 ants at sowing. It established on none of the four where the colony numbered 582-643. That is perfect separation, 4 against 4 (exact Mann-Whitney p 0.029 two-sided, one test chosen after looking). On two of the failures, tree and shrub on bed 1, the four sown seeds were gone before 10k frames: no plant and no waiting seed. That fits seed predation. The pip change does not cover a sown `seed`, and a big colony finds four seeds in a cut gap quickly. **With the garden-sized colonies, recruiting from a handful of seeds may not be the tree's only problem: its seeds have to survive the colony first.**
+
+**Next:**
+- Stage 1, 12 beds per role, on the VM.
+- Add a sown-seed fate count to the harness first: eaten, carried, rotted or germinated. Then the predation reading becomes a measurement.
 
 ## Reproduce
 

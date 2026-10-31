@@ -1648,7 +1648,7 @@ first batch since std_pool whose winner beats it in the game, after ten exams of
 
 Caveats, before calling it: (1) the two selection boxes are played_bed variants, so the played_bed gain is the
 nearest kin of what was selected; herb_first_colony and crowded_bench are not played beds and gained as much.
-(2) The Nest lane (08:05Z) ran both pools on its garden worlds: nests of 100-200 cells against 800-1,000 for the
+(2) The Nest lane (08:05Z) ran both pools on its garden worlds: dug 100-200 cells against 800-1,000 for the
 untrained pools, no tunnels in 15 of 16 runs, L_h3 extinct in 4 of 8 garden worlds, with H3's dig head intact --
 selection on the lab boxes alone bred digging out through the core. Scott's rule is dig and forage all game, so
 this is a trade until a picture says otherwise. (3) On the training bed L_h3's colonies died out more each round
@@ -1679,3 +1679,84 @@ plumbing, not the pressure.
 (2) `nest_open` at 200k in the Nest lane's garden worlds 61-68 bigger than L_h3 c12's in at least 6 of 8
 (one-sided sign test p 0.145 alone, so also report the medians), with the chambers judge's `tunnels` and pictures beside it, not scored.
 N_ctl is judged on (1) against L_h3 c12 only, to say whether more rounds alone still pay.
+
+**Correction and baseline (Nest lane, 10-30 09:20Z).** The x11 caveat's "100-200 cells" was nest.csv's `dug`; the
+gate's own measure, `nest_open` at 200k in garden worlds 61-68 (`scratch/nest/poolrounds.sh OUT SEED 1 200000 POOLDIR
+nest_r=0`, main 678a4fb4), is starker: std_pool 421 659 608 417 215 668 534 615; H3 573 558 462 399 668 269 536 758;
+L_std c23 21 48 11 24 68 36 37 53; L_h3 c12 23 15 11 21 12 11 15 4. So condition (2) against c12 is a low bar. The
+pass bar stays as named; x13 also reports N_gate against H3 world by world (the level wanted back), unscored.
+
+**Watchdog audit of env7 (10-30 09:33Z, page https://claude.ai/artifact/5PhfJen9ESuBszGLjPxBVr).** Not gamed: in x11's
+plant boxes both pools bring home 2-3x std_pool's food (`trip_deliveries`) and starve fewer per hatchling (45-70% vs
+75-79%). But no nest: at ref 63621e6b (x11 rows reproduced exactly) open nest averaged over 100k-600k, seed 1, was L_h3
+2 (played_bed) / 4 (crowded_bench), L_std 21 / 193, std_pool 216 / 181, hand-built 87 (played_bed). Training drove it:
+on the bed, nest r0 -> r15 828 -> 154 (L_std) and 836 -> 68 (L_h3). Watchdog's advice: not L_h3 as the lab ant;
+env8's gate is the right shape; x13 reports `nest_open` beside lived.
+
+## 2026-10-31 (00:30Z): env8 done -- the nest gate did not grow the training-bed nest more than the control; exam x13 queued
+
+env8 (ac9d6b64; lost at r3 to a preemption 11:05Z, resumed as env8b-1030, done 00:09Z). Median over 32 colonies by
+round, training-bed `nest` (cells) and lab case (summed tenths):
+
+| round | N_ctl nest / lab | N_gate nest / lab |
+|---|---|---|
+| 0 | 76 / 8,466 | 76 / 8,466 |
+| 4 | 107 / 10,159 | 96 / 7,539 |
+| 8 | 167 / 9,955 | 139 / 9,994 |
+| 15 | 188 / 10,565 | 129 / 9,979 |
+
+Both arms' bed nests grew from L_h3 c12's 76, the ungated control more; the gate read 4-100 open cells per donor in
+rounds 13-15 and kept the upper half each time, so it fired, but it did not steer. Colonies alive at r15: 20 / 32 (ctl),
+28 / 32 (gate). Rank-0 at r15: N_ctl c12 (lab 14,441, nest 203), N_gate c10 (lab 13,726, nest 128), pools
+`genomes/env8_ctlc12_pool.txt`, `env8_gatec10_pool.txt`. The bed is not the verdict: x13 is.
+
+**x13** (`jobs/x13.txt`, 240 exam runs on main after #990 garden, #993, #994 pip food): N_ctl c12, N_gate c10, L_h3 c12,
+H3 and std_pool, 6 boxes x 8 seeds at 600k, all rerun on the one build (the engine moved since x11), plus the plants
+lane's rungs 5-6 stage-0 run as a `sh` job. Deciding measure as named at env8's launch; garden `nest_open` from the
+Nest lane on worlds 61-68.
+
+**env8 garden nest (Nest lane, 10-31 00:39Z, worlds 61-68, 200k, main a4a15fe0; page https://claude.ai/artifact/Jnzf4Raro16z7wddNsQFq5#env8).**
+`nest_open` median (range): N_gate c10 40 (13-85), N_ctl c12 30 (8-69), L_h3 c12 14 (4-23), H3 547 (269-758), std_pool 571
+(215-668). Condition (2) passes: N_gate > c12 in 8 / 8 (p 0.008), but so does N_ctl (8 / 8), and N_gate vs N_ctl is 4 / 4 --
+the nest came back a little from more rounds, not from the gate. Tunnels 1 / 8 each env8 arm, 0 / 8 c12, 8 / 8 founders;
+lines extinct N_gate 1 / 8, N_ctl 2 / 8, c12 4 / 8. Reading: a median gate over donors that all dig ~1/15 of the founders
+cannot pull the line back; a next try needs an absolute floor near the founders' level or `nest_open` as a scored case.
+
+## 2026-10-31 (01:50Z): exam `x13` -- env8's gated winner beats std_pool and passes its named measure, but so does the control
+
+x13 (240 runs, ref f245c3a9, after #990 garden / #993 / #994; every brain rerun on it), `data-1027/x13/lab600k.csv`,
+`x13an.py`. Paired over 48 box-seeds, up / down:
+
+| | lived | alive at the end | starved share (fewer) |
+|---|---|---|---|
+| **N_gate c10 vs L_h3 c12** | 22 / 11, p 0.08 | 14 / 11 | 24 / 12 |
+| N_ctl c12 vs L_h3 c12 | 19 / 16 | 12 / 12 | 13 / 24 |
+| N_gate vs N_ctl | 16 / 16 | 12 / 13 | 27 / 11 |
+| **N_gate vs std_pool** | **27 / 11, p 0.014** | **24 / 1** | 32 / 5 |
+| N_ctl vs std_pool | 25 / 16, p 0.21 | 24 / 0 | 29 / 9 |
+| L_h3 c12 vs std_pool | 26 / 9, p 0.006 | 23 / 1 | 30 / 7 |
+| L_h3 c12 vs H3 | 25 / 9, p 0.009 | 23 / 2 | 29 / 7 |
+
+Lived median per plant box (std / H3 / L_h3 / N_ctl / N_gate): played_bed 210 / 186 / 340 / 372 / 370; herb_first_colony
+151 / 211 / 346 / 479 / 385; crowded_bench 259 / 246 / 575 / 554 / 643. Famine boxes: all five die (lived 0.3-0.5).
+**x11 replicates on the new build**: L_h3 c12 vs std 26 / 9 (x11: 26 / 8), so garden + pip food did not move it.
+**Verdict against the measure named at env8's launch:** N_gate passes both conditions -- (1) lived not behind L_h3 c12
+(22 / 11 ahead), (2) garden `nest_open` above c12 in 8 / 8. But N_ctl passes both too, and N_gate vs N_ctl is level on
+lived and on the garden nest (4 / 4): the gain is more rounds, not the gate. N_gate's nest (median 40 open cells) is
+still a fifteenth of the founders' (547-571). Best lab-ant candidate so far on survival: N_gate c10 (vs std_pool lived
+p 0.014, passes Bonferroni 0.025 over 2 arms; alive 24 / 1); the nest trade-off is unchanged and is Scott's call.
+
+## 2026-10-31 (02:05Z): env9 -- restart from the diggers, survival score, an absolute floor on the open nest
+
+env7's selection (lab case alone) took the founders' training-bed open nest from ~490 to under 100 in 15 rounds, and
+env8's median gate could not pull it back. env9 restarts from the two founders that dig (H3, std_pool) with env7's job
+line plus `nestfloor=300` (new): after the lab ranking picks the better half, a donor needs a training-bed `nest_open`
+of at least 300 (the founders' round-0 median 488-490, p25 379-389); if fewer than 2 clear it, the 2 largest nests
+breed. Arms F_h3 (H3), F_std (std_pool), 32 colonies x 16 rounds, on main after #990/#993/#994.
+
+**Deciding measure, named before launch:** exam x14, each arm's r15 rank-0 colony, with N_gate c10 and std_pool rerun
+on the same build. A winner needs both: (1) garden `nest_open` (Nest lane, worlds 61-68, 200k) median >= 250 and above
+N_gate c10 in >= 6 of 8 worlds; (2) exam lived ahead of std_pool, sign test p < 0.025 (Bonferroni over 2 arms). Lived
+against N_gate c10 is reported, not scored: what the floor costs in survival is the trade Scott decides.
+Smoke (H3, 4 colonies x 2 rounds at 20k, nestfloor=8): read 23-30 open cells and kept both donors each round; the
+fallback branch, on values 3/40/12/25 under a floor of 300, keeps the two largest (c2, c4); 350/40/320/25 keeps c1, c3.
