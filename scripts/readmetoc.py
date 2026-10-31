@@ -180,6 +180,9 @@ GAME = {
     # colony at bite speed. `engine` because the rule is the species' in
     # every world; the lab is only where it is stocked by hand.
     "the spider: a trained predator, and a meal that takes time": "engine",
+    # Stage 1 of sound is the lab's (`Lab::paint` runs the listener); the
+    # voice bank and listener are engine-shaped, but no other game hears yet.
+    "sound: what the box sounds like": "lab",
 }
 
 TOPICS = {
@@ -445,6 +448,9 @@ TOPICS = {
     "the spider: a trained predator, and a meal that takes time": [
         "Spider status — a trained predator in the box, and a meal that takes time",
         "Nest raider status — a centipede that fits the ants' shaft",
+    ],
+    "sound: what the box sounds like": [
+        "Sound status — the lab box you can hear, and a listener that cannot touch it",
     ],
 }
 
