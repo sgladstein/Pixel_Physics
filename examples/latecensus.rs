@@ -448,17 +448,32 @@ fn main() {
             let mut door_shoot = 0u64;
             let mut fed = 0usize;
             let (mut fed_share, mut fed_shoot) = (0.0f64, 0u64);
+            // Prototype 2 (`find_rich_midden_site`): plants grown from a
+            // carried seed with 20+ shoot cells, and of those the ones with a
+            // root in rich ground; trees and shrubs that size within 64
+            // columns of a nest.
+            let (mut pip_est, mut pip_est_rich, mut door_big) = (0usize, 0usize, 0usize);
             for (_, st) in world.live_organisms() {
                 if world.species.get(st.species).creature.is_some() || st.cells.is_empty() {
                     continue;
+                }
+                let name = world.species.get(st.species).name.as_str();
+                let mx0 = st.cells.keys().map(|&(x, _)| x as f64).sum::<f64>() / st.cells.len() as f64;
+                if st.shoot_cells >= 20 {
+                    if st.pip_delivered {
+                        pip_est += 1;
+                        pip_est_rich += (st.rich_share > 0.0) as usize;
+                    }
+                    if (name == "tree" || name == "shrub") && nest_cols.iter().any(|&c| (mx0 - c as f64).abs() <= 64.0) {
+                        door_big += 1;
+                    }
                 }
                 if st.rich_share > 0.0 {
                     fed += 1;
                     fed_share += f64::from(st.rich_share);
                     fed_shoot += u64::from(st.shoot_cells);
                 }
-                let mx = st.cells.keys().map(|&(x, _)| x as f64).sum::<f64>() / st.cells.len() as f64;
-                if nest_cols.iter().any(|&c| (mx - c as f64).abs() <= 48.0) {
+                if nest_cols.iter().any(|&c| (mx0 - c as f64).abs() <= 48.0) {
                     door_shoot += u64::from(st.shoot_cells);
                 }
             }
@@ -469,6 +484,10 @@ fn main() {
                 world.rich_draws,
                 fed,
                 if fed > 0 { fed_share / fed as f64 } else { 0.0 }
+            );
+            println!(
+                "        seedrich delivered={} on_rich={} moved_to_rich={} pip_est={pip_est} pip_est_rich={pip_est_rich} door_big={door_big}",
+                world.seeds_delivered, world.pips_set_on_rich, world.pips_moved_to_rich
             );
             // **The two numbers that separate the two candidate channels for
             // the 2026-09-12 baseline shift**, measured beside the census

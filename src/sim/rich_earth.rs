@@ -102,6 +102,14 @@ pub fn rich_earth_default() -> RichEarth {
     })
 }
 
+/// **Prototype 2: the colony plants its seeds in its own rich ground.**
+/// `PIXEL_PHYSICS_MIDDEN_RICH=0` turns it off; on by default (UNMEASURED,
+/// 2026-10-31 -- see `plant::find_rich_midden_site`).
+pub fn midden_seeks_rich_default() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIDDEN_RICH").as_deref() != Ok("0"))
+}
+
 /// **The draw step a cell of this richness is drawn at**: 0 plain, 1 half
 /// spent or more, 2 freshly rich. Steps rather than a ramp so a root's
 /// draw repaints the cell only twice over its life.

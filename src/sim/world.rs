@@ -6285,6 +6285,17 @@ pub struct World {
     pub rich_cells_made: u64,
     /// Root draws paid from rich ground rather than from soil nutrient.
     pub rich_draws: u64,
+    /// **Whether a carried seed is set down on rich ground when there is
+    /// some in reach** (`plant::find_rich_midden_site`). Starts at
+    /// `rich_earth::midden_seeks_rich_default()`
+    /// (`PIXEL_PHYSICS_MIDDEN_RICH=0|1`).
+    pub midden_seeks_rich: bool,
+    /// Delivered seeds whose final resting ground is rich, whichever arm put
+    /// them there: the outcome counter, read against `seeds_delivered`.
+    pub pips_set_on_rich: u64,
+    /// Of those, the ones `find_rich_midden_site` moved there: the *it
+    /// fired* counter. Zero with the switch off, by construction.
+    pub pips_moved_to_rich: u64,
     /// Foliage cells the player clipped with the lab's PRUNE brush
     /// (`plant::prune_cell`).
     pub pruned_cells: u64,
@@ -7786,6 +7797,9 @@ impl World {
             rich_earth: crate::sim::rich_earth::rich_earth_default(),
             rich_cells_made: 0,
             rich_draws: 0,
+            midden_seeks_rich: crate::sim::rich_earth::midden_seeks_rich_default(),
+            pips_set_on_rich: 0,
+            pips_moved_to_rich: 0,
             garden_started: 0,
             garden_spread: 0,
             garden_ripened_j: 0,
