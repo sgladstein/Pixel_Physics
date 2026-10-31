@@ -14685,6 +14685,20 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
     // not of the hasher's seed -- the same reason die-back sorts its own
     // candidates.
     let mut cut: Vec<(i32, i32)> = owned.difference(&reached).copied().collect();
+    // **A crown that has lost its anchor is the fall's, not this rule's**
+    // (2026-10-31). `structural::organism_structural_tick` now brings down a
+    // piece cut from a plant that still stands even with the switch off, so
+    // withering the top rows of that piece first would steal cells from the
+    // event the player is meant to see -- the exact theft the early return
+    // above records costing `acceptance.sh`'s `fell` case. What stays here
+    // is tissue still held up (by a stem lying on the ground, say) but cut
+    // from every drinking root: that has nothing to fall from, and dies.
+    if world.plant_cut_falls && state.anchor_cells > 0 {
+        cut.retain(|&(x, y)| world.organism_cell(x, y).is_none_or(|c| c.support != u16::MAX));
+        if cut.is_empty() {
+            return 0;
+        }
+    }
     cut.sort_unstable_by_key(|&(x, y)| (y, x));
     let cap = ((owned.len() as f32 * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
     let mut shed = 0usize;
@@ -22650,9 +22664,14 @@ this costs more than the bug"
     /// and would shed most of it.
     #[test]
     fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
-        /// -> (cells shed as cut off, cells the plant still owns)
-        fn run(cut: bool, load_failure: bool, sap_flow: bool) -> (u64, usize) {
+        /// -> (cells shed as cut off, cells the plant still owns, cells felled)
+        fn run(cut: bool, load_failure: bool, sap_flow: bool, cut_falls: bool) -> (u64, usize, u32) {
             let mut w = test_world();
+            // **The 2026-10-31 rule, pinned per arm.** With it on, a crown
+            // cut from a plant that still stands falls whatever
+            // `plant_load_failure` says, and this rule leaves it to the fall;
+            // the arms that test the wither itself pin it off.
+            w.plant_cut_falls = cut_falls;
             // `plant_cut_off_cells_shed` is world-wide, so it counts every
             // organism in the scene, not only this tree. With
             // `seed_dry_keeps` on, a seed the tree drops onto this test's
@@ -22709,6 +22728,7 @@ this costs more than the bug"
                 }
             }
             let before = w.plant_cut_off_cells_shed;
+            let severed_before = w.structural_failures.severed_living_cells;
             // **Only this tree, every frame of the counted window.** The
             // counter is world-wide and the arms below assert an exact
             // zero, so any seedling in the scene can trip it with a genuine
@@ -22726,7 +22746,11 @@ this costs more than the bug"
                 keep_only(&mut w, id);
                 run_with_fields(&mut w, 1);
             }
-            (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
+            (
+                w.plant_cut_off_cells_shed - before,
+                w.organism(id).map_or(0, |s| s.cells.len()),
+                w.structural_failures.severed_living_cells - severed_before,
+            )
         }
 
         fn keep_only(w: &mut World, id: OrganismId) {
@@ -22749,15 +22773,29 @@ this costs more than the bug"
             }
         }
 
-        let (intact_shed, intact_cells) = run(false, false, false);
-        let (cut_shed, cut_cells) = run(true, false, false);
-        let (felling_shed, felling_cells) = run(true, true, false);
-        let (sap_shed, sap_cells) = run(false, false, true);
+        let (intact_shed, intact_cells, _) = run(false, false, false, true);
+        let (cut_shed, cut_cells, _) = run(true, false, false, false);
+        let (felling_shed, felling_cells, _) = run(true, true, false, true);
+        let (sap_shed, sap_cells, _) = run(false, false, true, true);
+        let (fall_shed, fall_cells, fall_felled) = run(true, false, false, true);
         println!(
             "intact (no falling):  shed {intact_shed}, {intact_cells} cells left\n\
 cut    (no falling):  shed {cut_shed}, {cut_cells} cells left\n\
 cut    (falling on):  shed {felling_shed}, {felling_cells} cells left\n\
-intact (sap flow on): shed {sap_shed}, {sap_cells} cells left"
+intact (sap flow on): shed {sap_shed}, {sap_cells} cells left\n\
+cut    (no falling, cut falls): shed {fall_shed}, felled {fall_felled}, {fall_cells} cells left"
+        );
+
+        // **A cut is not a load** (2026-10-31): with COLLAPSE UNDER LOAD off
+        // and `plant_cut_falls` on, the crown comes down as it does with the
+        // switch on, and this rule keeps out of its way exactly as it does
+        // there. Before it, this arm was `cut (no falling)` above: the crown
+        // hung in the air and was shed a few cells a tick from the top,
+        // which is the owner's floating tree.
+        assert!(
+            fall_felled > 0 && fall_shed == 0,
+            "with load failure off and cut crowns falling, the cut crown was felled {fall_felled} and shed \
+{fall_shed}. It should come down (felled > 0) and not be withered first (shed 0)."
         );
 
         // **The specificity half.** Nothing severed anything, so this rule
