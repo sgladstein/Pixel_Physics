@@ -105,7 +105,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
         },
         DemoSeat::Scout => SeatCard {
             title: "SCOUT -- ONE WORKER WHO KNOWS THE WAY",
-            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST, SEALED: ONLY AN ANT WHO WAS LED THERE CAN CARRY FROM IT. TAP A SISTER AND LEAD HER, AND WHEN SHE STOPS, WAIT. YOUR PUPILS LEAD SISTERS OF THEIR OWN.",
+            goal: "THE NEAR FOOD HAS STOPPED: A LEAN SEASON. FOOD LIES FAR TO THE EAST, SEALED: ONLY AN ANT WHO WAS LED THERE CAN CARRY FROM IT. LEAD A SISTER ALL THE WAY FROM THE NEST; A SHORT LEAD TEACHES LITTLE. WHEN SHE STOPS, WAIT. HER PUPILS LEAD THEIR OWN.",
             score: "FOOD YOUR PUPILS BRING HOME: 1 A TRIP, 2 FOR THEIR PUPILS, 3 AFTER THAT",
             lose: "FEWER THAN 1 IN 5 OF THE COLONY ALIVE AT SPRING, OR YOU STARVE",
             keys: &[
@@ -113,11 +113,11 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("TAB", "CAMERA FOLLOWS YOU"),
                 ("Y", "TAP A SISTER TO FOLLOW"),
                 ("U", "PIN YOUR PUPIL"),
+                ("K", "LET YOUR PUPIL GO"),
                 ("P", "SNIFF NEAREST SISTER"),
                 ("F", "SHARE FOOD"),
                 ("G", "DIG"),
                 ("E", "EAT"),
-                ("Q", "DROP WHAT YOU CARRY"),
                 ("R", "NEW SEASON"),
             ],
         },

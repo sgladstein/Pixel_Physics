@@ -226,6 +226,16 @@ fn probe_report(w: &World, rows: &std::collections::BTreeMap<OrganismId, AntRow>
     let _ = w;
 }
 
+/// A tap's outcome as the `tap outcomes` line counts it.
+fn tap_key(r: scout::SeatTap) -> String {
+    match r {
+        scout::SeatTap::Tap(TapResult::Refused(_, why)) => format!("Refused {why:?}"),
+        scout::SeatTap::Tap(TapResult::Accepted(_)) => "Accepted".to_string(),
+        scout::SeatTap::Tap(TapResult::NoOne) => "NoOne".to_string(),
+        scout::SeatTap::TurnedAway(_) => "Refused TurnedAway".to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Plan {
     Home,
@@ -246,8 +256,17 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(if stakes { season + 60 } else { 36_000 });
     let oldant = arg::<u8>("oldant").unwrap_or(0) == 1;
     let every: u64 = arg("every").unwrap_or(3_000);
-    let rude = arg::<u8>("rude").unwrap_or(0) == 1;
+    let rude2 = arg::<u8>("rude").unwrap_or(0) == 2;
+    let rude = arg::<u8>("rude").unwrap_or(0) >= 1;
+    let camp = arg::<u8>("camp").unwrap_or(0) == 1;
+    let campx: i32 = arg("campx").unwrap_or(16);
+    let campin: i32 = arg("campin").unwrap_or(3);
     let c: Option<f32> = arg("c");
+    // `letgo=N`: the patient player uses the seat's `K` -- a pupil she has waited on N frames with no closing is let
+    // go (the seat's lag-hold gives up at `scout::HOLD_TIMEOUT` and says so). Off by default: the builder's play.
+    let letgo: Option<u64> = arg("letgo");
+    let mut wait_since: Option<(u64, i32)> = None;
+    let mut let_gos = 0u32;
     let trace = arg::<u8>("trace").unwrap_or(0) == 1;
     println!(
         "scoutdemo arm={} seed={seed} start={start} frames={frames} every={every} rude={rude} c={c:?} gain={:?} stakes={stakes} season={season} floor={:?} oldant={oldant} off={:?} sealed={:?}",
@@ -262,6 +281,7 @@ fn main() {
     sc.bed.seed = seed;
     let mut lab = Lab::new(sc.bed.clone());
     lab.load_scenario(sc);
+    let (full_w0, full_h0) = (pixel_physics::lab::WIDTH, pixel_physics::lab::HEIGHT);
     if !oldant {
         lab.set_new_ant(true);
     }
@@ -309,6 +329,24 @@ fn main() {
     lab.demo = Some(demo);
     // The seat's own season start: the near trickle stops here, as in the binary.
     scout::start_season(&mut lab);
+    // `cardshot=x.png`: the seat card over the box at the hand-over, as the window opens it.
+    if let Some(path) = arg::<String>("cardshot") {
+        lab.show_help = false;
+        if let Some(d) = lab.demo.as_mut() {
+            d.window = true;
+        }
+        lab.open_seat_card(false);
+        let mut full = vec![0u8; (full_w0 * full_h0 * 4) as usize];
+        lab.draw(&mut full, 60.0);
+        match image::RgbaImage::from_raw(full_w0, full_h0, full).map(|img| img.save(&path)) {
+            Some(Ok(())) => println!("cardshot -> {path}"),
+            other => eprintln!("scoutdemo: cardshot failed: {other:?}"),
+        }
+        lab.close_seat_card();
+        if let Some(d) = lab.demo.as_mut() {
+            d.window = false;
+        }
+    }
     lab.world.death_log = Some(Vec::new());
     let Some(player) = scout::pick_body(&lab.world) else {
         println!("no player body: {alive0} ants alive at {start}");
@@ -386,7 +424,26 @@ fn main() {
                 gaps[(g as usize).min(7)] += 1;
             }
         }
-        let dir: Option<(i8, i8)> = match plan {
+        // ADVERSARIAL SCRATCH: `camp=1` -- she never leads. She walks to the heap's west foot once and stands there,
+        // pressing Y every 30 frames on whoever comes by (the sisters the seal turns away walk west, past her).
+        let camp_dir = camp.then(|| {
+            // With a pupil in tow she steps the few cells into the heap's columns; else back to her post.
+            let post = if pairs.is_empty() { heap_x - campx } else { heap_x - campin };
+            if (at.0 - post).abs() > 1 {
+                Some(((post - at.0).signum() as i8, 0))
+            } else if !pairs.is_empty() {
+                None
+            } else {
+                if w.frame.is_multiple_of(30) {
+                    // Through the seat's own `Y` (`scout::tap_for`), so the harness is refused what the window refuses.
+                    let r = scout::tap_for(w, lab.demo.as_mut().and_then(|d| d.scout.as_mut()), player);
+                    *refusals.entry(tap_key(r)).or_insert(0u32) += 1;
+                    lab.ui.say(scout::tap_line(r));
+                }
+                None
+            }
+        });
+        let dir: Option<(i8, i8)> = if let Some(d) = camp_dir { d } else { match plan {
             Plan::Home => {
                 if (at.0 - TAP_X).abs() <= 3 {
                     plan = Plan::Tapping;
@@ -409,13 +466,12 @@ fn main() {
             Plan::Tapping => {
                 if w.frame.is_multiple_of(30) {
                     tap_tries += 1;
-                    let r = tandem::tap(w, player);
-                    *refusals.entry(format!("{:?}", r).split('(').next().unwrap_or("").to_string() + &match r {
-                        TapResult::Refused(_, why) => format!(" {why:?}"),
-                        _ => String::new(),
-                    }).or_insert(0u32) += 1;
+                    // Through the seat's own `Y` (`scout::tap_for`), so the harness is refused what the window refuses.
+                    let r = scout::tap_for(w, lab.demo.as_mut().and_then(|d| d.scout.as_mut()), player);
+                    *refusals.entry(tap_key(r)).or_insert(0u32) += 1;
+                    lab.ui.say(scout::tap_line(r));
                     match r {
-                        TapResult::Accepted(_) => plan = Plan::Leading,
+                        scout::SeatTap::Tap(TapResult::Accepted(_)) => plan = Plan::Leading,
                         _ if tap_tries > 20 => plan = Plan::Leading,
                         _ => {}
                     }
@@ -429,11 +485,30 @@ fn main() {
                     None
                 } else {
                     // A patient leader stands while any pupil lags, stops or searches; a rude one never does.
-                    let wait = !rude
+                    // ADVERSARIAL SCRATCH: `rude=2` is a human holding the arrow down in the binary: she never waits
+                    // on her own, but the seat's frame hook (`scout::frame`) holds her step while a Following pupil
+                    // is 3+ cells back -- which this harness, calling only `tick_for_harness`, never applies.
+                    let held_by_seat = rude2
+                        && pairs.iter().any(|p| matches!(p.phase, Phase::Following) && tandem::contact_gap(w, p.follower, player).is_some_and(|g| g >= 3));
+                    let wait = held_by_seat || (!rude
                         && pairs.iter().any(|p| {
                             let g = tandem::contact_gap(w, p.follower, player).unwrap_or(99);
                             !matches!(p.phase, Phase::Following) || g >= 3
-                        });
+                        }));
+                    let g_min = pairs.iter().filter_map(|p| tandem::contact_gap(w, p.follower, player)).min().unwrap_or(99);
+                    if wait {
+                        let (since, best) = wait_since.get_or_insert((w.frame, g_min));
+                        if g_min < *best {
+                            (*since, *best) = (w.frame, g_min);
+                        }
+                        if letgo.is_some_and(|n| w.frame.saturating_sub(*since) > n) {
+                            scout::let_go_nearest(w, player);
+                            let_gos += 1;
+                            wait_since = None;
+                        }
+                    } else {
+                        wait_since = None;
+                    }
                     if wait {
                         None
                     } else if (heap_x - at.0).abs() <= 8 {
@@ -445,7 +520,7 @@ fn main() {
                     }
                 }
             }
-        };
+        } };
         // The headless player eats at the heap (the E key: pick up, or eat from the crop), as a person would.
         let hungry = w.organism(player).is_some_and(|s| s.energy < 1_500.0);
         let food_near = w.materials.id_of("provisions").is_some_and(|f| (-3..=3).any(|dx| (-3..=3).any(|dy| w.get(at.0 + dx, at.1 + dy).material == f)));
@@ -487,11 +562,11 @@ fn main() {
         // pressing Up would; a real player reads the screen instead.
         // Progress is getting nearer the goal column, not merely moving: a chain that turns round in place moves
         // its head every decision and gets nowhere.
-        let goal = match plan {
+        let goal = if camp { if pairs.is_empty() { heap_x - campx } else { heap_x - campin } } else { match plan {
             Plan::Home => TAP_X,
             Plan::Tapping => NEST_X,
             Plan::Leading => heap_x - 8 * (heap_x - TAP_X).signum(),
-        };
+        } };
         let dist = (goal - at.0).abs();
         if dir.is_none() || dist < best_dist || goal != last_goal {
             best_dist = dist;
@@ -511,6 +586,28 @@ fn main() {
         if let Some(st) = w.steered.as_mut() {
             st.input = Some(SteerInput { dir, eat, dig: boxed && !eat, ..SteerInput::default() });
         }
+        // ADVERSARIAL SCRATCH: `cheat=F` -- F frames into the season the player arms the lab's own COLONY tool
+        // (toolbar C), sets the stock to 52 and clicks the ground east of the nest, as the window would.
+        if arg::<u64>("cheat").is_some_and(|f| lab.world.frame == start + f) {
+            use pixel_physics::lab::ui::{Action, Tool};
+            lab.show_help = false;
+            lab.act(Action::Tool(Tool::Colony));
+            for _ in 0..8 {
+                lab.act(Action::Stock(1));
+            }
+            while lab.ui.stock() > 52 {
+                lab.act(Action::Stock(-1));
+            }
+            let wx = NEST_X + 40;
+            let wy = lab.world.room_surface_at(wx).unwrap_or(150) - 2;
+            lab.renderer.set_camera(wx - span_x / 2, wy - span_y / 2, (full_w, full_h), Some(bounds));
+            let (x0, y0, x1, y1, _) = lab.renderer.world_rect_to_logical(wx, wy, wx, wy);
+            let (lx, ly) = ((x0 + x1) / 2, (y0 + y1) / 2);
+            let before = scout::ants(&lab.world).len();
+            lab.press(lx, ly);
+            lab.release(lx, ly);
+            println!("CHEAT frame {}: COLONY tool, stock {}, click at logical ({lx},{ly}) world ({wx},{wy}): ants {before} -> {}", lab.world.frame, lab.ui.stock(), scout::ants(&lab.world).len());
+        }
         if off {
             lab.world.tandem = None;
         }
@@ -524,7 +621,9 @@ fn main() {
         if probe && lab.world.frame.is_multiple_of(30) {
             probe_tick(&lab.world, &mut ants_seen, &mut gate_rows, player, &mut casc, heap_x);
         }
-        if gif && (lab.world.frame - start).is_multiple_of(shot) && lab.world.frame >= arg::<u64>("gifstart").unwrap_or(0) {
+        // `pngat=F1,F2 pngout=PREFIX`: single PNGs at those world frames, framed as the GIF's shots are.
+        let png_now = arg::<String>("pngat").is_some_and(|l| l.split(',').any(|f| f.parse::<u64>().ok() == Some(lab.world.frame)));
+        if png_now || (gif && (lab.world.frame - start).is_multiple_of(shot) && lab.world.frame >= arg::<u64>("gifstart").unwrap_or(0)) {
             // `cam=cascade`: on a pupil leading a sister of her own while one is under way (round 2's picture).
             let casc_leader = (arg::<String>("cam").as_deref() == Some("cascade"))
                 .then(|| lab.world.tandem.as_deref().and_then(|t| t.pairs.iter().find(|p| p.cascade).map(|p| p.leader)))
@@ -538,7 +637,15 @@ fn main() {
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);
             if let Some(img) = image::RgbaImage::from_raw(full_w, full_h, full) {
-                shots.push(img);
+                if png_now {
+                    let path = format!("{}-f{}.png", arg::<String>("pngout").unwrap_or_else(|| "target/scoutdemo".into()), lab.world.frame);
+                    match img.save(&path) {
+                        Ok(()) => println!("png -> {path}"),
+                        Err(e) => eprintln!("scoutdemo: png failed: {e}"),
+                    }
+                } else {
+                    shots.push(img);
+                }
             }
         }
         if (lab.world.frame - start).is_multiple_of(every) {
@@ -602,13 +709,13 @@ fn main() {
             None => "none".to_string(),
         };
         println!(
-            "SEASON seed={seed} rude={rude} off={off} sealed={} colony={} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0} seal: carried {} turned_away {} ants_turned {} leaks {}",
+            "SEASON seed={seed} rude={rude} camp={camp} off={off} sealed={} colony={} alive_end={} alive0={alive0} low={} outcome={out} harvest={} gen={:?} stores={:.0} seal: carried {} turned_away {} ants_turned {} leaks {}",
             sd.heap_sealed,
             // Held or fell under the floor at some 30-frame check, whatever ended the seat's season first (her own
             // death ends the card, not the colony's season).
             // Sealed, the seat judges at spring: the colony at the season's end against the floor.
-            if (if sd.heap_sealed { scout::ants(&lab.world).len() } else { sd.low }) < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
-            scout::ants(&lab.world).len(),
+            if (if sd.heap_sealed { scout::colony_alive(&lab) } else { sd.low }) < (sd.alive_at_start as f32 * sd.floor).ceil() as usize { "fell" } else { "held" },
+            scout::colony_alive(&lab),
             sd.low,
             sd.harvest,
             sd.by_gen,
@@ -617,6 +724,21 @@ fn main() {
             sd.seal.turned_away,
             sd.seal.turned_ids.len(),
             sd.seal.leaks
+        );
+    }
+    if let Some(sd) = lab.demo.as_ref().and_then(|d| d.scout.as_ref()) {
+        // **The lessons, graded** (review 2026-10-31, B1): how strong the season's lessons were, in tenths.
+        let t = lab.world.tandem.as_ref().unwrap();
+        let mut tenths = [0u32; 11];
+        for &l in t.lessons.values() {
+            tenths[((l * 10.0).floor() as usize).min(10)] += 1;
+        }
+        let colonies: std::collections::BTreeSet<u32> = scout::ants(&lab.world).iter().filter_map(|&i| lab.world.organism(i)).map(|s| s.colony).collect();
+        println!(
+            "LESSONS tenths {tenths:?} | taps refused turned-away {} | let-gos {let_gos} | colonies in box {colonies:?}, hers {:?}, all ants {}",
+            sd.seal.tap_refused,
+            sd.colony,
+            scout::ants(&lab.world).len()
         );
     }
     if probe {
