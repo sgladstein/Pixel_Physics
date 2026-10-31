@@ -330,3 +330,43 @@ above or here; the build follows this section where the two differ.
 16. `draw_layered` returns early when the interface is not due
     (`src/lab/mod.rs:2466`); the creature layer is painted before that
     return and carries its own repainted flag for the upload.
+
+## 10. Round 2: the owner turned down all three, and why that changes the design
+
+**Owner, 2026-10-31 14:19Z:** *"None of these do it for me. They are too much
+just a static image on top that rotates (although I do like how you can tell
+which direction the ant is facing). I want something more fluid. It doesn't
+have to look like a real life ant."*
+
+So §4.4's pre-drawn rigid masks are the wrong primitive. What survives:
+the creature layer (§4.1, §9), hiding the cells (§4.2, §9 items 5-6), the
+per-ant visual state (§4.3) and the guard (§6). What changes is the body:
+
+- **Motion is a spring, not a lerp.** The drawn head chases the ant's cell
+  position on a critically damped spring (period ~9 frames in the mock-up),
+  so a walk is one continuous curve rather than slide-stop-slide. Snap rule
+  unchanged (more than three cells).
+- **The body is a chain of nodes that follows the head's path**
+  (follow-the-leader, six nodes 0.42 cells apart), so a turn bends through the
+  body instead of rotating a picture. This is render-side only and is not the
+  articulated body of `creature-articulated-body-2026-09-09.md`, which was
+  sim-side and could not walk.
+- **The face is kept** (eyes or an arrow at the head), because the owner
+  named facing as the one thing he liked.
+
+Three looks on the page, 240 frames (45,000-45,240), as video. **Blind key:**
+D = goo (metaball blobs per body node; neighbours merge into one mass; eyes on
+each head); E = noodle (tapered swaying chain with a shadow and eyes);
+F = comet (an arrow head with a ~32-frame glowing trail). Stand-out per ant,
+close / play / whole box: today 134 / 163 / 169; **D 209 / 314 / 596**;
+E 144 / 240 / 534; F 134 / 217 / 491.
+
+**Cost difference to settle before building:** E and F are a handful of
+discs or line segments per ant. D is a field summed over every node's
+neighbourhood and thresholded per pixel, bounded by the union of ant boxes;
+at play zoom that is ~230 ants x 5 nodes x ~(2.6 x 0.5 x 4 x 2)^2 px. It must
+be measured on the 250-ant bed (§7) before it ships as a default.
+
+Awaiting the owner's pick (decision card, 2026-10-31). The mock-up scripts
+are in the thread's scratch space, not the repo; `examples/antlook_dump.rs`
+is what they read.
