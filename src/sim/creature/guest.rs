@@ -133,9 +133,77 @@ const WARY_ANT_MAX: f32 = 1.0;
 /// 45-110 s on four seeds (18-27 nips each), which read as a trap rather
 /// than as greed catching up with you.
 const WARY_ROLL_SHARE: f32 = 0.5;
-/// A rub takes this much off the colony's wariness, and halves the rubbed
-/// ant's own: grooming is how a guest buys trust back.
+/// What a rub takes off the colony's wariness -- **now only after a quiet
+/// spell** ([`WARY_RUB_QUIET`]). Before 2026-10-31 every rub took it off: a
+/// rub refunding more than a beg charged (0.08 against 0.06) let a player
+/// alternating R and Y as fast as the keys allow beg three times a second
+/// for free -- the 10-31 adversarial review's "mash" out-egged the careful
+/// player 225 to 85 on seeds 13-24. A rub always halves the rubbed ant's
+/// own term: grooming buys back *that ant's* trust.
 pub const WARY_RUB_CALM: f32 = 0.08;
+/// **A rub calms the colony only once you have stopped asking** for this
+/// long (2.5 s, longer than the ask gap): a beg, or a too-soon press, inside
+/// it and the rub calms only its ant. So "space your asks and rub in
+/// between" pays, and R between asks every 1.5 s does not. Tried first with
+/// no colony calm at all (`rub_calm` 0): the careful script's income fell to
+/// 1 J/s against a 2.6 J/s burn (seed 25: 8 gifts in 192 s, 187 J) while the
+/// masher still out-scored it -- only time calmed the colony, and that
+/// starved the player who waited for it.
+pub const WARY_RUB_QUIET: u64 = 150;
+/// **One ask per this many frames across the whole colony** (1.5 s), not per
+/// ant: the per-ant cooldown alone let rubs and begs go to different ants.
+pub const WARY_ASK_GAP: u64 = 90;
+/// A beg pressed inside the ask gap asks nobody and the
+/// colony notices: half a real ask's colony cost. Pestering is not free.
+pub const WARY_PESTER: f32 = 0.03;
+/// **A rub that costs time** -- the rove busy grooming this long, no beg or
+/// rub until it ends -- **tried and off** (`WaryKnobs::rub_busy` 0). At 60
+/// frames on seeds 25-26 every script, the careful one included, lost all
+/// three roves inside 40 s: rubbing is also how a raw rove takes the smell
+/// in its first 20 s, and a second per rub tripled the time it stood at the
+/// door smelling wrong (11 rubs in 33 s against hundreds a visit before).
+/// With the colony refund gone (`rub_calm` 0) interleaving buys nothing, so
+/// the time cost had nothing left to stop. Kept as a knob (`rub_busy=`).
+pub const WARY_RUB_BUSY: u64 = 60;
+/// A gift from a wary ant is smaller: it gives `1 - term` of the droplet,
+/// never under this share. Graded, and printed in joules on the ledger.
+pub const WARY_GIFT_MIN: f32 = 0.2;
+
+/// **The wariness rules a seat turns on** (guest seat, 2026-10-31). Each one
+/// is a knob so the seat's paired table can run the old rules beside the new
+/// in one binary ([`WaryKnobs::legacy`] is the seat as it was on 10-30).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaryKnobs {
+    /// Frames between two asks, colony-wide ([`WARY_ASK_GAP`]; 0 = none).
+    pub ask_gap: u64,
+    /// Colony wariness a too-soon beg adds ([`WARY_PESTER`]).
+    pub pester: f32,
+    /// Frames a rub keeps the rove busy ([`WARY_RUB_BUSY`]; 0 = none).
+    pub rub_busy: u64,
+    /// What a rub takes off the colony term ([`WARY_RUB_CALM`]) ...
+    pub rub_calm: f32,
+    /// ... once no beg was pressed for this many frames ([`WARY_RUB_QUIET`];
+    /// 0 = every rub, the 10-30 rule).
+    pub quiet: u64,
+    /// What one ask adds to the colony term ([`WARY_BEG_COLONY`]).
+    pub beg_colony: f32,
+    /// A wary ant's gift shrinks with its wariness ([`WARY_GIFT_MIN`]).
+    pub gift_by_calm: bool,
+}
+
+impl Default for WaryKnobs {
+    fn default() -> Self {
+        Self { ask_gap: WARY_ASK_GAP, pester: WARY_PESTER, rub_busy: 0, rub_calm: WARY_RUB_CALM, quiet: WARY_RUB_QUIET, beg_colony: WARY_BEG_COLONY, gift_by_calm: true }
+    }
+}
+
+impl WaryKnobs {
+    /// The rules as they shipped on 2026-10-30: no colony gap, no grooming
+    /// time, a rub refunding [`WARY_RUB_CALM`], gifts at full size.
+    pub fn legacy() -> Self {
+        Self { ask_gap: 0, pester: 0.0, rub_busy: 0, rub_calm: WARY_RUB_CALM, quiet: 0, beg_colony: WARY_BEG_COLONY, gift_by_calm: false }
+    }
+}
 
 const RNG_SLOT_LADDER: u64 = 50;
 const RNG_SLOT_PICK: u64 = 51;
@@ -217,6 +285,9 @@ pub struct VisitCounts {
     pub fed_j: f64,
     pub refused: u64,
     pub empty: u64,
+    /// Begs pressed inside the colony's ask gap or while grooming (stakes
+    /// only): nobody was asked, and the colony grew warier.
+    pub too_soon: u64,
     pub larvae_killed: u64,
     pub corpses_eaten: u64,
     pub eaten_j: f64,
@@ -244,11 +315,24 @@ pub struct VisitEvent {
 /// roll lands on the nip side once the sum passes the nip line. Stored with
 /// the frame it was last written and faded lazily on read, so an idle guest
 /// costs nothing per tick.
+///
+/// **2026-10-31** ([`WaryKnobs`]): one ask per [`WARY_ASK_GAP`] across the
+/// whole colony, a beg pressed too soon charged as pestering, a rub that
+/// calms the colony only after [`WARY_RUB_QUIET`] without a beg, and a wary
+/// ant's gift shrunk by its wariness.
 #[derive(Clone, Debug, Default)]
 pub struct Wariness {
     colony: f32,
     colony_at: u64,
     ants: crate::sim::fxhash::FxHashMap<OrganismId, (f32, u64)>,
+    /// The frame of the last ask of any ant, for the colony-wide gap.
+    last_ask: Option<u64>,
+    /// No beg or rub goes through before this frame: the rove is grooming.
+    busy_until: u64,
+    /// The frame of the last beg pressed with an ant beside (an ask or a
+    /// too-soon press), for the rub's quiet spell.
+    last_press: Option<u64>,
+    pub knobs: WaryKnobs,
 }
 
 fn faded(v: f32, at: u64, now: u64, tau_s: f32) -> f32 {
@@ -282,10 +366,32 @@ impl Wariness {
         }
     }
 
-    /// A rub of `ant`: the colony calms by [`WARY_RUB_CALM`], the ant halves.
+    /// Wariness with these rules.
+    pub fn with(knobs: WaryKnobs) -> Self {
+        Self { knobs, ..Self::default() }
+    }
+
+    /// A rub of `ant`: the ant's own term halves, the colony's falls by the
+    /// knob's `rub_calm` if no beg was pressed in the last `quiet` frames,
+    /// and the rove is busy grooming for `rub_busy` (0 by default).
     pub fn calm(&mut self, now: u64, ant: OrganismId) {
         let own = self.ant(ant, now);
-        self.add(now, Some(ant), -WARY_RUB_CALM, -0.5 * own);
+        let quiet = self.last_press.is_none_or(|t| now >= t + self.knobs.quiet);
+        let colony = if quiet { self.knobs.rub_calm } else { 0.0 };
+        self.add(now, Some(ant), -colony, -0.5 * own);
+        self.busy_until = self.busy_until.max(now + self.knobs.rub_busy);
+    }
+
+    /// Frames until a beg can go through: the colony's ask gap and the
+    /// grooming, whichever ends later. 0 = ready. What the HUD prints.
+    pub fn ask_wait(&self, now: u64) -> u64 {
+        let gap = self.last_ask.map_or(0, |t| (t + self.knobs.ask_gap).saturating_sub(now));
+        gap.max(self.busy_until.saturating_sub(now))
+    }
+
+    /// Frames until a rub can go through (the grooming). 0 = ready.
+    pub fn rub_wait(&self, now: u64) -> u64 {
+        self.busy_until.saturating_sub(now)
     }
 
     fn prune(&mut self, now: u64) {
@@ -732,6 +838,10 @@ pub fn tick(world: &mut World) {
 /// but a hostile ant can still nip). Returns whether an ant was rubbed.
 pub fn rub(world: &mut World, host: SpeciesId, guest: OrganismId) -> bool {
     let frame = world.frame;
+    // Still grooming the last ant (stakes, [`WaryKnobs::rub_busy`]).
+    if world.visitors.as_ref().and_then(|v| v.wary.as_ref()).is_some_and(|w| w.rub_wait(frame) > 0) {
+        return false;
+    }
     let ready = |w: &World, a: OrganismId| w.visitors.as_ref().is_none_or(|v| v.marks.get(&a).is_none_or(|m| frame >= m.rub_until));
     let Some((ant, at, gcell)) = ants_beside(world, host, guest).into_iter().find(|e| ready(world, e.0)) else { return false };
     let (Some(mine), Some(hers)) = (visitor_scent(world, guest), world.organism(ant).map(|s| scent_of(&s.traits))) else { return false };
@@ -772,6 +882,21 @@ pub fn beg(world: &mut World, host: SpeciesId, guest: OrganismId) -> f32 {
     let frame = world.frame;
     let ready = |w: &World, a: OrganismId| w.visitors.as_ref().is_none_or(|v| v.marks.get(&a).is_none_or(|m| frame >= m.rub_until));
     let Some((ant, at, gcell)) = ants_beside(world, host, guest).into_iter().find(|e| ready(world, e.0)) else { return 0.0 };
+    // **Too soon** (stakes, 2026-10-31): inside the colony's ask gap or while
+    // grooming, nobody is asked and the colony notices. Checked after an ant
+    // is found, so a beg with nobody beside you is not pestering anyone.
+    if let Some(v) = world.visitors.as_mut() {
+        if let Some(w) = v.wary.as_mut() {
+            w.last_press = Some(frame);
+            if w.ask_wait(frame) > 0 {
+                let pester = w.knobs.pester;
+                w.add(frame, None, pester, 0.0);
+                v.counts.too_soon += 1;
+                return 0.0;
+            }
+            w.last_ask = Some(frame);
+        }
+    }
     if let Some(v) = world.visitors.as_mut() {
         v.counts.begs += 1;
     }
@@ -806,13 +931,17 @@ pub fn beg(world: &mut World, host: SpeciesId, guest: OrganismId) -> f32 {
     let Some(vs) = visitor_scent(world, guest) else { return 0.0 };
     let Some((g, _)) = gap(world, ant, vs) else { return 0.0 };
     // The wariness this ask meets is read before the ask adds its own.
-    let g_eff = g + pick(world, ant) + wary_term(world, ant);
+    let term = wary_term(world, ant);
+    let g_eff = g + pick(world, ant) + term;
     let p = (1.2 - g_eff).clamp(0.0, 1.0);
+    // A wary ant gives a crumb, a calm one the whole droplet (stakes).
+    let scale = world.visitors.as_ref().and_then(|v| v.wary.as_ref()).filter(|w| w.knobs.gift_by_calm).map_or(1.0, |_| (1.0 - term).clamp(WARY_GIFT_MIN, 1.0));
     if let Some(w) = world.visitors.as_mut().and_then(|v| v.wary.as_mut()) {
-        w.add(frame, Some(ant), WARY_BEG_COLONY, WARY_BEG_ANT);
+        let colony = w.knobs.beg_colony;
+        w.add(frame, Some(ant), colony, WARY_BEG_ANT);
     }
     if rng::stream(world.seed, ant as u64, frame, RNG_SLOT_BEG).unit_f32() < p {
-        let amount = (BEG_SHARE * spare).min(BEG_MAX);
+        let amount = (BEG_SHARE * spare).min(BEG_MAX) * scale;
         if let Some(s) = world.organism_mut(ant) {
             s.energy -= amount;
         }
@@ -1104,6 +1233,52 @@ mod tests {
             let after = w.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|x| x.term(ant, now)).expect("on");
             assert!(after < faded_only - 0.05 && faded_only <= before, "a rub did not calm: {before} -> faded {faded_only} -> rubbed {after}");
         }
+    }
+
+    /// **Mashing R and Y no longer pays for itself** (10-31 review): under
+    /// the legacy rules, alternating a rub and a beg every 10 frames leaves
+    /// the colony term at 0 (the rub refunds 0.08 against the beg's 0.06) --
+    /// the positive control that this test sees the refund. Under the
+    /// default rules the same presses must leave the colony warier, ask far
+    /// fewer times (one per [`WARY_ASK_GAP`], none while grooming), and count
+    /// the swallowed presses as `too_soon`. Watched red with `rub_calm` set
+    /// back to [`WARY_RUB_CALM`] in `WaryKnobs::default`.
+    #[test]
+    fn mashing_rub_and_beg_is_paced_and_charged_not_refunded() {
+        let run = |knobs: WaryKnobs| {
+            let (mut w, rove, ant, host) = rove_beside_ant();
+            let home = scent_of(&w.organism(ant).expect("ant").traits);
+            register(&mut w, host, rove, home);
+            w.visitors.as_mut().expect("on").wary = Some(Wariness::with(knobs));
+            let grant = w.species.creature_shared(host).expect("creature").start_energy;
+            // Odd count: it ends on a rub, the refund the legacy arm shows.
+            for i in 0..37u64 {
+                if w.organism(rove).is_none() {
+                    break;
+                }
+                w.organism_mut(ant).expect("ant").energy = 3.0 * grant;
+                // One ant beside, so its own cooldown alone would pace the
+                // presses: cleared before each, as if a fresh ant stood there
+                // every time (the crowd a masher meets at the door).
+                if let Some(m) = w.visitors.as_mut().and_then(|v| v.marks.get_mut(&ant)) {
+                    m.rub_until = 0;
+                }
+                if i % 2 == 0 {
+                    rub(&mut w, host, rove);
+                } else {
+                    beg(&mut w, host, rove);
+                }
+                w.frame += 10;
+            }
+            let now = w.frame;
+            let c = w.visitors.as_ref().expect("on").counts;
+            (w.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|x| x.colony(now)).expect("on"), c.begs, c.too_soon)
+        };
+        let (legacy_colony, legacy_begs, legacy_soon) = run(WaryKnobs::legacy());
+        let (colony, begs, soon) = run(WaryKnobs::default());
+        assert!(legacy_colony < 0.02 && legacy_soon == 0 && legacy_begs >= 15, "test setup: the legacy rules did not refund a masher ({legacy_colony}, {legacy_begs} begs, {legacy_soon} too soon)");
+        assert!(colony > 0.1, "rubs still refund the colony's wariness: {colony}");
+        assert!(soon > 0 && begs < legacy_begs, "the pacing did not swallow presses: {begs} begs, {soon} too soon, against {legacy_begs}");
     }
 
     /// **A rub moves the guest's scent four times as far as the ant's**
