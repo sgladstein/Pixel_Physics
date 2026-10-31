@@ -268,8 +268,7 @@ pub fn draw(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
         hc.text(frame_buf, kx + KEY_W, ky, what, INK);
     }
     y += ROW * rows as i32 + 6;
-    let foot = "PRESS SPACE TO PLAY -- ANY KEY CLOSES THIS CARD";
-    hc.text(frame_buf, PANEL_X + (PANEL_W - text_width(foot)) / 2, y, foot, MUTED);
+    hc.text(frame_buf, PANEL_X + (PANEL_W - text_width(FOOT)) / 2, y, FOOT, MUTED);
 }
 
 /// **The reminder while the card is shut**: one short line, top right, so
@@ -279,7 +278,7 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     if demo.card {
         return;
     }
-    let t = "H: GOAL AND KEYS";
+    let t = "H: GOAL AND KEYS   \\: DEMOS";
     let w = text_width(t) + 8;
     let x = super::super::WIDTH as i32 - w - 4;
     let y = REMINDER_Y;
@@ -287,6 +286,11 @@ pub fn draw_reminder(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
     hc.blend_rect(frame_buf, x, y, w, GLYPH_HEIGHT + 2, [12, 14, 18, 255], 0.6);
     hc.text(frame_buf, x + 4, y + 1, t, MUTED);
 }
+
+/// **The card's last line.** `\\` is the DEMOS page (`menu`): another seat,
+/// or back to the plain lab. Here rather than in `SHARED_KEYS`, where a
+/// fourth key row put the satchel's card under the bar.
+const FOOT: &str = "SPACE PLAYS -- \\ OTHER DEMOS OR THE LAB -- ANY OTHER KEY CLOSES";
 
 /// The reminder's top edge: the row of the lab's own FRAME counter, above
 /// where every seat's panel starts (the queen's ledger and the scout's panel
@@ -308,6 +312,7 @@ mod tests {
             let bottom = PANEL_Y + panel_height(&c);
             assert!(bottom <= crate::lab::ui::bar_top() - 4, "{seat:?}: card runs to {bottom}, under the bar");
             assert!(text_width(c.title) <= PANEL_W - 2 * PAD, "{seat:?}: title too wide");
+            assert!(text_width(FOOT) <= PANEL_W - 2 * PAD, "the footer is wider than the card");
             for (k, what) in all_keys(&c) {
                 assert!(text_width(k) + 4 <= KEY_W, "{seat:?}: key label {k} too wide");
                 assert!(what.len() <= KEY_DESC_MAX, "{seat:?}: '{what}' is {} > {KEY_DESC_MAX}", what.len());
