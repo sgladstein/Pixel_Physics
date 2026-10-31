@@ -799,16 +799,11 @@ impl Handler {
             }
             KeyCode::Slash => self.lab.act(Action::Help),
             // **`` ` `` -- the ant picker** (owner, 2026-10-31: switch ants
-            // while playing). One of the four keys that were still unbound in
-            // this match (`` ` ``, `\`, `F11`, `F12`), and the one a hand on
-            // the number row reaches without looking; SHIFT steps back. The
-            // seat demos' key layer passes it through.
+            // while playing). One of the four keys still unbound in this
+            // match (`` ` ``, `\`, `F11`, `F12`), and the one a hand on the
+            // number row reaches without looking; SHIFT steps back. The seat
+            // demos' key layer passes it through.
             KeyCode::Backquote => self.lab.act(Action::CycleAnt(if self.shift { -1 } else { 1 })),
-            // **`\` -- how loud the box is** (off, low, medium, high), the
-            // SOUND row on the menu page. Its neighbour on most layouts, and
-            // the demos' key layer passes it through too. `F11` and `F12` are
-            // what is left unbound.
-            KeyCode::Backslash => self.lab.act(Action::CycleSound),
             // Every one of these is also a button on the bar, and both routes
             // go through `Lab::act` so there is one definition of what each
             // control does rather than two that can drift.
@@ -1019,6 +1014,13 @@ impl Handler {
             // The dig heat map: the next free F key after the battle view, and
             // a view of the colony's own work like `F7`/`F8` (`dig_marks`).
             KeyCode::F10 => self.lab.act(Action::CycleDigOverlay),
+            // **`F12` -- how loud the box is** (off, low, medium, high), the
+            // SOUND row on the menu page (`Reports/sound-design-2026-10-31.md`).
+            // `\` was the design's pick and went to the DEMOS page (PR #1014);
+            // `F11` is macOS's Show Desktop. On a Mac laptop F12 is the volume
+            // key unless FN is held, which is why the menu row is the main
+            // route and this the shortcut.
+            KeyCode::F12 => self.lab.act(Action::CycleSound),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same

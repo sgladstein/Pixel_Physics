@@ -11723,7 +11723,7 @@ are spaced 4 seconds apart unless one is big (weight 0.6 or more). The lamp
 hums under everything so a quiet box reads as quiet, not broken. **The time
 dial changes the sound, not just its speed**: paused hushes the colony but
 the tools still answer; time-lapse and overview thin the grains and brighten
-them. The SOUND row on the MENU page, or `\` in the box, steps OFF, LOW,
+them. The SOUND row on the MENU page, or `F12` in the box, steps OFF, LOW,
 MEDIUM (first run), HIGH.
 
 **How it is built.** `src/audio/`: `listen.rs` reads `&World` once per drawn

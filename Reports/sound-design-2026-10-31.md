@@ -2,9 +2,10 @@
 
 **Status: stage 1 built** (2026-10-31, the owner's go-ahead on the
 decision card): the lab box you can hear, as §11 stage 1 describes, with
-what it measured in README `Sound status`. One change from this document:
+what it measured in README `Sound status`. Two changes from this document:
 the mix needed 12 dB of make-up gain after the master (`synth::MAKEUP`) --
-the first render was -41 dB RMS, inaudible on a phone. Stages 2 and 3 are
+the first render was -41 dB RMS, inaudible on a phone -- and the key is `F12`,
+not `\`, which the DEMOS page took the same day (PR #1014). Stages 2 and 3 are
 still design. The text below is the design as approved, kept as written.
 
 **Original status: design, nothing built** (2026-10-31). Asked for by the owner:
