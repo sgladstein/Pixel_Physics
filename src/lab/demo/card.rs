@@ -156,6 +156,13 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("R", "NEXT RAIDER / NEW GAME"),
             ],
         },
+        DemoSeat::Satchel => SeatCard {
+            title: "SATCHEL -- A HAND OF CARDS THE COLONY SETS OFF",
+            goal: "CLICK TO PLAY THE NEXT CARD IN YOUR SATCHEL. WAKE ARMS THE CARD AFTER IT: THE FIRST ANIMAL TO DIE NEAR IT FIRES IT, AND EVERY DEATH THAT CAUSES FIRES IT AGAIN, DEEPER, UNTIL DEPTH 3 PUFFS. RAIDERS LAND ON A CLOCK, MORE EACH WAVE. BURN THEM, OR BURY THEM. A BIG CHAIN SCORES BIG, AND BURNS YOUR OWN.",
+            score: "EVERY CHAIN EFFECT SCORES ITS DEPTH (1 TO 3), EVERY RAIDER YOUR CARDS KILL SCORES 10",
+            lose: "THE COLONY FALLS UNDER 5 ANTS. YOUR OWN CHAINS COUNT",
+            keys: &[("CLICK", "PLAY THE NEXT CARD"), ("Y", "REPACK (WHEN PAUSED)"), ("WASD", "PAN")],
+        },
         DemoSeat::Mind => SeatCard {
             title: "COLONY MIND",
             goal: "NOT BUILT YET: THIS SEAT OPENS ON A PLAIN BOX.",

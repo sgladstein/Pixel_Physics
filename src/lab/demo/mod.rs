@@ -51,6 +51,7 @@ pub mod guest;
 pub mod enemy;
 pub mod queen;
 pub mod scout;
+pub mod satchel;
 
 use crate::sim::cell::OrganismId;
 use crate::sim::steer::{self, SteerInput, SteerRole};
@@ -70,10 +71,11 @@ pub enum DemoSeat {
     Mind,
     Enemy,
     Scout,
+    Satchel,
 }
 
 impl DemoSeat {
-    pub const ALL: [DemoSeat; 6] = [DemoSeat::Queen, DemoSeat::Keeper, DemoSeat::Guest, DemoSeat::Mind, DemoSeat::Enemy, DemoSeat::Scout];
+    pub const ALL: [DemoSeat; 7] = [DemoSeat::Queen, DemoSeat::Keeper, DemoSeat::Guest, DemoSeat::Mind, DemoSeat::Enemy, DemoSeat::Scout, DemoSeat::Satchel];
 
     /// The name typed after `demo=`, and the stem of its scenario.
     pub fn name(self) -> &'static str {
@@ -84,6 +86,7 @@ impl DemoSeat {
             DemoSeat::Mind => "mind",
             DemoSeat::Enemy => "enemy",
             DemoSeat::Scout => "scout",
+            DemoSeat::Satchel => "satchel",
         }
     }
 
@@ -185,6 +188,7 @@ pub struct Demo {
     pub guest: Option<guest::GuestDemo>,
     /// The enemy seat's own state.
     pub enemy: Option<enemy::EnemyDemo>,
+    pub satchel: Option<satchel::SatchelDemo>,
     /// The seat card is up ([`card`]). Opened by the window at start
     /// (`Lab::open_seat_card`), never by a headless harness, whose keys must
     /// reach the seat rather than close a card nobody can see.
@@ -215,6 +219,7 @@ impl Demo {
             scout: None,
             guest: (seat == DemoSeat::Guest).then(guest::GuestDemo::default),
             enemy: (seat == DemoSeat::Enemy).then(enemy::EnemyDemo::default),
+            satchel: (seat == DemoSeat::Satchel).then(satchel::SatchelDemo::default),
             card: false,
             card_resume: false,
             card_seen_multiple: 0,
@@ -235,6 +240,7 @@ pub fn draw_world(lab: &Lab, frame_buf: &mut [u8]) {
         DemoSeat::Scout => scout::draw_world(lab, frame_buf),
         DemoSeat::Guest => guest::draw_world(lab, frame_buf),
         DemoSeat::Enemy => enemy::draw_world(lab, frame_buf),
+        DemoSeat::Satchel => satchel::draw_world(lab, frame_buf),
         _ => {}
     }
 }
@@ -247,6 +253,7 @@ pub fn marks_world(lab: &Lab) -> bool {
         Some(DemoSeat::Scout) => scout::marks_world(lab),
         Some(DemoSeat::Guest) => guest::marks_world(lab),
         Some(DemoSeat::Enemy) => enemy::marks_world(lab),
+        Some(DemoSeat::Satchel) => satchel::marks_world(lab),
         _ => false,
     }
 }
@@ -261,6 +268,7 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
         DemoSeat::Scout => scout::draw_hud(lab, hc, frame_buf),
         DemoSeat::Guest => guest::draw_hud(lab, hc, frame_buf),
         DemoSeat::Enemy => enemy::draw_hud(lab, hc, frame_buf),
+        DemoSeat::Satchel => satchel::draw_hud(lab, hc, frame_buf),
         _ => {}
     }
 }
@@ -296,6 +304,7 @@ pub fn seat_title(seat: DemoSeat) -> &'static str {
         DemoSeat::Mind => "COLONY MIND",
         DemoSeat::Enemy => "RAIDER",
         DemoSeat::Scout => "SCOUT",
+        DemoSeat::Satchel => "SATCHEL",
     }
 }
 
@@ -309,6 +318,7 @@ pub fn help_line(seat: DemoSeat) -> String {
         DemoSeat::Queen => format!("QUEEN DEMO: {body} -- {}", queen::SEAT_KEYS),
         DemoSeat::Keeper => format!("KEEPER DEMO: {} -- H HELP -- WASD PAN -- THE LAB'S TOOLS NEED stakes=0", keeper::SEAT_KEYS),
         DemoSeat::Scout => format!("SCOUT DEMO: {body} -- {}", scout::SEAT_KEYS),
+        DemoSeat::Satchel => format!("SATCHEL DEMO: {} -- H HELP -- WASD PAN", satchel::SEAT_KEYS),
         DemoSeat::Guest => format!("GUEST DEMO: ARROWS MOVE -- {} -- TAB FOLLOW -- PGUP/PGDN SPEED", guest::SEAT_KEYS),
         DemoSeat::Enemy => format!(
             "ENEMY DEMO: YOU ARE A CENTIPEDE -- ARROWS CREEP, SHIFT SPRINT, B BITE, G CUT/SHOVE, E EAT, Q SPIT OR DROP -- TAB FOLLOW -- PGUP/PGDN SPEED -- {} -- THE COLONY FIGHTS BACK BUT DOES NOT LEARN YOU",
@@ -333,6 +343,9 @@ impl Lab {
         if seat == DemoSeat::Keeper {
             demo.keeper = Some(keeper::KeeperDemo::from_args(&args));
         }
+        if seat == DemoSeat::Satchel {
+            demo.satchel = Some(satchel::SatchelDemo::from_args(&args));
+        }
         demo.args = args;
         self.demo = Some(demo);
         // `seed=N` on the command line reseeds the demo's box.
@@ -353,6 +366,9 @@ impl Lab {
         };
         if seat == DemoSeat::Keeper {
             keeper::on_start(self);
+        }
+        if seat == DemoSeat::Satchel {
+            satchel::on_start(self);
         }
         if seat == DemoSeat::Scout {
             let seed = self.spec.seed;
@@ -491,6 +507,7 @@ impl Lab {
             Some(DemoSeat::Scout) => scout::after_tick(self),
             Some(DemoSeat::Guest) => guest::after_tick(self),
             Some(DemoSeat::Enemy) => enemy::after_tick(self),
+            Some(DemoSeat::Satchel) => satchel::after_tick(self),
             _ => {}
         }
     }
@@ -504,6 +521,7 @@ impl Lab {
             DemoSeat::Queen => queen::mouse(self, cell, act),
             DemoSeat::Keeper => keeper::mouse(self, cell, act),
             DemoSeat::Enemy => enemy::mouse(self, cell, act),
+            DemoSeat::Satchel => satchel::mouse(self, cell, act),
             _ => false,
         };
         if let Some(d) = self.demo.as_mut() {
@@ -551,6 +569,8 @@ impl Lab {
                         guest::seat_key(self, c);
                     } else if seat == DemoSeat::Enemy {
                         enemy::seat_key(self, c);
+                    } else if seat == DemoSeat::Satchel {
+                        satchel::seat_key(self, c);
                     }
                 }
                 return true;
