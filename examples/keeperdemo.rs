@@ -35,6 +35,16 @@
 //! cargo run --release --example keeperdemo -- seed=1 keeper=idle twin=1
 //! ```
 //!
+//! The 10-31 adversarial review's arms ride along: `random` (the good
+//! script's ants at a uniformly random far column), `paint` / `colony` /
+//! `erase` / `noants` (the lab's own tools, refused under stakes since the
+//! board lock: `paint` now runs identical to `idle` to the ant). `perturb=N`
+//! runs the Nth knocked idle twin as an arm (`keeper::perturb`), so a sweep
+//! reads the verdict's band without the twin thread; `twins=N` sets the
+//! band's size for `twin=1`. The STAKES line's `gone=` is the pre-10-31
+//! score (every cell gone from a windfall) beside `end_saved=` (cells ants
+//! took).
+//!
 //! One summary line at the end (`SUMMARY key=value ...`), for a sweep to
 //! parse. Every argument is echoed first.
 
@@ -57,7 +67,7 @@ fn main() {
     });
     for k in args.keys() {
         assert!(
-            ["seed", "frames", "every", "carry", "gain", "copy", "station", "ration", "listening", "trace", "warmup", "png", "shots", "gif", "gif_every", "gif_from", "overlay", "up", "nodemo", "costab", "keeper", "twin", "endshot", "stakes", "oldant", "handshot"].contains(&k.as_str())
+            ["seed", "frames", "every", "carry", "gain", "copy", "station", "ration", "listening", "trace", "warmup", "png", "shots", "gif", "gif_every", "gif_from", "overlay", "up", "nodemo", "costab", "keeper", "twin", "endshot", "stakes", "oldant", "handshot", "probe", "perturb", "twins"].contains(&k.as_str())
                 || RULES.contains(&k.as_str()),
             "unknown argument {k}= (an unknown key would be silently ignored)"
         );
@@ -70,22 +80,28 @@ fn main() {
     let oldant = get("oldant", 0) == 1;
     lab.set_new_ant(!oldant);
     let mut kv = args.clone();
-    kv.retain(|k, _| ["gain", "copy", "station", "ration", "listening", "warmup", "stakes"].contains(&k.as_str()) || RULES.contains(&k.as_str()));
+    kv.retain(|k, _| ["gain", "copy", "station", "ration", "listening", "warmup", "stakes", "twins"].contains(&k.as_str()) || RULES.contains(&k.as_str()));
     kv.insert("seed".to_string(), seed.to_string());
     // The window's twin is started by the window's frame hook, which a
     // harness never calls; `twin=1` starts it here instead.
     kv.insert("twin".to_string(), "0".to_string());
     kv.insert("twin_oldant".to_string(), if oldant { "1" } else { "0" }.to_string());
     let script = args.get("keeper").map_or("idle", |s| s.as_str()).to_string();
-    assert!(["idle", "good", "careless"].contains(&script.as_str()), "keeper={script}: idle, good or careless");
+    assert!(["idle", "good", "careless", "paint", "colony", "erase", "noants", "random", "goodpaint"].contains(&script.as_str()), "keeper={script}: idle, good, careless, random, paint, colony, erase, noants, goodpaint");
     // Exactly the window's path: the scenario, `seed=`, then the warm-up
     // (`keeper::on_start`), so frame numbers below are the box's own.
     let msg = lab.start_demo_with(DemoSeat::Keeper, kv.clone());
     println!("  {msg} -- opened at frame {}", lab.world.frame);
     lab.show_help = false;
+    // `perturb=N`: the Nth knocked idle twin, run here as an arm
+    // (`keeper::perturb`, exactly what the twin thread does after its
+    // opening), so a sweep can read the twins' band without the thread.
+    let knock = get("perturb", 0);
+    keeper::perturb(&mut lab, knock);
     let twin = (get("twin", 0) == 1).then(|| {
-        let until = lab.world.frame + lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).map_or(0, |k| k.rules.round);
-        let log = keeper::spawn_twin(kv.clone(), until);
+        let k = lab.demo.as_ref().and_then(|d| d.keeper.as_ref());
+        let until = lab.world.frame + k.map_or(0, |k| k.rules.round);
+        let log = keeper::spawn_twin(kv.clone(), until, k.map_or(1, |k| k.twins));
         if let Some(k) = lab.demo.as_mut().and_then(|d| d.keeper.as_mut()) {
             k.twin = Some(log.clone());
         }
@@ -162,14 +178,21 @@ fn main() {
                 }
             }
         }
+        cheese(&mut lab, &script, f, opened);
         lab.tick_for_harness();
         let f = lab.world.frame;
         // **The scripted keeper**: as each windfall lands, every charge.
         let landed = keeper::counts(&lab).map_or(0, |c| c.patches);
         if landed > patches_seen {
             patches_seen = landed;
-            if script != "idle" {
-                scripted_keeper(&mut lab, &script);
+            if script == "good" || script == "careless" || script == "goodpaint" {
+                scripted_keeper(&mut lab, if script == "goodpaint" { "good" } else { &script });
+            }
+            if script == "random" {
+                random_keeper(&mut lab, landed);
+            }
+            if script == "erase" {
+                erase_patch(&mut lab);
             }
         }
         // `handshot=F`: the player's own mouse path at frame F -- CARRY,
@@ -192,6 +215,18 @@ fn main() {
                 keeper::mouse(&mut lab, (p.x - 3, p.y - 2), MouseAct::Drag);
                 keeper::mouse(&mut lab, (p.x - 3, p.y - 2), MouseAct::Release);
                 keeper::seat_key(&mut lab, 'Y');
+            }
+        }
+        // SCRATCH: a windfall's early life -- cells left and the nearest ant's
+        // head, so a fall in `left` with no ant near is slump, not saving.
+        if get("probe", 0) == 1 {
+            if let Some(p) = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).and_then(|k| k.patches.last().copied()) {
+                let age = f.saturating_sub(p.landed);
+                if p.live() && age.is_multiple_of(150) && age <= 1500 {
+                    let ant = lab.world.species.id_of("ant").unwrap();
+                    let near = lab.world.live_organism_ids().into_iter().filter_map(|id| lab.world.organism(id).filter(|s| s.species == ant).and_then(|s| s.chain.first().copied())).map(|h| (h.0 - p.x).abs()).min().unwrap_or(999);
+                    println!("  PROBE x {} age {age} left {} nearest_ant_dx {near}", p.x, p.left);
+                }
             }
         }
         if shots.contains(&f) {
@@ -292,6 +327,14 @@ fn main() {
             last.map(|p| p.home),
             if last.is_some_and(|p| p.ants == alive && p.home == home && p.saved == keeper::counts(&lab).map_or(0, |c| c.saved)) { "AGREE" } else { "DISAGREE" },
         );
+        println!("  TWINS finals {:?} failed {:?}", l.finals.iter().map(|p| (p.frame, p.ants, p.saved)).collect::<Vec<_>>(), l.failed);
+        drop(l);
+        if let Some(k) = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()) {
+            println!("  BAND {:?}", keeper::twin_band(k));
+        }
+        for (line, _) in keeper::card_lines(&lab) {
+            println!("  CARD | {line}");
+        }
     }
     if let Some(path) = args.get("endshot") {
         if let Some(k) = lab.demo.as_mut().and_then(|d| d.keeper.as_mut()) {
@@ -313,12 +356,25 @@ fn main() {
     let c = keeper::counts(&lab).unwrap_or_default();
     let r = lab.world.recall.as_ref().map(|r| r.counts).unwrap_or_default();
     let kd = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).expect("keeper state");
+    // What the score was before 10-31: every cell gone from a windfall's
+    // rectangle, by any means -- the specificity check on `taken`.
+    let gone: u64 = kd
+        .patches
+        .iter()
+        .map(|p| {
+            let left = match p.ended {
+                Some((_, keeper::PatchEnd::Rotted { left })) => left,
+                _ => p.left,
+            };
+            u64::from(p.size.saturating_sub(left))
+        })
+        .sum();
     let (end_frame, end_why, end_ants, end_home, end_saved) = kd.ended.map_or((0, "-".to_string(), alive, c.patch_home, c.saved), |e| (e.frame, format!("{:?}", e.why), e.ants, e.home, e.saved));
     for p in &kd.patches {
-        println!("  PATCH x {} landed {} size {} left {} home {} taught {} ended {:?}", p.x, p.landed, p.size, p.left, p.home, p.taught, p.ended);
+        println!("  PATCH x {} landed {} size {} left {} taken {} home {} taught {} ended {:?}", p.x, p.landed, p.size, p.left, p.taken, p.home, p.taught, p.ended);
     }
     println!(
-        "STAKES seed={seed} keeper={script} stakes={} opened_ants={} end_frame={end_frame} end={end_why} end_ants={end_ants} end_home={end_home} end_saved={end_saved} min_ants={} patches={} stripped={} rotted={} rotted_cells={} carried={} to_food={} refused={} pantry={} treated={}",
+        "STAKES seed={seed} keeper={script} perturb={knock} stakes={} gone={gone} opened_ants={} end_frame={end_frame} end={end_why} end_ants={end_ants} end_home={end_home} end_saved={end_saved} min_ants={} patches={} stripped={} rotted={} rotted_cells={} carried={} to_food={} refused={} pantry={} treated={}",
         kd.stakes,
         kd.ants_at_open,
         c.min_ants,
@@ -459,4 +515,93 @@ fn status(lab: &Lab, taught: &[pixel_physics::sim::cell::OrganismId], taught_bas
         tf[2],
         returns,
     );
+}
+
+/// SCRATCH (adversarial review): the lab's own tools, which stay live in
+/// demo=keeper whenever the hand is NONE (`E` food brush, `C` colony).
+fn cheese(lab: &mut Lab, script: &str, f: u64, opened: u64) {
+    use pixel_physics::lab::ui::{Action, Tool};
+    let Some(site) = lab.world.nest_sites.first().copied() else { return };
+    if (script == "paint" || script == "goodpaint") && f >= opened && (f - opened).is_multiple_of(1000) {
+        let food = lab.world.materials.id_of("provisions").unwrap();
+        let count = |lab: &Lab| {
+            let mut n = 0;
+            for y in 0..pixel_physics::lab::HEIGHT as i32 {
+                for x in 0..pixel_physics::lab::WIDTH as i32 {
+                    if lab.world.get(x, y).material == food {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let before = count(lab);
+        lab.act(Action::Tool(Tool::Food));
+        let (x, y) = (site.x + 12, site.surface - 6);
+        if let Some((sx, sy)) = lab.renderer.world_to_logical(x, y) {
+            lab.press(sx, sy);
+            lab.release(sx, sy);
+        }
+        lab.act(Action::Tool(Tool::Look));
+        println!("  f {f}: PAINT food dab at {x},{y}: +{} provisions cells", count(lab) as i64 - before as i64);
+    }
+    if script == "colony" && f == opened {
+        lab.act(Action::Tool(Tool::Colony));
+        for i in 0..4 {
+            let (x, y) = (site.x + 30 + 10 * i, site.surface - 4);
+            if let Some((sx, sy)) = lab.renderer.world_to_logical(x, y) {
+                lab.press(sx, sy);
+                lab.release(sx, sy);
+            }
+        }
+        lab.act(Action::Tool(Tool::Look));
+        println!("  f {f}: COLONY tool x4 -> {} ants", keeper::census(lab).0);
+    }
+    if script == "noants" && f == opened {
+        let ant = lab.world.species.id_of("ant").unwrap();
+        lab.act(Action::Tool(Tool::Cull));
+        for _ in 0..4 {
+            for id in lab.world.live_organism_ids() {
+                let Some(&h) = lab.world.organism(id).filter(|s| s.species == ant).and_then(|s| s.chain.first()) else { continue };
+                if let Some((sx, sy)) = lab.renderer.world_to_logical(h.0, h.1) {
+                    lab.press(sx, sy);
+                    lab.release(sx, sy);
+                }
+            }
+        }
+        lab.act(Action::Tool(Tool::Look));
+        println!("  f {f}: CULL tool on every ant -> {} ants", keeper::census(lab).0);
+    }
+}
+
+/// SCRATCH: right-click erase across the newest windfall as it lands.
+fn erase_patch(lab: &mut Lab) {
+    let Some(p) = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()).and_then(|k| k.patches.last().copied()) else { return };
+    for dy in [-8, -4, 0] {
+        if let (Some(a), Some(b)) = (lab.renderer.world_to_logical(p.x - 12, p.y + dy), lab.renderer.world_to_logical(p.x + 12, p.y + dy)) {
+            lab.press_erase(a.0, a.1);
+            lab.drag(b.0, b.1);
+            lab.end_stroke();
+        }
+    }
+    println!("  f {}: ERASE across windfall at {}", lab.world.frame, p.x);
+}
+
+/// SCRATCH: a realistic careless hand -- the good script's ants, set down at
+/// a uniformly random far column (seeded), whether or not food is there.
+fn random_keeper(lab: &mut Lab, n: u64) {
+    let Some(k) = lab.demo.as_ref().and_then(|d| d.keeper.as_ref()) else { return };
+    let charges = k.charges as usize;
+    let mut h = (lab.spec.seed ^ 0xABCDEF).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(n.wrapping_mul(0x632B_E59B_D9B4_E019));
+    for id in surface_ants(lab, charges) {
+        h ^= h >> 29;
+        h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        h ^= h >> 32;
+        let x = keeper::PATCH_MIN_X + (h % (keeper::PATCH_MAX_X - keeper::PATCH_MIN_X + 1) as u64) as i32;
+        let to = (x, keeper::surface_under(&lab.world, x) - 2);
+        match keeper::hand_carry(lab, id, to) {
+            Ok((at, taught)) => println!("  f {}: random hand: ant {id:?} to {at:?}, taught {taught:?}", lab.world.frame),
+            Err(e) => println!("  f {}: random hand: refused: {e}", lab.world.frame),
+        }
+    }
 }
