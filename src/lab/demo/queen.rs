@@ -1322,8 +1322,9 @@ mod tests {
     }
 
     /// **Winter eats the store, and an empty store starves some, not all**
-    /// (review 2026-10-31, B1). Her colony is grown 4,000 frames into summer,
-    /// the heaps stopped, and the clock moved to winter 1's first frame. Three
+    /// (review 2026-10-31, B1). A game with a 3,000-frame founding summer runs
+    /// 4,000 frames, ten workers of hers are stood up, the heaps stopped, and
+    /// it runs 1,200 more, into winter 1. Three
     /// arms, each a fresh lab: a stocked store is eaten and starves nobody; an
     /// emptied one starves at least one mouth and fewer than all of them; and
     /// `upkeep=0` eats nothing (the positive control for the first arm: food
@@ -1333,7 +1334,9 @@ mod tests {
         let run = |upkeep: Option<&str>, empty: bool| {
             let sc = crate::lab::scenario::Scenario::load("demo_queen").expect("demo_queen ships");
             let mut lab = Lab::new(sc.bed.clone());
-            let mut args = std::collections::BTreeMap::new();
+            // A short founding summer: she lands about frame 1,200, so winter 1
+            // opens about frame 4,200, after the ants are stood up below.
+            let mut args = std::collections::BTreeMap::from([("first".to_string(), "3000".to_string())]);
             if let Some(u) = upkeep {
                 args.insert("upkeep".to_string(), u.to_string());
             }
@@ -1369,7 +1372,9 @@ mod tests {
             let had = lab.world.live_organism_ids();
             let ground = lab.spec.ground_y;
             for k in 0..10 {
-                lab.world.plant_ant(150 + 6 * k, ground - 3);
+                if let Some(site) = crate::sim::creature::plant_creature_seed_in(&mut lab.world, 150 + 6 * k, ground - 3, "ant", Some(colony)) {
+                    lab.world.schedule_active_site(site);
+                }
             }
             let new: Vec<OrganismId> = lab.world.live_organism_ids().into_iter().filter(|id| !had.contains(id)).collect();
             for &id in &new {
@@ -1377,19 +1382,21 @@ mod tests {
                     s.colony = colony;
                 }
             }
-            let frame = lab.world.frame;
-            let mouths = {
-                let q = state_mut(&mut lab).expect("queen state");
-                q.start = frame - q.seasons.first;
-                new.len() as u32
-            };
+            // Nobody steers her in a test, so she would starve on her own and
+            // end the game (no upkeep runs after an outcome): feed her.
+            steer::grant(&mut lab.world, 20_000.0);
+            let mouths = new.len() as u32;
+            assert!(!state(&lab).expect("queen state").seasons.at(lab.world.frame - state(&lab).expect("queen state").start).winter, "winter came before the ants were stood up");
             let before = food_cells(&lab.world);
             for _ in 0..1_200 {
                 lab.demo_frame();
                 lab.tick_for_harness();
             }
             let q = state(&lab).expect("queen state").clone();
-            assert!(q.seasons.at(lab.world.frame - q.start).winter, "the clock did not move to winter");
+            assert!(q.seasons.at(lab.world.frame.saturating_sub(q.start)).winter, "the clock did not reach winter");
+            assert_eq!(q.outcome, None, "the game ended under the test");
+            let alive = lab.world.live_organism_ids().into_iter().filter(|&id| lab.world.organism(id).is_some_and(|s| s.colony == colony)).count();
+            eprintln!("upkeep test: upkeep {upkeep:?} empty {empty}: mouths {mouths} -> colony alive {alive}, food {before} -> {}, eaten {}, starved {}", food_cells(&lab.world), q.eaten, q.starved);
             (before, food_cells(&lab.world), q.eaten, q.starved, mouths)
         };
         let (before, after, eaten, starved, mouths) = run(None, false);
