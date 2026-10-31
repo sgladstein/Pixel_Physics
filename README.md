@@ -11316,6 +11316,18 @@ harness's switches, green at the control, yellow when changed, BACK TO THE
 CONTROL), BEST ANTS (living ants by score, click to follow one) and WHAT
 HAPPENED (the newest births, refills, hall children, culls and retirements).
 
+**The laying brake** (owner's card, 2026-10-31: test it in the lab, ship it on
+if not measured harmful). `Lab::lay_brake`, on at 48:8 in the lab game: past 48
+ants (adults plus brood), each 8 more double what a queen must bank before an
+egg, so the colony's size is still food's to set but it no longer booms and
+starves. Teacher lane exam x14 (std_pool and the survivor, 6 boxes x 8 seeds at
+600k, paired): no fewer colonies alive at the end and no box lost; colonies hold
+near 65 ants where they stood at 150-600, about a tenth as many starve, and they
+dig about a third as much. `-- laybrake=off` opens the old box. **Off in the
+exam** (`labsurvive`, unless `laycap=`) because braked every brain sits at ~66
+ants and the exam stops telling them apart; off on the TRAINING page and while
+two ant colonies share the box. Record: the colony-selection log, 2026-10-31.
+
 **What it is.** `src/lab/training.rs` is a port of `examples/inrun.rs` from
 `claude/project-thread-8y5ak0` in its turn mode, with `scratch/inrun/jobs/ctl.txt`
 as the defaults and `kid_grants` 3 (teacher lane, 2026-10-22: 11,076 food
