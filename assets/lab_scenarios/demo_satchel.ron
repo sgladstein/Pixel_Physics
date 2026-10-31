@@ -1,0 +1,83 @@
+// DEMO: the satchel seat (`demo=satchel`, `src/lab/demo/satchel.rs`). The
+// player carries an ordered satchel of cards (FIRE, SOAK, WIDE, TWIN, WAKE)
+// and plays the next one with a click; a WAKE card is set off by the first
+// death near it, and the deaths its payload causes set it off again, one
+// level deeper, to depth 3.
+//
+// The played bed as the owner plants it -- grass, herb, shrub, scrambler and
+// one tree, so a fire has something to run through -- with its colony
+// landing at frame 6,000. `satchel.rs` runs the warm-up past the landing,
+// then lands a spider at the far end on a clock; spiders are not timeline
+// events because each one is placed on the surface the box has by then.
+(
+    name: "demo_satchel",
+    title: "DEMO: THE SATCHEL",
+    question: "Can a hand of cards that the colony itself sets off -- fire and cave-ins, chained death to death -- hold off spiders without burning the colony down?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "grass", x: 25),
+        Plant(species: "herb",  x: 50),
+        Plant(species: "shrub", x: 75),
+        Plant(species: "grass", x: 105),
+        Plant(species: "herb",  x: 130),
+        Plant(species: "grass", x: 155),
+        Plant(species: "shrub", x: 180),
+        Plant(species: "grass", x: 330),
+        Plant(species: "herb",  x: 355),
+        Plant(species: "shrub", x: 380),
+        Plant(species: "grass", x: 410),
+        Plant(species: "herb",  x: 435),
+        Plant(species: "grass", x: 465),
+        // 2026-09-10, owner's rulings on two cards: the low fruiting thicket
+        // goes in ("Sure" -- fruit on the floor 9.6x, ant bites of a fallen
+        // fruit 5 -> 32 across a three-seed sweep, PR #302), and so does a
+        // tree ("Both are fine. I think a mix is best" -- one tree shades
+        // the bench under it to under 1% of lamp light, and the owner took
+        // that trade). Four scramblers spread across the bed, the tree at
+        // the far right so the shaded floor is one end, not the middle.
+        // NOT in columns 180-330: that open ground is where the colony
+        // founds at frame 6,000, and the measurement bed's scramblers at
+        // 215 and 300 (played_bed_scrambler.ron) seated 2 ants of 52
+        // there against 31 on the bare gap -- caught by looking before
+        // committing (labshot frames=6000,30000).
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 118),
+        Plant(species: "scrambler", x: 395),
+        Plant(species: "scrambler", x: 490),
+        Plant(species: "tree",      x: 455),
+    ],
+    timeline: [
+        // **No `Clear` before the colony lands** (tried and dropped, see
+        // above: it bought 3 founders and cost three grown plants). The bare
+        // band the colony lands on is kept by where the plants are placed.
+        // Without that band the scenario asks for 52 founders and
+        // `found_colony_of` seats **8**: by frame 6,000 a grown grass bed has laid ~750
+        // ungerminated seeds across the surface, every one of them an
+        // occupied cell, and a colony needs bare footing. The run then reads
+        // as a colony that will not breed, which looks exactly like a broken
+        // breeding rule and is nothing of the kind -- `CLAUDE.md`'s "a scene
+        // that contradicts the code will look like a bug in the code",
+        // caught by the founder count and by nothing else in the output.
+        //
+        // A player does this by eye: you click bare ground. It seats about
+        // 41 of the 52 on the median seed, and it varies with the seed.
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+    ],
+    horizon: 120000,
+)
