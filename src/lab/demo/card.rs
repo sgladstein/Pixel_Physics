@@ -71,7 +71,7 @@ pub fn card(seat: DemoSeat) -> SeatCard {
     match seat {
         DemoSeat::Queen => SeatCard {
             title: "QUEEN -- YOU FOUND THE COLONY",
-            goal: "EAT, CARRY FOOD HOME AND LAY. YOUR EGGS BECOME WORKERS. FOOD FALLS ONLY IN SUMMER, SO STORE ENOUGH TO GET THROUGH THREE WINTERS. A WILD EGG STARTS A NEW FAMILY LINE IN ITS OWN COLOUR: A GAMBLE THAT COSTS YOU 300 J (FERAL 700 J).",
+            goal: "EAT AND LAY: YOUR EGGS BECOME WORKERS, AND WORKERS STORE FOOD. FOOD FALLS ONLY IN SUMMER. EACH WINTER EVERY WORKER AND LARVA EATS FROM THE STORE, AND A NEST BIGGER THAN ITS LARDER STARVES. LAY WHILE FOOD BEATS 'WINTER EATS' ON THE PANEL. A WILD EGG STARTS A NEW LINE IN ITS OWN COLOUR FOR 300 J (FERAL 700 J).",
             score: "WORKERS ALIVE AT THE END OF EACH WINTER",
             lose: "YOU DIE, OR A WINTER ENDS WITH NO WORKERS",
             keys: &[
@@ -82,9 +82,9 @@ pub fn card(seat: DemoSeat) -> SeatCard {
                 ("L", "LAY AN EGG"),
                 ("Q", "DROP WHAT YOU CARRY"),
                 ("P", "WILD EGG (AGAIN: FERAL)"),
-                ("Y", "NEXT 5 EGGS: CHOSEN LINE"),
+                ("Y", "NEXT 5 EGGS: LOOKED LINE"),
                 ("K", "PICK A LEDGER ROW"),
-                ("J", "HER LINE: A DEED"),
+                ("J", "LEDGER: DIGS / TRIPS"),
                 ("U", "LINE COLOURS ON/OFF"),
                 ("R", "NEW COLONY"),
             ],
