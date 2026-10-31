@@ -20,10 +20,23 @@
 //! five minutes and three roves ([`VISIT_FRAMES`], [`LIVES`]); energy drains
 //! ([`DRAIN_J_PER_S`] on top of the body's own burn); a nip costs joules
 //! ([`NIP_COST_J`]) and a gift heals ([`heal`]); every beg makes the colony
-//! warier (`guest::Wariness`, the engine's half) and a rub calms it; `L` lays
-//! an egg in the nest for [`EGG_J`], which banks score; the grade reads the
-//! last 30 s, so it moves both ways; and the visit ends on a card with the
-//! score (alive seconds + eggs + energy left / 10, [`Score`]).
+//! warier (`guest::Wariness`, the engine's half) and a rub calms the ant it
+//! grooms; `L` lays an egg in the lay zone for [`EGG_J`], which banks score;
+//! the grade reads the last 30 s, so it moves both ways; and the visit ends
+//! on a card with the score (alive seconds + eggs + energy left / 10,
+//! [`Score`]).
+//!
+//! **Pacing** (2026-10-31). The 10-31 adversarial review found that pressing
+//! R and Y alternately as fast as the keys allow out-egged the careful player
+//! 225 to 85 (seeds 13-24): a rub refunded more colony wariness than a beg
+//! cost, and the per-ant cooldown sent the two keys to different ants. Now
+//! (`guest::WaryKnobs`) one ask goes through per 1.5 s across the whole
+//! colony and a press inside that is charged as pestering, a rub calms the
+//! colony only after 2.5 s without a beg (always the ant it grooms), and a
+//! wary ant's gift is smaller -- so spacing your asks and rubbing between
+//! pays, and the WARY bar and the `Y READY` flag are what a careful player
+//! reads. `wary_rules=legacy` puts
+//! the 10-30 rules back for the paired table's control.
 
 use crate::sim::cell::OrganismId;
 use crate::sim::creature::guest::{self, Rung};
@@ -74,11 +87,33 @@ pub const EGG_J: f32 = 100.0;
 pub const EGG_KEEP_J: f32 = 30.0;
 pub const EGG_POINTS: u32 = 100;
 pub const BROOD_EGG_POINTS: u32 = 200;
-/// Columns either side of the door and rows above/below its surface that
-/// count as in the nest for laying (the ladder's soak zone, `SOAK_REACH`,
-/// `SOAK_DEPTH`).
-const NEST_REACH: i32 = 16;
+/// **The lay zone** (2026-10-31): a fixed box round the host's door, set at
+/// the first landing and drawn on the HUD, so where L works is something you
+/// can see rather than a sentence to remember. Columns either side of the
+/// door, rows above its founding surface (the mound grows over it) and rows
+/// below (the galleries).
+///
+/// It was 16 columns and 16 rows, the soak zone's: the 10-31 review found a
+/// careful script alive the whole visit with 780 J banked, 232 L presses and
+/// 0 eggs (seed 18) -- the walk to the door stalls on the mound's flank, a
+/// column or two outside -- and a mash rove sat 60 s on the flank holding
+/// 1,931 J under a `LAY HERE` tag. 20 columns (four more than before)
+/// covers the flank where those roves stalled, and stops short of the
+/// landing spot ([`DOOR_OFFSET`] 24): at 28 a fresh rove landed inside it
+/// and every script laid an egg on its landing bank and starved (seeds
+/// 25-26, all roves dead inside 40 s). The refusal now says which way and
+/// how far.
+pub const LAY_REACH: i32 = 20;
+pub const LAY_ABOVE: i32 = 30;
 const NEST_DEPTH: i32 = 60;
+/// Where the n-th egg of a clutch is drawn, from where it was laid, in world
+/// cells: a pile that grows up and out, so 20 eggs read as 20, not as one
+/// (the review's seed 24: 58 eggs drawn on one cell).
+const CLUTCH: [(i32, i32); 12] = [(0, 0), (2, 0), (-2, 0), (1, -2), (-1, -2), (4, 0), (-4, 0), (3, -2), (-3, -2), (0, -4), (2, -4), (-2, -4)];
+/// The ENERGY bar's full width is this many eggs' worth over the bank an egg
+/// must leave, with a tick at each egg (it was pinned full at one egg's
+/// price, so 131 J and 1,931 J looked the same).
+const BAR_EGGS: f32 = 4.0;
 /// Each ant beside you when you lay adds this to the colony's wariness.
 pub const LAY_WARY: f32 = 0.15;
 /// The grade's window: what you did in the last 30 s.
@@ -166,6 +201,8 @@ pub struct GuestDemo {
     pub last_eat: Option<u64>,
     /// The ladder's larvae-killed and corpses-eaten counts as last seen.
     pub seen_takes: (u64, u64),
+    /// The lay zone, fixed at the first landing: `(x0, y0, x1, y1)`, inclusive.
+    pub lay_zone: Option<(i32, i32, i32, i32)>,
 }
 
 impl GuestDemo {
@@ -251,11 +288,13 @@ fn land(lab: &mut Lab) -> Option<OrganismId> {
     // beggar (README, the paired table).
     let wary_on = lab.demo.as_ref().is_none_or(|d| d.args.get("wary").is_none_or(|v| v != "0"));
     let stakes = state(lab).is_some_and(|s| s.stakes) && wary_on;
+    let knobs = wary_knobs(lab.demo.as_ref().map(|d| &d.args));
     if let Some(v) = lab.world.visitors.as_mut() {
         if stakes && v.wary.is_none() {
-            v.wary = Some(guest::Wariness::default());
+            v.wary = Some(guest::Wariness::with(knobs));
         }
     }
+    let zone = (nx - LAY_REACH, surface - LAY_ABOVE, nx + LAY_REACH, surface + NEST_DEPTH);
     // A respawn takes the dead body's place as the player's: slice 0 keeps a
     // dead body's id on `World::steered`, so it is cleared first.
     lab.world.steered = None;
@@ -276,6 +315,7 @@ fn land(lab: &mut Lab) -> Option<OrganismId> {
     if st.lives == 0 {
         st.arrival = arrival;
         st.visit_start = Some(frame);
+        st.lay_zone = Some(zone);
     }
     st.seen = seen;
     st.last_energy = energy;
@@ -286,6 +326,39 @@ fn land(lab: &mut Lab) -> Option<OrganismId> {
     st.host_colony = Some(host);
     st.guest_colony = Some(colony);
     Some(id)
+}
+
+/// **The wariness rules** from the seat's arguments: the 10-31 rules unless
+/// `wary_rules=legacy` (the 10-30 seat, for the paired table's control);
+/// `ask_gap=`, `pester=`, `rub_busy=`, `rub_calm=`, `quiet=`, `beg_colony=`
+/// and `gift_calm=0|1`
+/// override one knob each, for a sweep.
+pub fn wary_knobs(args: Option<&std::collections::BTreeMap<String, String>>) -> guest::WaryKnobs {
+    let Some(a) = args else { return guest::WaryKnobs::default() };
+    let mut k = if a.get("wary_rules").is_some_and(|v| v == "legacy") { guest::WaryKnobs::legacy() } else { guest::WaryKnobs::default() };
+    let num = |key: &str| a.get(key).and_then(|v| v.parse::<f32>().ok());
+    if let Some(v) = num("ask_gap") {
+        k.ask_gap = v as u64;
+    }
+    if let Some(v) = num("pester") {
+        k.pester = v;
+    }
+    if let Some(v) = num("rub_busy") {
+        k.rub_busy = v as u64;
+    }
+    if let Some(v) = num("rub_calm") {
+        k.rub_calm = v;
+    }
+    if let Some(v) = num("quiet") {
+        k.quiet = v as u64;
+    }
+    if let Some(v) = num("beg_colony") {
+        k.beg_colony = v;
+    }
+    if let Some(v) = num("gift_calm") {
+        k.gift_by_calm = v != 0.0;
+    }
+    k
 }
 
 /// One of the seat keys was pressed. `B` and `E` are the seat's, not the
@@ -333,6 +406,19 @@ pub fn seat_key(lab: &mut Lab, key: char) {
         lab.ui.say(if on == Some(true) { "SOAKING: STAY BY THE NEST OR THE BROOD TO TAKE ITS SMELL" } else { "SOAK OFF" });
         return;
     }
+    // The colony's ask gap and the grooming say so on the ticker, so a press
+    // the engine will charge as pestering is never silent.
+    let frame = lab.world.frame;
+    let wait = lab.world.visitors.as_ref().and_then(|v| v.wary.as_ref()).map(|w| (w.ask_wait(frame), w.rub_wait(frame)));
+    match (key, wait) {
+        ('Y', Some((ask, rub))) if ask > 0 => lab.ui.say(if rub > 0 {
+            "STILL GROOMING: THAT ASK WAS PUSHY -- THE COLONY NOTICED".to_string()
+        } else {
+            format!("TOO SOON: ASK AGAIN IN {:.1} S -- THE COLONY NOTICED", ask as f32 / 60.0)
+        }),
+        ('R', Some((_, rub))) if rub > 0 => lab.ui.say("STILL GROOMING THE LAST ANT"),
+        _ => {}
+    }
     let Some(v) = lab.world.visitors.as_mut() else { return };
     match key {
         'R' => v.input.rub = true,
@@ -353,10 +439,29 @@ fn nearest_door(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
     world.nest_sites.iter().filter(|n| n.seeded).min_by_key(|n| (n.x - x).pow(2) + (n.surface - y).pow(2)).map(|n| (n.x, n.surface))
 }
 
-/// Whether a cell is in the nest, for laying: within [`NEST_REACH`] columns
-/// of a door, from the mound's top down into the galleries.
-pub fn in_nest(world: &World, at: (i32, i32)) -> bool {
-    nearest_door(world, at).is_some_and(|(nx, ny)| (at.0 - nx).abs() <= NEST_REACH && (-NEST_REACH..=NEST_DEPTH).contains(&(at.1 - ny)))
+/// The lay zone a visit uses: the one fixed at its first landing, else the
+/// box round the door nearest `at` (before anything has landed).
+fn zone_of(lab: &Lab, at: (i32, i32)) -> Option<(i32, i32, i32, i32)> {
+    state(lab).and_then(|s| s.lay_zone).or_else(|| nearest_door(&lab.world, at).map(|(nx, ny)| (nx - LAY_REACH, ny - LAY_ABOVE, nx + LAY_REACH, ny + NEST_DEPTH)))
+}
+
+/// Whether a cell is in the lay zone ([`LAY_REACH`], [`LAY_ABOVE`]).
+pub fn in_nest(lab: &Lab, at: (i32, i32)) -> bool {
+    zone_of(lab, at).is_some_and(|(x0, y0, x1, y1)| (x0..=x1).contains(&at.0) && (y0..=y1).contains(&at.1))
+}
+
+/// Which way and how far the lay zone is from `at`, for the refusal.
+fn zone_hint(lab: &Lab, at: (i32, i32)) -> String {
+    let Some((x0, y0, x1, y1)) = zone_of(lab, at) else { return "LAY IN THE NEST".into() };
+    if at.0 < x0 {
+        format!("THE LAY ZONE IS {} CELLS RIGHT", x0 - at.0)
+    } else if at.0 > x1 {
+        format!("THE LAY ZONE IS {} CELLS LEFT", at.0 - x1)
+    } else if at.1 < y0 {
+        format!("THE LAY ZONE IS {} CELLS DOWN", y0 - at.1)
+    } else {
+        format!("THE LAY ZONE IS {} CELLS UP", at.1 - y1)
+    }
 }
 
 /// Host brood (any stage) within two cells of the rove's body.
@@ -390,8 +495,8 @@ pub fn lay(lab: &mut Lab) -> String {
     if energy < EGG_J + EGG_KEEP_J {
         return format!("AN EGG NEEDS {:.0} J -- YOU HAVE {energy:.0}: BEG FIRST", EGG_J + EGG_KEEP_J);
     }
-    if !in_nest(&lab.world, head) {
-        return "LAY IN THE NEST: GO TO THE DOOR OR DOWN THE SHAFT".into();
+    if !in_nest(lab, head) {
+        return format!("NOT IN THE NEST: {} (THE DASHED BOX)", zone_hint(lab, head));
     }
     let brood = brood_near(&lab.world, body);
     let watchers = lab.world.visitors.as_ref().map_or(0, |v| guest::ants_beside(&lab.world, v.host, body).len());
@@ -405,7 +510,12 @@ pub fn lay(lab: &mut Lab) -> String {
         w.add(frame, None, LAY_WARY * watchers as f32, 0.0);
     }
     if let Some(s) = state_mut(lab) {
-        s.eggs.push(Egg { at: head, frame, brood });
+        // Drawn on the clutch's next free spot: eggs laid within a few cells
+        // of one another pile up instead of sharing a cell.
+        let k = s.eggs.iter().filter(|e| (e.at.0 - head.0).abs() <= 6 && (e.at.1 - head.1).abs() <= 6).count();
+        let (dx, dy) = CLUTCH[k % CLUTCH.len()];
+        let ring = (k / CLUTCH.len()) as i32;
+        s.eggs.push(Egg { at: (head.0 + dx, head.1 + dy - 6 * ring), frame, brood });
     }
     let pts = if brood { BROOD_EGG_POINTS } else { EGG_POINTS };
     match (brood, watchers) {
@@ -466,13 +576,25 @@ fn new_visit(lab: &mut Lab) {
         lab.ui.say("K STARTS A NEW VISIT ONCE THIS ONE IS OVER");
         return;
     }
-    if let Some(s) = st.body.and_then(|id| lab.world.organism_mut(id)) {
-        s.energy = -1.0e6;
+    // The old rove starves at its next decision: its bank is booked burned
+    // (`Metabolized`, the drain's account) and left at zero. It was set to
+    // -1e6, an unbooked hole of about a megajoule in the ledger.
+    if let Some(id) = st.body.filter(|&id| lab.world.organism(id).is_some()) {
+        let colony = lab.world.colony_of(id);
+        let left = lab.world.organism(id).map_or(0.0, |s| s.energy.max(0.0));
+        lab.world.book(colony, crate::sim::world::Account::Metabolized, f64::from(left));
+        if let Some(s) = lab.world.organism_mut(id) {
+            s.energy = 0.0;
+        }
     }
     let frame = lab.world.frame;
+    // A fresh wariness only where there was one: `wary=0` stays off past
+    // the first visit (it used to come back on at the first K).
     if let Some(v) = lab.world.visitors.as_mut() {
         v.counts = guest::VisitCounts::default();
-        v.wary = Some(guest::Wariness::default());
+        if let Some(w) = v.wary.as_mut() {
+            *w = guest::Wariness::with(w.knobs);
+        }
     }
     if let Some(s) = state_mut(lab) {
         *s = GuestDemo {
@@ -503,11 +625,16 @@ pub fn heal(world: &mut World, body: OrganismId) {
         crate::sim::organism::BodyPlan::Chain(n) => usize::from(n),
         _ => 0,
     });
-    if st.chain.len() < 2 || st.chain.len() >= full {
+    // **A head alone regrows too** (10-31 review): this was `len < 2`, the
+    // guard the raider's `regrow_tail` dropped on 10-30, so a rove nipped
+    // down to its head could never be fed back to a body. The first cell
+    // behind a lone head is a copy of the head re-typed `Segment`, so the
+    // body keeps exactly one head, as `regrow_tail` does.
+    if st.chain.is_empty() || st.chain.len() >= full {
         return;
     }
-    let (tx, ty) = *st.chain.last().expect("two cells or more");
-    let cell = world.get(tx, ty);
+    let (tx, ty) = *st.chain.last().expect("one cell or more");
+    let cell = if st.chain.len() == 1 { world.get(tx, ty).with_aux(crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Segment)) } else { world.get(tx, ty) };
     let Some((x, y)) = crate::sim::structural::NEIGHBOURS_8.iter().map(|&(dx, dy)| (tx + dx, ty + dy)).find(|&(x, y)| world.in_bounds(x, y) && world.get(x, y).material == crate::sim::material::EMPTY) else {
         return;
     };
@@ -786,15 +913,33 @@ pub fn draw_hud(lab: &Lab, hc: crate::render::Hud, frame_buf: &mut [u8]) {
             hc.fill_rect(frame_buf, x1, y0, 1, y1 - y0 + 1, ring);
         }
     }
-    // With an egg's worth banked outside the nest, a "LAY HERE" tag over the
-    // nearest door says where L works (the ticker's refusal alone was a
-    // sentence to remember while steering).
-    if let Some((_, s)) = body.filter(|_| st.stakes && st.ended.is_none()) {
+    // **The lay zone**, a dashed box (2026-10-31): dim while you cannot
+    // afford an egg, bright when you can, with a "LAY HERE" tag over it while
+    // you are outside it. It was a tag over the nearest door and a 16-column
+    // box nobody could see, and a rich rove sat on the mound's flank a column
+    // outside it for a minute.
+    if let (Some((_, s)), Some((x0, y0, x1, y1))) = (body.filter(|_| st.stakes && st.ended.is_none()), st.lay_zone) {
         let head = s.chain.first().copied().unwrap_or((0, 0));
-        if s.energy >= EGG_J + EGG_KEEP_J && !in_nest(w, head) {
-            if let Some((sx, sy)) = nearest_door(w, head).and_then(|(nx, ny)| lab.renderer.world_to_screen(nx, ny - NEST_REACH / 2)) {
+        let ready = s.energy >= EGG_J + EGG_KEEP_J;
+        let inside = in_nest(lab, head);
+        let colour = if ready { [255, 240, 150, 255] } else { [150, 130, 90, 255] };
+        let dot = |frame_buf: &mut [u8], x: i32, y: i32| {
+            if let Some((sx, sy)) = lab.renderer.world_to_screen(x, y) {
+                hc.fill_rect(frame_buf, sx, sy, z.min(2), z.min(2), colour);
+            }
+        };
+        for x in (x0..=x1).step_by(3) {
+            dot(frame_buf, x, y0);
+            dot(frame_buf, x, y1);
+        }
+        for y in (y0..=y1).step_by(3) {
+            dot(frame_buf, x0, y);
+            dot(frame_buf, x1, y);
+        }
+        if ready && !inside {
+            if let Some((sx, sy)) = lab.renderer.world_to_screen((x0 + x1) / 2, y0) {
                 hc.fill_rect(frame_buf, sx - 26, sy - 12, 53, 9, [0, 0, 0, 200]);
-                hc.text(frame_buf, sx - 25, sy - 11, "LAY HERE", [255, 240, 150, 255]);
+                hc.text(frame_buf, sx - 25, sy - 11, "LAY HERE", colour);
             }
         }
     }
@@ -922,14 +1067,27 @@ fn draw_visit_panel(lab: &Lab, st: &GuestDemo, v: &guest::Visitors, hc: crate::r
     let (energy, cells) = body.map_or((0.0, 0), |s| (s.energy, s.chain.len()));
     let need = EGG_J + EGG_KEEP_J;
     let ready = energy >= need;
-    bar_row(hc, frame_buf, (x, y), "ENERGY", energy / need, if ready { [255, 240, 150, 255] } else { [230, 200, 80, 255] }, &format!("{energy:.0} C{cells}{}", if ready { " L READY" } else { "" }));
+    // Full at [`BAR_EGGS`] eggs' worth, a tick at each egg's price, and the
+    // eggs you could lay now in the text ("L x3").
+    let full = EGG_KEEP_J + BAR_EGGS * EGG_J;
+    let afford = if ready { ((energy - EGG_KEEP_J) / EGG_J) as u32 } else { 0 };
+    let text = if ready { format!("{energy:.0} C{cells} L x{afford}") } else { format!("{energy:.0} C{cells}") };
+    bar_row(hc, frame_buf, (x, y), "ENERGY", energy / full, if ready { [255, 240, 150, 255] } else { [230, 200, 80, 255] }, &text);
+    for k in 1..=BAR_EGGS as u32 {
+        let tx = x + 40 + ((EGG_KEEP_J + k as f32 * EGG_J) / full * 64.0) as i32 - 1;
+        hc.fill_rect(frame_buf, tx, y, 1, 7, [0, 0, 0, 255]);
+    }
     y += 9;
+    let ask = v.wary.as_ref().map_or(0, |w| w.ask_wait(frame));
     let mut row = |text: String, colour: [u8; 4]| {
         hc.text(frame_buf, x, y, &text, colour);
         y += 9;
     };
     row(format!("FED {} ({:.0} J) NO {} NIPS {}", c.fed, c.fed_j, c.refused, c.nipped), [120, 240, 130, 255]);
-    row(format!("RUBS {} SOAK {} EGGS {}", c.rubs, if st.soak { "ON" } else { "OFF" }, st.eggs.len()), [160, 210, 255, 255]);
+    // Whether Y would ask anyone now (the colony's ask gap and the grooming):
+    // what a careful player reads before pressing it.
+    let y_state = if ask == 0 { "Y READY".to_string() } else { format!("Y {:.1}S", (ask as f32 / 60.0).max(0.1)) };
+    row(format!("RUBS {} SOAK {} EGGS {} {y_state}", c.rubs, if st.soak { "ON" } else { "OFF" }, st.eggs.len()), [160, 210, 255, 255]);
     row(format!("GRADE {}  SCORE {}", grade_now(lab), sc.total()), [255, 255, 255, 255]);
 }
 
