@@ -1911,3 +1911,41 @@ cost ~1,200 of lab score. Picks as named (r15 rank 0): E_n450 colony 24 (lab 19,
 own floor, bred via the top-2 fallback) -> `genomes/env10_n450c24_pool.txt`; E_n300 colony 2 (lab 19,498, gate nest
 537) -> `genomes/env10_n300c2_pool.txt`. Copies `/mnt/project-files/teacher/env10-1031/`; garden test with the
 Nest lane. Exam x16: n450, n300, NESTER, std_pool, 6 boxes x 8 seeds at 600k on main f3bbefc9 (rich earth #1019 on).
+
+**env10 garden half (Nest lane, 17:52Z; inrun on main f3bbefc9, rich earth on; NESTER, std, H3 bit-identical to the
+previous build).** Worlds 61..68:
+
+| | nest_open | median | alive at 200k | tunnels |
+|---|---|---|---|---|
+| n450 c24 | 609 351 477 393 486 165 603 472 | 474.5 | 65 59 72 60 49 53 52 71 | 23-152 |
+| n300 c2 | 448 380 234 211 142 216 203 523 | 225 | 3 45 55 0 0 0 0 57 | 22-97 |
+| NESTER | 347 253 323 400 255 356 352 340 | 343.5 | 43 60 41 52 43 4 52 52 | 45-98 |
+| std_pool | 421 659 608 417 215 668 534 615 | 571 | 61 69 79 68 16 67 67 71 | |
+
+**As named, n450 does not pass**: above NESTER 6/8 (meets that leg), above the n300 control only 5/8 (misses by one
+world). So "the higher floor did it" is not shown. What is shown, not scored: n450 outlives n300 in the garden 8/8
+(p 0.008; n300's line died out in 4/8), more tunnels than NESTER 7/8 (p 0.07), and level with std_pool's nest (5/8
+smaller). Nest lane's caveat: the garden is 40 rows over rock and every cone reaches it, so above ~500 open cells
+the depth caps the nest, not the brain. Data `/mnt/project-files/teacher/env10-1031/garden/`.
+
+**env10 exam half: `x16`** (07ff703e = main f3bbefc9 + scratch, rich earth on; 4 arms x 6 boxes x 8 seeds at 600k,
+192 rows). Data `data-1027/x16/`. Paired over 48:
+
+| | lived | alive at end | starved share lower | trip deliveries | digs |
+|---|---|---|---|---|---|
+| n450 vs NESTER | 22/14 p 0.24 | 1/2 | 21/16 | 31/14 p 0.016 | 22/25 |
+| n300 vs NESTER | 18/17 | 1/2 | 20/15 | 28/15 | 28/20 |
+| n450 vs n300 | 20/13 p 0.30 | 0/0 | 13/25 p 0.07 | 25/15 | 21/27 |
+| n450 vs std_pool | 25/11 p 0.029 | 0/1 | 31/9 | 39/5 | 46/2 |
+| NESTER vs std_pool | 29/10 p 0.003 | 2/2 | 29/9 | 39/5 | 40/8 |
+
+Mean lived on the plant boxes (n450 / n300 / NESTER / std): crowded 461 / 597 / 419 / 256, herb_first 504 / 463 /
+367 / 170, played_bed 428 / 394 / 338 / 208. Famine boxes: everything dies (NESTER kept 2/8 alive on two_larders, the
+env10 picks 0/8).
+
+**Verdict as named: n450 fails** -- exam leg passes (NESTER not ahead: 22/14), garden leg misses (above n300 5/8,
+needs 6). NESTER stays the pick. Not scored but consistent: n450 is ahead of NESTER on every number (garden nest
+474.5 vs 343.5, 6/8; lived 22/14; deliveries 31/14; tunnels 7/8) and none of it is significant after correction.
+And the garden caps it: cones over ~500 cells hit the rock 40 rows down, so the garden can no longer separate the
+bigger nests. **Next:** the nest measure needs a deeper garden (the Nest lane's deeper-dirt switch) before another
+floor batch can be judged; n450 is the obvious founder for it.
