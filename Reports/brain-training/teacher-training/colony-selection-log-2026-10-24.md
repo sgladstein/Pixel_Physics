@@ -1964,3 +1964,14 @@ NESTER 501). But by 400k most lines are dead (n450 6/8, NESTER 5/8, std 8/8, H3 
 inrun's single long round, not the brain; the lab exam (labsurvive) keeps breeding to 600k (x16 births 1,000s), so it
 is an inrun-only limit and does not touch colsel's 200k rounds. So 400k measures holes left by dead colonies; the 200k
 garden stays the ruler. **env10 closes: NESTER stays the pick.**
+
+## 2026-11-01 (20:20Z): famine boxes next -- env11 smoked, not launched
+
+The three famine boxes are the exam's remaining gap (every trained ant dies; NESTER alone kept 2/8 on two_larders in
+x15). A famine-twin lexicase case from NESTER (`labcase=lab_famine_trickle` on env9's line) smokes clean (4 colonies
+x 2 rounds at 20k: `lab2_lab_famine_trickle` 68-107 tenths, ranks vary). **Not launched**, because it repeats env3
+(10-28: famine twins as lab cases, from std_pool, landed level or below) and the twins were measured unable to rank
+(they kill 73-93 of 96 trained runs at 600k). The famine lane's trace (PR #987) says what is missing is a behaviour
+-- a return leg and resting when hungry, which the wall trap shows the brain never has -- so selection on a case that
+rarely pays for it has nothing to pick from. Next batch waits on a design that gives the brain that option
+(a lesson, a sense, or an arena where coming back pays), or on Scott's direction.
