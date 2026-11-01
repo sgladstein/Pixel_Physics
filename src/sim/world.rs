@@ -6275,6 +6275,16 @@ pub struct World {
     /// Where the garden scans: the box round `dug_cells`, refreshed by
     /// `garden::step` once a `GARDEN_PERIOD` (`garden::garden_reach`).
     pub garden_reach: Option<crate::sim::chunk::Rect>,
+    /// **Which version of rich earth runs** (`rich_earth`): the ground
+    /// beside fungus the ants eat goes rich and feeds roots past full.
+    /// Starts at `rich_earth::rich_earth_default()` (`Bonus` unless
+    /// `PIXEL_PHYSICS_RICH_EARTH=off|refill`).
+    pub rich_earth: crate::sim::rich_earth::RichEarth,
+    /// Cells topped up to rich because an ant ate fungus beside them: the
+    /// *it fired* counter.
+    pub rich_cells_made: u64,
+    /// Root draws paid from rich ground rather than from soil nutrient.
+    pub rich_draws: u64,
     /// Foliage cells the player clipped with the lab's PRUNE brush
     /// (`plant::prune_cell`).
     pub pruned_cells: u64,
@@ -7773,6 +7783,9 @@ impl World {
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             garden_on: crate::sim::garden::garden_default(),
+            rich_earth: crate::sim::rich_earth::rich_earth_default(),
+            rich_cells_made: 0,
+            rich_draws: 0,
             garden_started: 0,
             garden_spread: 0,
             garden_ripened_j: 0,
@@ -8719,6 +8732,7 @@ impl World {
             root_zone_water: 1.0,
             // Same 1.0 'nothing to say yet' default as the line above.
             nutrient_status: 1.0,
+            rich_share: 0.0,
             shoot_cells: 0,
             organ_cells: 0,
             anchor_cells: 0,
@@ -12479,8 +12493,13 @@ impl World {
     /// drawn, which is the whole world at rest: a chunk with no deficit
     /// buffer answers without touching memory.
     pub fn soil_nutrient_fraction(&self, x: i32, y: i32) -> f32 {
-        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+        let cell = self.get(x, y);
+        if !super::plant::cell_carries_nutrient(self, cell) {
             return 0.0; // free water and everything else carry none
+        }
+        // Rich ground reads full whatever its deficit (`rich_earth`).
+        if super::rich_earth::is_rich(self, cell) {
+            return 1.0;
         }
         let Some(chunk) = self.chunks.get(&ChunkCoord::containing(x, y)) else { return 0.0 };
         let initial = super::plant::nutrient_initial();
@@ -12505,13 +12524,37 @@ impl World {
     /// Take nutrient from the soil at `(x, y)`; returns what was there to
     /// take, in the same `u8` units as `plant::nutrient_initial`.
     pub fn draw_soil_nutrient(&mut self, x: i32, y: i32, amount: u8) -> u8 {
-        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+        let cell = self.get(x, y);
+        if !super::plant::cell_carries_nutrient(self, cell) {
             return 0; // a root drinking from a puddle gets water and nothing else
+        }
+        // Rich ground pays from its richness and leaves its nutrient alone
+        // (`rich_earth`): the stock the ants laid down is what roots spend.
+        if super::rich_earth::draw(self, x, y, cell, amount) {
+            return amount;
         }
         let frame = self.frame;
         let (recovery, initial) = (super::plant::nutrient_recovery_period(), super::plant::nutrient_initial());
         let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) else { return 0 };
         chunk.draw_nutrient(x, y, frame, recovery, initial, amount)
+    }
+
+    /// **Set a ground cell's richness** (`rich_earth`) without waking
+    /// anything: only the cell's richness changes, never its material, so
+    /// nothing the sweep reads moves (the same reasoning as
+    /// `set_soil_moisture`'s quiet write). The renderer is told only when
+    /// the cell crosses a draw step (`rich_earth::render_step`), so a root
+    /// drawing from it repaints it twice over its life, not every tick.
+    pub fn set_richness(&mut self, x: i32, y: i32, draws: u16) {
+        let coord = ChunkCoord::containing(x, y);
+        let Some(chunk) = self.chunks.get_mut(&coord) else { return };
+        let mut cell = chunk.get_world(x, y);
+        let before = super::rich_earth::render_step(cell.richness());
+        cell.set_richness(draws);
+        chunk.set_world_quiet(x, y, cell);
+        if super::rich_earth::render_step(cell.richness()) != before {
+            self.touched_chunks.insert(coord);
+        }
     }
 
     pub fn chunk(&self, coord: ChunkCoord) -> Option<&Chunk> {

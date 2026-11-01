@@ -7,7 +7,10 @@ traced to shrub competition and handed to the invasion test (§4-5);
 stage 0 of that test ran on the VM 2026-10-31 (§6): its gates pass. Stage 1
 (§7, 12 beds per role): every role gets back in from four seeds on a third
 to two-thirds of beds, tree and shrub significantly; big colonies eat sown
-seeds, but that does not decide whether a role gets back in. New player-facing interactions (leaf garden, guarded
+seeds, but that does not decide whether a role gets back in. Rich earth
+(§8) shipped on: the fungus the colony eats leaves the ground round it
+fertile, and at up to 2x growth the door garden grows on 10 of 12 beds by
+150k (p 0.039, Holm 0.077), level by 300k, nothing harmed. New player-facing interactions (leaf garden, guarded
 plants, a planting verb) belong to the plants-and-ants interaction lane and
 are not designed here. Pictures: <https://claude.ai/artifact/KSsVbrwiPbC4vDqwMbXprw>.*
 
@@ -287,6 +290,69 @@ in through 450k. The ants-help-plants design
 colony's own ground richer, so that the door garden it plants grows rather
 than just survives.
 
+## 8. Rich earth: the colony's fungus leaves the ground round it fertile
+
+Prototype 1 of the ants-help-plants design
+(<https://claude.ai/artifact/UT4mXFWbSiL92FzSB69JJW>), built after Scott's
+answers of 2026-10-31: "it can be rich" (growth past full is allowed),
+"keeping the door clear becomes a job for the ants" (a lush door garden is
+wanted, not guarded against). Code: `src/sim/rich_earth.rs`.
+
+**What it does.** When an ant eats a cell of its fungus garden, every
+nutrient-carrying neighbour (soil, packed soil, spoil) is topped up to 240
+root draws of richness, stored on the grain so it rides with dug spoil and
+pellets. A rich face reads as full soil, roots spend the richness before the
+soil's own stock, and in the default version (`bonus`) a plant's income is
+multiplied by `1 + RICH_BONUS x share`, where share is the fraction of its
+nutrient faces that are rich. Rich ground draws as a red-brown rim. The
+first colour, a near-black, read exactly as the dug tunnel beside it and was
+changed before any test; pictures:
+<https://claude.ai/artifact/M4UoVQy9HkvtoWxsEJ8Vmg>.
+`PIXEL_PHYSICS_RICH_EARTH=off|refill|bonus` selects the version;
+`refill` makes rich ground with no bonus.
+
+**It fires.** Median over 12 beds at 150k: 2,469 cells made, 682 standing,
+19 plants feeding from it; at 450k, 14,389 made and 1,310 standing.
+
+**Deciding measure, fixed before the first run:** shoot cells of plants
+whose mean column is within 48 of a nest column (`door_shoot`), at 150k and
+300k, `bonus` against `off`, paired over played_bed seeds 1-12 with the
+colony and the mister (`latecensus mister=1`), sign test, Holm over the two
+readings. Guards: ants at 250k and 450k, and beds with 4 or more plant kinds
+alive at 450k.
+
+| arm | door plants @150k (wins-losses, p) | @300k | ants @250k (median) | ants @450k (median) | beds with 4+ kinds @450k |
+|---|---|---|---|---|---|
+| off | - | - | 499 | 306 | 10 / 12 |
+| refill (no bonus) | 6-6, 1.00 | 5-7, 0.77 | 3-9 (344), 0.15 | 7-5 (311) | 8 / 12 |
+| bonus 0.3 (up to 1.3x) | 6-6, 1.00 | 8-4, 0.39 | 4-8 (362), 0.39 | 7-5 (393) | 8 / 12 |
+| **bonus 1.0 (up to 2x)** | **10-2, 0.039 (Holm 0.077)** | 7-5, 0.77 | 6-6 (508) | **10-2 (457), 0.039** | 10 / 12 |
+
+The first three arms ran on the Google VM at e5dad7b2; the 2x arm ran in
+this container from the same tree with `PIXEL_PHYSICS_RICH_BONUS=1.0`
+(the simulation is deterministic across machines: bed 1's first readings
+match the VM's to the cell).
+
+**Why 0.3 moved nothing.** The lever was connected: the fed plants had
+23-64% of their nutrient faces in rich ground (median about half), so they
+earned about 13% more. The plants that sit by the door are the ones the
+colony grazes hardest, and that margin was lost to the grazing. At 2x the
+door garden grows on 10 of 12 beds by 150k, and is level again by 300k.
+
+**Multiple comparisons.** Two bonus levels were tried against one `off`
+arm, each with two readings. The 2x arm's 150k reading misses Holm over its
+own two readings (0.077), and the colony's 450k gain is a guard that was not
+planned as a test. Read the 2x result as a consistent pattern, not a passed
+test: the door garden grows earlier, nothing measured was harmed, and the
+colony ends no smaller.
+
+**Shipped:** `bonus` at `RICH_BONUS = 1.0`, on by default: the strength
+recommended to Scott on the decision card of 2026-10-31 (2x, 1.3x or off).
+
+**Not understood:** why the 2x gain fades by 300k. Candidates, untested:
+the door garden reaches the bed's light or space limit by then in both arms;
+or a larger colony grazes the extra growth away.
+
 ## Reproduce
 
 ```text
@@ -294,4 +360,6 @@ latecensus scenario=played_bed mister=1 seed=S frames=450000 sample=50000      #
 planttrace scenario=played_bed seed=S frames=450000 life=1 bites=1 out=DIR      # PIXEL_PHYSICS_COLLAR_SPROUT=0|1
 labforage scenario=played_bed seed=S frames=150000                              # pip exits line
 plant_m0 mode=stand bed=played role=R seed=S grow=300000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,cripple trace=150000
+latecensus scenario=played_bed mister=1 seed=S frames=450000 sample=50000      # PIXEL_PHYSICS_RICH_EARTH=off|refill|bonus [PIXEL_PHYSICS_RICH_BONUS=X]; rich line
+python3 /mnt/project-files/plants/rich-earth/score.py RUNDIR                   # §8 table, from {arm}_s{seed}.txt
 ```

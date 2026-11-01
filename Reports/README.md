@@ -828,7 +828,11 @@ by somebody about to try it on creatures.
   (2026-10-31) passes its gates; stage 1 (12 beds per role) has every role
   getting back in from four seeds on a third to two-thirds of beds (tree
   8/12 and shrub 7/12 pass Holm). Big colonies eat sown seeds, but that does
-  not decide whether a role gets back in.
+  not decide whether a role gets back in. **Rich earth (§8, shipped on):**
+  fungus the colony eats leaves the ground round it fertile; at up to 2x
+  growth the door garden grows on 10 of 12 beds by 150k (Holm 0.077), level
+  by 300k; 1.3x moved nothing (lost to grazing); colony and plant kinds
+  unharmed.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 5; M0 and M1 done (PR #747), and §8 opens with a dated
