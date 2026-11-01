@@ -6288,7 +6288,8 @@ pub struct World {
     /// **Whether a carried seed is set down on rich ground when there is
     /// some in reach** (`plant::find_rich_midden_site`). Starts at
     /// `rich_earth::midden_seeks_rich_default()`
-    /// (`PIXEL_PHYSICS_MIDDEN_RICH=0|1`).
+    /// (`PIXEL_PHYSICS_MIDDEN_RICH=1` turns it on; off by default, measured
+    /// as doing almost nothing -- see that function).
     pub midden_seeks_rich: bool,
     /// Delivered seeds whose final resting ground is rich, whichever arm put
     /// them there: the outcome counter, read against `seeds_delivered`.
