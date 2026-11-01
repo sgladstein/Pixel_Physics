@@ -1946,6 +1946,32 @@ env10 picks 0/8).
 **Verdict as named: n450 fails** -- exam leg passes (NESTER not ahead: 22/14), garden leg misses (above n300 5/8,
 needs 6). NESTER stays the pick. Not scored but consistent: n450 is ahead of NESTER on every number (garden nest
 474.5 vs 343.5, 6/8; lived 22/14; deliveries 31/14; tunnels 7/8) and none of it is significant after correction.
-And the garden caps it: cones over ~500 cells hit the rock 40 rows down, so the garden can no longer separate the
-bigger nests. **Next:** the nest measure needs a deeper garden (the Nest lane's deeper-dirt switch) before another
-floor batch can be judged; n450 is the obvious founder for it.
+~~And the garden caps it: cones over ~500 cells hit the rock 40 rows down~~ -- wrong, see the correction below.
+**Next:** a ruler that separates bigger nests before another floor batch; n450 is the obvious founder for it.
+
+**Correction (19:22Z, Nest lane's deep-soil garden): the rock was not the cap.** Same recipe with `PP_BED_SOIL=60`
+(#986), main f3bbefc9: every nest stops 13-36 rows short of the rock, deeper and narrower but not bigger. nest_open
+61..68, median: n450 c24 461 265 450 377 354 404 490 470 (427); NESTER 200 158 426 362 423 488 373 336 (367.5);
+std_pool 619 425 386 271 772 304 446 640 (435.5); H3 518 500 373 644 389 486 604 482 (493). n450 above NESTER 6/8
+again (pooled with the shallow soil 12/16, p 0.08), level with std_pool on either soil. What holds nests at ~400-600
+by 200k is not depth -- time or colony size, so the next ruler is a 400k garden (asked of the Nest lane; named before
+its numbers: n450 above NESTER in >= 6/8 at 400k). Files `/mnt/project-files/teacher/env10-1031/garden/env10_deep_*`.
+
+**400k garden (Nest lane, 19:37Z; shipped soil, f3bbefc9; the 400k runs' 200k maps byte-identical to the 200k runs
+in 32/32).** As named: n450 above NESTER **3/8, fails**; NESTER above std_pool 2/8 (std 782.5, H3 677, n450 515,
+NESTER 501). But by 400k most lines are dead (n450 6/8, NESTER 5/8, std 8/8, H3 6/8): births stop between ~260k and
+~385k in every arm, untrained included, with food delivered, then the colony dies within 25-75k. Harness-wide in
+inrun's single long round, not the brain; the lab exam (labsurvive) keeps breeding to 600k (x16 births 1,000s), so it
+is an inrun-only limit and does not touch colsel's 200k rounds. So 400k measures holes left by dead colonies; the 200k
+garden stays the ruler. **env10 closes: NESTER stays the pick.**
+
+## 2026-11-01 (20:20Z): famine boxes next -- env11 smoked, not launched
+
+The three famine boxes are the exam's remaining gap (every trained ant dies; NESTER alone kept 2/8 on two_larders in
+x15). A famine-twin lexicase case from NESTER (`labcase=lab_famine_trickle` on env9's line) smokes clean (4 colonies
+x 2 rounds at 20k: `lab2_lab_famine_trickle` 68-107 tenths, ranks vary). **Not launched**, because it repeats env3
+(10-28: famine twins as lab cases, from std_pool, landed level or below) and the twins were measured unable to rank
+(they kill 73-93 of 96 trained runs at 600k). The famine lane's trace (PR #987) says what is missing is a behaviour
+-- a return leg and resting when hungry, which the wall trap shows the brain never has -- so selection on a case that
+rarely pays for it has nothing to pick from. Next batch waits on a design that gives the brain that option
+(a lesson, a sense, or an arena where coming back pays), or on Scott's direction.
