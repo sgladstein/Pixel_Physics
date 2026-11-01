@@ -1956,3 +1956,11 @@ std_pool 619 425 386 271 772 304 446 640 (435.5); H3 518 500 373 644 389 486 604
 again (pooled with the shallow soil 12/16, p 0.08), level with std_pool on either soil. What holds nests at ~400-600
 by 200k is not depth -- time or colony size, so the next ruler is a 400k garden (asked of the Nest lane; named before
 its numbers: n450 above NESTER in >= 6/8 at 400k). Files `/mnt/project-files/teacher/env10-1031/garden/env10_deep_*`.
+
+**400k garden (Nest lane, 19:37Z; shipped soil, f3bbefc9; the 400k runs' 200k maps byte-identical to the 200k runs
+in 32/32).** As named: n450 above NESTER **3/8, fails**; NESTER above std_pool 2/8 (std 782.5, H3 677, n450 515,
+NESTER 501). But by 400k most lines are dead (n450 6/8, NESTER 5/8, std 8/8, H3 6/8): births stop between ~260k and
+~385k in every arm, untrained included, with food delivered, then the colony dies within 25-75k. Harness-wide in
+inrun's single long round, not the brain; the lab exam (labsurvive) keeps breeding to 600k (x16 births 1,000s), so it
+is an inrun-only limit and does not touch colsel's 200k rounds. So 400k measures holes left by dead colonies; the 200k
+garden stays the ruler. **env10 closes: NESTER stays the pick.**
