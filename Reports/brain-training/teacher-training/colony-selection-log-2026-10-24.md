@@ -1897,3 +1897,17 @@ every batch starts from the latest best pool (ratchet, 10-24).
 `nest_open` is above NESTER's in >= 6 of 8 worlds **and** above E_n300's pick in >= 6 of 8 (the floor, not the rounds),
 and (2) exam lived is not behind NESTER (NESTER not ahead at sign-test p < 0.05). Reported: both picks vs std_pool
 (lived; garden nest), tunnels.
+## 2026-11-01 (17:40Z): env10 done -- both floors kept the bed nest; exam `x16` queued
+
+env10-1031 (01734ea2) ran 16 rounds per arm from NESTER. Medians, training-bed `nest` / lab case:
+
+| arm | r0 | r8 | r15 |
+|---|---|---|---|
+| E_n450 (floor 450) | 639 / 9,519 | 673 / 13,152 | 646 / 14,765 |
+| E_n300 (floor 300) | 639 / 9,519 | 616 / 14,661 | 618 / 15,936 |
+
+The lab survival case climbed ~55-65% in both arms; the higher floor bought ~30 cells of bed nest at the median and
+cost ~1,200 of lab score. Picks as named (r15 rank 0): E_n450 colony 24 (lab 19,541, last gate nest 442 -- under its
+own floor, bred via the top-2 fallback) -> `genomes/env10_n450c24_pool.txt`; E_n300 colony 2 (lab 19,498, gate nest
+537) -> `genomes/env10_n300c2_pool.txt`. Copies `/mnt/project-files/teacher/env10-1031/`; garden test with the
+Nest lane. Exam x16: n450, n300, NESTER, std_pool, 6 boxes x 8 seeds at 600k on main f3bbefc9 (rich earth #1019 on).
