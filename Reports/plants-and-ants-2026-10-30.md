@@ -10,7 +10,8 @@ to two-thirds of beds, tree and shrub significantly; big colonies eat sown
 seeds, but that does not decide whether a role gets back in. Rich earth
 (§8) shipped on: the fungus the colony eats leaves the ground round it
 fertile, and at up to 2x growth the door garden grows on 10 of 12 beds by
-150k (p 0.039, Holm 0.077), level by 300k, nothing harmed. New player-facing interactions (leaf garden, guarded
+150k (p 0.039, Holm 0.077), level by 300k, nothing harmed. Setting carried
+seeds down on rich ground (§9) moved nothing and is off. New player-facing interactions (leaf garden, guarded
 plants, a planting verb) belong to the plants-and-ants interaction lane and
 are not designed here. Pictures: <https://claude.ai/artifact/KSsVbrwiPbC4vDqwMbXprw>.*
 
@@ -347,11 +348,47 @@ test: the door garden grows earlier, nothing measured was harmed, and the
 colony ends no smaller.
 
 **Shipped:** `bonus` at `RICH_BONUS = 1.0`, on by default: the strength
-recommended to Scott on the decision card of 2026-10-31 (2x, 1.3x or off).
+Scott chose 2x on the decision card of 2026-10-31.
 
 **Not understood:** why the 2x gain fades by 300k. Candidates, untested:
 the door garden reaches the bed's light or space limit by then in both arms;
 or a larger colony grazes the extra growth away.
+
+## 9. Seeds on rich earth: no effect, off
+
+Prototype 2 of the same design: a seed the colony carries is set down on
+rich ground when there is some in reach. Code: `plant::find_rich_midden_site`,
+`PIXEL_PHYSICS_MIDDEN_RICH=1` (off by default). It walks the six columns
+`find_midden_site` already walks and takes the nearest surface whose ground
+is rich and wet enough; with none in reach the ordinary set-down runs
+unchanged. A unit test covers both, and fails with the rich test removed.
+
+**Deciding measures, fixed before the run:** plants grown from a carried
+seed with 20+ shoot cells at 150k (`pip_est`), and trees and shrubs that
+size within 64 columns of a nest at 300k (`door_big`), on against off,
+paired over played_bed seeds 1-12 with the colony and the mister, sign test,
+Holm over the two. Guards: ants at 250k and 450k, beds with 4+ kinds at
+450k.
+
+| measure | on vs off (wins-losses) | p |
+|---|---|---|
+| carried seeds set on rich ground, 150k (pooled) | 14.1% -> 16.9% | - |
+| **plants from carried seed, 150k** | **6-5** | 1.00 |
+| **trees and shrubs by the door, 300k** | **6-4** | 0.75 |
+| plants from carried seed, 300k | 7-5 | 0.77 |
+| shoot by the door, 150k | 3-9 | 0.15 |
+| ants at 250k / 450k | 5-7 / 5-7 | 0.77 / 0.77 |
+| beds with 4+ kinds, 450k | 9 against 10 | - |
+
+**The reading.** The lever barely reaches the seeds: about three carried
+seeds in a hundred land on rich ground that would not have anyway. A
+reading, not measured: rich earth is made round the fungus garden, which is
+underground, and the seed search only looks at the surface within six
+columns. Nothing measured moved, in either direction, beyond what one
+bed's luck moves. Off rather than on as neutral, because switching it on
+reshuffles every training run's luck for three seeds in a hundred (put to
+Scott on the decision card of 2026-11-01, with "try a stronger version" as
+the third option).
 
 ## Reproduce
 
@@ -362,4 +399,6 @@ labforage scenario=played_bed seed=S frames=150000                              
 plant_m0 mode=stand bed=played role=R seed=S grow=300000 window=150000 sample=10000 sow=4 gap=16 arms=none,shipped,cripple trace=150000
 latecensus scenario=played_bed mister=1 seed=S frames=450000 sample=50000      # PIXEL_PHYSICS_RICH_EARTH=off|refill|bonus [PIXEL_PHYSICS_RICH_BONUS=X]; rich line
 python3 /mnt/project-files/plants/rich-earth/score.py RUNDIR                   # §8 table, from {arm}_s{seed}.txt
+latecensus scenario=played_bed mister=1 seed=S frames=450000 sample=50000      # PIXEL_PHYSICS_MIDDEN_RICH=0|1; seedrich line
+python3 /mnt/project-files/plants/seed-on-rich/score.py RUNDIR                 # §9 table, from {on,off}_s{seed}.txt
 ```

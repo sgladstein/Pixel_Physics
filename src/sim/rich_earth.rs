@@ -102,6 +102,24 @@ pub fn rich_earth_default() -> RichEarth {
     })
 }
 
+/// **Prototype 2: the colony plants its seeds in its own rich ground.**
+/// `PIXEL_PHYSICS_MIDDEN_RICH=1` turns it on; **off by default, because it
+/// measured as doing almost nothing** (2026-11-01,
+/// `Reports/plants-and-ants-2026-10-30.md` §9). Paired over played_bed
+/// seeds 1-12 to 450k with the colony: carried seeds set down on rich
+/// ground 14.1% -> 16.9% (a reading, not measured: most rich earth lies
+/// round the garden underground, not on a surface within
+/// `MIDDEN_SEARCH_COLUMNS` of where a seed is set down), and the deciding
+/// measures did not move (plants from
+/// carried seed at 150k 6-5, trees and shrubs by the door at 300k 6-4, both
+/// p > 0.7; colony and beds with 4+ kinds level). Off rather than on as
+/// neutral because switching it on reshuffles every training run's luck for
+/// three seeds in a hundred.
+pub fn midden_seeks_rich_default() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MIDDEN_RICH").as_deref() == Ok("1"))
+}
+
 /// **The draw step a cell of this richness is drawn at**: 0 plain, 1 half
 /// spent or more, 2 freshly rich. Steps rather than a ramp so a root's
 /// draw repaints the cell only twice over its life.
