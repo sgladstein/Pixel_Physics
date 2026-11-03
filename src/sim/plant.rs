@@ -3762,6 +3762,40 @@ fn find_midden_site(world: &World, x: i32, y: i32, threshold: Option<f32>) -> Op
     None
 }
 
+/// **Rich ground in reach: the colony plants its seeds in the earth its own
+/// fungus made** (ants-help-plants prototype 2, 2026-10-31). The same walk
+/// as `find_midden_site` -- the same surface, the same nearest-first
+/// alternating columns, the same `MIDDEN_SEARCH_COLUMNS` bound and the same
+/// water test -- but a site qualifies only if the ground under it is also
+/// rich (`rich_earth::is_rich`). Rich earth feeds a root past full, so a
+/// seed set there starts with more income than one set on plain wet soil.
+///
+/// **A preference, never a gate.** A `None` here leaves the ordinary
+/// midden logic to run exactly as before, so a seed with no rich ground in
+/// reach is set down where it always was (`CLAUDE.md`: a size cap must
+/// bound work, never decide whether something happens). Column 0 is the
+/// drop site itself, read off the cell below it as the ordinary path does.
+fn find_rich_midden_site(world: &World, x: i32, y: i32, threshold: Option<f32>) -> Option<(i32, i32)> {
+    let below = world.get(x, y + 1);
+    if world.is_empty(x, y) && super::rich_earth::is_rich(world, below) && site_holds_enough_water(world, below, threshold) {
+        return Some((x, y));
+    }
+    for dc in 1..=MIDDEN_SEARCH_COLUMNS {
+        for &cx in &[x - dc, x + dc] {
+            let Some(sy) = super::creature::colony_surface(world, cx, y) else { continue };
+            let py = sy - 1;
+            if !world.is_empty(cx, py) {
+                continue;
+            }
+            let ground = world.get(cx, sy);
+            if super::rich_earth::is_rich(world, ground) && site_holds_enough_water(world, ground, threshold) {
+                return Some((cx, py));
+            }
+        }
+    }
+    None
+}
+
 /// **The other end of `take_seed_passenger`, eaten.** Writes the passenger
 /// back as a live, organism-owned `pip` cell at `(x, y)` -- the same
 /// organism id it has carried since the bite, so the delivered plant
@@ -3864,9 +3898,21 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
     // is rebuilt and the other is not. Default is on (the fix).
     let midden_disabled = std::env::var("PIXEL_PHYSICS_MIDDEN").as_deref() == Ok("0");
     let threshold = seed_water_threshold(world, passenger.organism_id);
-    let (x, y) = {
-        let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
-        if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
+    // **Rich ground first, when the colony has made some in reach**
+    // (`find_rich_midden_site`; `World::midden_seeks_rich`). Falls through
+    // to the ordinary midden logic untouched when there is none.
+    let rich_site = if world.midden_seeks_rich && !midden_disabled && world.rich_earth != super::rich_earth::RichEarth::Off {
+        find_rich_midden_site(world, x, y, threshold)
+    } else {
+        None
+    };
+    let moved_to_rich = rich_site.is_some_and(|s| s != (x, y));
+    let (x, y) = match rich_site {
+        Some(site) => site,
+        None => {
+            let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
+            if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
+        }
     };
     // **Never over an occupied cell -- open-bugs §Z16, 2026-09-12.** The
     // digestion exit in `creature.rs` hands the pip in at the ant's *own
@@ -3944,6 +3990,10 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
         world.pips_set_on_soil += 1;
     } else {
         world.pips_set_on_nest += 1;
+    }
+    if super::rich_earth::is_rich(world, world.get(x, y + 1)) {
+        world.pips_set_on_rich += 1;
+        world.pips_moved_to_rich += u64::from(moved_to_rich);
     }
     let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
     // Read once, before the write below, and reused by both the debug line
@@ -28988,6 +29038,60 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         );
         assert_eq!(w.pips_set_on_soil, 1, "the it-worked counter must move when a delivery lands on water-holding ground");
         assert_eq!(w.pips_set_on_nest, 0, "the it-failed counter must not move when the redirect succeeded");
+    }
+
+    /// **Prototype 2: a carried seed is planted in the colony's rich earth
+    /// when there is some in reach, and set down exactly as before when
+    /// there is not.** Wet soil everywhere, so the ordinary path keeps the
+    /// pip where it was dropped; rich wet soil three columns right. Switch
+    /// on: it moves there and both counters move. Switch off, or no rich
+    /// ground: it stays put. Put the fault back by hand while building
+    /// (the `is_rich` test dropped from `find_rich_midden_site`): the
+    /// switch-on arm landed on the plain soil one column left and failed.
+    #[test]
+    fn a_carried_seed_is_planted_in_rich_earth_in_reach_and_nowhere_else() {
+        fn run(on: bool, rich_at: Option<i32>) -> (World, OrganismId, (i32, i32)) {
+            let mut w = test_world();
+            w.rich_earth = super::super::rich_earth::RichEarth::Bonus;
+            w.midden_seeks_rich = on;
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let (x, y) = (100, 60);
+            const HALF: i32 = 10;
+            for fx in (x - HALF - 1)..=(x + HALF + 1) {
+                w.set(fx, y + 7, Cell::new(material::STONE, 0));
+            }
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + 1, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+            if let Some(dx) = rich_at {
+                w.set_richness(x + dx, y + 1, super::super::rich_earth::RICH_STOCK);
+            }
+            let id = w.push_organism(herb).expect("an organism slot is free");
+            let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+            let passenger = organism::SeedPassenger {
+                organism_id: id,
+                material: pip,
+                shade: 0,
+                aux: organism::pack_cell_type(CellType::Seed),
+                picked_up_frame: w.frame,
+            };
+            deliver_seed_passenger(&mut w, x, y, passenger);
+            let landed = w.organism(id).and_then(|st| st.cells.keys().next().copied()).expect("the delivered organism must own a cell");
+            (w, id, landed)
+        }
+        let (w, _, landed) = run(true, Some(3));
+        assert_eq!(landed, (103, 60), "switch on: the seed must be set on the rich ground three columns over");
+        assert_eq!((w.pips_set_on_rich, w.pips_moved_to_rich), (1, 1));
+        let (w, _, landed) = run(false, Some(3));
+        assert_eq!(landed, (100, 60), "switch off: the seed stays where it was dropped on wet soil");
+        assert_eq!((w.pips_set_on_rich, w.pips_moved_to_rich), (0, 0));
+        let (w, _, landed) = run(true, None);
+        assert_eq!(landed, (100, 60), "no rich ground in reach: set down exactly as before");
+        assert_eq!((w.pips_set_on_rich, w.pips_moved_to_rich), (0, 0));
+        let (w, _, landed) = run(true, Some(0));
+        assert_eq!(landed, (100, 60), "rich ground under the drop site: it stays, and counts as set on rich");
+        assert_eq!((w.pips_set_on_rich, w.pips_moved_to_rich), (1, 0));
     }
 
     /// **Capable is not the same as wet, and this is the test that catches

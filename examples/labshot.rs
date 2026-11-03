@@ -975,6 +975,13 @@ fn main() {
                 world.rich_draws,
                 fed
             );
+            println!(
+                "            seeds the ants carried: set down {:>5} | on rich ground {:>4} | moved there {:>4} (MIDDEN_RICH {})",
+                world.seeds_delivered,
+                world.pips_set_on_rich,
+                world.pips_moved_to_rich,
+                if world.midden_seeks_rich { "on" } else { "off" }
+            );
             let f = world.structural_failures;
             println!(
                 "            felling: snapped under load {:>4} | severed by support check {:>4} ({:>3} of them alive) | leaned {:>4} | shed {:>4} | rotted {:>4} | load rule {}",
