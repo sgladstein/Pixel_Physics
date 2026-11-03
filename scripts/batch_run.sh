@@ -21,6 +21,7 @@ progress_of() {  # a number that grows as a job advances: colsel's round, emerge
   local d=$1
   if [ -f "$d/state.json" ]; then python3 -I -c "import json,sys;print(json.load(open(sys.argv[1]))['r'])" "$d/state.json"
   elif [ -f "$d/gens.csv" ]; then wc -l < "$d/gens.csv"
+  elif [ -f "$d/lab.csv" ]; then echo 1  # an exam: all or nothing
   else find "$d" -maxdepth 2 -name .done 2>/dev/null | wc -l; fi
 }
 export -f progress_of
@@ -38,12 +39,16 @@ run_line() {
     emerge)  # OUT emerge ARM N GENS FRAMES FOUNDER opts
       env "${env[@]}" timeout -k 60 $left python3 -I scratch/pheromones/emerge.py "$root/$o" "${rest[@]:1}" >> "$root/$o.log" 2>&1; rc=$?
       mkdir -p "$root/$o" && cp "$root/$o.log" "$root/$o/driver.log" ;;
+    exam)    # OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]: the VM's exam line (lab boxes only, WORLDS=0); P is the runner's
+      env "${env[@]}" P=$NPROC BOXES="${rest[2]}" LAB_SEEDS="${rest[3]}" AFTER="${rest[4]}" WORLDS=0 timeout -k 60 $left \
+        python3 -I scratch/inrun/exam.py "$root" "$o" "${rest[@]:5}" >> "$root/$o.log" 2>&1; rc=$?
+      mkdir -p "$root/$o" && cp "$root/$o.log" "$root/$o/driver.log" ;;
     *)       # OUT SEED ROUNDS FRAMES SEL GENOME args
       env "${env[@]}" timeout -k 60 $left bash scratch/inrun/rounds.sh "$root/$o" "${rest[@]}" >> "$root/$o.log" 2>&1; rc=$? ;;
   esac
   local after; after=$(progress_of "$root/$o" 2>/dev/null || echo 0)
   # rounds.sh's exit code is its last test's (1 whenever ROUNDS <= 10), so its own markers say whether it finished
-  if [ "${rest[0]}" != colsel ] && [ "${rest[0]}" != emerge ] && [ "$rc" != 124 ] && [ "$rc" != 137 ]; then
+  if [ "${rest[0]}" != colsel ] && [ "${rest[0]}" != emerge ] && [ "${rest[0]}" != exam ] && [ "$rc" != 124 ] && [ "$rc" != 137 ]; then
     if [ -f "$root/$o/r$(( ${rest[1]} - 1 ))/.done" ] || [ -f "$root/$o/EXTINCT" ]; then rc=0; elif [ "$rc" = 0 ]; then rc=1; fi
     # armsum.py counts food and starved from the event logs, which a carried-on line no longer has for earlier legs
     if [ "$rc" = 0 ] && [ "$before" = 0 ]; then
@@ -78,7 +83,7 @@ tar -C "$root" -czf "$pub/$entry.tgz" --exclude='events.csv' --exclude='events.c
 # readable without unpacking: each job's summary csvs and log
 for l in "${LINES[@]}"; do
   o=${l%% *}; mkdir -p "$pub/$o"
-  for f in colsel.csv cg.csv donor600.csv gens.csv garden.json EXTINCT; do [ -f "$root/$o/$f" ] && cp "$root/$o/$f" "$pub/$o/"; done
+  for f in colsel.csv cg.csv donor600.csv gens.csv garden.json lab.csv EXTINCT; do [ -f "$root/$o/$f" ] && cp "$root/$o/$f" "$pub/$o/"; done
   [ -f "$root/$o.log" ] && tail -n 200 "$root/$o.log" > "$pub/$o/log-tail.txt"
   [ -f "$root/$o.armsum" ] && cp "$root/$o.armsum" "$pub/$o/armsum.txt"
 done

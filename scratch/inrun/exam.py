@@ -34,7 +34,10 @@ LAB_SEED_RANGE = range(int(_ls.split('-')[0]), int(_ls.split('-')[1]) + 1) if '-
 AFTER = int(os.environ.get('AFTER', '60000'))
 BOXES = os.environ.get('BOXES', 'played_bed,far_larder,scattered_larder,two_larders,the_bank,herb_first_colony,'
                        'crowded_bench,feast_and_famine').split(',')
-BIN, LAB_BIN = 'target/release/examples/inrun', 'target/release/examples/labsurvive'
+# env BIN / LAB_BIN (teacher lane, 2026-11-03): the GitHub batch runner builds into its own target dir and exports
+# both (`.github/workflows/batch-leg.yml`); the VM exports BIN as this same relative path's absolute form.
+BIN = os.environ.get('BIN', 'target/release/examples/inrun')
+LAB_BIN = os.environ.get('LAB_BIN', 'target/release/examples/labsurvive')
 # the garden settings of every colsel job since nest11 (scratch/inrun/jobs/elite1.txt), selection off
 GARDEN = ['frames=200000', 'dist=25', 'spread=10', 'grants=3', 'window=4000', 'sel=off', 'food=mix',
           'lesson=scratch/inrun/genomes/c1.raw.txt:0.1', 'patches=20000:40:120']

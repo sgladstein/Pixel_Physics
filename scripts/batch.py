@@ -12,9 +12,10 @@ A batch file `.github/train-jobs/<batch>.batch` holds the same job lines the Goo
     OUT colsel P MODE NCOL ROUNDS FRAMES GENOME [inrun args...]     one colsel.py driver (P becomes the runner's cores)
     OUT SEED ROUNDS FRAMES SEL GENOME [inrun args...]               one rounds.sh loop
     OUT emerge ARM N GENS FRAMES FOUNDER [opts and inrun args...]   one scratch/pheromones/emerge.py arm
+    OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]                      one scratch/inrun/exam.py lab exam (P = runner's cores)
     OUT KEY=VALUE ... <one of the above>                            environment for that line (e.g. PP_GATE=off)
 
-Each colsel or emerge line gets a runner of its own; rounds.sh lines are packed PACK to a runner (each is one core).
+Each colsel, emerge or exam line gets a runner of its own; rounds.sh lines are packed PACK to a runner (each is one core).
 A runner stops at 6 h, so a batch runs in legs: each leg carries on what the last one published.
 
     python3 scripts/batch.py plan                 # in the workflow: the pushed head commit's .batch files -> matrix
@@ -57,14 +58,19 @@ def split_line(line):
                                  "(the /mnt project files are not on the runner)")
         if t.startswith("out="):
             raise ValueError(f"{line!r}: out= is set by the driver, remove it")
-    kind = rest[0] if rest[0] in ("colsel", "emerge") else "rounds"
-    need = {"colsel": 8, "emerge": 6, "rounds": 5}[kind]
+    kind = rest[0] if rest[0] in ("colsel", "emerge", "exam") else "rounds"
+    need = {"colsel": 8, "emerge": 6, "exam": 6, "rounds": 5}[kind]
     if len(rest) < need:
         raise ValueError(f"{line!r}: a {kind} line needs at least {need} words after OUT, found {len(rest)}")
     if kind == "rounds" and not all(x.isdigit() for x in rest[:3]):
         raise ValueError(f"{line!r}: not colsel, emerge, or a rounds.sh line (SEED ROUNDS FRAMES must be numbers)")
     if kind == "colsel" and not all(x.isdigit() for x in (rest[1], rest[3], rest[4], rest[5])):
         raise ValueError(f"{line!r}: colsel's P NCOL ROUNDS FRAMES must be numbers")
+    # exam (teacher lane, 2026-11-03, the Google credits running out): the VM's `OUT exam P BOXES SEEDS AFTER
+    # FOUNDERS [ENV]`, lab boxes only. SEEDS is N or A-B. exam.py writes lab.csv only when every run is in, so a line
+    # must fit one leg: about 8 600k-frame runs on one runner.
+    if kind == "exam" and not (rest[1].isdigit() and rest[4].isdigit() and re.fullmatch(r"\d+(-\d+)?", rest[3])):
+        raise ValueError(f"{line!r}: exam's P and AFTER must be numbers, SEEDS N or A-B")
     return out, env, kind, rest
 
 
@@ -225,6 +231,8 @@ def selftest():
     assert b["ref"] == "main" and not b["resume"] and b["leg_minutes"] == 320, b
     assert parse_batch("t", "leg_minutes=20\nresume=1\nx 1 2 3 score g")["leg_minutes"] == 20
     assert [(o, k) for o, k, _ in b["lines"]][:2] == [("a", "colsel"), ("c", "emerge")], b["lines"][:2]
+    assert split_line("e exam 4 two_larders,played_bed 1-8 600000 assets/minds/std_pool.txt")[2] == "exam"
+    assert split_line("e exam 4 played_bed 8 600000 assets/minds/std_pool.txt LAB_ARGS=tax=0")[2] == "exam"
     es = entries(b)
     assert [e["entry"] for e in es] == ["a", "c", "pack001", "pack002", "pack003"], es
     assert es[2]["lines"].count("\n") == PACK - 1 and es[4]["lines"].count("\n") == 0, es
@@ -232,7 +240,8 @@ def selftest():
     bad = [("a b", "x 1 2 3 score g"), ("a", "# only comment"), ("a", "x 1 2 3 score g\nx 2 2 3 score g"),
            ("a", "x 1 2 3 score /mnt/project-files/g.txt"), ("a", "x 1 2 3 score g lesson=../g:0.1"),
            ("a", "x 1 2 3 score g founders=a@b:1,/etc/x@c:1"), ("a", "x 1 2 3 score g out=y"),
-           ("a", "x BIN=/bin/sh 1 2 3 score g"), ("a", "x GITHUB_TOKEN=1 1 2 3 score g"), ("a", "x colsel 31 lex 32 16 g"),
+           ("a", "x BIN=/bin/sh 1 2 3 score g"), ("a", "x GITHUB_TOKEN=1 1 2 3 score g"), ("a", "x colsel 31 lex 32 16 g"), ("a", "x exam 4 played_bed 1-8 600000"), ("a", "x exam 4 played_bed one 600000 g"),
+           ("a", "x exam four played_bed 8 600000 g"), ("a", "x exam 4 played_bed 8 600000 /mnt/project-files/g.txt"),
            ("a", "x seed 2 3 score g"), ("a", "x/y 1 2 3 score g"), ("a", "ref=../etc\nx 1 2 3 score g"),
            ("a", "use=j.txt only=zz"), ("a", "use=/etc/passwd"), ("a", "resume=yes\nx 1 2 3 score g"), ("a", "leg_minutes=400\nx 1 2 3 score g"), ("a", "leg_minutes=2\nx 1 2 3 score g"), ("a", "x PP_A=1")]
     for n, t in bad:

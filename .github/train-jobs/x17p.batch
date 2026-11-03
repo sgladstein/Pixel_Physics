@@ -1,0 +1,21 @@
+# exam x17 (teacher lane, 2026-11-03): the pruned floor-450 pool against its unpruned self, six exam boxes x 8 seeds,
+# 600k frames after landing. Named test: colony-selection-log-2026-10-24.md, 2026-11-03 (22:40Z).
+ref=a6b4308a01cf5e2be44f6ba507096972e45e3eb7
+x17-n450-two_larders exam 4 two_larders 1-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-scattered_larder exam 4 scattered_larder 1-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-feast_and_famine exam 4 feast_and_famine 1-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-played_bed-a exam 4 played_bed 1-4 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-played_bed-b exam 4 played_bed 5-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-herb_first_colony-a exam 4 herb_first_colony 1-4 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-herb_first_colony-b exam 4 herb_first_colony 5-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-crowded_bench-a exam 4 crowded_bench 1-4 600000 assets/minds/env10_n450c24_pool.txt
+x17-n450-crowded_bench-b exam 4 crowded_bench 5-8 600000 assets/minds/env10_n450c24_pool.txt
+x17-p1-two_larders exam 4 two_larders 1-8 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-scattered_larder exam 4 scattered_larder 1-8 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-feast_and_famine exam 4 feast_and_famine 1-8 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-played_bed-a exam 4 played_bed 1-4 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-played_bed-b exam 4 played_bed 5-8 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-herb_first_colony-a exam 4 herb_first_colony 1-4 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-herb_first_colony-b exam 4 herb_first_colony 5-8 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-crowded_bench-a exam 4 crowded_bench 1-4 600000 scratch/inrun/genomes/n450_p1_pool.txt
+x17-p1-crowded_bench-b exam 4 crowded_bench 5-8 600000 scratch/inrun/genomes/n450_p1_pool.txt

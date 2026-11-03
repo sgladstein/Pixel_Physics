@@ -1975,3 +1975,39 @@ x 2 rounds at 20k: `lab2_lab_famine_trickle` 68-107 tenths, ranks vary). **Not l
 -- a return leg and resting when hungry, which the wall trap shows the brain never has -- so selection on a case that
 rarely pays for it has nothing to pick from. Next batch waits on a design that gives the brain that option
 (a lesson, a sense, or an arena where coming back pays), or on Scott's direction.
+
+## 2026-11-03 (22:40Z): NESTER is the lab's default; what saves a trained ant in a famine box; exam `x17` on free runners
+
+**The default.** Scott's card (11-03 22:04Z, "Make NESTER the default"): `bin/lab` opens on `training::LAB_DEFAULT`
+(`nester`); `Lab::new` still picks the standard pool (`lab_ant: 0`), so harnesses keep measuring what they measured.
+env10's floor-450 pick joins the picker as NESTER 450 (`n450`), not the default (x16 missed its named leg). Scott,
+22:18Z: Google credits are nearly out, so no new VM batches; free runners for long runs.
+
+**Famine boxes, first checks** (container only; the two selection twins, never the exam boxes; seeds 1-3; `lived` =
+mean headcount over 8,000 frames after landing; n450 founders unless named; this tree = main cddc4c77 + the picker).
+The twins are low-noise at this horizon: the three seeds of an arm agree within about 2. Hand-built 52.0-52.3
+(scatter) and 40.3-43.0 (trickle); n450 28.1-30.4 and 15.4-18.7.
+
+| arm | what it changes | scatter | trickle | read |
+|---|---|---|---|---|
+| come-home teacher acting (`PP_CARRY=1 PP_CARRY_HUNGRYONLY=1 PP_CARRY_OUT=0 PP_HOMEFAR=1 PP_HOMEFAR_HUNGRY=1 PP_HOMEFAR_FUEL=0.012`) | a hungry ant walks home | 26.4-28.4 | 12.2-12.6, every colony dead | **worse**: a lab colony lands on one tank, so all of it is "hungry" and walks to an empty nest |
+| hungry teacher (`PP_CARRY=1 PP_CARRY_HUNGRY=2 PP_CARRY_HUNGRYONLY=1 PP_CARRY_OUT=0 PP_CARRY_STORE=1`) | a hungry ant beside food takes it | 31.2-31.8 | 15.6-21.0 | +1 to +3, 6/6 up |
+| turn round switched on, hand-laid job (`c2s4`: switch +1, job const -2, `since_nest` +4; four other forms alike) | it can turn back | 28.6-31.3 | 14.4-17.3 | level; **it fires** (2,291 of 20,215 picks in trickle s1) and the ants spread from the end walls, but no more live |
+| `PP_SHARP_MAX=1` | softer choices | 27.2-30.1 | 19.6-21.8 | trickle +2 to +4 |
+| `tax=0` | thinking is free | 34.5-36.9 | 20.8-24.7 | **+6, 6/6** (the famine lane's finding, replicated on n450) |
+| `tax=0` + `PP_SHARP_MAX=1` | | 36.7-39.5 | 25.4-28.3 | the most of any brain-side change |
+| links under \|1.0\| set to 0 (`n450_p1`: 1,585 -> 897 billed links a member, the dig head untouched) | a smaller bill | 31.1-32.7 | 22.9-24.9 | +3 / +6, 6/6 up |
+| under \|3.0\| (248 links) | | 38.3-39.2 | 24.3-26.5 | as free, but 0-2 deliveries: a cheap brain doing little, which these twins can't tell from a good one |
+
+So the "way home" reading of the wall trap was wrong as a fix: going home kills a one-tank landing, and turning back
+moves ants without feeding them. **The largest single lever is the brain's bill**, then soft choices and taking food
+when hungry; together they reach about 70% of the hand-built ant in scatter, not in trickle. The link price stays
+(Scott, 10-28), so thrift has to come from a smaller brain. Because the twins reward a lobotomy as readily as a lean
+good brain, the pruned pool is judged on the exam, never picked on the twins alone.
+
+**Exam `x17` (named before launch).** n450_p1 against n450, the six exam boxes x seeds 1-8 at 600k, both arms on one
+build, on GitHub's runners (`.github/train-jobs/x17p.batch`; `scripts/batch.py` takes exam lines since this commit).
+The deciding measure: `lived`, paired over the 48 box-seeds, sign test. n450_p1 passes if it is higher in more pairs
+at p < 0.025, **and** is not lower at p < 0.025 over the 24 plant-box pairs (played_bed, herb_first_colony,
+crowded_bench); famine-box alive-at-end is reported beside it, not tested. Two tests, so Bonferroni at 0.025 each. If it
+passes, the garden nest (Nest lane's worlds 61-68, 200k) is checked before it goes anywhere near the picker.
