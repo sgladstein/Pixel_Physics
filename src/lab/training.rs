@@ -136,8 +136,11 @@ pub struct LabAnt {
 /// plus the hand-built ant, so we don't always have to decide"* -- so he can
 /// playtest each). Picked with `` ` `` in the box, the ANT row on MENU and the
 /// ANTS page, or `lab -- ant=KEY` at launch; the clock line names the active
-/// one. The first is the lab's default (B1, owner 2026-10-27: the standard line
-/// being trained).
+/// one. **The lab binary opens on [`LAB_DEFAULT`]** (B1, owner 2026-10-27: the
+/// newest best pool is the default; NESTER since the owner's card of
+/// 2026-11-03). The first entry stays the standard pool, because it is what a
+/// `Lab::new` picks (`lab_ant: 0`), so harnesses, tests and seat demos built
+/// on `Lab::new` keep measuring what they measured.
 ///
 /// **An explicit list, not every pool in `assets/minds/`**: the Teacher lane
 /// adds a pool here by PR when one passes its exam (Teacher lane, 2026-10-31).
@@ -147,13 +150,14 @@ pub struct LabAnt {
 /// The x13 played-bed control (seed 1, 600k frames past landing) is the check
 /// that a pool loads as measured: SURVIVOR 565 alive / lived 434.1, TUNNEL
 /// DIGGER 99 / 287.9, STANDARD 69 / 219.9; NESTER's is from x15, a later
-/// build (main 86b788ce): 593 / 502.1, STANDARD 156 / 329.1 on that build.
-pub const LAB_ANTS: [LabAnt; 5] = [
+/// build (main 86b788ce): 593 / 502.1, STANDARD 156 / 329.1 on that build;
+/// NESTER 450's from x16 (main f3bbefc9), CHECKED BELOW in the PR body.
+pub const LAB_ANTS: [LabAnt; 6] = [
     LabAnt {
         key: "std",
         name: "STANDARD",
         pool: Some(STD_POOL),
-        note: "THE STANDARD POOL: THE TRAINED LINE EVERY TRAINING BATCH STARTS FROM, AND THE LAB'S DEFAULT.",
+        note: "THE STANDARD POOL: THE TRAINED LINE THE TRAINING PAGE STARTS FROM, AND THE LAB'S DEFAULT UNTIL 2026-11-03.",
     },
     LabAnt {
         key: "survivor",
@@ -165,7 +169,13 @@ pub const LAB_ANTS: [LabAnt; 5] = [
         key: "nester",
         name: "NESTER",
         pool: Some(include_str!("../../assets/minds/env9_stdc9_pool.txt")),
-        note: "ENV9 STANDARD LINE COLONY 9, EXAM X15'S PICK: LIVES AS WELL AS THE SURVIVOR AND DIGS ABOUT EIGHT TIMES ITS NEST -- STILL SMALLER THAN THE STANDARD POOL'S.",
+        note: "THE LAB'S DEFAULT. ENV9 STANDARD LINE COLONY 9, EXAM X15'S PICK: LIVES AS WELL AS THE SURVIVOR AND DIGS ABOUT EIGHT TIMES ITS NEST -- STILL SMALLER THAN THE STANDARD POOL'S.",
+    },
+    LabAnt {
+        key: "n450",
+        name: "NESTER 450",
+        pool: Some(include_str!("../../assets/minds/env10_n450c24_pool.txt")),
+        note: "ENV10'S FLOOR-450 PICK, TRAINED FROM NESTER: A BIGGER NEST AND A FEW MORE ANTS THAN NESTER IN MOST TESTS, BUT NONE OF IT PROVEN YET.",
     },
     LabAnt {
         key: "digger",
@@ -181,12 +191,19 @@ pub const LAB_ANTS: [LabAnt; 5] = [
     },
 ];
 
+/// **The ant the lab binary opens on**, a [`LAB_ANTS`] key (owner's card,
+/// 2026-11-03: "Make NESTER the default", after exam x15 -- NESTER lived
+/// ahead of the standard pool 29/10, p 0.003, and its garden nest was 344
+/// open cells against the survivor's 40; pictures beside the standard pool on
+/// the Teacher lane's page, `#x15`). `lab -- ant=std` opens on the old one.
+pub const LAB_DEFAULT: &str = "nester";
+
 /// [`LAB_ANTS`]' index for a `lab -- ant=` word; `oldant`/`old` are the
 /// hand-built brain's older spellings, `newant`/`new` the default's.
 pub fn lab_ant_index(key: &str) -> Option<usize> {
     let key = match key {
         "old" | "oldant" => "hand",
-        "new" | "newant" => "std",
+        "new" | "newant" => LAB_DEFAULT,
         k => k,
     };
     LAB_ANTS.iter().position(|a| a.key == key)
@@ -1884,7 +1901,8 @@ mod tests {
     /// [`LAB_ANTS`]' doc), not this.
     #[test]
     fn every_lab_ant_loads() {
-        assert_eq!(LAB_ANTS[0].key, "std", "the lab's default is first");
+        assert_eq!(LAB_ANTS[0].key, "std", "a Lab::new's pick (lab_ant 0) is the standard pool");
+        assert!(lab_ant_index(LAB_DEFAULT).is_some_and(|i| LAB_ANTS[i].pool.is_some()), "the default is a trained pool");
         assert!(LAB_ANTS.iter().filter(|a| a.pool.is_none()).count() == 1, "one hand-built entry");
         for (i, a) in LAB_ANTS.iter().enumerate() {
             assert_eq!(lab_ant_index(a.key), Some(i));
@@ -1905,7 +1923,7 @@ mod tests {
         }
         assert_eq!(parse_pool(LAB_ANTS[0].pool.unwrap(), "std"), std_pool());
         assert_eq!(lab_ant_index("oldant"), lab_ant_index("hand"));
-        assert_eq!(lab_ant_index("newant"), Some(0));
+        assert_eq!(lab_ant_index("newant"), lab_ant_index(LAB_DEFAULT));
         assert_eq!(lab_ant_index("nobody"), None);
     }
 

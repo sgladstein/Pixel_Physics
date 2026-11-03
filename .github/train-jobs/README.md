@@ -61,10 +61,12 @@ e13s colsel 31 lex+spoil+crater+shape+scale+lab 32 16 200000 assets/minds/std_po
 ```
 
 - **A line is a VM jobs line**: `OUT colsel P MODE NCOL ROUNDS FRAMES GENOME args`, `OUT SEED ROUNDS FRAMES SEL
-  GENOME args` (rounds.sh), or `OUT emerge ARM N GENS FRAMES FOUNDER opts` (`scratch/pheromones/emerge.py`). Words
+  GENOME args` (rounds.sh), or `OUT emerge ARM N GENS FRAMES FOUNDER opts` (`scratch/pheromones/emerge.py`), or `OUT exam P BOXES SEEDS AFTER FOUNDERS [ENV]` (`scratch/inrun/exam.py`'s lab
+  boxes, no garden worlds; SEEDS is N or A-B; lab.csv is written only when every run is in, so keep a line to about
+  eight 600k-frame runs, which fit one leg). Words
   after OUT like `PP_GATE=off` are that line's environment. Or `use=scratch/inrun/jobs/X.txt [only=a,b]` runs lines of a
   VM jobs file as they are. colsel's `P` becomes the runner's cores.
-- **Runners.** Each colsel or emerge line gets a runner; rounds.sh lines go four to a runner. One `.batch` per push.
+- **Runners.** Each colsel, emerge or exam line gets a runner; rounds.sh lines go four to a runner. One `.batch` per push.
   Push to a `train/<anything>` branch, as for `.job` files.
 - **`ref=`** builds the code from that branch or commit, resolved to one sha for every leg. It must be at or after
   the commit that added `batch.yml` (colsel's `DEADLINE` and rounds.sh's `.done` markers are what make legs work).

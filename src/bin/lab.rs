@@ -88,8 +88,9 @@
 //!
 //! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
 //!
-//! Every ant in it decides by the trained standard pool from the first frame,
-//! since 2026-10-24. **`` ` `` picks another ant** (owner, 2026-10-31: to
+//! Every ant in it decides by a trained pool from the first frame, since
+//! 2026-10-24: NESTER (`lab::training::LAB_DEFAULT`) since the owner's card of
+//! 2026-11-03, the standard pool before it. **`` ` `` picks another ant** (owner, 2026-10-31: to
 //! playtest each) -- the trained candidates and the hand-built brain, in
 //! `lab::training::LAB_ANTS`; the clock line names the one in play, and the
 //! ANT row on MENU and the ANTS page does the same. On the command line,
@@ -315,7 +316,9 @@ impl Handler {
             }
         }
         // **The trained ant by default** (owner, 2026-10-24): every ant
-        // decides by the standard pool from the first frame. **`ant=KEY`
+        // decides by `training::LAB_DEFAULT` from the first frame -- NESTER
+        // since the owner's card of 2026-11-03 (`ant=std` for the standard
+        // pool it replaced). **`ant=KEY`
         // picks another** (owner, 2026-10-31; `lab::training::LAB_ANTS`, or
         // `PIXEL_PHYSICS_LAB_ANT`); `-- oldant` is still `ant=hand` and
         // `-- newant` still changes nothing. `-- training`: open on the
@@ -327,14 +330,15 @@ impl Handler {
             .ok()
             .or_else(|| args.iter().find_map(|a| a.strip_prefix("ant=").map(str::to_string)))
             .or_else(|| args.iter().any(|a| a == "oldant").then(|| "hand".to_string()));
+        let default_ant = pixel_physics::lab::training::lab_ant_index(pixel_physics::lab::training::LAB_DEFAULT).unwrap_or(0);
         let ant = match ant_word.as_deref().map(|w| (w, pixel_physics::lab::training::lab_ant_index(w))) {
             Some((_, Some(i))) => i,
             Some((w, None)) => {
                 let keys: Vec<_> = pixel_physics::lab::training::LAB_ANTS.iter().map(|a| a.key).collect();
-                eprintln!("ant={w}: no such ant ({}) -- opening on the standard pool", keys.join(", "));
-                0
+                eprintln!("ant={w}: no such ant ({}) -- opening on the default, {}", keys.join(", "), pixel_physics::lab::training::LAB_DEFAULT);
+                default_ant
             }
-            None => 0,
+            None => default_ant,
         };
         lab.pick_ant(ant);
         // A person is at the keys: a demo started from here or from the
