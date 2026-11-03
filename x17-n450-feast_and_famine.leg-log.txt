@@ -1,0 +1,10 @@
+runner: x17-n450-feast_and_famine, leg 1
+built from: a6b4308a01cf5e2be44f6ba507096972e45e3eb7
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41734146104
+started: 2026-11-03T22:55:42Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+23:00:42 x17-n450-feast_and_famine: done, exit 0
+-rw-r--r-- 1 runner runner 450607 Nov  3 23:00 /tmp/batch/pub/x17-n450-feast_and_famine.tgz
+x17-n450-feast_and_famine done exit 0
+finished: 2026-11-03T23:00:42Z

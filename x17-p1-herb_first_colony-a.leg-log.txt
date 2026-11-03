@@ -1,0 +1,10 @@
+runner: x17-p1-herb_first_colony-a, leg 1
+built from: a6b4308a01cf5e2be44f6ba507096972e45e3eb7
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41734146104
+started: 2026-11-03T23:13:21Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+23:33:31 x17-p1-herb_first_colony-a: done, exit 0
+-rw-r--r-- 1 runner runner 20547 Nov  3 23:33 /tmp/batch/pub/x17-p1-herb_first_colony-a.tgz
+x17-p1-herb_first_colony-a done exit 0
+finished: 2026-11-03T23:33:31Z

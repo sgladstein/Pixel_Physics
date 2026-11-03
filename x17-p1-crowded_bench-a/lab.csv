@@ -1,0 +1,5 @@
+box,seed,alive,lived,peak,starved,births,landed,frame,digs,deliveries,trip_deliveries
+crowded_bench,1,582,457.2,835,6804,12214,1,600001,7295,22215,15415
+crowded_bench,2,116,300.6,760,8856,11346,1,600001,19790,76555,16283
+crowded_bench,3,228,379.0,754,5874,10220,1,600001,15159,20319,12554
+crowded_bench,4,87,333.5,696,7865,11182,1,600001,16876,32438,14058

@@ -1,0 +1,11 @@
+runner: x17-p1-crowded_bench-a, leg 1
+built from: a6b4308a01cf5e2be44f6ba507096972e45e3eb7
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41734146104
+started: 2026-11-03T23:17:22Z
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+CPU(s) scaling MHz:                      124%
+23:48:40 x17-p1-crowded_bench-a: done, exit 0
+-rw-r--r-- 1 runner runner 20550 Nov  3 23:48 /tmp/batch/pub/x17-p1-crowded_bench-a.tgz
+x17-p1-crowded_bench-a done exit 0
+finished: 2026-11-03T23:48:40Z

@@ -1,0 +1,1 @@
+exam x17-n450-played_bed-b: 0 worlds, 4 lab boxes -> /tmp/batch/out/x17-n450-played_bed-b

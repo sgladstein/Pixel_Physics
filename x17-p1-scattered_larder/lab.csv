@@ -1,0 +1,9 @@
+box,seed,alive,lived,peak,starved,births,landed,frame,digs,deliveries,trip_deliveries
+scattered_larder,1,0,0.5,52,52,0,1,600001,49,3,2
+scattered_larder,2,0,0.5,52,52,0,1,600001,66,13,9
+scattered_larder,3,0,0.5,52,50,0,1,600001,59,22,8
+scattered_larder,4,0,0.5,52,52,0,1,600001,74,11,8
+scattered_larder,5,0,0.5,52,52,0,1,600001,64,7,6
+scattered_larder,6,0,0.5,52,51,0,1,600001,67,18,11
+scattered_larder,7,0,0.5,52,52,0,1,600001,58,4,3
+scattered_larder,8,0,0.5,52,50,0,1,600001,66,5,3
