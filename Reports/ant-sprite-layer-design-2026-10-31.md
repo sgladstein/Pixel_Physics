@@ -370,3 +370,28 @@ be measured on the 250-ant bed (§7) before it ships as a default.
 Awaiting the owner's pick (decision card, 2026-10-31). The mock-up scripts
 are in the thread's scratch space, not the repo; `examples/antlook_dump.rs`
 is what they read.
+
+## 11. Round 3: E's body, drawn in the world's pixels
+
+**Owner, 2026-11-03 22:03Z:** *"E looks best at play zoom and whole box but I
+still don't like the close-up. It still feels too artificial graphic versus
+the simulated pixel nature of the game/world."*
+
+The reading taken: at play zoom the layer has 4 pixels per cell, so E was
+already nearly pixel art there; up close it was drawn at screen resolution
+with smoothing and a soft shadow, while the world around it is magnified
+nearest-neighbour. So the fix is a **resolution cap**: draw the body on a grid
+of at most R pixels per cell, with hard edges, then magnify it with the
+world. Movement is unchanged from E. Each body segment takes one shade from a
+small set (as a cell takes a palette entry), with a one-pixel dark edge where
+R allows and a bright head pixel or two eye pixels for facing.
+
+**Blind key:** G = R 2; H = R 4; I = R 1 (the body is drawn in world cells).
+Close-up at 8 px/cell (zoom 4); R is capped at the screen's own pixels per
+cell, so play and whole-box views converge. Stand-out per ant
+close / play / box: G 157 / 224 / 244; H 164 / 223 / 244; I 189 / 248 / 262.
+
+**Build consequence, a simplification:** a capped grid means the creature
+layer only ever needs R pixels per cell; at zoom above R/2 the layer is
+magnified by the compositor exactly as the box is, and drawing cost stops
+growing with zoom. Mock-up scripts: `/mnt/project-files/ant-look/`.
