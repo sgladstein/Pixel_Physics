@@ -151,7 +151,8 @@ pub struct LabAnt {
 /// that a pool loads as measured: SURVIVOR 565 alive / lived 434.1, TUNNEL
 /// DIGGER 99 / 287.9, STANDARD 69 / 219.9; NESTER's is from x15, a later
 /// build (main 86b788ce): 593 / 502.1, STANDARD 156 / 329.1 on that build;
-/// NESTER 450's from x16 (main f3bbefc9), CHECKED BELOW in the PR body.
+/// NESTER 450's from x16 (main f3bbefc9): 740 / 381.4, and `labsurvive founders=ant:n450` gave the same row, every
+/// field, on main cddc4c77.
 pub const LAB_ANTS: [LabAnt; 6] = [
     LabAnt {
         key: "std",
