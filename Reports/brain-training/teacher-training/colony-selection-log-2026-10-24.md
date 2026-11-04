@@ -2042,3 +2042,38 @@ can close the famine gap, and the famine boxes' place in the G1 bar is the owner
 births in 46 of 48. The bill moves the first few thousand frames (the twins' +6) and nothing after. So no brain-side
 thrift closes the famine gap; the trained ant lacks a way of living on a trickle that the hand-built ant has (lived
 8-172 in these boxes, x1). Whether the famine boxes stay a pass/fail part of the G1 bar is put to Scott (card).
+
+## 2026-11-04 (14:50Z): G1 re-based -- famine boxes graded (Scott's card); exam `x19g` scores the hand-built ant and NESTER
+
+**Scott's card, 11-04 14:43Z: "Graded: how long it lasts".** The famine boxes (two_larders, scattered_larder,
+feast_and_famine) no longer pass or fail G1. Each is scored by how long a colony lasts against the hand-built ant:
+`lived` (the mean headcount over the 600k frames, so a colony that lasts twice as long at the same size scores
+twice as much), as the trained median's share of the hand-built median, per box. Survival is pass/fail on the three
+plant boxes only (played_bed, herb_first_colony, crowded_bench), by the bar proposed on 10-28: in each, the trained
+`lived` median is at least 70% of the hand-built ant's **and** a paired sign test against it is not lower at p < 0.05.
+
+**Exam `x19g`** (named before launch; GitHub runners, `.github/train-jobs/x19g.batch`, main 45fd9597, the engine as
+x17's build): the hand-built ant (`old`) and NESTER, six boxes x seeds 1-8 at 600k. With x17's n450 rows it gives,
+for NESTER and n450, the plant-box pass/fail and the famine-box shares. No arm is picked from this; it is the ruler.
+
+**x19g result (16:50Z), G1 on the re-based bar.** The hand-built ant (`old`) and NESTER from `batch-results/x19g`, n450
+from x17 (same engine; `git log 1c2efa63..45fd9597 -- src examples assets` is empty). `lived` medians of 8 seeds;
+"higher/lower" is the trained arm against the hand-built ant, paired by seed.
+
+| plant box | hand-built | NESTER | n450 | verdict (>= 70% of hand-built and not lower at p < 0.05) |
+|---|---|---|---|---|
+| played_bed | 319.5 | 320.1 (4/4) | 425.2 (8/0, p 0.008) | both pass; n450 beats the hand-built ant |
+| herb_first_colony | 412.3 | 368.5 (2/6) | 498.2 (5/3) | both pass |
+| crowded_bench | 868.2 | 429.5 (0/8, p 0.008) | 497.2 (0/8, p 0.008) | **both fail**: about half the hand-built colony |
+
+| famine box | hand-built lived (alive at end) | NESTER share | n450 share |
+|---|---|---|---|
+| two_larders | 360.8 (8/8) | 0.001 | 0.001 |
+| scattered_larder | 6.4 (0/8) | 0.08 | 0.07 |
+| feast_and_famine | 7.1 (0/8) | 0.05 | 0.04 |
+
+So on this build the hand-built ant also dies in two of the three famine boxes; **the famine gap that matters is
+two_larders**, where it lives at 361 and every trained colony is gone in the first few thousand frames. The plant
+leg's one failure is **crowded_bench**: one colony as large as the bed will seat, among as many plants as will grow,
+where the trained colony stops at about half the hand-built ant's size. n450 is ahead of NESTER on all three plant
+boxes against the same hand-built rows.
