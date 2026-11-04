@@ -2107,3 +2107,13 @@ twin or anywhere else, and no batch is launched on it. The gap is real between a
 trained, 0/8 every seed) and not between colonies of one line, which is the Selection lane's 10-29 finding again.
 Next is a trace of individuals (owner's rule, 10-06): why trained ants starve beside the windfall heaps of a crowded
 bed while the hand-built ant's do not.
+
+**Crowded bench, traced (19:10Z; container, seed 1, 40,000 frames after landing, `trace=500`).** By 40k the hand-built
+colony lived 349 and lost 1 ant to hunger; n450 lived 161 and lost 148. Of the n450 ants that died hungry, 108 were
+traced: **half last seen within 7 columns of an end wall** (x deciles 4, 7, 257, 504, 507), every one with an empty
+crop, a median of 1 bite in its life, dead a median 1,500 frames after it was first seen. The hand-built colony never
+leaves the ground near its food (x deciles of every sample 235-317; the heaps fall at 200 and 312), and only 2 of its
+samples were ever hungry. **It is the famine boxes' wall trap again**: founders walk out to the walls in the first
+few thousand frames and starve, beside a bed with plenty to eat near the door. The turn-round knock-ins (`on`, `c2`,
+`c2s4`, two seeds) are level with plain n450 (lived 115-189 against 133-161). Since selection among siblings cannot
+see it (x20t), the trained ant has to be taught to stay where the food is; that is a lesson, put to Scott.
