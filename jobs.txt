@@ -1,0 +1,6 @@
+x18-tax0-two_larders exam 4 two_larders 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0
+x18-tax0sh1-two_larders exam 4 two_larders 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0,PP_SHARP_MAX=1
+x18-tax0-scattered_larder exam 4 scattered_larder 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0
+x18-tax0sh1-scattered_larder exam 4 scattered_larder 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0,PP_SHARP_MAX=1
+x18-tax0-feast_and_famine exam 4 feast_and_famine 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0
+x18-tax0sh1-feast_and_famine exam 4 feast_and_famine 1-8 600000 assets/minds/env10_n450c24_pool.txt LAB_ARGS=tax=0,PP_SHARP_MAX=1

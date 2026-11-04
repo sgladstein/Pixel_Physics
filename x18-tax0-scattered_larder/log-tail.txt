@@ -1,0 +1,1 @@
+exam x18-tax0-scattered_larder: 0 worlds, 8 lab boxes -> /tmp/batch/out/x18-tax0-scattered_larder

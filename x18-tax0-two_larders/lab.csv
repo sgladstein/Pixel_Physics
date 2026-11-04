@@ -1,0 +1,9 @@
+box,seed,alive,lived,peak,starved,births,landed,frame,digs,deliveries,trip_deliveries
+two_larders,1,0,0.5,100,588,0,3000,603000,68,0,0
+two_larders,2,0,0.5,101,484,0,3000,603000,63,0,0
+two_larders,3,0,0.5,99,475,0,3000,603000,65,0,0
+two_larders,4,0,0.5,101,541,0,3000,603000,66,0,0
+two_larders,5,0,0.5,101,663,0,3000,603000,65,0,0
+two_larders,6,0,0.5,99,325,0,3000,603000,78,0,0
+two_larders,7,0,0.5,99,711,0,3000,603000,69,2,2
+two_larders,8,0,0.5,102,477,0,3000,603000,67,0,0
