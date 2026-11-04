@@ -2091,3 +2091,19 @@ GitHub runners): 12 sibling colonies of env10's E_n450 at round 15 (11 carries, 
 plus n450 itself), each on crowded_bench and the twin, seeds 1-2 at 600k. The twin is a usable ruler if the Spearman
 of twin mean against exam mean is >= 0.3 **and** the twin's seed 1 against seed 2 is >= 0.3 (the watchdog's bar of
 10-28). Ranking colonies on an exam box is a check of the ruler, not a fit: nothing is picked from it.
+
+**x20t result (18:55Z): the twin fails, and so does the exam box itself.** 12 sibling colonies, seeds 1-2 at 600k
+(`batch-results/x20t`, 24 of 24 lines done). Spearman over the 12 colonies:
+
+| comparison | rho | bar |
+|---|---|---|
+| twin mean vs crowded_bench mean | -0.04 | >= 0.3: fails |
+| twin seed 1 vs seed 2 | +0.05 | >= 0.3: fails |
+| crowded_bench seed 1 vs seed 2 | -0.36 | (control) |
+
+Sibling colonies' `lived` on a crowded bed is world luck: the same colony ranges 337-650 by seed, and no seed agrees
+with another about which colony is better. So **no selection among siblings can steer the crowded-bench gap**, on the
+twin or anywhere else, and no batch is launched on it. The gap is real between ant designs (hand-built against
+trained, 0/8 every seed) and not between colonies of one line, which is the Selection lane's 10-29 finding again.
+Next is a trace of individuals (owner's rule, 10-06): why trained ants starve beside the windfall heaps of a crowded
+bed while the hand-built ant's do not.
