@@ -2011,3 +2011,34 @@ The deciding measure: `lived`, paired over the 48 box-seeds, sign test. n450_p1 
 at p < 0.025, **and** is not lower at p < 0.025 over the 24 plant-box pairs (played_bed, herb_first_colony,
 crowded_bench); famine-box alive-at-end is reported beside it, not tested. Two tests, so Bonferroni at 0.025 each. If it
 passes, the garden nest (Nest lane's worlds 61-68, 200k) is checked before it goes anywhere near the picker.
+
+## 2026-11-04 (02:10Z): exam `x17` -- the pruned pool fails both legs; the runners reproduce the VM exactly
+
+**Runners.** `batch-results/x17p` (one leg, about an hour, 18 runners): the n450 arm's 48 rows equal exam x16's VM
+rows **48 of 48, every field**, so the GitHub runner is an exam venue as good as the VM, at no cost.
+
+**The named test.** n450_p1 (links under |1.0| set to 0) against n450, `lived` paired over 48 box-seeds: higher 14,
+lower 22 (p 0.24, the 12 ties are famine runs where both arms are 0 by 600k). Over the 24 plant-box pairs: higher 2,
+lower 22 (p < 0.0001). **Fails both legs.**
+
+| box | p1 higher / lower | lived n450 -> p1 (median of 8) | food home (trip deliveries, median) |
+|---|---|---|---|
+| played_bed | 0 / 8 | ~425 -> ~245 | 19,300 -> 9,200 |
+| herb_first_colony | 0 / 8 | ~500 -> ~215 (one colony dead) | 23,400 -> 8,800 |
+| crowded_bench | 2 / 6 | ~500 -> ~330 | 29,100 -> 13,600 |
+| the three famine boxes | 12 / 0, all tiny | 0 -> 0 at 600k (every run dead, both arms) | |
+
+The pruned brain digs more and brings home half the food. The twins' +3/+6 at 8,000 frames was early survival
+only: at 600k every famine run of both arms is dead. **A cut by weight size is a lobotomy that happens to be cheap**,
+which is what the twins were warned not to be trusted on. Pool kept for the record (`scratch/inrun/genomes/n450_p1_pool.txt`).
+
+**Next, on runners (free): is the bill the famine gap at all?** `x18f`: n450 with `tax=0` (thinking free) and with
+`tax=0` + `PP_SHARP_MAX=1`, the three famine boxes x seeds 1-8 at 600k, against x17's n450 rows. Named measure:
+alive at end, and `lived`, paired by seed. If free thinking still dies by 600k in every box, no brain-side thrift
+can close the famine gap, and the famine boxes' place in the G1 bar is the owner's call.
+
+**x18f result (03:30Z).** Thinking free does not save a famine colony. n450 with `tax=0`, and with `tax=0` +
+`PP_SHARP_MAX=1`: **every one of the 48 runs is dead by 600k** (lived 0.5-0.7, the same as x17's billed n450), no
+births in 46 of 48. The bill moves the first few thousand frames (the twins' +6) and nothing after. So no brain-side
+thrift closes the famine gap; the trained ant lacks a way of living on a trickle that the hand-built ant has (lived
+8-172 in these boxes, x1). Whether the famine boxes stay a pass/fail part of the G1 bar is put to Scott (card).
