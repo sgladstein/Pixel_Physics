@@ -2077,3 +2077,17 @@ two_larders**, where it lives at 361 and every trained colony is gone in the fir
 leg's one failure is **crowded_bench**: one colony as large as the bed will seat, among as many plants as will grow,
 where the trained colony stops at about half the hand-built ant's size. n450 is ahead of NESTER on all three plant
 boxes against the same hand-built rows.
+
+## 2026-11-04 (17:20Z): the crowded bench -- what fails, and a twin for it (`x20t` checks the twin can rank)
+
+**What fails on crowded_bench** (x19g/x17, 8 seeds): births are level (n450 ~15,500 against the hand-built ant's
+~15,000), but the trained colony starves 3-5x more (8,000-14,000 against 1,500-4,800), brings home half the food
+(trip deliveries ~29,000 against ~53,000) and digs a quarter as much, beside two 40-cell windfall heaps near the door
+every 1,200 frames. So it is feeding and room in a crowd, not breeding.
+
+**Twin.** `scratch/inrun/labscen/lab_crowded_twin.ron`: the same shape, every plant 8 columns east, herb and shrub
+swapped, the heaps 16 columns further out each side. Before any batch selects on it, **`x20t`** (named before launch,
+GitHub runners): 12 sibling colonies of env10's E_n450 at round 15 (11 carries, `scratch/inrun/genomes/twincrowd/`,
+plus n450 itself), each on crowded_bench and the twin, seeds 1-2 at 600k. The twin is a usable ruler if the Spearman
+of twin mean against exam mean is >= 0.3 **and** the twin's seed 1 against seed 2 is >= 0.3 (the watchdog's bar of
+10-28). Ranking colonies on an exam box is a check of the ruler, not a fit: nothing is picked from it.
