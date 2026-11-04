@@ -1,0 +1,1 @@
+exam x19-old-scattered_larder: 0 worlds, 8 lab boxes -> /tmp/batch/out/x19-old-scattered_larder

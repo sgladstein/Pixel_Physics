@@ -1,0 +1,1 @@
+exam x19-nester-herb_first_colony-a: 0 worlds, 4 lab boxes -> /tmp/batch/out/x19-nester-herb_first_colony-a

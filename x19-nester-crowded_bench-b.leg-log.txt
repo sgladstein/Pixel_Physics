@@ -1,0 +1,10 @@
+runner: x19-nester-crowded_bench-b, leg 1
+built from: 45fd959755b42fe6bc460f3d8348052e0aaba895
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41850703820
+started: 2026-11-04T15:22:59Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+15:39:39 x19-nester-crowded_bench-b: done, exit 0
+-rw-r--r-- 1 runner runner 34596 Nov  4 15:39 /tmp/batch/pub/x19-nester-crowded_bench-b.tgz
+x19-nester-crowded_bench-b done exit 0
+finished: 2026-11-04T15:39:39Z

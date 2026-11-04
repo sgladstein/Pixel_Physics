@@ -1,0 +1,1 @@
+exam x19-old-herb_first_colony-b: 0 worlds, 4 lab boxes -> /tmp/batch/out/x19-old-herb_first_colony-b

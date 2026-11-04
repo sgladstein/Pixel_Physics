@@ -1,0 +1,11 @@
+runner: x19-old-two_larders, leg 1
+built from: 45fd959755b42fe6bc460f3d8348052e0aaba895
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41850703820
+started: 2026-11-04T14:48:58Z
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      156%
+15:49:25 x19-old-two_larders: done, exit 0
+-rw-r--r-- 1 runner runner 624 Nov  4 15:49 /tmp/batch/pub/x19-old-two_larders.tgz
+x19-old-two_larders done exit 0
+finished: 2026-11-04T15:49:25Z

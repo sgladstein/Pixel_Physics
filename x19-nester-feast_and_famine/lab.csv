@@ -1,0 +1,9 @@
+box,seed,alive,lived,peak,starved,births,landed,frame,digs,deliveries,trip_deliveries
+feast_and_famine,1,0,0.4,104,104,0,1,600001,100,57,40
+feast_and_famine,2,0,0.3,104,104,0,1,600001,61,13,13
+feast_and_famine,3,0,0.3,104,104,0,1,600001,70,11,8
+feast_and_famine,4,0,0.3,104,104,0,1,600001,72,0,0
+feast_and_famine,5,0,0.4,104,103,0,1,600001,80,17,13
+feast_and_famine,6,0,0.3,104,104,0,1,600001,55,6,6
+feast_and_famine,7,0,0.5,104,109,6,1,600001,119,54,43
+feast_and_famine,8,0,0.4,104,102,0,1,600001,76,47,32
