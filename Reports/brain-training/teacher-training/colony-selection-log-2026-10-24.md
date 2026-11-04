@@ -2055,3 +2055,25 @@ plant boxes only (played_bed, herb_first_colony, crowded_bench), by the bar prop
 **Exam `x19g`** (named before launch; GitHub runners, `.github/train-jobs/x19g.batch`, main 45fd9597, the engine as
 x17's build): the hand-built ant (`old`) and NESTER, six boxes x seeds 1-8 at 600k. With x17's n450 rows it gives,
 for NESTER and n450, the plant-box pass/fail and the famine-box shares. No arm is picked from this; it is the ruler.
+
+**x19g result (16:50Z), G1 on the re-based bar.** The hand-built ant (`old`) and NESTER from `batch-results/x19g`, n450
+from x17 (same engine; `git log 1c2efa63..45fd9597 -- src examples assets` is empty). `lived` medians of 8 seeds;
+"higher/lower" is the trained arm against the hand-built ant, paired by seed.
+
+| plant box | hand-built | NESTER | n450 | verdict (>= 70% of hand-built and not lower at p < 0.05) |
+|---|---|---|---|---|
+| played_bed | 319.5 | 320.1 (4/4) | 425.2 (8/0, p 0.008) | both pass; n450 beats the hand-built ant |
+| herb_first_colony | 412.3 | 368.5 (2/6) | 498.2 (5/3) | both pass |
+| crowded_bench | 868.2 | 429.5 (0/8, p 0.008) | 497.2 (0/8, p 0.008) | **both fail**: about half the hand-built colony |
+
+| famine box | hand-built lived (alive at end) | NESTER share | n450 share |
+|---|---|---|---|
+| two_larders | 360.8 (8/8) | 0.001 | 0.001 |
+| scattered_larder | 6.4 (0/8) | 0.08 | 0.07 |
+| feast_and_famine | 7.1 (0/8) | 0.05 | 0.04 |
+
+So on this build the hand-built ant also dies in two of the three famine boxes; **the famine gap that matters is
+two_larders**, where it lives at 361 and every trained colony is gone in the first few thousand frames. The plant
+leg's one failure is **crowded_bench**: one colony as large as the bed will seat, among as many plants as will grow,
+where the trained colony stops at about half the hand-built ant's size. n450 is ahead of NESTER on all three plant
+boxes against the same hand-built rows.
