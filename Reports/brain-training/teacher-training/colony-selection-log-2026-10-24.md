@@ -2036,3 +2036,9 @@ which is what the twins were warned not to be trusted on. Pool kept for the reco
 `tax=0` + `PP_SHARP_MAX=1`, the three famine boxes x seeds 1-8 at 600k, against x17's n450 rows. Named measure:
 alive at end, and `lived`, paired by seed. If free thinking still dies by 600k in every box, no brain-side thrift
 can close the famine gap, and the famine boxes' place in the G1 bar is the owner's call.
+
+**x18f result (03:30Z).** Thinking free does not save a famine colony. n450 with `tax=0`, and with `tax=0` +
+`PP_SHARP_MAX=1`: **every one of the 48 runs is dead by 600k** (lived 0.5-0.7, the same as x17's billed n450), no
+births in 46 of 48. The bill moves the first few thousand frames (the twins' +6) and nothing after. So no brain-side
+thrift closes the famine gap; the trained ant lacks a way of living on a trickle that the hand-built ant has (lived
+8-172 in these boxes, x1). Whether the famine boxes stay a pass/fail part of the G1 bar is put to Scott (card).
