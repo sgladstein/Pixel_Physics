@@ -1,0 +1,21 @@
+# exam x19g (teacher lane, 2026-11-04): G1 re-based on Scott's card (famine boxes graded by how long a colony lasts).
+# The hand-built ant and NESTER on the six exam boxes x 8 seeds at 600k, beside x17's n450 rows, one build.
+ref=45fd959755b42fe6bc460f3d8348052e0aaba895
+x19-old-two_larders exam 4 two_larders 1-8 600000 old
+x19-old-scattered_larder exam 4 scattered_larder 1-8 600000 old
+x19-old-feast_and_famine exam 4 feast_and_famine 1-8 600000 old
+x19-old-played_bed-a exam 4 played_bed 1-4 600000 old
+x19-old-played_bed-b exam 4 played_bed 5-8 600000 old
+x19-old-herb_first_colony-a exam 4 herb_first_colony 1-4 600000 old
+x19-old-herb_first_colony-b exam 4 herb_first_colony 5-8 600000 old
+x19-old-crowded_bench-a exam 4 crowded_bench 1-4 600000 old
+x19-old-crowded_bench-b exam 4 crowded_bench 5-8 600000 old
+x19-nester-two_larders exam 4 two_larders 1-8 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-scattered_larder exam 4 scattered_larder 1-8 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-feast_and_famine exam 4 feast_and_famine 1-8 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-played_bed-a exam 4 played_bed 1-4 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-played_bed-b exam 4 played_bed 5-8 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-herb_first_colony-a exam 4 herb_first_colony 1-4 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-herb_first_colony-b exam 4 herb_first_colony 5-8 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-crowded_bench-a exam 4 crowded_bench 1-4 600000 assets/minds/env9_stdc9_pool.txt
+x19-nester-crowded_bench-b exam 4 crowded_bench 5-8 600000 assets/minds/env9_stdc9_pool.txt

@@ -2042,3 +2042,16 @@ can close the famine gap, and the famine boxes' place in the G1 bar is the owner
 births in 46 of 48. The bill moves the first few thousand frames (the twins' +6) and nothing after. So no brain-side
 thrift closes the famine gap; the trained ant lacks a way of living on a trickle that the hand-built ant has (lived
 8-172 in these boxes, x1). Whether the famine boxes stay a pass/fail part of the G1 bar is put to Scott (card).
+
+## 2026-11-04 (14:50Z): G1 re-based -- famine boxes graded (Scott's card); exam `x19g` scores the hand-built ant and NESTER
+
+**Scott's card, 11-04 14:43Z: "Graded: how long it lasts".** The famine boxes (two_larders, scattered_larder,
+feast_and_famine) no longer pass or fail G1. Each is scored by how long a colony lasts against the hand-built ant:
+`lived` (the mean headcount over the 600k frames, so a colony that lasts twice as long at the same size scores
+twice as much), as the trained median's share of the hand-built median, per box. Survival is pass/fail on the three
+plant boxes only (played_bed, herb_first_colony, crowded_bench), by the bar proposed on 10-28: in each, the trained
+`lived` median is at least 70% of the hand-built ant's **and** a paired sign test against it is not lower at p < 0.05.
+
+**Exam `x19g`** (named before launch; GitHub runners, `.github/train-jobs/x19g.batch`, main 45fd9597, the engine as
+x17's build): the hand-built ant (`old`) and NESTER, six boxes x seeds 1-8 at 600k. With x17's n450 rows it gives,
+for NESTER and n450, the plant-box pass/fail and the famine-box shares. No arm is picked from this; it is the ruler.
