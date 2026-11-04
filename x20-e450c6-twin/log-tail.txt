@@ -1,0 +1,1 @@
+exam x20-e450c6-twin: 0 worlds, 2 lab boxes -> /tmp/batch/out/x20-e450c6-twin

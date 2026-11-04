@@ -1,0 +1,10 @@
+runner: x20-e450c7-twin, leg 1
+built from: 79e20ee3e3cad82a613eadf7017c880856532f80
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41875558509
+started: 2026-11-04T17:50:51Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+18:10:54 x20-e450c7-twin: done, exit 0
+-rw-r--r-- 1 runner runner 447771 Nov  4 18:10 /tmp/batch/pub/x20-e450c7-twin.tgz
+x20-e450c7-twin done exit 0
+finished: 2026-11-04T18:10:54Z

@@ -1,0 +1,11 @@
+runner: x20-e450c3-twin, leg 1
+built from: 79e20ee3e3cad82a613eadf7017c880856532f80
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41875558509
+started: 2026-11-04T17:23:41Z
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      130%
+17:41:19 x20-e450c3-twin: done, exit 0
+-rw-r--r-- 1 runner runner 26183 Nov  4 17:41 /tmp/batch/pub/x20-e450c3-twin.tgz
+x20-e450c3-twin done exit 0
+finished: 2026-11-04T17:41:19Z

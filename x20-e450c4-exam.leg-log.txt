@@ -1,0 +1,10 @@
+runner: x20-e450c4-exam, leg 1
+built from: 79e20ee3e3cad82a613eadf7017c880856532f80
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41875558509
+started: 2026-11-04T17:35:41Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+17:54:21 x20-e450c4-exam: done, exit 0
+-rw-r--r-- 1 runner runner 450415 Nov  4 17:54 /tmp/batch/pub/x20-e450c4-exam.tgz
+x20-e450c4-exam done exit 0
+finished: 2026-11-04T17:54:21Z

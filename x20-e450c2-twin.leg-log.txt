@@ -1,0 +1,10 @@
+runner: x20-e450c2-twin, leg 1
+built from: 79e20ee3e3cad82a613eadf7017c880856532f80
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41875558509
+started: 2026-11-04T17:18:24Z
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) 6975P-C
+17:32:51 x20-e450c2-twin: done, exit 0
+-rw-r--r-- 1 runner runner 28103 Nov  4 17:32 /tmp/batch/pub/x20-e450c2-twin.tgz
+x20-e450c2-twin done exit 0
+finished: 2026-11-04T17:32:51Z

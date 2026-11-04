@@ -1,0 +1,24 @@
+x20-e450c1-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c1.pool.txt
+x20-e450c1-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c1.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c10-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c10.pool.txt
+x20-e450c10-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c10.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c12-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c12.pool.txt
+x20-e450c12-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c12.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c2-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c2.pool.txt
+x20-e450c2-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c2.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c3-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c3.pool.txt
+x20-e450c3-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c3.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c4-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c4.pool.txt
+x20-e450c4-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c4.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c5-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c5.pool.txt
+x20-e450c5-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c5.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c6-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c6.pool.txt
+x20-e450c6-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c6.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c7-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c7.pool.txt
+x20-e450c7-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c7.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c8-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c8.pool.txt
+x20-e450c8-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c8.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-e450c9-exam exam 4 crowded_bench 1-2 600000 scratch/inrun/genomes/twincrowd/e450c9.pool.txt
+x20-e450c9-twin exam 4 lab_crowded_twin 1-2 600000 scratch/inrun/genomes/twincrowd/e450c9.pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen
+x20-c24-exam exam 4 crowded_bench 1-2 600000 assets/minds/env10_n450c24_pool.txt
+x20-c24-twin exam 4 lab_crowded_twin 1-2 600000 assets/minds/env10_n450c24_pool.txt PIXEL_PHYSICS_LAB_SCENARIOS=scratch/inrun/labscen

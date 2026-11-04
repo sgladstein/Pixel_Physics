@@ -1,0 +1,11 @@
+runner: x20-e450c10-exam, leg 1
+built from: 79e20ee3e3cad82a613eadf7017c880856532f80
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/41875558509
+started: 2026-11-04T17:19:04Z
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      128%
+17:42:24 x20-e450c10-exam: done, exit 0
+-rw-r--r-- 1 runner runner 270867 Nov  4 17:42 /tmp/batch/pub/x20-e450c10-exam.tgz
+x20-e450c10-exam done exit 0
+finished: 2026-11-04T17:42:24Z
