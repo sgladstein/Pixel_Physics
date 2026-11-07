@@ -153,6 +153,10 @@ pub struct PhaseCounts {
     /// intended first shipped reaction; the counter is generic over
     /// whichever reaction fired.
     pub reacted: u32,
+    /// The subset of `reacted` that fired through crust
+    /// (`try_react_through_crust`); 0 unless a game set
+    /// `World::crust_quench_depth`.
+    pub reacted_through_crust: u32,
 }
 
 impl PhaseCounts {
@@ -163,6 +167,10 @@ impl PhaseCounts {
             PhaseEvent::Froze => self.froze += 1,
             PhaseEvent::Melted => self.melted += 1,
             PhaseEvent::Reacted => self.reacted += 1,
+            PhaseEvent::ReactedThroughCrust => {
+                self.reacted += 1;
+                self.reacted_through_crust += 1;
+            }
         }
     }
 
@@ -174,6 +182,7 @@ impl PhaseCounts {
         self.froze += other.froze;
         self.melted += other.melted;
         self.reacted += other.reacted;
+        self.reacted_through_crust += other.reacted_through_crust;
     }
 }
 
@@ -185,6 +194,8 @@ pub enum PhaseEvent {
     Froze,
     Melted,
     Reacted,
+    /// A reaction through crust (counted in `reacted` too).
+    ReactedThroughCrust,
 }
 
 /// **Ground wetness at or above which fuel will not catch from contact at
@@ -1544,6 +1555,78 @@ fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             return;
         }
     }
+
+    try_react_through_crust(surface, x, y, cell, &reactions);
+}
+
+/// Chance multiplier for each further cell of crust between a reaction's
+/// pair, in [`try_react_through_crust`]: through one cell the reaction fires
+/// at `chance * 0.6`, through two `chance * 0.36`, and so on. Graded, so a
+/// thin crust passes the cold through quickly and a thick one barely at all.
+const CRUST_FALLOFF: f32 = 0.6;
+
+/// **Water on a thin crust still quenches the lava under it** -- the
+/// game-only extension of [`try_react`], off unless a game sets
+/// `World::crust_quench_depth` (only Quench does).
+///
+/// On the shipped rule a pair must touch. A splash quenches the lava it lands
+/// on and the stone it makes then separates every later drop from the lava:
+/// in Quench's lava-stream probe one splash made ~136 quench events at radius
+/// 4 *and* 6, lid or not, and 72-108 drips from under a lid moved neither the
+/// quench count nor the rock (`Reports/quench-probe-2026-11-07.md` s3). So the
+/// lid's whole point -- steam that comes back down and quenches again -- could
+/// not happen.
+///
+/// Here a molten cell looks straight up through at most `depth` cells of
+/// solid or powder for the reaction's partner (water sitting on the crust),
+/// and reacts with it at `chance * CRUST_FALLOFF^(crust cells)`. The products
+/// are the touching rule's (stone where the lava was, steam where the water
+/// was) with the same heat exchange, so the crust thickens *downward*, into
+/// the lava, and the steam rises off its top. Straight up only: the drip
+/// comes from above, and a sideways reach would let a pool quench lava
+/// through a wall it is merely standing beside.
+fn try_react_through_crust<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, reactions: &[crate::sim::material::Reaction]) {
+    let depth = surface.crust_quench_depth() as i32;
+    if depth == 0 {
+        return;
+    }
+    let mut between = 0;
+    for k in 1..=depth + 1 {
+        let ny = y - k;
+        let above = surface.get(x, ny);
+        let Some(reaction) = reactions.iter().find(|r| r.with == above.material) else {
+            let kind = surface.materials().kind(above.material);
+            if !matches!(kind, crate::sim::material::MaterialKind::Solid | crate::sim::material::MaterialKind::Powder) {
+                return;
+            }
+            between += 1;
+            continue;
+        };
+        if between == 0 {
+            // Touching: `try_react` already rolled for this pair.
+            return;
+        }
+        if !surface.rng().chance(reaction.chance * CRUST_FALLOFF.powi(between)) {
+            return;
+        }
+        let mut other = above;
+        // The same heat rule as the touching case; see `try_react`.
+        if reaction.mixes_heat {
+            let mean = ((cell.temperature() as i32 + other.temperature() as i32) / 2) as i16;
+            cell.set_temperature(mean);
+            other.set_temperature(mean);
+        } else {
+            let hotter = cell.temperature().max(other.temperature());
+            let cooler = cell.temperature().min(other.temperature());
+            cell.set_temperature(cooler);
+            other.set_temperature(hotter);
+        }
+        transform(surface, x, y, cell, reaction.becomes);
+        transform(surface, x, ny, &mut other, reaction.other_becomes);
+        surface.set(x, ny, other);
+        surface.count_phase_event(PhaseEvent::ReactedThroughCrust);
+        return;
+    }
 }
 
 #[cfg(test)]
@@ -2609,6 +2692,52 @@ mod tests {
             }
         }
         (w, lava)
+    }
+
+    /// `try_react_through_crust`, with its controls: the shipped rule
+    /// (depth 0) never reaches through, the switch does straight up within
+    /// its depth, and never sideways or past its depth. The first arm is the
+    /// positive control for the other three: the same scene with the switch
+    /// on does fire, so their silence is the rule and not the scene.
+    #[test]
+    fn water_quenches_lava_through_thin_crust_only_when_a_game_asks() {
+        // (depth, crust cells between, water straight above?) -> fires?
+        for (depth, between, above, fires) in [(4u8, 1, true, true), (0, 1, true, false), (4, 1, false, false), (4, 5, true, false), (4, 4, true, true)] {
+            let mut w = test_world();
+            w.crust_quench_depth = depth;
+            let lava = w.materials.id_of("lava").unwrap();
+            let steam = w.materials.id_of("steam").unwrap();
+            let (lx, ly) = (30, 40);
+            w.set(lx, ly, Cell::new(lava, 0));
+            let water_at = if above {
+                for k in 1..=between {
+                    w.set(lx, ly - k, Cell::new(material::STONE, 0).with_attached(true));
+                }
+                (lx, ly - between - 1)
+            } else {
+                for k in 1..=between {
+                    w.set(lx + k, ly, Cell::new(material::STONE, 0).with_attached(true));
+                }
+                (lx + between + 1, ly)
+            };
+            w.set(water_at.0, water_at.1, Cell::new(material::WATER, 0));
+            for _ in 0..400 {
+                update(&mut w, lx, ly);
+                if w.phase_changes.reacted > 0 {
+                    break;
+                }
+            }
+            let case = format!("depth {depth}, {between} crust cells, water {}", if above { "above" } else { "beside" });
+            if fires {
+                assert_eq!(w.phase_changes.reacted_through_crust, 1, "{case}: never reacted through the crust");
+                assert_eq!(w.phase_changes.reacted, 1, "{case}: a through-crust reaction is counted in `reacted` too");
+                assert_eq!(w.get(lx, ly).material, material::STONE, "{case}: the lava did not become stone");
+                assert_eq!(w.get(water_at.0, water_at.1).material, steam, "{case}: the water did not become steam");
+            } else {
+                assert_eq!(w.phase_changes.reacted, 0, "{case}: reacted, and must not");
+                assert_eq!(w.get(water_at.0, water_at.1).material, material::WATER, "{case}: the water changed");
+            }
+        }
     }
 
     #[test]

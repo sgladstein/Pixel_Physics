@@ -19,7 +19,9 @@
 //! Prints, at 30 s: quench events, rock (unattached stone and rubble) in the
 //! lid's columns, lava that got past the site, drips (steam that turned back
 //! to water under the lid), water sent to the sky, and the seconds from the
-//! splash to the last quench event (how long the engine ran).
+//! splash to the last quench event (how long the engine ran), and how many of
+//! the quench events reached the lava through crust (`crust=N` sets
+//! `World::crust_quench_depth`; 0, the default, is the shipped rule).
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::explosion::Blasts;
@@ -41,11 +43,12 @@ struct Out {
     drips: u32,
     to_sky: f64,
     ran_for: f32,
+    through: u32,
 }
 
 fn main() {
     let mut seeds = vec![1u64, 2, 3];
-    let (mut gap, mut r, mut gif, mut every, mut skirt, mut splash_s) = (6, 4, None::<String>, 2u64, 3, 10.0f32);
+    let (mut gap, mut r, mut gif, mut every, mut skirt, mut splash_s, mut crust) = (6, 4, None::<String>, 2u64, 3, 10.0f32, 0u8);
     let mut arms: Vec<String> = ["none", "splash", "lid", "lidcap", "lidundeclared", "lidonly"].iter().map(|s| s.to_string()).collect();
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').expect("key=value");
@@ -58,41 +61,44 @@ fn main() {
             "every" => every = v.parse().unwrap(),
             "skirt" => skirt = v.parse().unwrap(),
             "at" => splash_s = v.parse().unwrap(),
+            "crust" => crust = v.parse().unwrap(),
             _ => panic!("unknown argument {k}"),
         }
     }
-    println!("quenchfact: arms {arms:?} seeds {seeds:?} lid gap {gap} rows over the floor, splash radius {r}, vent 3 cells every {every} ticks, cap skirt {skirt}, splash at {splash_s} s");
-    println!("{:<14} {:>4} {:>7} {:>6} {:>7} {:>6} {:>8} {:>9}", "arm", "seed", "quench", "rock", "passed", "drips", "to_sky", "ran_for_s");
+    println!("quenchfact: arms {arms:?} seeds {seeds:?} lid gap {gap} rows over the floor, splash radius {r}, vent 3 cells every {every} ticks, cap skirt {skirt}, splash at {splash_s} s, water quenches through {crust} cells of crust");
+    println!("{:<14} {:>4} {:>7} {:>6} {:>7} {:>6} {:>8} {:>9} {:>7}", "arm", "seed", "quench", "rock", "passed", "drips", "to_sky", "ran_for_s", "through");
     for arm in &arms {
-        let mut sums = [0f64; 6];
+        let mut sums = [0f64; 7];
         for &seed in &seeds {
-            let o = run(arm, seed, gap, r, every, skirt, splash_s, gif.as_deref());
+            let o = run(arm, seed, gap, r, every, skirt, splash_s, crust, gif.as_deref());
             println!(
-                "{:<14} {:>4} {:>7} {:>6} {:>7} {:>6} {:>8.1} {:>9.2}",
-                arm, seed, o.quench, o.rock, o.passed, o.drips, o.to_sky, o.ran_for
+                "{:<14} {:>4} {:>7} {:>6} {:>7} {:>6} {:>8.1} {:>9.2} {:>7}",
+                arm, seed, o.quench, o.rock, o.passed, o.drips, o.to_sky, o.ran_for, o.through
             );
-            for (s, v) in sums.iter_mut().zip([o.quench as f64, o.rock as f64, o.passed as f64, o.drips as f64, o.to_sky, o.ran_for as f64]) {
+            for (s, v) in sums.iter_mut().zip([o.quench as f64, o.rock as f64, o.passed as f64, o.drips as f64, o.to_sky, o.ran_for as f64, o.through as f64]) {
                 *s += v;
             }
         }
         let n = seeds.len() as f64;
         println!(
-            "{:<14} mean {:>7.0} {:>6.0} {:>7.0} {:>6.0} {:>8.1} {:>9.2}",
+            "{:<14} mean {:>7.0} {:>6.0} {:>7.0} {:>6.0} {:>8.1} {:>9.2} {:>7.0}",
             arm,
             sums[0] / n,
             sums[1] / n,
             sums[2] / n,
             sums[3] / n,
             sums[4] / n,
-            sums[5] / n
+            sums[5] / n,
+            sums[6] / n
         );
     }
 }
 
 #[allow(clippy::too_many_arguments)] // a probe's knobs, each echoed in the header line
-fn run(arm: &str, seed: u64, gap: i32, r: i32, every: u64, skirt: i32, splash_s: f32, gif: Option<&str>) -> Out {
+fn run(arm: &str, seed: u64, gap: i32, r: i32, every: u64, skirt: i32, splash_s: f32, crust: u8, gif: Option<&str>) -> Out {
     let mut w = World::new(Rect::new(0, 0, W - 1, H - 1));
     w.seed = seed;
+    w.crust_quench_depth = crust;
     w.weather_override = Some(Weather::CLEAR);
     w.set_sky_hold(pixel_physics::sim::clock::SkyPin::Noon.hold());
     let lava = w.materials.id_of("lava").unwrap();
@@ -113,7 +119,7 @@ fn run(arm: &str, seed: u64, gap: i32, r: i32, every: u64, skirt: i32, splash_s:
     let mut renderer = pixel_physics::render::Renderer::new();
     let mut buf = vec![0u8; (W * H * 4) as usize];
     let mut frames = Vec::new();
-    let (r0, b0) = (w.phase_changes.reacted, w.atmospheric_bank);
+    let (r0, b0, t0) = (w.phase_changes.reacted, w.atmospheric_bank, w.phase_changes.reacted_through_crust);
     let (mut last_react, mut drips) = (0u64, 0u32);
     let splash_at = (splash_s * 60.0) as u64;
     // The seed moves the vent's rhythm as well as the world's own rolls, so
@@ -226,7 +232,7 @@ fn run(arm: &str, seed: u64, gap: i32, r: i32, every: u64, skirt: i32, splash_s:
         }
     }
     let ran_for = if last_react >= splash_at { (last_react - splash_at) as f32 / 60.0 } else { 0.0 };
-    Out { quench: w.phase_changes.reacted - r0, rock, passed, drips, to_sky: w.atmospheric_bank - b0, ran_for }
+    Out { quench: w.phase_changes.reacted - r0, rock, passed, drips, to_sky: w.atmospheric_bank - b0, ran_for, through: w.phase_changes.reacted_through_crust - t0 }
 }
 
 /// A 5x close-up of the splash site: 6 ticks a frame at 100 ms a frame,

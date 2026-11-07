@@ -623,12 +623,16 @@ by somebody about to try it on creatures.
 ## Liquids and granular  ·  `engine`
 
 - [quench-probe-2026-11-07.md](quench-probe-2026-11-07.md) —
-  **prototype probe, 2026-11-07; built (`--bin quench`), verdict pending.**
-  Does a placed stone lid plus a splash make a dam out of lava? Not on the
-  shipped engine: a placed lid is not a roof to condensation (81 of 81 splash
-  cells to the sky), steam leaves sideways (4 drips under a flat lid), and the
-  first splash's crust keeps later water off the lava. In the level a dug pit
-  beats every water plan. Adds the game-only `World::set_game_roofed`.
+  **prototype probe, 2026-11-07; built (`--bin quench`), round 2 done, verdict pending.**
+  Does a placed stone lid plus a splash make a dam out of lava? Round 1: not
+  on the shipped engine (a placed lid is not a roof to condensation, steam
+  leaves sideways, the first splash's crust keeps later water off the lava;
+  a dug pit beat every water plan). Round 2, after the owner lifted the
+  engine limit: two stacked lids with water under each let 71 cells of lava
+  past against 187 for lids alone, ~210 for nothing and ~310 for water alone
+  (10/10 seeds); a pit ties it. Most of the gain was the level (lids that
+  crusted shut by themselves); the two engine rules take 115 to 71. Adds the
+  game-only `World::set_game_roofed` and `World::crust_quench_depth`.
 - [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
   **research and brainstorm, 2026-09-14; nothing built, no build order.**
   Aquatic creatures and plants across all three games. Four one-line

@@ -498,6 +498,13 @@ pub trait CellSurface {
     /// through its own `&World`, so neither driver pays for a lookup.
     fn is_outdoors(&self, x: i32, y: i32) -> bool;
 
+    /// `World::crust_quench_depth`: how many cells of crust a reaction may
+    /// reach its partner through, straight up (0, the default, is the
+    /// shipped touch-only rule). Read by `fire::try_react`.
+    fn crust_quench_depth(&self) -> u8 {
+        0
+    }
+
     /// Hand `fill` units of water (on `material::LIQUID_FULL`'s 0..1000
     /// scale) to `World::atmospheric_bank` — the same credit half of the
     /// outer cycle `evaporation::tick` uses, reached from inside the CA

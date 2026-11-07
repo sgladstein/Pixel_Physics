@@ -32,10 +32,14 @@ struct Args {
     window: bool,
     from: f32,
     to: f32,
+    crust: u8,
+    vent: u64,
+    trace: bool,
+    flood: u64,
 }
 
 fn parse() -> Args {
-    let mut a = Args { plans: vec!["nothing".into(), "planned".into()], seeds: vec![1, 2, 3], gif: None, png: None, every: 30, zoom: 2, fast: true, window: false, from: 0.0, to: 1e9 };
+    let mut a = Args { plans: vec!["nothing".into(), "planned".into()], seeds: vec![1, 2, 3], gif: None, png: None, every: 30, zoom: 2, fast: true, window: false, from: 0.0, to: 1e9, crust: pixel_physics::quench::CRUST_DEPTH, vent: pixel_physics::quench::VENT_EVERY, trace: false, flood: 0 };
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or_else(|| panic!("unknown argument {arg} (want key=value)"));
         match k {
@@ -49,10 +53,14 @@ fn parse() -> Args {
             "window" => a.window = v == "1",
             "from" => a.from = v.parse().expect("from"),
             "to" => a.to = v.parse().expect("to"),
+            "crust" => a.crust = v.parse().expect("crust"),
+            "vent" => a.vent = v.parse().expect("vent"),
+            "trace" => a.trace = v == "1",
+            "flood" => a.flood = v.parse().expect("flood"),
             _ => panic!("unknown argument {k}"),
         }
     }
-    println!("quenchprobe: plans {:?} seeds {:?} fast drip {} gif {:?} png {:?} every {} zoom {} window {}", a.plans, a.seeds, a.fast, a.gif, a.png, a.every, a.zoom, a.window);
+    println!("quenchprobe: plans {:?} seeds {:?} fast drip {} crust depth {} vent every {} flood {} s gif {:?} png {:?} every {} zoom {} window {}", a.plans, a.seeds, a.fast, a.crust, a.vent, a.flood, a.gif, a.png, a.every, a.zoom, a.window);
     a
 }
 
@@ -82,6 +90,21 @@ fn react(plan: &str, q: &mut Quench) {
         "planned" | "splashonly" if front >= 150 && q.tick.is_multiple_of(120) => {
             let x = 174;
             q.act(Tool::Splash, x, floor_y(x) - 6);
+        }
+        // Throw under whichever lid the lava is flowing through now.
+        "layered" | "layeredwater" if q.tick.is_multiple_of(120) => {
+            let lava_in = |q: &Quench, y0: i32, y1: i32| (138..=161).any(|x| (y0..=y1).any(|y| q.world.get(x, y).material == q.lava));
+            // Wet the upper gap before the lava reaches it: the pool behind
+            // the dam is near the low lid's top.
+            let rising = (131..=137).any(|x| (105..=109).any(|y| q.world.get(x, y).material == q.lava));
+            // Only when the gap has run dry: water already under the lid is
+            // the engine, and more just drains on to the village.
+            let water_in = |q: &Quench, y0: i32, y1: i32| (140..=159).map(|x| (y0..=y1).filter(|&y| q.world.get(x, y).material == pixel_physics::sim::material::WATER).count()).sum::<usize>();
+            if lava_in(q, 111, 117) && water_in(q, 111, 117) < 10 {
+                q.act(Tool::Splash, 150, 114);
+            } else if (lava_in(q, 101, 107) || rising) && water_in(q, 101, 107) < 10 {
+                q.act(Tool::Splash, 150, 104);
+            }
         }
         // Quench it at the vent, as fast as the tank allows.
         "block" if q.tick.is_multiple_of(120) => {
@@ -116,6 +139,23 @@ fn script(plan: &str, seed: u64) -> Vec<(f32, Tool, i32, i32)> {
         // (see `react`).
         "planned" => vec![(1.0, Tool::Lid, 172, 106), (1.5, Tool::Lid, 148, 106)],
         "splashonly" => vec![],
+        // Build the dam in layers before the lava comes: a low lid with water
+        // waiting under it, a second lid on top with water between the two.
+        // `layeredlids` is the same lids with no water, `layeredwater` the
+        // same water with no lids.
+        "layered" | "layeredlids" | "layeredwater" => {
+            let mut v = vec![];
+            let lids = plan != "layeredwater";
+            let water = plan != "layeredlids";
+            if lids {
+                v.push((1.0, Tool::Lid, 150, 109));
+            }
+            if lids {
+                v.push((3.0, Tool::Lid, 150, 99));
+            }
+            let _ = water; // the water is thrown live, in `react`
+            v
+        }
         "random" => {
             let mut r = Lcg(seed.wrapping_mul(0x9E3779B97F4A7C15) ^ 0xABCD);
             let mut v = vec![];
@@ -142,6 +182,9 @@ fn main() {
         for &seed in &args.seeds {
             let mut q = Quench::new(seed);
             q.fast_drip = args.fast;
+            q.world.crust_quench_depth = args.crust;
+            q.vent_every = args.vent;
+            q.flood_seconds = args.flood;
             let mut todo = script(plan, seed);
             todo.reverse();
             let mut renderer = Renderer::new();
@@ -163,6 +206,18 @@ fn main() {
                 }
                 if q.tick.is_multiple_of(30) {
                     react(plan, &mut q);
+                }
+                if args.trace && q.tick.is_multiple_of(120) {
+                    // The dam site under the layered plan's two lids, by band.
+                    let count = |q: &Quench, m: pixel_physics::sim::material::MaterialId, y0: i32, y1: i32| (138..=161).map(|x| (y0..=y1).filter(|&y| q.world.get(x, y).material == m).count()).sum::<usize>();
+                    let (lava, water, stone) = (q.lava, pixel_physics::sim::material::WATER, pixel_physics::sim::material::STONE);
+                    println!(
+                        "    t={:>5.1} tank {:>3} gap1 lava/water/stone {:>3}/{:>3}/{:>3} gap2 {:>3}/{:>3}/{:>3} past {:>4} quench {:>4} through {:>4} drips {:>4}",
+                        q.seconds(), q.tank,
+                        count(&q, lava, 111, 117), count(&q, water, 111, 117), count(&q, stone, 111, 117),
+                        count(&q, lava, 101, 107), count(&q, water, 101, 107), count(&q, stone, 101, 107),
+                        q.counts.past, q.counts.quenched, q.world.phase_changes.reacted_through_crust, q.counts.drips
+                    );
                 }
                 let before = q.counts.last_splash_to_quench;
                 let t0 = Instant::now();
@@ -207,7 +262,7 @@ fn main() {
             let burned = q.houses.iter().filter(|h| h.burned).count();
             let flooded = q.houses.iter().filter(|h| h.flooded).count();
             let lat: Vec<String> = splash_latency.iter().map(|t| format!("{:.2}", *t as f32 / 60.0)).collect();
-            println!("           houses burned {burned} flooded {flooded}; forge burned {} cells; caught back to tank {}; splash->first quench (s): [{}]", c.forge_burned, c.caught, lat.join(" "));
+            println!("           houses burned {burned} flooded {flooded}; lava past the dam {}; forge burned {} cells; caught back to tank {}; splash->first quench (s): [{}]", c.past, c.forge_burned, c.caught, lat.join(" "));
             if let Some(path) = &args.gif {
                 let path = path.replace("{plan}", plan).replace("{seed}", &seed.to_string());
                 let (fw, fh, z) = if args.window { (FRAME_W, FRAME_H, 1) } else { (W as u32, H as u32, args.zoom) };
