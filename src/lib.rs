@@ -24,6 +24,7 @@ pub mod dig_marks;
 pub mod food_road;
 pub mod hud;
 pub mod lab;
+pub mod mould;
 pub mod render;
 pub mod sky;
 pub mod sim;

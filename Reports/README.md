@@ -6541,6 +6541,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   keeps founders 4-13x longer and ends with 165 adults against 11. Adds `replay actions=/newant=/trace=` and logs the
   ant brain after a rebuild.
 
+## New game probes (2026-11-07)  ·  each its own binary
+
+Probes from the 2026-11-07 new-game brainstorm. Each one is a separate game on
+the engine (`src/bin/<name>.rs`), not a lab seat, and touches no shared engine
+file unless its report says so.
+
+- [mould-probe-2026-11-07.md](mould-probe-2026-11-07.md) — **probe built,
+  waiting on the owner's playtest.** A Jones-model slime mould herded with a
+  lamp, oats, salt and snips (`--bin mould`). Oats pull the front over in
+  0.45-0.85 s, and the lamp clears the mould under it in under 0.1 s. A simple
+  plan beats doing nothing (6 stars to 2; food joined better on 5 of 5
+  seeds), but a random hand ties the plan on stars. Also records why the storm
+  is one cut, not three.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
