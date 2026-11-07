@@ -6561,6 +6561,11 @@ file unless its report says so.
   plan beats doing nothing (6 stars to 2; food joined better on 5 of 5
   seeds), but a random hand ties the plan on stars. Also records why the storm
   is one cut, not three.
+- [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
+  lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
+  26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
+  the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
+  worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
 
 ## Licensing and distribution
 
