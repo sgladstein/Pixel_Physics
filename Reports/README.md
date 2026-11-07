@@ -6566,6 +6566,14 @@ file unless its report says so.
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
   the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
   worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
+- [fault-probe-2026-11-07.md](fault-probe-2026-11-07.md) — **probe 6 of 6
+  (`--bin fault`): crack an ice wall before the rising lake bursts it; is a
+  running crack satisfying, and can you read where it goes?** Doing nothing
+  bursts 10 of 10 walls; random play and a look-ahead planner both burst 5 of
+  10 (stars 7 vs 5, p = 1.0), so a plan does not win yet. The same tap on the
+  same wall gives the same crack; across walls it stays near the tap but turns
+  a different way. Frame mean 1.4-1.8 ms, worst 11 ms. Verdict waits on the
+  owner's playtest. Records five rejected ways to get a cut slab off the crest.
 - [heartwood-probe-2026-11-07.md](heartwood-probe-2026-11-07.md) — **probe 8 (`--bin heartwood`): your tree grows only
   where you play a card, against a free shipped tree; does the order matter?** Doing nothing gets 0% of the light on 12 of 12
   seeds. A plan ends with more light than random cards on 8 of 12 (p 0.39) and a star on 9 seeds to random's 5 (p 0.06):

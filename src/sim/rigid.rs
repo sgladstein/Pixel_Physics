@@ -2259,6 +2259,27 @@ pub(crate) fn calve_free_blocks(world: &mut World, origin: (i32, i32), reach: f3
     freed
 }
 
+/// **Throw `cells` as one falling body, from `origin` at `force`** -- what
+/// `calve_free_blocks` does for a block the joints cut out, for a caller
+/// that decided severance itself. Returns whether it promoted anything.
+///
+/// Added for the Fault probe (`src/fault/`), whose crack tips cut pieces
+/// that the material's own joint fabric does not describe, and which needs
+/// a piece the lake has pushed to *leave*: a body resting on the ice below
+/// it cannot slide (`step_body` ends a step blocked on either axis), so a
+/// piece released with no impulse lands where it was and is written back
+/// into the grid uncut -- measured, 192 cells of a released corner piece
+/// back in place, crack-free, 30 frames later. **Nothing in the engine or
+/// the other three games calls it**, so it moves no lab, outdoor or held
+/// result.
+pub fn throw_block(world: &mut World, cells: &[(i32, i32)], origin: (i32, i32), force: f32) -> bool {
+    if cells.len() < MIN_BODY_CELLS {
+        return false;
+    }
+    promote(world, cells, Some(((origin.0 as f32, origin.1 as f32), force)), Some(origin), None);
+    true
+}
+
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> usize {
     // A blow has a floor, and the brush does not.
     //
