@@ -6580,6 +6580,12 @@ file unless its report says so.
   keeping every tip busy is most of what it buys. A card ends a median 3 cells from its outline's end. Adds the
   default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. Verdict waits on the owner.
 
+- [kudzu-probe-2026-11-07.md](kudzu-probe-2026-11-07.md) — **probe 7 (`--bin kudzu`): a vine over two walls; does a cut
+  that drops a whole sheet feel good, and does the hover preview make cutting a deduction?** Over 12 paired seeds, doing
+  nothing earns 0 stars on 7 (mean 42% of the walls clear at dawn), random snipping 88%, cutting where the preview lights
+  most 99% (3 stars on 11); planned beats random 9-2-1, p = 0.065, not significant: the box is too easy. Records the seven
+  game-only engine switches (speed-up, climbing, soil-only anchoring, runners and roots, dieback guard) and what each fixed.
+  Frame mean 1.3 ms, worst 21.6 ms at 2,880 vine cells. Verdict waits on the owner's playtest.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
