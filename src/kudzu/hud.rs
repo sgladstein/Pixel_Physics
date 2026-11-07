@@ -180,15 +180,11 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: usize, hover: Hover) {
     let clear = game.wall_clear();
     let counts = format!("CUTS {}  DROPPED {}  REGROWN {}  WALLS CLEAR {:.0}%", s.cuts, s.green_dropped, s.regrown, clear * 100.0);
     text(frame, 8, l2, &counts, TEXT);
-    let (income, upkeep) = game.budget();
-    let (mood, c) = if game.vines().is_empty() {
-        ("VINE DEAD", GOOD)
-    } else if income < upkeep {
-        ("VINE STARVING", GOOD)
-    } else if income < upkeep * super::RUNNER_MARGIN {
-        ("VINE HUNGRY", TEXT)
-    } else {
-        ("VINE THRIVING", BAD)
+    let (mood, c) = match game.budget() {
+        None => ("VINE DEAD", GOOD),
+        Some(r) if r < 1.0 => ("VINE STARVING", GOOD),
+        Some(r) if r < super::RUNNER_MARGIN => ("VINE HUNGRY", TEXT),
+        Some(_) => ("VINE THRIVING", BAD),
     };
     text(frame, FRAME_W as i32 - text_w(mood) - 8, l2, mood, c);
 

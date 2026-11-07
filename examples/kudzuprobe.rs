@@ -2,7 +2,23 @@
 //!
 //! ```text
 //! cargo run --release --example kudzuprobe -- mode=grow frames=6000 every=600 out=/tmp/kudzu
+//! cargo run --release --example kudzuprobe -- mode=play policy=nothing,random,planned seed=1 seeds=8
+//! cargo run --release --example kudzuprobe -- mode=play policy=nothing,planned pictures=true out=/tmp/kudzu
+//! cargo run --release --example kudzuprobe -- mode=cut pre=1200 after=600 out=/tmp/kudzu
 //! ```
+//!
+//! `mode=play` plays whole games headless under a policy (`nothing`,
+//! `random` snipping, `planned` snipping where the preview lights most,
+//! `dig` the crown out first) and prints one row per seed: wall clear at the
+//! start and at dawn, stars, every count the HUD shows, and tick timings
+//! (mean, worst, worst while a cut sheet is falling). `pictures=true` also
+//! writes the real window's frames (`kudzu::hud::draw_frame`, the window's
+//! own drawing) as a GIF, the dawn frame, and the readability pair: the
+//! frame before the first cut with no pointer, then with the preview.
+//! `mode=collapse` reports the first frame the vine loses 100+ cells at once
+//! and what left just before; `mode=trace` sprouts runners by hand and
+//! follows them. Tuning knobs are environment variables (`KUDZU_*`, see
+//! `kudzu::env_or`).
 
 use pixel_physics::kudzu::{hud, Kudzu, Level, HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
@@ -109,6 +125,181 @@ fn cut_mode(seed: u64, pre: u64, after: u64, out: &str) {
     write_gif(shots, 66, &format!("{out}/cut.gif"));
 }
 
+/// What the player does each frame, by policy.
+#[derive(Clone, Copy, PartialEq)]
+enum Policy {
+    /// Never touches anything.
+    Nothing,
+    /// Snips a random vine cell whenever a charge is in hand.
+    Random,
+    /// Snips where the preview lights the most, whenever a charge is in
+    /// hand: what a player who reads the preview perfectly would do.
+    Planned,
+    /// Digs the crown out at once, then snips as `Planned`.
+    Dig,
+}
+
+impl Policy {
+    fn parse(s: &str) -> Policy {
+        match s {
+            "nothing" => Policy::Nothing,
+            "random" => Policy::Random,
+            "planned" => Policy::Planned,
+            "dig" => Policy::Dig,
+            _ => panic!("policy={s}: nothing|random|planned|dig"),
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Policy::Nothing => "nothing",
+            Policy::Random => "random",
+            Policy::Planned => "planned",
+            Policy::Dig => "dig",
+        }
+    }
+}
+
+/// Downsample the window's frame by 2 for a GIF that fits on a phone page.
+fn half(frame: &[u8]) -> image::RgbaImage {
+    let (w, h) = (hud::FRAME_W / 2, hud::FRAME_H / 2);
+    let mut img = image::RgbaImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (((y * 2) * hud::FRAME_W + x * 2) * 4) as usize;
+            img.put_pixel(x, y, image::Rgba([frame[i], frame[i + 1], frame[i + 2], 255]));
+        }
+    }
+    img
+}
+
+fn window_png(frame: &[u8], path: &str) {
+    image::save_buffer(path, frame, hud::FRAME_W, hud::FRAME_H, image::ColorType::Rgba8).expect("write png");
+}
+
+/// One whole game under a policy. Prints one row; writes the window's GIF
+/// and the readability pair when `pictures` is set.
+fn play(seed: u64, policy: Policy, pictures: Option<&str>) {
+    let t0 = std::time::Instant::now();
+    let mut game = Kudzu::new(Level::Walls, seed);
+    let overnight_s = t0.elapsed().as_secs_f64();
+    let start_clear = game.wall_clear();
+    let mut renderer = Renderer::new();
+    let mut cells = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+    let mut frame = vec![0u8; (hud::FRAME_W * hud::FRAME_H * 4) as usize];
+    let mut shots = Vec::new();
+    let mut rng = pixel_physics::sim::rng::Rng::new(seed ^ 0x5241_4E44);
+    let (mut worst, mut sum, mut n) = (0.0f64, 0.0f64, 0u64);
+    let (mut worst_fall, mut peak) = (0.0f64, 0usize);
+    let mut hover = None;
+    let mut fall_until = 0u64;
+    let mut first_cut_shown = false;
+    let mut decide_ms = 0.0f64;
+    let mut fall_shots = Vec::new();
+    let mut all_ms: Vec<f64> = Vec::new();
+    let mut fall_from: Option<u64> = None;
+    while !game.over() {
+        // The decision, as a player would make it, outside the timed tick.
+        let mut cut = None;
+        if policy == Policy::Dig && game.digs > 0 {
+            let (cx, cy) = game.layout.crowns[0];
+            game.tool = pixel_physics::kudzu::Tool::Dig;
+            hover = Some((cx, cy));
+            game.hold_dig(cx, cy);
+            if game.digs == 0 {
+                game.tool = pixel_physics::kudzu::Tool::Snip;
+            }
+        } else if policy != Policy::Nothing && game.snips > 0 {
+            let d = std::time::Instant::now();
+            cut = match policy {
+                Policy::Random => {
+                    let mut v: Vec<(i32, i32)> = game.vine_cells().into_iter().filter(|&(_, y)| y < game.layout.ground_y).collect();
+                    v.sort_unstable();
+                    (!v.is_empty()).then(|| v[rng.below(v.len() as u32) as usize])
+                }
+                _ => best_cut(&game).map(|b| b.0),
+            };
+            decide_ms += d.elapsed().as_secs_f64() * 1000.0;
+        }
+        if let Some((x, y)) = cut {
+            if let (Some(dir), false) = (pictures, first_cut_shown) {
+                // The readability pair: the same frame, without and with
+                // the pointer where this player is about to cut.
+                hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, None);
+                window_png(&frame, &format!("{dir}/{}-still.png", policy.name()));
+                let lit = hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, Some((x, y)));
+                window_png(&frame, &format!("{dir}/{}-preview.png", policy.name()));
+                println!("    readability pair at {x},{y}: preview lit {lit}");
+                first_cut_shown = true;
+            }
+            hover = Some((x, y));
+            if game.snip(x, y).is_some_and(|k| k > 0) {
+                fall_until = game.world.frame + 120;
+                if fall_from.is_none() {
+                    fall_from = Some(game.played);
+                }
+            }
+        }
+        let t = std::time::Instant::now();
+        game.tick();
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        worst = worst.max(ms);
+        all_ms.push(ms);
+        sum += ms;
+        n += 1;
+        if game.world.frame < fall_until {
+            worst_fall = worst_fall.max(ms);
+        }
+        if game.played % 600 == 0 {
+            peak = peak.max(game.vine_cells().len());
+        }
+        if pictures.is_some() && game.played % 60 == 0 {
+            hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, hover);
+            shots.push(half(&frame));
+        }
+        // The first sheet to come down, at real speed: every other frame
+        // for two seconds after the cut.
+        if pictures.is_some() && first_cut_shown && fall_shots.len() < 60 && game.played % 2 == 0 && fall_from.is_some() {
+            hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, hover);
+            fall_shots.push(half(&frame));
+        }
+    }
+    let clear = game.wall_clear();
+    let s = game.stats;
+    all_ms.sort_by(f64::total_cmp);
+    let p99 = all_ms.get(all_ms.len() * 99 / 100).copied().unwrap_or(0.0);
+    let over = all_ms.iter().filter(|&&m| m > 16.7).count();
+    println!(
+        "  seed {seed} {:<8} wall clear {:>3.0}% -> {:>3.0}% stars {} | cuts {} predicted {} fell {} green dropped {} regrown {} dug {} | vine {} peak {} | tick mean {:.2} p99 {:.2} worst {:.2} ms ({} over 16.7), worst while falling {:.2} ms | decide {:.0} ms total, overnight {:.1}s",
+        policy.name(),
+        start_clear * 100.0,
+        clear * 100.0,
+        Kudzu::stars_for(clear),
+        s.cuts,
+        s.predicted,
+        s.fell,
+        s.green_dropped,
+        s.regrown,
+        s.dug,
+        game.vine_cells().len(),
+        peak,
+        sum / n as f64,
+        p99,
+        worst,
+        over,
+        worst_fall,
+        decide_ms,
+        overnight_s
+    );
+    if let Some(dir) = pictures {
+        hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, None);
+        window_png(&frame, &format!("{dir}/{}-dawn.png", policy.name()));
+        write_gif(shots, 66, &format!("{dir}/{}.gif", policy.name()));
+        if !fall_shots.is_empty() {
+            write_gif(fall_shots, 33, &format!("{dir}/{}-first-cut.gif", policy.name()));
+        }
+    }
+}
+
 fn main() {
     let mode: String = arg("mode", "grow".to_string());
     let seed: u64 = arg("seed", 1);
@@ -117,6 +308,75 @@ fn main() {
     let out: String = arg("out", "/tmp/kudzu".to_string());
     println!("kudzuprobe: mode={mode} seed={seed} frames={frames} every={every} out={out}");
     std::fs::create_dir_all(&out).ok();
+    if mode == "play" {
+        let policies: String = arg("policy", "nothing,random,planned".to_string());
+        let seeds: u64 = arg("seeds", 1);
+        let pictures: bool = arg("pictures", false);
+        for p in policies.split(',').map(Policy::parse) {
+            for s in seed..seed + seeds {
+                play(s, p, pictures.then_some(out.as_str()));
+            }
+        }
+        return;
+    }
+    if mode == "collapse" {
+        // Watch for the frame the vine loses most of itself, and print what
+        // left in the frames just before.
+        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut prev = game.vine_cells();
+        let mut recent: Vec<(u64, Vec<(i32, i32, String)>)> = Vec::new();
+        for f in 0..frames {
+            game.tick();
+            let now = game.vine_cells();
+            let lost: Vec<(i32, i32, String)> = prev
+                .difference(&now)
+                .map(|&(x, y)| {
+                    let c = game.world.get(x, y);
+                    (x, y, game.world.materials.get(c.material).name.to_string())
+                })
+                .collect();
+            if lost.len() > 100 {
+                println!("  frame {f}: lost {} at once; the frames before:", lost.len());
+                for (rf, l) in recent.iter().rev().take(6) {
+                    println!("    {rf}: {:?}", l.iter().take(12).collect::<Vec<_>>());
+                }
+                let mut ys: Vec<i32> = lost.iter().map(|l| l.1).collect();
+                ys.sort();
+                println!("    lost rows {}..{}; now {:?}", ys[0], ys[ys.len() - 1], lost.iter().take(6).collect::<Vec<_>>());
+                return;
+            }
+            if !lost.is_empty() {
+                recent.push((f, lost));
+            }
+            prev = now;
+        }
+        return;
+    }
+    if mode == "trace" {
+        // Sprout one runner by hand and follow it: where it started, what
+        // the cell is each frame, and how the census moved.
+        let mut game = Kudzu::new(Level::Walls, seed);
+        let id = game.vines()[0];
+        for k in 0..arg("n", 5u32) {
+            let mut i = k as usize;
+            let at = pixel_physics::sim::plant::sprout_climber(&mut game.world, id, |n| { i %= n; i });
+            println!("  runner {k} at {at:?} braced {}", at.is_some_and(|(x, y)| pixel_physics::sim::plant::touches_climb_surface(&game.world, x, y)));
+            let Some((x, y)) = at else { continue };
+            let before = game.world.grow_census[game.vine.0 as usize].clone();
+            for f in 0..30 {
+                game.tick();
+                let c = game.world.get(x, y);
+                let t = pixel_physics::sim::organism::cell_type(c.aux());
+                if f % 7 == 6 {
+                    let after = &game.world.grow_census[game.vine.0 as usize];
+                    let dv: Vec<i64> = (0..12).map(|j| after.visits[0][j] as i64 - before.visits[0][j] as i64).collect();
+                    let dr: Vec<i64> = (0..12).map(|j| after.retired[0][j] as i64 - before.retired[0][j] as i64).collect();
+                    println!("    +{f}: {t:?} carbon {:.2} | shoot visits d {dv:?} retired d {dr:?}", game.world.carbon_at(x, y));
+                }
+            }
+        }
+        return;
+    }
     if mode == "cut" {
         cut_mode(seed, arg("pre", 1200), arg("after", 600), &out);
         return;

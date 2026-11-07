@@ -15,8 +15,11 @@
 //       it takes the pull.
 //   continuation_weight 0.7 -> 0.5
 //       less memory of its heading, so a stem turns to follow a wall face.
-//   max_active_tips 14 -> 48
-//       a sheet over a house front is many tips at once.
+//   max_active_tips 14 -> 48, crowding_weight 30 -> 4
+//       a sheet over a house front is many tips at once, packed close. At
+//       30 the vine stood still through the whole three minutes on three
+//       seeds of four (wall clear at the start and at dawn within 4 points);
+//       at 4 it keeps spreading through play (seed 2: 53% clear -> 7%).
 //   no seeds (`Reproduce` removed)
 //       a vine here is one crown, one economy; seedlings made forty plants
 //       in the first run and every count stopped meaning one vine.
@@ -67,7 +70,7 @@
                 light_weight: [0.35, 0.35],
                 wind_weight: 0.1,
                 upward_weight: [0.35, 0.25],
-                crowding_weight: 30.0,
+                crowding_weight: 4.0,
                 max_active_tips: 48,
                 plastochron: [2, 2],
                 penetration_force: 0.0,

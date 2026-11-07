@@ -81,12 +81,31 @@ fn wall(world: &mut World, layout: &mut Layout, x0: i32, x1: i32, top: i32) {
 
 fn walls(world: &mut World) -> Layout {
     let ground_y = 128;
-    let mut layout = Layout { ground_y, overnight: 2_400, digs: 1, length: 3 * 60 * 60, watered: true, ..Layout::default() };
+    let mut layout = Layout { ground_y, overnight: super::env_or("KUDZU_OVERNIGHT", 2_400), digs: 1, length: 3 * 60 * 60, watered: true, ..Layout::default() };
     lay_ground(world, ground_y);
     wall(world, &mut layout, 70, 85, 50);
     wall(world, &mut layout, 170, 185, 40);
-    let crown = (128, ground_y - 1);
-    world.plant_tree_species(crown.0, crown.1, "kudzu");
+    // **In a crack at the left wall's foot**, as Crown B in the village
+    // brief is. Sown in the middle of the box, the seedling stood out of
+    // reach of either wall, grew a bush to its turgor height and stopped
+    // there for good on two seeds of four (120-170 cells all game).
+    let crown = (super::env_or("KUDZU_CROWN_X", 87), ground_y - 1);
+    sow(world, crown);
     layout.crowns.push(crown);
     layout
+}
+
+/// Carbon a crown starts with, as `plant::endow_seed` gives it.
+pub const ROOTSTOCK: f32 = 4.0;
+
+/// **Sow a crown with a rootstock.** A bare planted seed starts on no
+/// carbon, and at six times the tick its first root tip ran out before the
+/// first leaf paid for anything and retired for good: two root cells for a
+/// 600-cell vine, water status 0.04, dead inside 1,800 frames (seed 1; seeds
+/// 2 and 3 stalled at 100-170 cells). A kudzu crown is a tuber; this is it.
+fn sow(world: &mut World, (x, y): (i32, i32)) {
+    world.plant_tree_species(x, y, "kudzu");
+    let id = world.get(x, y).organism_id();
+    let carbon = super::env_or("KUDZU_ENDOW", ROOTSTOCK);
+    crate::sim::plant::endow_seed(world, id, carbon);
 }

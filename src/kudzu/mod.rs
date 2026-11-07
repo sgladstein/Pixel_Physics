@@ -72,12 +72,24 @@ pub const DIG_RADIUS: i32 = 6;
 /// and no bud faces the next wall.
 pub const RUNNER_EVERY: u64 = 6;
 pub const RUNNER_TARGET: usize = 24;
+/// The vine keeps at least one root cell per this many shoot cells, and at
+/// most [`ROOT_TIPS`] roots growing at once.
+pub const SHOOT_PER_ROOT: u32 = 6;
+pub const ROOT_TIPS: usize = 6;
 /// A runner is put out only while income is at least this many times
 /// upkeep.
-pub const RUNNER_MARGIN: f32 = 1.5;
+pub const RUNNER_MARGIN: f32 = 1.2;
 
 /// Wall clear at dawn for one, two and three stars.
 pub const STAR_BARS: [f32; 3] = [0.5, 0.75, 0.95];
+
+/// **A tuning knob read from the environment**, `default` when unset: the
+/// vine's settings can be swept without a rebuild per point. The window and
+/// the probe both read the same names, so a setting found by sweeping is
+/// the one a player gets by exporting it.
+pub fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
 
 /// What the player has in hand.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,7 +181,16 @@ impl Kudzu {
             Err(_) => include_str!("kudzu.ron").to_string(),
         };
         let vine = world.species.register_ron(&source).expect("the kudzu species parses");
-        world.plant_speedup = SPEEDUP;
+        world.plant_speedup = env_or("KUDZU_SPEEDUP", SPEEDUP);
+        // **A living vine does not snap under its own weight here.** The
+        // load model carries a plant's weight down its own tissue to where
+        // it anchors, and a climber anchors only at its roots, so a
+        // 1,700-cell sheet hung entirely from three collar cells, which
+        // broke into deadwood and dropped the lot in one frame (seed 1,
+        // frame 175 of play; on half the seeds the vine was gone by dawn).
+        // On a real wall the pads carry it. The lab's COLLAPSE UNDER LOAD
+        // switch, off; a cut still falls (`plant_cut_falls` stays on).
+        world.plant_load_failure = false;
         world.climber = Some(plant::Climber { species: vine, cling: CLING });
         // A clear day held at noon: the probe is about cutting, and a night
         // that stops the vine earning, or a rain that waters one arm, would
@@ -214,11 +235,35 @@ impl Kudzu {
 
     /// One frame of the vine's push: see [`RUNNER_EVERY`].
     fn vigour(&mut self) {
-        if !self.world.frame.is_multiple_of(RUNNER_EVERY) {
+        if !self.world.frame.is_multiple_of(env_or("KUDZU_RUNNER_EVERY", RUNNER_EVERY)) {
             return;
         }
         for id in self.vines() {
-            if self.world.organism_active_tip_count(id, CellType::GrowingTip) >= RUNNER_TARGET {
+            // **Hunger thins the vine; it never kills it outright.** The
+            // engine's count marks a plant senescent after
+            // `STARVATION_DEATH_TICKS` hungry ticks in a row, and a
+            // senescent vine rots away whole -- a binary end (`CLAUDE.md`,
+            // law 1), and on half the seeds it came mid-game with nobody
+            // touching it: the overnight vine reached 2,800 cells, shaded
+            // itself into debt and was gone by frame 5,500. Held one tick
+            // short of the mark, the vine keeps the engine's own graded
+            // answer to debt -- dieback from the tips inward -- and the only
+            // way to kill it outright is to dig out its crown.
+            // A vine with no roots left (dug out) is not held.
+            if let Some(s) = self.world.organism_mut(id).filter(|s| s.root_cells > 0) {
+                s.starving_ticks = s.starving_ticks.min(plant::STARVATION_DEATH_TICKS - 2);
+            }
+            // **Roots first, and whatever the books say.** Only roots drink
+            // once the vine is off the ground (`plant::sprout_climber_root`),
+            // so a dry vine that stopped rooting until it was rich again
+            // would never be rich again. One root cell for every
+            // [`SHOOT_PER_ROOT`] of shoot.
+            let (shoot, root) = self.world.organism(id).map_or((0, 0), |s| (s.shoot_cells, s.root_cells));
+            if root * SHOOT_PER_ROOT < shoot && self.world.organism_active_tip_count(id, CellType::RootTip) < ROOT_TIPS {
+                let mut rng = crate::sim::rng::stream(self.world.seed ^ 0x526F_6F74, id as u64, 0, self.world.frame);
+                plant::sprout_climber_root(&mut self.world, id, |n| rng.below(n as u32) as usize);
+            }
+            if self.world.organism_active_tip_count(id, CellType::GrowingTip) >= env_or("KUDZU_RUNNER_TARGET", RUNNER_TARGET) {
                 continue;
             }
             // **Only out of surplus.** A vine that put out runners whatever
@@ -226,7 +271,7 @@ impl Kudzu {
             // a minute (measured: 1,997 cells -> 273 between frames 4,000
             // and 8,000, senescent). The engine's own tips already stop on
             // carbon; this push has to stop on the budget too.
-            if self.world.organism(id).is_none_or(|s| s.income < s.maintenance * RUNNER_MARGIN) {
+            if plant::day_budget_ratio(&self.world, id).is_none_or(|r| r < env_or("KUDZU_RUNNER_MARGIN", RUNNER_MARGIN)) {
                 continue;
             }
             let mut rng = crate::sim::rng::stream(self.world.seed ^ 0x4B75_647A_7521, id as u64, 0, self.world.frame);
@@ -504,9 +549,11 @@ impl Kudzu {
         STAR_BARS.iter().filter(|&&b| clear >= b).count() as u32
     }
 
-    /// The vine's books, summed over every vine: (income, upkeep).
-    pub fn budget(&self) -> (f32, f32) {
-        self.vines().iter().filter_map(|&id| self.world.organism(id)).fold((0.0, 0.0), |(i, m), s| (i + s.income, m + s.maintenance))
+    /// The vine's books against the engine's starvation test
+    /// (`plant::day_budget_ratio`), the hungriest vine's: below 1.0 it is
+    /// starving. `None` when no vine is left.
+    pub fn budget(&self) -> Option<f32> {
+        self.vines().iter().filter_map(|&id| plant::day_budget_ratio(&self.world, id)).reduce(f32::min)
     }
 
     /// Fraction of the wall faces' cells (the strips beside each wall that a
