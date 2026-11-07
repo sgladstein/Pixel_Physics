@@ -21,6 +21,7 @@ pub mod app;
 pub mod audio;
 pub mod druid;
 pub mod fault;
+pub mod firedamp;
 pub mod dig_marks;
 pub mod food_road;
 pub mod hud;
