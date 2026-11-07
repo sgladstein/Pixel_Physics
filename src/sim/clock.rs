@@ -241,6 +241,22 @@ pub struct Clock {
     /// setting someone chose, not running state like the anchors below.
     pub sky_hold: Option<u64>,
 
+    /// **How many times *faster* than baseline plants run** -- the
+    /// divisor partner of `growth_slowdown`, for one game only: the
+    /// Heartwood probe (`sim::tip_cards`), where a tree grown from cards has
+    /// to answer a card within a second or two rather than a minute.
+    ///
+    /// `1` everywhere else, and it is not a panel knob or a saved setting
+    /// (`serde(skip)`): no other binary has a way to set it, so no lab,
+    /// outdoor or held-world run can move. Divides the same
+    /// `organism_interval` the slowdown multiplies, so growth rolls and the
+    /// economy that funds them stay on one cadence -- the property
+    /// `growth_slowdown`'s doc calls the whole argument for one knob. What it
+    /// does *not* preserve is what the slowdown does not preserve either:
+    /// light, water and weather still run on real frames.
+    #[serde(skip)]
+    pub growth_speedup: u32,
+
     /// The real frame at which the current rates took effect, and the sky and
     /// weather frames as of that moment. See [`Clock::sky_frame`] for what
     /// they are for.
@@ -265,6 +281,7 @@ impl Default for Clock {
             creature_slowdown: 1,
             gnome_slowdown: 1,
             sky_hold: None,
+            growth_speedup: 1,
             anchor_frame: 0,
             anchor_sky: 0,
             anchor_weather: 0,
@@ -439,7 +456,7 @@ impl Clock {
     /// which is an infinite loop inside one `step_active_sites` rather than
     /// "very fast growth".
     pub fn organism_interval(&self, base: u64) -> u64 {
-        (base * self.growth_slowdown.max(1) as u64).max(1)
+        (base * self.growth_slowdown.max(1) as u64 / self.growth_speedup.max(1) as u64).max(1)
     }
 
     /// As [`Clock::organism_interval`], for creatures and the pheromone plane.
@@ -675,6 +692,8 @@ mod tests {
             creature_slowdown: _,
             gnome_slowdown: _,
             sky_hold: _,
+            // Not a panel knob: the Heartwood probe's own, `serde(skip)`.
+            growth_speedup: _,
             anchor_frame: _,
             anchor_sky: _,
             anchor_weather: _,

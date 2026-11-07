@@ -111,6 +111,7 @@ pub mod specimen;
 pub mod spring;
 pub mod structural;
 pub mod tandem;
+pub mod tip_cards;
 pub mod surface;
 pub mod update;
 pub mod weather;

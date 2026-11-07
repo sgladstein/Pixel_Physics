@@ -22,6 +22,7 @@ pub mod audio;
 pub mod druid;
 pub mod dig_marks;
 pub mod food_road;
+pub mod heartwood;
 pub mod hud;
 pub mod lab;
 pub mod render;
