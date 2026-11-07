@@ -1,0 +1,258 @@
+//! **Mould: herd a slime mould with a lamp.** `cargo run --release --bin mould`
+//!
+//! A probe of its own, not a lab seat: everything it does to a dish lives in
+//! `pixel_physics::mould`; this file is winit and `pixels` and nothing else,
+//! the split `src/bin/lab.rs` and `src/bin/druid.rs` use.
+//!
+//! The keys are on screen (the bottom line), and so is what the next click
+//! will do. `cargo run --release --bin mould -- 3` starts on dish seed 3.
+//!
+//! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
+//! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
+//! frames, the same hook the other binaries have.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use pixel_physics::mould::render::{self, View};
+use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
+use pixels::{Pixels, SurfaceTexture};
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Window, WindowId};
+
+/// Buffer pixels per dish cell. 4 makes a 1024-wide window.
+const SCALE: u32 = 4;
+/// One drawn frame of simulation: `STEPS_PER_FRAME` steps, sixty times a
+/// second, whatever the display's rate.
+const TICK: Duration = Duration::from_nanos(1_000_000_000 / 60);
+const MAX_TICKS_PER_FRAME: u32 = 4;
+/// Space runs the dish this many times faster: the brief's "wait" button.
+const FAST: u32 = 4;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let event_loop = EventLoop::new()?;
+    event_loop.set_control_flow(ControlFlow::Poll);
+    let mut handler = Handler::new(seed);
+    event_loop.run_app(&mut handler)?;
+    handler.result
+}
+
+struct Handler {
+    window: Option<Arc<Window>>,
+    pixels: Option<Pixels<'static>>,
+    dish: Dish,
+    seed: u64,
+    view: View,
+    /// Cursor in dish cells.
+    cursor: Option<(f32, f32)>,
+    pressed: bool,
+    last_frame: Instant,
+    accumulator: Duration,
+    frames: u64,
+    screenshot_after: Option<u64>,
+    result: Result<(), Box<dyn std::error::Error>>,
+}
+
+impl Handler {
+    fn new(seed: u64) -> Self {
+        let screenshot_after = std::env::var("PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok());
+        Handler {
+            window: None,
+            pixels: None,
+            dish: Dish::new(seed),
+            seed,
+            view: View::default(),
+            cursor: None,
+            pressed: false,
+            last_frame: Instant::now(),
+            accumulator: Duration::ZERO,
+            frames: 0,
+            screenshot_after,
+            result: Ok(()),
+        }
+    }
+
+    fn fail(&mut self, event_loop: &ActiveEventLoop, message: String) {
+        self.result = Err(message.into());
+        event_loop.exit();
+    }
+
+    fn restart(&mut self, seed: u64) {
+        self.seed = seed;
+        self.dish = Dish::new(seed);
+        self.pressed = false;
+        if let Some(w) = &self.window {
+            w.set_title(&format!("Mould - dish {seed}"));
+        }
+    }
+
+    /// What holding the mouse does, every frame it is held.
+    fn hold(&mut self) {
+        let lamp = match (self.pressed, self.view.tool, self.cursor) {
+            (true, Tool::Lamp, Some(c)) => Some(c),
+            _ => None,
+        };
+        self.dish.set_lamp(lamp);
+    }
+
+    fn mouse(&mut self, down: bool) {
+        self.pressed = down;
+        let Some((x, y)) = self.cursor else { return };
+        match (down, self.view.tool) {
+            (true, Tool::Oats) => {
+                self.dish.place_oats(x, y);
+            }
+            (true, t @ (Tool::Salt | Tool::Snip)) => {
+                self.dish.begin_stroke(t, x, y);
+            }
+            (false, _) => self.dish.end_stroke(),
+            _ => {}
+        }
+        self.hold();
+    }
+
+    fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        match code {
+            KeyCode::Digit1 => self.view.tool = Tool::Lamp,
+            KeyCode::Digit2 => self.view.tool = Tool::Oats,
+            KeyCode::Digit3 => self.view.tool = Tool::Salt,
+            KeyCode::Digit4 => self.view.tool = Tool::Snip,
+            KeyCode::Space => self.view.fast = !self.view.fast,
+            KeyCode::KeyP => self.view.paused = !self.view.paused,
+            KeyCode::KeyR => self.restart(self.seed),
+            KeyCode::KeyN => self.restart(self.seed + 1),
+            KeyCode::Escape => event_loop.exit(),
+            _ => {}
+        }
+        self.hold();
+    }
+
+    fn frame(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        self.accumulator += now - self.last_frame;
+        self.last_frame = now;
+        let mut ticks = 0;
+        while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
+            self.accumulator -= TICK;
+            ticks += 1;
+            if !self.view.paused {
+                let n = if self.view.fast {
+                    STEPS_PER_FRAME * FAST
+                } else {
+                    STEPS_PER_FRAME
+                };
+                for _ in 0..n {
+                    self.dish.step();
+                }
+            }
+        }
+        if ticks == MAX_TICKS_PER_FRAME {
+            self.accumulator = Duration::ZERO;
+        }
+        let Some(pixels) = self.pixels.as_mut() else { return };
+        self.view.cursor = self.cursor;
+        render::draw(&self.dish, &self.view, SCALE, pixels.frame_mut());
+        if let Err(err) = pixels.render() {
+            return self.fail(event_loop, format!("render failed: {err}"));
+        }
+        self.frames += 1;
+        if self.screenshot_after == Some(self.frames) {
+            let (w, h) = render::frame_size(SCALE);
+            let path = std::env::temp_dir().join("pixel_physics_mould_screenshot.png");
+            let img = image::RgbaImage::from_raw(w, h, pixels.frame().to_vec());
+            match img.map(|i| i.save(&path)) {
+                Some(Ok(())) => println!("screenshot written to {}", path.display()),
+                other => eprintln!("screenshot failed: {other:?}"),
+            }
+        }
+    }
+}
+
+impl ApplicationHandler for Handler {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let (w, h) = render::frame_size(SCALE);
+        let attributes = Window::default_attributes()
+            .with_title(format!("Mould - dish {}", self.seed))
+            .with_inner_size(LogicalSize::new(w, h))
+            .with_min_inner_size(LogicalSize::new(W as u32 * 2, H as u32 * 2));
+        let window = match event_loop.create_window(attributes) {
+            Ok(w) => Arc::new(w),
+            Err(err) => return self.fail(event_loop, format!("window creation failed: {err}")),
+        };
+        let size = window.inner_size();
+        let surface = SurfaceTexture::new(size.width, size.height, Arc::clone(&window));
+        match Pixels::new(w, h, surface) {
+            Ok(p) => self.pixels = Some(p),
+            Err(err) => return self.fail(event_loop, format!("pixels init failed: {err}")),
+        }
+        self.window = Some(window);
+        self.last_frame = Instant::now();
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if size.width > 0 && size.height > 0 {
+                    let err = self
+                        .pixels
+                        .as_mut()
+                        .and_then(|p| p.resize_surface(size.width, size.height).err());
+                    if let Some(err) = err {
+                        self.fail(event_loop, format!("surface resize failed: {err}"));
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    if event.state == ElementState::Pressed && !event.repeat {
+                        self.key(code, event_loop);
+                    }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = self
+                    .pixels
+                    .as_ref()
+                    .and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok())
+                    .map(|(x, y)| (x as f32 / SCALE as f32, y as f32 / SCALE as f32))
+                    .filter(|&(_, y)| y < H as f32);
+                if let Some((x, y)) = self.cursor {
+                    if self.pressed && self.dish.stroke_active() {
+                        self.dish.drag_stroke(x, y);
+                    }
+                }
+                self.hold();
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.hold();
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.mouse(state == ElementState::Pressed);
+            }
+            WindowEvent::RedrawRequested => self.frame(event_loop),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
