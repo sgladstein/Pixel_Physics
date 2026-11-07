@@ -9,9 +9,18 @@
 //!
 //! **The question this answers is about fun, not physics**: does the engine's
 //! own chemistry make a combo (Lid, then Splash under it) read as a clever play?
-//! So this is the least that lets somebody feel that verb, on the shipped
-//! engine. Everything here is game code; the one engine change it needs is
-//! `World::set_game_roofed`, which is inert unless this game calls it.
+//! So this is the least that lets somebody feel that verb. Everything here is
+//! game code; the engine changes it needs are `World::set_game_roofed` and
+//! `World::crust_quench_depth`, both inert unless this game sets them.
+//!
+//! # Round 2 (2026-11-07): the dam works, mostly because of the level
+//!
+//! Two lids stacked over the dam site with water under each let 71 cells of
+//! lava past, lids alone ~187, nothing ~210, water alone ~310 (ten seeds,
+//! `Reports/quench-probe-2026-11-07.md`). The levers, by size: lids must hang
+//! clear ([`LID_CLEARANCE`]), a sill keeps splash water out of the forge,
+//! the flood is off, and water quenches lava through thin crust
+//! ([`CRUST_DEPTH`]). On the shipped engine the same plan lets 115 past.
 //!
 //! # Why the lid needs a game-declared roof (measured 2026-11-07)
 //!
@@ -85,7 +94,13 @@ pub const LID_W: i32 = 24;
 pub const LID_H: i32 = 3;
 /// Rows of skirt down each end of a lid.
 pub const LID_SKIRT: i32 = 3;
-/// Rows under a lid that must be mostly open for it to be placed.
+/// Rows under a lid's skirts that must be open for it to be placed.
+///
+/// **Measured 2026-11-07 (round 2): a lid whose skirts came within one row of
+/// the floor was a wall without any water** -- lava through a one-row gap
+/// crusts shut on its own, so the lids-only control held back exactly as much
+/// lava as lids with water (122 against 125 cells past the dam). Four open
+/// rows under the skirts is a gap lava flows through until water seals it.
 pub const LID_CLEARANCE: i32 = 4;
 /// Dig radius.
 pub const DIG_RADIUS: i32 = 3;
@@ -96,6 +111,13 @@ pub const FORGE_NEEDS: u32 = 6;
 pub const FORGE_EATS_EVERY: u64 = 6;
 /// Seconds of a burning forge that score full marks.
 pub const FORGE_FULL_SECONDS: f32 = 45.0;
+/// Lava (molten, or the loose stone it became) at or right of this column has
+/// got past the dam site: [`Counts::past`].
+pub const PAST_X: i32 = 175;
+/// How many cells of crust water quenches lava through
+/// (`World::crust_quench_depth`); 0 is the shipped rule. See
+/// `fire::try_react_through_crust` for why this game needs it.
+pub const CRUST_DEPTH: u8 = 4;
 
 /// **Steam under a roof beads on the roof's underside and drips at once.**
 ///
@@ -229,6 +251,9 @@ pub struct Counts {
     pub quenched_under_lid: u32,
     /// Water cells that condensed inside a lid's shadow and fell back.
     pub drips: u32,
+    /// Lava, and loose stone made from it, at or past [`PAST_X`] now: what
+    /// got past the dam site.
+    pub past: u32,
     /// Splashes, lids and digs used.
     pub splashes: u32,
     pub lids: u32,
@@ -254,7 +279,7 @@ pub struct Quench {
     pub flood_src: Area,
     pub actions: Vec<Action>,
     pub counts: Counts,
-    lava: MaterialId,
+    pub lava: MaterialId,
     steam: MaterialId,
     wood: MaterialId,
     /// Lid footprints placed, for drawing their shadow.
@@ -269,6 +294,16 @@ pub struct Quench {
     /// On by default; `F` turns it off to play the shipped engine as is.
     pub fast_drip: bool,
     caught: f32,
+    /// Ticks between the vent's pours ([`VENT_EVERY`]); a field so the probe
+    /// can sweep the eruption's size.
+    pub vent_every: u64,
+    /// How long the flood pours, 0 for no flood (the default). **Off since
+    /// round 2 (2026-11-07)**: at [`FLOOD_SECONDS`] it stood three rows up
+    /// three or four houses in every plan, a dam or none, so it scored
+    /// nothing but itself; and the water a player throws drains to the
+    /// village too, so a flood check then counted the player's own splashes.
+    /// The probe's `flood=8` puts it back.
+    pub flood_seconds: u64,
 }
 
 fn idx(x: i32, y: i32) -> usize {
@@ -294,7 +329,12 @@ pub fn floor_y(x: i32) -> i32 {
         ..=20 => 58,
         21..=105 => 58 + ((x - 20) * 54) / 85, // 58 -> 112
         106..=126 => 126,                      // the forge pit
-        127..=178 => 118,                      // the dam site
+        // A sill between the forge and the dam site: water thrown at the dam
+        // ran back down into the forge's pit and quenched its lava (forge
+        // burned 296 cells against 415 with the same lids and no water,
+        // 2026-11-07 round 2). Lava tops the sill once the pit is full.
+        127..=130 => 115,
+        131..=178 => 118, // the dam site
         // The village climbs away from the dam in steps of two rows, one
         // house per step, so how high the lava (or the flood) stands decides
         // how many houses it takes -- a graded loss rather than all or none.
@@ -310,6 +350,7 @@ impl Quench {
         world.seed = seed;
         world.weather_override = Some(Weather::CLEAR);
         world.set_sky_hold(SkyPin::Noon.hold());
+        world.crust_quench_depth = CRUST_DEPTH;
         let lava = world.materials.id_of("lava").expect("lava is compiled in");
         let steam = world.materials.id_of("steam").expect("steam is compiled in");
         let wood = world.materials.id_of("wood").expect("wood is compiled in");
@@ -387,6 +428,9 @@ impl Quench {
             note: None,
             fast_drip: true,
             caught: 0.0,
+            vent_every: VENT_EVERY,
+            // Off by default; see `flood_seconds`.
+            flood_seconds: 0,
         };
         // The overhang is a roof the engine's frozen map will not see (it is
         // narrower than the 32-cell reach of the open sky), so it is declared
@@ -496,21 +540,23 @@ impl Quench {
         if area.y0 < 2 || area.y1 > H - 6 {
             return Some("TOO HIGH OR LOW");
         }
-        // **A lid is a roof, not a wall**: it needs open space under it.
-        // Without this rule the lid is simply the best wall in the game --
-        // two stacked across the gorge stop every drop -- and the probe
-        // stops asking whether the *chemistry* is fun.
+        // **A lid is a roof, not a wall**: it needs open space under it,
+        // down past its skirts. Without this rule the lid is simply the best
+        // wall in the game -- two stacked across the gorge stop every drop --
+        // and the probe stops asking whether the *chemistry* is fun. Only
+        // ground counts against it: a lid may hang over lava or water.
         let mut ground = 0;
         let mut total = 0;
         for x in area.x0..=area.x1 {
-            for y in (area.y1 + 1)..=(area.y1 + LID_CLEARANCE) {
+            for y in (area.y1 + 1)..=(area.y1 + LID_SKIRT + LID_CLEARANCE) {
                 total += 1;
-                if self.is_ground(self.world.get(x, y).material) {
+                let c = self.world.get(x, y);
+                if self.is_ground(c.material) {
                     ground += 1;
                 }
             }
         }
-        if ground * 4 > total {
+        if ground * 20 > total {
             return Some("A LID NEEDS OPEN SPACE UNDER IT");
         }
         None
@@ -584,7 +630,7 @@ impl Quench {
         // The vent keeps itself open: crust or rubble on its mouth is
         // re-melted, or the first skin of stone over it ends the eruption
         // (seen 2026-11-07: the vent sealed itself at ~20 s).
-        if secs < VENT_SECONDS && self.tick.is_multiple_of(VENT_EVERY) {
+        if secs < VENT_SECONDS && self.tick.is_multiple_of(self.vent_every) {
             let (vx, vy) = self.vent;
             // The seed picks which of the vent's three cells each pour comes
             // out of, so paired seeds are different eruptions and not one
@@ -600,7 +646,7 @@ impl Quench {
             }
         }
         // The flood: meltwater down the same gorge.
-        if (FLOOD_AT..FLOOD_AT + FLOOD_SECONDS).contains(&secs) && self.tick.is_multiple_of(FLOOD_EVERY) {
+        if (FLOOD_AT..FLOOD_AT + self.flood_seconds).contains(&secs) && self.tick.is_multiple_of(FLOOD_EVERY) {
             let src = self.flood_src;
             for (x, y) in src.cells() {
                 if self.world.get(x, y).material == material::EMPTY {
@@ -643,10 +689,11 @@ impl Quench {
 
     /// Glow, drips, forge, houses, dam -- one pass over the world.
     fn census(&mut self) {
-        let flood_started = self.tick >= FLOOD_AT * TICKS_PER_SECOND;
+        let flood_started = self.flood_seconds > 0 && self.tick >= FLOOD_AT * TICKS_PER_SECOND;
         let mut forge_molten = 0;
         let mut dam_rock = 0;
         let mut dam_cells = 0;
+        let mut past = 0;
         for y in 0..H {
             for x in 0..W {
                 let i = idx(x, y);
@@ -674,6 +721,12 @@ impl Quench {
                 if self.forge.contains(x, y) && m == self.lava {
                     forge_molten += 1;
                 }
+                if x >= PAST_X {
+                    let c = self.world.get(x, y);
+                    if m == self.lava || ((m == material::STONE || m == material::RUBBLE) && !c.attached()) {
+                        past += 1;
+                    }
+                }
                 if self.dam.contains(x, y) && self.dam_mask(x, y) {
                     dam_cells += 1;
                     if self.is_ground(m) && m != material::BEDROCK && !self.world.get(x, y).attached() {
@@ -697,6 +750,7 @@ impl Quench {
                 self.counts.forge_burned += 1;
             }
         }
+        self.counts.past = past;
         self.counts.dam_now = dam_rock as f32 / dam_cells.max(1) as f32;
         self.counts.dam_peak = self.counts.dam_peak.max(self.counts.dam_now);
         for h in 0..self.houses.len() {
@@ -707,7 +761,10 @@ impl Quench {
                 if m == self.lava {
                     self.houses[h].burned = true;
                 }
-                if m == material::WATER && flood_started {
+                // Flooded means water standing three rows up the walls, not a
+                // puddle: splash water draining past the dam wet every house's
+                // doorstep and scored as a flood in every plan (round 2).
+                if m == material::WATER && flood_started && y <= area.y1 - 2 {
                     self.houses[h].flooded = true;
                 }
             }
@@ -880,14 +937,15 @@ impl Quench {
             text(frame, x, 0, &t, c);
             x += crate::hud::text_width(&t) + 8;
         }
-        let clock = if secs < FLOOD_AT as f32 {
+        let flood = self.flood_seconds > 0;
+        let clock = if flood && secs < FLOOD_AT as f32 {
             format!("FLOOD IN {}", mmss(FLOOD_AT as f32 - secs))
         } else if !self.over() {
             format!("ENDS IN {}", mmss(ROUND_SECONDS as f32 - secs))
         } else {
             "ROUND OVER".to_string()
         };
-        text(frame, FRAME_W as i32 / 2 - crate::hud::text_width(&clock) - 3, 0, &clock, if secs >= FLOOD_AT as f32 { COOL } else { INK });
+        text(frame, FRAME_W as i32 / 2 - crate::hud::text_width(&clock) - 3, 0, &clock, if flood && secs >= FLOOD_AT as f32 { COOL } else { INK });
         // Row 2: the tools.
         let mut x = 3;
         for (i, t) in Tool::ALL.iter().enumerate() {
@@ -895,8 +953,9 @@ impl Quench {
             text(frame, x, 1, &label, if *t == self.tool { [255, 255, 120, 255] } else { DIM });
             x += crate::hud::text_width(&label) + 8;
         }
-        let drip = if self.fast_drip { "F STEAM DRIPS UNDER LIDS: ON" } else { "F STEAM DRIPS UNDER LIDS: OFF" };
-        text(frame, x, 1, drip, DIM);
+        let on = |b: bool| if b { "ON" } else { "OFF" };
+        let rules = format!("F LID DRIP {}  C WATER THROUGH CRUST {}", on(self.fast_drip), on(self.world.crust_quench_depth > 0));
+        text(frame, x, 1, &rules, DIM);
         // Row 3: what the next click does, or what just happened.
         let line = if self.over() {
             format!("SCORE {} - STARS {}/3   R TO PLAY AGAIN", self.score(), self.stars())
@@ -909,7 +968,8 @@ impl Quench {
                 Err(t) => t,
             }
         } else {
-            "LAVA IS COMING. THE FORGE NEEDS SOME, THE HOUSES NONE.".to_string()
+            // Round 2's one hint: the combo is not guessable from the tools.
+            "A LID IS A ROOF. WATER UNDER IT AS LAVA ARRIVES SEALS IT.".to_string()
         };
         text(frame, 3, 2, &line, INK);
     }

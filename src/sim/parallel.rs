@@ -1074,6 +1074,10 @@ impl CellSurface for ChunkView<'_> {
         self.world.is_outdoors(x, y)
     }
 
+    fn crust_quench_depth(&self) -> u8 {
+        self.world.crust_quench_depth
+    }
+
     #[inline]
     fn credit_atmosphere(&mut self, fill: u16) {
         self.sky_condensate += fill as u64;

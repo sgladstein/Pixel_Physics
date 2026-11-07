@@ -6,8 +6,9 @@
 //! the same split `src/bin/druid.rs` uses.
 //!
 //! Keys (also on screen): `1` Splash, `2` Lid, `3` Dig, left click uses it;
-//! `F` turns the steam-drips-under-lids rule on and off; `R` restarts the
-//! same round; `N` starts a new seed; `Esc` quits.
+//! `F` turns the steam-drips-under-lids rule on and off; `C` turns water
+//! quenching lava through crust on and off (off is the shipped engine); `R`
+//! restarts the same round; `N` starts a new seed; `Esc` quits.
 //!
 //! `PIXEL_PHYSICS_QUENCH_SEED=<n>` picks the seed.
 
@@ -79,10 +80,12 @@ impl Handler {
 
     fn restart(&mut self, seed: u64) {
         let fast = self.game.fast_drip;
+        let crust = self.game.world.crust_quench_depth;
         let tool = self.game.tool;
         self.seed = seed;
         self.game = Quench::new(seed);
         self.game.fast_drip = fast;
+        self.game.world.crust_quench_depth = crust;
         self.game.tool = tool;
         self.renderer = Renderer::new();
         println!("quench: round restarted, seed {seed}");
@@ -144,6 +147,11 @@ impl ApplicationHandler for Handler {
                         KeyCode::KeyF => {
                             self.game.fast_drip = !self.game.fast_drip;
                             println!("quench: steam drips under lids {}", if self.game.fast_drip { "ON" } else { "OFF (shipped engine)" });
+                        }
+                        KeyCode::KeyC => {
+                            let w = &mut self.game.world;
+                            w.crust_quench_depth = if w.crust_quench_depth > 0 { 0 } else { pixel_physics::quench::CRUST_DEPTH };
+                            println!("quench: water quenches lava through crust {}", if w.crust_quench_depth > 0 { "ON" } else { "OFF (shipped engine)" });
                         }
                         KeyCode::KeyR => self.restart(self.seed),
                         KeyCode::KeyN => self.restart(self.seed + 1),

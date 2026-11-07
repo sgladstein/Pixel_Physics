@@ -4241,6 +4241,14 @@ pub struct World {
     /// [`World::is_outdoors`], whose one caller is condensation, so it moves
     /// nothing but where condensed steam goes. Lighting does not read it.
     game_roofed: Vec<u64>,
+    /// **How many cells of crust water can quench lava through**, 0 = the
+    /// shipped rule (water must touch the lava). A game-only switch, read by
+    /// `fire::try_react` through [`CellSurface::crust_quench_depth`]; no
+    /// shipped game sets it. Quench (`src/quench/`) sets it because on the
+    /// shipped rule the first splash's crust keeps every later drop off the
+    /// lava, so steam dripping back under a lid boiled off the crust instead
+    /// of building anything (`Reports/quench-probe-2026-11-07.md` s3).
+    pub crust_quench_depth: u8,
     /// **The top of the ground, asked so that a cliff brow is not mistaken
     /// for it.** One entry per column from `bounds.min_x`, `i32::MAX` for a
     /// column that holds no ground at all — same shape and same convention
@@ -7582,6 +7590,7 @@ impl World {
             sky_surface: Vec::new(),
             underground: Vec::new(),
             game_roofed: Vec::new(),
+            crust_quench_depth: 0,
             ground_datum: Vec::new(),
             pending_decay_sites: PosSet::default(),
             bodies: Vec::new(),
@@ -13513,6 +13522,10 @@ impl CellSurface for World {
         World::is_outdoors(self, x, y)
     }
 
+    fn crust_quench_depth(&self) -> u8 {
+        self.crust_quench_depth
+    }
+
     #[inline]
     fn credit_atmosphere(&mut self, fill: u16) {
         World::credit_atmosphere(self, fill);
@@ -13894,6 +13907,10 @@ impl CellSurface for MoistureView<'_> {
 
     fn is_outdoors(&self, x: i32, y: i32) -> bool {
         World::is_outdoors(self.world, x, y)
+    }
+
+    fn crust_quench_depth(&self) -> u8 {
+        self.world.crust_quench_depth
     }
 
     fn credit_atmosphere(&mut self, fill: u16) {
