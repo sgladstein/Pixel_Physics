@@ -5783,6 +5783,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // `CLAUDE.md`'s *guard hot-path work at the call site that already has
     // the data* -- the data is `species_id`, and it is already here.
     let submerged_shoot = world.species.get(species_id).submerged_shoot && submerged_shoot_enabled();
+    // **A game's climbing vine** (`World::climber`): `None` for every
+    // species in every world but the Kudzu probe's. Read once here, beside
+    // the species id, for the same hot-path reason as the line above.
+    let cling = world.climber.filter(|c| c.species == species_id).map(|c| c.cling);
     // **This individual's own numbers**, read out beside its species id and
     // applied to every behaviour the dispatch below copies. See
     // `organism::ParamGenome`: empty on every founder, so the cost here is a
@@ -6441,7 +6445,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // real species value meaning "this plant has no height
                 // limit" -- a moss mat, a vine -- and is also why `RootTip`
                 // growth is unaffected without a special case.
-                if turgor_per_cell > 0.0 {
+                // **A climber braced on stone or ground has no height
+                // bound** (`World::climber`): the wall carries what turgor
+                // would have to, so only a shoot standing out in open air
+                // pays it. `cling` is `None` for every shipped species.
+                let braced = cling.is_some() && cell_type == CellType::GrowingTip && touches_climb_surface(world, x, y);
+                if turgor_per_cell > 0.0 && !braced {
                     {
                         // **Hydraulic path length, not height** — see
                         // `OrganismCell::path_len` for the measurement that
@@ -6779,6 +6788,13 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                             + dot(dir, gravity_or_water) * upward_weight
                     } / weight_sum;
                     let score = preference / (1.0 + density * crowding_weight);
+                    // **A climber's shoots keep to a surface** (`Climber`).
+                    // Multiplying a positive score cannot admit a direction
+                    // the weights refused, so this only re-ranks.
+                    let score = match cling {
+                        Some(k) if cell_type == CellType::GrowingTip => score * climb_factor(world, nx, ny, k),
+                        _ => score,
+                    };
                     if let Some(r) = grow_row.as_mut() {
                         r.weight_sum = weight_sum;
                         r.scored.push(GrowScore {
@@ -8517,10 +8533,9 @@ pub fn step_organisms(world: &mut World) {
         let interval = if is_creature {
             world.clock.creature_interval(ORGANISM_TICK_INTERVAL)
         } else {
-            world
-                .clock
-                .organism_interval(ORGANISM_TICK_INTERVAL)
-                .saturating_mul(size_cadence(world, cell_count))
+            // `World::organism_interval`, not the clock's: the same number
+            // unless a game has sped its plants up (`World::plant_speedup`).
+            world.organism_interval(ORGANISM_TICK_INTERVAL).saturating_mul(size_cadence(world, cell_count))
         };
         if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
@@ -9429,6 +9444,14 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: OrganismId) 
     }
     let root_tissue =
         world.materials.get(cell.material).reinforces_powder || organism::cell_type(cell.aux()) == Some(CellType::RootTip);
+    // **A climber is held by its roots and nothing else** (`Climber`): a
+    // vine stem lying on a wall top or on the ground does not anchor it, so
+    // every sheet hangs from the crown through its own stems and a cut
+    // anywhere drops everything past it. `None` outside the Kudzu probe, and
+    // then this is one `Option` test.
+    if !root_tissue && world.climber.is_some_and(|c| world.organism(organism_id).is_some_and(|s| s.species == c.species)) {
+        return false;
+    }
     NEIGHBOURS_4.iter().any(|&(dx, dy)| {
         let n = world.get(x + dx, y + dy);
         let m = world.materials.get(n.material);
@@ -10406,6 +10429,193 @@ pub fn stress_field(world: &World, organism_id: OrganismId) -> std::collections:
         );
     }
     out
+}
+
+/// **A climbing vine, for one game** -- `World::climber`, set only by the
+/// Kudzu probe (`src/kudzu/`, 2026-11-07). The shipped creeper wanders over
+/// the ground and stops eight rows up (its turgor bound); its own file says
+/// climbing "genuinely needs a mechanism (surface attraction)". This is
+/// that mechanism, for one named species and no other:
+///
+/// - a shoot tip within [`CLIMB_BRACE`] of stone or bare ground skips the
+///   turgor height bound (`Grow`), so a vine can run up a wall face as far
+///   as its economy pays for, while a shoot out in open air still pays it --
+///   measured from its collar, so in practice it cannot leave the surface;
+/// - every candidate cell is scored up by `cling` per surface cell around
+///   it and down to [`CLIMB_OFF_SURFACE`] with none, so the stems hug what
+///   they climb.
+///
+/// - **only its roots anchor it** (`is_structural_anchor`). Every other
+///   plant is also held by a stem resting on ground directly beneath it;
+///   a climber is not, not on the ground and not on a wall top, so the
+///   whole vine hangs from its crown through its own stems. That is what
+///   the game needs: cut a stem anywhere and everything past it is
+///   connected to nothing. (Measured before this rule: the biggest drop any
+///   single snip could make was 51 of 1,346 cells, because the sheet on a
+///   wall face was held from the wall top it had grown over.)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Climber {
+    pub species: organism::SpeciesId,
+    /// Score multiplier added per surface cell in a candidate's eight
+    /// neighbours.
+    pub cling: f32,
+}
+
+/// What a climber's score is multiplied by for a candidate with no surface
+/// against it: low, not zero, so a vine can still bridge a gap or lean out
+/// over a corner rather than being boxed in by its own rule.
+pub const CLIMB_OFF_SURFACE: f32 = 0.08;
+
+/// A cell a climber can hold to: stone, soil, any solid or powder that is
+/// not itself part of a plant or animal.
+fn is_climb_surface(world: &World, x: i32, y: i32) -> bool {
+    let c = world.get(x, y);
+    c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Solid | MaterialKind::Powder)
+}
+
+/// How far from a surface a climber's tip still counts as braced, in cells
+/// (Chebyshev). 1 would hold only a stem pressed flat to the stone; 2 lets
+/// the vine build a mat a few cells thick and bridge a one-cell gap.
+pub const CLIMB_BRACE: i32 = 2;
+
+/// Whether `(x, y)` has a climbable surface within [`CLIMB_BRACE`].
+pub fn touches_climb_surface(world: &World, x: i32, y: i32) -> bool {
+    (-CLIMB_BRACE..=CLIMB_BRACE)
+        .any(|dy| (-CLIMB_BRACE..=CLIMB_BRACE).any(|dx| (dx, dy) != (0, 0) && is_climb_surface(world, x + dx, y + dy)))
+}
+
+fn climb_factor(world: &World, x: i32, y: i32, cling: f32) -> f32 {
+    let n = NEIGHBOURS_8.iter().filter(|&&(dx, dy)| is_climb_surface(world, x + dx, y + dy)).count();
+    if n == 0 {
+        CLIMB_OFF_SURFACE
+    } else {
+        1.0 + cling * n as f32
+    }
+}
+
+/// **A climber puts out a new runner** -- the vine's vigour, for the
+/// Kudzu probe's species only (refuses any organism that is not
+/// `World::climber`'s). The engine's own frontier is buds and resprouting
+/// stumps, which keep a tree a tree; a vine that has wrapped one wall face
+/// has no bud left that faces the next one, and stops. The game calls this
+/// at its own rate, so how hard the vine pushes is the game's setting.
+///
+/// Picks, among stem cells of the vine, one with an open cell beside it
+/// that is itself against stone or ground, turns it back into a growing
+/// tip and pays [`Behavior::Grow`]'s `cost` from the vine's richest cell --
+/// the same arithmetic as `break_tillers`, the engine's grass-crown
+/// resprout. A vine too poor to pay puts out nothing, which is what makes a
+/// starved vine stop. `pick` chooses among the candidates (`0..n`).
+/// Returns where the runner started.
+pub fn sprout_climber(world: &mut World, organism_id: OrganismId, pick: impl FnOnce(usize) -> usize) -> Option<(i32, i32)> {
+    let state = world.organism(organism_id)?;
+    if world.climber.is_none_or(|c| c.species != state.species) {
+        return None;
+    }
+    let cost = individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { cost, .. } => Some(*cost),
+        _ => None,
+    })?;
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let mut richest: Option<(i32, i32, f32)> = None;
+    let mut sites: Vec<(i32, i32, i32, i32)> = Vec::new();
+    for &(x, y) in &cells {
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id || world.materials.get(cell.material).reinforces_powder {
+            continue;
+        }
+        let carbon = world.carbon_at(x, y);
+        if richest.is_none_or(|(_, _, best)| carbon > best) {
+            richest = Some((x, y, carbon));
+        }
+        if organism::cell_type(cell.aux()) != Some(CellType::MatureBody) {
+            continue;
+        }
+        // The open neighbour with the most surface against it, which is
+        // where the runner will head.
+        let edge = NEIGHBOURS_8
+            .iter()
+            // Up or sideways only: a vine climbs, and a runner pointed
+            // down scores its own heading against light and up on its
+            // first step and retires there (measured: most of the first
+            // runners died that way without growing a cell).
+            .filter(|&&(dx, dy)| dy <= 0 && growable(world, x + dx, y + dy, 0.0, false))
+            .map(|&(dx, dy)| {
+                let held = NEIGHBOURS_8.iter().filter(|&&(ex, ey)| is_climb_surface(world, x + dx + ex, y + dy + ey)).count();
+                (held, dx, dy)
+            })
+            .filter(|&(held, _, _)| held > 0)
+            .max_by_key(|&(held, dx, dy)| (held, std::cmp::Reverse((dy, dx))));
+        if let Some((_, dx, dy)) = edge {
+            sites.push((x, y, dx, dy));
+        }
+    }
+    let (rx, ry, held) = richest?;
+    if sites.is_empty() || held < cost {
+        return None;
+    }
+    let (bx, by, dx, dy) = sites[pick(sites.len()).min(sites.len() - 1)];
+    let cell = world.get(bx, by);
+    world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+    write_carbon(world, rx, ry, held - cost);
+    let stake = world.carbon_at(bx, by).max(cost);
+    write_carbon(world, bx, by, stake);
+    // **Pointed at the open cell it was picked for.** A stem cell keeps the
+    // heading it grew along, and a runner leaving it sideways would score
+    // its only open direction as backwards on its first, continuation-only
+    // step and retire without growing a cell.
+    if let Some(c) = world.organism_cell_mut(bx, by) {
+        c.heading = normalize((dx as f32, dy as f32));
+        c.growth_residual = (0.0, 0.0);
+    }
+    // Lineage step 2, past the creeper's two-cell internode, so its first
+    // step is steered by light and surface as well as by that heading;
+    // still small, so nodes and leaves come on the usual count.
+    let site = reschedule_organism(bx, by, organism_id, 0, 2, world.organism_due(ORGANISM_TICK_INTERVAL));
+    world.schedule_active_site(site);
+    Some((bx, by))
+}
+
+/// **What a cut would drop, before it is made** -- the Kudzu probe's hover
+/// preview. Returns every cell of `organism_id` that would be connected to
+/// none of its anchors if the cells in `removed` were gone.
+///
+/// The same walk as [`anchor_support`], read-only: the same anchor rule
+/// (`is_structural_anchor`, with a removed cell anchoring nothing), the same
+/// eight-neighbourhood, and the same direction rule (a leaf may hold a leaf,
+/// never wood). Reachability only -- the distances do not matter to "does
+/// it fall". **If the two ever disagree the preview lies**, so the probe
+/// counts predicted against actually fallen on every cut.
+pub fn severed_if_cut(world: &World, organism_id: OrganismId, removed: &crate::sim::fxhash::PosSet) -> Vec<(i32, i32)> {
+    let Some(state) = world.organism(organism_id) else { return Vec::new() };
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().filter(|p| !removed.contains(p)).collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let is_leaf: Vec<bool> = cells
+        .iter()
+        .map(|&(x, y)| organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf))
+        .collect();
+    let mut reached = vec![false; cells.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    for (i, &(x, y)) in cells.iter().enumerate() {
+        if is_structural_anchor(world, x, y, organism_id) {
+            reached[i] = true;
+            stack.push(i);
+        }
+    }
+    while let Some(i) = stack.pop() {
+        let (x, y) = cells[i];
+        for (dx, dy) in NEIGHBOURS_8 {
+            let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            if reached[j] || (is_leaf[i] && !is_leaf[j]) {
+                continue;
+            }
+            reached[j] = true;
+            stack.push(j);
+        }
+    }
+    cells.iter().zip(reached).filter(|(_, r)| !r).map(|(&p, _)| p).collect()
 }
 
 /// Recompute every cell's weighted distance to this organism's nearest

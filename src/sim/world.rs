@@ -6206,6 +6206,26 @@ pub struct World {
     /// See `structural::organism_structural_tick` and
     /// `plant::shed_cut_off_tissue`.
     pub plant_cut_falls: bool,
+    /// **How many times faster than baseline this world's plants run** --
+    /// a divisor on the organism clock, the opposite of
+    /// `clock.growth_slowdown`, and **1 (no change) in every world but the
+    /// Kudzu probe's** (`src/kudzu/`, 2026-11-07). That game needs a vine
+    /// that climbs a wall in seconds rather than minutes, and
+    /// `ORGANISM_TICK_INTERVAL` is shared with the lab, so the speed-up is a
+    /// setting on the world rather than a change to the constant.
+    ///
+    /// Read in exactly the two places the slowdown is: [`World::
+    /// organism_due`] (every reschedule, decay included -- litter rides with
+    /// growth for the reason `Clock::growth_slowdown` gives) and the
+    /// per-organism economy pass in `plant::step_organisms`. Not on `Clock`
+    /// because `Clock` is the tunables panel's, and every one of its fields
+    /// must be reachable there (`every_settable_knob_is_registered_in_the_
+    /// panel`); this is a game's fixed choice, not a player's knob.
+    pub plant_speedup: u32,
+    /// **A climbing vine** -- one species whose shoots hold to stone and
+    /// bare ground (`plant::Climber`). `None` in every world but the Kudzu
+    /// probe's, which is the whole of its reach: no shipped species reads it.
+    pub climber: Option<crate::sim::plant::Climber>,
     /// **Whether water flows through a plant along real paths** rather than
     /// being one tank every leaf reads equally (`plant::sap_flow`).
     ///
@@ -7768,6 +7788,8 @@ impl World {
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
             plant_cut_falls: crate::sim::structural::cut_crowns_fall(),
+            plant_speedup: 1,
+            climber: None,
             sap_flow: super::plant::sap_flow_default(),
             rootless_dries: super::plant::rootless_dries_default(),
             seed_dry_keeps: super::plant::seed_bank_default().0,
@@ -12506,7 +12528,7 @@ impl World {
         if initial == 0 {
             return 1.0;
         }
-        let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_period());
+        let deficit = chunk.nutrient_deficit(x, y, self.frame, self.nutrient_recovery_period());
         let fraction = f32::from(initial.saturating_sub(deficit)) / f32::from(initial);
         // **A sandy patch carries less, whatever its deficit** -- the share
         // a root can use, by texture, on a world that reads texture. On the
@@ -12518,6 +12540,22 @@ impl World {
             fraction * self.materials.get(cell.material).texture_of(cell.shade).nutrient
         } else {
             fraction
+        }
+    }
+
+    /// Frames for the soil to win back one unit of nutrient:
+    /// `plant::nutrient_recovery_period`, divided by [`World::plant_speedup`]
+    /// so that a sped-up world's ground keeps pace with its sped-up roots --
+    /// a root draws once a plant tick, and the soil has to refill on the
+    /// same clock or a 6x vine mines its bed bare in under half a minute
+    /// (measured on the Kudzu probe: nutrient status 0.10 -> 0.00 inside
+    /// 1,600 frames, and the vine starved). Identical at the default of 1.
+    pub fn nutrient_recovery_period(&self) -> u16 {
+        let period = super::plant::nutrient_recovery_period();
+        if self.plant_speedup > 1 {
+            (period / self.plant_speedup.min(u16::MAX as u32) as u16).max(1)
+        } else {
+            period
         }
     }
 
@@ -12534,7 +12572,7 @@ impl World {
             return amount;
         }
         let frame = self.frame;
-        let (recovery, initial) = (super::plant::nutrient_recovery_period(), super::plant::nutrient_initial());
+        let (recovery, initial) = (self.nutrient_recovery_period(), super::plant::nutrient_initial());
         let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) else { return 0 };
         chunk.draw_nutrient(x, y, frame, recovery, initial, amount)
     }
@@ -12824,7 +12862,20 @@ impl World {
     /// plant subsystem goes through here, which is what makes growth pace a
     /// single knob rather than a sweep of constants.
     pub fn organism_due(&self, base_interval: u64) -> u64 {
-        self.frame + self.clock.organism_interval(base_interval)
+        self.frame + self.organism_interval(base_interval)
+    }
+
+    /// The organism-schedule interval itself: `clock.organism_interval`,
+    /// divided by [`World::plant_speedup`]. Identical to the clock's own at
+    /// the default of 1, which is every world but the Kudzu probe's.
+    /// Floored at 1 for the reason `Clock::organism_interval` gives.
+    pub fn organism_interval(&self, base_interval: u64) -> u64 {
+        let interval = self.clock.organism_interval(base_interval);
+        if self.plant_speedup > 1 {
+            (interval / self.plant_speedup as u64).max(1)
+        } else {
+            interval
+        }
     }
 
     /// Record where the ground starts in each column, once. See

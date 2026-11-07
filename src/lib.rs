@@ -23,6 +23,7 @@ pub mod druid;
 pub mod dig_marks;
 pub mod food_road;
 pub mod hud;
+pub mod kudzu;
 pub mod lab;
 pub mod render;
 pub mod sky;
