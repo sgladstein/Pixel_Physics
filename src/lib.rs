@@ -26,6 +26,7 @@ pub mod hud;
 pub mod lab;
 pub mod render;
 pub mod sky;
+pub mod seep;
 pub mod sim;
 pub mod train;
 pub mod train_plant;

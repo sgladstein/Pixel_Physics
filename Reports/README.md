@@ -6541,6 +6541,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   keeps founders 4-13x longer and ends with 165 adults against 11. Adds `replay actions=/newant=/trace=` and logs the
   ant brain after a rebuild.
 
+## New-game prototypes (2026-11-07)  ·  `engine`
+
+- [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
+  lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
+  26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
+  the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
+  worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
