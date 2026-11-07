@@ -27,6 +27,7 @@ pub mod lab;
 pub mod mould;
 pub mod render;
 pub mod sky;
+pub mod storm;
 pub mod sim;
 pub mod train;
 pub mod train_plant;
