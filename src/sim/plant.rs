@@ -10729,6 +10729,9 @@ pub fn sprout_climber_root(world: &mut World, organism_id: OrganismId, pick: imp
     Some((bx, by))
 }
 
+/// Support walks [`climber_would_sever`] may run in one dieback pass.
+const CLIMBER_SEVER_WALKS: u32 = 4;
+
 /// **Whether shedding one cell of a climber would drop the rest of it**:
 /// false at once for anything that is not `World::climber`'s species.
 ///
@@ -10741,10 +10744,39 @@ pub fn sprout_climber_root(world: &mut World, organism_id: OrganismId, pick: imp
 /// corner, the shoot was left joined to its roots by leaves alone, and
 /// 1,739 cells came off the wall in one frame (seed 1, frame 175 of play).
 /// A vine in debt dies back from its tips, as every other plant does.
-fn climber_would_sever(world: &World, organism_id: OrganismId, x: i32, y: i32) -> bool {
+fn climber_would_sever(world: &World, organism_id: OrganismId, x: i32, y: i32, walks_left: &mut u32) -> bool {
     if world.climber.is_none_or(|c| world.organism(organism_id).is_none_or(|s| s.species != c.species)) {
         return false;
     }
+    // Cheap exits before the walk, which is the whole organism: a leaf
+    // holds no wood, and a stem cell with one wooden neighbour or none is an
+    // end, which can strand only leaves (`shed_stranded_leaves` takes
+    // those). Without them the guard was the vine's worst frames: p99 12.6
+    // ms and 29 ticks over 16.7 ms at 2,500 cells (seed 4, nobody playing).
+    if organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf) {
+        return false;
+    }
+    let wood = NEIGHBOURS_8
+        .iter()
+        .filter(|&&(dx, dy)| {
+            let n = world.get(x + dx, y + dy);
+            n.organism_id() == organism_id && organism::cell_type(n.aux()) != Some(CellType::Leaf)
+        })
+        .count();
+    if wood <= 1 {
+        return false;
+    }
+    // **At most [`CLIMBER_SEVER_WALKS`] walks a pass; past that, a wooden
+    // cell is kept.** The walk is the whole organism, and a hungry vine
+    // offered dozens of stem candidates a pass: with no bound the guard was
+    // most of the vine's worst frames (117 ticks over 12 ms in a game at
+    // 2,500 cells against 22 without the guard, seed 4). Keeping is the
+    // safe side -- the debt is still there next tick and dieback carries on
+    // from the tips -- so the bound slows shedding and never drops a sheet.
+    if *walks_left == 0 {
+        return true;
+    }
+    *walks_left -= 1;
     let mut removed = crate::sim::fxhash::PosSet::default();
     removed.insert((x, y));
     !severed_if_cut(world, organism_id, &removed).is_empty()
@@ -14600,6 +14632,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((a.3, a.2).cmp(&(b.3, b.2))));
         let cap = (((cells.len() as f32) * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
         let mut recovered = 0.0f32;
+        let mut sever_walks = CLIMBER_SEVER_WALKS;
         // Root cells left after this batch, for `World::roots_required`'s
         // floor: die-back passes over a plant's last roots rather than paying
         // for a sugar shortfall with the plant's water.
@@ -14626,7 +14659,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             // tree (`a_severed_crown_is_shed_and_an_intact_plant_is_not`'s
             // intact arm). Re-asked per removal it is ordinary sequential
             // thinning, which keeps the plant in one piece.
-            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) || climber_would_sever(world, organism_id, cx, cy) {
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) || climber_would_sever(world, organism_id, cx, cy, &mut sever_walks) {
                 continue;
             }
             shed_to_litter(world, cx, cy, organism::DeathCause::Starved);

@@ -212,7 +212,7 @@ fn draw_dawn(game: &Kudzu, frame: &mut [u8]) {
     let clear = game.wall_clear();
     let stars = Kudzu::stars_for(clear);
     let (w, h) = (420, 120);
-    let (x0, y0) = ((FRAME_W as i32 - w) / 2, (HEIGHT as i32 * SCALE as i32 - h) / 2);
+    let (x0, y0) = ((FRAME_W as i32 - w) / 2, (HEIGHT * SCALE as i32 - h) / 2);
     fill(frame, x0, y0, w, h, [16, 18, 14, 255]);
     let title = "DAWN";
     text(frame, x0 + (w - text_w(title)) / 2, y0 + 12, title, TEXT);

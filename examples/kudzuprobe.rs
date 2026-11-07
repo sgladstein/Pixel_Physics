@@ -125,6 +125,9 @@ fn cut_mode(seed: u64, pre: u64, after: u64, out: &str) {
     write_gif(shots, 66, &format!("{out}/cut.gif"));
 }
 
+/// Cells that left the vine in one frame: position and what is there now.
+type Lost = Vec<(i32, i32, String)>;
+
 /// What the player does each frame, by policy.
 #[derive(Clone, Copy, PartialEq)]
 enum Policy {
@@ -249,16 +252,16 @@ fn play(seed: u64, policy: Policy, pictures: Option<&str>) {
         if game.world.frame < fall_until {
             worst_fall = worst_fall.max(ms);
         }
-        if game.played % 600 == 0 {
+        if game.played.is_multiple_of(600) {
             peak = peak.max(game.vine_cells().len());
         }
-        if pictures.is_some() && game.played % 60 == 0 {
+        if pictures.is_some() && game.played.is_multiple_of(60) {
             hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, hover);
             shots.push(half(&frame));
         }
         // The first sheet to come down, at real speed: every other frame
         // for two seconds after the cut.
-        if pictures.is_some() && first_cut_shown && fall_shots.len() < 60 && game.played % 2 == 0 && fall_from.is_some() {
+        if pictures.is_some() && first_cut_shown && fall_shots.len() < 60 && game.played.is_multiple_of(2) && fall_from.is_some() {
             hud::draw_frame(&mut game, &mut renderer, &mut cells, &mut frame, hover);
             fall_shots.push(half(&frame));
         }
@@ -324,7 +327,7 @@ fn main() {
         // left in the frames just before.
         let mut game = Kudzu::new(Level::Walls, seed);
         let mut prev = game.vine_cells();
-        let mut recent: Vec<(u64, Vec<(i32, i32, String)>)> = Vec::new();
+        let mut recent: Vec<(u64, Lost)> = Vec::new();
         for f in 0..frames {
             game.tick();
             let now = game.vine_cells();
@@ -362,7 +365,7 @@ fn main() {
             let at = pixel_physics::sim::plant::sprout_climber(&mut game.world, id, |n| { i %= n; i });
             println!("  runner {k} at {at:?} braced {}", at.is_some_and(|(x, y)| pixel_physics::sim::plant::touches_climb_surface(&game.world, x, y)));
             let Some((x, y)) = at else { continue };
-            let before = game.world.grow_census[game.vine.0 as usize].clone();
+            let before = game.world.grow_census[game.vine.0 as usize];
             for f in 0..30 {
                 game.tick();
                 let c = game.world.get(x, y);

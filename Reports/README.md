@@ -6567,6 +6567,12 @@ file unless its report says so.
   the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
   worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
 
+- [kudzu-probe-2026-11-07.md](kudzu-probe-2026-11-07.md) — **probe 7 (`--bin kudzu`): a vine over two walls; does a cut
+  that drops a whole sheet feel good, and does the hover preview make cutting a deduction?** Over 12 paired seeds, doing
+  nothing earns 0 stars on 7 (mean 42% of the walls clear at dawn), random snipping 88%, cutting where the preview lights
+  most 99% (3 stars on 11); planned beats random 9-2-1, p = 0.065, not significant: the box is too easy. Records the seven
+  game-only engine switches (speed-up, climbing, soil-only anchoring, runners and roots, dieback guard) and what each fixed.
+  Frame mean 1.3 ms, worst 21.6 ms at 2,880 vine cells. Verdict waits on the owner's playtest.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

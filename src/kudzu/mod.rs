@@ -12,16 +12,31 @@
 //! - `World::plant_speedup` runs every plant here [`SPEEDUP`] times faster
 //!   (the organism clock is shared with the lab, so the constant is not
 //!   touched);
-//! - `World::climber` lets the one vine species hold to stone
+//! - `World::climber` makes the one vine species climb: it hugs stone and
+//!   soil, and is held up by its roots and by stems lying on soil, never by
+//!   stone, so a cut where an arm leaves the ground drops the arm
 //!   (`plant::Climber`);
+//! - `World::plant_load_failure` is off, so a living vine does not snap
+//!   under its own weight (cuts still fall);
 //! - the vine is its own species, `kudzu.ron` beside this file, registered
 //!   into this world at runtime and never into the shipped registry.
 //!
-//! Everything else -- what a cut drops, how it falls, what it falls as,
-//! regrowth from the stump, going pale when hungry -- is the engine's own.
+//! **What the game does on top, every frame, and why each was needed** (the
+//! measurements are on each item's own doc):
+//!
+//! - `vigour`: new runners and roots from the vine's spare food, because the
+//!   engine's own frontier is buds, and a vine that has wrapped one face has
+//!   no bud facing the next;
+//! - hunger is held one tick short of the starvation death, so debt thins
+//!   the vine from its tips instead of killing it whole;
+//! - `let_go`: what a cut disconnects turns to leaf litter and dead wood and
+//!   pours down, because the engine's own fall left a cut sheet standing;
+//! - `water_all`: the garden is kept at field capacity.
+//!
 //! The cut preview is `plant::severed_if_cut`, the engine's support walk run
-//! read-only, and the probe counts predicted against actually fallen on
-//! every cut so a preview that lies would show.
+//! read-only; `tests::preview_lights_what_the_engine_drops` makes a cut with
+//! the game's own fall left out and checks the engine drops what was lit.
+//! Regrowth from the stump and going pale when hungry are the engine's own.
 //!
 //! The binary (`src/bin/kudzu.rs`) is the window; this module is the game,
 //! headless, so `examples/kudzuprobe.rs` plays exactly what a player plays.
@@ -91,6 +106,9 @@ pub fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+/// A list of cell positions.
+pub type Cells = Vec<(i32, i32)>;
+
 /// What the player has in hand.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -116,7 +134,9 @@ pub struct Stats {
     /// preview promised).
     pub predicted: u32,
     /// Of those, how many actually came away from the vine within
-    /// [`FALL_WINDOW`] frames -- the check that the preview tells the truth.
+    /// [`FALL_WINDOW`] frames. Equal to `predicted` by construction while
+    /// `let_go` turns every lit cell to litter; the preview's truth against
+    /// the engine is the test's job, not this count's.
     pub fell: u32,
     /// Vine cells that came down, by any route: every cell that stopped
     /// being part of a vine organism other than by being cut or dug out.
@@ -386,7 +406,7 @@ impl Kudzu {
 
     /// **The hover preview**: every vine cell a snip at `(x, y)` would drop,
     /// and the blade's own cells. Empty if the blade touches no vine.
-    pub fn preview(&self, x: i32, y: i32) -> (Vec<(i32, i32)>, Vec<(i32, i32)>) {
+    pub fn preview(&self, x: i32, y: i32) -> (Cells, Cells) {
         let blade = self.blade(x, y);
         let mut drop = Vec::new();
         let mut ids: Vec<OrganismId> = blade.iter().map(|b| b.2).collect();
@@ -573,5 +593,71 @@ impl Kudzu {
         } else {
             clear as f32 / total as f32
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The biggest-dropping blade position among every seventh vine cell.
+    fn big_cut(game: &Kudzu) -> ((i32, i32), Vec<(i32, i32)>) {
+        let mut cells: Vec<(i32, i32)> = game.vine_cells().into_iter().filter(|&(_, y)| y < game.layout.ground_y).collect();
+        cells.sort_unstable();
+        let mut best = ((0, 0), Vec::new());
+        for &(x, y) in cells.iter().step_by(7) {
+            let drop = game.preview(x, y).0;
+            if drop.len() > best.1.len() {
+                best = ((x, y), drop);
+            }
+        }
+        best
+    }
+
+    /// **The preview is the engine's own answer.** The game turns what a cut
+    /// drops into litter itself (`let_go`), so "promised" against "fell" in
+    /// the probe agrees by construction and checks nothing. This test makes
+    /// the cut *without* `let_go` and lets the engine's own support walk
+    /// decide: every cell the preview lit must leave the vine, and almost
+    /// nothing it did not light may leave with it.
+    ///
+    /// Positive control, run by hand 2026-11-07: with the climber's anchor
+    /// rule in `is_structural_anchor` switched off (the shipped rule, where a
+    /// stem resting on stone holds), no cut lit a sheet -- the walls held
+    /// every arm -- and this failed on its first assert.
+    #[test]
+    fn preview_lights_what_the_engine_drops() {
+        let mut game = Kudzu::new(Level::Walls, 1);
+        let ((x, y), drop) = big_cut(&game);
+        assert!(drop.len() > 100, "a sheet worth cutting: best cut lights {} cells", drop.len());
+        let id = game.blade(x, y)[0].2;
+        let lit: PosSet = drop.iter().copied().collect();
+        let blade: Vec<(i32, i32)> = game.blade(x, y).iter().map(|b| (b.0, b.1)).collect();
+        let before: PosSet = game.vine_cells();
+        for &(cx, cy) in &blade {
+            game.world.set(cx, cy, Cell::EMPTY);
+            game.world.record_disturbance(cx, cy, 1);
+        }
+        for _ in 0..30 {
+            game.step_world();
+        }
+        let stayed = drop.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
+        assert_eq!(stayed, 0, "{stayed} of {} lit cells are still on the vine", drop.len());
+        let blade_set: PosSet = blade.iter().copied().collect();
+        let unlit_lost = before
+            .iter()
+            .filter(|p| !lit.contains(p) && !blade_set.contains(p))
+            .filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() != id)
+            .count();
+        assert!(unlit_lost * 10 <= drop.len(), "{unlit_lost} cells the preview did not light left the vine (lit {})", drop.len());
+    }
+
+    /// Every switch the game turns on is off in a world it did not make.
+    #[test]
+    fn the_game_switches_are_off_by_default() {
+        let world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        assert_eq!(world.plant_speedup, 1);
+        assert!(world.climber.is_none());
+        assert_eq!(world.organism_interval(45), world.clock.organism_interval(45));
     }
 }
