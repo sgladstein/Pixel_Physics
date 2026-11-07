@@ -28,6 +28,7 @@ pub mod mould;
 pub mod render;
 pub mod sky;
 pub mod seep;
+pub mod storm;
 pub mod sim;
 pub mod train;
 pub mod train_plant;
