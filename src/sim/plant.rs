@@ -5938,6 +5938,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // than ages out** (`World::seedling_waits`): set by the `Grow` arm's
     // carbon gate, read by the staleness counter at the bottom.
     let mut seedling_waiting = false;
+    // **A card-grown shoot tip waits rather than ages out** (`sim::tip_cards`,
+    // the Heartwood probe): set by the `Grow` arm's card hook, read by the
+    // staleness counter at the bottom exactly as `seedling_waiting` is. Never
+    // set in a world without a card table.
+    let mut card_hold = false;
+    // Where a card-carrying tip stood when its `Grow` ran, so the census
+    // below can tell the card why it did not move (`tip_cards::stalled`).
+    let mut card_at: Option<(i32, i32)> = None;
     // Why this tick's `Grow` visit ended where it did; `None` if the cell ran
     // no `Grow`. Written at each exit of the arm, read only by the census
     // below -- see `GrowWhy`.
@@ -6070,6 +6078,30 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         ..GrowRow::default()
                     });
                 }
+                // **Heartwood's card hook** (`sim::tip_cards`). A shoot tip
+                // of a card-grown tree grows only while it carries a card;
+                // without one it holds -- no step, and no ageing out either,
+                // so the player's tree waits for the player instead of
+                // retiring its frontier. `Card::Free` (every world without a
+                // card table, every other organism, every root) changes
+                // nothing below.
+                let steer = match if cell_type == CellType::GrowingTip {
+                    super::tip_cards::card_for(world, organism_id, x, y)
+                } else {
+                    super::tip_cards::Card::Free
+                } {
+                    super::tip_cards::Card::Free => None,
+                    super::tip_cards::Card::Hold => {
+                        card_hold = true;
+                        super::tip_cards::note_hold(world);
+                        continue;
+                    }
+                    super::tip_cards::Card::Steer(s) => {
+                        card_hold = true;
+                        card_at = Some((x, y));
+                        Some(s)
+                    }
+                };
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
                 // no whole-plant query -- which is what keeps architecture
@@ -6204,6 +6236,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 if juvenile {
                     plastochron_interval = ((plastochron_interval as f32 * juvenile_plastochron).round() as u8).max(u8::from(plastochron_interval > 0));
                     branch_chance *= juvenile_branch;
+                }
+                // **The card's steering replaces the species'**, for a tip
+                // carrying one: keep-going and the card's aim, nothing for
+                // light or wind, so the step goes where the card said rather
+                // than where the field happened to point. `leaf_every` makes
+                // every step a node, which is how *Leaf Out* buys foliage at
+                // the engine's own leaf price.
+                let (continuation_weight, light_weight, wind_weight, upward_weight) = match steer {
+                    Some(s) => (s.keep_weight, 0.0, 0.0, s.aim_weight),
+                    None => (continuation_weight, light_weight, wind_weight, upward_weight),
+                };
+                if steer.is_some_and(|s| s.leaf_every) {
+                    plastochron_interval = 1;
                 }
                 // **Height is the trait the clone look shows up in first**,
                 // because the turgor bound is geometric and every tree
@@ -6515,7 +6560,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         }
                     }
                 }
-                if world.organism_active_tip_count(organism_id, cell_type) >= max_active_tips as usize {
+                // A carried card is never refused for the cap: the cap is
+                // counted over *every* tip, and a card-grown tree keeps its
+                // waiting tips, so it would otherwise fill on held buds.
+                if steer.is_none() && world.organism_active_tip_count(organism_id, cell_type) >= max_active_tips as usize {
                     // At the species' own cap -- try again later, the same
                     // "temporary shortfall, not a dead end" framing
                     // `Divide`'s own resource gate already uses.
@@ -6655,6 +6703,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     }
                 };
 
+                // The card's aim stands in for the tier's reference.
+                let gravity_or_water = steer.map_or(gravity_or_water, |s| s.aim);
+
                 // §2b: score every open 8-neighbour, weighted-random
                 // *sample* from the positive-scoring set -- never a
                 // deterministic best-direction pick, which is what would
@@ -6662,7 +6713,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // Hoisted out of the candidate loop: this is a property of
                 // the cell's own age, not of the direction being scored.
                 let internode_here = ((internode.at(order) as f32) * internode_scale).round() as u32;
-                let rigid_step = internode_here > 0 && (plastochron as u32) < internode_here;
+                // A card's aim is never muted by the straightness budget.
+                let rigid_step = steer.is_none() && internode_here > 0 && (plastochron as u32) < internode_here;
                 if let Some(r) = grow_row.as_mut() {
                     r.rigid = rigid_step;
                     r.heading = heading;
@@ -6679,6 +6731,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     heave_loose_column(world, x, y - 1);
                 }
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
+                // A card-carrying tip's least-bad open cell (`steer` only).
+                let mut least_bad: Option<(i32, i32, f32)> = None;
                 // How far the empty set got, for `GrowWhy`: cells it could
                 // grow into, and of those, cells it could pay to enter.
                 let (mut open_cells, mut affordable_cells) = (0u8, 0u8);
@@ -6817,6 +6871,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     }
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
+                    } else if steer.is_some() && least_bad.is_none_or(|b| preference > b.2) {
+                        least_bad = Some((nx, ny, preference));
+                    }
+                }
+                // **A card is played, so it goes somewhere if anywhere is
+                // open and affordable.** Measured on the Heartwood probe
+                // (plan bot, seed 3): 2,047 of a card-carrying tip's visits
+                // ended `NoGoodDirection` against 215 that grew -- a tip
+                // under its own leaf spray, aimed up, with only sideways and
+                // downward cells open. The engine's own tips keep the
+                // `> 0` filter; a card's tip takes its least-bad cell.
+                if candidates.is_empty() {
+                    if let Some((nx, ny, _)) = least_bad {
+                        candidates.push((nx, ny, 1.0));
                     }
                 }
                 if let Some(r) = grow_row.as_mut() {
@@ -7110,6 +7178,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     slot.heading = blended;
                     slot.growth_residual = residual;
                 }
+                if steer.is_some() {
+                    super::tip_cards::moved(world, (x, y), (tx, ty));
+                }
                 // The deposit has to follow `set`, not ride along with it:
                 // `set` is what registers the cell's `OrganismCell`, so
                 // there is nothing to write into until it has run.
@@ -7165,11 +7236,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // first was just paid for. A shoot tip photosynthesises and
                 // can meet that; a root tip met it twice in twelve thousand
                 // frames. See `Behavior::Grow::branch_priming`.
-                if priming_interval == 0
-                    && resource >= cost
-                    && branch_due(world, &mut rng, branch_chance, lineage_step)
-                    && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
-                {
+                // **A card-grown tip branches only on a Fork card** -- and then
+                // always, cap and roll aside -- so the tree's shape is the
+                // player's. `branch_due` is not even asked for one, which is
+                // fine: no other world ever has a `steer`.
+                let force_fork = steer.is_some_and(|s| s.fork);
+                if if steer.is_some() {
+                    force_fork && resource >= cost
+                } else {
+                    priming_interval == 0
+                        && resource >= cost
+                        && branch_due(world, &mut rng, branch_chance, lineage_step)
+                        && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
+                } {
                     // **A lateral gets its own candidate set, and this is
                     // the third and deepest layer of the branch-angle
                     // problem.** It used to reuse `candidates`, which is
@@ -7361,6 +7440,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                             let departure = normalize(((bx - x) as f32, (by - y) as f32));
                             if let Some(slot) = world.organism_cell_mut(bx, by) {
                                 slot.heading = departure;
+                            }
+                            if force_fork {
+                                super::tip_cards::forked(world, (tx, ty), (bx, by), (x, y), heading);
                             }
                             // The achieved angle, not a count of attempts --
                             // see `OrganismState::departure_angle_sum`.
@@ -8053,6 +8135,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     let grow_why = grow_why.or(grow_entered.then_some(GrowWhy::NotAsked));
     if let Some(why) = grow_why {
         grow_census_mut(world, species_id).visits[tip_kind][why as usize] += 1;
+        if let Some(at) = card_at.filter(|_| why != GrowWhy::Grew) {
+            super::tip_cards::stalled(world, at, why as u8);
+        }
     }
     if let Some(mut r) = grow_row.take() {
         r.why = grow_why.unwrap_or(GrowWhy::NotAsked);
@@ -8110,8 +8195,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
         next.push(reschedule_organism(x, y, organism_id, 0, plastochron, due));
-    } else if seedling_waiting {
-        // Neither reset nor aged: the seedling's tip keeps its count.
+    } else if seedling_waiting || card_hold {
+        // Neither reset nor aged: the seedling's tip keeps its count. A
+        // card-grown tip likewise (`card_hold`): it waits for the player.
         next.push(reschedule_organism(x, y, organism_id, stale_ticks, plastochron, due));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
