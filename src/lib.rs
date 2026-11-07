@@ -24,6 +24,7 @@ pub mod fault;
 pub mod firedamp;
 pub mod dig_marks;
 pub mod food_road;
+pub mod heartwood;
 pub mod hud;
 pub mod lab;
 pub mod mould;

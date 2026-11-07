@@ -4377,6 +4377,10 @@ pub struct World {
     /// **Tandem runs** (`sim::tandem`, the lone scout demo): `None` unless a
     /// demo sets it, so the off path is one `Option` read in `lab::tick_world`.
     pub tandem: Option<Box<crate::sim::tandem::Tandems>>,
+    /// **Card-grown trees** (`sim::tip_cards`, the Heartwood probe): `None`
+    /// in every world but that game's, and then every hook in `plant.rs`'s
+    /// shoot-tip `Grow` is one `Option` read that leaves growth untouched.
+    pub tip_cards: Option<Box<crate::sim::tip_cards::TipCards>>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -7573,6 +7577,7 @@ impl World {
             visitors: None,
             mind_force: Default::default(),
             tandem: None,
+            tip_cards: None,
             feed_log: None,
             bite_log: None,
             food_log: None,
