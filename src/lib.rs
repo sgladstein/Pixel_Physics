@@ -25,6 +25,7 @@ pub mod food_road;
 pub mod hud;
 pub mod lab;
 pub mod mould;
+pub mod quench;
 pub mod render;
 pub mod sky;
 pub mod storm;
