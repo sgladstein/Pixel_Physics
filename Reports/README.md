@@ -6566,6 +6566,11 @@ file unless its report says so.
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
   the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
   worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
+- [heartwood-probe-2026-11-07.md](heartwood-probe-2026-11-07.md) — **probe 8 (`--bin heartwood`): your tree grows only
+  where you play a card, against a free shipped tree; does the order matter?** Doing nothing gets 0% of the light on 12 of 12
+  seeds. A plan ends with more light than random cards on 8 of 12 (p 0.39) and a star on 9 seeds to random's 5 (p 0.06):
+  keeping every tip busy is most of what it buys. A card ends a median 3 cells from its outline's end. Adds the
+  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. Verdict waits on the owner.
 
 ## Licensing and distribution
 
