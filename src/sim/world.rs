@@ -4224,6 +4224,23 @@ pub struct World {
     /// build once against worldgen's own ~325 ms. M10's streaming will want
     /// it per chunk alongside everything else sized to a resident world.
     underground: Vec<u64>,
+    /// **Cells a game has declared roofed after genesis**, same indexing as
+    /// `underground`; empty (and so inert) unless a game writes it.
+    ///
+    /// Only the Quench prototype (`src/quench/`) does: its verb is placing a
+    /// stone lid over lava so the steam under it drips back instead of
+    /// leaving as weather. `underground` is frozen on frame one and cannot
+    /// see a lid placed later -- and even a lid present at genesis does not
+    /// count, because `SKY_PENETRATION` lets the flood run 32 cells in under
+    /// cover, further than any lid is wide (measured 2026-11-07,
+    /// `examples/quenchfact.rs`: one 81-cell splash under a 69-wide lid sent
+    /// all 81 cells to the sky either way). **Stored, not inferred**: the game
+    /// writes the lid's shadow when it places the lid, which is the rule
+    /// `Reports/dead-ends.md` holds the frozen map to (every attempt to infer
+    /// "underground" from the standing world failed). Read only by
+    /// [`World::is_outdoors`], whose one caller is condensation, so it moves
+    /// nothing but where condensed steam goes. Lighting does not read it.
+    game_roofed: Vec<u64>,
     /// **The top of the ground, asked so that a cliff brow is not mistaken
     /// for it.** One entry per column from `bounds.min_x`, `i32::MAX` for a
     /// column that holds no ground at all — same shape and same convention
@@ -7544,6 +7561,7 @@ impl World {
             pending_dissipation: PosSet::default(),
             sky_surface: Vec::new(),
             underground: Vec::new(),
+            game_roofed: Vec::new(),
             ground_datum: Vec::new(),
             pending_decay_sites: PosSet::default(),
             bodies: Vec::new(),
@@ -13123,6 +13141,39 @@ impl World {
         self.underground[i >> 6] & (1 << (i & 63)) != 0
     }
 
+    /// Declare `(x, y)` roofed (or not) for condensation. See
+    /// `game_roofed`: a game-only override, inert until something calls
+    /// this. Out-of-bounds positions are ignored.
+    pub fn set_game_roofed(&mut self, x: i32, y: i32, roofed: bool) {
+        let Some(b) = self.bounds else { return };
+        if x < b.min_x || x > b.max_x || y < b.min_y || y > b.max_y {
+            return;
+        }
+        let n = b.width() as usize * b.height() as usize;
+        if self.game_roofed.is_empty() {
+            if !roofed {
+                return;
+            }
+            self.game_roofed = vec![0u64; n.div_ceil(64)];
+        }
+        let i = (y - b.min_y) as usize * b.width() as usize + (x - b.min_x) as usize;
+        if roofed {
+            self.game_roofed[i >> 6] |= 1 << (i & 63);
+        } else {
+            self.game_roofed[i >> 6] &= !(1 << (i & 63));
+        }
+    }
+
+    /// Whether a game declared `(x, y)` roofed with [`World::set_game_roofed`].
+    pub fn is_game_roofed(&self, x: i32, y: i32) -> bool {
+        let Some(b) = self.bounds else { return false };
+        if self.game_roofed.is_empty() || x < b.min_x || x > b.max_x || y < b.min_y || y > b.max_y {
+            return false;
+        }
+        let i = (y - b.min_y) as usize * b.width() as usize + (x - b.min_x) as usize;
+        self.game_roofed[i >> 6] & (1 << (i & 63)) != 0
+    }
+
     /// Whether `(x, y)` is open to the sky rather than inside the ground.
     ///
     /// The stored definition of "outdoors", asked as a predicate so callers
@@ -13158,6 +13209,9 @@ impl World {
             return true;
         }
         if y > b.max_y {
+            return false;
+        }
+        if !self.game_roofed.is_empty() && self.is_game_roofed(x, y) {
             return false;
         }
         if !self.underground.is_empty() {
