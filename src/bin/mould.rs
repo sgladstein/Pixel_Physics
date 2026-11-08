@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
 use pixel_physics::mould::level::{Progress, DISHES, ENTRIES, FREE, WANDER};
-use pixel_physics::mould::look::Style;
+use pixel_physics::mould::look::{self, Style};
 use pixel_physics::mould::render::{self, Banner, Menu, QuitArm, View};
 use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
 use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
@@ -492,7 +492,7 @@ impl Handler {
             self.open_menu();
             return;
         }
-        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 {
+        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 {
             self.view.brief = false;
             self.let_go();
             return;
@@ -521,6 +521,16 @@ impl Handler {
             KeyCode::KeyN if self.journey.is_some() => self.next_stretch(),
             KeyCode::KeyN => self.next(),
             KeyCode::F2 => self.view.style = self.view.style.next(),
+            // How starving mould is drawn (`look::STARVE_LOOK`): grey,
+            // embers, dried slime. Render-only; named in the title.
+            KeyCode::F3 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let n = (look::STARVE_LOOK.load(Relaxed) + 1) % look::STARVE_LOOKS.len() as u8;
+                look::STARVE_LOOK.store(n, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: starving mould drawn as {} (F3)", look::STARVE_LOOKS[n as usize]));
+                }
+            }
             // Go: only while fed mould is in the crack (the dish refuses
             // otherwise, and the hint line says why).
             KeyCode::KeyG => {

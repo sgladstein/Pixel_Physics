@@ -43,6 +43,7 @@ use super::level::{Win, FREE};
 use super::render::{entry_lines, frame_size, menu_cards, thousands, Menu, View};
 use super::wander::{self, Outcome, Wander};
 use super::{
+    FED_LOOK_SECONDS,
     disc, Dish, Ground, Phase, Tool, H, OATS_R, OATS_SECONDS, SALT_LEN, SALT_STOCK,
     SNIP_LEN, SNIP_STOCK, STEPS_PER_SECOND, STORM_WARNING_SECONDS, THRIFT_BAR, THRIFT_MIN_JOINED, W,
 };
@@ -1236,6 +1237,18 @@ impl Halo {
     }
 }
 
+/// A half-size grid (`HW` x `HH`) read back bilinearly at cell `x, y`,
+/// as `Halo::at` reads the glow: nearest-cell reads showed 2x2 steps.
+fn half_at(a: &[f32], x: usize, y: usize) -> f32 {
+    let fx = (x as f32 + 0.5) * 0.5 - 0.5;
+    let fy = (y as f32 + 0.5) * 0.5 - 0.5;
+    let (x0, y0) = (fx.max(0.0) as usize, fy.max(0.0) as usize);
+    let (x1, y1) = ((x0 + 1).min(HW - 1), (y0 + 1).min(HH - 1));
+    let (ax, ay) = ((fx - x0 as f32).clamp(0.0, 1.0), (fy - y0 as f32).clamp(0.0, 1.0));
+    (a[y0 * HW + x0] * (1.0 - ax) + a[y0 * HW + x1] * ax) * (1.0 - ay)
+        + (a[y1 * HW + x0] * (1.0 - ax) + a[y1 * HW + x1] * ax) * ay
+}
+
 fn blur(a: &mut [f32], tmp: &mut [f32], w: usize, h: usize, r: usize) {
     let n = (2 * r + 1) as f32;
     for y in 0..h {
@@ -1467,6 +1480,58 @@ fn tube_colour(th: &Theme, v: f32, fed: bool, shade: f32) -> Rgb {
     }
 }
 
+/// **How starving mould is drawn** (owner, 2026-11-08: "the gray doesn't
+/// look great"). A runtime selector, render-only: the simulation and the
+/// score never read it. `0` is the grey every look shipped with: a cell is
+/// fed-yellow or starving-grey, nothing between, so a branch that loses its
+/// food flips colour along a hard line. The others are *graded* by how long
+/// ago the cell was last fed (`Dish::fed_at`), over `STARVE_FADE_SECONDS`,
+/// so a cut-off branch dims from yellow rather than changing material:
+/// `1` embers (yellow cools through amber to a dull red-brown, its glow
+/// going with it) and `2` dried slime (yellow pales to a flat, unlit
+/// khaki, the trail real slime mould leaves behind). Tube never fed at all
+/// is drawn fully starved. F3 in the window cycles them; `mouldprobe
+/// grey=N` draws one.
+pub static STARVE_LOOK: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+pub const STARVE_LOOKS: [&str; 3] = ["grey", "embers", "dried"];
+pub const STARVE_FADE_SECONDS: f32 = 6.0;
+const EMBERS: [Rgb; 3] = [[34, 12, 6], [104, 40, 14], [164, 78, 30]];
+const DRIED: [Rgb; 3] = [[40, 42, 36], [104, 100, 78], [170, 162, 128]];
+
+fn starve_look() -> u8 {
+    STARVE_LOOK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 0 just fed, 1 starved `STARVE_FADE_SECONDS` or more (or never fed).
+fn hunger(d: &Dish, i: usize) -> f32 {
+    let at = d.fed_at[i];
+    if at == u64::MAX {
+        return 1.0;
+    }
+    let s = d.t.saturating_sub(at) as f32 / STEPS_PER_SECOND as f32;
+    ((s - FED_LOOK_SECONDS) / STARVE_FADE_SECONDS).clamp(0.0, 1.0)
+}
+
+/// A tube cell's colour with the starving look applied: `fed` and `hun`
+/// as the cell reads them.
+fn starve_colour(th: &Theme, v: f32, fed: bool, hun: f32, shade: f32) -> Rgb {
+    let pal = match starve_look() {
+        1 => &EMBERS,
+        2 => &DRIED,
+        _ => return tube_colour(th, v, fed, shade),
+    };
+    // Starved tube keeps a little of its shape, never its light.
+    let dim = || mul(ramp(pal, v), 1.0 + shade.min(0.0) * 0.3);
+    if hun <= 0.0 {
+        tube_colour(th, v, true, shade)
+    } else if hun >= 1.0 {
+        dim()
+    } else {
+        // Eased, so the yellow goes early: hun * (2 - hun).
+        lerp(tube_colour(th, v, true, shade), dim(), hun * (2.0 - hun))
+    }
+}
+
 /// The dish, cell by cell. Cells on a tube's edge are drawn pixel by pixel
 /// from the trail sampled between cell centres, so a tube has a smooth edge
 /// rather than a staircase of 4x4 blocks; every other cell is one block.
@@ -1485,6 +1550,38 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         .collect();
     let vof = |t: f32| lut[((t * 16.0) as usize).min(1023)];
     let halo = (th.glow > 0.0).then(|| Halo::cached(d, th, thr));
+    // Hunger by cell, softened over a few cells of tube: by time alone,
+    // tube still fed met tube starved since the pile ran dry along a hard
+    // line, which is the grey's own defect in another colour. Averaged over
+    // tube cells only, so open agar does not count as hungry.
+    let hunger_field = (starve_look() != 0).then(|| {
+        // On the glow's half-size grid: hunger is soft by construction,
+        // and at full size the field cost ~1 ms a frame.
+        let mut num = vec![0.0f32; HW * HH];
+        let mut den = vec![0.0f32; HW * HH];
+        for y in 0..H {
+            for x in 0..W {
+                let i = y * W + x;
+                if d.ground[i] == Ground::Agar && d.trail[i] > thr {
+                    let k = (y / 2) * HW + x / 2;
+                    num[k] += hunger(d, i);
+                    den[k] += 1.0;
+                }
+            }
+        }
+        let mut tmp = vec![0.0f32; HW * HH];
+        for a in [&mut num, &mut den] {
+            blur(a, &mut tmp, HW, HH, 2);
+        }
+        num.iter().zip(&den).map(|(&n, &m)| if m > 1e-4 { (n / m).clamp(0.0, 1.0) } else { 1.0 }).collect::<Vec<f32>>()
+    });
+    // The starving glow: grey's own, an ember's faint red, or none for
+    // dried slime, which is not lit.
+    let pale_glow: Rgb = match starve_look() {
+        1 => [70, 22, 6],
+        2 => [0, 0, 0],
+        _ => th.pale[1],
+    };
     // Trail on open dish only, padded by two cells of nothing all round.
     const PAD: usize = 2;
     let pw = W + 2 * PAD;
@@ -1527,6 +1624,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let mut tube: Option<Rgb> = None;
             let mut edge = false;
             let mut fed = false;
+            let mut hun = 1.0f32;
             let mut shade = 0.0;
             let mut beat = 0.0;
             let ground = match d.ground[i] {
@@ -1549,7 +1647,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         if gf + gp + gd > 0.004 {
                             for (k, ck) in c.iter_mut().enumerate() {
                                 let add = th.fed[2][k] as f32 * gf * th.glow * 0.55
-                                    + th.pale[1][k] as f32 * gp * th.glow * 0.5
+                                    + pale_glow[k] as f32 * gp * th.glow * 0.5
                                     + th.food[k] as f32 * gd * th.glow * 0.7;
                                 *ck = (*ck as f32 + add).min(255.0) as u8;
                             }
@@ -1578,6 +1676,9 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     edge = (is_tube && !all) || (!is_tube && any);
                     if is_tube || any {
                         fed = if is_tube { d.looks_fed(i) } else { nfed };
+                        if let Some(h) = &hunger_field {
+                            hun = half_at(h, x, y);
+                        }
                         // Two cells either side, so the light reads the
                         // tube's shape rather than the trail's grain.
                         shade = ((tr(xi + 2, yi + 2) - tr(xi - 2, yi - 2)) / (t0 + 6.0)).clamp(-1.0, 1.0);
@@ -1589,7 +1690,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         beat = 0.0;
                     }
                     if is_tube {
-                        tube = Some(pulsed(tube_colour(th, vof(t0), fed, shade), beat));
+                        tube = Some(pulsed(starve_colour(th, vof(t0), fed, hun, shade), beat));
                     }
                     c
                 }
@@ -1617,7 +1718,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     let c = if v > thr {
                         match th.ink {
                             Some(ink) if v < thr * 1.9 => ink,
-                            _ => pulsed(tube_colour(th, vof(v), fed, shade), beat),
+                            _ => pulsed(starve_colour(th, vof(v), fed, hun, shade), beat),
                         }
                     } else {
                         ground
