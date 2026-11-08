@@ -103,7 +103,7 @@ fn best_cut(game: &Kudzu) -> Option<((i32, i32), usize)> {
 }
 
 fn cut_mode(seed: u64, pre: u64, after: u64, out: &str) {
-    let mut game = Kudzu::new(Level::Walls, seed);
+    let mut game = Kudzu::new(Level::from_env(), seed);
     for _ in 0..pre {
         game.tick();
     }
@@ -188,9 +188,10 @@ const WAIT_LAST: u64 = 25 * 60;
 /// crown, among those a blade there would touch.
 fn root_cut(game: &Kudzu) -> Option<(i32, i32)> {
     let g = game.layout.ground_y;
-    let (cx, _) = game.layout.crowns[0];
+    let crowns = &game.layout.crowns;
+    let near = |x: i32| crowns.iter().map(|c| (x - c.0).abs()).min().unwrap_or(0);
     let mut v: Vec<(i32, i32)> = game.vine_cells().into_iter().filter(|&(_, y)| y < g && y >= g - 2).collect();
-    v.sort_unstable_by_key(|&(x, y)| ((x - cx).abs(), -y, x));
+    v.sort_unstable_by_key(|&(x, y)| (near(x), -y, x));
     v.first().copied()
 }
 
@@ -243,7 +244,7 @@ fn window_png(frame: &[u8], path: &str) {
 /// and the readability pair when `pictures` is set.
 fn play(seed: u64, policy: Policy, pictures: Option<&str>) {
     let t0 = std::time::Instant::now();
-    let mut game = Kudzu::new(Level::Walls, seed);
+    let mut game = Kudzu::new(Level::from_env(), seed);
     let overnight_s = t0.elapsed().as_secs_f64();
     let start_clear = game.wall_clear();
     let mut renderer = Renderer::new();
@@ -350,16 +351,20 @@ fn play(seed: u64, policy: Policy, pictures: Option<&str>) {
         }
     }
     let clear = game.wall_clear();
+    let score = game.score();
+    let lost = game.houses_lost();
     let s = game.stats;
     all_ms.sort_by(f64::total_cmp);
     let p99 = all_ms.get(all_ms.len() * 99 / 100).copied().unwrap_or(0.0);
     let over = all_ms.iter().filter(|&&m| m > 16.7).count();
     println!(
-        "  seed {seed} {:<8} wall clear {:>3.0}% -> {:>3.0}% stars {} | cuts {} predicted {} fell {} wilt promised {} judged {} wilted {} | 95% clear at {} | green dropped {} regrown {} dug {} | vine {} peak {} | tick mean {:.2} p99 {:.2} worst {:.2} ms ({} over 16.7), worst while falling {:.2} ms | decide {:.0} ms total, overnight {:.1}s",
+        "  seed {seed} {:<8} wall clear {:>3.0}% -> {:>3.0}% score {:>3.0}% stars {} houses lost {} | cuts {} predicted {} fell {} wilt promised {} judged {} wilted {} | 95% clear at {} | green dropped {} regrown {} dug {} | vine {} peak {} | tick mean {:.2} p99 {:.2} worst {:.2} ms ({} over 16.7), worst while falling {:.2} ms | decide {:.0} ms total, overnight {:.1}s",
         policy.name(),
         start_clear * 100.0,
         clear * 100.0,
-        Kudzu::stars_for(clear),
+        score * 100.0,
+        Kudzu::stars_for(score),
+        lost,
         s.cuts,
         s.predicted,
         s.fell,
@@ -412,7 +417,7 @@ fn main() {
     if mode == "collapse" {
         // Watch for the frame the vine loses most of itself, and print what
         // left in the frames just before.
-        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut game = Kudzu::new(Level::from_env(), seed);
         let mut prev = game.vine_cells();
         let mut recent: Vec<(u64, Lost)> = Vec::new();
         for f in 0..frames {
@@ -445,7 +450,7 @@ fn main() {
     if mode == "trace" {
         // Sprout one runner by hand and follow it: where it started, what
         // the cell is each frame, and how the census moved.
-        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut game = Kudzu::new(Level::from_env(), seed);
         let id = game.vines()[0];
         for k in 0..arg("n", 5u32) {
             let mut i = k as usize;
@@ -474,7 +479,7 @@ fn main() {
         let at: String = arg("at", "87,127".to_string());
         let (x, y) = at.split_once(',').map(|(a, b)| (a.parse().unwrap(), b.parse().unwrap())).expect("at=x,y");
         let tag: String = arg("tag", "hover".to_string());
-        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut game = Kudzu::new(Level::from_env(), seed);
         let mut renderer = Renderer::new();
         let mut cells = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
         let mut frame = vec![0u8; (hud::FRAME_W * hud::FRAME_H * 4) as usize];
@@ -511,7 +516,7 @@ fn main() {
         // Every WILTS promise of the planned player, followed: how many of
         // its cells are still vine 15 s on, and why -- joined to a root
         // again, or in a piece that now has roots of its own, or neither.
-        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut game = Kudzu::new(Level::from_env(), seed);
         let mut open: Vec<Promise> = Vec::new();
         while !game.over() {
             if game.snips > 0 {
@@ -596,7 +601,7 @@ fn main() {
     if mode == "rootcut" {
         // The playtest's root cut, followed: one organism or two, and who
         // starves.
-        let mut game = Kudzu::new(Level::Walls, seed);
+        let mut game = Kudzu::new(Level::from_env(), seed);
         let cuts: u32 = arg("cuts", 1);
         if arg("dig", false) {
             let (cx, cy) = game.layout.crowns[0];
@@ -667,7 +672,7 @@ fn main() {
         return;
     }
     let t = std::time::Instant::now();
-    let mut game = Kudzu::new(Level::Walls, seed);
+    let mut game = Kudzu::new(Level::from_env(), seed);
     println!("  overnight {} frames in {:.1}s", game.layout.overnight, t.elapsed().as_secs_f32());
     let mut renderer = Renderer::new();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];

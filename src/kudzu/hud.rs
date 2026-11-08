@@ -10,7 +10,7 @@
 use crate::hud::{draw_text_scaled, GLYPH_WIDTH};
 use crate::render::Renderer;
 
-use super::{Kudzu, Tool, DIG_HOLD, HEIGHT, SNIP_CHARGES, SNIP_RADIUS, TICKS_PER_SECOND, WIDTH};
+use super::{Kudzu, Tool, DIG_HOLD, HEIGHT, SNIP_RADIUS, TICKS_PER_SECOND, WIDTH};
 
 /// Seconds the bar says a parted piece takes to wilt: most of it is gone
 /// by then, all of it by about 14 s (`super::WILT_WINDOW`'s measurement).
@@ -179,8 +179,12 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: Lit, hover: Hover) {
     let (l1, l2, l3) = (top + 6, top + 32, top + 58);
 
     // Line 1: the tools.
-    let shears = format!("1 SHEARS {}/{}", game.snips, SNIP_CHARGES);
-    let next = if game.snips < SNIP_CHARGES { format!(" (+1 IN {}S)", game.snip_timer.div_ceil(TICKS_PER_SECOND)) } else { String::new() };
+    let shears = format!("1 SHEARS {}/{}", game.snips, game.layout.snips);
+    let next = if game.layout.recharge.is_some() && game.snips < game.layout.snips {
+        format!(" (+1 IN {}S)", game.snip_timer.div_ceil(TICKS_PER_SECOND))
+    } else {
+        String::new()
+    };
     let mut x = 8;
     let c = if game.tool == Tool::Snip { TEXT } else { DIM };
     text(frame, x, l1, &format!("{shears}{next}"), c);
@@ -201,7 +205,20 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: Lit, hover: Hover) {
     // Line 2: the counts beside every picture.
     let s = &game.stats;
     let clear = game.wall_clear();
-    let counts = format!("CUTS {}  DROPPED {}  REGROWN {}  WALLS CLEAR {:.0}%", s.cuts, s.green_dropped, s.regrown, clear * 100.0);
+    // The village is scored across the night, so the bar says both what is
+    // clear now and the running score; dropped and regrown stay in the
+    // probe's rows, where they do not crowd the mood off the line.
+    let counts = if game.layout.night_scored {
+        format!(
+            "HOUSES LOST {}/{}  CLEAR NOW {:.0}%  NIGHT {:.0}%",
+            game.houses_lost(),
+            game.layout.buildings.len(),
+            clear * 100.0,
+            game.night_clear() * 100.0
+        )
+    } else {
+        format!("CUTS {}  DROPPED {}  REGROWN {}  WALLS CLEAR {:.0}%", s.cuts, s.green_dropped, s.regrown, clear * 100.0)
+    };
     text(frame, 8, l2, &counts, TEXT);
     let (mood, c) = match game.budget() {
         None => ("VINE DEAD", GOOD),
@@ -251,18 +268,27 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: Lit, hover: Hover) {
 }
 
 fn draw_dawn(game: &Kudzu, frame: &mut [u8]) {
-    let clear = game.wall_clear();
-    let stars = Kudzu::stars_for(clear);
-    let (w, h) = (420, 120);
+    let score = game.score();
+    let stars = Kudzu::stars_for(score);
+    let village = game.layout.night_scored;
+    let (w, h) = (520, if village { 146 } else { 120 });
     let (x0, y0) = ((FRAME_W as i32 - w) / 2, (HEIGHT * SCALE as i32 - h) / 2);
     fill(frame, x0, y0, w, h, [16, 18, 14, 255]);
     let title = "DAWN";
     text(frame, x0 + (w - text_w(title)) / 2, y0 + 12, title, TEXT);
-    let line = format!("{:.0}% OF THE WALLS CLEAR", clear * 100.0);
+    let line = if village {
+        format!("HOUSES {:.0}% CLEAR ACROSS THE NIGHT", score * 100.0)
+    } else {
+        format!("{:.0}% OF THE WALLS CLEAR", score * 100.0)
+    };
     text(frame, x0 + (w - text_w(&line)) / 2, y0 + 40, &line, TEXT);
+    if village {
+        let lost = format!("{} OF {} BUILDINGS LOST TO THE VINE", game.houses_lost(), game.layout.buildings.len());
+        text(frame, x0 + (w - text_w(&lost)) / 2, y0 + 66, &lost, if game.houses_lost() > 0 { BAD } else { GOOD });
+    }
     for i in 0..3 {
         let c = if i < stars as i32 { STAR } else { [70, 70, 60, 255] };
-        star(frame, x0 + w / 2 + (i - 1) * 50, y0 + 88, 16, c);
+        star(frame, x0 + w / 2 + (i - 1) * 50, y0 + h - 32, 16, c);
     }
 }
 
@@ -273,7 +299,7 @@ pub fn status_line(game: &Kudzu) -> String {
         "{} | snips {}/{} | cuts {} | green dropped {} | regrown {} | wall clear {:.0}%",
         game.tool.label(),
         game.snips,
-        SNIP_CHARGES,
+        game.layout.snips,
         s.cuts,
         s.green_dropped,
         s.regrown,
