@@ -49,6 +49,7 @@
 //!   had its chance.
 
 pub mod lesson;
+pub mod organ;
 pub mod play;
 pub mod render;
 pub mod wander;
