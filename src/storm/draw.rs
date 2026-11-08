@@ -7,7 +7,7 @@
 //! under a bolt: a strike repaints the world only where the world changed.
 
 use super::level::{H, W};
-use super::{Phase, Storm, BOLTS, CLOUD_BASE, OVERFLOW_HOLD, PATIENCE, TICKS_PER_SECOND};
+use super::{Phase, Storm, BOLTS, CLOUD_BASE, EMBER_TICKS, OVERFLOW_HOLD, PATIENCE, TICKS_PER_SECOND};
 use crate::hud;
 
 /// Window pixels per world cell.
@@ -97,6 +97,8 @@ const BOLT: [u8; 3] = [214, 226, 255];
 const ION: [u8; 3] = [150, 110, 255];
 const LAMP: [u8; 3] = [255, 214, 120];
 const CURRENT: [u8; 3] = [255, 170, 70];
+/// The sheen on a settled burn line: cool, so it reads as wire, not soil.
+const SEAM: [u8; 3] = [110, 150, 220];
 
 pub fn compose(s: &Storm, frame: &mut [u8]) {
     let (fw, fh) = frame_size();
@@ -128,6 +130,50 @@ pub fn compose(s: &Storm, frame: &mut [u8]) {
         }
     }
 
+    // **Burn lines, made visible** (round 2: the wiring was "read, not
+    // seen" -- charcoal on dark loam at dusk). A fresh burn glows as embers
+    // for a couple of seconds; after that every burn cell keeps a cool sheen,
+    // so the lines that carry current read as lines.
+    for y in 0..H {
+        for x in 0..W {
+            let born = s.scorch_born[(y * W + x) as usize];
+            if born == 0 || s.world.get(x, y).material != s.ids.scorch {
+                continue;
+            }
+            let age = s.tick.saturating_sub(born);
+            if age < EMBER_TICKS {
+                let f = 1.0 - age as f32 / EMBER_TICKS as f32;
+                let flick = 0.8 + 0.2 * ((t * 0.5 + (x * 7 + y * 3) as f32).sin());
+                cv.cell(x, y, [255, (110.0 + 90.0 * f) as u8, 40], (0.35 + 0.6 * f) * flick);
+                if (x + y) % 3 == 0 {
+                    cv.glow(x, y, 2, CURRENT, 0.06 * f);
+                }
+            } else {
+                cv.cell(x, y, [34, 36, 46], 0.8);
+                cv.cell_add(x, y, SEAM, 0.42);
+            }
+        }
+    }
+
+    // Wind: streaks blown across the sky, faster and longer in a gust.
+    {
+        let w = s.wind;
+        let len = 2 + (w.abs() * 140.0) as i32;
+        let dir = if w >= 0.0 { 1 } else { -1 };
+        for i in 0..90 {
+            let bx = crate::sim::rng::jitter(i, 5) * W as f32;
+            let by = CLOUD_BASE as f32 + 4.0 + crate::sim::rng::jitter(i, 9) * 80.0;
+            let x0 = (bx + t * w * 40.0).rem_euclid(W as f32) as i32;
+            let y0 = (by + t * 0.15).rem_euclid(80.0) as i32 + CLOUD_BASE + 4;
+            for k in 0..len {
+                let (x, y) = (x0 - dir * k, y0 - k / 4);
+                if (0..W).contains(&x) && y < H && s.world.get(x, y).material == crate::sim::material::EMPTY {
+                    cv.cell_add(x, y, [190, 200, 230], 0.10 * (1.0 - k as f32 / len as f32));
+                }
+            }
+        }
+    }
+
     // The lamps' light: graded by how much is in them.
     for (k, lamp) in s.level.lamps.iter().enumerate() {
         let p = s.lamps[k] as f32;
@@ -152,10 +198,14 @@ pub fn compose(s: &Storm, frame: &mut [u8]) {
         Phase::Ready { t: r } => (s.pointer.0, 0.15 + 0.1 * ((*r as f32) * 0.25).sin().abs()),
         _ => (s.pointer.0, 0.0),
     };
+    let (span0, span1) = s.cloud_span();
     for y in 0..=CLOUD_BASE + 2 {
-        for x in 0..W {
+        for x in span0..=span1 {
             let n = crate::sim::rng::jitter3(x / 3, y / 2, (s.tick / 9) as i32 % 64);
-            let edge = CLOUD_BASE as f32 - 2.0 + 3.5 * crate::sim::rng::jitter(x / 4, 91);
+            // The cloud thins to its ends, so its edge reads as an edge.
+            let end = (x - span0).min(span1 - x) as f32;
+            let taper = if end < 10.0 { (10.0 - end) * 1.4 } else { 0.0 };
+            let edge = CLOUD_BASE as f32 - 2.0 + 3.5 * crate::sim::rng::jitter(x / 4, 91) - taper;
             if (y as f32) > edge {
                 continue;
             }
@@ -211,11 +261,19 @@ pub fn compose(s: &Storm, frame: &mut [u8]) {
                 }
             }
         }
-        let current = (1.0 - a / 75.0).max(0.0);
+        let current = (1.0 - a / 90.0).max(0.0);
         if current > 0.0 {
-            let pulse = 0.65 + 0.35 * (a * 0.6).sin();
-            for &(x, y) in &st.network {
-                cv.cell_add(x, y, CURRENT, 0.55 * current * pulse);
+            // A pulse runs out along the wiring from where the bolt hit
+            // (`network` is in the order the current reached it), so a lamp
+            // lit through a burn line is seen being reached.
+            let n = st.network.len() as f32;
+            let front = a * (n / 40.0).max(3.0);
+            let width = (n * 0.05).max(6.0);
+            for (k, &(x, y)) in st.network.iter().enumerate() {
+                let d = (k as f32 - front) / width;
+                let head = (-d * d).exp();
+                let behind = if (k as f32) < front { 0.3 } else { 0.0 };
+                cv.cell_add(x, y, CURRENT, (0.9 * head + behind) * current);
             }
             for &(x, y) in &st.roots {
                 cv.cell_add(x, y, [255, 240, 200], 0.7 * current);
@@ -246,7 +304,49 @@ pub fn compose(s: &Storm, frame: &mut [u8]) {
         }
     }
 
+    labels(s, &mut cv);
     strip(s, &mut cv);
+    if s.tick < s.help_until && !s.is_over() {
+        help(&mut cv);
+    }
+}
+
+/// A word over each lamp and over the bell, so the screen says what the
+/// targets are (round 2: "the interfaces and instructions are pretty poor").
+fn labels(s: &Storm, cv: &mut Canvas) {
+    for (k, lamp) in s.level.lamps.iter().enumerate() {
+        let (cx, _) = lamp.head.centre();
+        let len = lamp.tag.len() as i32;
+        let (x, y) = (cx * SCALE + SCALE - 6 * len, (lamp.head.y0 - 4) * SCALE - 18);
+        let c = if s.lamps[k] >= 3 { [255, 226, 140] } else { [225, 228, 236] };
+        text(cv, (x, y), lamp.tag, c);
+    }
+    let (bx, _) = s.level.bell.centre();
+    let words = "PROTECT THE BELL";
+    text(cv, ((bx * SCALE + SCALE - 6 * words.len() as i32).max(6), (s.level.bell.y0 - 3) * SCALE - 18), words, [255, 170, 150]);
+}
+
+/// How to play, over the valley for the first ten seconds of a storm, until
+/// the first call, or when H is pressed.
+fn help(cv: &mut Canvas) {
+    const LINES: [&str; 10] = [
+        "LIGHT THE FOUR LAMPS WITH LIGHTNING.",
+        "KEEP IT OFF THE BELL TOWER AND THE HOUSES.",
+        "",
+        "HOLD SPACE: A BOLT CREEPS DOWN UNDER THE POINTER.",
+        "THE DOTTED LINE SHOWS WHERE IT WILL LAND. LET GO TO STRIKE.",
+        "WIND PUSHES THE BOLT - WATCH THE ARROW AND AIM UPWIND.",
+        "THE STORM DRIFTS TO THE BELL - STRIKE FAR LAMPS FIRST.",
+        "BURNT GROUND CARRIES CURRENT: HIT A BURN LINE AND EVERY",
+        "LAMP IT TOUCHES LIGHTS. THE ROCK LAMP CAN ONLY BE LIT SO.",
+        "CLICK: WATER PUTS OUT FIRE.  RIGHT CLICK: AN IRON ROD.",
+    ];
+    let (cx, top) = (W * SCALE / 2, 96);
+    cv.rect(cx - 372, top - 16, cx + 372, top + 22 * LINES.len() as i32 + 8, [10, 10, 16], 0.84);
+    for (i, line) in LINES.iter().enumerate() {
+        let c = if i < 2 { [255, 230, 160] } else { [225, 228, 236] };
+        text(cv, (cx - 6 * line.len() as i32, top + 22 * i as i32), line, c);
+    }
 }
 
 fn text(cv: &mut Canvas, (x, y): (i32, i32), words: &str, c: [u8; 3]) {
@@ -261,8 +361,13 @@ fn strip(s: &Storm, cv: &mut Canvas) {
     // Four lamps do not fit by name on one line; each lamp's own three pips
     // above its head say which is full, so the strip carries the total.
     let light: u32 = s.lamps.iter().map(|&p| p as u32).sum();
+    let wind = {
+        let n = ((s.wind.abs() / 0.015).round() as usize).clamp(1, 5);
+        let arrow = if s.wind >= 0.0 { '>' } else { '<' };
+        format!("WIND {}", std::iter::repeat_n(arrow, n).collect::<String>())
+    };
     let line1 = format!(
-        "BOLT {}/{}  LAMP LIGHT {}/{}  BELL {}  {}{}",
+        "BOLT {}/{}  LIGHT {}/{}  BELL {}  {}{}  {}",
         (BOLTS - s.bolts_left + 1).min(BOLTS),
         BOLTS,
         light,
@@ -273,11 +378,14 @@ fn strip(s: &Storm, cv: &mut Canvas) {
             3 => String::new(),
             n => format!(" (NEXT AT {})", super::STAR_POINTS[n as usize + 1]),
         },
+        wind,
     );
     text(cv, (8, top + 4), &line1, [230, 230, 236]);
     let sec = TICKS_PER_SECOND as f32;
     let (line2, warn) = match &s.phase {
         _ if s.note.is_some_and(|(_, until)| s.tick < until) => (s.note.map_or("", |n| n.0).to_string(), true),
+        _ if s.village_fire > 0 && !s.is_over() => ("THE VILLAGE IS BURNING - CLICK ON THE FIRE TO POUR WATER".to_string(), true),
+        Phase::Ready { .. } if s.call_from().0 != s.pointer.0 => ("THE CLOUD HAS MOVED ON - IT CALLS FROM ITS EDGE".to_string(), true),
         Phase::Ready { t } => {
             let left = PATIENCE - *t as f32 / sec;
             if left < 2.5 {
@@ -303,7 +411,7 @@ fn strip(s: &Storm, cv: &mut Canvas) {
         Phase::Over => (format!("THE STORM IS OVER - {} - PRESS R TO PLAY AGAIN", stars(s.stars())), false),
     };
     text(cv, (8, top + 22), &line2, if warn { [255, 150, 110] } else { [255, 230, 160] });
-    let line3 = format!("CLICK: WATER ({})  RIGHT CLICK: IRON ROD ({})  R: RESTART", s.splashes_left, s.rods_left);
+    let line3 = format!("CLICK: WATER, PUTS OUT FIRE ({})  RIGHT: ROD ({})  H: HELP", s.splashes_left, s.rods_left);
     text(cv, (8, top + 40), &line3, [170, 176, 190]);
 
     if s.is_over() {

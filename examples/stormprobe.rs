@@ -63,6 +63,16 @@ enum Who {
     /// (a held bolt, then a tap to top up), then the rod at the shelf mouth
     /// and the bolts that are left onto it.
     Finisher,
+    /// **A player who reads the weather** (round 2): picks the least-lit
+    /// lamp in the open that the cloud is over (the one furthest from the
+    /// bell on a tie, since the cloud is drifting that way; never one that
+    /// means calling right beside the bell), aims upwind of
+    /// it by the wind it sees, and while holding lets go as soon as the
+    /// dotted line ends on the lamp (not before 1 s) -- or at 1.6 s if it never does.
+    Reader,
+    /// The wirer, who also puts out fires: whenever the village is burning
+    /// and the cloud is not being called, it pours water on the fire.
+    Keeper,
 }
 
 impl Who {
@@ -78,11 +88,13 @@ impl Who {
             Who::Greedy => "greedy",
             Who::Wirer => "wirer",
             Who::Finisher => "finisher",
+            Who::Reader => "reader",
+            Who::Keeper => "keeper",
         }
     }
 
     fn parse(name: &str) -> Who {
-        [Who::Idle, Who::Random, Who::Planned, Who::Show, Who::Cheese, Who::Sloppy, Who::Spam, Who::Greedy, Who::Wirer, Who::Finisher]
+        [Who::Idle, Who::Random, Who::Planned, Who::Show, Who::Cheese, Who::Sloppy, Who::Spam, Who::Greedy, Who::Wirer, Who::Finisher, Who::Reader, Who::Keeper]
             .into_iter()
             .find(|w| w.name() == name)
             .unwrap_or_else(|| panic!("unknown player {name}"))
@@ -143,6 +155,8 @@ struct Hands {
     hold: u32,
     aim: i32,
     did_before: bool,
+    /// The lamp a reading player is trying to land on.
+    target: Option<level::Area>,
     /// (kind, x, y): 's' water, 'r' rod; y < 0 means "at the surface".
     pending: Vec<(char, i32, i32)>,
     during: &'static [(u32, i32)],
@@ -150,7 +164,7 @@ struct Hands {
 
 impl Hands {
     fn new(who: Who, seed: u64) -> Self {
-        Hands { who, rng: Rng::new(seed * 7919 + 3), bolt: 0, wait: 0, hold: 0, aim: 128, did_before: false, pending: Vec::new(), during: &[] }
+        Hands { who, rng: Rng::new(seed * 7919 + 3), bolt: 0, wait: 0, hold: 0, aim: 128, did_before: false, target: None, pending: Vec::new(), during: &[] }
     }
 
     fn surface(s: &Storm, x: i32) -> i32 {
@@ -170,6 +184,14 @@ impl Hands {
         let mut input = Input { at: (self.aim, pixel_physics::storm::CLOUD_BASE + 6), ..Input::default() };
         if self.who == Who::Idle {
             return input;
+        }
+        if self.who == Who::Keeper && s.village_fire > 0 && s.splashes_left > 0 && s.tick.is_multiple_of(20) && !matches!(s.phase, Phase::Calling { .. }) {
+            let fire = s.level.huts.iter().flat_map(|h| (h.y0 - 2..=h.y1).flat_map(move |y| (h.x0 - 2..=h.x1 + 2).map(move |x| (x, y)))).find(|&(x, y)| s.world.get(x, y).is_burning());
+            if let Some((x, y)) = fire {
+                input.at = (x, y - 4);
+                input.splash = true;
+                return input;
+            }
         }
         match &s.phase {
             Phase::Gathering { .. } => {
@@ -221,12 +243,12 @@ impl Hands {
                             self.hold = (TICKS_PER_SECOND as f32 * 0.2) as u32;
                             self.wait = 4;
                         }
-                        Who::Wirer | Who::Finisher => {
+                        Who::Wirer | Who::Finisher | Who::Keeper => {
                             let rock = s.level.lamps.iter().position(|l| l.name.contains("ROCK")).expect("a lamp under the rock");
                             let open_full = s.level.lamps.iter().enumerate().all(|(k, l)| l.name.contains("ROCK") || s.lamps[k] >= 3);
                             // Two cells clear of the ledge's lip, under open sky.
                             let rx = s.level.ledge.x0 - 3;
-                            let wiring = if self.who == Who::Wirer { s.lamps[rock] < 3 && self.bolt < 5 } else { open_full };
+                            let wiring = if self.who != Who::Finisher { s.lamps[rock] < 3 && self.bolt < 5 } else { open_full };
                             if wiring && s.rods_left == RODS {
                                 self.pending.push(('r', rx, -1));
                             }
@@ -240,6 +262,23 @@ impl Hands {
                                 // A lamp one short of full needs only a tap.
                                 self.hold = (TICKS_PER_SECOND as f32 * if s.lamps[k] == 2 { 0.4 } else { 1.25 }) as u32;
                             }
+                            self.wait = 6;
+                        }
+                        Who::Reader => {
+                            let (x0, x1) = s.cloud_span();
+                            let open: Vec<(usize, &level::Lamp)> = s.level.lamps.iter().enumerate().filter(|(_, l)| !l.name.contains("ROCK")).collect();
+                            let under: Vec<(usize, &level::Lamp)> = open.iter().copied().filter(|(_, l)| (x0 + 2..=x1 - 2).contains(&l.area.centre().0)).collect();
+                            let pool = if under.iter().any(|&(k, _)| s.lamps[k] < 3) { under } else { open };
+                            // About 3.5 cells of drift per 0.01 of wind, from `mode=windaim`.
+                            let lead = |l: &level::Lamp| l.area.centre().0 - (s.wind * 350.0).round() as i32;
+                            // A lamp that would mean calling within 16 cells of
+                            // the bell is skipped while another is still dark:
+                            // the tower's iron takes those bolts.
+                            let safe = |l: &level::Lamp| lead(l) > s.level.bell.x1 + 16;
+                            let (_, l) = pool.into_iter().min_by_key(|&(k, l)| (!safe(l), s.lamps[k], -l.area.x0)).expect("an open lamp");
+                            self.target = Some(l.area);
+                            self.aim = lead(l);
+                            self.hold = (TICKS_PER_SECOND as f32 * 1.6) as u32;
                             self.wait = 6;
                         }
                         Who::Greedy => {
@@ -267,6 +306,14 @@ impl Hands {
             }
             Phase::Calling { t, .. } => {
                 input.hold = *t < self.hold;
+                if let (Who::Reader, Some(lamp), Some(hit)) = (self.who, self.target, s.likely.hit) {
+                    let on = hit.0 >= lamp.x0 - 1 && hit.0 <= lamp.x1 + 1;
+                    // Not before 1 s: under that a bolt is light and lights a lamp
+                    // by one, not two.
+                    if on && *t as f32 >= 1.0 * TICKS_PER_SECOND as f32 {
+                        input.hold = false;
+                    }
+                }
                 if let Some(&(_, x)) = self.during.iter().find(|&&(at, _)| at == *t) {
                     input.at = (x, Self::surface(s, x) - 5);
                     input.splash = true;
@@ -320,7 +367,7 @@ fn play(who: Who, seed: u64, mut film: Option<&mut Film>) -> Run {
             if let Some(st) = &s.strike {
                 said.push(st.said.clone());
                 if std::env::var_os("STORM_TRACE").is_some() {
-                    eprintln!("  bolt {} {:?} heavy {:.2} hit {:?} main {} branches {} roots {} network {} | {}", s.tally.bolts, st.cause, st.heavy, st.hit, st.main.len(), st.branches.len(), st.roots.len(), st.network.len(), st.said);
+                    eprintln!("  bolt {} wind {:+.3} cloud {:?} {:?} heavy {:.2} hit {:?} main {} branches {} roots {} network {} | {}", s.tally.bolts, s.wind, s.cloud_span(), st.cause, st.heavy, st.hit, st.main.len(), st.branches.len(), st.roots.len(), st.network.len(), st.said);
                 }
             }
         }
@@ -422,7 +469,7 @@ fn sign_p(wins: u32, losses: u32) -> f64 {
 fn main() {
     for a in std::env::args().skip(1) {
         let k = a.split('=').next().unwrap_or("");
-        if !["mode", "seeds", "seed", "player", "players", "gif", "png", "at", "every", "full", "video"].contains(&k) {
+        if !["mode", "seeds", "seed", "player", "players", "lead", "gif", "png", "at", "every", "full", "video"].contains(&k) {
             panic!("unknown argument `{a}` -- an ignored argument is how a study silently measures its defaults");
         }
     }
@@ -435,6 +482,8 @@ fn main() {
             compare(seeds, &whos)
         }
         "aim" => aim(seeds),
+        "wind" => wind(seeds),
+        "windaim" => windaim(seeds),
         "play" => {
             let who = Who::parse(arg("player").as_deref().unwrap_or("planned"));
             let seed: u64 = arg("seed").map_or(1, |v| v.parse().expect("seed"));
@@ -551,6 +600,67 @@ fn compare(seeds: u64, whos: &[Who]) {
     }
     if pairs.len() > 1 {
         println!("({} comparisons: Bonferroni bar p < {:.4})", pairs.len(), 0.05 / pairs.len() as f64);
+    }
+}
+
+/// **How far the wind carries a bolt.** One bolt held 1.25 s over open
+/// ground (x 168, between the huts and the rock, clear of every lamp's pull) with the wind pinned at each
+/// value, on `seeds` fresh valleys: the signed landing offset (positive is
+/// right, downwind of a positive wind), median and spread.
+fn wind(seeds: u64) {
+    let x = 168;
+    for w in [-0.06f32, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06] {
+        let mut offs: Vec<i32> = (1..=seeds)
+            .filter_map(|seed| {
+                let mut s = Storm::new(seed);
+                s.pin_wind(w);
+                let ticks = (1.25 * TICKS_PER_SECOND as f32) as u32;
+                while s.tally.bolts == 0 && s.tick < 60 * 30 {
+                    let hold = match &s.phase {
+                        Phase::Ready { .. } => true,
+                        Phase::Calling { t, .. } => *t < ticks,
+                        _ => false,
+                    };
+                    s.update(Input { at: (x, pixel_physics::storm::CLOUD_BASE + 6), hold, ..Input::default() });
+                }
+                s.tally.landings.last().and_then(|l| l.1).map(|(lx, _)| lx - x)
+            })
+            .collect();
+        offs.sort();
+        println!("  wind {w:+.2}: landed {:+} median (min {:+}, max {:+}) {offs:?}", offs[offs.len() / 2], offs[0], offs[offs.len() - 1]);
+    }
+}
+
+/// **Does reading the wind pay?** One held bolt (1.25 s) at the field lamp
+/// with the wind pinned, aimed straight at it and aimed upwind by
+/// `lead` cells per 0.01 of wind: hits out of `seeds`.
+fn windaim(seeds: u64) {
+    let lamps = level::Level::valley().lamps;
+    let k = lamps.iter().position(|l| l.name.contains("FIELD")).expect("a field lamp");
+    let lx = lamps[k].area.centre().0;
+    let lead: f32 = arg("lead").map_or(3.5, |v| v.parse().expect("lead"));
+    for w in [0.0f32, 0.03, -0.03, 0.05, -0.05, 0.07, -0.07, 0.09, -0.09] {
+        let mut row = format!("  wind {w:+.2}:");
+        for (name, x) in [("straight", lx), ("led", lx - (w * 100.0 * lead).round() as i32)] {
+            let hits = (1..=seeds)
+                .filter(|&seed| {
+                    let mut s = Storm::new(seed);
+                    s.pin_wind(w);
+                    let ticks = (1.25 * TICKS_PER_SECOND as f32) as u32;
+                    while s.tally.bolts == 0 && s.tick < 60 * 30 {
+                        let hold = match &s.phase {
+                            Phase::Ready { .. } => true,
+                            Phase::Calling { t, .. } => *t < ticks,
+                            _ => false,
+                        };
+                        s.update(Input { at: (x, pixel_physics::storm::CLOUD_BASE + 6), hold, ..Input::default() });
+                    }
+                    s.tally.lamp_hits[k] > 0
+                })
+                .count();
+            row += &format!("  {name} (x {x}) {hits:>2}/{seeds}");
+        }
+        println!("{row}");
     }
 }
 
