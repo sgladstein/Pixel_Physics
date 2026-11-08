@@ -6,9 +6,12 @@ Its own binary (`cargo run --release --bin seep`), not a lab seat; all code
 is in `src/seep/` and touches nothing in `src/sim/`. Picture page:
 https://claude.ai/artifact/TvVYwZUQ5Y6bsza7sUYUFK
 
-**Status (2026-11-08): playtested -- the mould was decoration -- and
-reworked from the playtest (Round 2, at the end): the level now needs the
-mould for the third star. Waits on the owner's second look.** Round 1 below
+**Status (2026-11-08): playtested twice. Round 2 made the level need the
+mould for the third star; the owner then played it (gas and Spark
+satisfying; Blow not; the mould's idea liked but "I click water along the
+edge and then it kind of slowly grows there"; instructions and "doing well"
+unclear). Round 3, at the end, answers those four. Waits on the owner's
+third look.** Round 1 below
 is the first build, kept as measured.
 **Round 1 status: probe built and measured; the verdict waits on the owner's
 playtest.** The question is whether the mould is something a player *uses*
@@ -188,3 +191,62 @@ columns compare (the old game's own stars rule is in its runs).
 Frame cost, paired on one quiet machine and one build profile (the fast iteration profile, not the shipped one), the
 plan on seed 1 for 4 minutes: tick plus full repaint **mean 3.25 ms before, 3.53 ms after** (+0.3 ms: the husk pass and
 the wider, glowing tubes); worst 19 ms before, 12 ms after, which is within run-to-run noise.
+
+## Round 3 (2026-11-08): the owner's own playtest
+
+Page: https://claude.ai/artifact/3NDjQ5H1shLGDboZiZVSwW
+
+The owner, verbatim: "The gas is fun and satisfying. Sparking it satisfying blowing is not very satisfying. I like the
+idea of the mold growing. It's still not super satisfying. I just kind of click water along the edge and then it kind of
+slowly grows there. The instructions need to be better. When you're doing well it needs to be clearer."
+
+### What changed
+
+- **The mould answers a Damp stroke at once.** On water the player has just put down (damp above the rock's own) a tip
+  runs at 12 cells a second (`RACE`, was `FAST`, 4.2), slowing as the stroke dries over ~20 s. For 4 s after a stroke,
+  any tip within 48 cells leans toward it and moves at damp speed even over dry rock; if no tip is in range a new one
+  sets out from the nearest rooted junction. The same hand stroke up the sump wall and along the roof (2 s, seed 1):
+  the mould's first tube enters lamp B's stall 2.0 s after the stroke ends, against 6.9 s before; lamp B digs again
+  21.8 s after it, against 27.8 s -- eating the stall's pocket, not the journey, is now most of the wait. Fresh damp glistens, and a racing
+  tip burns white with a halo.
+- **Blow is a gust you can see.** Radius 6 to 8, push 0.035 to 0.055 a tick, centred 2 cells ahead of the hand, and
+  every stroke throws pale wind streaks that ride the air (placed by a hash of the tick, not the game's dice, so they do
+  not perturb a paired run).
+- **Doing well is on screen.** A "+1 CART" pops at a lamp for every cart; lamp labels are green when digging, pink when
+  choked, on a dark plate; the status row is a star bar (carts fill it, the three star marks light when passed, a dim
+  fill ahead shows where the shift ends at the current rate) that flashes when a star is won, with a "STAR 1! NEXT STAR
+  AT 65 CARTS" banner. "DIGGING AGAIN" when a choked lamp clears.
+- **A coach.** Four one-time tips, each with a pulsing ring round what it is about: the first pink pocket ("PINK GAS
+  BURNS. PRESS 2 AND CLICK IT"), gas nearing lamp A, lamp B choked for 3 s ("NO SPARK LIGHTS HERE"), and after 25 s of
+  choke, the mould's job ("THE MOULD EATS GAS. DAMP A PATH TO LAMP B"). Banners now queue rather than overwrite, a
+  displaced one goes back to the head of the queue, and advice about a lamp is dropped when that lamp is lost.
+
+### Before and after, same scripts, 6 paired seeds (1-6)
+
+| Player | Carts before | Carts after | Stars after | Lamp B choked, s (before -> after) |
+|---|---|---|---|---|
+| nothing | 28-29 | 28-29 (identical) | 0 | 116-121 -> same |
+| planned (mould led to the stall) | 90 | 92 | 3 x6 | 26-27 -> 16-18 (stall capped 26 -> 18-19 s) |
+| gasonly (plan, no Damp or Cut) | 71-72 | 71-72, **43 on seed 2** | 2, 1 on seed 2 | 117-121 -> same |
+| fresh (spark the biggest pink every 2 s) | 71-72 | 72-73 | 2 x6 | 118-121 -> 111-116 |
+| freshdamp | 77-78 | 79 | 2 x6 | 87-91 -> 83-84 |
+| mouldonly | 47 | 49 | 1 x6 | 26-27 -> 16-18 |
+| ring (Damp rings round the lamps) | 27-29 | **45-46** | **1 x6** (was 0) | 117-129 -> 34-37 |
+| random | 5-37 | 9-35 | 0 x6 | mixed |
+
+- The plan beats sparking alone on 6 of 6 seeds (92 vs 72-73; sign test p = 0.031).
+- Doing nothing is bit-identical: it never Damps or Blows, and the streaks do not touch the game's dice.
+- **The ring player now earns a star**: Damp laid round lamp B calls the mould into the stall from 48 cells, so it is
+  capped at 34 s. That is the brush luring the mould, which is the point; it is still one star short of the plan.
+- **gasonly lost lamp A on seed 2**: a blast at 94 s in the plan's single upper-roof Blow stroke, now harder. 1 of 6
+  seeds, the planned player (same stroke, with the mould) did not; recorded rather than tuned away.
+- Frame cost, quiet machine, same fast profile, the plan on seed 1, two runs each: mean 3.58-3.67 ms before, 3.67-3.70
+  ms after; worst 16-24 ms before, 13-15 ms after.
+
+### Tried and rejected this round
+
+- **A lure that sent a new tip whenever none was within 12 cells**: at a roof stroke the floor tips could not reach
+  yet, it sent seven tips in six seconds (28 reserve) and none arrived. Now a tip is sent only when none is within 48.
+- **Lured tips at their own speed**: a tip 10 cells from a stroke on dry rock crawled at `SLOW` (3 cells in 6 s) and,
+  being "near", blocked the new tip that would have answered. Lured tips now move at damp speed.
+

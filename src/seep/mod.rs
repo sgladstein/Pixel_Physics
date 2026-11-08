@@ -45,7 +45,7 @@ use mould::{Ground, Mould, Rng};
 pub const TICKS_PER_SECOND: u32 = 60;
 pub const LEVEL_TICKS: u32 = 4 * 60 * TICKS_PER_SECOND;
 /// Carts a working face hauls per second: two faces for four minutes is 96.
-const CARTS_PER_SECOND: f32 = 1.0 / 5.0;
+pub(crate) const CARTS_PER_SECOND: f32 = 1.0 / 5.0;
 /// **Stars are carts** (2026-11-08). The first version scored stars by
 /// faces surviving plus every crack capped, against a "30 carts" goal that
 /// doing nothing beat (53 carts on seeds 1-2), so the number on screen meant
@@ -85,6 +85,11 @@ const REFRACTORY: u8 = 45;
 /// Ticks for a flame to run one cell along a dry tube: about 10 cells a
 /// second, against about 25 through burnable gas.
 const FUSE_STEP: u32 = 6;
+/// The blow's reach and push per tick: see `Game::blow`. Was 6 and 0.035.
+const BLOW_RADIUS: f32 = 8.0;
+const BLOW_PUSH: f32 = 0.055;
+/// Ticks a wind streak lives.
+pub const STREAK_LIFE: u8 = 36;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
@@ -109,9 +114,9 @@ impl Tool {
     /// What the next press does, in the screen's words.
     pub fn hint(self) -> &'static str {
         match self {
-            Tool::Blow => "DRAG: PUSH THE GAS",
+            Tool::Blow => "DRAG: A GUST PUSHES THE GAS",
             Tool::Spark => "CLICK: LIGHT IT. ONLY PINK BURNS",
-            Tool::Damp => "DRAG: WET ROCK. MOULD FOLLOWS WET",
+            Tool::Damp => "DRAG: WET ROCK. MOULD RACES ON IT",
             Tool::Cut => "DRAG: SNIP A DRY TUBE AHEAD OF FIRE",
             Tool::Fuse => "CLICK: LIGHTS WHEN GAS HERE CAN BURN",
         }
@@ -180,6 +185,8 @@ pub struct Lamp {
     /// anything could be done; a safety lamp turns the same pocket into a
     /// standing problem a spark cannot clear, because the flame reaches it.
     pub safety: bool,
+    /// Ticks choked in a row, for "digging again" and the coach.
+    pub choked_run: u32,
 }
 
 pub struct Crack {
@@ -193,6 +200,15 @@ pub struct Crack {
     pub capped: f64,
     /// Smoothed fraction capped, for "every crack capped".
     pub cap_ema: f32,
+}
+
+/// A wisp of moving air, drawn as a short pale line.
+pub struct Streak {
+    pub x: f32,
+    pub y: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub life: u8,
 }
 
 pub struct FusePlaced {
@@ -260,6 +276,7 @@ pub struct Game {
     pub meters: [f32; 4],
     pub tick: u32,
     pub floaters: Vec<Floater>,
+    pub streaks: Vec<Streak>,
     pub banner: Option<(String, u32)>,
     pub counts: Counts,
     burn_ring: [f32; BURN_WINDOW],
@@ -269,6 +286,16 @@ pub struct Game {
     told_thinning: bool,
     told_capped: bool,
     told_fuse: bool,
+    told_cleared: bool,
+    /// Coach tips already given, by `Coach` index.
+    coached: [bool; 4],
+    stars_shown: u32,
+    /// Banners waiting their turn, with how many seconds each shows.
+    queue: Vec<(String, u32)>,
+    /// Rings pulsing round what a banner is talking about: (x, y, until).
+    pub pointers: Vec<(i32, i32, u32)>,
+    /// The tick the last star was won, for the bar's flash.
+    pub star_won_at: Option<u32>,
     fuse_alarm_until: u32,
     pub seed: u64,
     /// False only for the probe's `nomould` arm: Firedamp alone, the mine
@@ -276,8 +303,8 @@ pub struct Game {
     pub mould_on: bool,
 }
 
-fn ground<'a>(solid: &'a [bool], water: &'a [bool], wet: &'a [f32]) -> Ground<'a> {
-    Ground { solid, water, wet }
+fn ground<'a>(solid: &'a [bool], water: &'a [bool], wet: &'a [f32], floor: &'a [f32]) -> Ground<'a> {
+    Ground { solid, water, wet, floor }
 }
 
 impl Game {
@@ -300,8 +327,8 @@ impl Game {
             fuse_queue: Vec::new(),
             fuse_cell: vec![false; W * H],
             lamps: vec![
-                Lamp { name: "A", x: 234, y: 46, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: false },
-                Lamp { name: "B", x: level::STALL_X, y: 100, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: true },
+                Lamp { name: "A", x: 234, y: 46, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: false, choked_run: 0 },
+                Lamp { name: "B", x: level::STALL_X, y: 100, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: true, choked_run: 0 },
             ],
             cracks: vec![
                 Crack { x0: 178, x1: 181, y: 139, opens_at: 0, rate: 0.22, emitted: 0.0, capped: 0.0, cap_ema: 0.0 },
@@ -314,6 +341,7 @@ impl Game {
             meters: [1.0; 4],
             tick: 0,
             floaters: Vec::new(),
+            streaks: Vec::new(),
             banner: Some(("KEEP GAS OFF THE LAMPS".into(), 6 * TICKS_PER_SECOND)),
             counts: Counts::default(),
             burn_ring: [0.0; BURN_WINDOW],
@@ -323,6 +351,12 @@ impl Game {
             told_thinning: false,
             told_capped: false,
             told_fuse: false,
+            told_cleared: false,
+            coached: [false; 4],
+            stars_shown: 0,
+            queue: Vec::new(),
+            pointers: Vec::new(),
+            star_won_at: None,
             fuse_alarm_until: 0,
             seed,
             mould_on: true,
@@ -427,7 +461,7 @@ impl Game {
         }
         self.counts.uses[t as usize].push(self.tick);
         match a {
-            Act::Blow { x, y, dx, dy } => self.air.blow(x, y, dx, dy, 6.0, 0.035),
+            Act::Blow { x, y, dx, dy } => self.blow(x, y, dx, dy),
             Act::Spark { x, y } => self.spark(x, y),
             Act::Damp { x, y } => self.damp(x, y),
             Act::Cut { x, y } => {
@@ -451,6 +485,53 @@ impl Game {
             }
         }
         true
+    }
+
+    /// **A gust you can see** (owner playtest 2026-11-08: "blowing is not
+    /// very satisfying"). The push used to be a radius-6 nudge centred on
+    /// the cursor, and moving air was invisible: you saw the gas drift a
+    /// little, if there was gas. Now the push is wider, harder and sits a
+    /// little ahead of the hand, like a bellows, and every stroke throws
+    /// out wind streaks that ride the air itself, so the gust is seen
+    /// whether or not there is gas in it.
+    fn blow(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
+        let l = (dx * dx + dy * dy).sqrt().max(1e-3);
+        let (nx, ny) = (dx / l, dy / l);
+        self.air.blow(x + 2.0 * nx, y + 2.0 * ny, dx, dy, BLOW_RADIUS, BLOW_PUSH);
+        // Placed by a hash of the tick, not the game's generator: streaks
+        // are drawn only, and must not shift the dice the gas and the mould
+        // roll, or a paired comparison would differ by more than the push.
+        for k in 0..3u64 {
+            let mut h = Rng((self.tick as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (k + 1).wrapping_mul(0xD1B5_4A32_D192_ED03) | 1);
+            let a = h.f() * std::f32::consts::TAU;
+            let r = h.f() * BLOW_RADIUS;
+            let (sx, sy) = (x + r * a.cos(), y + r * a.sin());
+            if self.air.is_open(sx as i32, sy as i32) && self.streaks.len() < 400 {
+                self.streaks.push(Streak { x: sx, y: sy, vx: nx * 0.3, vy: ny * 0.3, life: STREAK_LIFE });
+            }
+        }
+    }
+
+    /// Wind streaks ride the air: see `blow`.
+    fn move_streaks(&mut self) {
+        let air = &self.air;
+        self.streaks.retain_mut(|s| {
+            let (cx, cy) = (s.x as i32, s.y as i32);
+            if s.life == 0 || !air.is_open(cx, cy) {
+                return false;
+            }
+            let (ux, uy) = (cx as usize, cy as usize);
+            let u = 0.5 * (air.u[uy * (W + 1) + ux] + air.u[uy * (W + 1) + ux + 1]);
+            let v = 0.5 * (air.v[uy * W + ux] + air.v[(uy + 1) * W + ux]);
+            // A streak keeps a little of its own throw, so a stroke into
+            // still air still reads as a gust.
+            s.vx = 0.8 * s.vx + 0.2 * u * 1.6;
+            s.vy = 0.8 * s.vy + 0.2 * v * 1.6;
+            s.x += s.vx;
+            s.y += s.vy;
+            s.life -= 1;
+            true
+        });
     }
 
     fn spark(&mut self, x: i32, y: i32) {
@@ -504,6 +585,7 @@ impl Game {
     }
 
     fn damp(&mut self, x: i32, y: i32) {
+        self.mould.lure_at(x, y, self.tick);
         let r = 4;
         for dy in -r..=r {
             for dx in -r..=r {
@@ -540,7 +622,7 @@ impl Game {
         if self.fire[i] > 0 || self.refractory[i] > 0 {
             return false;
         }
-        let g = ground(&self.solid, &self.water, &self.wet);
+        let g = ground(&self.solid, &self.water, &self.wet, &self.wet_floor);
         if let Some(e) = self.mould.tube_at(x, y) {
             // A dry tube burns whatever the gas; a wet one never does.
             return !self.mould.is_wet(e, &g);
@@ -583,11 +665,12 @@ impl Game {
         self.leak();
         if self.mould_on {
             self.mould.eat(&mut self.air);
-            let g = ground(&self.solid, &self.water, &self.wet);
+            let g = ground(&self.solid, &self.water, &self.wet, &self.wet_floor);
             self.mould.step(self.tick, &self.air, &g);
         }
         self.burn();
         self.air.step();
+        self.move_streaks();
         self.fuses_and_lamps();
         self.floaters.retain(|f| f.until > self.tick);
         self.tell();
@@ -611,7 +694,7 @@ impl Game {
                     let (x, y) = ((cx0 + cx1) / 2, cy);
                     self.say("HISS", x, y - 6, [230, 150, 190]);
                     if lead == HISS_LEAD {
-                        self.banner = Some(("THE ROCK IS HISSING. A CRACK WILL OPEN".into(), self.tick + 5 * TICKS_PER_SECOND));
+                        self.urgent("THE ROCK IS HISSING. A CRACK WILL OPEN".into(), 5);
                     }
                 }
                 continue;
@@ -619,7 +702,7 @@ impl Game {
             if self.tick == opens_at && opens_at > 0 {
                 let (x, y) = ((cx0 + cx1) / 2, cy);
                 self.say("A NEW CRACK!", x, y - 8, [255, 120, 160]);
-                self.banner = Some(("A NEW CRACK HAS OPENED".into(), self.tick + 4 * TICKS_PER_SECOND));
+                self.urgent("A NEW CRACK HAS OPENED".into(), 4);
             }
             // The crack breathes: a slow pulse and a little noise.
             let breath = 1.0 + 0.45 * (t * std::f32::consts::TAU / 5.0 + k as f32).sin();
@@ -664,7 +747,7 @@ impl Game {
                 k += 1;
             }
         }
-        let g = ground(&self.solid, &self.water, &self.wet);
+        let g = ground(&self.solid, &self.water, &self.wet, &self.wet_floor);
         let mut tubes_hit: Vec<(usize, usize)> = Vec::new();
         for y in 0..H {
             for x in 0..W {
@@ -735,7 +818,7 @@ impl Game {
                 if !self.told_fuse {
                     self.told_fuse = true;
                     let name = self.lamps[k].name;
-                    self.banner = Some((format!("A DRY TUBE IS BURNING TO LAMP {name}. CUT IT"), self.tick + 5 * TICKS_PER_SECOND));
+                    self.urgent(format!("A DRY TUBE IS BURNING TO LAMP {name}. CUT IT"), 5);
                 }
             }
         }
@@ -855,7 +938,13 @@ impl Game {
                     self.counts.lamps_blown += 1;
                     let name = self.lamps[k].name;
                     self.say("BLOWN!", x, y - 8, [255, 90, 70]);
-                    self.banner = Some((format!("LAMP {name} IS LOST"), self.tick + 5 * TICKS_PER_SECOND));
+                    // Advice about a lamp that is gone is not shown late.
+                    let about = format!("LAMP {name}");
+                    self.queue.retain(|q| !q.0.contains(&about));
+                    if self.banner.as_ref().is_some_and(|b| b.0.contains(&about)) {
+                        self.banner = None;
+                    }
+                    self.urgent(format!("LAMP {name} IS LOST"), 5);
                     continue;
                 }
                 if self.tick - t0 >= BLAST_WATCH && !fire_near {
@@ -876,16 +965,134 @@ impl Game {
             }
             if self.lamps[k].state == LampState::Working && self.tick < LEVEL_TICKS {
                 self.lamps[k].worked_ticks += 1;
+                let before = self.lamps[k].carts as u32;
                 self.lamps[k].carts += CARTS_PER_SECOND / TICKS_PER_SECOND as f32;
+                // **Every cart pops out of its face** (owner playtest
+                // 2026-11-08: "when you're doing well it needs to be
+                // clearer"). A working lamp says so every five seconds.
+                if self.lamps[k].carts as u32 > before {
+                    // Beside the label: below a roof lamp, above a stall lamp.
+                    let py = if y < 80 { y + 22 } else { y - 13 };
+                    self.say("+1 CART", x, py, [150, 235, 120]);
+                }
+            }
+            // A choked face that clears says so, the first time loudly.
+            let now_working = self.lamps[k].state == LampState::Working;
+            if now_working && self.lamps[k].choked_run > 3 * TICKS_PER_SECOND {
+                self.say("DIGGING AGAIN", x, if y < 80 { y + 22 } else { y - 13 }, [150, 235, 120]);
+                if !self.told_cleared {
+                    self.told_cleared = true;
+                    let name = self.lamps[k].name;
+                    self.announce(format!("LAMP {name} IS CLEAR. MINERS DIGGING AGAIN"), 5);
+                }
+            }
+            self.lamps[k].choked_run = if self.lamps[k].state == LampState::Choked { self.lamps[k].choked_run + 1 } else { 0 };
+        }
+    }
+
+    /// Show a banner now; one it displaces goes back to the head of the
+    /// queue, so a coach tip is not lost under "LAMP A IS LOST".
+    fn urgent(&mut self, msg: String, secs: u32) {
+        if let Some((old, until)) = self.banner.take() {
+            let left = until.saturating_sub(self.tick) / TICKS_PER_SECOND;
+            if left >= 1 && !old.starts_with("STAR") {
+                self.queue.insert(0, (old, left.max(3)));
+            }
+        }
+        self.banner = Some((msg, self.tick + secs * TICKS_PER_SECOND));
+    }
+
+    /// Show a banner now, or after the one showing.
+    fn announce(&mut self, msg: String, secs: u32) {
+        if self.banner.is_none() {
+            self.banner = Some((msg, self.tick + secs * TICKS_PER_SECOND));
+        } else if self.queue.len() < 4 {
+            self.queue.push((msg, secs));
+        }
+    }
+
+    fn point_at(&mut self, x: i32, y: i32, secs: u32) {
+        self.pointers.push((x, y, self.tick + secs * TICKS_PER_SECOND));
+    }
+
+    /// **The coach** (owner playtest 2026-11-08: "the instructions need to
+    /// be better"). Each tip is said once, when the thing it is about first
+    /// happens, with a ring round that thing: the card at the start says
+    /// what the tools are, and the coach says which one the mine is asking
+    /// for now. The last tip names the mould's job outright, but only after
+    /// lamp B has been choked for 25 s -- a player who works the stall out
+    /// first never sees it.
+    fn coach(&mut self) {
+        if !self.tick.is_multiple_of(15) {
+            return;
+        }
+        // 0: the first pink pocket. Find the biggest burnable patch's middle.
+        if !self.coached[0] && self.tick > 4 * TICKS_PER_SECOND {
+            let (mut sx, mut sy, mut n) = (0i64, 0i64, 0i64);
+            for y in 0..H {
+                for x in 0..W {
+                    if band(self.air.c[idx(x, y)]) == Band::Burns {
+                        sx += x as i64;
+                        sy += y as i64;
+                        n += 1;
+                    }
+                }
+            }
+            if n > 60 {
+                self.coached[0] = true;
+                let (x, y) = ((sx / n) as i32, (sy / n) as i32);
+                self.point_at(x, y, 6);
+                self.announce("PINK GAS BURNS. PRESS 2 AND CLICK IT".into(), 6);
+            }
+        }
+        // 1: gas thickening at a naked lamp.
+        if !self.coached[1] {
+            if let Some(l) = self.lamps.iter().find(|l| !l.safety && l.state == LampState::Working && self.air.mean_near(l.x, l.y, 12) > gas::TRACE) {
+                let (x, y) = (l.x, l.y);
+                self.coached[1] = true;
+                self.point_at(x, y, 6);
+                self.announce("GAS IS REACHING LAMP A. BURN OR BLOW IT".into(), 6);
+            }
+        }
+        // 2 and 3: lamp B choked.
+        let b = self.lamps.iter().position(|l| l.safety);
+        if let Some(k) = b {
+            let (x, y, run) = (self.lamps[k].x, self.lamps[k].y, self.lamps[k].choked_run);
+            if !self.coached[2] && run > 3 * TICKS_PER_SECOND {
+                self.coached[2] = true;
+                self.point_at(x, y, 6);
+                self.announce("LAMP B IS CHOKED. NO SPARK LIGHTS HERE".into(), 6);
+            }
+            if !self.coached[3] && run > 25 * TICKS_PER_SECOND {
+                self.coached[3] = true;
+                let core = &self.mould.nodes[self.mould.core];
+                let (cx, cy) = (core.x, core.y);
+                self.point_at(cx, cy, 7);
+                self.point_at(x, y, 7);
+                self.announce("THE MOULD EATS GAS. DAMP A PATH TO LAMP B".into(), 7);
             }
         }
     }
 
     /// The level talks when something it has been waiting for happens.
     fn tell(&mut self) {
+        self.coach();
+        let stars = self.stars();
+        if stars > self.stars_shown {
+            self.stars_shown = stars;
+            self.star_won_at = Some(self.tick);
+            let msg = match stars {
+                1 => format!("STAR 1! NEXT STAR AT {} CARTS", STAR_CARTS[1]),
+                2 => format!("STAR 2! NEXT STAR AT {} CARTS", STAR_CARTS[2]),
+                _ => "STAR 3! THE BEST SHIFT THIS MINE HAS".to_string(),
+            };
+            // A star jumps the queue.
+            self.urgent(msg, 4);
+        }
+        self.pointers.retain(|p| p.2 > self.tick);
         if !self.told_capped && self.cracks_capped() > 0 {
             self.told_capped = true;
-            self.banner = Some(("YOUR MOULD HAS CAPPED A CRACK".into(), self.tick + 5 * TICKS_PER_SECOND));
+            self.urgent("YOUR MOULD HAS CAPPED A CRACK".into(), 5);
         }
         if !self.told_thinning && self.tick.is_multiple_of(30) {
             // A tube under a thick pocket with burnable gas between them.
@@ -897,13 +1104,17 @@ impl Game {
             });
             if thinning {
                 self.told_thinning = true;
-                self.banner = Some(("YOUR MOULD IS THINNING THE POCKET".into(), self.tick + 6 * TICKS_PER_SECOND));
+                self.urgent("YOUR MOULD IS THINNING THE POCKET".into(), 6);
             }
         }
         if let Some((_, until)) = &self.banner {
             if self.tick >= *until {
                 self.banner = None;
             }
+        }
+        if self.banner.is_none() && !self.queue.is_empty() {
+            let (msg, secs) = self.queue.remove(0);
+            self.banner = Some((msg, self.tick + secs * TICKS_PER_SECOND));
         }
     }
 }

@@ -310,3 +310,111 @@ fn snipping_a_fuse_saves_the_lamp() {
     assert_eq!(singes_cut, 0, "snipped: the lamp was still singed");
 }
 
+
+/// **A Damp stroke is answered at once** (round 3, owner playtest: "I click
+/// water along the edge and then it kind of slowly grows there"). Paired:
+/// the same wet disc, once laid by the Damp tool and once written straight
+/// into the rock. Only the stroke calls a tip to it, inside two seconds --
+/// on the sump wall a nearby tip turns and runs to it, and with no tip
+/// out at all, a new one sets out for it.
+#[test]
+fn a_damp_stroke_is_answered_at_once() {
+    let run = |tool: bool, (sx, sy): (i32, i32)| {
+        let mut g = Game::new(1);
+        for _ in 0..8 * TICKS_PER_SECOND {
+            g.step(&[]);
+        }
+        if (sx, sy) == (44, 139) {
+            // A mould with no tips out: only a new one can answer.
+            for tp in g.mould.tips.iter_mut() {
+                tp.alive = false;
+            }
+        }
+        let before = g.mould.counts.lure_sprouts;
+        for t in 0..6 * TICKS_PER_SECOND {
+            if t < 20 {
+                if tool {
+                    g.step(&[Act::Damp { x: sx, y: sy }]);
+                    continue;
+                }
+                for dy in -4..=4i32 {
+                    for dx in -4..=4i32 {
+                        if dx * dx + dy * dy <= 16 && sx + dx >= 0 {
+                            g.wet[idx((sx + dx) as usize, (sy + dy) as usize)] = 1.0;
+                        }
+                    }
+                }
+            }
+            g.step(&[]);
+            if g.mould.tips.iter().any(|tp| tp.alive && (tp.x - sx).abs() + (tp.y - sy).abs() <= 6) {
+                return (Some(t), g.mould.counts.lure_sprouts - before);
+            }
+        }
+        (None, g.mould.counts.lure_sprouts - before)
+    };
+    for spot in [(20, 124), (44, 139)] {
+        let (with_tool, sprouts) = run(true, spot);
+        let (written, sprouts_w) = run(false, spot);
+        eprintln!("{spot:?}: tip reached the stroke at {with_tool:?} ticks ({sprouts} sent); written wet: {written:?} ({sprouts_w})");
+        assert_eq!(sprouts_w, 0);
+        assert!(with_tool.is_some_and(|t| t < 2 * TICKS_PER_SECOND), "{spot:?}: stroke answered at {with_tool:?}");
+        if spot == (44, 139) {
+            // With no tips out, the core's own regrowth finds the wet disc
+            // too in the end; the stroke is answered sooner.
+            assert!(sprouts >= 1, "no tip was sent to the stroke");
+            assert!(written.is_none_or(|t| Some(t) > with_tool), "{spot:?}: written wet reached at {written:?}");
+        } else {
+            assert!(written.is_none_or(|t| t > 4 * TICKS_PER_SECOND), "{spot:?}: written wet reached at {written:?}");
+        }
+    }
+}
+
+/// A blow throws streaks that travel the way it blew.
+#[test]
+fn a_blow_is_seen() {
+    let mut g = quiet(1);
+    for _ in 0..30 {
+        g.step(&[Act::Blow { x: 120.0, y: 126.0, dx: -1.0, dy: 0.0 }]);
+    }
+    assert!(g.streaks.len() > 20, "streaks {}", g.streaks.len());
+    let mean_x = |g: &Game| g.streaks.iter().map(|s| s.x).sum::<f32>() / g.streaks.len() as f32;
+    let x0 = mean_x(&g);
+    for _ in 0..12 {
+        g.step(&[]);
+    }
+    assert!(mean_x(&g) < x0 - 2.0, "streaks went from {x0} to {}", mean_x(&g));
+}
+
+/// Passing a star mark says so and flashes the bar.
+#[test]
+fn winning_a_star_says_so() {
+    let mut g = quiet(1);
+    g.lamps[0].carts = 39.95;
+    for _ in 0..TICKS_PER_SECOND {
+        g.step(&[]);
+    }
+    assert_eq!(g.stars(), 1);
+    assert!(g.star_won_at.is_some());
+    assert!(g.banner.as_ref().is_some_and(|(m, _)| m.starts_with("STAR 1")), "{:?}", g.banner);
+}
+
+/// The coach names lamp B's problem, then the mould's job, to a player who
+/// leaves the stall choked; a player who leads the mould in never hears the
+/// second tip.
+#[test]
+fn the_coach_names_the_stall_only_when_it_is_needed() {
+    let run = |name: &str| {
+        let mut g = Game::new(1);
+        let mut p = super::script::Player::by_name(name, 1).unwrap();
+        for _ in 0..60 * TICKS_PER_SECOND {
+            let acts = p.acts(&g);
+            g.step(&acts);
+        }
+        g.coached
+    };
+    let idle = run("nothing");
+    let plan = run("planned");
+    eprintln!("coached idle {idle:?} plan {plan:?}");
+    assert!(idle[1] && idle[2] && idle[3]);
+    assert!(!plan[3]);
+}

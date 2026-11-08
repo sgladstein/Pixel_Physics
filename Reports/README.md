@@ -6584,7 +6584,10 @@ file unless its report says so.
   third seep chokes lamp B and no spark can clear it, so leading the mould there is the only way to the third star (plan
   3 stars on 5 of 5 seeds, sparking alone 2, nothing 0); the mould drawn 3 cells wide and coloured by state; the core
   can't be snipped and regrows; stars are carts. Records two mould bugs (twin tips dying at corners, fuses dying at every
-  junction) and that Cut still has no job in play.
+  junction) and that Cut still has no job in play. **Round 3 (2026-11-08)**, from the owner's own playtest (Blow dull,
+  the mould slow to answer a Damp stroke, instructions and progress unclear): the mould races on fresh water and reaches
+  for the brush (a stroke reaches lamp B's stall in 2 s, was 7 s), Blow throws visible wind streaks, a star bar with pace and "+1 CART"
+  pops, and a one-time coach with rings; plan 92 carts vs sparking alone 72-73 on 6 of 6 seeds.
 - [fault-probe-2026-11-07.md](fault-probe-2026-11-07.md) — **probe 6 of 6
   (`--bin fault`): crack an ice wall before the rising lake bursts it; is a
   running crack satisfying, and can you read where it goes?** Doing nothing
