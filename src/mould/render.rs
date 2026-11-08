@@ -88,6 +88,16 @@ fn ramp(stops: &[[u8; 3]], v: f32) -> [u8; 3] {
 
 const FED_RAMP: [[u8; 3]; 4] = [[70, 46, 6], [176, 120, 14], [250, 206, 40], [255, 250, 210]];
 const PALE_RAMP: [[u8; 3]; 3] = [[44, 46, 48], [110, 112, 112], [190, 190, 184]];
+/// A fresh snip: dark wine, fading back to agar as it heals.
+const WOUND: [u8; 3] = [92, 18, 40];
+/// The pulse: the colour a band blends toward, how far, how fast it rides
+/// (cells a second), how far apart bands are (cells), and the fraction of
+/// that spacing its tail covers.
+const PULSE: [u8; 3] = [255, 252, 230];
+const PULSE_STRENGTH: f32 = 0.45;
+const PULSE_SPEED: f32 = 45.0;
+const PULSE_SPACING: f32 = 60.0;
+const PULSE_TAIL: f32 = 0.3;
 
 /// The colour of one dish cell, before overlays.
 pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
@@ -102,6 +112,13 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
             return [k - 10, k - 4, k];
         }
         Ground::Scar => return SCAR,
+        Ground::Wound => {
+            // Raw and dark when fresh, closing back to agar over its last
+            // second, so the player sees the cut heal rather than vanish.
+            let left = d.wound_until[i].saturating_sub(d.t) as f32 / super::STEPS_PER_SECOND as f32;
+            let f = left.clamp(0.0, 1.0);
+            return [0, 1, 2].map(|k| (AGAR[k] as f32 + (WOUND[k] as f32 - AGAR[k] as f32) * f) as u8);
+        }
         Ground::Agar => {}
     }
     let tr = d.trail[i];
@@ -111,7 +128,13 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         let lo = (1.0 + d.params.tube * 0.5).ln() / (1.0 + TRAIL_TOP).ln();
         let v = (v - lo) / (1.0 - lo);
         return if d.looks_fed(i) {
-            ramp(&FED_RAMP, v)
+            let c = ramp(&FED_RAMP, v);
+            let b = pulse(d, i);
+            if b > 0.0 {
+                [0, 1, 2].map(|k| (c[k] as f32 + (PULSE[k] as f32 - c[k] as f32) * b * PULSE_STRENGTH) as u8)
+            } else {
+                c
+            }
         } else {
             ramp(&PALE_RAMP, v)
         };
@@ -122,6 +145,30 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         return [0, 1, 2].map(|k| (AGAR[k] as f32 + (120.0 - AGAR[k] as f32) * l * 0.6) as u8);
     }
     AGAR
+}
+
+/// **The pulse: food seen moving.** A bright band rides out along every
+/// fed tube from the food it comes from, one every `PULSE_SPACING /
+/// PULSE_SPEED` seconds, read off the feeding search's own distances
+/// (`Dish::fed`). Tube no food reaches has no distance, so a starving
+/// branch's beat stops at the cut. Drawing only: the simulation never reads
+/// it. (Toy-feel and research brainstorms, 2026-11-08: nothing on screen
+/// showed food flowing, and real *Physarum* streams its cytoplasm in a
+/// travelling wave.)
+fn pulse(d: &Dish, i: usize) -> f32 {
+    let dist = d.fed[i];
+    if dist == u16::MAX {
+        return 0.0;
+    }
+    let secs = d.t as f32 / super::STEPS_PER_SECOND as f32;
+    let phase = (secs * PULSE_SPEED - dist as f32) / PULSE_SPACING;
+    let s = phase - phase.floor();
+    // Sharp at the leading edge, a tail back toward the food.
+    if s < PULSE_TAIL {
+        1.0 - s / PULSE_TAIL
+    } else {
+        0.0
+    }
 }
 
 fn put(frame: &mut [u8], fw: u32, x: i32, y: i32, c: [u8; 3]) {
@@ -262,6 +309,19 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
         if age < 2 * sps {
             let f = age as f32 / (2 * sps) as f32;
             ring(frame, fw, scale, (x, y), 6.0 + 14.0 * f, [255, 250, 220]);
+        }
+    }
+    // Joins: where two pieces met and became one, a bright burst that
+    // spreads and fades over 0.8 s.
+    for &(x, y, at) in &d.snaps {
+        let age = d.t.saturating_sub(at) as f32 / sps as f32;
+        if age < 0.8 {
+            let f = age / 0.8;
+            let c = [255, 255, (230.0 * (1.0 - f) + 120.0 * f) as u8];
+            ring(frame, fw, scale, (x, y), 2.0 + 10.0 * f, c);
+            if f < 0.5 {
+                ring(frame, fw, scale, (x, y), 1.0 + 4.0 * f, [255, 255, 255]);
+            }
         }
     }
     for (at, p) in &d.pending {

@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use pixel_physics::mould::play::{Dump, Fresh, Idle, LampOnly, Plan, Player, Random, Shepherd};
 use pixel_physics::mould::render::{self, View};
-use pixel_physics::mould::{Dish, Params, Phase, Score, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
+use pixel_physics::mould::{Dish, Ground, Params, Phase, Score, Tool, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
 
 struct Args {
     seeds: Vec<u64>,
@@ -28,6 +28,7 @@ struct Args {
     push: bool,
     flicker: bool,
     lesson: Option<String>,
+    cut: Option<String>,
     /// `push`: how far beside the tube the lamp is held.
     offset: f32,
     scale: u32,
@@ -50,6 +51,7 @@ fn parse() -> Args {
         push: false,
         flicker: false,
         lesson: None,
+        cut: None,
         offset: 12.0,
         scale: 2,
         every: 15,
@@ -72,6 +74,7 @@ fn parse() -> Args {
             "bend" => a.push = v == "1",
             "flicker" => a.flicker = v == "1",
             "lesson" => a.lesson = Some(v.into()),
+            "cut" => a.cut = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
@@ -98,6 +101,8 @@ fn parse() -> Args {
             "lamp_reach" => p.lamp_reach = f(),
             "lamp_soft" => p.lamp_soft = v == "1",
             "push" => p.push = f(),
+            "pieces" => p.pieces = v == "1",
+            "wound" => p.wound = f(),
             "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
@@ -150,6 +155,8 @@ struct Run {
     oats: u32,
     snips: u32,
     lamp_s: f32,
+    /// Joins flashed (`Dish::snaps`).
+    joins: u32,
     peak: usize,
     /// (seconds, walkers, piles joined) every 10 s.
     trace: Vec<(u32, usize, u32)>,
@@ -217,6 +224,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         oats: c.oats_placed,
         snips: c.snips_used,
         lamp_s: c.lamp_steps as f32 / STEPS_PER_SECOND as f32,
+        joins: c.snaps,
         peak,
         trace,
     }
@@ -738,6 +746,73 @@ fn lesson(a: &Args, dir: &str) {
     write_gif(&format!("{dir}/lesson.gif"), shots, a.every);
 }
 
+/// **Does a cut cost anything?** (owner's card 2026-11-08, "each piece eats
+/// its own food"). The plan hand plays 40 s, then one snip goes straight
+/// across the thickest tube. Every half second for 12 s: drawn tube that
+/// shows grey (starving), food joined, mould, open wound cells, joins
+/// flashed. Run once with the defaults and once with `pieces=0 wound=0` for
+/// the old snip. With cut=DIR (not "1"): stills at 0, 1, 2, 4, 8 s after.
+fn cut(a: &Args, dir: &str) {
+    let w = pixel_physics::mould::W;
+    println!("\n== one snip across the trunk at 40 s, plan hand ==");
+    for &seed in &a.seeds {
+        let mut d = Dish::with_params(seed, a.params.clone());
+        let mut p = player("plan", seed);
+        while d.t < (40 * STEPS_PER_SECOND) as u64 {
+            p.act(&mut d);
+            d.step();
+        }
+        let (at, n) = trunk(&d);
+        let mould0 = d.walkers.len();
+        let snaps0 = d.counts.snaps;
+        d.snips_left = d.snips_left.max(1);
+        let ok = d.begin_stroke(Tool::Snip, at.0 - n.0 * 12.0, at.1 - n.1 * 12.0);
+        d.drag_stroke(at.0 + n.0 * 12.0, at.1 + n.1 * 12.0);
+        d.end_stroke();
+        let grey = |d: &Dish| {
+            (0..d.trail.len())
+                .filter(|&i| d.trail[i] > d.params.tube * 0.5 && !d.looks_fed(i))
+                .count()
+        };
+        let mut row = Vec::new();
+        let sps = STEPS_PER_SECOND as u64;
+        let t0 = d.t;
+        let mut max_grey = 0;
+        let mut wound_open = 0;
+        while d.t < t0 + 12 * sps {
+            d.step();
+            let k = d.t - t0;
+            if k.is_multiple_of(sps / 2) {
+                let g = grey(&d);
+                max_grey = max_grey.max(g);
+                let wounds = d.ground.iter().filter(|g| **g == Ground::Wound).count();
+                if wounds > 0 {
+                    wound_open = k;
+                }
+                row.push(format!("{:.1}s grey {g} joined {} mould {} wound {wounds}", k as f32 / sps as f32, d.measure().reach, d.walkers.len()));
+            }
+            if dir != "1" && [0, 1, 2, 4, 8].iter().any(|&s| k == s * sps + 1) {
+                frame_of(&d, a.scale)
+                    .save(format!("{dir}/cut-s{seed}-{:02}.png", k / sps))
+                    .unwrap();
+            }
+        }
+        let _ = w;
+        println!(
+            "seed {seed}: snip {} at ({:.0},{:.0}); most grey tube cells {max_grey}; wound open until {:.1} s; mould {mould0} -> {}; joins flashed in the 12 s {}",
+            if ok { "made" } else { "REFUSED" },
+            at.0,
+            at.1,
+            wound_open as f32 / sps as f32,
+            d.walkers.len(),
+            d.counts.snaps - snaps0
+        );
+        for r in row.iter().step_by(2) {
+            println!("    {r}");
+        }
+    }
+}
+
 fn main() {
     let a = parse();
     println!(
@@ -760,6 +835,10 @@ fn main() {
         lesson(&a, dir);
         return;
     }
+    if let Some(dir) = &a.cut {
+        cut(&a, dir);
+        return;
+    }
     if let Some(dir) = &a.verbs {
         verbs(&a, dir);
         return;
@@ -770,7 +849,7 @@ fn main() {
             let r = run(seed, who, &a);
             let s = &r.score;
             println!(
-                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s",
+                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
                 s.star_count(),
                 s.stars[0] as u8,
                 s.stars[1] as u8,
@@ -788,7 +867,8 @@ fn main() {
                 r.burned,
                 r.oats,
                 r.snips,
-                r.lamp_s
+                r.lamp_s,
+                r.joins
             );
             println!("    trace (s, mould, joined): {:?}", r.trace);
             table.push((seed, who.clone(), r));
