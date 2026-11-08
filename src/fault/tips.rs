@@ -65,7 +65,19 @@ pub const FORK_MIN_PUSH: f32 = 8.0;
 /// bar sets for a visible consequence.
 pub const EDGES_PER_FRAME: u32 = 3;
 /// What the burst gives every tip it starts: enough to cross the wall.
-const BURST_PUSH: f32 = 300.0;
+/// How deep the burst takes the wall's top off, in rows.
+const BURST_ROWS: i32 = 28;
+/// A tap more than this many rows under the lake's surface starts a deep
+/// crack (`Tip::deep`). The playtest's ask (2026-11-08): random taps hit
+/// every depth and a lucky deep cut drained 76-80% of the lake, so a deep
+/// cut has to be what it is in a real dam -- the dangerous one.
+pub const DEEP_ROWS: i32 = 3;
+/// A hole draws in any tip within this many cells of its centre: the tip
+/// leaves the grain and runs straight at it, and does not tire on the way.
+/// "Drill two, tap between" is then a plan a player can make on purpose.
+pub const HOLE_PULL: i32 = 7;
+/// Fastest a block peels off a sliding slab, cells a frame.
+const PEEL_VX: f32 = 0.5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
@@ -117,6 +129,15 @@ pub struct Tip {
     pub push: f32,
     /// Edges this tip has cut. A tip that cut none is not a crack run.
     pub run: u32,
+    /// Started under the lake's surface: the water in the crack drives it,
+    /// so it loses no push while it is below the surface (`DEEP_ROWS`).
+    pub deep: bool,
+    /// The hole this half of a tap was aimed at: it runs straight on at it
+    /// until it gets there or can get no closer. Without it a half started
+    /// eight cells off wandered back onto the grain before `HOLE_PULL`
+    /// caught it, and the planner's stitch across wall 2 curled up short of
+    /// the far hole.
+    pub aim: Option<(i32, i32)>,
 }
 
 #[derive(Clone)]
@@ -133,6 +154,8 @@ pub struct Cracks {
     /// Tips that ran out of push, where Frost can wake them.
     pub ends: Vec<(i32, i32, Option<Dir>)>,
     pub hole: Vec<bool>,
+    /// Centres of the holes drilled, for the pull (`HOLE_PULL`).
+    pub holes: Vec<(i32, i32)>,
     /// Wet edges, as the owner cell's right/down edge.
     pub wet_right: Vec<bool>,
     pub wet_down: Vec<bool>,
@@ -166,6 +189,7 @@ impl Cracks {
             slides: Vec::new(),
             ends: Vec::new(),
             hole: vec![false; n],
+            holes: Vec::new(),
             wet_right: vec![false; n],
             wet_down: vec![false; n],
             cut_right: vec![0; n],
@@ -320,18 +344,68 @@ pub fn tap_corner(g: &Game, x: i32, y: i32) -> Option<(i32, i32)> {
 /// it with the most tension, which are usually the two halves of one grain
 /// boundary.
 pub fn tap_dirs(g: &Game, v: (i32, i32)) -> Vec<Dir> {
-    choices(g, v, None).into_iter().take(2).map(|(d, _)| d).collect()
+    tap_aims(g, v).into_iter().map(|(d, _)| d).collect()
+}
+
+/// `tap_dirs`, with the hole each half is aimed at.
+fn tap_aims(g: &Game, v: (i32, i32)) -> Vec<(Dir, Option<(i32, i32)>)> {
+    // Holes in reach come first: one half of the crack towards each of the
+    // two nearest, so a tap between two holes stitches them together.
+    let mut out: Vec<(Dir, Option<(i32, i32)>)> = Vec::new();
+    let mut near: Vec<(i32, (i32, i32))> = g.tips.holes.iter().map(|&h| (dist2(v, h), h)).filter(|&(d, _)| d <= (HOLE_PULL * 3 / 2).pow(2)).collect();
+    near.sort();
+    for (_, h) in near.into_iter().take(2) {
+        if let Some(d) = towards(g, v, None, h) {
+            if !out.iter().any(|o| o.0 == d) {
+                out.push((d, Some(h)));
+            }
+        }
+    }
+    for (d, _) in choices(g, v, None) {
+        if out.len() >= 2 {
+            break;
+        }
+        if !out.iter().any(|o| o.0 == d) {
+            out.push((d, None));
+        }
+    }
+    out
+}
+
+fn dist2(a: (i32, i32), b: (i32, i32)) -> i32 {
+    (a.0 - b.0).pow(2) + (a.1 - b.1).pow(2)
+}
+
+/// The open edge out of `v` that most closes the distance to `h`.
+fn towards(g: &Game, v: (i32, i32), heading: Option<Dir>, h: (i32, i32)) -> Option<Dir> {
+    Dir::ALL
+        .into_iter()
+        .filter(|&d| Some(d.rev()) != heading && crackable(g, v, d))
+        .map(|d| (dist2(d.step(v), h), d))
+        .filter(|&(dd, _)| dd < dist2(v, h))
+        .min_by_key(|&(dd, d)| (dd, d as u8))
+        .map(|(_, d)| d)
+}
+
+/// A hole within `HOLE_PULL` of this corner, and the edge towards it.
+fn pulled(g: &Game, v: (i32, i32), heading: Option<Dir>) -> Option<Dir> {
+    let h = g.tips.holes.iter().copied().filter(|&h| dist2(v, h) <= HOLE_PULL * HOLE_PULL).min_by_key(|&h| dist2(v, h))?;
+    towards(g, v, heading, h)
 }
 
 /// Start a crack at the joint corner nearest `(x, y)`. Returns tips started.
 pub fn tap(g: &mut Game, x: i32, y: i32) -> u32 {
     let Some(v) = tap_corner(g, x, y) else { return 0 };
+    let deep = v.1 > g.level.surface + DEEP_ROWS;
+    if deep {
+        g.counts.deep_taps += 1;
+    }
     let mut n = 0;
-    for d in tap_dirs(g, v) {
+    for (d, aim) in tap_aims(g, v) {
         // Each tip gets its first edge now, in its own direction, so the
         // two halves leave the corner rather than both taking the best one.
         cut(g, v, d);
-        g.tips.tips.push(Tip { v: d.step(v), heading: Some(d), push: TAP_PUSH, run: 1 });
+        g.tips.tips.push(Tip { v: d.step(v), heading: Some(d), push: TAP_PUSH, run: 1, deep, aim });
         n += 1;
     }
     g.counts.cracks_run += n;
@@ -358,6 +432,19 @@ pub fn advance(g: &mut Game) {
                 g.tips.ends.push((tip.v.0, tip.v.1, tip.heading));
                 continue;
             }
+            // Drawn into a hole: straight at it, no fork, no tiring.
+            let aimed = tip.aim.and_then(|h| towards(g, tip.v, tip.heading, h));
+            if aimed.is_none() {
+                tip.aim = None;
+            }
+            if let Some(d) = aimed.or_else(|| pulled(g, tip.v, tip.heading)) {
+                cut(g, tip.v, d);
+                tip.v = d.step(tip.v);
+                tip.heading = Some(d);
+                tip.run += 1;
+                next.push(tip);
+                continue;
+            }
             let c = choices(g, tip.v, tip.heading);
             let Some(&(d, s)) = c.first() else {
                 g.counts.died += 1;
@@ -372,10 +459,12 @@ pub fn advance(g: &mut Game) {
                 cut(g, tip.v, d2);
                 g.counts.forks += 1;
                 g.counts.cracks_run += 1;
-                next.push(Tip { v: d2.step(tip.v), heading: Some(d2), push: share, run: 1 });
+                next.push(Tip { v: d2.step(tip.v), heading: Some(d2), push: share, run: 1, deep: tip.deep, aim: None });
             }
             cut(g, tip.v, d);
-            tip.push += s.min(3.0) / SELF_RUNNING - 1.0;
+            let gain = s.min(3.0) / SELF_RUNNING - 1.0;
+            // A deep crack under the water does not tire.
+            tip.push += if tip.deep && tip.v.1 > g.level.surface { gain.max(0.0) } else { gain };
             tip.v = d.step(tip.v);
             tip.heading = Some(d);
             tip.run += 1;
@@ -493,7 +582,7 @@ pub fn frost(g: &mut Game) -> u32 {
         });
         if wet_here {
             let push = FROST_PUSH + FROST_PER_WET * wet as f32;
-            g.tips.tips.push(Tip { v, heading, push, run: 0 });
+            g.tips.tips.push(Tip { v, heading, push, run: 0, deep: false, aim: None });
             g.flashes.push((x, y, 12, [200, 240, 255, 255]));
             woke += 1;
         } else {
@@ -511,20 +600,38 @@ pub fn frost(g: &mut Game) -> u32 {
     woke
 }
 
-/// The lake has reached the top: the wall fails all at once. Strained
-/// cracks start at every grain corner on the upstream face, and the
-/// shipped collapse takes what they cut.
+/// The lake has reached the top: the wall fails all at once. Its top
+/// `BURST_ROWS` rows break off along one line and the lake shoves them over
+/// the downstream side as slabs, with the flood behind them.
+///
+/// It was cracks: strained tips from every grain corner of the upstream
+/// face, left to cut what they would. On some walls they cut nothing that
+/// could leave, and "THE WALL BURST" was the lake quietly overflowing with
+/// nothing falling at all -- the worst outcome looked like the mildest
+/// (2026-11-08 playtest).
 pub fn burst(g: &mut Game) {
-    for y in (level::WALL_TOP + 2..level::FLOOR_Y - 1).step_by(5) {
-        for x in level::WALL_X0..level::WALL_X0 + 4 {
-            let v = (x, y);
-            if let Some(&(d, _)) = choices(g, v, None).first() {
-                cut(g, v, d);
-                g.tips.tips.push(Tip { v: d.step(v), heading: Some(d), push: BURST_PUSH, run: 1 });
-                break;
+    let floor = level::WALL_TOP + BURST_ROWS;
+    let taken: std::collections::HashSet<(i32, i32)> = g.tips.slides.iter().flat_map(|s| s.cells.iter().copied()).chain(g.tips.severed.iter().flat_map(|p| p.cells.iter().copied())).collect();
+    g.tips.severed.clear();
+    let mut cells = Vec::new();
+    for y in 0..floor {
+        for x in level::WALL_X0 - 4..=(level::WALL_X1 + 12).min(W - 1) {
+            if g.is_ice(x, y) && !taken.contains(&(x, y)) {
+                cells.push((x, y));
             }
         }
     }
+    for x in level::WALL_X0 - 4..=(level::WALL_X1 + 12).min(W - 1) {
+        if g.is_ice(x, floor - 1) && g.is_ice(x, floor) {
+            cut(g, (x, floor), Dir::E);
+        }
+    }
+    if cells.is_empty() {
+        return;
+    }
+    g.flashes.push((level::WALL_X0, floor, 20, [255, 255, 255, 255]));
+    g.counts.pieces_released += 1;
+    g.tips.slides.push(Slide { cells, depth: BURST_ROWS, acc: 0.0, stuck: 0 });
 }
 
 /// Cut a closed rectangle of cracks round cells `x0..=x1, y0..=y1`, all at
@@ -543,11 +650,15 @@ pub fn cut_ring(g: &mut Game, x0: i32, y0: i32, x1: i32, y1: i32) {
     g.tips.closures.push((x0, y0));
 }
 
-/// Largest piece the severance check will hand over, in cells. Bigger than
-/// any slab a player cuts on purpose (the wall is ~3,800 cells), and the
-/// burst's pieces are grain-sized; a flood that reaches this is the wall
-/// itself, still standing on the bedrock.
-pub const MAX_PIECE: usize = 1600;
+/// Bound on the severance flood, in cells: more than the whole wall
+/// (~3,800 cells), so it bounds work and never decides anything -- a piece
+/// is anchored because it touches the bedrock, not because it is big.
+///
+/// It was 1,600, which made it a gate (`CLAUDE.md`, *a size cap must bound
+/// work*): a deep crack that split the wall low cut off everything above
+/// it, too big to count, so the wall stood on a crack and a deep tap was
+/// as safe as a shallow one.
+pub const MAX_PIECE: usize = 5000;
 /// Frames between `support_sweep`s.
 pub const SUPPORT_EVERY: u64 = 6;
 /// How long a lump the body code put back where it was is trusted to be
@@ -666,6 +777,13 @@ pub fn release_ready(g: &mut Game) -> u32 {
     released
 }
 
+/// The row the lake's surface must reach before it pushes this piece: the
+/// lowest row where the piece faces the lake across the upstream face.
+/// `None` if no part of it faces the lake.
+pub fn push_row(g: &Game, p: &Piece) -> Option<i32> {
+    p.cells.iter().filter(|&&(x, y)| x - 1 < level::WALL_X0 && !g.is_ice(x - 1, y)).map(|&(_, y)| y).max()
+}
+
 /// Split a piece into its grain blocks: 4-connected runs of cells in the
 /// same Worley domain.
 fn grain_blocks(g: &Game, cells: &[(i32, i32)]) -> Vec<Vec<(i32, i32)>> {
@@ -777,7 +895,7 @@ pub fn slide(g: &mut Game) {
         s.acc += speed;
         while s.acc >= 1.0 {
             s.acc -= 1.0;
-            if shift_right(g, &mut s.cells) {
+            if shift_right(g, &mut s.cells, s.stuck) {
                 s.stuck = 0;
             } else {
                 s.stuck += 1;
@@ -807,7 +925,11 @@ pub fn slide(g: &mut Game) {
             }
         }
         if !falling.is_empty() {
-            drop_blocks(g, &falling, speed);
+            // Thrown at no more than `PEEL_VX`: at the slide's own speed (up to
+            // 1.5 a frame) a block off the crest flew seventy cells and
+            // landed on the mill's roof from a notch that held the lake
+            // safely (wall 4, 2026-11-08).
+            drop_blocks(g, &falling, speed.min(PEEL_VX));
             let gone: std::collections::HashSet<(i32, i32)> = falling.iter().copied().collect();
             s.cells.retain(|c| !gone.contains(c));
             if s.cells.is_empty() {
@@ -888,8 +1010,14 @@ fn shift(g: &mut Game, cells: &mut [(i32, i32)], (dx, dy): (i32, i32), grind: us
 
 /// Right if it can, grinding off a few corners of the step it rides on; up
 /// and right over a ledge too big to grind.
-fn shift_right(g: &mut Game, cells: &mut [(i32, i32)]) -> bool {
-    shift(g, cells, (1, 0), 4) || shift(g, cells, (1, -1), 1)
+///
+/// **The longer it is held, the more it grinds**: four cells at first, and
+/// four more for every frame it has been stuck. A slab the lake has hold of
+/// does not stop at a step in its crack, it shears it; capped at four, the
+/// planned player's first notch on wall 2 jammed in its own gap, closed it,
+/// and the wall burst behind it (2026-11-08).
+fn shift_right(g: &mut Game, cells: &mut [(i32, i32)], stuck: u32) -> bool {
+    shift(g, cells, (1, 0), 4 + 4 * stuck as usize) || shift(g, cells, (1, -1), 1 + stuck as usize)
 }
 
 /// Hand a piece to the shipped body code as its grain blocks, each moving

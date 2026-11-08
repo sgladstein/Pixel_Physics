@@ -1,9 +1,16 @@
 //! **The valley** -- the one level the probe needs.
 //!
 //! From the brief: a cloud, a bell tower (the tallest point, which you
-//! protect), one lamp in the open and one lamp under an overhang. A small
-//! village of log huts sits between the two lamps, on dry grass, so a bolt
-//! that lands short sets something you care about on fire.
+//! protect), lamps in the open and one lamp under an overhang. A small
+//! village of log huts sits between the field lamp and the rock, on dry
+//! grass, so a bolt that lands short sets something you care about on fire.
+//!
+//! **Four lamps for eight bolts** (playtest fix, 2026-11-08). With two, the
+//! field lamp filled in two heavy bolts and six of eight bolts were spare:
+//! "there are few real decisions". Four lamps hold twelve light, more than
+//! eight bolts can fill by striking each one, so every bolt is a choice of
+//! which lamp, and the lamp under the rock -- which no bolt reaches from
+//! above -- is only worth it if wiring lights it alongside another.
 //!
 //! Every number here is a cell position in a 256x160 world. The world is
 //! built from shipped materials only; the two the bolt makes -- glass and
@@ -18,6 +25,8 @@ use crate::sim::rng;
 use crate::sim::world::World;
 
 pub const W: i32 = 256;
+/// Lamps in the valley, left to right: hill, sand, field, under the rock.
+pub const LAMPS: usize = 4;
 pub const H: i32 = 160;
 
 /// A box of cells, inclusive.
@@ -62,7 +71,7 @@ pub struct Level {
     /// The iron bell and spire at the top of the tower -- what the cloud
     /// strikes when it strikes by itself.
     pub bell: Area,
-    pub lamps: [Lamp; 2],
+    pub lamps: [Lamp; LAMPS],
     pub huts: Vec<Area>,
     pub ledge: Area,
     pub sand: Area,
@@ -91,7 +100,12 @@ impl Level {
         Level {
             tower: Area::new(26, 50, 38, 95),
             bell: Area::new(29, 34, 35, 49),
-            lamps: [lamp(134, 106, "FIELD LAMP"), lamp(196, 112, "LAMP UNDER THE ROCK")],
+            // The hill lamp stands on the slope below the tower. First tried
+            // on the hilltop eight cells from it: the bell's iron took every
+            // bolt called there, 8 of 8 on seed 1, so it was a trap rather
+            // than a risk. The sand lamp stands in the sand strip, where a
+            // miss melts glass that no scorch line can cross.
+            lamps: [lamp(62, 88, "HILL LAMP"), lamp(99, 105, "SAND LAMP"), lamp(134, 106, "FIELD LAMP"), lamp(196, 112, "LAMP UNDER THE ROCK")],
             huts: vec![Area::new(142, 113, 151, 123), Area::new(155, 115, 162, 123)],
             ledge: Area::new(176, 99, 213, 104),
             sand: Area::new(84, 0, 114, 0),

@@ -39,7 +39,7 @@ use crate::sim::rng::Rng;
 use crate::sim::world::World;
 use crate::sim::{clock, frame, player, weather};
 use bolt::{Medium, Path, Push, Stuff};
-use level::{Level, H, W};
+use level::{Level, H, LAMPS, W};
 
 pub const TICKS_PER_SECOND: u32 = 60;
 /// The underside of the cloud: every bolt starts on this row.
@@ -48,6 +48,14 @@ pub const CLOUD_BASE: i32 = 18;
 pub const BOLTS: u32 = 8;
 pub const SPLASHES: u32 = 4;
 pub const RODS: u32 = 2;
+
+/// Points for 0, 1, 2 and 3 stars, out of 12 light in four lamps. Set from
+/// the playtest replays on 10 seeds (2026-11-08): filling the three lamps in
+/// the open and never wiring is 9 points, 2 stars on 10 of 10 storms; 3
+/// stars needs the lamp under the rock lit through a scorch line as well,
+/// which a rod at the shelf mouth managed on 1 to 2 storms in 10. The rock-lamp
+/// cheese that used to give 29 of 30 stars now gives 11.
+pub const STAR_POINTS: [i32; 4] = [i32::MIN, 4, 7, 10];
 
 /// Seconds of hold that make a full-weight bolt.
 pub const FULL_HOLD: f32 = 1.4;
@@ -231,7 +239,7 @@ pub struct Tally {
     pub called: u32,
     pub overheld: u32,
     pub ignored: u32,
-    pub lamp_hits: [u32; 2],
+    pub lamp_hits: [u32; LAMPS],
     pub bell_hits: u32,
     /// Lamps reached through a scorch line or rod rather than struck
     /// directly -- the wiring paying off.
@@ -242,6 +250,8 @@ pub struct Tally {
     pub fires: u32,
     pub splashes: u32,
     pub rods: u32,
+    /// Right clicks where a rod would not stand (no sky, or not ground).
+    pub rods_refused: u32,
     /// Where each called bolt was aimed and where it landed.
     pub landings: Vec<Landing>,
 }
@@ -267,7 +277,9 @@ pub struct Storm {
     pub splashes_left: u32,
     pub rods_left: u32,
     /// Light in each lamp, 0..=3.
-    pub lamps: [u8; 2],
+    pub lamps: [u8; LAMPS],
+    /// A refusal to show on the strip until the given tick ("NO SKY ABOVE").
+    pub note: Option<(&'static str, u64)>,
     pub tally: Tally,
     pub huts_start: u32,
     pub pointer: (i32, i32),
@@ -312,7 +324,8 @@ impl Storm {
             bolts_left: BOLTS,
             splashes_left: SPLASHES,
             rods_left: RODS,
-            lamps: [0; 2],
+            lamps: [0; LAMPS],
+            note: None,
             tally: Tally::default(),
             huts_start,
             pointer: (W / 2, CLOUD_BASE + 10),
@@ -354,12 +367,8 @@ impl Storm {
     }
 
     pub fn stars(&self) -> u32 {
-        match self.points() {
-            6.. => 3,
-            4..=5 => 2,
-            2..=3 => 1,
-            _ => 0,
-        }
+        let p = self.points();
+        STAR_POINTS.iter().skip(1).filter(|&&need| p >= need).count() as u32
     }
 
     /// One tick of the game.
@@ -371,9 +380,17 @@ impl Storm {
                 self.splashes_left -= 1;
                 self.tally.splashes += 1;
             }
-            if input.rod && self.rods_left > 0 && self.drive_rod(self.pointer) {
-                self.rods_left -= 1;
-                self.tally.rods += 1;
+            if input.rod && self.rods_left > 0 {
+                match self.drive_rod(self.pointer) {
+                    Ok(()) => {
+                        self.rods_left -= 1;
+                        self.tally.rods += 1;
+                    }
+                    Err(why) => {
+                        self.tally.rods_refused += 1;
+                        self.note = Some((why, self.tick + 2 * TICKS_PER_SECOND as u64));
+                    }
+                }
             }
         }
         self.step_world();
@@ -593,7 +610,7 @@ impl Storm {
     fn score(&mut self, hit: (i32, i32), network: &[(i32, i32)], heavy: f32, cause: Cause) -> String {
         let mut words = Vec::new();
         let gain = if heavy >= 0.66 { 2 } else { 1 };
-        for k in 0..2 {
+        for k in 0..LAMPS {
             let lamp = self.level.lamps[k];
             let direct = lamp.area.contains(hit);
             let wired = !direct && network.iter().any(|&c| lamp.area.contains(c));
@@ -927,14 +944,43 @@ impl Storm {
     }
 
     /// An iron rod: driven into the first ground below the pointer, three
-    /// cells deep, seven standing.
-    fn drive_rod(&mut self, (cx, cy): (i32, i32)) -> bool {
+    /// cells deep, seven standing -- **only into open ground under open
+    /// sky**, or it is refused with the reason, and the rod is not spent.
+    ///
+    /// The playtest's cheese (`playtest-2026-11-08/storm-review.md`): with
+    /// the pointer just above the head of the lamp under the rock, the rod
+    /// dropped onto the lamp and its top met the ledge, so every bolt on the
+    /// ledge lit the lamp through solid rock. 29 of 30 stars that way, 30 of
+    /// 30 with careless taps; a fresh player found it on all 10 storms. So a
+    /// rod now needs both columns clear to the cloud (no rock, no lamp, no
+    /// house over it) and soil, sand, scorch, glass or grass under it.
+    fn drive_rod(&mut self, (cx, cy): (i32, i32)) -> Result<(), &'static str> {
+        let cx = cx.min(W - 2);
         let mut y = cy.max(CLOUD_BASE + 2);
         while y < H && self.world.get(cx, y).material == material::EMPTY {
             y += 1;
         }
         if y >= H - 3 {
-            return false;
+            return Err("NOWHERE FOR A ROD TO STAND");
+        }
+        let sky = (CLOUD_BASE + 1..y).all(|yy| (cx..=cx + 1).all(|x| self.world.get(x, yy).material == material::EMPTY));
+        if !sky {
+            return Err("NO SKY ABOVE - THE ROD WILL NOT STAND HERE");
+        }
+        let m = self.world.get(cx, y).material;
+        let ground = [self.ids.soil, self.ids.scorch, self.ids.glass, self.ids.litter, material::SAND].contains(&m);
+        if !ground {
+            return Err(if m == self.ids.lamp_dark || m == self.ids.lamp_lit {
+                "A ROD WILL NOT STAND ON A LAMP - OPEN GROUND ONLY"
+            } else if m == self.ids.log {
+                "A ROD WILL NOT STAND ON A HOUSE - OPEN GROUND ONLY"
+            } else if m == self.ids.iron {
+                "A ROD WILL NOT STAND ON IRON - OPEN GROUND ONLY"
+            } else if self.world.materials.kind(m) == MaterialKind::Liquid {
+                "A ROD WILL NOT STAND IN WATER - OPEN GROUND ONLY"
+            } else {
+                "A ROD WILL NOT STAND ON ROCK - OPEN GROUND ONLY"
+            });
         }
         for yy in (y - 7)..(y + 3) {
             for x in cx..=cx + 1 {
@@ -943,7 +989,7 @@ impl Storm {
                 }
             }
         }
-        true
+        Ok(())
     }
 
     /// The frame size [`Self::draw`] wants.
@@ -1000,10 +1046,34 @@ mod tests {
     fn a_strike_leaves_a_mark() {
         let mut s = Storm::new(2);
         let before = (count(&s.world, s.ids.scorch), count(&s.world, s.ids.glass));
-        s.discharge((100, level::ground_y(100) + 1), 1.0);
+        // x 90: sand clear of the sand lamp's post at 99.
+        s.discharge((90, level::ground_y(90) + 1), 1.0);
         s.discharge((170, level::ground_y(170) + 1), 1.0);
         let after = (count(&s.world, s.ids.scorch), count(&s.world, s.ids.glass));
         assert!(after.0 > before.0 + 5, "soil should scorch: {before:?} -> {after:?}");
         assert!(after.1 > before.1 + 5, "sand should melt: {before:?} -> {after:?}");
+    }
+
+    /// The playtest's cheese, closed: a rod aimed just above the head of the
+    /// lamp under the rock (where it used to drop onto the lamp and meet the
+    /// ledge) is refused with a reason and not spent; so is one onto a lamp
+    /// in the open, or onto the ledge's top; a rod in the open field stands.
+    /// Each refusal is checked against the stand case, so the test fails if
+    /// every rod is refused as well as if the cheese comes back.
+    #[test]
+    fn a_rod_stands_only_under_open_sky() {
+        let rod = |at: (i32, i32)| {
+            let mut s = Storm::new(1);
+            s.update(Input { at, rod: true, ..Input::default() });
+            (s.rods_left, s.tally.rods_refused, s.note.map(|n| n.0))
+        };
+        let lv = Level::valley();
+        let rock = lv.lamps.iter().find(|l| l.name.contains("ROCK")).unwrap();
+        let field = lv.lamps.iter().find(|l| l.name.contains("FIELD")).unwrap();
+        let (rx, fx) = (rock.area.centre().0, field.area.centre().0);
+        assert_eq!(rod((rx, rock.head.y0 - 3)), (RODS, 1, Some("NO SKY ABOVE - THE ROD WILL NOT STAND HERE")), "under the ledge");
+        assert_eq!(rod((rx, CLOUD_BASE + 4)).0, RODS, "on top of the ledge");
+        assert_eq!(rod((fx, CLOUD_BASE + 4)), (RODS, 1, Some("A ROD WILL NOT STAND ON A LAMP - OPEN GROUND ONLY")), "on the field lamp");
+        assert_eq!(rod((fx - 14, CLOUD_BASE + 4)), (RODS - 1, 0, None), "the open field");
     }
 }

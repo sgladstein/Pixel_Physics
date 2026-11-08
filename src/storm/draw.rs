@@ -258,19 +258,26 @@ fn strip(s: &Storm, cv: &mut Canvas) {
     let top = H * SCALE;
     let (w, _) = frame_size();
     cv.rect(0, top, w as i32, top + STRIP, [16, 16, 22], 1.0);
-    let lamp = |p: u8| -> String { format!("[{}]", (0..3).map(|i| if i < p { '*' } else { '-' }).collect::<String>()) };
+    // Four lamps do not fit by name on one line; each lamp's own three pips
+    // above its head say which is full, so the strip carries the total.
+    let light: u32 = s.lamps.iter().map(|&p| p as u32).sum();
     let line1 = format!(
-        "BOLT {}/{}  FIELD LAMP {}  ROCK LAMP {}  BELL {}  {}",
+        "BOLT {}/{}  LAMP LIGHT {}/{}  BELL {}  {}{}",
         (BOLTS - s.bolts_left + 1).min(BOLTS),
         BOLTS,
-        lamp(s.lamps[0]),
-        lamp(s.lamps[1]),
+        light,
+        3 * s.lamps.len(),
         s.tally.bell_hits,
         stars(s.stars()),
+        match s.stars() {
+            3 => String::new(),
+            n => format!(" (NEXT AT {})", super::STAR_POINTS[n as usize + 1]),
+        },
     );
     text(cv, (8, top + 4), &line1, [230, 230, 236]);
     let sec = TICKS_PER_SECOND as f32;
     let (line2, warn) = match &s.phase {
+        _ if s.note.is_some_and(|(_, until)| s.tick < until) => (s.note.map_or("", |n| n.0).to_string(), true),
         Phase::Ready { t } => {
             let left = PATIENCE - *t as f32 / sec;
             if left < 2.5 {
@@ -303,7 +310,7 @@ fn strip(s: &Storm, cv: &mut Canvas) {
         let (cx, cy) = (W * SCALE / 2, H * SCALE / 2 - 30);
         cv.rect(cx - 330, cy - 40, cx + 330, cy + 54, [10, 10, 16], 0.86);
         let a = format!("THE STORM IS OVER: {}", stars(s.stars()));
-        let b = format!("LAMP LIGHT {}  BELL HITS {}  HOUSES BURNED {}", s.lamps[0] + s.lamps[1], s.tally.bell_hits, s.huts_lost_penalty());
+        let b = format!("LAMP LIGHT {}  BELL HITS {}  HOUSES BURNED {}", light, s.tally.bell_hits, s.huts_lost_penalty());
         text(cv, (cx - 6 * a.len() as i32, cy - 26), &a, [255, 230, 160]);
         text(cv, (cx - 6 * b.len() as i32, cy), &b, [220, 220, 230]);
         let c = "PRESS R TO PLAY AGAIN";

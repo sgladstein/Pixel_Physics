@@ -7214,7 +7214,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 if prime_due {
                     write_primed(world, x, y, true);
                 }
-                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.organism_due(ORGANISM_TICK_INTERVAL)));
+                let child_due = super::tip_cards::due(world, steer.is_some()).unwrap_or_else(|| world.organism_due(ORGANISM_TICK_INTERVAL));
+                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, child_due));
 
                 // §3's branching: a second successful `Grow`, in a
                 // different direction, this same tick -- gated by the
@@ -7458,7 +7459,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                             let cell = retissue_on_role_change(world, organism_id, species_id, cell, cell_type, self_type_after_grow, &mut rng);
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
-                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
+                            let lateral_due = super::tip_cards::due(world, steer.is_some()).unwrap_or_else(|| world.organism_due(ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, lateral_due));
 
                             // **A sympodial tier forks instead of
                             // decorating: the fork replaces the axis.** The
@@ -8167,7 +8169,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     let due = if cell_type == CellType::Seed {
         world.frame + SEED_TICK_INTERVAL
     } else {
-        world.organism_due(ORGANISM_TICK_INTERVAL)
+        // A card-grown tip, carrying a card or waiting for one, comes round
+        // at the card table's pace (`tip_cards::due`); `None` everywhere else.
+        super::tip_cards::due(world, card_hold).unwrap_or_else(|| world.organism_due(ORGANISM_TICK_INTERVAL))
     };
     // **A cell that is no longer a frontier leaves the schedule.** Its
     // upkeep runs from `step_organisms` over the organism's own cell list.

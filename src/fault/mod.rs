@@ -136,6 +136,8 @@ pub struct Counts {
     pub grit_cells: u32,
     /// Sliding pieces that jammed against something and stopped.
     pub jammed: u32,
+    /// Taps started more than `tips::DEEP_ROWS` under the lake.
+    pub deep_taps: u32,
     /// Lumps of ice found with nothing holding them up, and let fall.
     pub unheld: u32,
     /// Ice cells that hit the mill's box while moving, or mill cells lost.
@@ -151,8 +153,12 @@ pub struct Counts {
 pub struct Score {
     /// Highest spillway flow seen, in full water cells per second.
     pub peak_flow: f32,
-    /// Share of the lake's peak volume drained by the end, 0..1.
+    /// Share of the lake's peak volume drained by the end, 0..1. Shown, no
+    /// longer graded.
     pub drained: f32,
+    /// The lake never stood above the safe line, and is not below the mill
+    /// race.
+    pub held: bool,
     pub mill_hit: bool,
     pub burst: bool,
     pub stars: u32,
@@ -209,6 +215,8 @@ pub struct Game {
     /// holes is a saw cut and the cracks have no job.
     pub drills_left: u32,
     pub taps_left: u32,
+    /// The highest the lake has stood, as a row (smaller is higher).
+    pub lake_high: i32,
     /// The tension a tip feels as "1": fixed at the start of the level so
     /// that the wall really does get more dangerous as the lake rises.
     unit: f32,
@@ -259,6 +267,7 @@ impl Game {
             frost_flash: 0,
             drills_left: DRILLS,
             taps_left: TAPS,
+            lake_high: level::LAKE_START,
             unit: 1.0,
         };
         g.settle();
@@ -297,6 +306,7 @@ impl Game {
             frost_flash: self.frost_flash,
             drills_left: self.drills_left,
             taps_left: self.taps_left,
+            lake_high: self.lake_high,
             unit: self.unit,
         }
     }
@@ -306,7 +316,10 @@ impl Game {
     /// their head before tapping, and what the harness's planned player
     /// does on a `trial` copy.
     pub fn settle_cracks(&mut self) {
-        for _ in 0..200 {
+        // Bounds work only: every pass cuts at least one edge that was
+        // uncut, so this ends. 200 was enough before deep cracks, which do
+        // not tire under water and can run the wall's height.
+        for _ in 0..2000 {
             if self.tips.tips.is_empty() {
                 break;
             }
@@ -384,7 +397,22 @@ impl Game {
             }
         }
         if any {
+            self.tips.holes.push((x, y));
             self.world.paint_circle(x, y, tips::DRILL_R, material::EMPTY);
+            // The engine's circle is a little rounder than the hole the
+            // cracks see (`r^2 + 1`), and the four cells between left ice
+            // the cracks took for hole: a tip stopped "at the hole" one
+            // cell short, and a hole-to-hole line across wall 2 held its
+            // whole top on through that corner. Clear exactly what was
+            // marked.
+            for dy in -tips::DRILL_R..=tips::DRILL_R {
+                for dx in -tips::DRILL_R..=tips::DRILL_R {
+                    let (cx, cy) = (x + dx, y + dy);
+                    if self.tips.is_hole(cx, cy) && self.is_ice(cx, cy) {
+                        self.world.paint_circle(cx, cy, 0, material::EMPTY);
+                    }
+                }
+            }
             self.world.record_disturbance(x, y, tips::DRILL_R);
             self.flashes.push((x, y, 8, [255, 210, 120, 255]));
         }
@@ -411,6 +439,7 @@ impl Game {
 
     pub fn step(&mut self) {
         self.level.rise(&mut self.world, &mut self.counts);
+        self.lake_high = self.lake_high.min(self.level.surface);
         self.tension.update(&self.world, self.ice, &self.level, &self.tips);
         tips::soak(self);
         tips::advance(self);
@@ -481,18 +510,40 @@ impl Game {
         let drained = if self.peak_volume > 0 { (1.0 - v / self.peak_volume as f32).clamp(0.0, 1.0) } else { 0.0 };
         let mill_hit = self.counts.mill_hits > 0 || self.counts.mill_flood >= MILL_FLOOD;
         let burst = self.counts.burst;
-        let mut stars = 0;
-        if !burst {
-            stars += 1;
-            if drained >= 0.5 {
-                stars += 1;
+        // The 2026-11-08 playtest's grading. Three stars: the wall did not
+        // burst; the lake was held between the safe line and the mill race;
+        // the mill is dry and untouched. It replaced "drained half the lake", which scored
+        // a spillway that held the lake steady -- the very plan the game is
+        // about -- as a failure (0% drained, 1 star), and could only be met
+        // by a flood big enough to reach the mill: no run ever made 3 stars.
+        // Between the lines: never above the safe line, and at the end no
+        // lower than the mill race (`level::MILL_RACE`).
+        let held = !burst && self.lake_high >= level::SAFE_LINE - 1 && self.level.surface <= level::MILL_RACE;
+        let stars = if burst { 0 } else { 1 + u32::from(held) + u32::from(!mill_hit) };
+        Score { peak_flow: self.peak_flow, drained, held, mill_hit, burst, stars }
+    }
+}
+
+/// Where a tap at corner `v` would run: the edges it would cut, worked
+/// out on a copy of the game. For the cursor's preview.
+pub fn preview_tap(g: &Game, v: (i32, i32)) -> Vec<(i32, i32, bool)> {
+    let mut t = g.trial();
+    t.taps_left = t.taps_left.max(1);
+    t.act(Action { tool: Tool::Tap, x: v.0, y: v.1 });
+    t.settle_cracks();
+    let mut out = Vec::new();
+    for y in 0..level::FLOOR_Y {
+        for x in level::WALL_X0 - 2..(level::WALL_X1 + 12).min(level::W) {
+            let (a, b) = (g.world.get(x, y), t.world.get(x, y));
+            if b.crack_down() && !a.crack_down() {
+                out.push((x, y, true));
             }
-            if !mill_hit && drained > 0.05 {
-                stars += 1;
+            if b.crack_right() && !a.crack_right() {
+                out.push((x, y, false));
             }
         }
-        Score { peak_flow: self.peak_flow, drained, mill_hit, burst, stars }
     }
+    out
 }
 
 /// Whether `m` is something a crack can run through.
@@ -560,5 +611,38 @@ mod tests {
         tips::find_severed(&mut g);
         assert_eq!(g.counts.pieces_cut, 1, "the ring cut nothing free");
         assert!(g.counts.piece_cells >= 150, "the piece is {} cells", g.counts.piece_cells);
+    }
+
+    /// "Drill two, tap between" (2026-11-08 playtest, fix 4): a tap
+    /// between two holes runs into both of them. Before the pull, the same
+    /// tap ran off along the grain and met neither.
+    #[test]
+    fn a_tap_between_two_holes_stitches_them() {
+        let mut g = Game::new(1);
+        assert!(g.act(Action { tool: Tool::Drill, x: 103, y: 62 }));
+        assert!(g.act(Action { tool: Tool::Drill, x: 119, y: 62 }));
+        assert!(g.act(Action { tool: Tool::Tap, x: 111, y: 62 }));
+        g.settle_cracks();
+        assert_eq!(g.counts.stopped_by_hole, 2, "the crack met {} of the two holes", g.counts.stopped_by_hole);
+    }
+
+    /// A tap under the lake runs on (fix 1's danger): tapped deep, no tip
+    /// of the crack tires, and it cuts at least as far as the same tap dry.
+    #[test]
+    fn a_deep_tap_runs_further_than_a_dry_one() {
+        let run = |surface: i32| {
+            let mut g = Game::new(1);
+            g.level.surface = surface;
+            g.act(Action { tool: Tool::Tap, x: 100, y: 120 });
+            g.settle_cracks();
+            (g.counts.edges_cracked, g.counts.deep_taps, g.counts.died)
+        };
+        let (dry, dry_deep, _) = run(level::FLOOR_Y);
+        let (wet, wet_deep, wet_died) = run(60);
+        assert_eq!((dry_deep, wet_deep), (0, 1));
+        // Under water nothing tires: every tip of the deep crack ran until
+        // it met a face, a hole or another crack.
+        assert_eq!(wet_died, 0, "a deep tip ran out of push");
+        assert!(wet >= dry, "deep {wet} edges against dry {dry}");
     }
 }

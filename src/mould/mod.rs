@@ -36,13 +36,17 @@
 //!   and its tube is drawn pale. So the mould can only stretch so far from
 //!   food, and a cut tube starves what is beyond it, visibly, over seconds:
 //!   a graded death, never a disappearance.
-//! * **The tools** each act on the model's own levers: the Lamp is a
-//!   negative term in every sensor plus a per-cell fade, Oats are a small
+//! * **The tools** each act on the model's own levers: the Lamp pushes
+//!   (it carries trail and walkers outward from its centre, so a tube
+//!   bends aside rather than being erased; see `push_light`), Oats are a small
 //!   food pile (a steady trail deposit that also pays the store), Salt is
 //!   ground a walker cannot step on, and Snip kills walkers and clears trail
 //!   along a stroke.
-//! * **The storm** at the end of a dish cuts the thickest tube (one cut; see
-//!   `STORM_CUTS` for why not three), and the score is read before and after.
+//! * **The storm** at the end of a dish cuts one tube: the one whose loss
+//!   costs the most food (see `aim_storm`; one cut, see `STORM_CUTS` for why
+//!   not three). Its line is shown as a shadow `STORM_WARNING_SECONDS`
+//!   ahead, and toughness is read after the full watch, once regrowth has
+//!   had its chance.
 
 pub mod play;
 pub mod render;
@@ -87,10 +91,14 @@ pub struct Params {
     /// from beyond a walker's own sensors.
     pub scent_keep: f32,
     /// How strongly light outweighs trail in a sensor. At 1.0 light, a
-    /// sensor reads `trail - light_weight`.
+    /// sensor reads `trail - light_weight`. **0 since the 2026-11-08
+    /// playtest** (was 400): the lamp now moves the mould (`push`) instead of
+    /// repelling it, and every sensor weight tried on top of the push made a
+    /// lamp held over a tube part it more often (weight 15: 4 of 5 trunks
+    /// parted, against 2 of 5 at 0).
     pub light_weight: f32,
-    /// Fraction of trail a fully lit cell loses per step, on top of `keep`:
-    /// "the tube under the lamp thins".
+    /// Fraction of trail a fully lit cell loses per step, on top of `keep`.
+    /// 0 since the 2026-11-08 playtest (was 0.25): the lamp must not erase.
     pub light_fade: f32,
     /// Trail above which a cell counts as tube -- for feeding, for the score
     /// and for drawing it fed or pale.
@@ -120,8 +128,19 @@ pub struct Params {
     /// Chance per step that a walker dies while the store is empty, scaled
     /// up with its distance from food.
     pub hungry: f32,
-    /// Chance per step that a walker in full light dies.
+    /// Chance per step that a walker in full light dies. 0 since the
+    /// 2026-11-08 playtest (was 1/400), for the same reason as `light_fade`.
     pub burn: f32,
+    /// How far the lamp's light reaches, in cells. Full brightness inside
+    /// half of it, falling to nothing at the edge.
+    pub lamp_reach: f32,
+    /// Light falls off all the way from the centre, instead of a flat core.
+    pub lamp_soft: bool,
+    /// How hard the light shoves: the fraction of trail in fully lit cells
+    /// carried one cell outward per step, and the chance per step that a
+    /// fully lit walker is stepped one cell outward. 0 is the sensor-only
+    /// lamp, which repels but cannot move a tube (see `push_light`).
+    pub push: f32,
 }
 
 impl Default for Params {
@@ -134,8 +153,8 @@ impl Default for Params {
             keep: 0.90,
             food_deposit: 20.0,
             scent_keep: 0.97,
-            light_weight: 400.0,
-            light_fade: 0.25,
+            light_weight: 0.0,
+            light_fade: 0.0,
             tube: 1.0,
             feed_reach: 70,
             upkeep: 0.004,
@@ -146,7 +165,10 @@ impl Default for Params {
             crowd: 7,
             starve: 1.0 / 600.0,
             hungry: 1.0 / 900.0,
-            burn: 1.0 / 400.0,
+            burn: 0.0,
+            lamp_reach: LAMP_R,
+            lamp_soft: false,
+            push: 0.9,
         }
     }
 }
@@ -161,6 +183,17 @@ pub const OATS_STOCK: u32 = 5;
 pub const OATS_FOOD: f32 = 400.0;
 pub const OATS_R: f32 = 3.0;
 pub const OATS_SECONDS: u32 = 35;
+/// **Oats come back**: one more every this many seconds, up to the stock.
+/// The 2026-11-08 playtest found a fresh player had spent all five by about
+/// 20 s and then had nothing to decide for a minute ("28 of 35 runs joined
+/// the same food at 30 s as at 75 s").
+pub const OATS_REGROW_SECONDS: u32 = 15;
+/// **Food that turns up partway**, for the same reason: the farthest pile
+/// appears at the first time, and a sixth pile somewhere new at the second.
+pub const LATE_FOOD_SECONDS: [u32; 2] = [30, 55];
+/// The storm's warning: a shadow line over the tube it will strike, this many
+/// seconds ahead, so a player can lead the mould off it or build a bypass.
+pub const STORM_WARNING_SECONDS: u32 = 5;
 /// Salt: one line per dish, this many cells long.
 pub const SALT_STOCK: u32 = 1;
 pub const SALT_LEN: f32 = 60.0;
@@ -182,13 +215,11 @@ pub const SNIP_LEN: f32 = 30.0;
 /// tree loses a region and a loop shrugs it off.
 pub const STORM_CUTS: usize = 1;
 pub const CUT_HALF: f32 = 20.0;
-/// Seconds after the storm at which "still joined" is read.
-pub const AFTER_SECONDS: u32 = 2;
 /// The thrift star: the network must be no more than this many times the
 /// shortest possible length, and join at least `THRIFT_MIN_JOINED` piles (a
 /// lone tube is thrifty by default). Set from the probe's first census,
 /// where clean single tubes read 1.0-1.3x and branchy networks 1.6-1.9x.
-pub const THRIFT_BAR: f32 = 1.5;
+pub const THRIFT_BAR: f32 = 1.15;
 pub const THRIFT_MIN_JOINED: u32 = 3;
 /// Cells of tube width that make one cell of network length. Calibrated on
 /// the probe's straight home-to-pile tubes, which are about 12 cells wide at
@@ -196,6 +227,10 @@ pub const THRIFT_MIN_JOINED: u32 = 3;
 pub const TUBE_WIDTH: f32 = 12.0;
 /// How often (steps) the feeding search and pile census run.
 const FED_EVERY: u64 = 6;
+
+/// A straight stroke across the dish, end to end, in cells: a storm cut,
+/// a salt line, a snip.
+pub type Segment = ((f32, f32), (f32, f32));
 
 // --------------------------------------------------------------------- rng
 
@@ -389,6 +424,12 @@ pub struct Dish {
     after: Option<u32>,
     /// Each storm cut, as the two ends of its scar.
     pub cuts: Vec<((f32, f32), (f32, f32))>,
+    /// Food piles still to come, with the step each appears at.
+    pub pending: Vec<(u64, Pile)>,
+    /// Where the storm will strike, once it has been aimed.
+    pub storm_line: Option<((f32, f32), (f32, f32))>,
+    /// Piles that have turned up, with the step, for the arrival flash.
+    pub arrived: Vec<(f32, f32, u64)>,
     /// Recent snip strokes, for drawing a mark that fades: (x, y, step).
     pub snip_marks: Vec<(f32, f32, u64)>,
     pub counts: Counts,
@@ -459,7 +500,7 @@ impl Dish {
                 }
             }
         }
-        let piles = layout(&mut rng)
+        let mut piles = layout(&mut rng)
             .into_iter()
             .map(|(x, y, r)| Pile {
                 x,
@@ -472,6 +513,32 @@ impl Dish {
                 eaters: 0,
             })
             .collect::<Vec<_>>();
+        // Late food: the farthest pile waits, and a sixth goes wherever is
+        // far from all the others.
+        let s = STEPS_PER_SECOND as u64;
+        let mut pending = Vec::new();
+        let far = piles.remove(4);
+        pending.push((LATE_FOOD_SECONDS[0] as u64 * s, far.clone()));
+        let spots = [
+            (150.0f32, 24.0f32),
+            (160.0, 140.0),
+            (70.0, 138.0),
+            (232.0, 80.0),
+            (60.0, 30.0),
+        ];
+        let mut order: Vec<usize> = (0..spots.len()).collect();
+        for k in (1..order.len()).rev() {
+            let j = rng.below(k as u32 + 1) as usize;
+            order.swap(k, j);
+        }
+        let taken: Vec<(f32, f32)> = piles.iter().chain(std::iter::once(&far)).map(|p| (p.x, p.y)).collect();
+        if let Some(&k) = order
+            .iter()
+            .find(|&&k| taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0))
+        {
+            let (x, y) = spots[k];
+            pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
+        }
         let mut dish = Dish {
             params,
             seed,
@@ -490,6 +557,9 @@ impl Dish {
             store: START_STORE,
             lamp: None,
             oats_left: OATS_STOCK,
+            pending,
+            storm_line: None,
+            arrived: Vec::new(),
             salt_left: SALT_STOCK,
             snips_left: SNIP_STOCK,
             stroke: None,
@@ -693,6 +763,7 @@ impl Dish {
 
     pub fn step(&mut self) {
         self.update_light();
+        self.push_light();
         self.deposit_food();
         self.move_walkers();
         self.diffuse();
@@ -717,7 +788,7 @@ impl Dish {
             }
         }
         let Some((lx, ly)) = self.lamp else { return };
-        let r = LAMP_R;
+        let r = self.params.lamp_reach;
         let x0 = (lx - r).floor().max(0.0) as usize;
         let y0 = (ly - r).floor().max(0.0) as usize;
         let x1 = ((lx + r).ceil() as usize + 1).min(W);
@@ -727,11 +798,90 @@ impl Dish {
                 let d = ((x as f32 + 0.5 - lx).powi(2) + (y as f32 + 0.5 - ly).powi(2)).sqrt();
                 // A bright flat core and a soft edge, so a sensor reads a
                 // slope before the walker is in the light.
-                let l = ((r - d) / (r * 0.5)).clamp(0.0, 1.0);
+                let l = if self.params.lamp_soft {
+                    // No flat core: brightest at the centre and sloping all
+                    // the way out, so every sensor in reach reads a push.
+                    ((r - d) / r).clamp(0.0, 1.0).powi(2)
+                } else {
+                    ((r - d) / (r * 0.5)).clamp(0.0, 1.0)
+                };
                 self.light[idx(x, y)] = l;
             }
         }
         self.light_box = Some((x0, y0, x1, y1));
+    }
+
+    /// **The lamp shoves the mould, rather than only repelling it.**
+    ///
+    /// The playtest of 2026-11-08 found the lamp "an eraser, not a herding
+    /// tool": the plan's lamp logic alone scored 1 star over 5 dishes, worse
+    /// than doing nothing. A sensor-only lamp cannot move a tube: walkers
+    /// leave the light, the trail behind them fades, and the tube parts.
+    /// Measured on the trunk at 25 s with the lamp 8 cells beside it, every
+    /// sensor-only setting tried (weights 20 to 400, flat and sloped light,
+    /// reach 16 to 28, with and without the fade and the burn) lost a join
+    /// on most seeds, and the harder it pushed the more it broke.
+    ///
+    /// So the light also carries what is under it: a share of each lit
+    /// cell's trail moves one cell outward, away from the lamp, and lit
+    /// walkers are stepped outward too. The tube is moved as a whole, like a
+    /// rope pushed with a finger, and stays joined while it bends.
+    fn push_light(&mut self) {
+        let push = self.params.push;
+        let (Some((lx, ly)), Some((x0, y0, x1, y1))) = (self.lamp, self.light_box) else {
+            return;
+        };
+        if push <= 0.0 {
+            return;
+        }
+        // Trail: outermost rings first, so a share moved this step is not
+        // moved again further out in the same step.
+        let mut cells: Vec<(f32, usize, usize)> = Vec::new();
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = idx(x, y);
+                if self.light[i] > 0.0 && self.ground[i] == Ground::Agar {
+                    let d = (x as f32 + 0.5 - lx).hypot(y as f32 + 0.5 - ly);
+                    cells.push((d, x, y));
+                }
+            }
+        }
+        cells.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for &(d, x, y) in &cells {
+            let i = idx(x, y);
+            let (ux, uy) = if d > 0.01 {
+                ((x as f32 + 0.5 - lx) / d, (y as f32 + 0.5 - ly) / d)
+            } else {
+                (1.0, 0.0)
+            };
+            let (tx, ty) = ((x as f32 + 0.5 + ux * 1.5).floor(), (y as f32 + 0.5 + uy * 1.5).floor());
+            if let Some(j) = cell(tx, ty) {
+                if j != i && self.ground[j] == Ground::Agar {
+                    let moved = self.trail[i] * push * self.light[i];
+                    self.trail[i] -= moved;
+                    self.trail[j] += moved;
+                }
+            }
+        }
+        // Walkers.
+        for k in 0..self.walkers.len() {
+            let w = self.walkers[k];
+            let Some(i) = cell(w.x, w.y) else { continue };
+            let l = self.light[i];
+            if l <= 0.0 || self.rng.f32() >= push * l {
+                continue;
+            }
+            let d = (w.x - lx).hypot(w.y - ly).max(0.01);
+            let (nx, ny) = (w.x + (w.x - lx) / d, w.y + (w.y - ly) / d);
+            if let Some(j) = cell(nx, ny) {
+                if j != i && self.ground[j] == Ground::Agar && self.occ[j] == 0 {
+                    self.occ[i] = 0;
+                    self.occ[j] = 1;
+                    self.walkers[k].x = nx;
+                    self.walkers[k].y = ny;
+                }
+            }
+        }
     }
 
     fn deposit_food(&mut self) {
@@ -1002,24 +1152,43 @@ impl Dish {
     }
 
     fn phase_tick(&mut self) {
+        let sps = STEPS_PER_SECOND as u64;
+        if self.phase == Phase::Growing {
+            // Oats come back, and late food turns up.
+            if self.t > 0 && self.t.is_multiple_of(OATS_REGROW_SECONDS as u64 * sps) && self.oats_left < OATS_STOCK {
+                self.oats_left += 1;
+            }
+            let t = self.t;
+            let mut k = 0;
+            while k < self.pending.len() {
+                if self.pending[k].0 <= t {
+                    let (_, p) = self.pending.remove(k);
+                    self.arrived.push((p.x, p.y, t));
+                    self.piles.insert(self.dish_piles().count(), p);
+                } else {
+                    k += 1;
+                }
+            }
+            if self.storm_line.is_none() && self.t + 1 >= Self::dish_steps() - STORM_WARNING_SECONDS as u64 * sps {
+                self.storm_line = self.aim_storm();
+            }
+        }
         match self.phase {
             Phase::Growing if self.t + 1 >= Self::dish_steps() => {
                 self.lamp = None;
                 self.stroke = None;
                 self.update_light();
                 let before = self.measure();
-                self.storm();
+                self.strike();
                 self.before = Some(before);
                 self.phase = Phase::Storm(self.t);
             }
-            // Read the damage once the storm has passed, before the mould has
-            // had time to grow a way round the scars; then let it play out.
-            Phase::Storm(at) if self.t == at + (AFTER_SECONDS * STEPS_PER_SECOND) as u64 => {
-                self.after = Some(self.measure().reach);
-            }
+            // Toughness is read after the whole watch, so a tube that grew
+            // back round the scar, or a bypass built in time, counts.
             Phase::Storm(at) if self.t >= at + Self::storm_steps() => {
                 let mut s = self.before.clone().unwrap_or_default();
-                s.after = self.after.unwrap_or(0).min(s.reach);
+                s.after = self.measure().reach.min(s.reach);
+                self.after = Some(s.after);
                 let joined_two = s.reach >= 2;
                 s.stars = [
                     s.reach == s.piles,
@@ -1150,71 +1319,176 @@ impl Dish {
         }
     }
 
-    /// The storm strikes the thickest tubes of the best-joined piece,
-    /// away from the piles themselves, and leaves a scar nothing crosses.
-    fn storm(&mut self) {
+    /// **Where the storm will strike: the tube whose loss costs the most
+    /// food**, thickest first among equals. Until the 2026-11-08 playtest it
+    /// struck the thickest tube, which cost a pile in 30 of 35 runs whatever
+    /// the player did, and sometimes landed on a spur out to stray oats and
+    /// cost nothing -- so a random hand earned toughness by luck. Aiming at
+    /// the worst cut makes the star mean "this network has no single weak
+    /// tube", and the warning gives a player the five seconds to fix it.
+    fn aim_storm(&self) -> Option<((f32, f32), (f32, f32))> {
         let (label, n) = self.pieces();
         let (best, _) = self.best_piece(&label, n);
+        if best == 0 {
+            return None;
+        }
         let mut cand: Vec<(f32, usize)> = Vec::new();
         for (i, &l) in label.iter().enumerate() {
-            if l == best && best != 0 {
-                let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
-                let near_pile = self
-                    .piles
-                    .iter()
-                    .any(|p| !p.oats && (p.x - x).powi(2) + (p.y - y).powi(2) <= (p.r + 12.0).powi(2));
-                if !near_pile {
-                    cand.push((self.trail[i], i));
-                }
+            let (x, y) = (i % W, i / W);
+            if l != best || x % 3 != 0 || y % 3 != 0 {
+                continue;
+            }
+            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let near_pile = self.piles.iter().any(|p| (p.x - fx).hypot(p.y - fy) <= p.r + 12.0);
+            if !near_pile {
+                cand.push((self.trail[i], i));
             }
         }
-        cand.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let mut at: Vec<(f32, f32)> = Vec::new();
-        for (_, i) in cand {
+        let cells: Vec<usize> = (0..W * H).filter(|&i| label[i] == best).collect();
+        let mut comp = vec![0u32; W * H];
+        let mut pick: Option<(u32, f32, Segment)> = None;
+        for (trail, i) in cand {
             let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
-            if at.iter().all(|c| (c.0 - x).powi(2) + (c.1 - y).powi(2) >= 40.0 * 40.0) {
-                at.push((x, y));
-                if at.len() == STORM_CUTS {
-                    break;
+            let line = self.cut_across(&label, best, (x, y));
+            let left = self.joined_without(&label, best, &cells, &mut comp, line);
+            let better = match pick {
+                None => true,
+                Some((l, t, _)) => left < l || (left == l && trail > t),
+            };
+            if better {
+                pick = Some((left, trail, line));
+            }
+        }
+        pick.map(|p| p.2)
+    }
+
+    /// The scar line across the tube at `at`: the long axis of the piece's
+    /// cells within 8 cells is the tube's direction, and the cut runs across.
+    fn cut_across(&self, label: &[u32], best: u32, (x, y): (f32, f32)) -> ((f32, f32), (f32, f32)) {
+        let (mut sxx, mut syy, mut sxy) = (0.0f32, 0.0f32, 0.0f32);
+        for (ox, oy) in disc(8.0) {
+            if let Some(i) = cell(x + ox, y + oy) {
+                if label[i] == best {
+                    sxx += ox * ox;
+                    syy += oy * oy;
+                    sxy += ox * oy;
                 }
             }
         }
-        let mut cuts = Vec::new();
-        for &(x, y) in &at {
-            // The tube's direction here: the long axis of the tube cells
-            // within 8 cells. The cut runs across it.
-            let (mut sxx, mut syy, mut sxy) = (0.0f32, 0.0f32, 0.0f32);
-            for (ox, oy) in disc(8.0) {
-                if let Some(i) = cell(x + ox, y + oy) {
-                    if label[i] == best {
-                        sxx += ox * ox;
-                        syy += oy * oy;
-                        sxy += ox * oy;
+        let along = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+        let (cx, cy) = (-along.sin(), along.cos());
+        (
+            (x - cx * CUT_HALF, y - cy * CUT_HALF),
+            (x + cx * CUT_HALF, y + cy * CUT_HALF),
+        )
+    }
+
+    /// The cells a scar along `line` covers.
+    fn line_cells(&self, (a, b): ((f32, f32), (f32, f32))) -> Vec<usize> {
+        let steps = (CUT_HALF * 2.0).ceil() as usize;
+        let mut out = Vec::new();
+        for k in 0..=steps {
+            let f = k as f32 / steps as f32;
+            let (px, py) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            for (ox, oy) in disc(1.5) {
+                if let Some(i) = cell(px + ox, py + oy) {
+                    if self.ground[i] == Ground::Agar && !self.on_pile(i) {
+                        out.push(i);
                     }
                 }
             }
-            let along = 0.5 * (2.0 * sxy).atan2(sxx - syy);
-            let (cx, cy) = (-along.sin(), along.cos());
-            let a = (x - cx * CUT_HALF, y - cy * CUT_HALF);
-            let b = (x + cx * CUT_HALF, y + cy * CUT_HALF);
-            let steps = (CUT_HALF * 2.0).ceil() as usize;
-            for k in 0..=steps {
-                let f = k as f32 / steps as f32;
-                let (px, py) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
-                for (ox, oy) in disc(1.5) {
-                    if let Some(i) = cell(px + ox, py + oy) {
-                        if self.ground[i] == Ground::Agar && !self.on_pile(i) {
-                            self.ground[i] = Ground::Scar;
-                            self.trail[i] = 0.0;
-                            self.scent[i] = 0.0;
+        }
+        out
+    }
+
+    /// Most dish piles one piece of `best` would still join with `line` cut.
+    ///
+    /// Floods only the piece's own cells (`cells`), reusing `comp`, which
+    /// must be all zero on entry and is left all zero. The first version
+    /// flooded the whole dish per candidate, and the aim -- several hundred
+    /// candidates, once per dish -- made the warning frame 36 ms against a
+    /// 13 ms worst before the fix: a visible hitch at the moment the player
+    /// most needs a smooth frame.
+    fn joined_without(
+        &self,
+        label: &[u32],
+        best: u32,
+        cells: &[usize],
+        comp: &mut [u32],
+        line: ((f32, f32), (f32, f32)),
+    ) -> u32 {
+        const CUT: u32 = u32::MAX;
+        let cut = self.line_cells(line);
+        for &i in &cut {
+            comp[i] = CUT;
+        }
+        let mut next = 0;
+        let mut stack = Vec::new();
+        for &s in cells {
+            if comp[s] != 0 {
+                continue;
+            }
+            next += 1;
+            comp[s] = next;
+            stack.push(s);
+            while let Some(i) = stack.pop() {
+                let (x, y) = (i % W, i / W);
+                for (ok, j) in [
+                    (x > 0, i.wrapping_sub(1)),
+                    (x + 1 < W, i + 1),
+                    (y > 0, i.wrapping_sub(W)),
+                    (y + 1 < H, i + W),
+                ] {
+                    if ok && label[j] == best && comp[j] == 0 {
+                        comp[j] = next;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        // As `best_piece`: the piece touching the most piles; cut cells are
+        // no piece.
+        let joined = {
+            let lab = &*comp;
+            let masked = |i: usize| if lab[i] == CUT { 0 } else { lab[i] };
+            let piles: Vec<&Pile> = self.dish_piles().collect();
+            let mut touched: Vec<u32> = vec![0; next as usize + 1];
+            for p in &piles {
+                let mut seen: Vec<u32> = Vec::new();
+                for (ox, oy) in disc(p.r + 1.0) {
+                    if let Some(i) = cell(p.x + ox, p.y + oy) {
+                        let l = masked(i);
+                        if l != 0 && !seen.contains(&l) {
+                            seen.push(l);
                         }
                     }
                 }
-                self.kill_in(px, py, 2.0, Kill::Storm);
+                for l in seen {
+                    touched[l as usize] += 1;
+                }
             }
-            cuts.push((a, b));
+            touched.into_iter().max().unwrap_or(0)
+        };
+        for &i in cells.iter().chain(cut.iter()) {
+            comp[i] = 0;
         }
-        self.cuts = cuts;
+        joined
+    }
+
+    /// The storm strikes along the line it was aimed at, wherever the mould
+    /// is by then, and leaves a scar nothing crosses.
+    fn strike(&mut self) {
+        let Some(line) = self.storm_line else { return };
+        let cells = self.line_cells(line);
+        for &i in &cells {
+            self.ground[i] = Ground::Scar;
+            self.trail[i] = 0.0;
+            self.scent[i] = 0.0;
+        }
+        for i in cells {
+            self.kill_in((i % W) as f32 + 0.5, (i / W) as f32 + 0.5, 0.8, Kill::Storm);
+        }
+        self.cuts = vec![line];
     }
 }
 
@@ -1301,8 +1575,13 @@ mod tests {
         }
     }
 
-    /// The positive control for the lamp: light must empty the cells under it
-    /// within a second, against the same dish with no lamp.
+    /// The positive control for the lamp: light must push the mould out from
+    /// under it within a second, against the same dish with no lamp -- and,
+    /// since the 2026-11-08 playtest, push it rather than kill it: the mould
+    /// it moved is still alive a second later. (The old lamp burned walkers
+    /// and faded trail; this test asked for a quarter then. The push lamp
+    /// leaves about a third, at the same halving the probe's recoil
+    /// measure uses, so the bar is a half.)
     #[test]
     fn the_lamp_clears_the_mould_under_it() {
         let mut lit = Dish::new(11);
@@ -1329,10 +1608,16 @@ mod tests {
             under(&dark)
         );
         assert!(
-            under(&lit) * 4 < under(&dark),
+            under(&lit) * 2 < under(&dark),
             "lamp {} vs dark {}",
             under(&lit),
             under(&dark)
+        );
+        assert!(
+            lit.walkers.len() * 10 >= dark.walkers.len() * 9,
+            "the lamp pushes, it does not kill: {} walkers lit vs {} dark",
+            lit.walkers.len(),
+            dark.walkers.len()
         );
     }
 
@@ -1343,7 +1628,7 @@ mod tests {
             d.step();
         }
         let s = d.score.clone().unwrap();
-        assert_eq!(s.piles, 5);
+        assert_eq!(s.piles, 6, "five piles plus the one that appears at 0:55");
         assert!(s.reach >= 1);
         assert!(d.cuts.len() <= STORM_CUTS);
     }

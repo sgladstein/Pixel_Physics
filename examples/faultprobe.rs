@@ -31,6 +31,14 @@ enum Plan {
     Planned,
     /// One tap, nothing else: the repeatability case.
     OneTap,
+    /// The 2026-11-08 playtest's fresh player: spends taps early, then a
+    /// drill, Meltwater and Frost, and the last taps on the crest.
+    Fresh,
+    /// The playtest's "clever" line: tap the strained upstream face low
+    /// down, under water.
+    DeepTap,
+    /// The playtest's cheese: drill only (chip the crest, or a late slot).
+    DrillOnly,
 }
 
 impl Plan {
@@ -40,6 +48,9 @@ impl Plan {
             "random" => Some(Plan::Random),
             "planned" => Some(Plan::Planned),
             "onetap" => Some(Plan::OneTap),
+            "fresh" => Some(Plan::Fresh),
+            "deeptap" => Some(Plan::DeepTap),
+            "drillonly" => Some(Plan::DrillOnly),
             _ => None,
         }
     }
@@ -49,6 +60,9 @@ impl Plan {
             Plan::Random => "random",
             Plan::Planned => "planned",
             Plan::OneTap => "onetap",
+            Plan::Fresh => "fresh",
+            Plan::DeepTap => "deeptap",
+            Plan::DrillOnly => "drillonly",
         }
     }
 }
@@ -96,6 +110,64 @@ impl Player for Random {
     }
 }
 
+/// The playtest's fresh player (2026-11-08), as its review describes it:
+/// taps spent in the first ten seconds anywhere on the wall, then two
+/// drills, Meltwater on the crest and Frost, and the last two taps on the
+/// crest -- every click jittered.
+struct Fresh(Rng);
+impl Player for Fresh {
+    fn decide(&mut self, _: &Game, frame: u64) -> Option<Action> {
+        if !frame.is_multiple_of(FPS as u64) {
+            return None;
+        }
+        let t = frame / FPS as u64;
+        let r = &mut self.0;
+        let jx = r.below(9) as i32 - 4;
+        let jy = r.below(9) as i32 - 4;
+        let anywhere = (level::WALL_X0 + 3 + r.below(24) as i32, level::WALL_TOP + 5 + r.below(50) as i32);
+        let crest = (level::WALL_X0 + 6 + r.below(20) as i32 + jx, level::WALL_TOP + 3 + jy.abs());
+        let (tool, (x, y)) = match t {
+            1..=8 => (Tool::Tap, (anywhere.0 + jx, anywhere.1 + jy)),
+            12 | 14 => (Tool::Drill, (anywhere.0 + jx, anywhere.1 + jy)),
+            16..=18 => (Tool::Meltwater, (crest.0, level::WALL_TOP - 2)),
+            22 => (Tool::Frost, crest),
+            30 | 40 => (Tool::Tap, crest),
+            _ => return None,
+        };
+        Some(Action { tool, x, y })
+    }
+}
+
+/// The playtest's clever line: every eight seconds, a tap on the upstream
+/// face ten or more rows under the water, where the lake pushes hardest.
+struct DeepTap(Rng);
+impl Player for DeepTap {
+    fn decide(&mut self, g: &Game, frame: u64) -> Option<Action> {
+        if frame < 4 * FPS as u64 || !frame.is_multiple_of(8 * FPS as u64) {
+            return None;
+        }
+        let y = (g.level.surface + 10 + self.0.below(20) as i32).min(level::FLOOR_Y - 4);
+        Some(Action { tool: Tool::Tap, x: level::WALL_X0 + 1 + self.0.below(3) as i32, y })
+    }
+}
+
+/// The playtest's cheese: drills only. Even walls chip five holes along
+/// the crest at 30 s; odd walls bore a late slot of five down the middle
+/// at 60 s.
+struct DrillOnly(u64);
+impl Player for DrillOnly {
+    fn decide(&mut self, _: &Game, frame: u64) -> Option<Action> {
+        let (start, at): (u64, &dyn Fn(i32) -> (i32, i32)) =
+            if self.0.is_multiple_of(2) { (30, &|i| (level::WALL_X0 + 3 + 6 * i, level::WALL_TOP + 3)) } else { (60, &|i| (level::WALL_X0 + 16, level::WALL_TOP + 16 + 5 * i)) };
+        let i = frame.checked_sub(start * FPS as u64)?;
+        if !i.is_multiple_of(FPS as u64 / 2) || i / (FPS as u64 / 2) >= 5 {
+            return None;
+        }
+        let (x, y) = at((i / (FPS as u64 / 2)) as i32);
+        Some(Action { tool: Tool::Drill, x, y })
+    }
+}
+
 /// **The planned player**: cuts a spillway in stages, each a notch from the
 /// wall's current top down to a target row, made before the lake gets
 /// there -- so that the lake heaves it out when it arrives and then drains
@@ -118,7 +190,7 @@ struct Planner {
 
 impl Planner {
     fn new() -> Self {
-        Planner { stages: vec![76, 96, 112], stage: 0, next_at: FPS as u64, pending: Vec::new() }
+        Planner { stages: vec![74], stage: 0, next_at: FPS as u64, pending: Vec::new() }
     }
 }
 
@@ -193,6 +265,26 @@ fn notch_score(g: &Game, d: i32) -> f32 {
     -3.0 * ligaments as f32 - 1.0 * deep as f32
 }
 
+/// Holes no more than 16 apart from face to face along row `d`, and a tap
+/// half way between each pair, as a pending list (last action first). `None`
+/// if the stock cannot pay for it.
+fn stitch(g: &Game, d: i32) -> Option<Vec<Action>> {
+    let xs: Vec<i32> = (level::WALL_X0..level::WALL_X1 + 12).filter(|&x| g.is_ice(x, d)).collect();
+    let (&left, &right) = (xs.first()?, xs.last()?);
+    // The end holes sit on the faces: one a column in left a sliver of ice
+    // that held the whole top on (wall 2).
+    let (a, b) = (left + 1, right - 1);
+    let gaps = ((b - a) + 15) / 16;
+    let holes: Vec<i32> = (0..=gaps).map(|i| a + (b - a) * i / gaps.max(1)).collect();
+    if holes.len() as u32 > g.drills_left || (holes.len() as u32 - 1) > g.taps_left {
+        return None;
+    }
+    let mut acts: Vec<Action> = holes.iter().map(|&x| Action { tool: Tool::Drill, x, y: d }).collect();
+    acts.extend(holes.windows(2).map(|w| Action { tool: Tool::Tap, x: (w[0] + w[1]) / 2, y: d }));
+    acts.reverse();
+    Some(acts)
+}
+
 impl Player for Planner {
     fn decide(&mut self, g: &Game, frame: u64) -> Option<Action> {
         if !g.tips.tips.is_empty() || frame < self.next_at || g.over() || g.counts.burst {
@@ -262,6 +354,17 @@ impl Player for Planner {
                 }
             }
         }
+        // A row of holes across the band with a tap between each pair: the
+        // "drill two, tap between" stitch. On a build where holes do not
+        // draw cracks in, the trial says so and this loses.
+        if let Some(acts) = stitch(g, d) {
+            let mut t = g.trial();
+            for a in acts.iter().rev() {
+                t.act(*a);
+                t.settle_cracks();
+            }
+            consider(notch_score(&t, d) - 6.0, acts);
+        }
         // Meltwater on the wall's top, then Frost: wakes every soaked end.
         if !g.tips.ends.is_empty() {
             for x in (level::WALL_X0 + 2..level::WALL_X1 - 4).step_by(6) {
@@ -294,6 +397,9 @@ fn player(plan: Plan, seed: u64) -> Box<dyn Player> {
         Plan::OneTap => Box::new(OneTap(112, 60)),
         Plan::Random => Box::new(Random(Rng::new(seed ^ 0xF00D))),
         Plan::Planned => Box::new(Planner::new()),
+        Plan::Fresh => Box::new(Fresh(Rng::new(seed ^ 0xF4E5))),
+        Plan::DeepTap => Box::new(DeepTap(Rng::new(seed ^ 0xDEE9))),
+        Plan::DrillOnly => Box::new(DrillOnly(seed)),
     }
 }
 
@@ -305,6 +411,9 @@ struct Run {
     mean_ms: f64,
     /// Worst frame within a second of a slab breaking loose.
     worst_break_ms: f64,
+    /// The highest the lake stood, as a row (smaller is higher), after it
+    /// first filled to its starting level.
+    lake_top: i32,
 }
 
 fn arg<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
@@ -318,6 +427,7 @@ fn play(plan: Plan, seed: u64, shimmer: bool, frames: u64, mut each: impl FnMut(
     let (mut worst, mut total, mut worst_break) = (0f64, 0f64, 0f64);
     let mut last_slabs = 0;
     let mut since_break = u64::MAX;
+    let mut lake_top = i32::MAX;
     for f in 0..frames {
         if let Some(a) = who.decide(&game, f) {
             game.act(a);
@@ -337,19 +447,35 @@ fn play(plan: Plan, seed: u64, shimmer: bool, frames: u64, mut each: impl FnMut(
             worst_break = worst_break.max(ms);
             since_break += 1;
         }
+        lake_top = lake_top.min(game.level.surface);
         each(&game, f);
     }
-    Run { plan, seed, game, worst_ms: worst, mean_ms: total / frames as f64, worst_break_ms: worst_break }
+    Run { plan, seed, game, worst_ms: worst, mean_ms: total / frames as f64, worst_break_ms: worst_break, lake_top }
 }
 
 fn row(r: &Run) -> String {
     let c = r.game.counts;
     let s = r.game.score();
+    // The grading the 2026-11-08 playtest led to, computed here so the
+    // build before the change can be scored by it too: no burst; the lake
+    // never above the safe line, 15 rows under the crest; the mill dry and
+    // untouched.
+    let safe = level::WALL_TOP + 15;
+    // ...and not emptied: at the end, no lower than the mill race (row 80,
+    // `level::MILL_RACE`; written out so this harness still scores the
+    // build from before the line existed).
+    let held = !s.burst && r.lake_top >= safe - 1 && r.game.level.surface <= 80;
+    let dry = !s.burst && c.mill_hits == 0 && c.mill_flood < pixel_physics::fault::MILL_FLOOD;
+    let line_stars = u32::from(!s.burst) + u32::from(held) + u32::from(dry);
     format!(
-        "{:<8} seed={:<2} stars={} burst={:<5} drained={:>3.0}% peak_flow={:>5.1}/s mill_hits={:<3} pieces={:<3}/{:<4} released={:<3} jammed={:<2} unheld={:<3} blocks={:<3} grit={:<4} slabs={:<3} cracks={:<3} edges={:<4} forks={:<3} holes_stopped={:<3} face={:<3} joined={:<3} died={:<3} frost_tips={:<3} taps={} drills={} pours={} frosts={} worst={:.1}ms mean={:.2}ms break_worst={:.1}ms",
+        "{:<9} seed={:<2} stars={} line_stars={} lake_top={:<3} held={:<5} dry={:<5} burst={:<5} drained={:>3.0}% peak_flow={:>5.1}/s mill_hits={:<3} pieces={:<3}/{:<4} released={:<3} jammed={:<2} unheld={:<3} blocks={:<3} grit={:<4} slabs={:<3} cracks={:<3} edges={:<4} forks={:<3} holes_stopped={:<3} face={:<3} joined={:<3} died={:<3} frost_tips={:<3} taps={} drills={} pours={} frosts={} worst={:.1}ms mean={:.2}ms break_worst={:.1}ms",
         r.plan.label(),
         r.seed,
         s.stars,
+        line_stars,
+        r.lake_top,
+        held,
+        dry,
         s.burst,
         s.drained * 100.0,
         s.peak_flow,
@@ -414,6 +540,71 @@ fn main() {
                 png(&g, &mut view, ui, &out.join(format!("ring-f{f:04}.png")));
             }
         }
+        return;
+    }
+
+    if arg(&args, "look") == Some("1") {
+        // Stills of the cursor's promises: the dotted run before a tap, the
+        // outline on a piece once cut free, and a tap between two holes.
+        let seed: u64 = arg(&args, "seed").and_then(|s| s.parse().ok()).unwrap_or(1);
+        let mut g = Game::new(seed);
+        for _ in 0..120 {
+            g.step();
+        }
+        // The first tap, scanning the upper wall, that cuts a piece free --
+        // so the second still has an outline to show.
+        let mut pick = (112, 52);
+        'scan: for ty in (44..70).step_by(3) {
+            for tx in (98..128).step_by(3) {
+                let mut t = g.trial();
+                t.act(Action { tool: Tool::Tap, x: tx, y: ty });
+                t.settle_cracks();
+                if !t.tips.severed.is_empty() {
+                    pick = (tx, ty);
+                    break 'scan;
+                }
+            }
+        }
+        let (tx, ty) = (arg(&args, "tx").and_then(|s| s.parse().ok()).unwrap_or(pick.0), arg(&args, "ty").and_then(|s| s.parse().ok()).unwrap_or(pick.1));
+        let mut view = View::new();
+        let hover = Ui { tool: Tool::Tap, cursor: Some((tx, ty)), plain: false };
+        png(&g, &mut view, hover, &out.join(format!("look-s{seed}-1-hover.png")));
+        g.act(Action { tool: Tool::Tap, x: tx, y: ty });
+        for _ in 0..40 {
+            g.step();
+        }
+        let away = Ui { tool: Tool::Tap, cursor: None, plain: false };
+        png(&g, &mut view, away, &out.join(format!("look-s{seed}-2-after.png")));
+        println!("look: severed={} edges={} preview drawn at ({tx},{ty})", g.tips.severed.len(), g.counts.edges_cracked);
+        let mut h = Game::new(seed);
+        for _ in 0..120 {
+            h.step();
+        }
+        h.act(Action { tool: Tool::Drill, x: 103, y: 62 });
+        h.act(Action { tool: Tool::Drill, x: 119, y: 62 });
+        png(&h, &mut view, Ui { tool: Tool::Tap, cursor: Some((111, 62)), plain: false }, &out.join(format!("look-s{seed}-3-holes-hover.png")));
+        h.act(Action { tool: Tool::Tap, x: 111, y: 62 });
+        for _ in 0..40 {
+            h.step();
+        }
+        png(&h, &mut view, away, &out.join(format!("look-s{seed}-4-holes-after.png")));
+        println!("look: holes stopped={}", h.counts.stopped_by_hole);
+        // A row of holes face to face with a tap between each pair: the
+        // planner's stitch, which cuts the top free -- the outline still.
+        let mut k = Game::new(seed);
+        for _ in 0..120 {
+            k.step();
+        }
+        let row: i32 = arg(&args, "row").and_then(|s| s.parse().ok()).unwrap_or(66);
+        for a in stitch(&k, row).unwrap_or_default().iter().rev() {
+            k.act(*a);
+            k.settle_cracks();
+        }
+        for _ in 0..20 {
+            k.step();
+        }
+        png(&k, &mut view, away, &out.join(format!("look-s{seed}-5-stitch-cut.png")));
+        println!("look: stitch at row {row}: severed={} cells={} cut={} slides={} stopped={} died={}", k.tips.severed.len(), k.tips.severed.iter().map(|p| p.cells.len()).sum::<usize>(), k.counts.pieces_cut, k.tips.slides.len(), k.counts.stopped_by_hole, k.counts.died);
         return;
     }
 
@@ -534,7 +725,11 @@ fn main() {
 
     // The paired table.
     let seeds: Vec<u64> = (1..=arg(&args, "seeds").and_then(|s| s.parse().ok()).unwrap_or(10)).collect();
-    for plan in [Plan::Nothing, Plan::Random, Plan::Planned] {
+    let plans: Vec<Plan> = match arg(&args, "plans") {
+        Some(l) => l.split(',').filter_map(Plan::parse).collect(),
+        None => vec![Plan::Nothing, Plan::Random, Plan::Planned, Plan::Fresh, Plan::DeepTap, Plan::DrillOnly],
+    };
+    for plan in plans {
         for &seed in &seeds {
             let r = play(plan, seed, shimmer, frames, |_, _| {});
             println!("{}", row(&r));

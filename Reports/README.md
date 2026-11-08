@@ -6564,12 +6564,14 @@ the engine (`src/bin/<name>.rs`), not a lab seat, and touches no shared engine
 file unless its report says so.
 
 - [mould-probe-2026-11-07.md](mould-probe-2026-11-07.md) — **probe built,
-  waiting on the owner's playtest.** A Jones-model slime mould herded with a
-  lamp, oats, salt and snips (`--bin mould`). Oats pull the front over in
-  0.45-0.85 s, and the lamp clears the mould under it in under 0.1 s. A simple
-  plan beats doing nothing (6 stars to 2; food joined better on 5 of 5
-  seeds), but a random hand ties the plan on stars. Also records why the storm
-  is one cut, not three.
+  playtest fixes in (2026-11-08), waiting on the owner's play.** A Jones-model
+  slime mould herded with a lamp, oats, salt and snips (`--bin mould`). The
+  lamp now pushes a tube aside instead of erasing it (join lost while held on
+  it: 5 of 5 seeds before, 0 of 5 after); oats come back, food turns up at
+  0:30 and 0:55, and the storm is warned 5 s ahead and aimed at the worst
+  cut. Over the same seven scripted hands, doing nothing fell from 2 stars to
+  0 and a random hand from 6 to 3, while the plan rose 6 to 8 and a fresh
+  player's script 6 to 9. Also records why the storm is one cut, not three.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
@@ -6578,16 +6580,22 @@ file unless its report says so.
 - [fault-probe-2026-11-07.md](fault-probe-2026-11-07.md) — **probe 6 of 6
   (`--bin fault`): crack an ice wall before the rising lake bursts it; is a
   running crack satisfying, and can you read where it goes?** Doing nothing
-  bursts 10 of 10 walls; random play and a look-ahead planner both burst 5 of
-  10 (stars 7 vs 5, p = 1.0), so a plan does not win yet. The same tap on the
-  same wall gives the same crack; across walls it stays near the tap but turns
-  a different way. Frame mean 1.4-1.8 ms, worst 11 ms. Verdict waits on the
-  owner's playtest. Records five rejected ways to get a cut slab off the crest.
+  bursts 10 of 10 walls. Round 1: random play and a look-ahead planner both
+  burst 5 of 10 (stars 7 vs 5, p = 1.0). **Round 2 (11-08) made the playtest
+  review's five fixes** (a safe line and a mill race to hold the lake between,
+  a tap preview, a cut-free outline, holes that pull cracks in, a burst that
+  sheds slabs) and a plan now wins: 28 stars to random's 11, 9-0-1, p = 0.004;
+  careless deep taps never hold the lake. Open: one recipe (a row of holes,
+  taps between) wins every wall. Records five rejected ways to get a cut slab
+  off the crest, and a drilled hole that left ice the cracks took for hole.
 - [heartwood-probe-2026-11-07.md](heartwood-probe-2026-11-07.md) — **probe 8 (`--bin heartwood`): your tree grows only
   where you play a card, against a free shipped tree; does the order matter?** Doing nothing gets 0% of the light on 12 of 12
   seeds. A plan ends with more light than random cards on 8 of 12 (p 0.39) and a star on 9 seeds to random's 5 (p 0.06):
   keeping every tip busy is most of what it buys. A card ends a median 3 cells from its outline's end. Adds the
-  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. Verdict waits on the owner.
+  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. **Round 2 (2026-11-08)**, the
+  playtest's six fixes (one card one tip, upkeep, big cards, two low suns, outline checked before paying, fixed rival):
+  the plan beats 6 of 7 scripted strategies on final light (pick-every-tip 3-9 -> 10-2, mashing 7-5 -> 10-1, p 0.012,
+  none past the corrected bar) and ties Leaf Out only (6-4). Verdict waits on the owner.
 
 - [kudzu-probe-2026-11-07.md](kudzu-probe-2026-11-07.md) — **probe 7 (`--bin kudzu`): a vine over two walls; does a cut
   that drops a whole sheet feel good, and does the hover preview make cutting a deduction?** Over 12 paired seeds, doing
