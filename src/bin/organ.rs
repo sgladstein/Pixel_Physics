@@ -112,18 +112,33 @@ impl Handler {
         self.organ.dish.set_lamp(lamp);
     }
 
+    /// Let go of everything: no button held, no stroke drawing, lamp off.
+    /// Used whenever the hand may have left without a release reaching us.
+    fn let_go(&mut self) {
+        self.pressed = false;
+        self.organ.dish.end_stroke();
+        self.hold();
+    }
+
     fn mouse(&mut self, down: bool) {
-        self.pressed = down;
+        // A release ends the stroke wherever it lands. It returned first
+        // when the cursor was over the HUD strip or outside the window,
+        // leaving a salt or snip stroke live for the next lamp press to drag
+        // (review 1, finding 5; the mould window's own fix).
+        if !down {
+            self.let_go();
+            return;
+        }
+        self.pressed = true;
         let Some((x, y)) = self.cursor else { return };
         let d = &mut self.organ.dish;
-        match (down, self.view.tool) {
-            (true, Tool::Oats) => {
+        match self.view.tool {
+            Tool::Oats => {
                 d.place_oats(x, y);
             }
-            (true, t @ (Tool::Salt | Tool::Snip)) => {
+            t @ (Tool::Salt | Tool::Snip) => {
                 d.begin_stroke(t, x, y);
             }
-            (false, _) => d.end_stroke(),
             _ => {}
         }
         self.hold();
@@ -242,6 +257,8 @@ impl ApplicationHandler for Handler {
                 }
                 self.hold();
             }
+            // Alt-tab with the button held: the release goes elsewhere.
+            WindowEvent::Focused(false) => self.let_go(),
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
                 self.hold();

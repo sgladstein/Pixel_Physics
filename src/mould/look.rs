@@ -853,6 +853,12 @@ const PULSE_STRENGTH: f32 = 0.45;
 const PULSE_SPEED: f32 = 45.0;
 const PULSE_SPACING: f32 = 60.0;
 const PULSE_TAIL: f32 = 0.3;
+/// The band's leading edge, as a share of the spacing: a ramp up over
+/// about four cells instead of a jump from nothing to full in one.
+const PULSE_RISE: f32 = 0.07;
+/// Cells from a pile inside which the band's distance is measured
+/// straight from the pile's edge rather than by the feeding search.
+const PULSE_ROUND: f32 = 12.0;
 
 /// The pulse's brightness on a cell, 0 to 1: a band riding out from the
 /// food along the feeding search's own distances (`Dish::fed`), so a
@@ -862,11 +868,28 @@ fn pulse(d: &Dish, i: usize) -> f32 {
     if dist == u16::MAX {
         return 0.0;
     }
+    // The feeding search steps four ways, so its distances round a pile
+    // are diamonds: every band left the pile as a pale square of 4-pixel
+    // blocks round it (review 1, "the blocky square halo"). Near a pile
+    // the distance is the straight one from the pile's edge, handed back
+    // to the search's own by PULSE_ROUND cells out, so a cut still stops
+    // the beat.
+    let mut dist = dist as f32;
+    if dist < PULSE_ROUND {
+        if let Some(p) = d.piles.get(d.fed_src[i] as usize) {
+            let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+            let straight = ((x - p.x).hypot(y - p.y) - (p.r + 1.0)).max(0.0);
+            let w = dist / PULSE_ROUND;
+            dist = straight * (1.0 - w) + dist * w;
+        }
+    }
     let secs = d.t as f32 / STEPS_PER_SECOND as f32;
-    let phase = (secs * PULSE_SPEED - dist as f32) / PULSE_SPACING;
+    let phase = (secs * PULSE_SPEED - dist) / PULSE_SPACING;
     let s = phase - phase.floor();
     if s < PULSE_TAIL {
         1.0 - s / PULSE_TAIL
+    } else if s > 1.0 - PULSE_RISE {
+        (s - (1.0 - PULSE_RISE)) / PULSE_RISE
     } else {
         0.0
     }
@@ -1085,6 +1108,14 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     }
     if let Some(m) = &view.menu {
         menu(&mut cv, &th, m);
+    }
+    if view.quit_armed {
+        // The first Escape on a dish (review 1): a second within 2 s quits.
+        let words = "Press Esc again to quit";
+        let w = text_w(&th, words) + 16;
+        let y = H as i32 * s - line_h(&th) - 22;
+        let x = (cv.w - w) / 2;
+        chip(&mut cv, &th, x, y, &[words], th.hot);
     }
     // The debug corner: which look this is, by its blind letter only.
     hud::draw_text(cv.f, fw, fh, fw as i32 - 8, fh as i32 - 9, view.style.letter(), [90, 96, 100, 255]);
@@ -2435,7 +2466,13 @@ fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Statu
     hud_back(cv, th, y0);
     let right = 616;
     if let Some(words) = score_words(d) {
-        big(cv, th, 3, 12, y0 + 10, &words[0], th.hot);
+        // "Not reached: only starving strays got there" is wider at three
+        // times the dot than the room left of the stars: a size down.
+        if big_w(th, 3, &words[0]) <= right - 24 {
+            big(cv, th, 3, 12, y0 + 10, &words[0], th.hot);
+        } else {
+            text(cv, th, 12, y0 + 14, &words[0], th.hot);
+        }
         text(cv, th, 12, y0 + 40, &words[1], th.text);
         // The why line (`level.rs`) is advice: as bright as the rest.
         let wc = if d.card.is_some() { th.text } else { th.dim };
@@ -3126,8 +3163,10 @@ fn brief_rows(th: &Theme, storm: String) -> Vec<Row> {
         Row::Gap,
         Row::Head("Stars"),
         Row::Star("Join all the food"),
-        Row::Star("Keep the network short"),
-        Row::Star("Lose nothing to the storm"),
+        // A ladder (review 1): shape and the storm count only once all
+        // the food is joined.
+        Row::Star("All joined, and the network short"),
+        Row::Star("All joined, nothing lost to the storm"),
         Row::Gap,
     ]
 }
@@ -3309,6 +3348,11 @@ mod tests {
                 "Oats 3, 1 back each 9 s: it grows to them",
                 "Done",
                 "2 walls",
+                "Press Esc again to quit",
+                "All joined, and the network short",
+                "All joined, nothing lost to the storm",
+                "The mould died at 1:23",
+                "Not reached: only starving strays got there",
             ]
             .map(String::from),
         );

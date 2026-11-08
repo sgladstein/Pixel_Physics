@@ -127,6 +127,17 @@ impl Journey {
     };
 }
 
+/// How soon a second Escape must follow the first to quit.
+const QUIT_WINDOW: Duration = Duration::from_secs(2);
+
+/// The first tool a dish offers, in bar order.
+fn first_tool(d: &Dish) -> Tool {
+    [Tool::Lamp, Tool::Oats, Tool::Salt, Tool::Snip]
+        .into_iter()
+        .find(|&t| d.has_tool(t))
+        .unwrap_or(Tool::Lamp)
+}
+
 /// The mould's own randomness on a challenge dish: fixed, so a retry is the
 /// same dish until the hand changes it.
 const LEVEL_SEED: u64 = 1;
@@ -197,6 +208,9 @@ struct Handler {
     accumulator: Duration,
     frames: u64,
     screenshot_after: Option<u64>,
+    /// Escape was pressed once on a dish, at this time: a second within
+    /// `QUIT_WINDOW` quits.
+    quit_armed: Option<Instant>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -231,6 +245,7 @@ impl Handler {
             accumulator: Duration::ZERO,
             frames: 0,
             screenshot_after,
+            quit_armed: None,
             result: Ok(()),
         }
     }
@@ -264,6 +279,10 @@ impl Handler {
         // started at 4x.
         self.view.fast = false;
         self.view.paused = false;
+        // The first tool this dish offers: one carried over from a dish that
+        // had it (snip, from free play) was selected but not on the bar,
+        // and a click did nothing (review 1, finding 6).
+        self.view.tool = first_tool(&self.dish);
         if let Some(w) = &self.window {
             w.set_title(&title(entry, self.journey));
         }
@@ -419,6 +438,12 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        // Escape quits only twice running on a dish: once closing the picker
+        // made the next Escape quit the game outright (review 1, finding 9).
+        let armed = self.quit_armed.take().is_some_and(|at| at.elapsed() <= QUIT_WINDOW);
+        if let Some(w) = &self.window {
+            w.set_title(&title(self.entry, self.journey));
+        }
         // The picker: 1-6 picks, the arrows and Enter choose, M or Escape
         // goes back to the dish.
         if let Some(m) = self.view.menu {
@@ -463,10 +488,18 @@ impl Handler {
                 self.view.brief = true;
                 self.let_go();
             }
-            KeyCode::Digit1 => self.view.tool = Tool::Lamp,
-            KeyCode::Digit2 => self.view.tool = Tool::Oats,
-            KeyCode::Digit3 => self.view.tool = Tool::Salt,
-            KeyCode::Digit4 => self.view.tool = Tool::Snip,
+            // Only the tools on this dish's bar.
+            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 => {
+                let t = match code {
+                    KeyCode::Digit1 => Tool::Lamp,
+                    KeyCode::Digit2 => Tool::Oats,
+                    KeyCode::Digit3 => Tool::Salt,
+                    _ => Tool::Snip,
+                };
+                if self.dish.has_tool(t) {
+                    self.view.tool = t;
+                }
+            }
             KeyCode::Space => self.view.fast = !self.view.fast,
             KeyCode::KeyP => self.view.paused = !self.view.paused,
             KeyCode::KeyR => self.restart(self.entry),
@@ -480,7 +513,13 @@ impl Handler {
             }
             // W: start a Wanderer journey from wherever you are.
             KeyCode::KeyW => self.start_journey(),
-            KeyCode::Escape => event_loop.exit(),
+            KeyCode::Escape if armed => event_loop.exit(),
+            KeyCode::Escape => {
+                self.quit_armed = Some(Instant::now());
+                if let Some(w) = &self.window {
+                    w.set_title("Mould - press Esc again to quit");
+                }
+            }
             _ => {}
         }
         self.hold();
@@ -525,6 +564,7 @@ impl Handler {
         }
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.cursor = self.cursor;
+        self.view.quit_armed = self.quit_armed.is_some_and(|at| at.elapsed() <= QUIT_WINDOW);
         render::draw(&self.dish, &self.view, SCALE, pixels.frame_mut());
         if let Err(err) = pixels.render() {
             return self.fail(event_loop, format!("render failed: {err}"));

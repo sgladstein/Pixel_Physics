@@ -416,9 +416,23 @@ impl Dish {
     ///
     /// Distances are a 16-neighbour search (steps of 1, 1.41 and 2.24), so
     /// a straight tube at any angle reads within 3% of its true length.
+    ///
+    /// **It agrees with the food-joined count** (review 1, finding 8). The
+    /// long steps used to check only the cell they land on, so a path
+    /// hopped a one-cell break that `measure` (four-neighbour pieces) calls
+    /// unjoined: a 3-cell break across one spoke left `best_join` at 205.5
+    /// ("all joined", stars paid) with 2 of 3 joined. Now a diagonal needs
+    /// one of its two corner cells open and a knight's move both cells it
+    /// crosses (the organ's rule), which makes the search's connectivity
+    /// exactly four-neighbour; and with fewer than all piles joined by
+    /// `measure` there is no join to score.
     pub fn best_join(&self) -> Option<f32> {
         let piles: Vec<&super::Pile> = self.dish_piles().collect();
         if piles.len() < 2 || !self.pending.is_empty() {
+            return None;
+        }
+        let s = self.measure();
+        if s.reach < s.piles {
             return None;
         }
         let fields: Vec<Vec<u32>> = piles.iter().map(|p| self.tube_distance(p)).collect();
@@ -460,14 +474,24 @@ impl Dish {
         let tube = self.params.tube;
         let mut dist = vec![u32::MAX; super::W * super::H];
         let mut heap = BinaryHeap::new();
+        let mut rim = vec![false; super::W * super::H];
         for (ox, oy) in super::disc(p.r + 1.0) {
             if let Some(i) = super::cell(p.x + ox, p.y + oy) {
                 if self.ground[i] == super::Ground::Agar {
                     dist[i] = 0;
+                    rim[i] = true;
                     heap.push(Reverse((0u32, i)));
                 }
             }
         }
+        // A cell the search may stand on: tube, or the pile's own rim.
+        let open = |x: i32, y: i32| {
+            if x < 0 || y < 0 || x >= w || y >= h {
+                return false;
+            }
+            let j = y as usize * super::W + x as usize;
+            self.ground[j] == super::Ground::Agar && (self.trail[j] > tube || rim[j])
+        };
         while let Some(Reverse((d, i))) = heap.pop() {
             if d > dist[i] {
                 continue;
@@ -480,6 +504,17 @@ impl Dish {
                 }
                 let j = ny as usize * super::W + nx as usize;
                 if self.ground[j] != super::Ground::Agar || self.trail[j] <= tube {
+                    continue;
+                }
+                // No squeezing through a pinch: a diagonal needs a corner
+                // cell, a knight's move both cells it crosses.
+                let ok = match (dx.abs(), dy.abs()) {
+                    (1, 1) => open(x + dx, y) || open(x, y + dy),
+                    (2, 1) => open(x + dx / 2, y) && open(x + dx / 2, y + dy),
+                    (1, 2) => open(x, y + dy / 2) && open(x + dx, y + dy / 2),
+                    _ => true,
+                };
+                if !ok {
                     continue;
                 }
                 let nd = d + c;
@@ -497,6 +532,18 @@ impl Dish {
     pub(super) fn level_tick(&mut self, level: &'static Level) {
         let bell = self.t + 1 >= self.storm_at;
         let sps = STEPS_PER_SECOND as u64;
+        // No mould left: nothing can change before the bell, so say so now
+        // (review 1, finding 7: a wiped-out dish ran to the bell, 88 s more
+        // of nothing, and then read as a near miss).
+        if self.walkers.is_empty() {
+            let s = self.measure();
+            let why = match level.win {
+                Win::AliveAtBell { .. } => "THE FOOD RAN OUT; NOTHING HEADED FOR MORE",
+                _ => "NONE LEFT: KEEP SOME OF IT ON FOOD",
+            };
+            let amount = format!("THE MOULD DIED AT {}", clock((self.t / sps) as u32));
+            return self.finish(s, 0, amount, why.to_string());
+        }
         if matches!(level.win, Win::UnderRuler { .. }) && self.t.is_multiple_of(sps / 2) {
             self.join_now = self.ruler_ratio();
         }
@@ -527,7 +574,14 @@ impl Dish {
                     } else {
                         "SCENT CAN'T CROSS SALT: LEAD IT TO THE GAP".to_string()
                     };
-                    self.finish(s, 0, format!("NOT REACHED: THE MOULD CAME WITHIN {gap:.0} CELLS"), why)
+                    // Under a cell: mould stood on the food, but only strays
+                    // far from fed tube, which cannot start it.
+                    let amount = if gap < 1.0 {
+                        "NOT REACHED: ONLY STARVING STRAYS GOT THERE".to_string()
+                    } else {
+                        format!("NOT REACHED: THE MOULD CAME WITHIN {gap:.0} CELLS")
+                    };
+                    self.finish(s, 0, amount, why)
                 }
             }
             Win::UnderRuler { bars } => {
@@ -595,6 +649,8 @@ impl Dish {
 
     /// Cells from the nearest walker to the rim of the nearest dish pile not
     /// joined to home: how close a failed reach came.
+    /// Infinite with no mould left (it used to read 0, "CAME WITHIN 0
+    /// CELLS", a near miss for a wipe-out: review 1, finding 7).
     fn nearest_unjoined_gap(&self) -> f32 {
         let mut best = f32::INFINITY;
         for p in self.dish_piles().skip(1).filter(|p| !p.reached()) {
@@ -602,11 +658,7 @@ impl Dish {
                 best = best.min(((w.x - p.x).hypot(w.y - p.y) - p.r).max(0.0));
             }
         }
-        if best.is_finite() {
-            best
-        } else {
-            0.0
-        }
+        best
     }
 
     /// Whether any mould stands on the far side of the level's salt from
