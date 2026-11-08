@@ -207,6 +207,11 @@ pub fn step(d: &mut Dish) {
         d.census();
     }
     d.economy();
+    // A snip's wound heals here as in `Dish::step`. Left out, a snip was a
+    // permanent wall drawn as plain agar after its 1 s fade, which every
+    // tube and so every note routed round (review 1, finding 4: 171 wound
+    // cells still 171 after 30 s).
+    d.heal_wounds();
     d.expire_oats();
     let sps = STEPS_PER_SECOND as u64;
     if d.t > 0 && d.t.is_multiple_of(super::OATS_REGROW_SECONDS as u64 * sps) && d.oats_left < super::OATS_STOCK {

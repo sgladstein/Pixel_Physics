@@ -602,7 +602,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
             text(frame, (fw, fh), 6, line(3), &next.join("   "), DIM);
             let stars = match d.level {
                 Some(l) => l.stars_line(),
-                None => "STARS: JOIN ALL, KEEP IT SHORT, SURVIVE".to_string(),
+                None => "STARS: JOIN ALL, THEN SHORT, SURVIVE".to_string(),
             };
             text(frame, (fw, fh), 6, line(4), &stars, DIM);
             if view.keys {
@@ -901,8 +901,8 @@ fn brief(d: &Dish, view: &View, frame: &mut [u8], (fw, fh): (u32, u32), scale: u
         (String::new(), TEXT),
         ("STARS".into(), HOT),
         ("* JOIN ALL THE FOOD".into(), TEXT),
-        ("* KEEP THE NETWORK SHORT".into(), TEXT),
-        ("* LOSE NOTHING TO THE STORM".into(), TEXT),
+        ("* ALL JOINED, AND THE NETWORK SHORT".into(), TEXT),
+        ("* ALL JOINED, NOTHING LOST TO THE STORM".into(), TEXT),
         (String::new(), TEXT),
         ("TOOLS".into(), HOT),
         ("1 LAMP  HOLD: PUSHES THE MOULD AWAY".into(), TEXT),

@@ -156,6 +156,7 @@ fn parse() -> Args {
                 p.stray_reach = f();
                 a.strays = Some(f());
             }
+            "stray_grace" => p.stray_grace = f(),
             "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
@@ -586,6 +587,7 @@ fn verbs(a: &Args, dir: &str) {
 fn cost(a: &Args) {
     println!("\n== frame cost: the whole dish awake, the window's frame (steps + draw at scale 4) ==");
     let mut d = Dish::with_params(a.seeds[0], a.params.clone());
+    give_oats(&mut d, a);
     let mut p = Plan::new();
     let (w, h) = render::frame_size(4);
     let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -810,10 +812,15 @@ fn cut(a: &Args, dir: &str) {
     println!("\n== one snip across the trunk at 40 s, plan hand ==");
     for &seed in &a.seeds {
         let mut d = Dish::with_params(seed, a.params.clone());
+        give_oats(&mut d, a);
         let mut p = player("plan", seed);
+        // The hand acts once a frame, as in the window (it acted every
+        // step here, twice as often as a player: review 1, P4).
         while d.t < (40 * STEPS_PER_SECOND) as u64 {
             p.act(&mut d);
-            d.step();
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
         }
         let (at, n) = trunk(&d);
         let mould0 = d.walkers.len();
@@ -866,16 +873,34 @@ fn cut(a: &Args, dir: &str) {
     }
 }
 
-/// One hand on one hand-made dish, to the bell: the dish, and every
-/// second's (walkers, fed piles, tube over ruler where there is one).
-fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dish {
+/// `oats=N`: the oats in hand at the start, on any dish a mode builds
+/// (review 1, P4: `level=`, `wander=` and `cut=` used to ignore it).
+fn give_oats(d: &mut Dish, a: &Args) {
+    if let Some(n) = a.oats {
+        d.oats_left = n;
+    }
+}
+
+/// A hand-made dish with the probe's parameters: the level's stray limit
+/// unless `stray_reach=` says otherwise, and `oats=`. Every level-mode dish
+/// (the runs, the `look=` stills and the frame cost) comes from here (review
+/// 1, P2: the stills and the frame cost were built at the defaults).
+fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
     use pixel_physics::mould::level::DISHES;
-    use pixel_physics::mould::play::Route;
     let params = pixel_physics::mould::Params {
         stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
         ..a.params.clone()
     };
     let mut d = Dish::from_level_with(&DISHES[k], seed, params);
+    give_oats(&mut d, a);
+    d
+}
+
+/// One hand on one hand-made dish, to the bell: the dish, and every
+/// second's (walkers, fed piles, tube over ruler where there is one).
+fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dish {
+    use pixel_physics::mould::play::Route;
+    let mut d = level_dish(k, seed, a);
     let mut p: Box<dyn Player> = if who == "intended" {
         Box::new(Route::for_level(k))
     } else {
@@ -933,7 +958,7 @@ fn levels(a: &Args, which: &[usize]) {
         let l = &DISHES[k];
         println!("\n== dish {} {}: {} ==", k + 1, l.name, l.stars_line());
         if let Some(dir) = &a.look {
-            let d = Dish::from_level(l, a.seeds[0]);
+            let d = level_dish(k, a.seeds[0], a);
             for (brief, tag) in [(true, "brief"), (false, "start")] {
                 let view = View {
                     keys: false,
@@ -1007,7 +1032,7 @@ fn levels(a: &Args, which: &[usize]) {
     // Frame cost, the window's frame (steps + draw at scale 4), on the
     // first dish asked for, intended hand.
     let k = which[0];
-    let mut d = Dish::from_level(&DISHES[k], a.seeds[0]);
+    let mut d = level_dish(k, a.seeds[0], a);
     let mut p = pixel_physics::mould::play::Route::for_level(k);
     let (w, h) = render::frame_size(4);
     let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -1059,6 +1084,21 @@ fn menu(a: &Args, dir: &str) {
 
 fn main() {
     let a = parse();
+    // Every mode says what it ran with, first (review 1, P1: `level=`
+    // returned before this line, so a `pieces=0` arm printed nothing that
+    // said pieces was off).
+    println!(
+        "mouldprobe: seeds {:?} players {:?} scale {} oats {:?} stray_reach {:?} params {:?}",
+        a.seeds, a.players, a.scale, a.oats, a.strays, a.params
+    );
+    // `oats=` is read by the scored dish, `level=`, `wander=` and `cut=`.
+    // Anywhere else it would be silently ignored, so it is refused.
+    let oats_read = a.level.is_some() || a.wander || a.cut.is_some();
+    let other_mode = a.menu.is_some() || a.lean || a.push || a.flicker || a.lesson.is_some() || a.verbs.is_some();
+    assert!(
+        a.oats.is_none() || oats_read || !other_mode,
+        "oats= is not read by this mode (menu, lean, bend, flicker, lesson, verbs): drop it"
+    );
     if let Some(which) = &a.level {
         levels(&a, which);
         return;
@@ -1067,10 +1107,6 @@ fn main() {
         menu(&a, dir);
         return;
     }
-    println!(
-        "mouldprobe: seeds {:?} players {:?} scale {} params {:?}",
-        a.seeds, a.players, a.scale, a.params
-    );
     if a.lean {
         lean(&a);
         return;
@@ -1253,6 +1289,7 @@ fn journey(seed: u64, who: &str, a: &Args) -> Vec<Stretch> {
     for k in 1..=a.dishes {
         let dseed = seed + 100 * (k as u64 - 1);
         let mut d = Dish::wanderer_with_params(dseed, k, carry, a.params.clone());
+        give_oats(&mut d, a);
         let mut p = wander_player(who);
         let gif = a.gif.is_some() && who == "lead" && k == 1;
         let mut shots = Vec::new();
@@ -1357,7 +1394,9 @@ fn show(o: &Stretch) -> String {
 /// with lamp and oats, Go the moment it opens) and `lead` (the same lead, Go
 /// when the would-come count peaks).
 fn wander(a: &Args) {
-    let hands: Vec<String> = if a.players.len() == 7 {
+    // Not "7 hands means none were given" (review 1, P3): an explicit list
+    // of exactly seven was replaced by the four below.
+    let hands: Vec<String> = if !a.players_given {
         ["idle", "idlego", "careless", "lead"].map(String::from).to_vec()
     } else {
         a.players.clone()
@@ -1460,10 +1499,14 @@ fn wander_cost(a: &Args) {
     for arm in ["scored dish, plan", "wanderer, lead"] {
         let seed = a.seeds[0];
         let (mut d, mut p): (Dish, Box<dyn Player>) = if arm.starts_with("scored") {
-            (Dish::new(seed), Box::new(Plan::new()))
+            (Dish::with_params(seed, a.params.clone()), Box::new(Plan::new()))
         } else {
-            (Dish::wanderer(seed, 1, FIRST_WALKERS), Box::new(Leader::new(false)))
+            (
+                Dish::wanderer_with_params(seed, 1, FIRST_WALKERS, a.params.clone()),
+                Box::new(Leader::new(false)),
+            )
         };
+        give_oats(&mut d, a);
         let (mut sum, mut worst, mut n, mut peak) = (0.0f64, 0.0f64, 0u64, 0usize);
         let cap = a.cap_min as u64 * 60 * STEPS_PER_SECOND as u64;
         while d.phase != Phase::Over && d.t < cap {

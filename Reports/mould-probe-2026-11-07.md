@@ -382,3 +382,48 @@ a dish whose mould has all died steps about 3x slower than a live one (idle
 Running Dry: 27 s for 120 s of dish against 9 s with the intended hand),
 probably subnormal floats in the fading trail; about 5 ms a frame, inside
 budget, unverified.
+
+## Review 1 fixes (2026-11-08)
+
+An independent bug check of aeae6d29 (`game-design/mould-game-brainstorm-
+2026-11-08/review-1.md`) found 13 things; all are fixed on `challenges`, each
+game finding a test can reach has a regression test, and each of those was
+run red with its fix put back.
+
+- **A dish whose food has all run out could not be rescued** (Running Dry:
+  oats on 950 just-starved walkers never eaten, 85 s left unwinnable). Mould
+  fed in the last `Params::stray_grace` = 2 s now counts as fed for the stray
+  rule, **only while nothing on the dish is fed**. Applied at all times it
+  let Beat the Ruler's intended hand join round the side on seed 7 (1.10x,
+  1 star, at every grace from 1 to 3 s), and at 5 s a random hand took 3
+  stars on Running Dry seed 4.
+- **Join flashes** fire only between two piles that were both being eaten,
+  in different pieces, at the census before. Three oats on fed tube: 6
+  flashes before, 0 now; a hand-laid bridge between two fed pieces still
+  flashes. Joins per run fall by about half for the scripted hands (Running
+  Dry intended 19 to 8-12, Beat the Ruler 11-17 to 4-10, the free dish's
+  plan hand 12-21 to 6-12); what is gone is oats eaten by the network
+  already there.
+- **Free dish stars are a ladder**: thrift and toughness need all the food
+  joined. Stars over 8 seeds, before to after: idle 2 to 0, random 5 to 0,
+  shepherd 5 to 0, lamp only 3 to 0, dump 3 to 0; plan 14 and fresh 13
+  unchanged (every one of their shape stars was on a full join).
+- **Smaller ones.** The organ heals its snips and its window lets go on
+  release. A tool a dish does not give is never selected, and the keys for
+  it do nothing. A dish with no mould left ends then ("THE MOULD DIED AT
+  1:05"), and "CAME WITHIN 0 CELLS" now reads "ONLY STARVING STRAYS GOT
+  THERE". Beat the Ruler's join no longer hops a one-cell break: no long step
+  squeezes past a pinch, and with fewer than all three joined there is no
+  join. Escape quits only on a second press within 2 s. The probe prints its
+  parameters in every mode, builds every dish from them, honours an explicit
+  7-hand list on `wander=1`, and reads `oats=` in `level=`, `wander=` and
+  `cut=` (refusing it elsewhere).
+
+**The ship bar did not move**: on seeds 1-8 every one of the 120 star cells
+of `level=all` is the same before and after (intended 3 on all; Beat the
+Ruler 0.87-0.92x, Running Dry 354-411 alive). **Not new, but found here:**
+on 8 seeds Running Dry's random hand takes 3 stars on seed 7, before as
+after (its mould grew onto the new piles by itself, helped by a stray oat),
+so the 5-seed bar it passes is not an order statistic yet. Frame cost (dish
+1, intended hand, back to back): mean 2.71 ms, worst 4.85 ms, against 3.08 /
+5.70 before.

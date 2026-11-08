@@ -187,6 +187,17 @@ pub struct Params {
     /// hop failed with three oats lying round its grey front. 24 is an oat
     /// laid one step ahead (the hands lay them 22 out).
     pub stray_reach: f32,
+    /// **Seconds mould still counts as fed for the stray rule** after its
+    /// food ran out (`Dish::fed_within`), so oats laid on mould that has
+    /// only just gone grey can be eaten. Read only with a finite
+    /// `stray_reach`, and only once no cell on the dish is fed. Swept over 8
+    /// seeds of Running Dry (`mouldprobe level=3 stray_grace=G`), every hand
+    /// scores exactly as under the old rule at 1, 2 and 3 s, and at 5 s a
+    /// random hand's oat on its dying mould took 3 stars (seed 4). 2 is the
+    /// middle of the range that changes nothing a hand scores and still
+    /// rescues: oats laid as the last pile runs dry are eaten. (The random
+    /// hand's 3 stars on seed 7 is the old rule's too: 0 s scores the same.)
+    pub stray_grace: f32,
 }
 
 impl Default for Params {
@@ -218,6 +229,7 @@ impl Default for Params {
             pieces: true,
             wound: 4.0,
             stray_reach: f32::INFINITY,
+            stray_grace: 2.0,
         }
     }
 }
@@ -530,6 +542,10 @@ pub struct Dish {
     /// joined into one piece: what keeps a tube that flickers across the
     /// tube threshold from snapping every census.
     last_joined: std::collections::BTreeMap<(u64, u64), u64>,
+    /// The piles being eaten at the last census (by `pile_key`) and the
+    /// piece each was in: a join flashes only between two of these that
+    /// were in different pieces (`join_pieces`).
+    eaten_pieces: Vec<(u64, u16)>,
     /// Joins: where two pieces met and became one, and the step. Drawn as a
     /// flash; the owner's favourite moment, "little bridges where there
     /// wasn't even food", made an event the game can see and count.
@@ -730,6 +746,7 @@ impl Dish {
             fed_src: vec![0; W * H],
             piece_of_src: Vec::new(),
             census_keys: Vec::new(),
+            eaten_pieces: Vec::new(),
             piece_count: 0,
             last_joined: std::collections::BTreeMap::new(),
             snaps: Vec::new(),
@@ -1193,7 +1210,8 @@ impl Dish {
         // Read before the search below refills it: last census's answer.
         let limit = self.params.stray_reach;
         let strays_ok: Vec<bool> = if limit.is_finite() && self.t > 0 {
-            self.piles.iter().map(|p| self.fed_within(p.x, p.y, p.r + limit)).collect()
+            let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
+            self.piles.iter().map(|p| self.fed_within(p.x, p.y, p.r + limit, none_fed)).collect()
         } else {
             vec![true; self.piles.len()]
         };
@@ -1298,13 +1316,49 @@ impl Dish {
         }
     }
 
-    /// Whether any cell within `r` of a point was fed at the last census.
-    fn fed_within(&self, x: f32, y: f32, r: f32) -> bool {
-        disc(r).any(|(ox, oy)| cell(x + ox, y + oy).is_some_and(|i| self.fed[i] != u16::MAX))
+    /// Whether any cell within `r` of a point is fed, or, when no cell on
+    /// the dish is fed (`none_fed`), was within the last
+    /// `Params::stray_grace` seconds: the stray rule's test
+    /// (`Params::stray_reach`). Fed now only, it locked a dish whose food
+    /// had all run out (review 1, finding 1): once no cell anywhere was fed
+    /// every walker was a stray and every pile refused them, so on Running
+    /// Dry oats dropped right on 950 just-starved walkers were never eaten
+    /// and the dish ran 85 s it could not be won. With the grace, mould
+    /// that has only just gone grey can be rescued by oats laid on it, and
+    /// a stray far from any recent network still cannot colonise. Longer is
+    /// not kinder: at 5 s (an unfed walker's mean life, the first choice)
+    /// a random hand's oat landed on its dying mould and took 3 stars.
+    ///
+    /// **Only while nothing is fed**, which is exactly the lock. Applied
+    /// whenever, it let strays start food near a tube that had dipped for
+    /// a moment, and Beat the Ruler's intended hand on seed 7 joined round
+    /// the side (1.10x, 1 star) at every grace from 1 to 3 s, against 0.88x
+    /// and 3 stars at 0.
+    fn fed_within(&self, x: f32, y: f32, r: f32, none_fed: bool) -> bool {
+        let grace = if none_fed {
+            (self.params.stray_grace.max(0.0) * STEPS_PER_SECOND as f32) as u64
+        } else {
+            0
+        };
+        let t = self.t;
+        disc(r).any(|(ox, oy)| {
+            cell(x + ox, y + oy).is_some_and(|i| {
+                self.fed[i] != u16::MAX || (self.fed_at[i] != u64::MAX && t.saturating_sub(self.fed_at[i]) <= grace)
+            })
+        })
     }
 
     /// Union the piles whose searches met into pieces, flash every join
-    /// that was not already joined a moment ago, and remember the pieces.
+    /// between two pieces that were both eating, apart, at the last census
+    /// (and not joined a moment ago), and remember the pieces.
+    ///
+    /// **Both piles eaten last census, in different pieces then** (review
+    /// 1, finding 2). Any first meeting used to flash, so an oat laid on
+    /// fed tube and eaten by the network already there "joined" it, drawn
+    /// halfway between the oat and the pile: 3 oats on fed tube made 6
+    /// flashes on free dish 1, none at an oat. A pile newly reached never
+    /// flashes on its first census now; a bridge between two pieces that
+    /// were each feeding, oats a stray started included, still does.
     fn join_pieces(&mut self, parent: &mut [usize], meets: &[(usize, usize, usize)]) {
         fn root(parent: &mut [usize], mut a: usize) -> usize {
             while parent[a] != a {
@@ -1324,9 +1378,12 @@ impl Dish {
             parent[ra.max(rb)] = ra.min(rb);
             let pair = (keys[a].min(keys[b]), keys[a].max(keys[b]));
             let recent = self.last_joined.get(&pair).is_some_and(|&was| t.saturating_sub(was) <= forget);
-            // Not at the census that builds the dish: the inoculum lying
-            // over two piles is not a join anyone made.
-            if !recent && t > 0 {
+            let was = |k: u64| self.eaten_pieces.iter().find(|e| e.0 == k).map(|e| e.1);
+            let apart = matches!((was(keys[a]), was(keys[b])), (Some(pa), Some(pb)) if pa != pb);
+            // Never at the census that builds the dish (nothing was eaten
+            // before it): the inoculum lying over two piles is not a join
+            // anyone made.
+            if !recent && apart {
                 let (x, y) = ((at % W) as f32 + 0.5, (at / W) as f32 + 0.5);
                 self.snaps.push((x, y, t));
                 self.counts.snaps += 1;
@@ -1357,6 +1414,10 @@ impl Dish {
             }
         }
         self.piece_count = count as usize;
+        self.eaten_pieces = (0..n)
+            .filter(|&k| self.piles[k].reached())
+            .map(|k| (keys[k], self.piece_of_src[k]))
+            .collect();
         self.census_keys = keys;
         let keep = 2 * STEPS_PER_SECOND as u64;
         self.snaps.retain(|&(_, _, at)| t.saturating_sub(at) <= keep);
@@ -1717,7 +1778,14 @@ impl Dish {
                 // regrow to each other round the scar within the watch, and
                 // a do-nothing hand took the star on 2 of 5 seeds (0 of 5
                 // with the shared store). Three piles, as for thrift.
-                let networked = s.reach >= THRIFT_MIN_JOINED;
+                //
+                // **And both count only once all the food is joined**: the
+                // stars are a ladder, as on the hand-made dishes (review 1,
+                // finding 3). Below it, doing nothing took the thrift star
+                // on 2 of 8 seeds (4 of 6 piles, a short network because it
+                // was a small one), and a random hand took thrift and
+                // toughness with 5 of 6 joined.
+                let networked = s.reach >= THRIFT_MIN_JOINED && s.reach == s.piles;
                 s.stars = [
                     s.reach == s.piles,
                     networked && s.ratio() <= THRIFT_BAR,
@@ -2209,5 +2277,217 @@ mod tests {
         assert_eq!(s.piles, 6, "five piles plus the one that appears at 0:55");
         assert!(s.reach >= 1);
         assert!(d.cuts.len() <= STORM_CUTS);
+    }
+
+    // ------------------------------------------------------------ review 1
+    //
+    // One per game finding of `game-design/.../review-1.md` that a test can
+    // reach cheaply; each was run red with its fix reverted. The window-only
+    // findings (5 the organ's release, 6 the tool carried over, 9 Escape)
+    // have no test: they live in `src/bin/`.
+
+    const SPS: u64 = STEPS_PER_SECOND as u64;
+
+    /// Finding 1: on Running Dry, once no cell is fed, oats dropped right on
+    /// the starving mould must still be eaten (the stray rule's grace).
+    #[test]
+    fn just_starved_mould_can_be_rescued_by_oats() {
+        let mut d = Dish::from_level(&level::DISHES[2], 1);
+        while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+            d.step();
+            assert!(d.phase != Phase::Over, "the dish ended before it ran dry");
+        }
+        let n = d.walkers.len() as f32;
+        assert!(n > 100.0, "mould left to rescue: {n}");
+        let (cx, cy) = (
+            d.walkers.iter().map(|w| w.x).sum::<f32>() / n,
+            d.walkers.iter().map(|w| w.y).sum::<f32>() / n,
+        );
+        let w = *d
+            .walkers
+            .iter()
+            .min_by(|a, b| (a.x - cx).hypot(a.y - cy).total_cmp(&(b.x - cx).hypot(b.y - cy)))
+            .unwrap();
+        d.oats_left = d.oats_left.max(2);
+        assert!(d.place_oats(w.x, w.y) && d.place_oats(w.x + 3.0, w.y));
+        let mut eaten = false;
+        for _ in 0..8 * SPS {
+            d.step();
+            eaten |= d.piles.iter().any(|p| p.oats && p.reached());
+        }
+        assert!(eaten, "oats on just-starved mould were never eaten");
+    }
+
+    /// Lay tube by hand: a thick line of trail between two points.
+    fn lay(d: &mut Dish, a: (f32, f32), b: (f32, f32), r: f32, v: f32) {
+        let n = ((b.0 - a.0).hypot(b.1 - a.1).ceil() as usize * 2).max(1);
+        for k in 0..=n {
+            let f = k as f32 / n as f32;
+            let (x, y) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            for (ox, oy) in disc(r) {
+                if let Some(i) = cell(x + ox, y + oy) {
+                    if d.ground[i] == Ground::Agar {
+                        d.trail[i] = d.trail[i].max(v);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Finding 2, its first half: an oat eaten by the network already there
+    /// is not a join. Three oats on fed tube, far from any pile: no flash.
+    #[test]
+    fn an_oat_on_fed_tube_is_not_a_join() {
+        let mut base = Dish::new(1);
+        for _ in 0..25 * SPS {
+            base.step();
+        }
+        let mut spots = Vec::new();
+        for i in (0..W * H).step_by(7) {
+            let f = base.fed[i];
+            if f == u16::MAX || !(25..=50).contains(&f) {
+                continue;
+            }
+            let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+            if base.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + 15.0)
+                && spots.iter().all(|&(a, b): &(f32, f32)| (a - x).hypot(b - y) > 20.0)
+            {
+                spots.push((x, y));
+            }
+        }
+        assert!(spots.len() >= 3, "fed tube to lay oats on: {}", spots.len());
+        let mut flashed = 0;
+        for &(x, y) in spots.iter().take(3) {
+            let mut b = base.clone();
+            let before = b.counts.snaps;
+            b.oats_left = 5;
+            assert!(b.place_oats(x, y));
+            for _ in 0..2 * SPS {
+                b.step();
+            }
+            flashed += b.counts.snaps - before;
+        }
+        assert_eq!(flashed, 0, "oats on fed tube flashed joins");
+    }
+
+    /// Finding 2, its second half: a real bridge between two piles that
+    /// were each being eaten, apart, still flashes.
+    #[test]
+    fn a_bridge_between_two_fed_pieces_flashes() {
+        let mut d = Dish::new(1);
+        d.walkers.clear();
+        d.occ.fill(0);
+        d.trail.fill(0.0);
+        // Two piles, each with a blob of mould of its own: two pieces.
+        let (a, b) = ((d.piles[0].x, d.piles[0].y), (d.piles[1].x, d.piles[1].y));
+        let (ra, rb) = (d.piles[0].r, d.piles[1].r);
+        for c in [a, b] {
+            for (ox, oy) in disc(3.0) {
+                if let Some(i) = cell(c.0 + ox, c.1 + oy) {
+                    d.occ[i] = 1;
+                    d.walkers.push(Walker { x: c.0 + ox, y: c.1 + oy, heading: 0.0, food: 1.0 });
+                }
+            }
+        }
+        for _ in 0..FED_EVERY {
+            d.step();
+        }
+        assert!(d.piles[0].reached() && d.piles[1].reached());
+        assert_ne!(d.piece_of_src[0], d.piece_of_src[1], "two pieces before the bridge");
+        let before = d.counts.snaps;
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        let (ux, uy) = ((b.0 - a.0) / len, (b.1 - a.1) / len);
+        let from = (a.0 + ux * ra, a.1 + uy * ra);
+        let to = (b.0 - ux * rb, b.1 - uy * rb);
+        lay(&mut d, from, to, 2.5, 50.0);
+        for _ in 0..FED_EVERY {
+            d.step();
+        }
+        assert_eq!(d.piece_of_src[0], d.piece_of_src[1], "the bridge joined them");
+        assert!(d.counts.snaps > before, "a bridge between two fed pieces did not flash");
+    }
+
+    /// Finding 3: on a free dish the shape stars are a ladder above "all
+    /// joined". Doing nothing on seed 1 joined 4 of 6 and took the thrift
+    /// star.
+    #[test]
+    fn shape_stars_need_all_the_food_joined() {
+        let mut d = Dish::new(1);
+        while d.phase != Phase::Over {
+            d.step();
+        }
+        let s = d.score.clone().unwrap();
+        assert!(
+            s.reach == s.piles || !(s.stars[1] || s.stars[2]),
+            "a shape star with {} of {} joined: {:?}",
+            s.reach,
+            s.piles,
+            s.stars
+        );
+    }
+
+    /// Finding 4: a snip on the Mould Organ heals, as on every other dish.
+    #[test]
+    fn an_organ_snip_heals() {
+        let wounds = |d: &Dish| d.ground.iter().filter(|g| **g == Ground::Wound).count();
+        let mut d = organ::new_dish(1);
+        for _ in 0..2 * SPS {
+            organ::step(&mut d);
+        }
+        d.snips_left = 3;
+        assert!(d.begin_stroke(Tool::Snip, 100.0, 120.0));
+        d.drag_stroke(130.0, 120.0);
+        d.end_stroke();
+        assert!(wounds(&d) > 0);
+        for _ in 0..10 * SPS {
+            organ::step(&mut d);
+        }
+        assert_eq!(wounds(&d), 0, "the organ's snip never healed");
+    }
+
+    /// Finding 7: a challenge dish with no mould left ends then, saying so.
+    #[test]
+    fn a_dish_with_no_mould_left_ends_and_says_so() {
+        let mut d = Dish::from_level(&level::DISHES[0], 1);
+        for _ in 0..2 * SPS {
+            d.step();
+        }
+        while !d.walkers.is_empty() {
+            d.remove_walker(0, Kill::Snip);
+        }
+        let t0 = d.t;
+        while d.phase != Phase::Over {
+            d.step();
+            assert!(d.t < t0 + SPS, "a dead dish ran on toward the bell");
+        }
+        let c = d.card.clone().unwrap();
+        assert_eq!(c.stars, 0);
+        assert!(c.amount.starts_with("THE MOULD DIED"), "{}", c.amount);
+    }
+
+    /// Finding 8: Beat the Ruler's join agrees with the food-joined count:
+    /// a one-cell break across a spoke is a break.
+    #[test]
+    fn the_ruler_join_does_not_hop_a_break() {
+        let mut d = Dish::from_level(&level::DISHES[1], 1);
+        d.walkers.clear();
+        d.trail.fill(0.0);
+        let piles: Vec<(f32, f32)> = d.dish_piles().map(|p| (p.x, p.y)).collect();
+        let m = level::DISHES[1].meeting_point().0;
+        for &p in &piles {
+            lay(&mut d, m, p, 1.5, 10.0);
+        }
+        assert!(d.best_join().is_some(), "whole spokes join");
+        let (a, b) = (m, piles[1]);
+        let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+        let l = (b.0 - a.0).hypot(b.1 - a.1);
+        let (nx, ny) = (-(b.1 - a.1) / l, (b.0 - a.0) / l);
+        for k in -8..=8 {
+            if let Some(i) = cell(mid.0 + nx * k as f32 * 0.5, mid.1 + ny * k as f32 * 0.5) {
+                d.trail[i] = 0.0;
+            }
+        }
+        assert!(d.measure().reach < 3, "the break splits the network");
+        assert_eq!(d.best_join(), None, "the ruler hopped a break the food count sees");
     }
 }

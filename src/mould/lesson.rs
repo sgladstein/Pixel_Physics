@@ -61,7 +61,7 @@ impl Step {
             Step::Storm => ["A STORM WILL CUT THE PURPLE LINE.", "GROW A SECOND WAY ROUND IT."],
             Step::Done => [
                 "THAT'S THE GAME: JOIN ALL THE FOOD,",
-                "SHORT, STORM-PROOF. N: NEXT. M: DISHES",
+                "THEN SHORT, STORM-PROOF. N: NEXT. M: DISHES",
             ],
         }
     }
