@@ -6575,7 +6575,11 @@ file unless its report says so.
   so far", but needs instruction and a challenge.** The game now opens on a
   six-step lesson and a briefing card, labels the storm and its scar, and
   no longer flashes grey (about 420 cells a second to 0). Also records why
-  the storm is one cut, not three.
+  the storm is one cut, not three. **Three challenge dishes and a dish
+  picker (2026-11-08):** Behind the Wall, Beat the Ruler, Running Dry, each
+  meeting its ship bar over 5 seeds (do nothing 0, random at most 1, the
+  scripted intended hand 3); strays limited on hand-made dishes, which
+  doing nothing had used to join all three in Beat the Ruler.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so

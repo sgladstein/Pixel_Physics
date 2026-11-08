@@ -47,10 +47,22 @@
 //!   not three). Its line is shown as a shadow `STORM_WARNING_SECONDS`
 //!   ahead, and toughness is read after the full watch, once regrowth has
 //!   had its chance.
+//!
+//! # Dishes
+//!
+//! The window opens on the lesson (`lesson.rs`). After it come the
+//! hand-made challenge dishes (`level.rs`: Behind the Wall, Beat the Ruler,
+//! Running Dry), each with its own food, salt, tools, clock and win rule and
+//! no storm, and the seeded free dishes above. M in the window is the dish
+//! picker; a dish opens on a star from the one before.
 
 pub mod lesson;
+pub mod level;
+pub mod look;
+pub mod organ;
 pub mod play;
 pub mod render;
+pub mod wander;
 
 use std::f32::consts::TAU;
 
@@ -142,6 +154,58 @@ pub struct Params {
     /// fully lit walker is stepped one cell outward. 0 is the sensor-only
     /// lamp, which repels but cannot move a tube (see `push_light`).
     pub push: f32,
+    /// **Each piece of mould eats only the food it is joined to** (owner's
+    /// card, 2026-11-08: "Yes, each piece eats its own food"). Off, one
+    /// shared store paid for every walker on the dish, so a piece cut away
+    /// from most of the food was fed by food it no longer touched, and a cut
+    /// cost nothing. On, every walker carries its share of its piece's food
+    /// (`Walker::food`), a piece is the tube joined along the feeding search
+    /// (`Dish::piece_of`), and when a piece's food runs out its walkers go
+    /// hungry, farthest from food first -- the same rule the shared store
+    /// used, per piece. Food is never made or lost by a split or a join:
+    /// shares travel with their walkers.
+    pub pieces: bool,
+    /// Seconds a snip stays open: the cut cells are wound, which the mould
+    /// cannot cross, then heal back to agar. 0 is the old snip, which only
+    /// wiped trail and was healed by the walkers in about 0.5 s, so nothing
+    /// beyond it ever went grey (toy-feel brainstorm, 2026-11-08: 0 grey
+    /// tube pixels at 30, 60 and 82 s of a whole scripted game).
+    pub wound: f32,
+    /// **How near fed mould a stray can start eating food**, in cells. A
+    /// stray is a walker on unfed ground: off the leash it can still walk
+    /// (a cell a step, about 5 s to live), and a pile it stands on becomes
+    /// a source of the feeding search like any other. Infinite (the seeded
+    /// dishes, which were balanced with it): a stray anywhere colonises any
+    /// food. Finite (every hand-made dish, `level.rs`): food more than this
+    /// far from fed mould can only be started on by fed mould, so the mould
+    /// reaches far food by growing tube to it, and the leash means what the
+    /// card says. With no limit, strays broke two dishes' premise: in Beat
+    /// the Ruler they reached both far foods and doing nothing joined all
+    /// three on 2 of 2 seeds; on Behind the Wall a random hand's stray oat
+    /// across the dish became a beachhead and it scored 3 stars. Shut out
+    /// entirely (0), an oat even a little past the leash could never be
+    /// eaten, so the relays every dish needs died: Running Dry's 86-cell
+    /// hop failed with three oats lying round its grey front. 24 is an oat
+    /// laid one step ahead (the hands lay them 22 out).
+    pub stray_reach: f32,
+    /// **Seconds mould still counts as fed for the stray rule** after its
+    /// food ran out (`Dish::fed_within`), so oats laid on mould that has
+    /// only just gone grey can be eaten. Read only with a finite
+    /// `stray_reach`, and only once no cell on the dish is fed. Swept over 8
+    /// seeds of Running Dry (`mouldprobe level=3 stray_grace=G`), every hand
+    /// scores exactly as under the old rule at 1, 2 and 3 s, and at 5 s a
+    /// random hand's oat on its dying mould took 3 stars (seed 4). 2 is the
+    /// middle of the range that changes nothing a hand scores and still
+    /// rescues: oats laid as the last pile runs dry are eaten. (The random
+    /// hand's 3 stars on seed 7 is the old rule's too: 0 s scores the same.)
+    pub stray_grace: f32,
+    /// **Seconds the ground under player oats counts as fed for the stray
+    /// rule**, whether or not anything else on the dish is fed: oats laid
+    /// on mould that went grey up to this long ago are eaten, so a player a
+    /// little late to rescue a branch is not refused (review 2, H2 and M2).
+    /// Under the oats only, not over the whole leash. See
+    /// `Dish::strays_may_start` for what was tried first.
+    pub oats_grace: f32,
 }
 
 impl Default for Params {
@@ -170,6 +234,11 @@ impl Default for Params {
             lamp_reach: LAMP_R,
             lamp_soft: false,
             push: 0.9,
+            pieces: true,
+            wound: 4.0,
+            stray_reach: f32::INFINITY,
+            stray_grace: 2.0,
+            oats_grace: 8.0,
         }
     }
 }
@@ -232,6 +301,16 @@ pub const FED_LOOK_REACH: usize = 1;
 pub const FED_LOOK_SECONDS: f32 = 0.5;
 /// How often (steps) the feeding search and pile census run.
 const FED_EVERY: u64 = 6;
+/// A join between two piles flashes only if they were not joined within
+/// this long: a thin tube flickering across the tube threshold would
+/// otherwise snap every census.
+pub const SNAP_FORGET_SECONDS: f32 = 2.0;
+
+/// A pile's identity across censuses: its position. Piles never move, and
+/// oats are refused on a cell that is not open agar.
+fn pile_key(p: &Pile) -> u64 {
+    ((p.x.to_bits() as u64) << 32) | p.y.to_bits() as u64
+}
 
 /// A straight stroke across the dish, end to end, in cells: a storm cut,
 /// a salt line, a snip.
@@ -277,6 +356,8 @@ pub enum Ground {
     Salt,
     /// Where the storm struck.
     Scar,
+    /// A snip, open for `Params::wound` seconds, then agar again.
+    Wound,
 }
 
 #[derive(Clone, Debug)]
@@ -306,6 +387,9 @@ pub struct Walker {
     pub x: f32,
     pub y: f32,
     pub heading: f32,
+    /// This walker's share of its piece's food (`Params::pieces`). Unused
+    /// with the shared store.
+    pub food: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -342,6 +426,9 @@ pub enum Phase {
     Growing,
     /// The storm struck at this step.
     Storm(u64),
+    /// The Wanderer pressed Go at this step and is pouring through the
+    /// crack (`wander.rs`).
+    Crossing(u64),
     Over,
 }
 
@@ -395,6 +482,10 @@ pub struct Counts {
     pub snips_used: u32,
     pub salt_cells: u32,
     pub lamp_steps: u64,
+    /// Joins flashed (`Dish::snaps`).
+    pub snaps: u32,
+    /// Wound cells opened by snips.
+    pub wound_cells: u32,
 }
 
 #[derive(Clone)]
@@ -446,7 +537,51 @@ pub struct Dish {
     pub storm_warning: u64,
     /// Recent snip strokes, for drawing a mark that fades: (x, y, step).
     pub snip_marks: Vec<(f32, f32, u64)>,
+    /// Which pile (index at the last census) each fed cell's food comes
+    /// from; meaningless where `fed` is `u16::MAX`.
+    fed_src: Vec<u16>,
+    /// The piece each census pile belongs to, by census pile index.
+    piece_of_src: Vec<u16>,
+    /// Each census pile's identity (`pile_key`), by census pile index, so a
+    /// pile added or gone since the census is never confused for another.
+    census_keys: Vec<u64>,
+    /// Pieces at the last census.
+    pub piece_count: usize,
+    /// When each pair of piles (by `pile_key`, smaller first) was last
+    /// joined into one piece: what keeps a tube that flickers across the
+    /// tube threshold from snapping every census.
+    last_joined: std::collections::BTreeMap<(u64, u64), u64>,
+    /// The piles being eaten at the last census (by `pile_key`) and the
+    /// piece each was in: a join flashes only between two of these that
+    /// were in different pieces (`join_pieces`).
+    eaten_pieces: Vec<(u64, u16)>,
+    /// Joins: where two pieces met and became one, and the step. Drawn as a
+    /// flash; the owner's favourite moment, "little bridges where there
+    /// wasn't even food", made an event the game can see and count.
+    pub snaps: Vec<(f32, f32, u64)>,
+    /// Open wounds: cell and the step it heals.
+    wounds: Vec<(usize, u64)>,
+    /// The step each wound cell heals (`u64::MAX` where none), for drawing.
+    pub wound_until: Vec<u64>,
     pub counts: Counts,
+    /// The hand-made dish this is (`level.rs`), or `None` for a seeded free
+    /// dish and the lesson.
+    pub level: Option<&'static level::Level>,
+    /// Most oats in hand, and seconds per oat coming back (0: never). The
+    /// free dish's are `OATS_STOCK` and `OATS_REGROW_SECONDS`; a level sets
+    /// its own.
+    pub oats_stock: u32,
+    pub oats_regrow: u32,
+    /// The score card's words once the dish is over: the amount and the
+    /// one line of why (`level::Card`).
+    pub card: Option<level::Card>,
+    /// Beat the Ruler's live number, refreshed twice a second: the
+    /// shortest join through the tube over the ruler (`Dish::best_join`).
+    pub join_now: Option<f32>,
+    /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
+    /// place of the clock, the storm and the stars. `None` in a scored dish
+    /// and the lesson.
+    pub wander: Option<wander::Wander>,
     rng: Rng,
 }
 
@@ -491,29 +626,43 @@ fn layout(rng: &mut Rng) -> Vec<(f32, f32, f32)> {
         .collect()
 }
 
+/// The empty dish: agar inside an ellipse a few cells in from the edge, rim
+/// outside it.
+fn agar_ground() -> Vec<Ground> {
+    let mut ground = vec![Ground::Rim; W * H];
+    let (cx, cy, rx, ry) = (
+        W as f32 / 2.0,
+        H as f32 / 2.0,
+        W as f32 / 2.0 - 3.0,
+        H as f32 / 2.0 - 3.0,
+    );
+    for y in 0..H {
+        for x in 0..W {
+            let dx = (x as f32 + 0.5 - cx) / rx;
+            let dy = (y as f32 + 0.5 - cy) / ry;
+            if dx * dx + dy * dy <= 1.0 {
+                ground[idx(x, y)] = Ground::Agar;
+            }
+        }
+    }
+    ground
+}
+
 impl Dish {
     pub fn new(seed: u64) -> Self {
         Self::with_params(seed, Params::default())
     }
 
     pub fn with_params(seed: u64, params: Params) -> Self {
+        Self::build(seed, params, false)
+    }
+
+    /// `wander`: keep the sixth pile's late spot off the exit's face (the
+    /// spot at (232, 80) sits in the crack), so reaching the way on always
+    /// needs a bridge. A scored dish draws the same numbers either way.
+    fn build(seed: u64, params: Params, wander: bool) -> Self {
         let mut rng = Rng::new(seed);
-        let mut ground = vec![Ground::Rim; W * H];
-        let (cx, cy, rx, ry) = (
-            W as f32 / 2.0,
-            H as f32 / 2.0,
-            W as f32 / 2.0 - 3.0,
-            H as f32 / 2.0 - 3.0,
-        );
-        for y in 0..H {
-            for x in 0..W {
-                let dx = (x as f32 + 0.5 - cx) / rx;
-                let dy = (y as f32 + 0.5 - cy) / ry;
-                if dx * dx + dy * dy <= 1.0 {
-                    ground[idx(x, y)] = Ground::Agar;
-                }
-            }
-        }
+        let ground = agar_ground();
         let mut piles = layout(&mut rng)
             .into_iter()
             .map(|(x, y, r)| Pile {
@@ -548,11 +697,28 @@ impl Dish {
         let taken: Vec<(f32, f32)> = piles.iter().chain(std::iter::once(&far)).map(|p| (p.x, p.y)).collect();
         if let Some(&k) = order
             .iter()
-            .find(|&&k| taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0))
+            .find(|&&k| {
+                taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0)
+                    && !(wander && spots[k].0 > 215.0)
+            })
         {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
         }
+        Self::assemble(seed, params, rng, ground, piles, pending)
+    }
+
+    /// The dish around a ground and its food: the fields, the inoculum on
+    /// the first pile, and the first census. Shared by the seeded dishes
+    /// and `Dish::from_level`.
+    fn assemble(
+        seed: u64,
+        params: Params,
+        rng: Rng,
+        ground: Vec<Ground>,
+        piles: Vec<Pile>,
+        pending: Vec<(u64, Pile)>,
+    ) -> Self {
         let mut dish = Dish {
             params,
             seed,
@@ -586,7 +752,22 @@ impl Dish {
             after: None,
             cuts: Vec::new(),
             snip_marks: Vec::new(),
+            fed_src: vec![0; W * H],
+            piece_of_src: Vec::new(),
+            census_keys: Vec::new(),
+            eaten_pieces: Vec::new(),
+            piece_count: 0,
+            last_joined: std::collections::BTreeMap::new(),
+            snaps: Vec::new(),
+            wounds: Vec::new(),
+            wound_until: vec![u64::MAX; W * H],
             counts: Counts::default(),
+            level: None,
+            oats_stock: OATS_STOCK,
+            oats_regrow: OATS_REGROW_SECONDS,
+            card: None,
+            join_now: None,
+            wander: None,
             rng,
         };
         // The inoculum: a blob on the home pile.
@@ -602,9 +783,15 @@ impl Dish {
                 if dish.ground[i] == Ground::Agar && dish.occ[i] == 0 {
                     dish.occ[i] = 1;
                     let heading = dish.rng.f32() * TAU;
-                    dish.walkers.push(Walker { x, y, heading });
+                    dish.walkers.push(Walker { x, y, heading, food: 0.0 });
                     placed += 1;
                 }
+            }
+        }
+        if dish.params.pieces {
+            let share = START_STORE / dish.walkers.len().max(1) as f32;
+            for w in dish.walkers.iter_mut() {
+                w.food = share;
             }
         }
         dish.census();
@@ -637,6 +824,17 @@ impl Dish {
 
     pub fn set_lamp(&mut self, at: Option<(f32, f32)>) {
         self.lamp = at;
+    }
+
+    /// Whether oats laid at (x, y) now could be started by the mould there:
+    /// the stray rule as the census will read it (`Params::stray_reach`,
+    /// `Params::oats_grace`). False only on a dish with a leash, where no
+    /// mould within it has been fed lately, so only strays could come. The
+    /// oats preview reads this, so it never says "It will reach these"
+    /// where the rule refuses (review 2, finding H2).
+    pub fn oats_would_start(&self, x: f32, y: f32) -> bool {
+        let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
+        self.t == 0 || self.strays_may_start(x, y, OATS_R, true, none_fed)
     }
 
     /// Drop oats. False if there are none left or the spot is not open dish.
@@ -716,6 +914,12 @@ impl Dish {
         self.stroke.is_some()
     }
 
+    /// Drawing only (`look.rs`'s stroke preview): the live stroke's tool,
+    /// where it last reached, and the length it has left to draw.
+    pub fn stroke_state(&self) -> Option<(Tool, (f32, f32), f32)> {
+        self.stroke.map(|s| (s.tool, s.last, s.left))
+    }
+
     fn stroke_dab(&mut self, tool: Tool, x: f32, y: f32) {
         match tool {
             Tool::Salt => {
@@ -733,9 +937,16 @@ impl Dish {
                 self.kill_in(x, y, 1.5, Kill::Snip);
             }
             Tool::Snip => {
+                let heal = self.t + (self.params.wound * STEPS_PER_SECOND as f32) as u64;
                 for (ox, oy) in disc(2.5) {
                     if let Some(i) = cell(x + ox, y + oy) {
                         self.trail[i] = 0.0;
+                        if self.params.wound > 0.0 && self.ground[i] == Ground::Agar && !self.on_pile(i) {
+                            self.ground[i] = Ground::Wound;
+                            self.wounds.push((i, heal));
+                            self.wound_until[i] = heal;
+                            self.counts.wound_cells += 1;
+                        }
                     }
                 }
                 self.kill_in(x, y, 2.5, Kill::Snip);
@@ -786,13 +997,23 @@ impl Dish {
         self.push_light();
         self.deposit_food();
         self.move_walkers();
+        self.flow_out();
         self.diffuse();
         if self.t.is_multiple_of(FED_EVERY) {
-            self.census();
+            // Once the Wanderer has gone, who is fed is settled: the part
+            // that left is fed, everything left behind is not (`wander.rs`).
+            if self.wander_frozen() {
+                self.stamp_fed();
+            } else {
+                self.census();
+                self.wander_census();
+            }
         }
         self.economy();
+        self.heal_wounds();
         self.expire_oats();
         self.phase_tick();
+        self.wander_tick();
         if self.lamp.is_some() {
             self.counts.lamp_steps += 1;
         }
@@ -1012,25 +1233,56 @@ impl Dish {
         for p in self.piles.iter_mut() {
             p.eaters = 0;
         }
+        // Read before the search below refills it: last census's answer.
+        let limit = self.params.stray_reach;
+        let strays_ok: Vec<bool> = if limit.is_finite() && self.t > 0 {
+            let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
+            self.piles
+                .iter()
+                .map(|p| self.strays_may_start(p.x, p.y, p.r, p.oats, none_fed))
+                .collect()
+        } else {
+            vec![true; self.piles.len()]
+        };
         for w in &self.walkers {
-            for p in self.piles.iter_mut() {
+            let stray = cell(w.x, w.y).is_some_and(|i| self.fed[i] == u16::MAX);
+            for (p, &ok) in self.piles.iter_mut().zip(&strays_ok) {
+                if stray && !ok {
+                    continue;
+                }
                 if p.food > 0.0 && (p.x - w.x).powi(2) + (p.y - w.y).powi(2) <= (p.r + 1.0).powi(2) {
                     p.eaters += 1;
                 }
             }
         }
-        // Breadth-first along tube from every pile the mould is eating.
+        // Breadth-first along tube from every pile the mould is eating. Each
+        // fed cell also remembers which pile its food comes from
+        // (`fed_src`); where two piles' searches meet, those piles are one
+        // piece (`Params::pieces`), and the cell where they met is where a
+        // join is drawn (`snaps`). The distances, and so everything the
+        // shared-store game reads, are exactly what they were before the
+        // sources were tracked.
         self.fed.fill(u16::MAX);
+        let n = self.piles.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        // (pile a, pile b, cell where they met), in the order found.
+        let mut meets: Vec<(usize, usize, usize)> = Vec::new();
         let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
-        for p in &self.piles {
+        for (k, p) in self.piles.iter().enumerate() {
             if !p.reached() {
                 continue;
             }
             for (ox, oy) in disc(p.r + 1.0) {
                 if let Some(i) = cell(p.x + ox, p.y + oy) {
-                    if self.ground[i] == Ground::Agar && self.fed[i] != 0 {
-                        self.fed[i] = 0;
-                        queue.push_back(i);
+                    if self.ground[i] == Ground::Agar {
+                        if self.fed[i] != 0 {
+                            self.fed[i] = 0;
+                            self.fed_src[i] = k as u16;
+                            queue.push_back(i);
+                        } else if self.fed_src[i] as usize != k {
+                            // Two piles close enough to share a cell.
+                            meets.push((self.fed_src[i] as usize, k, i));
+                        }
                     }
                 }
             }
@@ -1042,28 +1294,39 @@ impl Dish {
             if d >= reach {
                 continue;
             }
+            let src = self.fed_src[i];
             let (x, y) = (i % W, i / W);
-            let mut visit = |j: usize, fed: &mut Vec<u16>| {
-                if self.ground[j] == Ground::Agar && self.trail[j] > tube && fed[j] == u16::MAX {
-                    fed[j] = d + 1;
-                    queue.push_back(j);
+            let mut visit = |j: usize, fed: &mut Vec<u16>, fed_src: &mut Vec<u16>| {
+                if self.ground[j] == Ground::Agar && self.trail[j] > tube {
+                    if fed[j] == u16::MAX {
+                        fed[j] = d + 1;
+                        fed_src[j] = src;
+                        queue.push_back(j);
+                    } else if fed_src[j] != src {
+                        meets.push((src as usize, fed_src[j] as usize, j));
+                    }
                 }
             };
             if x > 0 {
-                visit(i - 1, &mut self.fed);
+                visit(i - 1, &mut self.fed, &mut self.fed_src);
             }
             if x + 1 < W {
-                visit(i + 1, &mut self.fed);
+                visit(i + 1, &mut self.fed, &mut self.fed_src);
             }
             if y > 0 {
-                visit(i - W, &mut self.fed);
+                visit(i - W, &mut self.fed, &mut self.fed_src);
             }
             if y + 1 < H {
-                visit(i + W, &mut self.fed);
+                visit(i + W, &mut self.fed, &mut self.fed_src);
             }
         }
-        // What the drawing reads (`looks_fed`): fed tube and the cells
-        // beside it, stamped with the time.
+        self.join_pieces(&mut parent, &meets);
+        self.stamp_fed();
+    }
+
+    /// What the drawing reads (`looks_fed`): fed tube and the cells beside
+    /// it, stamped with the time.
+    fn stamp_fed(&mut self) {
         let t = self.t;
         let r = FED_LOOK_REACH as isize;
         for i in 0..W * H {
@@ -1082,6 +1345,166 @@ impl Dish {
         }
     }
 
+    /// **The stray rule** (`Params::stray_reach`): whether strays may start
+    /// food of radius `r` at (x, y). Mould fed within the leash, or fed in
+    /// the last `Params::stray_grace` seconds once nothing on the dish is
+    /// fed (`fed_within`), may; and player oats laid *on* ground fed in the
+    /// last `Params::oats_grace` seconds may, whatever else is fed.
+    ///
+    /// The oats clause is review 2's findings H2 and M2. Under the 2 s
+    /// grace alone, oats on just-starved mould were eaten only if laid
+    /// within about 1.5 s of the last fed cell going (Running Dry, seeds
+    /// 1-3: 450-680 walkers stood round oats never eaten at +2, +3 and +5
+    /// s), and never while another piece was still eating (seed 3 at 37 s:
+    /// 263 mould round an oat, 1,130 fed cells elsewhere), all while the
+    /// preview said "It will reach these". Two wider versions failed the
+    /// ship bar over 8 seeds. Oats exempt from the leash outright (the
+    /// review's option a) brought the beachhead back: a random hand's oats
+    /// took 3 stars on Behind the Wall on seeds 1, 6 and 8 and on Running
+    /// Dry on 2, 4 and 7. The oats grace read over the whole leash (27
+    /// cells) rather than under the oats let strays start the intended
+    /// hand's oats laid ahead of Beat the Ruler's tube, which then joined
+    /// round the side on seed 7 (1.16x, 1 star) at graces of 2, 4 and 8 s,
+    /// the dish grace's own failure (`fed_within`).
+    fn strays_may_start(&self, x: f32, y: f32, r: f32, oats: bool, none_fed: bool) -> bool {
+        let limit = self.params.stray_reach;
+        if !limit.is_finite() {
+            return true;
+        }
+        let grace = if none_fed { self.params.stray_grace } else { 0.0 };
+        self.fed_within(x, y, r + limit, grace) || (oats && self.fed_within(x, y, r + 1.0, self.params.oats_grace))
+    }
+
+    /// Whether any cell within `r` of a point is fed, or was within the
+    /// last `grace` seconds. The stray rule's test
+    /// (`Params::stray_reach`). Fed now only, it locked a dish whose food
+    /// had all run out (review 1, finding 1): once no cell anywhere was fed
+    /// every walker was a stray and every pile refused them, so on Running
+    /// Dry oats dropped right on 950 just-starved walkers were never eaten
+    /// and the dish ran 85 s it could not be won. With the grace, mould
+    /// that has only just gone grey can be rescued by oats laid on it, and
+    /// a stray far from any recent network still cannot colonise. Longer is
+    /// not kinder: at 5 s (an unfed walker's mean life, the first choice)
+    /// a random hand's oat landed on its dying mould and took 3 stars.
+    ///
+    /// **Only while nothing is fed**, which is exactly the lock. Applied
+    /// whenever, it let strays start food near a tube that had dipped for
+    /// a moment, and Beat the Ruler's intended hand on seed 7 joined round
+    /// the side (1.10x, 1 star) at every grace from 1 to 3 s, against 0.88x
+    /// and 3 stars at 0.
+    fn fed_within(&self, x: f32, y: f32, r: f32, grace: f32) -> bool {
+        let grace = (grace.max(0.0) * STEPS_PER_SECOND as f32) as u64;
+        let t = self.t;
+        disc(r).any(|(ox, oy)| {
+            cell(x + ox, y + oy).is_some_and(|i| {
+                self.fed[i] != u16::MAX || (self.fed_at[i] != u64::MAX && t.saturating_sub(self.fed_at[i]) <= grace)
+            })
+        })
+    }
+
+    /// Union the piles whose searches met into pieces, flash every join
+    /// between two pieces that were both eating, apart, at the last census
+    /// (and not joined a moment ago), and remember the pieces.
+    ///
+    /// **Both piles eaten last census, in different pieces then** (review
+    /// 1, finding 2). Any first meeting used to flash, so an oat laid on
+    /// fed tube and eaten by the network already there "joined" it, drawn
+    /// halfway between the oat and the pile: 3 oats on fed tube made 6
+    /// flashes on free dish 1, none at an oat. A pile newly reached never
+    /// flashes on its first census now; a bridge between two pieces that
+    /// were each feeding, oats a stray started included, still does.
+    fn join_pieces(&mut self, parent: &mut [usize], meets: &[(usize, usize, usize)]) {
+        fn root(parent: &mut [usize], mut a: usize) -> usize {
+            while parent[a] != a {
+                parent[a] = parent[parent[a]];
+                a = parent[a];
+            }
+            a
+        }
+        let t = self.t;
+        let forget = (SNAP_FORGET_SECONDS * STEPS_PER_SECOND as f32) as u64;
+        let keys: Vec<u64> = self.piles.iter().map(pile_key).collect();
+        for &(a, b, at) in meets {
+            let (ra, rb) = (root(parent, a), root(parent, b));
+            if ra == rb {
+                continue;
+            }
+            parent[ra.max(rb)] = ra.min(rb);
+            let pair = (keys[a].min(keys[b]), keys[a].max(keys[b]));
+            let recent = self.last_joined.get(&pair).is_some_and(|&was| t.saturating_sub(was) <= forget);
+            let was = |k: u64| self.eaten_pieces.iter().find(|e| e.0 == k).map(|e| e.1);
+            let apart = matches!((was(keys[a]), was(keys[b])), (Some(pa), Some(pb)) if pa != pb);
+            // Never at the census that builds the dish (nothing was eaten
+            // before it): the inoculum lying over two piles is not a join
+            // anyone made.
+            if !recent && apart {
+                let (x, y) = ((at % W) as f32 + 0.5, (at / W) as f32 + 0.5);
+                self.snaps.push((x, y, t));
+                self.counts.snaps += 1;
+            }
+        }
+        // Pieces, numbered in pile order, and the pairs now joined.
+        let n = self.piles.len();
+        let mut number = vec![u16::MAX; n];
+        self.piece_of_src = vec![0; n];
+        let mut count = 0u16;
+        for k in 0..n {
+            let r = root(parent, k);
+            if number[r] == u16::MAX {
+                number[r] = count;
+                count += 1;
+            }
+            self.piece_of_src[k] = number[r];
+        }
+        for a in 0..n {
+            if !self.piles[a].reached() {
+                continue;
+            }
+            for b in a + 1..n {
+                if self.piles[b].reached() && self.piece_of_src[a] == self.piece_of_src[b] {
+                    let pair = (keys[a].min(keys[b]), keys[a].max(keys[b]));
+                    self.last_joined.insert(pair, t);
+                }
+            }
+        }
+        self.piece_count = count as usize;
+        self.eaten_pieces = (0..n)
+            .filter(|&k| self.piles[k].reached())
+            .map(|k| (keys[k], self.piece_of_src[k]))
+            .collect();
+        self.census_keys = keys;
+        let keep = 2 * STEPS_PER_SECOND as u64;
+        self.snaps.retain(|&(_, _, at)| t.saturating_sub(at) <= keep);
+    }
+
+    /// The piece a cell's mould belongs to, by the last census: `None` where
+    /// it is not fed.
+    pub fn piece_of(&self, i: usize) -> Option<usize> {
+        if self.fed[i] == u16::MAX {
+            return None;
+        }
+        self.piece_of_src.get(self.fed_src[i] as usize).map(|&p| p as usize)
+    }
+
+    fn heal_wounds(&mut self) {
+        if self.wounds.is_empty() {
+            return;
+        }
+        let t = self.t;
+        let (ground, until) = (&mut self.ground, &mut self.wound_until);
+        self.wounds.retain(|&(i, heal)| {
+            if heal > t {
+                return true;
+            }
+            // A later snip over the same cell keeps it open longer.
+            if until[i] <= t && ground[i] == Ground::Wound {
+                ground[i] = Ground::Agar;
+                until[i] = u64::MAX;
+            }
+            false
+        });
+    }
+
     /// **Whether a drawn tube cell shows fed (yellow) or starving (grey).**
     /// Owner's playtest, 2026-11-08: "sometimes things were flashing gray".
     /// The feeding search only walks cells over the tube threshold, but a
@@ -1097,7 +1520,160 @@ impl Dish {
         at != u64::MAX && self.t.saturating_sub(at) <= (FED_LOOK_SECONDS * STEPS_PER_SECOND as f32) as u64
     }
 
+    /// The economy with `Params::pieces`: the shared-store rules below,
+    /// applied to each piece's own food. A piece's food is the sum of its
+    /// walkers' shares; it earns what its piles are eaten for, pays upkeep
+    /// per walker, goes hungry when it runs dry, and pays for its own
+    /// births; then what is left is shared out again. An unfed walker (on
+    /// tube no food reaches) lives on its own share until it starves.
+    fn economy_by_piece(&mut self) {
+        let pieces = self.piece_count;
+        let upkeep = self.params.upkeep;
+        let mut food = vec![0.0f32; pieces];
+        // Eating, credited to the eating pile's piece. A pile added since
+        // the census has no eaters yet; one gone since is simply absent.
+        let eat = self.params.eat;
+        let table = self.params.table;
+        for p in self.piles.iter_mut() {
+            if p.eaters > 0 && p.food > 0.0 {
+                let key = pile_key(p);
+                let Some(k) = self.census_keys.iter().position(|&c| c == key) else { continue };
+                let e = (p.eaters.min(table) as f32 * eat).min(p.food);
+                p.food -= e;
+                food[self.piece_of_src[k] as usize] += e;
+            }
+        }
+        // Each walker's piece, its share pooled, and upkeep.
+        let mut piece_of: Vec<Option<usize>> = Vec::with_capacity(self.walkers.len());
+        let mut size = vec![0u32; pieces];
+        for k in 0..self.walkers.len() {
+            let w = self.walkers[k];
+            let i = cell(w.x, w.y).expect("walker inside the dish");
+            let g = self.piece_of(i);
+            match g {
+                Some(g) => {
+                    food[g] += w.food - upkeep;
+                    size[g] += 1;
+                }
+                None => self.walkers[k].food = (w.food - upkeep).max(0.0),
+            }
+            piece_of.push(g);
+        }
+        let empty: Vec<bool> = food.iter().map(|&f| f <= 0.0).collect();
+        for f in food.iter_mut() {
+            *f = f.max(0.0);
+        }
+        // Deaths: the shared-store rules, with "the store is empty" read
+        // per piece (or per walker, for an unfed one).
+        let reach = self.params.feed_reach as f32;
+        let mut k = 0;
+        while k < self.walkers.len() {
+            let w = self.walkers[k];
+            let i = cell(w.x, w.y).expect("walker inside the dish");
+            let d = self.fed[i];
+            let g = piece_of[k];
+            let fed = g.is_some();
+            let dry = match g {
+                Some(g) => empty[g],
+                None => w.food <= 0.0,
+            };
+            let roll = self.rng.f32();
+            let mut why = None;
+            let l = self.light[i];
+            if l > 0.0 && roll < self.params.burn * l {
+                why = Some(Kill::Burned);
+            } else if !fed && roll < self.params.starve {
+                why = Some(Kill::Starved);
+            } else if dry {
+                let far = if fed { d as f32 / reach } else { 1.5 };
+                if roll < self.params.hungry * (0.25 + far) {
+                    why = Some(Kill::Hungry);
+                }
+            }
+            if let Some(why) = why {
+                // `remove_walker` swaps the last walker into k: keep the
+                // piece list in step.
+                self.remove_walker(k, why);
+                piece_of.swap_remove(k);
+                if let Some(g) = g {
+                    size[g] -= 1;
+                }
+            } else {
+                k += 1;
+            }
+        }
+        // Births, each paid for by its parent's piece.
+        let n = self.walkers.len();
+        let crowd = self.params.crowd;
+        for k in 0..n {
+            if self.rng.f32() >= self.params.divide {
+                continue;
+            }
+            let Some(g) = piece_of[k] else { continue };
+            if food[g] < 1.0 {
+                continue;
+            }
+            let w = self.walkers[k];
+            let (wx, wy) = (w.x as i32, w.y as i32);
+            if self.light[idx(wx as usize, wy as usize)] > 0.0 {
+                continue;
+            }
+            let mut count = 0;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    let (x, y) = (wx + dx, wy + dy);
+                    if x >= 0
+                        && y >= 0
+                        && (x as usize) < W
+                        && (y as usize) < H
+                        && self.occ[idx(x as usize, y as usize)] != 0
+                    {
+                        count += 1;
+                    }
+                }
+            }
+            if count > crowd {
+                continue;
+            }
+            let dir = self.rng.below(8) as i32;
+            let (dx, dy) = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)][dir as usize];
+            let (x, y) = (wx + dx, wy + dy);
+            if x < 0 || y < 0 || x as usize >= W || y as usize >= H {
+                continue;
+            }
+            let j = idx(x as usize, y as usize);
+            if self.ground[j] != Ground::Agar || self.occ[j] != 0 {
+                continue;
+            }
+            self.occ[j] = 1;
+            let heading = self.rng.f32() * TAU;
+            self.walkers.push(Walker {
+                x: x as f32 + 0.5,
+                y: y as f32 + 0.5,
+                heading,
+                food: 0.0,
+            });
+            piece_of.push(Some(g));
+            size[g] += 1;
+            food[g] -= 1.0;
+            self.counts.births += 1;
+        }
+        // Share each piece's food out again; the store is the total, for
+        // the HUD and anything else that reads it.
+        let mut total = 0.0;
+        for (k, w) in self.walkers.iter_mut().enumerate() {
+            if let Some(g) = piece_of[k] {
+                w.food = food[g] / size[g].max(1) as f32;
+            }
+            total += w.food;
+        }
+        self.store = total;
+    }
+
     fn economy(&mut self) {
+        if self.params.pieces {
+            return self.economy_by_piece();
+        }
         // Eating.
         let eat = self.params.eat;
         for p in self.piles.iter_mut() {
@@ -1193,6 +1769,7 @@ impl Dish {
                 x: x as f32 + 0.5,
                 y: y as f32 + 0.5,
                 heading,
+                food: 0.0,
             });
             self.store -= 1.0;
             self.counts.births += 1;
@@ -1208,7 +1785,11 @@ impl Dish {
         let sps = STEPS_PER_SECOND as u64;
         if self.phase == Phase::Growing {
             // Oats come back, and late food turns up.
-            if self.t > 0 && self.t.is_multiple_of(OATS_REGROW_SECONDS as u64 * sps) && self.oats_left < OATS_STOCK {
+            if self.t > 0
+                && self.oats_regrow > 0
+                && self.t.is_multiple_of(self.oats_regrow as u64 * sps)
+                && self.oats_left < self.oats_stock
+            {
                 self.oats_left += 1;
             }
             let t = self.t;
@@ -1221,6 +1802,10 @@ impl Dish {
                 } else {
                     k += 1;
                 }
+            }
+            // A hand-made dish ends by its own rule, with no storm.
+            if let Some(level) = self.level {
+                return self.level_tick(level);
             }
             if self.storm_line.is_none() && self.t + 1 >= self.storm_at.saturating_sub(self.storm_warning) {
                 self.storm_line = self.aim_storm();
@@ -1242,12 +1827,25 @@ impl Dish {
                 let mut s = self.before.clone().unwrap_or_default();
                 s.after = self.measure().reach.min(s.reach);
                 self.after = Some(s.after);
-                let joined_two = s.reach >= 2;
+                // Toughness, like thrift, needs a network worth the name:
+                // with each piece eating its own food, two piles left alone
+                // regrow to each other round the scar within the watch, and
+                // a do-nothing hand took the star on 2 of 5 seeds (0 of 5
+                // with the shared store). Three piles, as for thrift.
+                //
+                // **And both count only once all the food is joined**: the
+                // stars are a ladder, as on the hand-made dishes (review 1,
+                // finding 3). Below it, doing nothing took the thrift star
+                // on 2 of 8 seeds (4 of 6 piles, a short network because it
+                // was a small one), and a random hand took thrift and
+                // toughness with 5 of 6 joined.
+                let networked = s.reach >= THRIFT_MIN_JOINED && s.reach == s.piles;
                 s.stars = [
                     s.reach == s.piles,
-                    s.reach >= THRIFT_MIN_JOINED && s.ratio() <= THRIFT_BAR,
-                    joined_two && s.after == s.reach,
+                    networked && s.ratio() <= THRIFT_BAR,
+                    networked && s.after == s.reach,
                 ];
+                self.card = Some(level::free_card(&s));
                 self.score = Some(s);
                 self.phase = Phase::Over;
             }
@@ -1733,5 +2331,217 @@ mod tests {
         assert_eq!(s.piles, 6, "five piles plus the one that appears at 0:55");
         assert!(s.reach >= 1);
         assert!(d.cuts.len() <= STORM_CUTS);
+    }
+
+    // ------------------------------------------------------------ review 1
+    //
+    // One per game finding of `game-design/.../review-1.md` that a test can
+    // reach cheaply; each was run red with its fix reverted. The window-only
+    // findings (5 the organ's release, 6 the tool carried over, 9 Escape)
+    // have no test: they live in `src/bin/`.
+
+    const SPS: u64 = STEPS_PER_SECOND as u64;
+
+    /// Finding 1: on Running Dry, once no cell is fed, oats dropped right on
+    /// the starving mould must still be eaten (the stray rule's grace).
+    #[test]
+    fn just_starved_mould_can_be_rescued_by_oats() {
+        let mut d = Dish::from_level(&level::DISHES[2], 1);
+        while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+            d.step();
+            assert!(d.phase != Phase::Over, "the dish ended before it ran dry");
+        }
+        let n = d.walkers.len() as f32;
+        assert!(n > 100.0, "mould left to rescue: {n}");
+        let (cx, cy) = (
+            d.walkers.iter().map(|w| w.x).sum::<f32>() / n,
+            d.walkers.iter().map(|w| w.y).sum::<f32>() / n,
+        );
+        let w = *d
+            .walkers
+            .iter()
+            .min_by(|a, b| (a.x - cx).hypot(a.y - cy).total_cmp(&(b.x - cx).hypot(b.y - cy)))
+            .unwrap();
+        d.oats_left = d.oats_left.max(2);
+        assert!(d.place_oats(w.x, w.y) && d.place_oats(w.x + 3.0, w.y));
+        let mut eaten = false;
+        for _ in 0..8 * SPS {
+            d.step();
+            eaten |= d.piles.iter().any(|p| p.oats && p.reached());
+        }
+        assert!(eaten, "oats on just-starved mould were never eaten");
+    }
+
+    /// Lay tube by hand: a thick line of trail between two points.
+    fn lay(d: &mut Dish, a: (f32, f32), b: (f32, f32), r: f32, v: f32) {
+        let n = ((b.0 - a.0).hypot(b.1 - a.1).ceil() as usize * 2).max(1);
+        for k in 0..=n {
+            let f = k as f32 / n as f32;
+            let (x, y) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            for (ox, oy) in disc(r) {
+                if let Some(i) = cell(x + ox, y + oy) {
+                    if d.ground[i] == Ground::Agar {
+                        d.trail[i] = d.trail[i].max(v);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Finding 2, its first half: an oat eaten by the network already there
+    /// is not a join. Three oats on fed tube, far from any pile: no flash.
+    #[test]
+    fn an_oat_on_fed_tube_is_not_a_join() {
+        let mut base = Dish::new(1);
+        for _ in 0..25 * SPS {
+            base.step();
+        }
+        let mut spots = Vec::new();
+        for i in (0..W * H).step_by(7) {
+            let f = base.fed[i];
+            if f == u16::MAX || !(25..=50).contains(&f) {
+                continue;
+            }
+            let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+            if base.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + 15.0)
+                && spots.iter().all(|&(a, b): &(f32, f32)| (a - x).hypot(b - y) > 20.0)
+            {
+                spots.push((x, y));
+            }
+        }
+        assert!(spots.len() >= 3, "fed tube to lay oats on: {}", spots.len());
+        let mut flashed = 0;
+        for &(x, y) in spots.iter().take(3) {
+            let mut b = base.clone();
+            let before = b.counts.snaps;
+            b.oats_left = 5;
+            assert!(b.place_oats(x, y));
+            for _ in 0..2 * SPS {
+                b.step();
+            }
+            flashed += b.counts.snaps - before;
+        }
+        assert_eq!(flashed, 0, "oats on fed tube flashed joins");
+    }
+
+    /// Finding 2, its second half: a real bridge between two piles that
+    /// were each being eaten, apart, still flashes.
+    #[test]
+    fn a_bridge_between_two_fed_pieces_flashes() {
+        let mut d = Dish::new(1);
+        d.walkers.clear();
+        d.occ.fill(0);
+        d.trail.fill(0.0);
+        // Two piles, each with a blob of mould of its own: two pieces.
+        let (a, b) = ((d.piles[0].x, d.piles[0].y), (d.piles[1].x, d.piles[1].y));
+        let (ra, rb) = (d.piles[0].r, d.piles[1].r);
+        for c in [a, b] {
+            for (ox, oy) in disc(3.0) {
+                if let Some(i) = cell(c.0 + ox, c.1 + oy) {
+                    d.occ[i] = 1;
+                    d.walkers.push(Walker { x: c.0 + ox, y: c.1 + oy, heading: 0.0, food: 1.0 });
+                }
+            }
+        }
+        for _ in 0..FED_EVERY {
+            d.step();
+        }
+        assert!(d.piles[0].reached() && d.piles[1].reached());
+        assert_ne!(d.piece_of_src[0], d.piece_of_src[1], "two pieces before the bridge");
+        let before = d.counts.snaps;
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        let (ux, uy) = ((b.0 - a.0) / len, (b.1 - a.1) / len);
+        let from = (a.0 + ux * ra, a.1 + uy * ra);
+        let to = (b.0 - ux * rb, b.1 - uy * rb);
+        lay(&mut d, from, to, 2.5, 50.0);
+        for _ in 0..FED_EVERY {
+            d.step();
+        }
+        assert_eq!(d.piece_of_src[0], d.piece_of_src[1], "the bridge joined them");
+        assert!(d.counts.snaps > before, "a bridge between two fed pieces did not flash");
+    }
+
+    /// Finding 3: on a free dish the shape stars are a ladder above "all
+    /// joined". Doing nothing on seed 1 joined 4 of 6 and took the thrift
+    /// star.
+    #[test]
+    fn shape_stars_need_all_the_food_joined() {
+        let mut d = Dish::new(1);
+        while d.phase != Phase::Over {
+            d.step();
+        }
+        let s = d.score.clone().unwrap();
+        assert!(
+            s.reach == s.piles || !(s.stars[1] || s.stars[2]),
+            "a shape star with {} of {} joined: {:?}",
+            s.reach,
+            s.piles,
+            s.stars
+        );
+    }
+
+    /// Finding 4: a snip on the Mould Organ heals, as on every other dish.
+    #[test]
+    fn an_organ_snip_heals() {
+        let wounds = |d: &Dish| d.ground.iter().filter(|g| **g == Ground::Wound).count();
+        let mut d = organ::new_dish(1);
+        for _ in 0..2 * SPS {
+            organ::step(&mut d);
+        }
+        d.snips_left = 3;
+        assert!(d.begin_stroke(Tool::Snip, 100.0, 120.0));
+        d.drag_stroke(130.0, 120.0);
+        d.end_stroke();
+        assert!(wounds(&d) > 0);
+        for _ in 0..10 * SPS {
+            organ::step(&mut d);
+        }
+        assert_eq!(wounds(&d), 0, "the organ's snip never healed");
+    }
+
+    /// Finding 7: a challenge dish with no mould left ends then, saying so.
+    #[test]
+    fn a_dish_with_no_mould_left_ends_and_says_so() {
+        let mut d = Dish::from_level(&level::DISHES[0], 1);
+        for _ in 0..2 * SPS {
+            d.step();
+        }
+        while !d.walkers.is_empty() {
+            d.remove_walker(0, Kill::Snip);
+        }
+        let t0 = d.t;
+        while d.phase != Phase::Over {
+            d.step();
+            assert!(d.t < t0 + SPS, "a dead dish ran on toward the bell");
+        }
+        let c = d.card.clone().unwrap();
+        assert_eq!(c.stars, 0);
+        assert!(c.amount.starts_with("THE MOULD DIED"), "{}", c.amount);
+    }
+
+    /// Finding 8: Beat the Ruler's join agrees with the food-joined count:
+    /// a one-cell break across a spoke is a break.
+    #[test]
+    fn the_ruler_join_does_not_hop_a_break() {
+        let mut d = Dish::from_level(&level::DISHES[1], 1);
+        d.walkers.clear();
+        d.trail.fill(0.0);
+        let piles: Vec<(f32, f32)> = d.dish_piles().map(|p| (p.x, p.y)).collect();
+        let m = level::DISHES[1].meeting_point().0;
+        for &p in &piles {
+            lay(&mut d, m, p, 1.5, 10.0);
+        }
+        assert!(d.best_join().is_some(), "whole spokes join");
+        let (a, b) = (m, piles[1]);
+        let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+        let l = (b.0 - a.0).hypot(b.1 - a.1);
+        let (nx, ny) = (-(b.1 - a.1) / l, (b.0 - a.0) / l);
+        for k in -8..=8 {
+            if let Some(i) = cell(mid.0 + nx * k as f32 * 0.5, mid.1 + ny * k as f32 * 0.5) {
+                d.trail[i] = 0.0;
+            }
+        }
+        assert!(d.measure().reach < 3, "the break splits the network");
+        assert_eq!(d.best_join(), None, "the ruler hopped a break the food count sees");
     }
 }

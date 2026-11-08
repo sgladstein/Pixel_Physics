@@ -7,6 +7,13 @@
 //! cargo run --release --example mouldprobe -- lean=1               # oats-to-lean and lamp recoil timing only
 //! cargo run --release --example mouldprobe -- look=out/ seeds=1    # PNG stills every 10 s, do nothing and plan
 //! cargo run --release --example mouldprobe -- divide=0.05 feed_reach=60   # any Params field by name
+//! cargo run --release --example mouldprobe -- looks=out/ seeds=1  # the interface looks, same moments in each (mould::look)
+//! cargo run --release --example mouldprobe -- pull=1 seeds=1,2,3,4,5  # how far oats pull: the oats preview's ring
+//! cargo run --release --example mouldprobe -- lesson=out/ style=B     # any picture mode, drawn in an interface look
+//! cargo run --release --example mouldprobe -- level=all                # the challenge dishes' ship bar
+//! cargo run --release --example mouldprobe -- level=2 look=out/ gif=out/   # ...with its pictures
+//! cargo run --release --example mouldprobe -- menu=out/                # the dish picker, as drawn
+//! cargo run --release --example mouldprobe -- wander=1 seeds=1,2,3,4,5,6,7,8 gif=out/   # the Wanderer: arrived N of M per hand
 //! ```
 //!
 //! Everything it draws goes through `mould::render::draw`, the window's own
@@ -14,9 +21,11 @@
 
 use std::time::Instant;
 
-use pixel_physics::mould::play::{Dump, Fresh, Idle, LampOnly, Plan, Player, Random, Shepherd};
+use pixel_physics::mould::play::{Dump, Fresh, Idle, IdleGo, LampOnly, Leader, Plan, Player, Random, Shepherd};
+use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
+use pixel_physics::mould::look::Style;
 use pixel_physics::mould::render::{self, View};
-use pixel_physics::mould::{Dish, Params, Phase, Score, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
+use pixel_physics::mould::{Dish, Ground, Params, Phase, Score, Tool, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
 
 struct Args {
     seeds: Vec<u64>,
@@ -28,13 +37,38 @@ struct Args {
     push: bool,
     flicker: bool,
     lesson: Option<String>,
+    /// `pull=1`: how far from the mould's front oats still pull it.
+    pull: bool,
+    /// `looks=DIR`: the interface looks' scripted frames (`mould::look`).
+    looks: Option<String>,
+    /// `style=NAME|LETTER`: the interface look every picture is drawn in;
+    /// the game's own (`Style::GAME`) unless named.
+    style: Style,
+    cut: Option<String>,
     /// `push`: how far beside the tube the lamp is held.
     offset: f32,
     scale: u32,
     every: u32,
     /// Oats per dish, if not the game's own stock.
     oats: Option<u32>,
+    /// The Wanderer (`mould::wander`): journeys of `dishes` stretches.
+    wander: bool,
+    dishes: u32,
+    /// Minutes of dish before a stretch is called (nobody pressed Go and she
+    /// is still alive).
+    cap_min: u32,
     params: Params,
+    /// `level=1,2,3` (or `all`): the challenge dishes' ship bar.
+    level: Option<Vec<usize>>,
+    /// `menu=DIR`: a still of the dish picker.
+    menu: Option<String>,
+    /// `players=` was given, so `level=` plays those hands.
+    players_given: bool,
+    /// `stray_reach=` was given: a level plays with it (levels default to
+    /// `level::STRAY_REACH`).
+    strays: Option<f32>,
+    /// `stills=DIR`: level runs write a still every 5 s of the first seed.
+    stills: Option<String>,
 }
 
 fn parse() -> Args {
@@ -50,11 +84,23 @@ fn parse() -> Args {
         push: false,
         flicker: false,
         lesson: None,
+        pull: false,
+        looks: None,
+        style: Style::GAME,
+        cut: None,
         offset: 12.0,
         scale: 2,
         every: 15,
         oats: None,
+        wander: false,
+        dishes: 3,
+        cap_min: 10,
         params: Params::default(),
+        level: None,
+        menu: None,
+        players_given: false,
+        strays: None,
+        stills: None,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else {
@@ -64,7 +110,23 @@ fn parse() -> Args {
         let p = &mut a.params;
         match k {
             "seeds" => a.seeds = v.split(',').map(|s| s.parse().unwrap()).collect(),
-            "players" => a.players = v.split(',').map(String::from).collect(),
+            "players" => {
+                a.players = v.split(',').map(String::from).collect();
+                a.players_given = true;
+            }
+            "level" => {
+                let n = pixel_physics::mould::level::DISHES.len();
+                a.level = Some(if v == "all" {
+                    (0..n).collect()
+                } else {
+                    v.split(',')
+                        .map(|s| s.parse::<usize>().ok().filter(|k| (1..=n).contains(k)).map(|k| k - 1))
+                        .map(|k| k.unwrap_or_else(|| panic!("level: 1 to {n}, or all")))
+                        .collect()
+                });
+            }
+            "menu" => a.menu = Some(v.into()),
+            "stills" => a.stills = Some(v.into()),
             "gif" => a.gif = Some(v.into()),
             "look" => a.look = Some(v.into()),
             "lean" => a.lean = v == "1",
@@ -72,9 +134,16 @@ fn parse() -> Args {
             "bend" => a.push = v == "1",
             "flicker" => a.flicker = v == "1",
             "lesson" => a.lesson = Some(v.into()),
+            "pull" => a.pull = v == "1",
+            "looks" => a.looks = Some(v.into()),
+            "style" => a.style = Style::parse(v).unwrap_or_else(|| panic!("style: unknown {v}")),
+            "cut" => a.cut = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
+            "wander" => a.wander = v == "1",
+            "dishes" => a.dishes = v.parse().unwrap(),
+            "cap" => a.cap_min = v.parse().unwrap(),
             "sensor_angle" => p.sensor_angle = f().to_radians(),
             "rotate_angle" => p.rotate_angle = f().to_radians(),
             "sensor_offset" => p.sensor_offset = f(),
@@ -98,6 +167,14 @@ fn parse() -> Args {
             "lamp_reach" => p.lamp_reach = f(),
             "lamp_soft" => p.lamp_soft = v == "1",
             "push" => p.push = f(),
+            "pieces" => p.pieces = v == "1",
+            "wound" => p.wound = f(),
+            "stray_reach" => {
+                p.stray_reach = f();
+                a.strays = Some(f());
+            }
+            "stray_grace" => p.stray_grace = f(),
+            "oats_grace" => p.oats_grace = f(),
             "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
@@ -118,11 +195,12 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
     }
 }
 
-fn frame_of(d: &Dish, scale: u32) -> image::RgbaImage {
+fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
     let (w, h) = render::frame_size(scale);
     let mut buf = vec![0u8; (w * h * 4) as usize];
     let view = View {
         keys: false,
+        style,
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
@@ -150,6 +228,8 @@ struct Run {
     oats: u32,
     snips: u32,
     lamp_s: f32,
+    /// Joins flashed (`Dish::snaps`).
+    joins: u32,
     peak: usize,
     /// (seconds, walkers, piles joined) every 10 s.
     trace: Vec<(u32, usize, u32)>,
@@ -174,14 +254,14 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         }
         peak = peak.max(d.walkers.len());
         if a.gif.is_some() && frame.is_multiple_of(a.every) {
-            shots.push(frame_of(&d, a.scale));
+            shots.push(frame_of(&d, a.scale, a.style));
         }
         // Stills also just after each late pile turns up and during the
         // storm warning, the moments the 2026-11-08 fixes draw.
         let sps = STEPS_PER_SECOND as u64;
         if d.t.is_multiple_of(sps) && [31, 56, 87].contains(&(d.t / sps)) {
             if let Some(dir) = &a.look {
-                frame_of(&d, a.scale)
+                frame_of(&d, a.scale, a.style)
                     .save(format!("{dir}/look-s{seed}-{who}-{:03}.png", d.t / sps))
                     .unwrap();
             }
@@ -190,7 +270,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
             let s = d.measure();
             trace.push(((d.t / STEPS_PER_SECOND as u64) as u32, d.walkers.len(), s.reach));
             if let Some(dir) = &a.look {
-                frame_of(&d, a.scale)
+                frame_of(&d, a.scale, a.style)
                     .save(format!(
                         "{dir}/look-s{seed}-{who}-{:03}.png",
                         d.t / STEPS_PER_SECOND as u64
@@ -203,7 +283,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
     assert_eq!(d.phase, Phase::Over);
     if let Some(dir) = &a.gif {
         write_gif(&format!("{dir}/mould-s{seed}-{who}.gif"), shots, a.every);
-        frame_of(&d, a.scale)
+        frame_of(&d, a.scale, a.style)
             .save(format!("{dir}/mould-s{seed}-{who}-end.png"))
             .unwrap();
     }
@@ -217,6 +297,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         oats: c.oats_placed,
         snips: c.snips_used,
         lamp_s: c.lamp_steps as f32 / STEPS_PER_SECOND as f32,
+        joins: c.snaps,
         peak,
         trace,
     }
@@ -382,7 +463,7 @@ fn push(a: &Args) {
             for k in 0..STEPS_PER_SECOND / 2 {
                 pre.step();
                 if k % (2 * STEPS_PER_FRAME) == 0 {
-                    shots.push(frame_of(&pre, a.scale));
+                    shots.push(frame_of(&pre, a.scale, a.style));
                 }
             }
         }
@@ -393,7 +474,7 @@ fn push(a: &Args) {
                 min_join = min_join.min(lit.measure().reach);
             }
             if a.gif.is_some() && k % (2 * STEPS_PER_FRAME) == 0 {
-                shots.push(frame_of(&lit, a.scale));
+                shots.push(frame_of(&lit, a.scale, a.style));
             }
         }
         let shift = tube_offset(&dark, at, n) - tube_offset(&lit, at, n);
@@ -403,7 +484,7 @@ fn push(a: &Args) {
             for k in 0..STEPS_PER_SECOND {
                 after.step();
                 if k % (2 * STEPS_PER_FRAME) == 0 {
-                    shots.push(frame_of(&after, a.scale));
+                    shots.push(frame_of(&after, a.scale, a.style));
                 }
             }
             let path = format!("{dir}/push-s{seed}.gif");
@@ -444,7 +525,7 @@ fn verbs(a: &Args, dir: &str) {
                 d.step();
             }
             if frame.is_multiple_of(2) {
-                shots.push(frame_of(d, a.scale));
+                shots.push(frame_of(d, a.scale, a.style));
             }
             frame += 1;
         };
@@ -525,10 +606,14 @@ fn verbs(a: &Args, dir: &str) {
 fn cost(a: &Args) {
     println!("\n== frame cost: the whole dish awake, the window's frame (steps + draw at scale 4) ==");
     let mut d = Dish::with_params(a.seeds[0], a.params.clone());
+    give_oats(&mut d, a);
     let mut p = Plan::new();
     let (w, h) = render::frame_size(4);
     let mut buf = vec![0u8; (w * h * 4) as usize];
-    let view = View::default();
+    let view = View {
+        style: a.style,
+        ..View::default()
+    };
     let (mut sim_t, mut draw_t, mut worst, mut worst_sim) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let mut n = 0;
     while d.phase != Phase::Over {
@@ -629,7 +714,7 @@ fn lesson(a: &Args, dir: &str) {
     use pixel_physics::mould::play::oats_toward_nearest;
     use pixel_physics::mould::render::Banner;
     use pixel_physics::mould::Tool;
-    let (mut d, mut l) = Lesson::dish();
+    let (mut d, mut l) = Lesson::dish_with(a.params.clone());
     let sps = STEPS_PER_SECOND as u64;
     let (hx, hy) = (d.piles[0].x, d.piles[0].y);
     let frame = |d: &Dish, l: &Lesson, brief: bool| {
@@ -642,6 +727,7 @@ fn lesson(a: &Args, dir: &str) {
                 lines: l.step.lines(),
                 fresh: l.fresh(d),
             }),
+            style: a.style,
             ..View::default()
         };
         let (w, h) = render::frame_size(a.scale);
@@ -738,14 +824,906 @@ fn lesson(a: &Args, dir: &str) {
     write_gif(&format!("{dir}/lesson.gif"), shots, a.every);
 }
 
+/// One scripted moment, drawn in every look.
+struct Moment {
+    name: &'static str,
+    what: &'static str,
+    dish: Dish,
+    view: View,
+}
+
+/// The counts that say whether anything happened, for the caption beside a
+/// picture (`CLAUDE.md`: an image says what and where, only a number says
+/// whether it fired).
+fn moment_counts(d: &Dish) -> String {
+    let s = d.measure();
+    let c = &d.counts;
+    format!(
+        "t {:.1} s | food joined {}/{} | mould {} | oats placed {} | salt cells {} | snips {} | wound cells {} | joins flashed {} | starved {} | storm-killed {}{}",
+        d.t as f32 / STEPS_PER_SECOND as f32,
+        s.reach,
+        s.piles + d.pending.len() as u32,
+        d.walkers.len(),
+        c.oats_placed,
+        c.salt_cells,
+        c.snips_used,
+        c.wound_cells,
+        c.snaps,
+        c.starved + c.hungry,
+        c.stormed,
+        match d.wander_state() {
+            Some(w) => format!(
+                " | wanderer: go open {} | joined to crack {} | in line {} | through {} | died in line {} | outcome {:?}",
+                d.can_go(),
+                w.joined,
+                w.pouring.len(),
+                w.through,
+                w.lost_on_way,
+                w.outcome
+            ),
+            None => String::new(),
+        }
+    )
+}
+
+/// A file's tag for a look: the window's look before this round is
+/// `current`, the built one `built`, the candidates their blind letter.
+fn tag(style: Style) -> &'static str {
+    match style {
+        Style::Classic => "current",
+        Style::Night => "built",
+        _ => style.letter(),
+    }
+}
+
+/// **The interface looks, frame by frame** (`mould::look`; brief: the
+/// interface round, 2026-11-08). One scripted run, the same moments drawn in
+/// the current look and in each candidate: (a) the lesson's oats step with
+/// the oats preview under the cursor, (b) mid-dish with the lamp held,
+/// (c) the storm's last seconds, (d) the score, and two more previews, (e) a
+/// salt wall mid-drag, (f) a snip held over a tube, (g) the briefing card
+/// and (h) oats held too far away to pull. Writes one PNG per
+/// moment per look (`{letter}-{n}-{name}.png`; the current look is
+/// `current`), a contact sheet per look, a GIF per look of the storm and the
+/// score, `counts.txt`, and the draw cost of each look over the whole dish,
+/// timed on the same dish state frame by frame.
+fn looks(a: &Args, dir: &str) {
+    use pixel_physics::mould::lesson::{Lesson, Step};
+    use pixel_physics::mould::play::Fresh;
+    use pixel_physics::mould::render::Banner;
+    use pixel_physics::mould::Tool;
+    let scale = 4;
+    let sps = STEPS_PER_SECOND as u64;
+    let seed = a.seeds[0];
+    let base = View {
+        keys: true,
+        style: a.style,
+        ..View::default()
+    };
+    let mut moments: Vec<Moment> = Vec::new();
+
+    // (g) The briefing card over the lesson's opening frame.
+    let (d0, l0) = Lesson::dish_with(a.params.clone());
+    moments.push(Moment {
+        name: "brief",
+        what: "the briefing card, over the lesson's first frame",
+        dish: d0.clone(),
+        view: View {
+            brief: true,
+            banner: Some(Banner {
+                number: l0.step.number(),
+                of: Step::COUNT,
+                lines: l0.step.lines(),
+                fresh: false,
+            }),
+            ..base
+        },
+    });
+    // (a) The lesson, half a second into step 2, cursor where the banner
+    // says to click: between the mould and the nearest pile.
+    let (mut d, mut l) = Lesson::dish_with(a.params.clone());
+    let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+    let mut began = 0;
+    while !(l.step == Step::Oats && d.t >= began + sps / 2) {
+        if l.step == Step::Lamp {
+            d.set_lamp(Some((hx + 12.0, hy)));
+        } else {
+            d.set_lamp(None);
+        }
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        let before = l.step;
+        l.update(&mut d);
+        if l.step != before {
+            began = d.t;
+        }
+    }
+    let p = d.dish_piles().nth(1).map(|p| (p.x, p.y)).unwrap();
+    let w = d
+        .walkers
+        .iter()
+        .map(|w| (w.x, w.y))
+        .min_by(|u, v| (u.0 - p.0).hypot(u.1 - p.1).total_cmp(&(v.0 - p.0).hypot(v.1 - p.1)))
+        .unwrap();
+    let gap = (p.0 - w.0).hypot(p.1 - w.1);
+    let f = (14.0 / gap).min(0.6);
+    let cursor = (w.0 + (p.0 - w.0) * f, w.1 + (p.1 - w.1) * f);
+    moments.push(Moment {
+        name: "lesson-oats",
+        what: "lesson step 2, oats preview under the cursor",
+        dish: d.clone(),
+        view: View {
+            tool: Tool::Oats,
+            cursor: Some(cursor),
+            banner: Some(Banner {
+                number: l.step.number(),
+                of: Step::COUNT,
+                lines: l.step.lines(),
+                fresh: l.fresh(&d),
+            }),
+            ..base
+        },
+    });
+
+    // The dish: the scripted fresh player, start to score, drawn in every
+    // look every frame for the cost, with the moments cut from it.
+    let mut d = Dish::with_params(seed, a.params.clone());
+    let mut hand = Fresh::new();
+    let end = Dish::dish_steps() + Dish::storm_steps() + 3 * sps;
+    let mut cost: Vec<(f64, f64, u32)> = vec![(0.0, 0.0, 0); Style::ALL.len()];
+    let mut each: Vec<Vec<f64>> = vec![Vec::new(); Style::ALL.len()];
+    let mut sim = (0.0f64, 0.0f64);
+    let (w4, h4) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w4 * h4 * 4) as usize];
+    let timed = View {
+        tool: Tool::Oats,
+        cursor: Some((128.0, 80.0)),
+        ..base
+    };
+    // The GIF: the storm's last four seconds, the strike and four seconds
+    // of the watch, four frames a second; then the score, held.
+    let gif = (Dish::dish_steps() - 4 * sps)..(Dish::dish_steps() + 4 * sps);
+    let mut gifs: Vec<Vec<image::RgbaImage>> = vec![Vec::new(); Style::ALL.len()];
+    let mut frame = 0u32;
+    let mut joined = false;
+    while d.t < end {
+        let t0 = Instant::now();
+        hand.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        let st = (Instant::now() - t0).as_secs_f64() * 1e3;
+        sim.0 += st;
+        sim.1 = sim.1.max(st);
+        // Every look on the same state, in a rotating order.
+        for k in 0..Style::ALL.len() {
+            let j = (k + frame as usize) % Style::ALL.len();
+            let v = View {
+                style: Style::ALL[j],
+                ..timed
+            };
+            let t1 = Instant::now();
+            render::draw(&d, &v, scale, &mut buf);
+            let ms = (Instant::now() - t1).as_secs_f64() * 1e3;
+            cost[j].0 += ms;
+            cost[j].1 = cost[j].1.max(ms);
+            cost[j].2 += 1;
+            each[j].push(ms);
+        }
+        if gif.contains(&d.t) && frame.is_multiple_of(15) {
+            for (j, style) in Style::ALL.iter().enumerate() {
+                let v = View { style: *style, ..base };
+                gifs[j].push(half(&draw_view(&d, &v, scale)));
+            }
+        }
+        let at = |s: u64| d.t == s * sps;
+        if at(25) {
+            // (b) The lamp held beside the trunk for half a second.
+            let (tp, n) = trunk(&d);
+            let lamp = (tp.0 + n.0 * 10.0, tp.1 + n.1 * 10.0);
+            let mut lit = d.clone();
+            lit.set_lamp(Some(lamp));
+            for _ in 0..sps / 2 {
+                lit.step();
+            }
+            moments.push(Moment {
+                name: "lamp-held",
+                what: "mid-dish, the lamp held beside the trunk",
+                dish: lit,
+                view: View {
+                    tool: Tool::Lamp,
+                    cursor: Some(lamp),
+                    ..base
+                },
+            });
+            // (e) A salt wall, 26 cells into its 60, still being dragged.
+            let mut salt = d.clone();
+            salt.salt_left = salt.salt_left.max(1);
+            let from = (tp.0 + n.0 * 24.0, tp.1 + n.1 * 24.0 - 13.0);
+            let to = (from.0, from.1 + 26.0);
+            if salt.begin_stroke(Tool::Salt, from.0, from.1) {
+                salt.drag_stroke(to.0, to.1);
+            }
+            moments.push(Moment {
+                name: "salt-drag",
+                what: "a salt wall mid-drag: the length still to draw",
+                dish: salt,
+                view: View {
+                    tool: Tool::Salt,
+                    cursor: Some(to),
+                    ..base
+                },
+            });
+            // (h) Oats held where the mould is too far to be pulled: the
+            // open spot whose nearest mould is closest to 44 cells away.
+            let mut far = (f32::INFINITY, (0.0, 0.0));
+            for gy in (12..148).step_by(4) {
+                for gx in (12..244).step_by(4) {
+                    let (x, y) = (gx as f32, gy as f32);
+                    let open = d.ground[gy * pixel_physics::mould::W + gx] == pixel_physics::mould::Ground::Agar;
+                    let on_pile = d.piles.iter().any(|p| (p.x - x).hypot(p.y - y) < p.r + 6.0);
+                    if !open || on_pile {
+                        continue;
+                    }
+                    let near = d.walkers.iter().map(|w| (w.x - x).hypot(w.y - y)).fold(f32::INFINITY, f32::min);
+                    if (near - 44.0).abs() < far.0 {
+                        far = ((near - 44.0).abs(), (x, y));
+                    }
+                }
+            }
+            moments.push(Moment {
+                name: "oats-far",
+                what: "oats held too far from the mould to pull it",
+                dish: d.clone(),
+                view: View {
+                    tool: Tool::Oats,
+                    cursor: Some(far.1),
+                    ..base
+                },
+            });
+            // A snip across the trunk, a second after: the wound open and
+            // the far side going grey.
+            let mut cut = d.clone();
+            cut.snips_left = cut.snips_left.max(1);
+            if cut.begin_stroke(Tool::Snip, tp.0 - n.0 * 12.0, tp.1 - n.1 * 12.0) {
+                cut.drag_stroke(tp.0 + n.0 * 12.0, tp.1 + n.1 * 12.0);
+                cut.end_stroke();
+            }
+            for _ in 0..sps {
+                cut.step();
+            }
+            moments.push(Moment {
+                name: "snip-cut",
+                what: "a second after a snip across the trunk: the open wound",
+                dish: cut,
+                view: View {
+                    tool: Tool::Snip,
+                    ..base
+                },
+            });
+            // The first Escape on a dish: the line that says a second quits.
+            moments.push(Moment {
+                name: "esc-armed",
+                what: "the first Esc on a dish: a second within 2 s quits",
+                dish: d.clone(),
+                view: View { quit_armed: true, ..base },
+            });
+            // (f) A snip held over the trunk, not yet pressed.
+            let mut snip = d.clone();
+            snip.snips_left = snip.snips_left.max(1);
+            moments.push(Moment {
+                name: "snip-hover",
+                what: "snip held over a tube: the cells a press would cut",
+                dish: snip,
+                view: View {
+                    tool: Tool::Snip,
+                    cursor: Some(tp),
+                    ..base
+                },
+            });
+        }
+        // The first join after 10 s, a tenth of a second into its flash.
+        if !joined && d.t > 10 * sps && d.snaps.iter().any(|&(_, _, at)| (at + sps / 10..at + sps / 4).contains(&d.t)) {
+            joined = true;
+            moments.push(Moment {
+                name: "join-flash",
+                what: "two pieces meeting: the join's flash",
+                dish: d.clone(),
+                view: base,
+            });
+        }
+        if d.t == Dish::dish_steps() - 3 * sps {
+            // (c) Three seconds to the storm.
+            moments.push(Moment {
+                name: "storm-warning",
+                what: "the storm's last seconds",
+                dish: d.clone(),
+                view: base,
+            });
+        }
+        frame += 1;
+    }
+    // (d) The score.
+    moments.push(Moment {
+        name: "score",
+        what: "the score",
+        dish: d.clone(),
+        view: base,
+    });
+    // The Wanderer (`mould::wander`), led by the leading hand: her card,
+    // Go open, the pour, and the arrival. A GIF of the pour in the game's
+    // look.
+    let mut wd = Dish::wanderer_with_params(seed, 1, FIRST_WALKERS, a.params.clone());
+    moments.push(Moment {
+        name: "wander-brief",
+        what: "the Wanderer's card",
+        dish: wd.clone(),
+        view: View { brief: true, ..base },
+    });
+    let mut lead = Leader::new(false);
+    let mut pour_gif = Vec::new();
+    let (mut go_seen, mut pour_at, mut over_at) = (false, None, None);
+    let mut frame = 0u32;
+    while wd.t < 10 * 60 * sps {
+        if wd.can_go() && !go_seen {
+            go_seen = true;
+            moments.push(Moment {
+                name: "wander-go",
+                what: "the Wanderer: fed mould in the crack, Go open",
+                dish: wd.clone(),
+                view: View {
+                    tool: Tool::Lamp,
+                    ..base
+                },
+            });
+        }
+        lead.act(&mut wd);
+        for _ in 0..STEPS_PER_FRAME {
+            wd.step();
+        }
+        frame += 1;
+        if let Phase::Crossing(at) = wd.phase {
+            pour_at.get_or_insert(at);
+        }
+        if pour_at.is_some() && frame.is_multiple_of(6) {
+            pour_gif.push(half(&draw_view(&wd, &View { style: Style::GAME, ..base }, scale)));
+        }
+        if pour_at.is_some_and(|at| wd.t == at + 3 * sps) {
+            moments.push(Moment {
+                name: "wander-pour",
+                what: "the Wanderer: 3 s into the pour",
+                dish: wd.clone(),
+                view: base,
+            });
+        }
+        if wd.phase == Phase::Over && over_at.is_none() {
+            over_at = Some(wd.t);
+        }
+        if over_at.is_some_and(|t| wd.t >= t + sps) {
+            moments.push(Moment {
+                name: "wander-arrived",
+                what: "the Wanderer: the arrival card",
+                dish: wd.clone(),
+                view: base,
+            });
+            break;
+        }
+    }
+    // Running Dry left alone: the dish ends the moment the mould has died.
+    let mut dry = level_dish(2, seed, a);
+    while dry.phase != Phase::Over && dry.t < 5 * 60 * sps {
+        dry.step();
+    }
+    moments.push(Moment {
+        name: "dish-died",
+        what: "Running Dry left alone: the mould died",
+        dish: dry,
+        view: base,
+    });
+    if !pour_gif.is_empty() {
+        write_wander_gif(&format!("{dir}/{}-wander-pour.gif", tag(Style::GAME)), pour_gif);
+    }
+
+    // a b c d first, as the brief lists them, then the extra previews, then
+    // the Wanderer.
+    let order = [
+        "lesson-oats",
+        "lamp-held",
+        "storm-warning",
+        "score",
+        "salt-drag",
+        "snip-hover",
+        "brief",
+        "oats-far",
+        "snip-cut",
+        "join-flash",
+        "wander-brief",
+        "wander-go",
+        "wander-pour",
+        "wander-arrived",
+        "dish-died",
+        "esc-armed",
+    ];
+    moments.sort_by_key(|m| order.iter().position(|o| *o == m.name).unwrap_or(order.len()));
+
+    let mut counts = String::new();
+    for (k, m) in moments.iter().enumerate() {
+        let line = format!("{}  {:<14} {}\n    {}\n", (b'a' + k as u8) as char, m.name, m.what, moment_counts(&m.dish));
+        print!("{line}");
+        counts.push_str(&line);
+    }
+    for (j, style) in Style::ALL.iter().enumerate() {
+        let tag = tag(*style);
+        let mut tiles = Vec::new();
+        for (k, m) in moments.iter().enumerate() {
+            let v = View { style: *style, ..m.view };
+            let img = draw_view(&m.dish, &v, scale);
+            img.save(format!("{dir}/{tag}-{}-{}.png", (b'a' + k as u8) as char, m.name)).unwrap();
+            tiles.push(half(&img));
+        }
+        sheet(&tiles, 4).save(format!("{dir}/{tag}-sheet.png")).unwrap();
+        let mut g = std::mem::take(&mut gifs[j]);
+        let score = half(&draw_view(&d, &View { style: *style, ..base }, scale));
+        g.extend(std::iter::repeat_n(score, 6));
+        // 45: the GIF plays at the dish's own speed (`write_gif` runs 3x).
+        write_gif(&format!("{dir}/{tag}-storm.gif"), g, 45);
+    }
+    let n = cost[0].2 as f64;
+    let mut table = format!(
+        "\n== draw cost per look, scale 4, the fresh hand's whole dish (seed {seed}), {} frames, every look on the same state ==\nsim (all looks share it): mean {:.2} ms, worst {:.2} ms\n",
+        cost[0].2,
+        sim.0 / n,
+        sim.1
+    );
+    for (j, style) in Style::ALL.iter().enumerate() {
+        let tag = tag(*style);
+        let mut v = each[j].clone();
+        v.sort_by(f64::total_cmp);
+        let p99 = v[(v.len() * 99 / 100).min(v.len() - 1)];
+        table.push_str(&format!(
+            "{tag:>8}: draw mean {:.2} ms, 99th percentile {:.2} ms, worst {:.2} ms;  frame (sim + draw) mean {:.2} ms\n",
+            cost[j].0 / n,
+            p99,
+            cost[j].1,
+            (sim.0 + cost[j].0) / n
+        ));
+    }
+    print!("{table}");
+    counts.push_str(&table);
+    std::fs::write(format!("{dir}/counts.txt"), counts).unwrap();
+}
+
+fn draw_view(d: &Dish, v: &View, scale: u32) -> image::RgbaImage {
+    let (w, h) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    render::draw(d, v, scale, &mut buf);
+    image::RgbaImage::from_raw(w, h, buf).unwrap()
+}
+
+fn half(img: &image::RgbaImage) -> image::RgbaImage {
+    image::imageops::resize(img, img.width() / 2, img.height() / 2, image::imageops::FilterType::Triangle)
+}
+
+/// Tiles in a grid, `cols` wide, with a 6-pixel gutter.
+fn sheet(tiles: &[image::RgbaImage], cols: usize) -> image::RgbaImage {
+    let (tw, th) = (tiles[0].width(), tiles[0].height());
+    let rows = tiles.len().div_ceil(cols);
+    let g = 6;
+    let mut out = image::RgbaImage::from_pixel(
+        cols as u32 * (tw + g) + g,
+        rows as u32 * (th + g) + g,
+        image::Rgba([40, 40, 44, 255]),
+    );
+    for (k, t) in tiles.iter().enumerate() {
+        let (c, r) = ((k % cols) as u32, (k / cols) as u32);
+        image::imageops::overlay(&mut out, t, (g + c * (tw + g)) as i64, (g + r * (th + g)) as i64);
+    }
+    out
+}
+
+/// **How far from the mould do oats still pull it?** The interface looks'
+/// oats preview (`mould::look`) draws this reach around the cursor, so it is
+/// measured here rather than guessed. At 6 s into each seed's dish, oats go
+/// down beyond the mould's front along eight rays from home, at a range of
+/// distances, each on its own copy of the dish; a placement counts as pulled
+/// if the mould is on the oats within 5 s. Binned by the distance from the
+/// oats to the nearest walker, which is what the preview can see.
+fn pull(a: &Args) {
+    println!("\n== oats pull: nearest mould D cells away; on the oats within 5 s? ==");
+    let sps = STEPS_PER_SECOND as u64;
+    let beyond = [6.0f32, 10.0, 14.0, 18.0, 22.0, 26.0, 30.0, 36.0, 44.0];
+    // Bins of 4 cells of nearest-walker distance: (pulled, tried, seconds).
+    let mut bins = [(0u32, 0u32, 0.0f32); 14];
+    for &seed in &a.seeds {
+        let mut d = Dish::with_params(seed, a.params.clone());
+        while d.t < 6 * sps {
+            d.step();
+        }
+        let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+        for k in 0..8 {
+            let ang = k as f32 / 8.0 * std::f32::consts::TAU;
+            let (ux, uy) = (ang.cos(), ang.sin());
+            let front = d
+                .walkers
+                .iter()
+                .filter_map(|w| {
+                    let (dx, dy) = (w.x - hx, w.y - hy);
+                    let r = dx.hypot(dy);
+                    (r > 1.0 && (dx * ux + dy * uy) / r > 0.966).then_some(r)
+                })
+                .fold(0.0f32, f32::max);
+            for &b in &beyond {
+                let (x, y) = (hx + ux * (front + b), hy + uy * (front + b));
+                let mut t = d.clone();
+                if !t.place_oats(x, y) {
+                    continue;
+                }
+                let near = t
+                    .walkers
+                    .iter()
+                    .map(|w| (w.x - x).hypot(w.y - y))
+                    .fold(f32::INFINITY, f32::min);
+                let bin = ((near / 4.0) as usize).min(bins.len() - 1);
+                let n = t.piles.len() - 1;
+                bins[bin].1 += 1;
+                let start = t.t;
+                while t.t < start + 5 * sps {
+                    t.step();
+                    if t.piles[n].reached() {
+                        bins[bin].0 += 1;
+                        bins[bin].2 += (t.t - start) as f32 / sps as f32;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for (k, (hit, n, secs)) in bins.iter().enumerate() {
+        if *n > 0 {
+            println!(
+                "nearest mould {:>2}-{:>2} cells: pulled {hit:>2} of {n:>2}{}",
+                k * 4,
+                k * 4 + 4,
+                if *hit > 0 {
+                    format!(", mean {:.2} s", secs / *hit as f32)
+                } else {
+                    String::new()
+                }
+            );
+        }
+    }
+}
+
+/// **Does a cut cost anything?** (owner's card 2026-11-08, "each piece eats
+/// its own food"). The plan hand plays 40 s, then one snip goes straight
+/// across the thickest tube. Every half second for 12 s: drawn tube that
+/// shows grey (starving), food joined, mould, open wound cells, joins
+/// flashed. Run once with the defaults and once with `pieces=0 wound=0` for
+/// the old snip. With cut=DIR (not "1"): stills at 0, 1, 2, 4, 8 s after.
+fn cut(a: &Args, dir: &str) {
+    let w = pixel_physics::mould::W;
+    println!("\n== one snip across the trunk at 40 s, plan hand ==");
+    for &seed in &a.seeds {
+        let mut d = Dish::with_params(seed, a.params.clone());
+        give_oats(&mut d, a);
+        let mut p = player("plan", seed);
+        // The hand acts once a frame, as in the window (it acted every
+        // step here, twice as often as a player: review 1, P4).
+        while d.t < (40 * STEPS_PER_SECOND) as u64 {
+            p.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+        }
+        let (at, n) = trunk(&d);
+        let mould0 = d.walkers.len();
+        let snaps0 = d.counts.snaps;
+        d.snips_left = d.snips_left.max(1);
+        let ok = d.begin_stroke(Tool::Snip, at.0 - n.0 * 12.0, at.1 - n.1 * 12.0);
+        d.drag_stroke(at.0 + n.0 * 12.0, at.1 + n.1 * 12.0);
+        d.end_stroke();
+        let grey = |d: &Dish| {
+            (0..d.trail.len())
+                .filter(|&i| d.trail[i] > d.params.tube * 0.5 && !d.looks_fed(i))
+                .count()
+        };
+        let mut row = Vec::new();
+        let sps = STEPS_PER_SECOND as u64;
+        let t0 = d.t;
+        let mut max_grey = 0;
+        let mut wound_open = 0;
+        while d.t < t0 + 12 * sps {
+            d.step();
+            let k = d.t - t0;
+            if k.is_multiple_of(sps / 2) {
+                let g = grey(&d);
+                max_grey = max_grey.max(g);
+                let wounds = d.ground.iter().filter(|g| **g == Ground::Wound).count();
+                if wounds > 0 {
+                    wound_open = k;
+                }
+                row.push(format!("{:.1}s grey {g} joined {} mould {} wound {wounds}", k as f32 / sps as f32, d.measure().reach, d.walkers.len()));
+            }
+            if dir != "1" && [0, 1, 2, 4, 8].iter().any(|&s| k == s * sps + 1) {
+                frame_of(&d, a.scale, a.style)
+                    .save(format!("{dir}/cut-s{seed}-{:02}.png", k / sps))
+                    .unwrap();
+            }
+        }
+        let _ = w;
+        println!(
+            "seed {seed}: snip {} at ({:.0},{:.0}); most grey tube cells {max_grey}; wound open until {:.1} s; mould {mould0} -> {}; joins flashed in the 12 s {}",
+            if ok { "made" } else { "REFUSED" },
+            at.0,
+            at.1,
+            wound_open as f32 / sps as f32,
+            d.walkers.len(),
+            d.counts.snaps - snaps0
+        );
+        for r in row.iter().step_by(2) {
+            println!("    {r}");
+        }
+    }
+}
+
+/// `oats=N`: the oats in hand at the start, on any dish a mode builds
+/// (review 1, P4: `level=`, `wander=` and `cut=` used to ignore it).
+fn give_oats(d: &mut Dish, a: &Args) {
+    if let Some(n) = a.oats {
+        d.oats_left = n;
+    }
+}
+
+/// A hand-made dish with the probe's parameters: the level's stray limit
+/// unless `stray_reach=` says otherwise, and `oats=`. Every level-mode dish
+/// (the runs, the `look=` stills and the frame cost) comes from here (review
+/// 1, P2: the stills and the frame cost were built at the defaults).
+fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
+    use pixel_physics::mould::level::DISHES;
+    let params = pixel_physics::mould::Params {
+        stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
+        ..a.params.clone()
+    };
+    let mut d = Dish::from_level_with(&DISHES[k], seed, params);
+    give_oats(&mut d, a);
+    d
+}
+
+/// One hand on one hand-made dish, to the bell: the dish, and every
+/// second's (walkers, fed piles, tube over ruler where there is one).
+fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dish {
+    use pixel_physics::mould::play::Route;
+    let mut d = level_dish(k, seed, a);
+    let mut p: Box<dyn Player> = if who == "intended" {
+        Box::new(Route::for_level(k))
+    } else {
+        player(who, seed)
+    };
+    let mut shots = Vec::new();
+    let mut frame = 0u32;
+    // To the bell, then 2 s of the score card.
+    let mut over_at = None;
+    while over_at.is_none_or(|t| d.t < t + 2 * STEPS_PER_SECOND as u64) {
+        p.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        if d.phase == Phase::Over && over_at.is_none() {
+            over_at = Some(d.t);
+        }
+        if gif.is_some() && frame.is_multiple_of(a.every) {
+            shots.push(frame_of(&d, a.scale, a.style));
+        }
+        // `stills=DIR`: a picture every 5 s of the first seed.
+        if let Some(dir) = &a.stills {
+            let sps = STEPS_PER_SECOND as u64;
+            if seed == a.seeds[0] && d.t.is_multiple_of(5 * sps) {
+                frame_of(&d, a.scale, a.style)
+                    .save(format!("{dir}/dish{}-{who}-{:03}.png", k + 1, d.t / sps))
+                    .unwrap();
+            }
+        }
+        frame += 1;
+    }
+    if let Some(path) = gif {
+        write_gif(path, shots, a.every);
+    }
+    d
+}
+
+/// **Does each challenge dish meet its ship bar?** Do nothing must score 0,
+/// a random hand at most 1, the scripted intended hand (`play::Route`) 3,
+/// over every seed (the layout is fixed; the seed moves the mould and the
+/// random hand). Prints each run's stars, the card's amount and why line,
+/// and the hand's oats and joins, then the table. `look=DIR` writes a
+/// still of each dish's start (with its briefing card and without) and of
+/// the intended hand's end, `gif=DIR` a GIF of the intended hand on the
+/// first seed, and the frame cost of the intended hand on the first seed.
+fn levels(a: &Args, which: &[usize]) {
+    use pixel_physics::mould::level::DISHES;
+    let hands = if a.players_given {
+        a.players.clone()
+    } else {
+        ["idle", "random", "plan", "fresh", "intended"].map(String::from).to_vec()
+    };
+    let mut table: Vec<(usize, String, Vec<u32>)> = Vec::new();
+    for &k in which {
+        let l = &DISHES[k];
+        println!("\n== dish {} {}: {} ==", k + 1, l.name, l.stars_line());
+        if let Some(dir) = &a.look {
+            let d = level_dish(k, a.seeds[0], a);
+            for (brief, tag) in [(true, "brief"), (false, "start")] {
+                let view = View {
+                    keys: false,
+                    brief,
+                    style: a.style,
+                    ..View::default()
+                };
+                let (w, h) = render::frame_size(a.scale);
+                let mut buf = vec![0u8; (w * h * 4) as usize];
+                render::draw(&d, &view, a.scale, &mut buf);
+                image::RgbaImage::from_raw(w, h, buf)
+                    .unwrap()
+                    .save(format!("{dir}/dish{}-{}-{tag}.png", k + 1, l.key))
+                    .unwrap();
+            }
+        }
+        for who in &hands {
+            let mut row = Vec::new();
+            for &seed in &a.seeds {
+                let gif = match (&a.gif, who.as_str()) {
+                    (Some(dir), "intended") if seed == a.seeds[0] => Some(format!("{dir}/dish{}-{}-intended.gif", k + 1, l.key)),
+                    _ => None,
+                };
+                let t0 = Instant::now();
+                let d = level_run(k, seed, who, a, gif.as_deref());
+                let c = d.card.clone().unwrap_or_default();
+                let ratio = d.ruler_ratio().map(|r| format!(" ruler {r:.2}x")).unwrap_or_default();
+                println!(
+                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  ({:.1} s)",
+                    c.stars,
+                    c.amount,
+                    c.why,
+                    d.walkers.len(),
+                    d.counts.oats_placed,
+                    d.counts.snips_used,
+                    d.counts.lamp_steps as f32 / STEPS_PER_SECOND as f32,
+                    d.counts.snaps,
+                    t0.elapsed().as_secs_f32()
+                );
+                // Every hand's end on the first seed, so a losing card
+                // ("Not reached: only starving strays got there") can be
+                // seen as well as the three-star one.
+                if seed == a.seeds[0] {
+                    if let Some(dir) = &a.look {
+                        frame_of(&d, a.scale, a.style)
+                            .save(format!("{dir}/dish{}-{}-{who}-end.png", k + 1, l.key))
+                            .unwrap();
+                    }
+                }
+                row.push(c.stars);
+            }
+            table.push((k, who.clone(), row));
+        }
+    }
+    println!("\n== ship bar: do nothing 0, random at most 1, intended 3 (stars per seed {:?}) ==", a.seeds);
+    for &k in which {
+        let row = |who: &str| table.iter().find(|(kk, w, _)| *kk == k && w == who).map(|(_, _, r)| r.clone());
+        let mut cells = Vec::new();
+        for who in &hands {
+            if let Some(r) = row(who) {
+                cells.push(format!("{who} {:?}", r));
+            }
+        }
+        let pass = row("idle").is_none_or(|r| r.iter().all(|&s| s == 0))
+            && row("random").is_none_or(|r| r.iter().all(|&s| s <= 1))
+            && row("intended").is_none_or(|r| r.iter().all(|&s| s == 3));
+        println!(
+            "dish {} {:<16} {}  -> {}",
+            k + 1,
+            DISHES[k].name,
+            cells.join("  "),
+            if pass { "MEETS THE BAR" } else { "FAILS THE BAR" }
+        );
+    }
+    // Frame cost, the window's frame (steps + draw at scale 4), on the
+    // first dish asked for, intended hand.
+    let k = which[0];
+    let mut d = level_dish(k, a.seeds[0], a);
+    let mut p = pixel_physics::mould::play::Route::for_level(k);
+    let (w, h) = render::frame_size(4);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    let view = View {
+        style: a.style,
+        ..View::default()
+    };
+    let (mut total, mut worst, mut n) = (0.0f64, 0.0f64, 0);
+    while d.phase != Phase::Over {
+        let t0 = Instant::now();
+        p.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        render::draw(&d, &view, 4, &mut buf);
+        let ms = t0.elapsed().as_secs_f64() * 1e3;
+        total += ms;
+        worst = worst.max(ms);
+        n += 1;
+    }
+    println!(
+        "\nframe cost, dish {} intended hand: {n} frames, mean {:.2} ms, worst {:.2} ms",
+        k + 1,
+        total / n as f64,
+        worst
+    );
+}
+
+/// The dish picker as the window draws it, for a picture: `menu=DIR`.
+fn menu(a: &Args, dir: &str) {
+    use pixel_physics::mould::level::Progress;
+    use pixel_physics::mould::render::Menu;
+    let d = Dish::with_params(a.seeds[0], a.params.clone());
+    for (tag, text) in [("fresh", ""), ("some", "lesson 1\nwall 3\nruler 1\n")] {
+        let view = View {
+            keys: false,
+            menu: Some(Menu {
+                progress: Progress::parse(text),
+                cursor: 1,
+            }),
+            style: a.style,
+            ..View::default()
+        };
+        let (w, h) = render::frame_size(a.scale);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        render::draw(&d, &view, a.scale, &mut buf);
+        image::RgbaImage::from_raw(w, h, buf)
+            .unwrap()
+            .save(format!("{dir}/menu-{tag}.png"))
+            .unwrap();
+    }
+}
+
 fn main() {
     let a = parse();
+    // Every mode says what it ran with, first (review 1, P1: `level=`
+    // returned before this line, so a `pieces=0` arm printed nothing that
+    // said pieces was off).
     println!(
-        "mouldprobe: seeds {:?} players {:?} scale {} params {:?}",
-        a.seeds, a.players, a.scale, a.params
+        "mouldprobe: seeds {:?} players {:?} scale {} oats {:?} stray_reach {:?} params {:?}",
+        a.seeds, a.players, a.scale, a.oats, a.strays, a.params
     );
+    // `oats=` is read by the scored dish, `level=`, `wander=` and `cut=`.
+    // Anywhere else it would be silently ignored, so it is refused.
+    let oats_read = a.level.is_some() || a.wander || a.cut.is_some();
+    // `pull=` and `looks=` were missing here and ran on with `oats=0`
+    // (review 2, P2).
+    let other_mode = a.menu.is_some()
+        || a.lean
+        || a.push
+        || a.flicker
+        || a.lesson.is_some()
+        || a.verbs.is_some()
+        || a.pull
+        || a.looks.is_some();
+    assert!(
+        a.oats.is_none() || oats_read || !other_mode,
+        "oats= is not read by this mode (menu, lean, bend, flicker, lesson, verbs, pull, looks): drop it"
+    );
+    if let Some(which) = &a.level {
+        levels(&a, which);
+        return;
+    }
+    if let Some(dir) = &a.menu {
+        menu(&a, dir);
+        return;
+    }
     if a.lean {
         lean(&a);
+        return;
+    }
+    if a.wander {
+        wander(&a);
         return;
     }
     if a.push {
@@ -760,6 +1738,18 @@ fn main() {
         lesson(&a, dir);
         return;
     }
+    if a.pull {
+        pull(&a);
+        return;
+    }
+    if let Some(dir) = &a.looks {
+        looks(&a, dir);
+        return;
+    }
+    if let Some(dir) = &a.cut {
+        cut(&a, dir);
+        return;
+    }
     if let Some(dir) = &a.verbs {
         verbs(&a, dir);
         return;
@@ -770,7 +1760,7 @@ fn main() {
             let r = run(seed, who, &a);
             let s = &r.score;
             println!(
-                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s",
+                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
                 s.star_count(),
                 s.stars[0] as u8,
                 s.stars[1] as u8,
@@ -788,7 +1778,8 @@ fn main() {
                 r.burned,
                 r.oats,
                 r.snips,
-                r.lamp_s
+                r.lamp_s,
+                r.joins
             );
             println!("    trace (s, mould, joined): {:?}", r.trace);
             table.push((seed, who.clone(), r));
@@ -854,5 +1845,310 @@ fn main() {
     }
     if a.players.iter().any(|p| p == "plan") {
         cost(&a);
+    }
+}
+
+// ------------------------------------------------------------ the Wanderer
+
+/// One stretch of a Wanderer journey, as the table prints it.
+#[derive(Clone, Debug)]
+struct Stretch {
+    seed: u64,
+    came_in: u32,
+    outcome: Option<Outcome>,
+    go_s: Option<f32>,
+    food_at_go: f32,
+    peak: u32,
+    end_s: f32,
+    alive_at_end: usize,
+    births: u64,
+    starved: u64,
+    hungry: u64,
+    oats: u32,
+    lamp_s: f32,
+    /// Seconds Go was open before it was pressed (or before the end).
+    open_s: f32,
+    /// Walkers that set off on Go, and that starved in the line.
+    set_off: u32,
+    lost_on_way: u32,
+}
+
+fn wander_player(name: &str) -> Box<dyn Player> {
+    match name {
+        "idle" => Box::new(Idle),
+        "idlego" => Box::new(IdleGo),
+        "careless" => Box::new(Leader::new(true)),
+        "lead" => Box::new(Leader::new(false)),
+        _ => panic!("unknown wanderer hand {name} (idle, idlego, careless, lead)"),
+    }
+}
+
+fn wander_frame(d: &Dish, scale: u32, style: Style, brief: bool) -> image::RgbaImage {
+    let (w, h) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    let view = View {
+        keys: false,
+        brief,
+        style,
+        ..View::default()
+    };
+    render::draw(d, &view, scale, &mut buf);
+    image::RgbaImage::from_raw(w, h, buf).expect("frame size")
+}
+
+/// One journey: up to `dishes` stretches, each on seed `seed + 100 (k - 1)`,
+/// carrying what arrived. Stops at a loss, a stretch nobody left, or an
+/// arrival of nothing. With `gif=DIR`: an end still for every stretch, the
+/// briefing card, and for the `lead` hand a GIF of stretch 1 from the start
+/// to the end of the pour.
+fn journey(seed: u64, who: &str, a: &Args) -> Vec<Stretch> {
+    let sps = STEPS_PER_SECOND as u64;
+    let cap = a.cap_min as u64 * 60 * sps;
+    let mut carry = FIRST_WALKERS;
+    let mut out = Vec::new();
+    for k in 1..=a.dishes {
+        let dseed = seed + 100 * (k as u64 - 1);
+        let mut d = Dish::wanderer_with_params(dseed, k, carry, a.params.clone());
+        give_oats(&mut d, a);
+        let mut p = wander_player(who);
+        let gif = a.gif.is_some() && who == "lead" && k == 1;
+        let mut shots = Vec::new();
+        let mut frame = 0u32;
+        let mut open = 0u64;
+        let mut over_at = None;
+        if let Some(dir) = &a.gif {
+            if k <= 2 && who == "lead" {
+                wander_frame(&d, a.scale, a.style, true)
+                    .save(format!("{dir}/wander-s{seed}-d{k}-brief.png"))
+                    .unwrap();
+            }
+        }
+        loop {
+            if d.can_go() {
+                open += 1;
+            }
+            p.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+            if gif {
+                let pouring = matches!(d.phase, Phase::Crossing(_));
+                // Two seconds of dish a frame while growing, a tenth of a
+                // second through the pour: keeps the GIF near 3 MB.
+                let every = if pouring || over_at.is_some() { 6 } else { 120 };
+                if frame.is_multiple_of(every) {
+                    shots.push(wander_frame(&d, a.scale, a.style, false));
+                }
+            }
+            frame += 1;
+            if d.phase == Phase::Over && over_at.is_none() {
+                over_at = Some(d.t);
+            }
+            // A second of the card after the end, then stop.
+            if over_at.is_some_and(|t| d.t >= t + sps) || d.t >= cap {
+                break;
+            }
+        }
+        let w = d.wander_state().cloned().expect("a wanderer dish");
+        if let Some(dir) = &a.gif {
+            wander_frame(&d, a.scale, a.style, false)
+                .save(format!("{dir}/wander-s{seed}-{who}-d{k}-end.png"))
+                .unwrap();
+            if gif {
+                write_wander_gif(&format!("{dir}/wander-s{seed}-lead-d1.gif"), shots);
+            }
+        }
+        let c = &d.counts;
+        out.push(Stretch {
+            seed: dseed,
+            came_in: w.came_in,
+            outcome: w.outcome,
+            go_s: w.go_at.map(|t| t as f32 / sps as f32),
+            food_at_go: w.food_at_go,
+            peak: w.peak,
+            end_s: d.t as f32 / sps as f32,
+            alive_at_end: d.walkers.len(),
+            births: c.births,
+            starved: c.starved,
+            hungry: c.hungry,
+            oats: c.oats_placed,
+            lamp_s: c.lamp_steps as f32 / sps as f32,
+            open_s: (open * STEPS_PER_FRAME as u64) as f32 / sps as f32,
+            set_off: w.set_off,
+            lost_on_way: w.lost_on_way,
+        });
+        match w.outcome {
+            Some(Outcome::Arrived { n, .. }) if n > 0 => carry = n,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// Growing frames are two seconds of dish apart and pour frames 0.1 s; the
+/// GIF plays both at 10 frames a second, so the growth runs at 20x and the
+/// pour at real speed, which is where the eye needs the time.
+fn write_wander_gif(path: &str, shots: Vec<image::RgbaImage>) {
+    let delay = image::Delay::from_numer_denom_ms(1000, 10);
+    let frames: Vec<image::Frame> = shots
+        .into_iter()
+        .map(|img| image::Frame::from_parts(img, 0, 0, delay))
+        .collect();
+    let file = std::fs::File::create(path).expect("gif file");
+    let mut enc = image::codecs::gif::GifEncoder::new_with_speed(file, 10);
+    enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+    enc.encode_frames(frames).expect("gif encode");
+}
+
+fn show(o: &Stretch) -> String {
+    match o.outcome {
+        Some(Outcome::Arrived { n, of }) => format!("{n}/{of}"),
+        Some(Outcome::Lost { .. }) => "died".into(),
+        None => "stayed".into(),
+    }
+}
+
+/// **The Wanderer's number**: arrived N of M, per hand per seed, over
+/// journeys of `dishes` stretches. Hands: `idle` (never Goes; she should
+/// starve), `idlego` (no hand, Go the moment it opens), `careless` (lead
+/// with lamp and oats, Go the moment it opens) and `lead` (the same lead, Go
+/// when the would-come count peaks).
+fn wander(a: &Args) {
+    // Not "7 hands means none were given" (review 1, P3): an explicit list
+    // of exactly seven was replaced by the four below.
+    let hands: Vec<String> = if !a.players_given {
+        ["idle", "idlego", "careless", "lead"].map(String::from).to_vec()
+    } else {
+        a.players.clone()
+    };
+    println!(
+        "\n== the Wanderer: {} stretches a journey, cap {} min a stretch; dish k is seed + 100 (k - 1) ==",
+        a.dishes, a.cap_min
+    );
+    let jobs: Vec<(u64, String)> = a
+        .seeds
+        .iter()
+        .flat_map(|&s| hands.iter().map(move |h| (s, h.clone())))
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::new());
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|sc| {
+        for _ in 0..threads {
+            sc.spawn(|| loop {
+                let k = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let Some((seed, who)) = jobs.get(k) else { break };
+                let j = journey(*seed, who, a);
+                results.lock().unwrap().push((*seed, who.clone(), j));
+            });
+        }
+    });
+    let mut results = results.into_inner().unwrap();
+    results.sort_by(|x, y| (x.0, &x.1).cmp(&(y.0, &y.1)));
+    for (seed, who, j) in &results {
+        for (k, st) in j.iter().enumerate() {
+            println!(
+                "seed {seed} {who:>8} dish {} (seed {}): in {} -> {}  peak {}  set off {} starved in line {}  go {}  food left at go {:.0}%  Go open {:.1}s  end {:.0}s alive {}  births {} starved {} hungry {} oats {} lamp {:.0}s",
+                k + 1,
+                st.seed,
+                st.came_in,
+                show(st),
+                st.peak,
+                st.set_off,
+                st.lost_on_way,
+                st.go_s.map_or("-".into(), |s| format!("{s:.1}s")),
+                st.food_at_go * 100.0,
+                st.open_s,
+                st.end_s,
+                st.alive_at_end,
+                st.births,
+                st.starved,
+                st.hungry,
+                st.oats,
+                st.lamp_s
+            );
+        }
+    }
+    println!(
+        "\n== arrived N of M, per hand per seed (dish 1 | dish 2 | dish 3; 'died' = starved, 'stayed' = never left) =="
+    );
+    for who in &hands {
+        println!("{who}:");
+        let mut fracs = Vec::new();
+        let mut finals = Vec::new();
+        for (seed, w, j) in &results {
+            if w != who {
+                continue;
+            }
+            let cells: Vec<String> = (0..a.dishes as usize).map(|k| j.get(k).map_or("-".into(), show)).collect();
+            println!("  seed {seed}: {}", cells.join(" | "));
+            fracs.push(match j[0].outcome {
+                Some(Outcome::Arrived { n, of }) => n as f32 / of as f32,
+                _ => 0.0,
+            });
+            let done = j.len() == a.dishes as usize;
+            finals.push(match j.last().unwrap().outcome {
+                Some(Outcome::Arrived { n, .. }) if done => n,
+                _ => 0,
+            });
+        }
+        if fracs.is_empty() {
+            continue;
+        }
+        fracs.sort_by(|x, y| x.total_cmp(y));
+        finals.sort();
+        let q = |v: &[f32], f: f32| v[((v.len() - 1) as f32 * f).round() as usize];
+        println!(
+            "  dish 1 share arrived: min {:.0}%  median {:.0}%  max {:.0}%;  walkers through the last crack: {:?}",
+            q(&fracs, 0.0) * 100.0,
+            q(&fracs, 0.5) * 100.0,
+            q(&fracs, 1.0) * 100.0,
+            finals
+        );
+    }
+    wander_cost(a);
+}
+
+/// The window's frame (steps + draw at scale 4) over one led stretch, against
+/// the scored dish's plan bot on the same seed, measured back to back.
+fn wander_cost(a: &Args) {
+    println!("\n== frame cost: steps + draw at scale 4, mean and worst ==");
+    let (w, h) = render::frame_size(4);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    let view = View {
+        style: a.style,
+        ..View::default()
+    };
+    for arm in ["scored dish, plan", "wanderer, lead"] {
+        let seed = a.seeds[0];
+        let (mut d, mut p): (Dish, Box<dyn Player>) = if arm.starts_with("scored") {
+            (Dish::with_params(seed, a.params.clone()), Box::new(Plan::new()))
+        } else {
+            (
+                Dish::wanderer_with_params(seed, 1, FIRST_WALKERS, a.params.clone()),
+                Box::new(Leader::new(false)),
+            )
+        };
+        give_oats(&mut d, a);
+        let (mut sum, mut worst, mut n, mut peak) = (0.0f64, 0.0f64, 0u64, 0usize);
+        let cap = a.cap_min as u64 * 60 * STEPS_PER_SECOND as u64;
+        while d.phase != Phase::Over && d.t < cap {
+            let t0 = Instant::now();
+            p.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+            render::draw(&d, &view, 4, &mut buf);
+            let ms = t0.elapsed().as_secs_f64() * 1e3;
+            sum += ms;
+            worst = worst.max(ms);
+            n += 1;
+            peak = peak.max(d.walkers.len());
+        }
+        println!(
+            "{arm}: {n} frames, peak {peak} walkers: mean {:.2} ms, worst {:.2} ms",
+            sum / n as f64,
+            worst
+        );
     }
 }

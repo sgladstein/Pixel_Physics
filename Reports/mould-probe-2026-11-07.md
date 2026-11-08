@@ -270,3 +270,254 @@ bug", "things were flashing gray", and there "needs to be a challenge".
     letting a player cut their own network after the strike (now refused,
     like oats already were).
 
+
+## Making a cut matter, and food seen moving (2026-11-08, overnight)
+
+A brainstorm round on where the game goes (five write-ups in the project's
+`game-design/mould-game-brainstorm-2026-11-08/`) agreed, separately, that
+food should be seen moving, and found that a cut cost nothing: a snip
+healed in about 0.5 s and a whole scripted game drew 0 grey tube cells.
+The owner chose "each piece eats its own food" on a card.
+
+- **Each piece eats its own food** (`Params::pieces`, on). The feeding
+  search now remembers which pile each fed cell's food comes from; where
+  two piles' searches meet they are one piece. Every walker carries its
+  share of its piece's food, so a split or a join neither makes nor loses
+  food. A piece earns from its own piles, pays its own upkeep and births,
+  and goes hungry (farthest first) on its own. Off reproduces the shared
+  store exactly: 7 hands x 5 seeds, every star identical to before.
+- **A cut stays open** (`Params::wound`, 4 s). Snipped cells become
+  `Ground::Wound`, which the mould cannot cross, drawn dark wine and fading
+  back to agar over the last second.
+- **Joins flash** (`Dish::snaps`): where two pieces meet and become one, a
+  burst that spreads over 0.8 s, unless those two piles were joined within
+  the last 2 s (a thin tube flickering across the threshold would otherwise
+  flash every census). 1 to 23 per scripted run, median 4.
+- **The pulse**: a bright band rides out along fed tube from its food,
+  read off the feeding search's distances, every 1.3 s. Starving tube has
+  no distance, so its beat stops. Drawing only.
+- **Toughness now needs 3 piles joined**, like thrift: with pieces on, a
+  do-nothing 2-pile network regrew round the scar within the watch and took
+  the star on 2 of 5 seeds.
+
+Stars with all of it on (5 seeds): idle 1 (seed 1's network happened to be
+1.13x, under the thrift bar), random 3, plan 10, fresh 7, shepherd 4,
+lamp-only 2, dump 3 (before: 0, 3, 8, 9, 3, 3, 2). `mouldprobe cut=DIR`
+snips across the trunk at 40 s: the most grey tube in the next 12 s was
+14, 139, 308, 40, 12 cells against 26, 80, 74, 31, 21 for the old snip,
+but the arms cut different places (the trunk differs between them), so
+this is not yet a paired answer. **A trunk between two fed piles is the
+wrong test of starving**: both sides keep their food. What a per-piece
+store changes is a piece with more mould than its food can feed; a branch
+beyond the leash starved before and still does. Frame mean 2.81 ms,
+worst 14.62 ms (2.63 / 17.38 before, same session).
+
+## Challenge dishes and the dish picker (2026-11-08)
+
+The owner's "there needs to be a challenge", answered with the first three
+dishes of the near-term-challenges brainstorm (`game-design/mould-game-
+brainstorm-2026-11-08/near-term-challenges.md`), built for real in
+`src/mould/level.rs`. Each asks one question and gives only the tools it
+needs; none has a storm (a Steiner tree is a tree, which the storm always
+splits, and Running Dry's only tube worth cutting is the finger to the next
+food; Storm Season, dish 5, is where it belongs).
+
+- **Behind the Wall** (90 s, lamp + oats): the food is behind a level-drawn
+  salt wall with one gap at the bottom; scent does not cross salt. Stars by
+  when the food is joined: at all, by 1:00, by 0:45. Moved from the
+  brainstorm's layout: at (40,80)/(210,80) the way round was 207 cells and a
+  relay of oats (each drains in ~3 s once eaten) died out after carrying the
+  front 98 cells, so the scripted hand never arrived. Now 157 cells.
+- **Beat the Ruler** (100 s, lamp + oats): three foods in a triangle and a
+  dotted ruler (the two short sides). Scored on **the shortest join through
+  the tube** (`Dish::best_join`: least over tube cells of the summed tube
+  distance to the three piles), not tube area: area is set by food joined,
+  not shape, and on the first run doing nothing read 1.40x and the meeting
+  point 1.39-1.75x. Stars: all joined, 0.98x, 0.95x. The best possible
+  (0.87x) is drawn faintly after.
+- **Running Dry** (120 s, lamp + oats back every 10 s): small piles (~35 s
+  of food each), a new one every 20 s further on. Stars at 100, 200, 300
+  mould alive at the bell. The brainstorm's 300/600/900 is out of reach: the
+  bell always finds the mould between piles (intended hand 354-411).
+
+**A model change, hand-made dishes only: strays.** An unfed walker can walk
+off the leash (a cell a step, ~5 s to live), and any walker on food made it
+a source of the feeding search, so strays colonised food far past the leash.
+With that, doing nothing joined all three in Beat the Ruler (1-2 stars on 3
+of 3 seeds, `mouldprobe level=2 stray_reach=inf`) and a random hand took 3
+stars there and on Behind the Wall. `Params::stray_reach` now limits it: on
+a hand-made dish a stray can start eating only within 24 cells of fed mould
+(infinite, the old rule, on the seeded dishes, which are unchanged). Shut
+out entirely, an oat just past the leash could never be eaten and every
+relay died.
+
+**Ship bar** (`mouldprobe level=all`, seeds 1-5; stars per seed; the layout
+is fixed, the seed moves the mould and the random hand):
+
+| dish | do nothing | random | simple plan | fresh player | intended hand | bar |
+|---|---|---|---|---|---|---|
+| Behind the Wall | 0 0 0 0 0 | 0 0 0 0 1 | 0 0 0 0 0 | 0 0 0 0 0 | 3 3 3 3 3 (0:10-0:11) | met |
+| Beat the Ruler | 0 0 0 0 0 | 0 0 0 0 0 | 0 0 0 0 0 | 1 0 0 0 0 | 3 3 3 3 3 (0.87-0.91x) | met |
+| Running Dry | 0 0 0 0 0 | 0 0 0 0 0 | 2 0 1 0 0 | 0 0 0 0 0 | 3 3 3 3 3 (354-411 alive) | met |
+
+The intended hand is `play::Route`: oats one at a time, a short step ahead
+of home's fed tube along a route (down to the gap and up; home to the empty
+middle, then the middle out to each far food; on Running Dry, from the fed
+mould toward each new food as its ring shows). Two things it needed are
+things a player needs too: **lay a relay in one go** (it saves up before
+starting one), and in Beat the Ruler **keep feeding the meeting point**: left
+alone, a junction slides toward a side (the mould straightens any bend it is
+not pulled into), and one seed in five went from 0.87x to 0.99x by the bell.
+
+The score card now says **why** in one line, from the failed condition, on
+every dish including the free ones ("THE STORM CUT OFF 3 PILES: A LOOP
+HOLDS", "SCENT CAN'T CROSS SALT: LEAD IT TO THE GAP"). **M** opens the dish
+picker: the lesson, the three dishes (each opens on a star from the one
+before; the lesson counts once finished) and FREE DISH, with best stars
+saved to `mould-progress.txt` beside the executable.
+
+Frame cost (steps + draw at scale 4, intended hand, one process alone): mean
+2.4-3.3 ms, worst 7-12 ms, against 2.6 / 17 ms before. **Not fixed, noted:**
+a dish whose mould has all died steps about 3x slower than a live one (idle
+Running Dry: 27 s for 120 s of dish against 9 s with the intended hand),
+probably subnormal floats in the fading trail; about 5 ms a frame, inside
+budget, unverified.
+
+## Review 1 fixes (2026-11-08)
+
+An independent bug check of aeae6d29 (`game-design/mould-game-brainstorm-
+2026-11-08/review-1.md`) found 13 things; all are fixed on `challenges`, each
+game finding a test can reach has a regression test, and each of those was
+run red with its fix put back.
+
+- **A dish whose food has all run out could not be rescued** (Running Dry:
+  oats on 950 just-starved walkers never eaten, 85 s left unwinnable). Mould
+  fed in the last `Params::stray_grace` = 2 s now counts as fed for the stray
+  rule, **only while nothing on the dish is fed**. Applied at all times it
+  let Beat the Ruler's intended hand join round the side on seed 7 (1.10x,
+  1 star, at every grace from 1 to 3 s), and at 5 s a random hand took 3
+  stars on Running Dry seed 4.
+- **Join flashes** fire only between two piles that were both being eaten,
+  in different pieces, at the census before. Three oats on fed tube: 6
+  flashes before, 0 now; a hand-laid bridge between two fed pieces still
+  flashes. Joins per run fall by about half for the scripted hands (Running
+  Dry intended 19 to 8-12, Beat the Ruler 11-17 to 4-10, the free dish's
+  plan hand 12-21 to 6-12); what is gone is oats eaten by the network
+  already there.
+- **Free dish stars are a ladder**: thrift and toughness need all the food
+  joined. Stars over 8 seeds, before to after: idle 2 to 0, random 5 to 0,
+  shepherd 5 to 0, lamp only 3 to 0, dump 3 to 0; plan 14 and fresh 13
+  unchanged (every one of their shape stars was on a full join).
+- **Smaller ones.** The organ heals its snips and its window lets go on
+  release. A tool a dish does not give is never selected, and the keys for
+  it do nothing. A dish with no mould left ends then ("THE MOULD DIED AT
+  1:05"), and "CAME WITHIN 0 CELLS" now reads "ONLY STARVING STRAYS GOT
+  THERE". Beat the Ruler's join no longer hops a one-cell break: no long step
+  squeezes past a pinch, and with fewer than all three joined there is no
+  join. Escape quits only on a second press within 2 s. The probe prints its
+  parameters in every mode, builds every dish from them, honours an explicit
+  7-hand list on `wander=1`, and reads `oats=` in `level=`, `wander=` and
+  `cut=` (refusing it elsewhere).
+
+**The ship bar did not move**: on seeds 1-8 every one of the 120 star cells
+of `level=all` is the same before and after (intended 3 on all; Beat the
+Ruler 0.87-0.92x, Running Dry 354-411 alive). **Not new, but found here:**
+on 8 seeds Running Dry's random hand takes 3 stars on seed 7, before as
+after (its mould grew onto the new piles by itself, helped by a stray oat),
+so the 5-seed bar it passes is not an order statistic yet. Frame cost (dish
+1, intended hand, back to back): mean 2.71 ms, worst 4.85 ms, against 3.08 /
+5.70 before.
+
+## Review 2 fixes (2026-11-08)
+
+A second independent check, of 754853039
+(`game-design/mould-game-brainstorm-2026-11-08/review-2.md`), found 2 high,
+2 medium, 5 low and 3 probe-only findings; all are fixed, with 13 new tests.
+The 12 that guard a fix were run red with their faults put back at once,
+12 of 12. The card's "inf" guard was blind at first, because Rust writes an
+infinite float "inf" and the test looked for "INF". The thirteenth guards
+the two-press Escape that the organ now shares. Two window-only changes,
+the organ's scaling and its title, have no test.
+
+- **Food still due when a dish ends (H1).** Running Dry's losing hands end
+  before its 80 and 100 s piles, and the Wanderer's Go comes before its
+  55 s pile. That food stayed due for ever: the built look counted down to
+  it and then wrapped to `153722867280912906` (a panic in a debug build).
+  Now the dish's end and Go drop it, and the look draws food due only while
+  the dish grows. At Running Dry's "mould died" moment the bar reads food
+  1/6 rather than 1/8.
+- **Oats on just-starved mould (H2, M2).** The 2 s grace rescued only oats
+  laid within about 1.5 s of the last fed cell going, and none while
+  another piece was still eating. Meanwhile the preview said "It will reach
+  these". The ground *under the oats* now counts as fed for 8 s after it
+  was (`Params::oats_grace`), whatever else is fed. Two oats on the
+  mould's middle walker, Running Dry left alone, seeds 1-3:
+
+  | laid after the last fed cell went | +0 s | +1 s | +2 s | +3 s | +5 s | +8 s |
+  |---|---|---|---|---|---|---|
+  | before (review 2's table) | eaten | eaten | never | never | never | - |
+  | after | eaten | eaten | eaten | eaten | eaten | never |
+
+  Mould alive at those times: 950, 763, 604, 459, 280 and 139 on seed 1.
+  The M2 case (random hand, seed 4, a branch starved far from home while
+  home still ate) is eaten now.
+  - Where oats would not be started, the preview now says "Only starving
+    strays here: too far from fed mould", reading the same rule
+    (`Dish::oats_would_start`).
+  - **Two wider rules failed the ship bar on 8 seeds.**
+    - Oats exempt from the leash outright (the review's option a) brought
+      the beachhead back. A random hand took 3 stars on Behind the Wall on
+      seeds 1, 6 and 8, and on Running Dry on seeds 2, 4 and 7.
+    - An 8 s oats grace read over the whole 27-cell leash let strays start
+      the intended hand's oats, laid ahead of the tube on Beat the Ruler.
+      It joined round the side on seed 7 (1.16x, 1 star) at graces of 2, 4
+      and 8 s.
+
+  **Star table, `level=all` seeds 1-8, before (754853039) / after:**
+
+  | dish | idle | random | intended |
+  |---|---|---|---|
+  | Behind the Wall | 0 0 0 0 0 0 0 0 / same | 0 0 0 0 1 0 0 0 / same | 3 on all 8 / same |
+  | Beat the Ruler | 0 on all 8 / same | 0 on all 8 / same | 3 on all 8 / same |
+  | Running Dry | 0 on all 8 / same | 0 0 0 0 0 0 3 0 / same | 3 on all 8 / same |
+
+  - Every star cell is the same before and after. Five random-hand runs
+    differ in detail (mould left, how near), so the rule does fire.
+  - The bar (idle 0, random at most 1, intended 3) holds on seeds 1-5.
+  - Running Dry's random hand on seed 7 still takes 3 stars, 723 alive at
+    the bell, the same before as after. Review 1 found it, and it is not
+    from this rule.
+- **Tool tiles (M1).** A click on a tile in the built look or C (and on
+  any look's Wanderer bar) now selects that tool. Only a press on the dish
+  holds the button. Before, the tiles did nothing, and a press on the bar
+  slid up onto the dish lit the lamp. The window and the tests share one
+  hit test (`render::press_at`, `look::tile_at`).
+- **Lows.**
+  - L1: the refusal under a tool names the phase: "Dish over", "Not now:
+    she's on her way", and "the storm" only in the storm.
+  - L2: the glow cache is keyed by the dish as well as its address. The
+    lesson, M and a challenge dish showed 41,888-50,857 pixels of the
+    lesson's glow behind the briefing card; now 0.
+  - L3: the armed Escape's window title goes back after 2 s.
+  - L4: the organ shrinks to fit a short screen and quits only on a second
+    Escape within 2 s. Both windows share the rule (`render::QuitArm`,
+    `render::frame_fits`).
+  - L5: Behind the Wall with both foods eaten apart now reads "NOT JOINED:
+    BOTH FOODS EATEN, APART", not "CAME WITHIN inf CELLS". This state was
+    met for real on random seed 5 under option a.
+- **Probe.**
+  - P1: a chip wider than the frame no longer panics, so `level=3` at the
+    default scale 2 draws.
+  - P2: `pull=` and `looks=` refuse `oats=`.
+  - P3: `lesson=`, `looks=` and `menu=` build their dishes from the printed
+    parameters (`Lesson::dish_with`).
+
+**Frame cost, back to back** (dish 1, intended hand, steps plus draw at
+scale 4, 664 frames; run order Night, Classic, Night, Classic):
+
+| look | mean, run 1 | mean, run 2 | worst, run 1 | worst, run 2 |
+|---|---|---|---|---|
+| built look (Night) | 4.02 ms | 4.27 ms | 8.65 ms | 12.57 ms |
+| old look (Classic) | 2.73 ms | 2.68 ms | 4.50 ms | 14.10 ms |
+
+The built look costs about 1.3-1.6 ms more on average.
