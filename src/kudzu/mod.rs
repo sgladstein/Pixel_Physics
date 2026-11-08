@@ -248,6 +248,14 @@ impl Kudzu {
         // switch, off; a cut still falls (`plant_cut_falls` stays on).
         world.plant_load_failure = false;
         world.climber = Some(plant::Climber { species: vine, cling: CLING });
+        // **The vine's books know it is always noon here** (the sky is held
+        // just below). Off, the engine judged a noon vine by the 0.49 day
+        // mean, called it starving at 1.5x its bill and trimmed it, and it
+        // sat still all night -- the owner's "it would stop growing"
+        // (playtest 2026-11-08; seed 1, nobody cutting: 1,487 cells at the
+        // start of play, 1,365 at dawn). `KUDZU_HELD_SKY_BUDGET=0` is the
+        // old vine.
+        world.plant_held_sky_budget = env_or("KUDZU_HELD_SKY_BUDGET", 1) == 1;
         // A clear day held at noon: the probe is about cutting, and a night
         // that stops the vine earning, or a rain that waters one arm, would
         // be noise between two paired runs.
@@ -766,7 +774,7 @@ mod tests {
     /// the vine off from its roots at the crown (seed 1, 87,127). Nothing
     /// falls, and the preview must light the parted vine as WILTS; within
     /// [`WILT_WINDOW`] the engine must have taken almost all of it, while
-    /// the rooted stump it did not light stays.
+    /// the rooted stump it did not light is still whole at 10 s.
     ///
     /// Positive control, run by hand 2026-11-08: with `starved_if_cut`
     /// returning every cell rooted *before* the cut (the stump included),
@@ -782,15 +790,23 @@ mod tests {
         let lit: PosSet = p.wilt.iter().copied().chain(p.blade.iter().copied()).collect();
         let stump: Vec<(i32, i32)> = game.vine_cells().into_iter().filter(|q| !lit.contains(q)).collect();
         game.snip(x, y).expect("a charge and vine under the blade");
-        for _ in 0..WILT_WINDOW {
+        // The stump is read at 10 s, before the window closes: a crown cut
+        // leaves it almost no leaf, and once the parted vine is gone the
+        // stump's own few shoot cells starve too and the whole plant goes
+        // (seed 1 with the held-sky budget: 207 of 207 stump cells at 10 s,
+        // 152 at 15 s, no shoot at 20 s). That death is the cut's, later.
+        for _ in 0..WILT_WINDOW * 2 / 3 {
+            game.tick();
+        }
+        let kept = stump.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
+        assert!(kept * 10 >= stump.len() * 8, "the rooted stump stays: {kept} of {}", stump.len());
+        for _ in 0..WILT_WINDOW - WILT_WINDOW * 2 / 3 {
             game.tick();
         }
         let alive = p.wilt.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
         assert!(alive * 20 <= p.wilt.len(), "{alive} of {} wilting cells still on the vine", p.wilt.len());
         assert_eq!(game.stats.wilted as usize, p.wilt.len() - alive, "the counter agrees with the cells");
         assert_eq!(game.stats.wilt_judged as usize, p.wilt.len(), "and the promise was judged");
-        let kept = stump.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
-        assert!(kept * 10 >= stump.len() * 8, "the rooted stump stays: {kept} of {}", stump.len());
     }
 
     /// Every switch the game turns on is off in a world it did not make.
@@ -799,6 +815,7 @@ mod tests {
         let world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
         assert_eq!(world.plant_speedup, 1);
         assert!(world.climber.is_none());
+        assert!(!world.plant_held_sky_budget);
         assert_eq!(world.organism_interval(45), world.clock.organism_interval(45));
     }
 }

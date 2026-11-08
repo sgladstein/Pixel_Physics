@@ -17,7 +17,16 @@
 //! - `random`: the same budget as `planned`, random tools at random places and times.
 //! - `splashonly`: the same water as `planned`, no lids (is the lid doing anything?).
 //! - `sump`: no water, no lids: dig a pit in the dam site and let the lava fill it.
-use pixel_physics::quench::{floor_y, Quench, Tool, FRAME_H, FRAME_W, H, ROUND_SECONDS, TICKS_PER_SECOND, W};
+//! - Round 2: `layered` (two stacked lids, water under each as lava arrives)
+//!   and its controls `layeredlids`, `layeredwater`.
+//! - Round 3 (the 2026-11-08 playtest's strategies): `bigpit` (the whole
+//!   shovel on one wide pit), `pitlids` (a pit and lids), `prewet` (lids and
+//!   water before the lava), `fresh` (splash the front, lids late).
+//!
+//! Switches: `crust=`, `vent=`, `flood=`, `trace=1`, `surge=0` (the seed's
+//! eruption surge off), `samestep=TICK` (step twenty clones of the world at
+//! that tick and print any cell they disagree on -- the determinism check).
+use pixel_physics::quench::{floor_y, Quench, Tool, FRAME_H, FRAME_W, H, LID_CLEARANCE, LID_SKIRT, ROUND_SECONDS, TICKS_PER_SECOND, W};
 use pixel_physics::render::Renderer;
 use std::time::Instant;
 
@@ -35,11 +44,13 @@ struct Args {
     crust: u8,
     vent: u64,
     trace: bool,
+    samestep: Option<u64>,
     flood: u64,
+    surge: bool,
 }
 
 fn parse() -> Args {
-    let mut a = Args { plans: vec!["nothing".into(), "planned".into()], seeds: vec![1, 2, 3], gif: None, png: None, every: 30, zoom: 2, fast: true, window: false, from: 0.0, to: 1e9, crust: pixel_physics::quench::CRUST_DEPTH, vent: pixel_physics::quench::VENT_EVERY, trace: false, flood: 0 };
+    let mut a = Args { plans: vec!["nothing".into(), "planned".into()], seeds: vec![1, 2, 3], gif: None, png: None, every: 30, zoom: 2, fast: true, window: false, from: 0.0, to: 1e9, crust: pixel_physics::quench::CRUST_DEPTH, vent: pixel_physics::quench::VENT_EVERY, trace: false, samestep: None, flood: 0, surge: true };
     for arg in std::env::args().skip(1) {
         let (k, v) = arg.split_once('=').unwrap_or_else(|| panic!("unknown argument {arg} (want key=value)"));
         match k {
@@ -56,11 +67,13 @@ fn parse() -> Args {
             "crust" => a.crust = v.parse().expect("crust"),
             "vent" => a.vent = v.parse().expect("vent"),
             "trace" => a.trace = v == "1",
+            "samestep" => a.samestep = Some(v.parse().expect("samestep=TICK")),
             "flood" => a.flood = v.parse().expect("flood"),
+            "surge" => a.surge = v == "1",
             _ => panic!("unknown argument {k}"),
         }
     }
-    println!("quenchprobe: plans {:?} seeds {:?} fast drip {} crust depth {} vent every {} flood {} s gif {:?} png {:?} every {} zoom {} window {}", a.plans, a.seeds, a.fast, a.crust, a.vent, a.flood, a.gif, a.png, a.every, a.zoom, a.window);
+    println!("quenchprobe: plans {:?} seeds {:?} fast drip {} crust depth {} vent every {} flood {} s surge {} gif {:?} png {:?} every {} zoom {} window {}", a.plans, a.seeds, a.fast, a.crust, a.vent, a.flood, a.surge, a.gif, a.png, a.every, a.zoom, a.window);
     a
 }
 
@@ -75,6 +88,14 @@ impl Lcg {
         lo + (self.next() % (hi - lo) as u64) as i32
     }
 }
+
+/// The layered plan's two lids over the dam site (floor 118 at x 150), each
+/// hung exactly `LID_CLEARANCE` rows clear: the low lid's centre row, the
+/// upper lid's, and the rows of the gap under each.
+const LID1: i32 = 118 - 1 - LID_CLEARANCE - LID_SKIRT - 1;
+const LID2: i32 = LID1 - 1 - 1 - LID_CLEARANCE - LID_SKIRT - 1;
+const GAP1: (i32, i32) = (LID1 + 2, 117);
+const GAP2: (i32, i32) = (LID2 + 2, LID1 - 2);
 
 /// The live half of a plan: what it throws, given where the front is now.
 /// Called every half second.
@@ -91,19 +112,24 @@ fn react(plan: &str, q: &mut Quench) {
             let x = 174;
             q.act(Tool::Splash, x, floor_y(x) - 6);
         }
+        // A new player: the held tool is Splash, so throw it at the front,
+        // every two seconds, for the first twelve seconds.
+        "fresh" if q.tick.is_multiple_of(120) && q.seconds() < 12.0 => {
+            q.act(Tool::Splash, front, floor_y(front) - 5);
+        }
         // Throw under whichever lid the lava is flowing through now.
-        "layered" | "layeredwater" if q.tick.is_multiple_of(120) => {
+        "layered" | "layeredwater" | "pitlids" if q.tick.is_multiple_of(120) => {
             let lava_in = |q: &Quench, y0: i32, y1: i32| (138..=161).any(|x| (y0..=y1).any(|y| q.world.get(x, y).material == q.lava));
             // Wet the upper gap before the lava reaches it: the pool behind
             // the dam is near the low lid's top.
-            let rising = (131..=137).any(|x| (105..=109).any(|y| q.world.get(x, y).material == q.lava));
+            let rising = (131..=137).any(|x| ((LID1 - 4)..=LID1).any(|y| q.world.get(x, y).material == q.lava));
             // Only when the gap has run dry: water already under the lid is
             // the engine, and more just drains on to the village.
             let water_in = |q: &Quench, y0: i32, y1: i32| (140..=159).map(|x| (y0..=y1).filter(|&y| q.world.get(x, y).material == pixel_physics::sim::material::WATER).count()).sum::<usize>();
-            if lava_in(q, 111, 117) && water_in(q, 111, 117) < 10 {
-                q.act(Tool::Splash, 150, 114);
-            } else if (lava_in(q, 101, 107) || rising) && water_in(q, 101, 107) < 10 {
-                q.act(Tool::Splash, 150, 104);
+            if lava_in(q, GAP1.0, GAP1.1) && water_in(q, GAP1.0, GAP1.1) < 10 {
+                q.act(Tool::Splash, 150, GAP1.1 - 3);
+            } else if (lava_in(q, GAP2.0, GAP2.1) || rising) && water_in(q, GAP2.0, GAP2.1) < 10 {
+                q.act(Tool::Splash, 150, GAP2.1 - 3);
             }
         }
         // Quench it at the vent, as fast as the tank allows.
@@ -124,14 +150,45 @@ fn script(plan: &str, seed: u64) -> Vec<(f32, Tool, i32, i32)> {
         "sump" => {
             let mut v = vec![];
             let mut t = 0.5;
-            for x in (150..=176).step_by(5) {
-                for y in (119..=137).step_by(5) {
+            // Row by row from the top, downstream of the lids, so a limited
+            // shovel (`DIG_BUDGET`) makes a shallow wide pit where the
+            // spill lands rather than a shaft under the lids.
+            for y in (119..=137).step_by(5) {
+                for x in (164..=178).step_by(5) {
                     v.push((t, Tool::Dig, x, y));
                     t += 0.1;
                 }
             }
             v
         }
+        // The 2026-11-08 playtest's strategies
+        // (`playtest-2026-11-08/quench-review.md`), rebuilt here because its
+        // harness was deleted:
+        // - `bigpit`: a bigger pit, nothing else (the review's "cheese").
+        // - `pitlids`: the pit, then the two layered lids with water.
+        // - `prewet`: the layered lids with water under each before lava.
+        // - `fresh`: a new player -- splash the lava as it comes (see
+        //   `react`), then a lid at its tip, then one on the outline.
+        "bigpit" => {
+            let mut v = vec![];
+            let mut t = 0.5;
+            for x in (135..=178).step_by(4) {
+                for y in (119..=140).step_by(4) {
+                    v.push((t, Tool::Dig, x, y));
+                    t += 0.1;
+                }
+            }
+            v
+        }
+        "pitlids" => {
+            let mut v = script("sump", seed);
+            v.push((4.0, Tool::Lid, 150, LID1));
+            v.push((5.0, Tool::Lid, 150, LID2));
+            v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            v
+        }
+        "prewet" => vec![(1.0, Tool::Lid, 150, LID1), (2.0, Tool::Splash, 150, GAP1.1 - 3), (3.0, Tool::Lid, 150, LID2), (4.0, Tool::Splash, 150, GAP2.1 - 3)],
+        "fresh" => vec![(14.0, Tool::Lid, 120, 108), (16.0, Tool::Lid, 155, 100)],
         // Quench it high: every splash at the front while it is still on
         // the upper slope (see `react`).
         "block" => vec![],
@@ -148,10 +205,10 @@ fn script(plan: &str, seed: u64) -> Vec<(f32, Tool, i32, i32)> {
             let lids = plan != "layeredwater";
             let water = plan != "layeredlids";
             if lids {
-                v.push((1.0, Tool::Lid, 150, 109));
+                v.push((1.0, Tool::Lid, 150, LID1));
             }
             if lids {
-                v.push((3.0, Tool::Lid, 150, 99));
+                v.push((3.0, Tool::Lid, 150, LID2));
             }
             let _ = water; // the water is thrown live, in `react`
             v
@@ -185,6 +242,9 @@ fn main() {
             q.world.crust_quench_depth = args.crust;
             q.vent_every = args.vent;
             q.flood_seconds = args.flood;
+            if !args.surge {
+                q.surge = (0, 0);
+            }
             let mut todo = script(plan, seed);
             todo.reverse();
             let mut renderer = Renderer::new();
@@ -214,10 +274,43 @@ fn main() {
                     println!(
                         "    t={:>5.1} tank {:>3} gap1 lava/water/stone {:>3}/{:>3}/{:>3} gap2 {:>3}/{:>3}/{:>3} past {:>4} quench {:>4} through {:>4} drips {:>4}",
                         q.seconds(), q.tank,
-                        count(&q, lava, 111, 117), count(&q, water, 111, 117), count(&q, stone, 111, 117),
-                        count(&q, lava, 101, 107), count(&q, water, 101, 107), count(&q, stone, 101, 107),
+                        count(&q, lava, GAP1.0, GAP1.1), count(&q, water, GAP1.0, GAP1.1), count(&q, stone, GAP1.0, GAP1.1),
+                        count(&q, lava, GAP2.0, GAP2.1), count(&q, water, GAP2.0, GAP2.1), count(&q, stone, GAP2.0, GAP2.1),
                         q.counts.past, q.counts.quenched, q.world.phase_changes.reacted_through_crust, q.counts.drips
                     );
+                }
+                if args.samestep == Some(q.tick) {
+                    // **Same world, stepped twenty times.** Each clone of the
+                    // world at this tick gets one engine frame; any cell that
+                    // differs between clones is the engine disagreeing with
+                    // itself. This is how a std `HashSet` tie in
+                    // `rigid::exchange_with_fluid` was found (2026-11-08,
+                    // seed 5 tick 3371: 11 of 20 clones moved one water cell
+                    // the other way). Prints the differing cells, if any.
+                    let run = |q: &Quench| {
+                        let mut w = q.world.clone();
+                        let mut p = pixel_physics::sim::particle::ParticleSystem::new();
+                        let mut b = q.blasts.clone();
+                        pixel_physics::sim::frame::step(&mut w, &mut p, &mut b, pixel_physics::sim::player::PlayerInput::default(), &pixel_physics::sim::player::Tuning::default());
+                        let mut v = Vec::new();
+                        for y in 0..pixel_physics::quench::H {
+                            for x in 0..pixel_physics::quench::W {
+                                v.push(format!("{:?}", w.get(x, y)));
+                            }
+                        }
+                        v
+                    };
+                    let first = run(&q);
+                    let mut differ = 0;
+                    for _ in 1..20 {
+                        let other = run(&q);
+                        let d: Vec<(i32, i32)> = (0..first.len()).filter(|&i| first[i] != other[i]).map(|i| (i as i32 % pixel_physics::quench::W, i as i32 / pixel_physics::quench::W)).collect();
+                        if !d.is_empty() {
+                            differ += 1;
+                            println!("    samestep t={}: {} cells differ, first {:?} ({} particles in flight, not cloned)", q.tick, d.len(), &d[..d.len().min(6)], q.particles.len());
+                        }
+                    }
+                    println!("    samestep t={}: {differ} of 19 clones disagreed with the first", q.tick);
                 }
                 let before = q.counts.last_splash_to_quench;
                 let t0 = Instant::now();
@@ -262,7 +355,7 @@ fn main() {
             let burned = q.houses.iter().filter(|h| h.burned).count();
             let flooded = q.houses.iter().filter(|h| h.flooded).count();
             let lat: Vec<String> = splash_latency.iter().map(|t| format!("{:.2}", *t as f32 / 60.0)).collect();
-            println!("           houses burned {burned} flooded {flooded}; lava past the dam {}; forge burned {} cells; caught back to tank {}; splash->first quench (s): [{}]", c.past, c.forge_burned, c.caught, lat.join(" "));
+            println!("           houses burned {burned} flooded {flooded}; lava past the dam {} (peak {}); dam stone made under lids {}, standing {}; forge boiled {}; dug {}; forge burned {} cells; caught back to tank {}; splash->first quench (s): [{}]", c.past, c.past_peak, c.dam_made, c.dam_yours_now, c.forge_boiled, c.dug, c.forge_burned, c.caught, lat.join(" "));
             if let Some(path) = &args.gif {
                 let path = path.replace("{plan}", plan).replace("{seed}", &seed.to_string());
                 let (fw, fh, z) = if args.window { (FRAME_W, FRAME_H, 1) } else { (W as u32, H as u32, args.zoom) };

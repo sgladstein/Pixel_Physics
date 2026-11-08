@@ -9405,6 +9405,28 @@ pub fn night_income_factor(frame: u64) -> f32 {
 /// horizon happened to be a whole number of days and the other did not.
 pub const MEAN_NIGHT_INCOME_FACTOR: f32 = 0.49;
 
+/// **What a plant collects over a day, as a fraction of its noon-equivalent
+/// income, in this world**: [`MEAN_NIGHT_INCOME_FACTOR`], except where
+/// `World::plant_held_sky_budget` is on and the sky is held
+/// (`Clock::sky_hold`). There the day does not turn, earnings run at
+/// [`night_income_factor`] of the held hour every tick (they read
+/// `World::sky_frame`), and the day's mean is that same number -- 1.0 at a
+/// held noon.
+///
+/// Off everywhere but the Kudzu probe, which holds noon. With the 0.49 mean
+/// against a noon that never ends, the vine's books read half what it
+/// actually earned: the starvation count ran and die-back trimmed a vine
+/// earning 1.5x its bill, so it sat still all night (seed 1: 1,487 cells at
+/// the start of play, 1,365 at dawn, 12 runners in three minutes). Probably
+/// right for any held sky; off elsewhere because the lab's held-sky
+/// setting would change, and that is a measurement of its own to make.
+pub fn day_mean_income_factor(world: &World) -> f32 {
+    match world.clock.sky_hold {
+        Some(_) if world.plant_held_sky_budget => night_income_factor(world.sky_frame()),
+        _ => MEAN_NIGHT_INCOME_FACTOR,
+    }
+}
+
 /// What one standing cell owes per organism tick.
 ///
 /// Two terms, not two rules. Every living cell pays the mass term
@@ -10735,7 +10757,7 @@ pub fn sprout_climber(world: &mut World, organism_id: OrganismId, pick: impl FnO
 }
 
 /// **How far a plant is from starving, by the engine's own test**: what it
-/// collects over a day (`income * MEAN_NIGHT_INCOME_FACTOR`) over what its
+/// collects over a day (`income * day_mean_income_factor`) over what its
 /// living cells cost (`MAINTENANCE_PER_CELL` each). Below 1.0 its
 /// starvation count is running, and at [`STARVATION_DEATH_TICKS`] in a row
 /// it is senescent. `None` for an organism that is gone or has no cells.
@@ -10751,7 +10773,7 @@ pub fn day_budget_ratio(world: &World, organism_id: OrganismId) -> Option<f32> {
     if alive <= 0.0 {
         return None;
     }
-    Some(s.income * MEAN_NIGHT_INCOME_FACTOR / (MAINTENANCE_PER_CELL * alive))
+    Some(s.income * day_mean_income_factor(world) / (MAINTENANCE_PER_CELL * alive))
 }
 
 /// **A climber puts down a new root** -- [`sprout_climber`]'s other half,
@@ -14001,6 +14023,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     });
     let roots_required = world.roots_required;
     let nutrient_by_root = world.nutrient_by_root;
+    let day_mean = day_mean_income_factor(world);
     // Foliage, for `World::nutrient_by_root`'s demand: leaves and growing
     // tips, the cells `leaves_in_row` already counts in this walk.
     let foliage: u32 = leaves_in_row.values().sum();
@@ -14172,7 +14195,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // A dormant seed is not a plant yet (`resting_seed` above).
         if has_economy && has_leaf_stage && !resting_seed {
             let alive = (root_cells + shoot_cells) as f32;
-            let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
+            let collected = state.income * day_mean;
             // A seedling holding enough to pay the whole bill for as long
             // as the clock runs is living on its seed, not starving: a
             // seedling at 3% of open light built its first leaf, earned
@@ -14611,7 +14634,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // is collecting at this instant — `MEAN_NIGHT_INCOME_FACTOR`, and the
     // bug it records. The bill is charged every tick and does not care what
     // time it is, so the income it is compared with must not either.
-    let deficit = maintenance - world.organism(organism_id).map_or(0.0, |s| s.income) * MEAN_NIGHT_INCOME_FACTOR;
+    let deficit = maintenance - world.organism(organism_id).map_or(0.0, |s| s.income) * day_mean_income_factor(world);
     // **A living plant trims; a dead one rots**, and the two mechanisms get
     // disjoint domains rather than racing.
     //

@@ -588,3 +588,56 @@ fn draw_preview(g: &Game, frame: &mut [u8], p: &Preview) {
     let ly = if p.radius > 0 { hy - p.radius * s - 22 } else { hy - 26 };
     label(frame, hx - text_w(word) / 2, ly.max(4), word, [col[0], col[1], col[2], 255]);
 }
+
+/// **The start card** (2026-11-08): the goal, every tool and key, and what
+/// earns a star, on one panel over the mine. Added after the owner's
+/// playtests of the sibling demos: his first complaint in both was not
+/// knowing the goal, the options, or what each tool did. The window opens
+/// on it, paused; `H` brings it back.
+pub fn help(frame: &mut [u8]) {
+    let (pw, ph) = (900, 424);
+    let (px, py) = ((FW as i32 - pw) / 2, 70);
+    shade_rect(frame, px, py, pw, ph, 0.12);
+    outline(frame, px, py, pw, ph, [250, 220, 120]);
+    let gold = [255, 226, 130, 255];
+    let x = px + 28;
+    let mut y = py + 20;
+    text(frame, x, y, "FIREDAMP", gold);
+    y += 30;
+    text(frame, x, y, "GOAL: GET AS MUCH ORE OUT AS YOU CAN IN A 3-MINUTE SHIFT.", gold);
+    y += 20;
+    for l in [
+        "GAS LEAKS INTO THE SUMP. YELLOW GAS BURNS, AND A BIG YELLOW",
+        "POCKET GOES BANG: IT BREAKS ROCK AND FREES ORE. GAS THAT REACHES",
+        "A LAMP BLOWS UP THAT WORK FACE FOR THE REST OF THE SHIFT.",
+    ] {
+        text(frame, x, y, l, TEXT);
+        y += 20;
+    }
+    y += 14;
+    for (k, what) in [
+        ("1 FAN", "PUSHES AND THINS GAS. PRESS, THEN DRAG TO AIM IT."),
+        ("2 DOOR", "BLOCKS A TUNNEL. CLICK IT TO SLAM OR OPEN IT."),
+        ("3 MATCH", "FALLS AND LIGHTS THE FIRST YELLOW IT HITS. HOLD IT"),
+        ("", "OVER THE GAS TO SEE WHAT WILL BURN AND HOW BIG."),
+        ("4 FUSE", "LIGHTS ITSELF WHEN THE GAS ON IT TURNS YELLOW."),
+        ("RIGHT CLICK", "PICKS A FAN, DOOR OR FUSE BACK UP."),
+    ] {
+        text(frame, x, y, k, gold);
+        text(frame, x + 170, y, what, TEXT);
+        y += 20;
+    }
+    y += 14;
+    for l in [
+        "STARS AT 60, 140 AND 220 ORE. A FACE WITH CLEAR AIR SENDS A CART",
+        "OF ORE EVERY 3 SECONDS; A BANG BY THE ORE SEAM BLASTS MORE LOOSE.",
+        "TOO THIN (VIOLET) OR TOO THICK (GREEN) GAS WILL NOT BURN.",
+    ] {
+        text(frame, x, y, l, TEXT);
+        y += 20;
+    }
+    y += 14;
+    text(frame, x, y, "SPACE PAUSE    R SAME MINE    N NEW MINE    H THIS CARD", DIM);
+    y += 26;
+    text(frame, x, y, "CLICK OR PRESS ANY KEY TO START.", gold);
+}

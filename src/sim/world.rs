@@ -6255,6 +6255,12 @@ pub struct World {
     /// bare ground (`plant::Climber`). `None` in every world but the Kudzu
     /// probe's, which is the whole of its reach: no shipped species reads it.
     pub climber: Option<crate::sim::plant::Climber>,
+    /// **A held sky is a day that does not end, in a plant's books**
+    /// (`plant::day_mean_income_factor`). Off in every world but the Kudzu
+    /// probe's, which holds noon: with it off, the starvation test and
+    /// die-back read a noon vine's income at the 0.49 day mean and trimmed
+    /// a vine earning 1.5x its bill.
+    pub plant_held_sky_budget: bool,
     /// **Whether water flows through a plant along real paths** rather than
     /// being one tank every leaf reads equally (`plant::sap_flow`).
     ///
@@ -7822,6 +7828,7 @@ impl World {
             plant_cut_falls: crate::sim::structural::cut_crowns_fall(),
             plant_speedup: 1,
             climber: None,
+            plant_held_sky_budget: false,
             sap_flow: super::plant::sap_flow_default(),
             rootless_dries: super::plant::rootless_dries_default(),
             seed_dry_keeps: super::plant::seed_bank_default().0,

@@ -191,6 +191,13 @@ fn overlay(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
 }
 
 fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
+    // The goal, always on screen, between the two suns.
+    let goal = "GOAL: CATCH MORE SUN THAN THE RIVAL";
+    let band = text_w("LIGHT AT YEAR END: 40% = 1 STAR  55% = 2  70% = 3     H: HOW TO PLAY", 1).max(text_w(goal, 2)) + 16;
+    fill(frame, ((VIEW_W as i32 - band) / 2, 4, band, 34), [10, 14, 10, 150]);
+    text(frame, ((VIEW_W as i32 - text_w(goal, 2)) / 2, 8), goal, 2, WHITE);
+    let stars = "LIGHT AT YEAR END: 40% = 1 STAR  55% = 2  70% = 3     H: HOW TO PLAY";
+    text(frame, ((VIEW_W as i32 - text_w(stars, 1)) / 2, 28), stars, 1, WHITE);
     let top = VIEW_H as i32;
     // Line 1: season, light share, sugar, prunes.
     let season = game.season();
@@ -280,7 +287,7 @@ fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
         let s = &n.text;
         text(frame, (FRAME_W as i32 - text_w(s, 1) - 6, top + 118), s, 1, DIM);
     }
-    let keys = "CLICK A TIP: PICK IT   1-5 OR CLICK A CARD: PLAY IT THERE   RIGHT-CLICK YOUR TREE: PRUNE   N: NEW GAME";
+    let keys = "CLICK A TIP: PICK IT   1-5 OR CLICK A CARD: PLAY IT THERE   RIGHT-CLICK YOUR TREE: PRUNE   N: NEW GAME   H: HELP";
     text(frame, (6, top + 138), keys, 1, DIM);
     let seasons: Vec<String> = game.tally.seasons.iter().map(|s| format!("{}%", (s * 100.0).round() as i32)).collect();
     let st = format!(
@@ -291,6 +298,51 @@ fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
     );
     text(frame, (FRAME_W as i32 - text_w(&st, 1) - 6, top + 128), &st, 1, DIM);
     let _ = GLYPH_HEIGHT;
+}
+
+/// **How to play**, over the valley: the goal, how a star is won, the two
+/// clicks a card takes, what each card does, and the keys. The bin shows it
+/// at the start (paused) and on H. Scott's playtests of Storm and Mould
+/// (2026-11-08) said the same thing twice: he did not know the goal, his
+/// options, or what each tool did -- so this is on screen, not in a README.
+pub const HELP: [&str; 21] = [
+    "GOAL: GROW YOUR TREE (LEFT) TO CATCH MORE SUN",
+    "THAN THE RIVAL TREE (RIGHT).",
+    "WIN: YOUR SHARE OF THE LIGHT WHEN SEASON 3 ENDS.",
+    "40% = 1 STAR    55% = 2 STARS    70% = 3 STARS",
+    "",
+    "YOUR TREE ONLY GROWS WHERE YOU PLAY A CARD:",
+    "1. CLICK A BLINKING TIP OF YOUR TREE TO PICK IT",
+    "2. PRESS 1-5 OR CLICK A CARD TO GROW IT FROM THERE",
+    "   THE OUTLINE SHOWS WHERE IT GOES. RED: IT WILL NOT.",
+    "",
+    "GROW UP    40 CELLS STRAIGHT UP",
+    "LEAN       36 CELLS CURVING TOWARD THE SUN",
+    "FORK       SPLITS THE TIP INTO TWO TIPS",
+    "LEAF OUT   14 CELLS COVERED IN LEAVES",
+    "BUD        A SPARE TIP, IN CASE THIS BRANCH IS LOST",
+    "",
+    "SUGAR: SUNLIT LEAVES EARN IT, WOOD COSTS IT, CARDS USE IT",
+    "SHADE: DARK LEAVES GET NO SUN. GROW OVER THE RIVAL.",
+    "RIGHT-CLICK YOUR TREE: PRUNE    N: NEW GAME",
+    "",
+    "CLICK OR PRESS A KEY TO START    H: THIS PAGE AGAIN",
+];
+
+/// Draw [`HELP`] over the valley (not the HUD, so the hand stays readable).
+pub fn help_panel(frame: &mut [u8]) {
+    fill(frame, (0, 0, VIEW_W as i32, VIEW_H as i32), [12, 16, 12, 225]);
+    text(frame, (24, 12), "HEARTWOOD: HOW TO PLAY", 3, GOLD);
+    let mut y = 50;
+    for (i, line) in HELP.iter().enumerate() {
+        if line.is_empty() {
+            y += 8;
+            continue;
+        }
+        let c = if i < 4 { MINE } else if i == HELP.len() - 1 { GOLD } else { WHITE };
+        text(frame, (24, y), line, 2, c);
+        y += 19;
+    }
 }
 
 fn ring_rect(frame: &mut [u8], (x, y, w, h): (i32, i32, i32, i32), c: [u8; 4]) {

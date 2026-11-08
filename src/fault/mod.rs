@@ -582,6 +582,18 @@ mod tests {
     /// and the same tap on the same wall runs the same crack edge for edge
     /// -- the repeatability the probe is asking a player to rely on.
     #[test]
+    fn the_help_panel_draws_every_character_and_fits_the_window() {
+        let (ow, _) = view::size();
+        for line in view::HELP {
+            for c in line.chars() {
+                assert!(crate::hud::has_glyph(c), "{c:?} in {line:?} has no glyph");
+            }
+            // 8 + 8 units of margin each side, at two screen pixels a unit.
+            assert!(crate::hud::text_width(line) + 32 <= ow as i32 / 2, "{line:?} is wider than the window");
+        }
+    }
+
+    #[test]
     fn a_tap_runs_the_same_crack_on_the_same_wall() {
         let a = tapped(1);
         let b = tapped(1);
