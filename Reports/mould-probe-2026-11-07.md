@@ -246,5 +246,27 @@ bug", "things were flashing gray", and there "needs to be a challenge".
   eaten because the home blob touched a second pile on its own; the join
   step now asks for all the food, and the oats step for oats eaten.
   `mouldprobe lesson=DIR` plays it with a scripted hand: all six steps pass,
-  the lesson ends at 53 s, 3 stars.
+  the lesson ends at 51 s, 2 stars.
+- **An independent bug check of the lesson** (2026-11-08, full write-up in
+  the project's `game-design/mould-game-brainstorm-2026-11-08/bug-check.md`)
+  found two ways a new player gets stuck, both now fixed:
+  - *A slow lesson starved.* The lesson has no clock, but the mould still
+    ate: a 20,000 pile lasts about 139 s at a full table. Reading for 60 s a
+    step left 20 walkers at the storm; left alone, 0 of 400 walkers at
+    200 s, and Join could then never pass. The dish's own piles now stay
+    full until the storm step (oats still run out).
+    `a_slow_lesson_does_not_starve` goes red with the refill switched off
+    (0 of 400) and green with it.
+  - *Spent tools made a step impossible.* Salt (1) and snips (3) never come
+    back, so salt drawn during step 1 left the salt step stuck for good.
+    The snip and salt steps now hand one back whenever the stock is empty,
+    and the snip step needs a snip that cut mould, not a click on agar.
+  - Smaller fixes from the same check: a stroke released over the HUD
+    strip stayed live for the next press; the lamp could stay on after H
+    or alt-tab; a window shorter than 726 px cropped the frame (it now
+    shrinks to fit, crisp whole-pixel scaling whenever it fits); a score
+    with fewer than 3 piles joined read "THRIFT 0.00X" (now "--"); R and N
+    kept fast and pause on; salt and snip worked during the storm watch,
+    letting a player cut their own network after the strike (now refused,
+    like oats already were).
 

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use pixel_physics::mould::lesson::{Lesson, Step};
 use pixel_physics::mould::render::{self, Banner, View};
 use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
-use pixels::{Pixels, SurfaceTexture};
+use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -118,6 +118,10 @@ impl Handler {
         (self.dish, self.lesson) = new_dish(seed);
         self.pressed = false;
         self.view.brief = true;
+        // Speed and pause belong to one dish: a fast dish's successor
+        // started at 4x.
+        self.view.fast = false;
+        self.view.paused = false;
         if let Some(w) = &self.window {
             w.set_title(&title(seed));
         }
@@ -132,16 +136,31 @@ impl Handler {
         self.dish.set_lamp(lamp);
     }
 
+    /// Let go of everything: no button held, no stroke drawing, lamp off.
+    /// Used whenever the hand may have left without a release reaching us.
+    fn let_go(&mut self) {
+        self.pressed = false;
+        self.dish.end_stroke();
+        self.hold();
+    }
+
     fn mouse(&mut self, down: bool) {
         // A click on the briefing card only puts it away.
         if self.view.brief {
             if down {
                 self.view.brief = false;
             }
-            self.pressed = false;
+            self.let_go();
             return;
         }
-        self.pressed = down;
+        // A release ends the stroke wherever it lands. It used to return
+        // first when the cursor was over the HUD strip or outside the
+        // window, leaving the stroke live for the next press to continue.
+        if !down {
+            self.let_go();
+            return;
+        }
+        self.pressed = true;
         let Some((x, y)) = self.cursor else { return };
         match (down, self.view.tool) {
             (true, Tool::Oats) => {
@@ -150,7 +169,6 @@ impl Handler {
             (true, t @ (Tool::Salt | Tool::Snip)) => {
                 self.dish.begin_stroke(t, x, y);
             }
-            (false, _) => self.dish.end_stroke(),
             _ => {}
         }
         self.hold();
@@ -159,10 +177,15 @@ impl Handler {
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
         if self.view.brief && code != KeyCode::Escape {
             self.view.brief = false;
+            self.let_go();
             return;
         }
         match code {
-            KeyCode::KeyH => self.view.brief = true,
+            // The card hides the dish, so a held lamp or stroke ends with it.
+            KeyCode::KeyH => {
+                self.view.brief = true;
+                self.let_go();
+            }
             KeyCode::Digit1 => self.view.tool = Tool::Lamp,
             KeyCode::Digit2 => self.view.tool = Tool::Oats,
             KeyCode::Digit3 => self.view.tool = Tool::Salt,
@@ -229,6 +252,18 @@ impl Handler {
     }
 }
 
+/// Whole-pixel scaling when the frame fits the window, shrink-to-fit when it
+/// does not. Pixel-perfect never scales below 1:1, so a window shorter than
+/// the frame (726 px: a 768-px laptop) showed it cropped, HUD and all.
+fn scaling_for(width: u32, height: u32) -> ScalingMode {
+    let (fw, fh) = render::frame_size(SCALE);
+    if width < fw || height < fh {
+        ScalingMode::Fill
+    } else {
+        ScalingMode::PixelPerfect
+    }
+}
+
 impl ApplicationHandler for Handler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -246,7 +281,10 @@ impl ApplicationHandler for Handler {
         let size = window.inner_size();
         let surface = SurfaceTexture::new(size.width, size.height, Arc::clone(&window));
         match Pixels::new(w, h, surface) {
-            Ok(p) => self.pixels = Some(p),
+            Ok(mut p) => {
+                p.set_scaling_mode(scaling_for(size.width, size.height));
+                self.pixels = Some(p);
+            }
             Err(err) => return self.fail(event_loop, format!("pixels init failed: {err}")),
         }
         self.window = Some(window);
@@ -258,6 +296,13 @@ impl ApplicationHandler for Handler {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
+                    // Pixel-perfect never scales below 1:1, so a window
+                    // shorter than the frame (726 px: a 768-px laptop) showed
+                    // it cropped, HUD and all. Shrink to fit instead, and keep
+                    // crisp whole-pixel scaling whenever the frame fits.
+                    if let Some(p) = self.pixels.as_mut() {
+                        p.set_scaling_mode(scaling_for(size.width, size.height));
+                    }
                     let err = self
                         .pixels
                         .as_mut()
@@ -288,6 +333,8 @@ impl ApplicationHandler for Handler {
                 }
                 self.hold();
             }
+            // Alt-tab with the button held: the release goes elsewhere.
+            WindowEvent::Focused(false) => self.let_go(),
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
                 self.hold();

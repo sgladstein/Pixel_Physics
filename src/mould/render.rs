@@ -494,11 +494,18 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
 /// probe's half-size pictures as well as the window.
 fn score_lines(d: &Dish, frame: &mut [u8], (fw, fh): (u32, u32), y: i32) {
     let Some(s) = d.score.clone() else { return };
+    // Below THRIFT_MIN_JOINED there is no tree to measure and ratio() is 0,
+    // which read as a perfect "0.00X" thrift.
+    let thrift = if s.reach >= super::THRIFT_MIN_JOINED {
+        format!("{:.2}X", s.ratio())
+    } else {
+        "--".to_string()
+    };
     let a = format!(
-        "REACH {}/{} JOINED. THRIFT {:.2}X, BAR {:.2}X",
+        "REACH {}/{} JOINED. THRIFT {}, BAR {:.2}X",
         s.reach,
         s.piles,
-        s.ratio(),
+        thrift,
         super::THRIFT_BAR
     );
     let b = format!("TOUGH: {} OF {} STILL JOINED AFTER STORM", s.after, s.reach);

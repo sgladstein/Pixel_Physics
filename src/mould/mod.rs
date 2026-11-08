@@ -671,7 +671,10 @@ impl Dish {
             Tool::Snip => (&mut self.snips_left, SNIP_LEN),
             _ => return false,
         };
-        if *left == 0 {
+        // Strokes are for the growing dish only: a snip during the storm
+        // watch cut the player's own network and cost toughness, while oats
+        // were already refused there (bug check, 2026-11-08).
+        if *left == 0 || self.phase != Phase::Growing {
             return false;
         }
         *left -= 1;
@@ -1687,6 +1690,37 @@ mod tests {
         );
         assert_eq!(d.phase, Phase::Growing, "no storm during the lesson");
         assert!(d.storm_line.is_none());
+    }
+
+    #[test]
+    fn a_slow_lesson_does_not_starve() {
+        // Bug check 2026-11-08: with no clock and piles still eaten, a lesson
+        // left alone had 0 walkers from 150 s on and could never pass Join.
+        let (mut d, mut l) = lesson::Lesson::dish();
+        let start = d.walkers.len();
+        for _ in 0..200 * STEPS_PER_SECOND as u64 {
+            d.step();
+            l.update(&mut d);
+        }
+        assert!(
+            d.walkers.len() * 2 >= start,
+            "{} of {start} walkers left after 200 s idle",
+            d.walkers.len()
+        );
+    }
+
+    #[test]
+    fn a_lesson_step_hands_back_a_spent_tool() {
+        let (mut d, mut l) = lesson::Lesson::dish();
+        d.step();
+        while d.salt_left > 0 {
+            assert!(d.begin_stroke(Tool::Salt, 20.0, 20.0));
+            d.end_stroke();
+        }
+        l.step = lesson::Step::Salt;
+        l.update(&mut d);
+        assert_eq!(d.salt_left, 1, "the salt step gives one back");
+        assert!(d.begin_stroke(Tool::Salt, 30.0, 30.0));
     }
 
     #[test]
