@@ -42,6 +42,8 @@ pub struct View {
     pub banner: Option<Banner>,
     /// Which look draws the frame (`look.rs`); `Classic` is this file.
     pub style: super::look::Style,
+    /// The dish picker (M), over everything: see `menu`.
+    pub menu: Option<Menu>,
 }
 
 impl Default for View {
@@ -55,6 +57,7 @@ impl Default for View {
             brief: false,
             banner: None,
             style: super::look::Style::Classic,
+            menu: None,
         }
     }
 }
@@ -425,6 +428,9 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     // and dropped: where the line queues, one walker to a cell, the points
     // drew a white hatched slab.
     labels(d, scale, frame, (fw, fh));
+    if d.level.is_some() {
+        ruler_overlay(d, scale, frame, fw);
+    }
     if d.wander.is_some() {
         exit_label(d, scale, frame, (fw, fh));
         wander_hud(d, view, scale, frame, (fw, fh));
@@ -438,7 +444,13 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
         banner(&b, frame, (fw, fh));
     }
     if view.brief {
-        brief(d, view, frame, (fw, fh), scale);
+        match d.level {
+            Some(l) => level_brief(l, frame, (fw, fh), scale),
+            None => brief(d, view, frame, (fw, fh), scale),
+        }
+    }
+    if let Some(m) = view.menu {
+        menu(&m, frame, (fw, fh), scale);
     }
 }
 
@@ -462,6 +474,9 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     // Line 1: the tools.
     let mut x = 6;
     for (k, t) in Tool::ALL.iter().enumerate() {
+        if !d.has_tool(*t) {
+            continue;
+        }
         let label = match stock(d, *t) {
             Some(n) => format!("{} {} {}", k + 1, t.name(), n),
             None => format!("{} {}", k + 1, t.name()),
@@ -485,6 +500,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     // Line 2: the state of the dish.
     let joined = d.measure();
     let status = match d.phase {
+        _ if d.level.is_some() => level_status(d, &joined),
         Phase::Growing if d.storm_at == u64::MAX => format!(
             "LESSON  FOOD JOINED {}/{}  MOULD {}",
             joined.reach,
@@ -523,7 +539,10 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     text(frame, (fw, fh), 6, line(1), &status, TEXT);
     // Line 3: what a click does now, or what to do next.
     let hint = match d.phase {
-        Phase::Over => "R: TRY AGAIN   N: NEXT DISH".to_string(),
+        Phase::Over => match &d.card {
+            Some(c) => c.why.clone(),
+            None => "R: TRY AGAIN   N: NEXT DISH".to_string(),
+        },
         Phase::Storm(_) | Phase::Crossing(_) => "THE STORM STRUCK. WATCH WHAT STAYS JOINED.".to_string(),
         Phase::Growing if d.storm_line.is_some() => {
             format!("STORM IN {} S: IT CUTS THE PURPLE LINE", d.seconds_left())
@@ -546,7 +565,9 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
         if d.phase == Phase::Growing { DIM } else { HOT },
     );
     if view.keys {
-        let keys = if view.paused {
+        let keys = if d.phase == Phase::Over {
+            "R: AGAIN  N: NEXT  M: DISHES"
+        } else if view.paused {
             "PAUSED  P: GO"
         } else if view.fast {
             "FAST  SPACE: NORMAL"
@@ -563,11 +584,16 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     // off the dish, once it is over.
     let sps = super::STEPS_PER_SECOND as u64;
     match d.phase {
+        Phase::Over if d.level.is_some() => {
+            let amount = d.card.as_ref().map(|c| c.amount.clone()).unwrap_or_default();
+            text(frame, (fw, fh), 6, line(3), &amount, TEXT);
+            text(frame, (fw, fh), 6, line(4), "R: TRY AGAIN  N: NEXT DISH  M: DISHES", DIM);
+        }
         Phase::Over => score_lines(d, frame, (fw, fh), line(3)),
         Phase::Growing => {
             let mut next = Vec::new();
-            if d.oats_left < super::OATS_STOCK {
-                let every = super::OATS_REGROW_SECONDS as u64 * sps;
+            if d.oats_regrow > 0 && d.oats_left < d.oats_stock {
+                let every = d.oats_regrow as u64 * sps;
                 let wait = (every - d.t % every).div_ceil(sps);
                 next.push(format!("OATS +1 IN {wait} S"));
             }
@@ -580,14 +606,17 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
                 next.push(format!("NEW FOOD {}", at.join(" ")));
             }
             text(frame, (fw, fh), 6, line(3), &next.join("   "), DIM);
-            text(
-                frame,
-                (fw, fh),
-                6,
-                line(4),
-                "STARS: JOIN ALL, KEEP IT SHORT, SURVIVE",
-                DIM,
-            );
+            let stars = match d.level {
+                Some(l) => l.stars_line(),
+                None => "STARS: JOIN ALL, KEEP IT SHORT, SURVIVE".to_string(),
+            };
+            text(frame, (fw, fh), 6, line(4), &stars, DIM);
+            if view.keys {
+                let w = text_px("M: DISHES");
+                if 6 + text_px(&stars) + 24 + w + 6 < fw as i32 {
+                    text(frame, (fw, fh), fw as i32 - w - 6, line(4), "M: DISHES", DIM);
+                }
+            }
         }
         Phase::Storm(_) | Phase::Crossing(_) => {}
     }
@@ -939,5 +968,233 @@ fn wander_brief(w: &wander::Wander, frame: &mut [u8], (fw, fh): (u32, u32), scal
     panel(frame, fw, (x0, y0, wpx, h), [120, 230, 214]);
     for (k, (l, c)) in lines.iter().enumerate() {
         text(frame, (fw, fh), x0 + 14, y0 + 10 + 16 * k as i32, l, *c);
+    }
+}
+
+// ------------------------------------------------- challenge dishes (level.rs)
+//
+// Kept to this one section and a hook each in `draw` and `hud_lines`, on the
+// existing `panel` and `text`, so the interface rework can move it whole.
+
+/// The status line on a hand-made dish: the clock to the bell and the one
+/// number its win rule reads.
+fn level_status(d: &Dish, joined: &super::Score) -> String {
+    use super::level::{clock, Win};
+    let Some(l) = d.level else { return String::new() };
+    if d.phase == Phase::Over {
+        let n = d.card.as_ref().map_or(0, |c| c.stars);
+        return format!("{n} STAR{}  {}", if n == 1 { "" } else { "S" }, l.name);
+    }
+    let left = clock(d.seconds_left());
+    match l.win {
+        Win::JoinAll { .. } => format!(
+            "TIME {left}  FOOD JOINED {}/{}  MOULD {}",
+            joined.reach,
+            joined.piles,
+            d.walkers.len()
+        ),
+        Win::UnderRuler { .. } => match d.join_now {
+            Some(r) => format!("TIME {left}  ALL JOINED: {r:.2}X THE RULER"),
+            None => format!("TIME {left}  FOOD JOINED {}/{}", joined.reach, joined.piles),
+        },
+        Win::AliveAtBell { .. } => {
+            let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
+            format!("TIME {left}  MOULD {}  EATING {fed} PILE{}", d.walkers.len(), if fed == 1 { "" } else { "S" })
+        }
+    }
+}
+
+/// A dotted line between two dish points, a dot every `every` cells.
+fn dots(frame: &mut [u8], fw: u32, scale: u32, a: (f32, f32), b: (f32, f32), every: f32, c: [u8; 3]) {
+    let len = (b.0 - a.0).hypot(b.1 - a.1);
+    let n = (len / every).floor() as usize;
+    let s = scale as f32;
+    // A dot half a cell across, never under 2 pixels, so it reads at the
+    // window's scale 4 as well as the probe's 2.
+    let size = (scale as i32 / 2).max(2);
+    for k in 0..=n {
+        let f = k as f32 * every / len.max(0.01);
+        let (x, y) = ((a.0 + (b.0 - a.0) * f) * s, (a.1 + (b.1 - a.1) * f) * s);
+        for oy in 0..size {
+            for ox in 0..size {
+                put(frame, fw, x as i32 + ox, y as i32 + oy, c);
+            }
+        }
+    }
+}
+
+/// Beat the Ruler's ruler, dotted between the piles' rims, and once the dish
+/// is over the best possible answer, faint: three tubes from the meeting
+/// point, so the player sees how close they came.
+fn ruler_overlay(d: &Dish, scale: u32, frame: &mut [u8], fw: u32) {
+    let Some(l) = d.level else { return };
+    if !matches!(l.win, super::level::Win::UnderRuler { .. }) {
+        return;
+    }
+    let rim = |a: usize, b: usize| {
+        let (p, q) = (&l.piles[a], &l.piles[b]);
+        let len = (q.x - p.x).hypot(q.y - p.y).max(0.01);
+        let (ux, uy) = ((q.x - p.x) / len, (q.y - p.y) / len);
+        ((p.x + ux * (p.r + 3.0), p.y + uy * (p.r + 3.0)), (q.x - ux * (q.r + 3.0), q.y - uy * (q.r + 3.0)))
+    };
+    for (a, b) in l.ruler().1 {
+        let (pa, pb) = rim(a, b);
+        dots(frame, fw, scale, pa, pb, 4.0, [190, 170, 120]);
+    }
+    if d.phase == Phase::Over {
+        let (m, _) = l.meeting_point();
+        for p in l.piles {
+            dots(frame, fw, scale, m, (p.x, p.y), 2.5, [120, 200, 230]);
+        }
+        ring(frame, fw, scale, m, 3.0, [160, 220, 240]);
+    }
+}
+
+/// The briefing card for a hand-made dish: its goal, its one twist, what
+/// each star needs, and only the tools it gives.
+fn level_brief(l: &super::level::Level, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+    use super::level::{clock, Win};
+    let mut lines: Vec<(String, [u8; 4])> = vec![
+        (l.name.to_string(), HOT),
+        (l.goal[0].to_string(), TEXT),
+        (l.goal[1].to_string(), TEXT),
+        (l.twist.to_string(), DIM),
+        (String::new(), TEXT),
+        ("TAN: FOOD    YELLOW: FED MOULD".into(), [214, 172, 104, 255]),
+        ("GREY: CUT OFF FROM FOOD, STARVING".into(), [180, 180, 174, 255]),
+        (String::new(), TEXT),
+        ("STARS".into(), HOT),
+    ];
+    let bell = clock(l.seconds);
+    let stars: [String; 3] = match l.win {
+        Win::JoinAll { by } => [
+            format!("*   REACH THE FOOD BY {bell}"),
+            format!("**  BY {}", clock(by[0])),
+            format!("*** BY {}", clock(by[1])),
+        ],
+        Win::UnderRuler { bars } => [
+            format!("*   ALL THREE JOINED AT {bell}"),
+            format!("**  TUBE {:.2}X THE RULER OR LESS", bars[0]),
+            format!("*** {:.2}X OR LESS", bars[1]),
+        ],
+        Win::AliveAtBell { bars } => [
+            format!("*   {} MOULD ALIVE AT {bell}", bars[0]),
+            format!("**  {} ALIVE", bars[1]),
+            format!("*** {} ALIVE", bars[2]),
+        ],
+    };
+    lines.extend(stars.into_iter().map(|s| (s, TEXT)));
+    lines.push((String::new(), TEXT));
+    lines.push(("TOOLS".into(), HOT));
+    let t = l.tools;
+    lines.push(("1 LAMP  HOLD: PUSHES THE MOULD AWAY".into(), TEXT));
+    if t.oats > 0 {
+        let back = if t.oats_regrow > 0 {
+            format!(", 1 BACK / {} S", t.oats_regrow)
+        } else {
+            String::new()
+        };
+        lines.push((format!("2 OATS {}{back}: IT GROWS TO THEM", t.oats), TEXT));
+    }
+    if t.salt > 0 {
+        lines.push((format!("3 SALT {}  DRAG: A WALL", t.salt), TEXT));
+    }
+    if t.snips > 0 {
+        lines.push((format!("4 SNIP {}  DRAG: CUT A TUBE", t.snips), TEXT));
+    }
+    lines.push((String::new(), TEXT));
+    lines.push(("CLICK OR PRESS A KEY TO START".into(), HOT));
+    let w = lines.iter().map(|(l, _)| text_px(l)).max().unwrap_or(0) + 28;
+    let h = 16 * lines.len() as i32 + 20;
+    let dish_h = (H as u32 * scale) as i32;
+    let (x0, y0) = ((fw as i32 - w) / 2, ((dish_h - h) / 2).max(2));
+    panel(frame, fw, (x0, y0, w, h), [120, 110, 70]);
+    for (k, (l, c)) in lines.iter().enumerate() {
+        text(frame, (fw, fh), x0 + 14, y0 + 10 + 16 * k as i32, l, *c);
+    }
+}
+
+/// The dish picker: the lesson, the challenge dishes, and free play, with
+/// best stars and what opens a locked one.
+#[derive(Clone, Copy, Debug)]
+pub struct Menu {
+    pub progress: super::level::Progress,
+    /// The highlighted entry.
+    pub cursor: usize,
+}
+
+/// Each picker entry's card, in frame pixels (x, y, w, h): shared by the
+/// drawing and the window's click test.
+pub fn menu_cards((fw, fh): (u32, u32)) -> Vec<(i32, i32, i32, i32)> {
+    let n = super::level::ENTRIES as i32;
+    let w = (fw as i32 - 24).min(620);
+    // 64, not 56: the game's look (`look.rs`) sets the two lines in a
+    // mixed-case font with descenders, which touched at 56.
+    let h = 64;
+    let gap = 6;
+    let top = ((fh as i32 - (n * (h + gap) + 30)) / 2).max(2) + 26;
+    (0..n).map(|k| ((fw as i32 - w) / 2, top + k * (h + gap), w, h)).collect()
+}
+
+/// An entry's name and two lines, for the picker.
+pub fn entry_lines(e: usize) -> (&'static str, [&'static str; 2]) {
+    use super::level::{DISHES, FREE, WANDER};
+    match e {
+        0 => ("LESSON", ["SIX STEPS: EACH TOOL IN TURN,", "THEN A STORM."]),
+        FREE => ("FREE DISH", ["THE SEEDED DISHES: JOIN, SHORT,", "STORM-PROOF. N: ANOTHER DISH."]),
+        WANDER => ("THE WANDERER", ["NO CLOCK: LEAD HER TO THE CRACK, G: GO.", "WHAT ARRIVES STARTS THE NEXT DISH."]),
+        _ => (DISHES[e - 1].name, DISHES[e - 1].goal),
+    }
+}
+
+fn menu(m: &Menu, frame: &mut [u8], (fw, fh): (u32, u32), _scale: u32) {
+    use super::level::FREE;
+    // Dim what is behind, so the cards read.
+    for px in frame.chunks_exact_mut(4) {
+        for v in px.iter_mut().take(3) {
+            *v /= 3;
+        }
+    }
+    let cards = menu_cards((fw, fh));
+    let title = "DISHES   1-6 OR CLICK TO PICK   M: BACK";
+    let (x0, y0, _, _) = cards[0];
+    text(frame, (fw, fh), x0, y0 - 22, title, HOT);
+    for (e, &(x, y, w, h)) in cards.iter().enumerate() {
+        let open = m.progress.unlocked(e);
+        let edge = if e == m.cursor {
+            [255, 236, 120]
+        } else if open {
+            [120, 110, 70]
+        } else {
+            [60, 60, 62]
+        };
+        panel(frame, fw, (x, y, w, h), edge);
+        let (name, lines) = entry_lines(e);
+        let c = if open { TEXT } else { DIM };
+        text(frame, (fw, fh), x + 10, y + 6, &format!("{} {name}", e + 1), if open { HOT } else { DIM });
+        // Best stars, or "DONE" for the lesson; nothing for free play and
+        // the Wanderer.
+        let right = if e >= FREE {
+            String::new()
+        } else if e == 0 {
+            if m.progress.best[0] >= 1 { "DONE" } else { "" }.to_string()
+        } else {
+            let b = m.progress.best[e];
+            (0..3).map(|k| if k < b { '*' } else { '-' }).collect()
+        };
+        text(frame, (fw, fh), x + w - 10 - text_px(&right), y + 6, &right, HOT);
+        if open {
+            text(frame, (fw, fh), x + 10, y + 22, lines[0], c);
+            text(frame, (fw, fh), x + 10, y + 38, lines[1], c);
+        } else {
+            let (prev, _) = entry_lines(e - 1);
+            text(frame, (fw, fh), x + 10, y + 22, lines[0], c);
+            let need = if e == 1 {
+                "LOCKED: FINISH THE LESSON".to_string()
+            } else {
+                format!("LOCKED: 1 STAR ON {prev}")
+            };
+            text(frame, (fw, fh), x + 10, y + 38, &need, [200, 120, 100, 255]);
+        }
     }
 }
