@@ -82,12 +82,37 @@ pub const SEASON_FRAMES: u64 = 2700;
 pub const SEASONS: usize = 3;
 /// Hand size, and how often a card is drawn.
 pub const HAND: usize = 5;
-pub const DRAW_EVERY: u64 = 90;
+pub const DRAW_EVERY: u64 = 200;
 /// Grow visits in a row a card's tip may fail to step before the card is
 /// called off as blocked. A visit comes every `45 / SPEEDUP` ~ 8 frames on a
 /// small tree and up to five times less often on a big one, so this is about
 /// one to five seconds.
 pub const STALL_LIMIT: u16 = 8;
+/// Frames between a carded tip's steps: a 40-cell card lands in under a
+/// second and a half. The playtest's verdict on 3-16 cells over two seconds
+/// was that "no single play reads".
+pub const CARD_STEP_FRAMES: u64 = 2;
+/// The valley every game is played in (`Heartwood::new`). Seed 1's rival
+/// was mid-sized in the 12-seed table: 1,568 leaves at year end, untouched.
+pub const VALLEY_SEED: u64 = 1;
+/// Share of the species' turgor ceiling the outline treats as reach.
+pub const REACH_SHARE: f32 = 0.9;
+/// **The sun is low, morning from the left and evening from the right**
+/// (rise 2 in run 3, about 34 degrees), and a leaf's light is the mean of
+/// the two. So a crown shades whatever stands beside it, down-sun: you shade
+/// the rival in the morning and it shades you in the evening.
+///
+/// Measured with one sun only (plan, key-masher, random, top tip; seeds
+/// 1-6): from the left, behind you, any tree shades the rival and the plan
+/// only edged the key-masher (67.5% vs 60.8% final light, 4-2); from the
+/// right, behind the rival, its crown left every player 0% of the light and
+/// no sugar to play with.
+pub const SUNS: [(i32, i32); 2] = [(-3, -2), (3, -2)];
+/// How much of the sun a leaf lets through; wood, soil and stone stop it.
+pub const LEAF_PASSES: f32 = 0.8;
+/// Sugar a second for each cell of wood above ground: the purse pays the
+/// tree's upkeep, so a big bare tree runs dry.
+pub const UPKEEP_PER_WOOD: f32 = 0.002;
 /// How much nearer the roots, in cells of path, a bud released by a stuck tip
 /// must be: far enough back that the new shoot has reach to spend.
 pub const BUD_DROP: u16 = 20;
@@ -102,7 +127,7 @@ pub const WOOD_STRENGTH: f32 = 40000.0;
 /// Sugar earned per second per unit of lit leaf light. At 0.02 sugar piled
 /// up past 400 unspent and every card was free; at 0.008 a good tree runs
 /// short now and then, and a player chooses (plan bot: 70-93 cards a year).
-pub const SUGAR_PER_LIGHT: f32 = 0.008;
+pub const SUGAR_PER_LIGHT: f32 = 0.026;
 pub const START_SUGAR: f32 = 12.0;
 /// Prunes you hold, and how long one takes to come back.
 pub const PRUNES: u32 = 2;
@@ -144,21 +169,21 @@ impl CardKind {
 
     pub fn cost(self) -> f32 {
         match self {
-            CardKind::GrowUp => 2.0,
-            CardKind::Lean => 2.0,
-            CardKind::Fork => 4.0,
-            CardKind::LeafOut => 3.0,
-            CardKind::Bud => 1.0,
+            CardKind::GrowUp => 6.0,
+            CardKind::Lean => 6.0,
+            CardKind::Fork => 8.0,
+            CardKind::LeafOut => 8.0,
+            CardKind::Bud => 2.0,
         }
     }
 
     /// Steps the card grows.
     pub fn cells(self) -> u8 {
         match self {
-            CardKind::GrowUp => 16,
-            CardKind::Lean => 14,
-            CardKind::Fork => 3,
-            CardKind::LeafOut => 6,
+            CardKind::GrowUp => 40,
+            CardKind::Lean => 36,
+            CardKind::Fork => 8,
+            CardKind::LeafOut => 14,
             CardKind::Bud => 0,
         }
     }
@@ -166,10 +191,10 @@ impl CardKind {
     /// What it will do, in the words on screen.
     pub fn sentence(self) -> &'static str {
         match self {
-            CardKind::GrowUp => "16 CELLS STRAIGHT UP",
-            CardKind::Lean => "14 CELLS CURVING TO THE BRIGHTER SIDE",
-            CardKind::Fork => "SPLITS IN TWO. EVERY CARD AFTER IT GOES TO BOTH",
-            CardKind::LeafOut => "6 CELLS WITH LEAVES AT EVERY STEP",
+            CardKind::GrowUp => "40 CELLS STRAIGHT UP",
+            CardKind::Lean => "36 CELLS CURVING TOWARD THE SUN",
+            CardKind::Fork => "8 CELLS, THEN SPLITS IN TWO. EVERY CARD AFTER IT GOES TO BOTH",
+            CardKind::LeafOut => "14 CELLS WITH LEAVES AT EVERY STEP",
             CardKind::Bud => "KEEPS THE NEXT CARD HERE. IT GROWS IF THIS BRANCH IS LOST",
         }
     }
@@ -215,6 +240,9 @@ pub struct Tally {
     pub cards_played: u32,
     /// Cards called off because their tip could not move.
     pub blocked: u32,
+    /// Cards the outline showed red, refused before they were paid for.
+    pub refused: u32,
+    pub refused_why: BTreeMap<&'static str, u32>,
     /// Buds that broke lower down because a tip above was stuck.
     pub buds_released: u32,
     /// Per card run to the end: (cells between where the outline said it
@@ -224,6 +252,7 @@ pub struct Tally {
     pub blocked_why: BTreeMap<&'static str, u32>,
     pub sugar_spent: f32,
     pub sugar_earned: f32,
+    pub upkeep_paid: f32,
     /// Branches that came off: one per tick in which the tree lost a run of
     /// cells (cut or broken), not one per cell.
     pub limbs_lost: u32,
@@ -286,13 +315,22 @@ pub struct Heartwood {
     /// plant tick, smoothed: the starving readout.
     pub earns: f32,
     pub costs: f32,
+    /// Your wood cells above ground, for upkeep.
+    pub wood: usize,
+    /// Leaves of either tree the low sun does not reach, for the screen.
+    pub dark: Vec<(i32, i32)>,
 }
 
 impl Heartwood {
     /// A fresh valley. Deterministic in `seed`.
     pub fn new(seed: u64) -> Self {
         let mut world = World::new(crate::sim::chunk::Rect::new(0, 0, W - 1, H - 1));
-        world.seed = seed;
+        // **The same valley every game** (playtest 2026-11-08): with the
+        // world seeded per game the rival ranged from 211 to 2,900 leaves
+        // and the same plan scored 6% on one valley and 60% on another --
+        // the seed mattered more than the player. The world is now always
+        // `VALLEY_SEED`; `seed` shuffles only the deck.
+        world.seed = VALLEY_SEED;
         // Noon, held: a valley game, not a day/night one (the design's moving
         // sun is left out -- light here falls straight down a column, so the
         // sun's path could not move a shadow anyway).
@@ -300,7 +338,7 @@ impl Heartwood {
             c.sky_hold = Some(0);
             c.growth_speedup = SPEEDUP;
         });
-        world.tip_cards = Some(Box::new(TipCards { speedup: SPEEDUP, ..Default::default() }));
+        world.tip_cards = Some(Box::new(TipCards { speedup: SPEEDUP, step_frames: CARD_STEP_FRAMES, ..Default::default() }));
         // **No bending**, as in the lab box: a card-grown stem is one cell
         // thick when it is new, and with bending on every Lean sagged into a
         // wobbling S that the next card could not be aimed from. Breaking
@@ -362,6 +400,8 @@ impl Heartwood {
             tipless: 0,
             earns: 0.0,
             costs: 0.0,
+            wood: 0,
+            dark: Vec::new(),
         };
         game.rival = plant(&mut game.world, RIVAL_X);
         for _ in 0..RIVAL_HEAD_START {
@@ -446,41 +486,82 @@ impl Heartwood {
     }
 
     /// Select one tip (or add it, with `add`).
-    pub fn select(&mut self, tag: u32, add: bool) {
-        if !add {
-            self.selected.clear();
-        }
-        if !self.selected.remove(&tag) || !add {
-            self.selected.insert(tag);
-        }
+    /// Pick one tip. **One card, one tip** (playtest 2026-11-08): picking
+    /// several and playing one card onto all of them beat a plan 9-3 (51.8%
+    /// mean light against 42.0%) and made Fork, the one card meant to
+    /// multicast, pointless. Fork is the only way one card reaches two tips.
+    pub fn select(&mut self, tag: u32) {
+        self.selected.clear();
+        self.selected.insert(tag);
     }
 
-    /// Play hand card `i` onto every selected tip. Returns whether it played.
-    /// Charged once per tip it goes onto.
+    /// Play hand card `i` onto the picked tip. Returns whether it played.
+    /// A card the outline shows red is refused before it is paid for.
     pub fn play(&mut self, i: usize) -> bool {
         if self.over {
             return false;
         }
         let Some(&card) = self.hand.get(i) else { return false };
-        let targets: Vec<u32> = self.selected.iter().copied().filter(|&t| self.tip_at(t).is_some()).collect();
-        if targets.is_empty() {
+        let Some(tag) = self.selected.iter().copied().find(|&t| self.tip_at(t).is_some()) else {
             self.say("FIRST CLICK A TIP OF YOUR TREE");
             return false;
-        }
-        let price = card.cost() * targets.len() as f32;
-        if self.sugar + 1e-4 < price {
-            self.say(&format!("NOT ENOUGH SUGAR: {} COSTS {}", card.name(), price as i32));
+        };
+        if let Verdict::No(why) = self.verdict(card, tag) {
+            self.tally.refused += 1;
+            *self.tally.refused_why.entry(why).or_default() += 1;
+            self.say(&format!("CANNOT PLAY {}: {}", card.name(), why));
             return false;
         }
+        let price = card.cost();
         self.sugar -= price;
         self.tally.sugar_spent += price;
         self.tally.cards_played += 1;
         self.hand.remove(i);
-        for t in targets {
-            self.queues.entry(t).or_default().push_back(card);
-        }
+        self.queues.entry(tag).or_default().push_back(card);
         self.say(&format!("{}: {}", card.name(), card.sentence()));
         true
+    }
+
+    /// **What the outline says before you pay**, for `card` on tip `tag`:
+    /// red with a reason, amber when it will stop short, or fine. Judged
+    /// against the tip's own state now, so a card already queued on the tip
+    /// is not counted (the outline is drawn from where the tip stands).
+    pub fn verdict(&self, card: CardKind, tag: u32) -> Verdict {
+        if self.sugar + 1e-4 < card.cost() {
+            return Verdict::No("NOT ENOUGH SUGAR");
+        }
+        if card == CardKind::Bud {
+            return Verdict::Fine;
+        }
+        let Some(at) = self.tip_at(tag) else { return Verdict::No("THAT TIP IS GONE") };
+        // Water: the engine's turgor bound is a path length from the collar
+        // (`plant::authored_height_ceiling_for`), and a tip past it cannot
+        // step at all.
+        let path = self.world.organism_cell(at.0, at.1).map_or(0, |c| c.path_len) as f32;
+        let reach = self.reach() - path;
+        if reach < 3.0 {
+            return Verdict::No("TOO TALL FOR WATER TO REACH");
+        }
+        // Room: a card's tip takes its least-bad open cell, so it is walled
+        // in only when no neighbour is open at all -- the engine's `Boxed`.
+        // (Reading the outline's first cells instead refused most cards: a
+        // tip sits in its own leaf spray, and steps out of it sideways.)
+        let open = |dx: i32, dy: i32| self.world.in_bounds(at.0 + dx, at.1 + dy) && self.world.get(at.0 + dx, at.1 + dy).is_empty();
+        if !(-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && open(dx, dy))) {
+            return Verdict::No("NO ROOM TO GROW");
+        }
+        if reach < card.cells() as f32 {
+            return Verdict::Short(reach as u32);
+        }
+        Verdict::Fine
+    }
+
+    /// Cells of path from the collar this tree can lift water to: the
+    /// species' authored turgor ceiling, less a little for the taper the
+    /// engine starts rolling against near it.
+    fn reach(&self) -> f32 {
+        let sp = self.world.organism(self.me).map(|s| s.species);
+        sp.map_or(0.0, |sp| crate::sim::plant::authored_height_ceiling_for(&self.world, sp) * REACH_SHARE)
     }
 
     /// Cut your own tree at `(x, y)`: every cell of it within two cells goes,
@@ -535,16 +616,24 @@ impl Heartwood {
         self.t += 1;
         self.sync_tips();
         self.feed_tips();
+        self.fund_cards();
         if self.t.is_multiple_of(10) {
-            self.light = (lit_leaf_light(&self.world, self.me), lit_leaf_light(&self.world, self.rival));
+            let (mine, mine_dark, wood) = sun_on(&self.world, self.me);
+            let (theirs, theirs_dark, _) = sun_on(&self.world, self.rival);
+            self.light = (mine, theirs);
+            self.wood = wood;
+            self.dark = mine_dark;
+            self.dark.extend(theirs_dark);
         }
         if let Some(st) = self.world.organism(self.me) {
             self.earns += (st.income - self.earns) * 0.01;
             self.costs += (st.maintenance - self.costs) * 0.01;
         }
         let earned = self.light.0 * SUGAR_PER_LIGHT / 60.0;
-        self.sugar += earned;
+        let upkeep = self.wood as f32 * UPKEEP_PER_WOOD / 60.0;
+        self.sugar = (self.sugar + earned - upkeep).max(0.0);
         self.tally.sugar_earned += earned;
+        self.tally.upkeep_paid += upkeep;
         if self.t.is_multiple_of(DRAW_EVERY) {
             self.draw_card();
         }
@@ -569,6 +658,25 @@ impl Heartwood {
     }
 
     /// Your share of the lit leaf light now.
+    /// Sugar a second, after upkeep: what the purse shows.
+    pub fn net_rate(&self) -> f32 {
+        self.light.0 * SUGAR_PER_LIGHT - self.wood as f32 * UPKEEP_PER_WOOD
+    }
+
+    /// **The card pays for its cells.** A carded tip steps every
+    /// `CARD_STEP_FRAMES`, far faster than the tree's own economy refills
+    /// a tip, so the sugar spent on the card is what funds it: each frame a
+    /// tip with a card running is topped up to a full cell of carbon.
+    fn fund_cards(&mut self) {
+        let Some(t) = self.world.tip_cards.as_deref() else { return };
+        let carded: Vec<(i32, i32)> = t.steer.iter().filter(|(_, s)| s.cells_left > 0).map(|(&p, _)| p).collect();
+        for (x, y) in carded {
+            if let Some(c) = self.world.organism_cell_mut(x, y) {
+                c.carbon = c.carbon.max(organism::RESOURCE_SCALE);
+            }
+        }
+    }
+
     pub fn share(&self) -> f32 {
         let (a, b) = self.light;
         if a + b <= 0.0 {
@@ -637,9 +745,6 @@ impl Heartwood {
             if let Some(&card) = self.doing.get(&f.parent_tag) {
                 self.doing.insert(f.child_tag, card);
             }
-            if self.selected.contains(&f.parent_tag) {
-                self.selected.insert(f.child_tag);
-            }
         }
         let mut released: Vec<(u32, (i32, i32))> = Vec::new();
         for (tag, why, left, at) in blocked {
@@ -678,6 +783,31 @@ impl Heartwood {
             self.queues.remove(&tag);
             self.doing.remove(&tag);
         }
+        // **A tip at the top of its water stops, and a bud lower down
+        // breaks** -- the same release as a stuck card, but before a card is
+        // wasted on it. A carded tip is held by the card hook and never ages
+        // out on its own, so without this a tip that reached the turgor
+        // bound sat there for the rest of the year refusing every card
+        // (2026-11-08: 213-485 refusals a year for the key-masher and the
+        // plan, against 4-12 cards played).
+        let reach = self.reach();
+        let topped: Vec<(u32, (i32, i32))> = self
+            .world
+            .tip_cards
+            .as_deref()
+            .map(|t| {
+                t.steer
+                    .iter()
+                    .filter(|(_, s)| s.cells_left == 0)
+                    .filter(|(p, _)| self.world.organism_cell(p.0, p.1).is_some_and(|c| c.path_len as f32 + 3.0 > reach))
+                    .map(|(&p, s)| (s.tag, p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let released: Vec<(u32, (i32, i32))> = released
+            .into_iter()
+            .chain(topped.into_iter().filter(|(tag, _)| self.queues.get(tag).is_none_or(|q| q.is_empty())))
+            .collect();
         for (tag, at) in released {
             self.release_bud_below(tag, at);
         }
@@ -910,6 +1040,13 @@ impl Heartwood {
         self.outline(card, tag)
     }
 
+    /// The verdict on hand card `i` for the picked tip, as the outline shows it.
+    pub fn preview_verdict(&self, i: usize) -> Option<Verdict> {
+        let &card = self.hand.get(i)?;
+        let &tag = self.selected.iter().next()?;
+        Some(self.verdict(card, tag))
+    }
+
     /// The dotted outline of `card` played on tip `tag`, from where it stands.
     fn outline(&self, card: CardKind, tag: u32) -> Vec<(i32, i32)> {
         let Some((x, y)) = self.tip_at(tag) else { return Vec::new() };
@@ -950,6 +1087,16 @@ impl Heartwood {
 }
 
 /// The steering a card asks of a tip.
+/// What the outline says about a card before it is played.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Verdict {
+    Fine,
+    /// It will play, but water reaches only this many more cells.
+    Short(u32),
+    /// It will not play, and why, in the screen's words.
+    No(&'static str),
+}
+
 /// A card's outline as played: where the tip stood, and where the outline ended.
 pub type Outline = ((i32, i32), (i32, i32));
 
@@ -995,7 +1142,9 @@ fn steer_for(world: &World, card: CardKind, tag: u32, at: (i32, i32), heading: (
 /// get, a dozen cells out and a few up. Ties go toward the rival, because
 /// shading it is the point.
 pub fn brighter_side(world: &World, (x, y): (i32, i32), toward_rival: f32) -> f32 {
-    let sample = |dx: i32| -> f32 { (0..4).map(|k| crate::sim::plant::ambient_light_above(world, x + dx, y - 2 - k * 2)).sum() };
+    // The game's low sun, not the engine's overhead light: Lean goes out of
+    // shadow, toward the side the sun actually reaches.
+    let sample = |dx: i32| -> f32 { (0..4).map(|k| sun_at(world, (x + dx, y - 2 - k * 2))).sum() };
     let (l, r) = (sample(-12), sample(12));
     if (l - r).abs() < 0.05 {
         toward_rival
@@ -1042,6 +1191,86 @@ pub fn lit_leaf_light(world: &World, id: OrganismId) -> f32 {
         }
     }
     sum
+}
+
+/// **The low sun** on one tree: the sum over its leaves of the light that
+/// reaches each, averaged over the two `SUNS` (1 in open sky, `LEAF_PASSES`
+/// for each leaf in the way, nothing through wood or ground), the leaves left
+/// under 0.3, and its wood above ground.
+///
+/// **Game-side, and only for the score and the purse.** The engine's own
+/// light falls straight down a column (`plant::ambient_light_above`), so on
+/// it two crowns standing side by side could not shade each other and
+/// "shade the rival out" was not something a player could do (playtest
+/// 2026-11-08). The trees still grow by the engine's light; what you earn
+/// and score by is this.
+pub fn sun_on(world: &World, id: OrganismId) -> (f32, Vec<(i32, i32)>, usize) {
+    let Some(state) = world.organism(id) else { return (0.0, Vec::new(), 0) };
+    let mut sum = 0.0;
+    let mut dark = Vec::new();
+    let mut wood = 0;
+    for &(x, y) in state.cells.keys() {
+        if y >= GROUND_Y {
+            continue;
+        }
+        let c = world.get(x, y);
+        if c.organism_id() != id {
+            continue;
+        }
+        if organism::cell_type(c.aux()) != Some(CellType::Leaf) {
+            wood += 1;
+            continue;
+        }
+        let light = sun_at(world, (x, y));
+        if light < 0.3 {
+            dark.push((x, y));
+        }
+        sum += light;
+    }
+    (sum, dark, wood)
+}
+
+/// The low suns reaching cell `(x, y)` (`SUNS`, averaged): 1 in open sky,
+/// `LEAF_PASSES` for each leaf in the way, nothing through anything else.
+/// The cell itself is not counted.
+pub fn sun_at(world: &World, at: (i32, i32)) -> f32 {
+    SUNS.iter().map(|&from| sun_from(world, at, from)).sum::<f32>() / SUNS.len() as f32
+}
+
+/// One sun's light reaching `(x, y)` along `from`.
+fn sun_from(world: &World, (x, y): (i32, i32), (sx, sy): (i32, i32)) -> f32 {
+    // March toward the sun one run-step at a time, sampling the cells a line
+    // of slope sy/sx passes through.
+    let mut light = 1.0f32;
+    let steps = sx.abs().max(sy.abs());
+    let (mut fx, mut fy) = (x as f32 + 0.5, y as f32 + 0.5);
+    let (dx, dy) = (sx as f32 / steps as f32, sy as f32 / steps as f32);
+    let mut last = (x, y);
+    loop {
+        fx += dx;
+        fy += dy;
+        let p = (fx.floor() as i32, fy.floor() as i32);
+        if p.1 < 0 || p.0 < 0 || p.0 >= W {
+            break;
+        }
+        if p == last {
+            continue;
+        }
+        last = p;
+        let o = world.get(p.0, p.1);
+        if o.is_empty() {
+            continue;
+        }
+        if o.organism_id() != 0 && organism::cell_type(o.aux()) == Some(CellType::Leaf) {
+            light *= LEAF_PASSES;
+        } else {
+            return 0.0;
+        }
+        if light < 0.02 {
+            return 0.0;
+        }
+    }
+    light
 }
 
 /// Leaf cells on one tree, lit or not.
@@ -1120,5 +1349,27 @@ mod tests {
         }
         let (_, y1) = g.tip_at(tag).expect("the tip is still there");
         assert!(y0 - y1 >= 8, "Grow Up moved the tip {} rows", y0 - y1);
+    }
+
+    /// The red outline is honest: a card the purse cannot pay for is refused
+    /// with its reason before anything is charged, and one that can is
+    /// charged once, for one tip.
+    #[test]
+    fn a_card_is_refused_before_paying_and_charged_once() {
+        let mut g = Heartwood::new(1);
+        for _ in 0..60 {
+            g.tick();
+        }
+        let tag = *g.selected.iter().next().expect("a tip is selected once the seed is up");
+        g.hand[0] = CardKind::Fork;
+        g.sugar = CardKind::Fork.cost() - 1.0;
+        assert!(matches!(g.verdict(CardKind::Fork, tag), Verdict::No("NOT ENOUGH SUGAR")));
+        let before = g.sugar;
+        assert!(!g.play(0), "a card the purse cannot pay for was played");
+        assert_eq!(g.sugar, before, "a refused card was charged");
+        assert_eq!(g.tally.refused, 1);
+        g.sugar = 100.0;
+        assert!(g.play(0));
+        assert_eq!(g.sugar, 100.0 - CardKind::Fork.cost(), "one card is charged once");
     }
 }

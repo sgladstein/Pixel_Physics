@@ -107,6 +107,11 @@ pub struct TipCards {
     /// Copied into `Clock::growth_speedup` by the game; kept here too so a
     /// harness can echo it.
     pub speedup: u32,
+    /// **Frames between a card-grown tip's visits**, carrying a card or
+    /// waiting for one; 0 leaves them at the engine's organism pace. A card
+    /// is the player's answer and has to arrive while they are still
+    /// looking: at the engine's pace a 40-cell card took five seconds.
+    pub step_frames: u64,
 }
 
 impl TipCards {
@@ -127,6 +132,14 @@ pub fn card_for(world: &World, organism_id: OrganismId, x: i32, y: i32) -> Card 
         Some(s) if s.cells_left > 0 => Card::Steer(*s),
         _ => Card::Hold,
     }
+}
+
+/// When a card-grown tip should come round next, or `None` for the engine's
+/// own pace (no table, `step_frames` 0, or not a card-grown tip).
+#[inline]
+pub fn due(world: &World, carded: bool) -> Option<u64> {
+    let t = world.tip_cards.as_deref()?;
+    (carded && t.step_frames > 0).then(|| world.frame + t.step_frames)
 }
 
 /// Count one held visit. Observation only.
