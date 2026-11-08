@@ -270,3 +270,44 @@ bug", "things were flashing gray", and there "needs to be a challenge".
     letting a player cut their own network after the strike (now refused,
     like oats already were).
 
+
+## Making a cut matter, and food seen moving (2026-11-08, overnight)
+
+A brainstorm round on where the game goes (five write-ups in the project's
+`game-design/mould-game-brainstorm-2026-11-08/`) agreed, separately, that
+food should be seen moving, and found that a cut cost nothing: a snip
+healed in about 0.5 s and a whole scripted game drew 0 grey tube cells.
+The owner chose "each piece eats its own food" on a card.
+
+- **Each piece eats its own food** (`Params::pieces`, on). The feeding
+  search now remembers which pile each fed cell's food comes from; where
+  two piles' searches meet they are one piece. Every walker carries its
+  share of its piece's food, so a split or a join neither makes nor loses
+  food. A piece earns from its own piles, pays its own upkeep and births,
+  and goes hungry (farthest first) on its own. Off reproduces the shared
+  store exactly: 7 hands x 5 seeds, every star identical to before.
+- **A cut stays open** (`Params::wound`, 4 s). Snipped cells become
+  `Ground::Wound`, which the mould cannot cross, drawn dark wine and fading
+  back to agar over the last second.
+- **Joins flash** (`Dish::snaps`): where two pieces meet and become one, a
+  burst that spreads over 0.8 s, unless those two piles were joined within
+  the last 2 s (a thin tube flickering across the threshold would otherwise
+  flash every census). 1 to 23 per scripted run, median 4.
+- **The pulse**: a bright band rides out along fed tube from its food,
+  read off the feeding search's distances, every 1.3 s. Starving tube has
+  no distance, so its beat stops. Drawing only.
+- **Toughness now needs 3 piles joined**, like thrift: with pieces on, a
+  do-nothing 2-pile network regrew round the scar within the watch and took
+  the star on 2 of 5 seeds.
+
+Stars with all of it on (5 seeds): idle 1 (seed 1's network happened to be
+1.13x, under the thrift bar), random 3, plan 10, fresh 7, shepherd 4,
+lamp-only 2, dump 3 (before: 0, 3, 8, 9, 3, 3, 2). `mouldprobe cut=DIR`
+snips across the trunk at 40 s: the most grey tube in the next 12 s was
+14, 139, 308, 40, 12 cells against 26, 80, 74, 31, 21 for the old snip,
+but the arms cut different places (the trunk differs between them), so
+this is not yet a paired answer. **A trunk between two fed piles is the
+wrong test of starving**: both sides keep their food. What a per-piece
+store changes is a piece with more mould than its food can feed; a branch
+beyond the leash starved before and still does. Frame mean 2.81 ms,
+worst 14.62 ms (2.63 / 17.38 before, same session).
