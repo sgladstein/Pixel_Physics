@@ -642,8 +642,13 @@ fn lay_salt(ground: &mut [super::Ground], level: &Level, a: (f32, f32), b: (f32,
 
 // --------------------------------------------------------------- progress
 
-/// Entries on the dish picker: the lesson, the dishes, then free play.
-pub const ENTRIES: usize = DISHES.len() + 2;
+/// Entries on the dish picker: the lesson, the dishes, then free play and
+/// the Wanderer (`wander.rs`), neither of which keeps a best.
+pub const ENTRIES: usize = DISHES.len() + 3;
+/// The picker's free-play entry.
+pub const FREE: usize = DISHES.len() + 1;
+/// The picker's Wanderer entry.
+pub const WANDER: usize = DISHES.len() + 2;
 
 /// Best stars per entry, saved to `mould-progress.txt` beside the window's
 /// executable as one `key stars` line each. The lesson's line is 1 once it
@@ -685,10 +690,11 @@ impl Progress {
             .collect()
     }
 
-    /// Picker entry `e` is open: the lesson and free play always; a dish
-    /// once the entry before it has a star (the lesson, once finished).
+    /// Picker entry `e` is open: the lesson, free play and the Wanderer
+    /// always; a dish once the entry before it has a star (the lesson, once
+    /// finished).
     pub fn unlocked(&self, e: usize) -> bool {
-        e == 0 || e == ENTRIES - 1 || self.best.get(e - 1).is_some_and(|&b| b >= 1)
+        e == 0 || (FREE..ENTRIES).contains(&e) || self.best.get(e - 1).is_some_and(|&b| b >= 1)
     }
 
     /// Record a result; true if it was a new best.
@@ -819,6 +825,6 @@ mod tests {
         assert!(p.unlocked(1) && p.unlocked(2) && p.unlocked(3) && p.unlocked(4));
         assert_eq!(Progress::parse(&p.text()), p);
         let fresh = Progress::parse("");
-        assert!(fresh.unlocked(0) && !fresh.unlocked(1) && fresh.unlocked(ENTRIES - 1));
+        assert!(fresh.unlocked(0) && !fresh.unlocked(1) && fresh.unlocked(FREE) && fresh.unlocked(WANDER));
     }
 }

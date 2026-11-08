@@ -14,6 +14,12 @@
 //! seed 3, `-- 0` is the lesson and `-- d2` challenge dish 2. Every dish
 //! opens behind the briefing card; H shows it again.
 //!
+//! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
+//! (or `-- wander 3` for dish seed 3), W from any dish, or THE WANDERER on
+//! the picker. No clock and no stars: lead her to the crack on the right and
+//! press G. N goes on to the next dish with what arrived; R tries this dish
+//! again with what came in.
+//!
 //! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
 //! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
 //! frames, the same hook the other binaries have.
@@ -22,8 +28,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
-use pixel_physics::mould::level::{Progress, DISHES, ENTRIES};
+use pixel_physics::mould::level::{Progress, DISHES, ENTRIES, FREE, WANDER};
 use pixel_physics::mould::render::{self, Banner, Menu, View};
+use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
 use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -44,13 +51,15 @@ const FAST: u32 = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The lesson by default; a number is a free dish seed (0 the lesson),
-    // `d1`.. a challenge dish.
-    let arg = std::env::args().nth(1).unwrap_or_default();
+    // `d1`.. a challenge dish, `wander [seed]` the Wanderer.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let arg = args.first().cloned().unwrap_or_default();
     let dish = arg
         .strip_prefix('d')
         .and_then(|n| n.parse::<usize>().ok())
         .filter(|k| (1..=DISHES.len()).contains(k));
     let entry = match (dish, arg.parse::<u64>()) {
+        _ if arg == "wander" => Entry::Wander(args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1).max(1)),
         (Some(k), _) => Entry::Dish(k - 1),
         (None, Ok(seed)) if seed > 0 => Entry::Free(seed),
         _ => Entry::Lesson,
@@ -62,12 +71,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     handler.result
 }
 
-/// What is being played: the lesson, a challenge dish, or a seeded free dish.
+/// What is being played: the lesson, a challenge dish, a seeded free dish,
+/// or a stretch of the Wanderer's journey (on that dish seed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Entry {
     Lesson,
     Dish(usize),
     Free(u64),
+    Wander(u64),
 }
 
 impl Entry {
@@ -76,24 +87,45 @@ impl Entry {
         match self {
             Entry::Lesson => 0,
             Entry::Dish(k) => k + 1,
-            Entry::Free(_) => ENTRIES - 1,
+            Entry::Free(_) => FREE,
+            Entry::Wander(_) => WANDER,
         }
     }
     fn from_index(e: usize, free: u64) -> Entry {
         match e {
             0 => Entry::Lesson,
-            _ if e >= ENTRIES - 1 => Entry::Free(free),
+            FREE => Entry::Free(free),
+            _ if e >= WANDER => Entry::Wander(1),
             _ => Entry::Dish(e - 1),
         }
     }
+}
+
+/// Where a Wanderer run is: which dish of the journey, and how many walkers
+/// it starts with.
+#[derive(Clone, Copy, Debug)]
+struct Journey {
+    stretch: u32,
+    carry: u32,
+}
+
+impl Journey {
+    const FIRST: Journey = Journey {
+        stretch: 1,
+        carry: FIRST_WALKERS,
+    };
 }
 
 /// The mould's own randomness on a challenge dish: fixed, so a retry is the
 /// same dish until the hand changes it.
 const LEVEL_SEED: u64 = 1;
 
-fn new_dish(entry: Entry) -> (Dish, Option<Lesson>) {
+fn new_dish(entry: Entry, journey: Option<Journey>) -> (Dish, Option<Lesson>) {
     match entry {
+        Entry::Wander(seed) => {
+            let j = journey.unwrap_or(Journey::FIRST);
+            (Dish::wanderer(seed.max(1), j.stretch, j.carry), None)
+        }
         Entry::Lesson => {
             let (d, l) = Lesson::dish();
             (d, Some(l))
@@ -103,8 +135,9 @@ fn new_dish(entry: Entry) -> (Dish, Option<Lesson>) {
     }
 }
 
-fn title(entry: Entry) -> String {
+fn title(entry: Entry, journey: Option<Journey>) -> String {
     match entry {
+        Entry::Wander(_) => format!("Mould - Mabel, dish {}", journey.map_or(1, |j| j.stretch)),
         Entry::Lesson => "Mould - lesson".into(),
         Entry::Dish(k) => format!("Mould - {}", DISHES[k].name.to_lowercase()),
         Entry::Free(seed) => format!("Mould - free dish {seed}"),
@@ -143,6 +176,8 @@ struct Handler {
     /// This dish's result is recorded (once per dish).
     recorded: bool,
     lesson: Option<Lesson>,
+    /// The Wanderer's journey, when that is what is being played.
+    journey: Option<Journey>,
     view: View,
     /// Cursor in dish cells.
     cursor: Option<(f32, f32)>,
@@ -159,19 +194,21 @@ impl Handler {
         let screenshot_after = std::env::var("PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES")
             .ok()
             .and_then(|s| s.parse().ok());
-        let (dish, lesson) = new_dish(entry);
+        let journey = matches!(entry, Entry::Wander(_)).then_some(Journey::FIRST);
+        let (dish, lesson) = new_dish(entry, journey);
         Handler {
             window: None,
             pixels: None,
             dish,
             entry,
             free_seed: match entry {
-                Entry::Free(s) => s,
+                Entry::Free(s) | Entry::Wander(s) => s,
                 _ => 1,
             },
             progress: load_progress(),
             recorded: false,
             lesson,
+            journey,
             view: View {
                 brief: true,
                 ..View::default()
@@ -191,12 +228,22 @@ impl Handler {
         event_loop.exit();
     }
 
+    /// Start `entry`. A Wanderer entry carries on the journey in hand (R
+    /// retries a stretch with what came in) or starts one; anything else
+    /// ends it.
     fn restart(&mut self, entry: Entry) {
         self.entry = entry;
-        if let Entry::Free(s) = entry {
-            self.free_seed = s;
+        match entry {
+            Entry::Free(s) => {
+                self.free_seed = s;
+                self.journey = None;
+            }
+            Entry::Wander(_) => {
+                self.journey.get_or_insert(Journey::FIRST);
+            }
+            _ => self.journey = None,
         }
-        (self.dish, self.lesson) = new_dish(entry);
+        (self.dish, self.lesson) = new_dish(entry, self.journey);
         self.recorded = false;
         self.pressed = false;
         self.view.brief = true;
@@ -206,8 +253,19 @@ impl Handler {
         self.view.fast = false;
         self.view.paused = false;
         if let Some(w) = &self.window {
-            w.set_title(&title(entry));
+            w.set_title(&title(entry, self.journey));
         }
+    }
+
+    /// W, or THE WANDERER on the picker: a new journey from its first dish,
+    /// on the free dish seed in hand.
+    fn start_journey(&mut self) {
+        self.journey = Some(Journey::FIRST);
+        let seed = match self.entry {
+            Entry::Free(s) | Entry::Wander(s) => s,
+            _ => self.free_seed,
+        };
+        self.restart(Entry::Wander(seed.max(1)));
     }
 
     /// N: the next dish in the run if it is open, the next free dish on
@@ -234,7 +292,9 @@ impl Handler {
         if e >= ENTRIES {
             return;
         }
-        if self.progress.unlocked(e) {
+        if e == WANDER {
+            self.start_journey();
+        } else if self.progress.unlocked(e) {
             self.restart(Entry::from_index(e, self.free_seed));
         } else if let Some(m) = self.view.menu.as_mut() {
             m.cursor = e;
@@ -258,6 +318,29 @@ impl Handler {
         if self.progress.record(self.entry.index(), stars) {
             save_progress(&self.progress);
         }
+    }
+
+    /// N in the Wanderer: on to the next dish with what arrived, or, after
+    /// she died, a new journey from the first dish.
+    fn next_stretch(&mut self) {
+        let (Some(j), Entry::Wander(seed)) = (self.journey, self.entry) else { return };
+        let arrived = match self.dish.wander_state().and_then(|w| w.outcome) {
+            Some(Outcome::Arrived { n, .. }) => Some(n),
+            Some(Outcome::Lost { .. }) => None,
+            // Still on this dish: N does nothing until she has left or died.
+            None => return,
+        };
+        self.journey = Some(match arrived {
+            Some(n) => Journey {
+                stretch: j.stretch + 1,
+                carry: n,
+            },
+            None => Journey {
+                stretch: 1,
+                carry: FIRST_WALKERS,
+            },
+        });
+        self.restart(Entry::Wander(seed + 1));
     }
 
     /// What holding the mouse does, every frame it is held.
@@ -324,7 +407,7 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
-        // The picker: 1-5 picks, the arrows and Enter choose, M or Escape
+        // The picker: 1-6 picks, the arrows and Enter choose, M or Escape
         // goes back to the dish.
         if let Some(m) = self.view.menu {
             let digit = [
@@ -375,7 +458,15 @@ impl Handler {
             KeyCode::Space => self.view.fast = !self.view.fast,
             KeyCode::KeyP => self.view.paused = !self.view.paused,
             KeyCode::KeyR => self.restart(self.entry),
+            KeyCode::KeyN if self.journey.is_some() => self.next_stretch(),
             KeyCode::KeyN => self.next(),
+            // Go: only while fed mould is in the crack (the dish refuses
+            // otherwise, and the hint line says why).
+            KeyCode::KeyG => {
+                self.dish.go();
+            }
+            // W: start a Wanderer journey from wherever you are.
+            KeyCode::KeyW => self.start_journey(),
             KeyCode::Escape => event_loop.exit(),
             _ => {}
         }
@@ -457,7 +548,7 @@ impl ApplicationHandler for Handler {
         }
         let (w, h) = render::frame_size(SCALE);
         let attributes = Window::default_attributes()
-            .with_title(title(self.entry))
+            .with_title(title(self.entry, self.journey))
             .with_inner_size(LogicalSize::new(w, h))
             .with_min_inner_size(LogicalSize::new(W as u32 * 2, H as u32 * 2));
         let window = match event_loop.create_window(attributes) {

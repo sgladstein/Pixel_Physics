@@ -9,6 +9,7 @@
 //! search's answer: **fed** tube is yellow, **unfed** tube is pale grey. That
 //! is how a starving branch "goes pale" before it is drawn back in.
 
+use super::wander::{self, Outcome};
 use super::{Dish, Ground, Phase, Tool, H, LAMP_R, W};
 use crate::hud;
 
@@ -77,6 +78,8 @@ const CUT: [u8; 4] = [255, 70, 50, 255];
 const TEXT: [u8; 4] = [230, 230, 220, 255];
 const DIM: [u8; 4] = [130, 136, 132, 255];
 const HOT: [u8; 4] = [255, 214, 60, 255];
+const EXIT: [u8; 3] = [70, 190, 178];
+const EXIT_TEXT: [u8; 4] = [120, 230, 214, 255];
 
 /// Trail at which the ramp tops out. Fixed, never the frame's own maximum.
 const TRAIL_TOP: f32 = 30.0;
@@ -147,6 +150,11 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         // The lamp lights bare agar only; a tube under it keeps its ramp.
         return [0, 1, 2].map(|k| (AGAR[k] as f32 + (120.0 - AGAR[k] as f32) * l * 0.6) as u8);
     }
+    if let Some(w) = &d.wander {
+        if wander::in_exit(i % W, i / W) {
+            return exit_colour(d, w, i);
+        }
+    }
     AGAR
 }
 
@@ -172,6 +180,23 @@ fn pulse(d: &Dish, i: usize) -> f32 {
     } else {
         0.0
     }
+}
+
+/// The Wanderer's crack: a cool glow on bare agar, brighter toward the rim,
+/// that pulses once mould is in it and Go is open. Teal, so it is never read
+/// as food (tan), fed mould (yellow) or starving mould (grey).
+fn exit_colour(d: &Dish, w: &wander::Wander, i: usize) -> [u8; 3] {
+    let depth = ((i % W) as f32 - wander::EXIT_X as f32) / (W - wander::EXIT_X) as f32;
+    let edge = 1.0 - ((i / W) as f32 + 0.5 - wander::EXIT_Y).abs() / wander::EXIT_HALF;
+    let mut g = 0.35 + 0.45 * depth.clamp(0.0, 1.0) + 0.2 * edge.clamp(0.0, 1.0);
+    if w.touching && d.phase == Phase::Growing {
+        let sps = super::STEPS_PER_SECOND as f32;
+        g *= 0.8 + 0.2 * ((d.t as f32 / sps * 4.0).sin() * 0.5 + 0.5);
+    }
+    if matches!(d.phase, Phase::Crossing(_)) {
+        g = g.max(0.9);
+    }
+    [0, 1, 2].map(|k| (AGAR[k] as f32 + (EXIT[k] as f32 - AGAR[k] as f32) * g) as u8)
 }
 
 fn put(frame: &mut [u8], fw: u32, x: i32, y: i32, c: [u8; 3]) {
@@ -392,18 +417,30 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
         };
         ring(frame, fw, scale, c, r, [120, 126, 140]);
     }
+    // The pour is drawn by its own trail and the yellow beside each walker
+    // in the line (`wander::flow_out`). A bright point per walker was tried
+    // and dropped: where the line queues, one walker to a cell, the points
+    // drew a white hatched slab.
     labels(d, scale, frame, (fw, fh));
     if d.level.is_some() {
         ruler_overlay(d, scale, frame, fw);
     }
-    hud_lines(d, view, scale, frame, (fw, fh));
+    if d.wander.is_some() {
+        exit_label(d, scale, frame, (fw, fh));
+        wander_hud(d, view, scale, frame, (fw, fh));
+        if d.phase == Phase::Over {
+            arrival_card(d, frame, (fw, fh));
+        }
+    } else {
+        hud_lines(d, view, scale, frame, (fw, fh));
+    }
     if let Some(b) = view.banner {
         banner(&b, frame, (fw, fh));
     }
     if view.brief {
         match d.level {
             Some(l) => level_brief(l, frame, (fw, fh), scale),
-            None => brief(view, frame, (fw, fh), scale),
+            None => brief(d, view, frame, (fw, fh), scale),
         }
     }
     if let Some(m) = view.menu {
@@ -475,7 +512,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
                 d.walkers.len()
             )
         }
-        Phase::Storm(_) => format!(
+        Phase::Storm(_) | Phase::Crossing(_) => format!(
             "STORM!  FOOD JOINED {}/{}  MOULD {}",
             joined.reach,
             joined.piles,
@@ -500,7 +537,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
             Some(c) => c.why.clone(),
             None => "R: TRY AGAIN   N: NEXT DISH".to_string(),
         },
-        Phase::Storm(_) => "THE STORM STRUCK. WATCH WHAT STAYS JOINED.".to_string(),
+        Phase::Storm(_) | Phase::Crossing(_) => "THE STORM STRUCK. WATCH WHAT STAYS JOINED.".to_string(),
         Phase::Growing if d.storm_line.is_some() => {
             format!("STORM IN {} S: IT CUTS THE PURPLE LINE", d.seconds_left())
         }
@@ -575,7 +612,179 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
                 }
             }
         }
-        Phase::Storm(_) => {}
+        Phase::Storm(_) | Phase::Crossing(_) => {}
+    }
+}
+
+/// 1234567 as "1,234,567": the arrival number is the headline, so it reads
+/// as a count of something.
+pub fn thousands(n: u32) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (k, c) in s.chars().enumerate() {
+        if k > 0 && (s.len() - k).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The Wanderer's five HUD lines: tools, her state and the food left (the
+/// clock), what Go would bring now, what is coming, and the goal.
+fn wander_hud(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32, u32)) {
+    let Some(w) = &d.wander else { return };
+    let top = (H as u32 * scale) as i32;
+    for y in top..fh as i32 {
+        for x in 0..fw as i32 {
+            put(frame, fw, x, y, [12, 14, 16]);
+        }
+    }
+    let line = |n: i32| top + 4 + n * 16;
+    let mut x = 6;
+    for (k, t) in Tool::ALL.iter().enumerate() {
+        let label = match stock(d, *t) {
+            Some(n) => format!("{} {} {}", k + 1, t.name(), n),
+            None => format!("{} {}", k + 1, t.name()),
+        };
+        let label = if *t == view.tool { format!("[{label}]") } else { label };
+        let c = if *t == view.tool {
+            HOT
+        } else if stock(d, *t) == Some(0) {
+            DIM
+        } else {
+            TEXT
+        };
+        text(frame, (fw, fh), x, line(0), &label, c);
+        x += text_px(&label) + 12;
+    }
+    let food = (d.food_left() * 100.0).round() as u32;
+    // About 40 characters, so it reads whole in the probe's half-size
+    // pictures.
+    let status = format!(
+        "DISH {}  MOULD {} BEST {}  FOOD {}%",
+        w.stretch,
+        thousands(d.walkers.len() as u32 + w.pouring.len() as u32),
+        thousands(w.peak),
+        food
+    );
+    text(frame, (fw, fh), 6, line(1), &status, TEXT);
+    let (hint, hot) = match (d.phase, w.outcome) {
+        (Phase::Crossing(_), _) => (
+            format!(
+                "THROUGH {}  IN LINE {}  DIED {}",
+                thousands(w.through),
+                thousands(w.pouring.len() as u32),
+                thousands(w.lost_on_way)
+            ),
+            EXIT_TEXT,
+        ),
+        (Phase::Over, Some(Outcome::Arrived { n, .. })) => (
+            format!("N: NEXT DISH, SHE STARTS WITH {}   R: TRY AGAIN", thousands(n)),
+            HOT,
+        ),
+        (Phase::Over, _) => ("R: TRY THIS DISH AGAIN   N: A NEW JOURNEY".to_string(), HOT),
+        _ if d.can_go() => (
+            format!(
+                "G: GO. {} OF {} JOINED TO THE CRACK",
+                thousands(w.joined),
+                thousands(d.walkers.len() as u32)
+            ),
+            EXIT_TEXT,
+        ),
+        _ if stock(d, view.tool) == Some(0) => (format!("NO {} LEFT", view.tool.name()), DIM),
+        _ => (view.tool.hint().to_string(), DIM),
+    };
+    text(frame, (fw, fh), 6, line(2), &hint, hot);
+    if view.keys {
+        let keys = if view.paused {
+            "PAUSED  P: GO ON"
+        } else if view.fast {
+            "FAST  SPACE: NORMAL"
+        } else {
+            "SPACE: FAST  P: PAUSE  H: HELP"
+        };
+        let kw = text_px(keys);
+        if 6 + text_px(&hint) + 24 + kw + 6 < fw as i32 {
+            text(frame, (fw, fh), fw as i32 - kw - 6, line(2), keys, DIM);
+        }
+    }
+    if d.phase == Phase::Growing {
+        let sps = super::STEPS_PER_SECOND as u64;
+        let mut next = Vec::new();
+        if d.oats_left < super::OATS_STOCK {
+            let every = super::OATS_REGROW_SECONDS as u64 * sps;
+            next.push(format!("OATS +1 IN {} S", (every - d.t % every).div_ceil(sps)));
+        }
+        if !d.pending.is_empty() {
+            let at: Vec<String> = d
+                .pending
+                .iter()
+                .map(|(at, _)| format!("{}:{:02}", at / sps / 60, at / sps % 60))
+                .collect();
+            next.push(format!("NEW FOOD {}", at.join(" ")));
+        }
+        text(frame, (fw, fh), 6, line(3), &next.join("   "), DIM);
+        text(
+            frame,
+            (fw, fh),
+            6,
+            line(4),
+            "FOOD RUNS OUT. LEAD HER TO THE CRACK.",
+            DIM,
+        );
+    }
+}
+
+/// "THE WAY ON", above the crack.
+fn exit_label(d: &Dish, scale: u32, frame: &mut [u8], (fw, fh): (u32, u32)) {
+    let word = "THE WAY ON";
+    let s = scale as i32;
+    let w = text_px(word);
+    let px = (fw as i32 - w - 8).max(4);
+    let py = ((wander::EXIT_Y - wander::EXIT_HALF) as i32 * s - 16).max(4);
+    let c = if d.can_go() { EXIT_TEXT } else { [70, 130, 122, 255] };
+    text(frame, (fw, fh), px, py, word, c);
+}
+
+/// The end of a stretch: how much of her came, or that she didn't make it.
+/// Across the top of the dish, so what stayed behind shows under it.
+fn arrival_card(d: &Dish, frame: &mut [u8], (fw, fh): (u32, u32)) {
+    let Some(w) = &d.wander else { return };
+    let sps = super::STEPS_PER_SECOND as u64;
+    let lines: Vec<(String, [u8; 4])> = match w.outcome {
+        Some(Outcome::Arrived { n, of }) => {
+            let pct = (n as f32 / of.max(1) as f32 * 100.0).round() as u32;
+            let at = w.go_at.unwrap_or(0) / sps;
+            vec![
+                (
+                    format!("{} ARRIVED WITH {} OF {}", wander::NAME, thousands(n), thousands(of)),
+                    HOT,
+                ),
+                (
+                    format!(
+                        "{pct}%. LEFT AT {}:{:02}, {} DIED IN LINE",
+                        at / 60,
+                        at % 60,
+                        thousands(w.lost_on_way)
+                    ),
+                    TEXT,
+                ),
+                (format!("N: DISH {} WITH {}  R: AGAIN", w.stretch + 1, thousands(n)), DIM),
+            ]
+        }
+        Some(Outcome::Lost { at }) => vec![
+            (format!("{} DIDN'T MAKE IT", wander::NAME), [255, 140, 110, 255]),
+            (format!("SHE STARVED AT {}:{:02}", at / sps / 60, at / sps % 60), TEXT),
+            ("R: TRY AGAIN  N: NEW JOURNEY".to_string(), DIM),
+        ],
+        None => return,
+    };
+    let wpx = lines.iter().map(|(l, _)| text_px(l)).max().unwrap_or(0) + 28;
+    let x0 = ((fw as i32 - wpx) / 2).max(0);
+    panel(frame, fw, (x0, 6, wpx, 62), [120, 230, 214]);
+    for (k, (l, c)) in lines.iter().enumerate() {
+        text(frame, (fw, fh), x0 + 14, 14 + 16 * k as i32, l, *c);
     }
 }
 
@@ -670,7 +879,10 @@ fn banner(b: &Banner, frame: &mut [u8], (fw, fh): (u32, u32)) {
 }
 
 /// The briefing card: what the game is, in the order a new player needs it.
-fn brief(view: &View, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+fn brief(d: &Dish, view: &View, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+    if let Some(w) = &d.wander {
+        return wander_brief(w, frame, (fw, fh), scale);
+    }
     let lesson = view.banner.is_some();
     let storm = if lesson {
         "A STORM COMES AT THE END.".to_string()
@@ -705,6 +917,49 @@ fn brief(view: &View, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
     let dish_h = (H as u32 * scale) as i32;
     let (x0, y0) = ((fw as i32 - w) / 2, ((dish_h - h) / 2).max(2));
     panel(frame, fw, (x0, y0, w, h), [120, 110, 70]);
+    for (k, (l, c)) in lines.iter().enumerate() {
+        text(frame, (fw, fh), x0 + 14, y0 + 10 + 16 * k as i32, l, *c);
+    }
+}
+
+/// The briefing card for the Wanderer: who she is, where she is going, the
+/// colours, who comes along when you leave, and the tools.
+fn wander_brief(w: &wander::Wander, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+    let name = wander::NAME;
+    let head = if w.stretch == 1 {
+        format!("{name}, THE WANDERER")
+    } else {
+        format!("{name}, DISH {}: {} OF HER CAME", w.stretch, thousands(w.came_in))
+    };
+    let lines: Vec<(String, [u8; 4])> = vec![
+        (head, HOT),
+        (format!("{name} IS YOUR SLIME MOULD. THE FOOD"), TEXT),
+        ("UNDER HER RUNS OUT. LEAD HER TO THE".into(), TEXT),
+        ("GLOWING CRACK ON THE RIGHT, THEN G: GO.".into(), EXIT_TEXT),
+        (String::new(), TEXT),
+        ("TAN: FOOD    YELLOW: FED MOULD".into(), [214, 172, 104, 255]),
+        ("GREY: CUT OFF FROM FOOD, STARVING".into(), [180, 180, 174, 255]),
+        (String::new(), TEXT),
+        ("WHO COMES WITH HER".into(), HOT),
+        ("ALL FED MOULD JOINED TO THE CRACK POURS".into(), TEXT),
+        ("OUT ALONG ITS TUBES. OFF FOOD, IT".into(), TEXT),
+        ("STARVES IN A LONG OR NARROW LINE: BUILD".into(), TEXT),
+        ("A THICK, SHORT TRUNK. WHAT ARRIVES".into(), TEXT),
+        ("STARTS THE NEXT DISH. THERE IS NO CLOCK.".into(), TEXT),
+        (String::new(), TEXT),
+        ("TOOLS".into(), HOT),
+        ("1 LAMP  HOLD: PUSHES THE MOULD AWAY".into(), TEXT),
+        ("2 OATS  CLICK: IT GROWS TOWARD THEM".into(), TEXT),
+        ("3 SALT  DRAG: A WALL IT CANNOT CROSS".into(), TEXT),
+        ("4 SNIP  DRAG: CUT A TUBE".into(), TEXT),
+        (String::new(), TEXT),
+        ("CLICK OR PRESS A KEY TO START".into(), HOT),
+    ];
+    let wpx = lines.iter().map(|(l, _)| text_px(l)).max().unwrap_or(0) + 28;
+    let h = 16 * lines.len() as i32 + 20;
+    let dish_h = (H as u32 * scale) as i32;
+    let (x0, y0) = ((fw as i32 - wpx) / 2, ((dish_h - h) / 2).max(2));
+    panel(frame, fw, (x0, y0, wpx, h), [120, 230, 214]);
     for (k, (l, c)) in lines.iter().enumerate() {
         text(frame, (fw, fh), x0 + 14, y0 + 10 + 16 * k as i32, l, *c);
     }
@@ -875,16 +1130,17 @@ pub fn menu_cards((fw, fh): (u32, u32)) -> Vec<(i32, i32, i32, i32)> {
 
 /// An entry's name and two lines, for the picker.
 pub fn entry_lines(e: usize) -> (&'static str, [&'static str; 2]) {
-    use super::level::{DISHES, ENTRIES};
+    use super::level::{DISHES, FREE, WANDER};
     match e {
         0 => ("LESSON", ["SIX STEPS: EACH TOOL IN TURN,", "THEN A STORM."]),
-        _ if e == ENTRIES - 1 => ("FREE DISH", ["THE SEEDED DISHES: JOIN, SHORT,", "STORM-PROOF. N: ANOTHER DISH."]),
+        FREE => ("FREE DISH", ["THE SEEDED DISHES: JOIN, SHORT,", "STORM-PROOF. N: ANOTHER DISH."]),
+        WANDER => ("THE WANDERER", ["NO CLOCK: LEAD HER TO THE CRACK, G: GO.", "WHAT ARRIVES STARTS THE NEXT DISH."]),
         _ => (DISHES[e - 1].name, DISHES[e - 1].goal),
     }
 }
 
 fn menu(m: &Menu, frame: &mut [u8], (fw, fh): (u32, u32), _scale: u32) {
-    use super::level::ENTRIES;
+    use super::level::FREE;
     // Dim what is behind, so the cards read.
     for px in frame.chunks_exact_mut(4) {
         for v in px.iter_mut().take(3) {
@@ -892,7 +1148,7 @@ fn menu(m: &Menu, frame: &mut [u8], (fw, fh): (u32, u32), _scale: u32) {
         }
     }
     let cards = menu_cards((fw, fh));
-    let title = "DISHES   1-5 OR CLICK TO PICK   M: BACK";
+    let title = "DISHES   1-6 OR CLICK TO PICK   M: BACK";
     let (x0, y0, _, _) = cards[0];
     text(frame, (fw, fh), x0, y0 - 22, title, HOT);
     for (e, &(x, y, w, h)) in cards.iter().enumerate() {
@@ -908,8 +1164,9 @@ fn menu(m: &Menu, frame: &mut [u8], (fw, fh): (u32, u32), _scale: u32) {
         let (name, lines) = entry_lines(e);
         let c = if open { TEXT } else { DIM };
         text(frame, (fw, fh), x + 10, y + 6, &format!("{} {name}", e + 1), if open { HOT } else { DIM });
-        // Best stars, or "DONE" for the lesson; nothing for free play.
-        let right = if e == ENTRIES - 1 {
+        // Best stars, or "DONE" for the lesson; nothing for free play and
+        // the Wanderer.
+        let right = if e >= FREE {
             String::new()
         } else if e == 0 {
             if m.progress.best[0] >= 1 { "DONE" } else { "" }.to_string()
