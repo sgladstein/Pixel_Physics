@@ -184,13 +184,54 @@ crown, so one root cut ends the night. That is what the village's several crowns
 grows with the vine, and a village with several crowns will carry more vine: measure it there before
 shipping.
 
+## Round 2, step 2 (2026-11-08): the village
+
+**What it is.** `KUDZU_LEVEL=village`, now the default (`walls` is the old box). Five stone houses with
+timber roofs and a bell tower on one strip of garden; three crowns -- A in the garden between houses 1 and
+2, B in a crack at the tower's foot, C on the floor of house 4's room (a hollow house with a doorway). The
+vine grows 450 frames before play, so the village opens 80-84% clear with no house lost, and the player
+watches it come. **Six cuts for the whole night, none earned back** (the owner: "if I wait I get more cuts.
+Nothing complex or interesting about that"), and the one dig. **Scored across the night**: stars at 50 / 75
+/ 95% of the house fronts clear, averaged every half second of play (`Kudzu::night_clear`), so waiting costs
+for every second the vine stands on a house. The bar shows houses lost (half a building's fronts under vine),
+clear now, and the night's running score. Fronts are recomputed from what was built: every empty cell within
+two of a building's stone or roof, outside house 4's room.
+
+**8 paired seeds, the tester's players** (score = fronts clear across the night; stars; buildings lost at dawn):
+
+| player | score, mean | 3-star nights | buildings lost, mean |
+|---|---|---|---|
+| do nothing | 43% | 0 | 4.1 |
+| random snips (6) | 44% | 0 | 4.1 |
+| dig only | 41% | 0 | 3.6 |
+| wait, then 6 planned cuts in the last 25 s | 48% | 0 | 2.8 |
+| fresh player | 65% | 1 | 2.5 |
+| planned | 84% | 4 | 1.5 |
+| cut at the roots, nearest a crown | 89% | 5 | 0.9 |
+
+Paired sign tests on the score (seven players, so 21 pairs; the strict bar is p < 0.0024 and nothing reaches
+it at 8 seeds, so read these as direction): roots beats random, nothing and wait 8-0 (p 0.008 each);
+planned beats random 7-1 and wait 7-1 (p 0.07); random against nothing 3-4-1 (p 1.0). **Random snipping is
+now no better than doing nothing**, waiting loses, and finding the crowns wins -- though on 3 of 8 seeds even
+the root cutter loses two or three houses, because six cuts at three crowns is not always enough. Six cuts
+spent in the first six frames is how both scripts play; a player who saves cuts for regrowth was not tried.
+
+**Still thin, said plainly.** The best play is still "cut every crown at the soil", now three times instead
+of once; the preview lights it in orange. The crowns are not hidden enough to make finding them the puzzle
+(crown C's room is open to view). The gutter, salt and torch are not built.
+
+**Cost.** Three vines peak at 4,000-6,400 cells. Worst-seed games on an idle machine: planned seed 3, 32 of
+10,800 ticks over 16.7 ms (worst 24 ms, p99 11 ms); roots seed 4, 7 over (worst 21 ms). Mean tick 0.5-1.3 ms.
+The spikes are vine organism ticks; not tuned here.
+
 ## Guards
 
 `kudzu::tests::preview_lights_what_the_engine_drops` makes the biggest cut with the game's own fall left
 out and requires every lit cell to leave the vine, with unlit losses under a tenth of the lit count.
 Positive control: with the climber anchor rule off it fails (no cut lights a sheet). The probe's
 `predicted`/`fell` counts agree by construction (the game turns lit cells to litter itself) and are not a
-check. `the_game_switches_are_off_by_default` holds the defaults. `preview_wilts_what_the_engine_starves`
+check. `the_game_switches_are_off_by_default` holds the defaults. `the_village_opens_with_every_house_standing`
+holds the village's opening: six buildings with fronts, three vines, none lost, six cuts with no recharge. `preview_wilts_what_the_engine_starves`
 (2026-11-08) makes the crown cut on seed 1 and requires the lit WILTS to have left the vine within 15 s,
 the counter to agree, and the unlit stump to be whole at 10 s (after that a crown cut starves the stump too, which is the cut working); positive control: with the walk returning every cell
 rooted before the cut, it fails.

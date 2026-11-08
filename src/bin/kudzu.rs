@@ -58,7 +58,7 @@ struct Handler {
 impl Handler {
     fn new() -> Self {
         let seed = std::env::var("KUDZU_SEED").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-        let level = Level::Walls;
+        let level = Level::from_env();
         let hover = std::env::var("KUDZU_HOVER").ok().and_then(|v| {
             let (x, y) = v.split_once(',')?;
             Some((x.trim().parse().ok()?, y.trim().parse().ok()?))

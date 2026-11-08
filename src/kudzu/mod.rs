@@ -7,6 +7,12 @@
 //! is a deduction rather than a guess?** The hover preview -- everything that
 //! would fall lights up -- is the whole bet.
 //!
+//! **Two levels** (`KUDZU_LEVEL=walls|village`, the village by default):
+//! the first build's box of two walls and one crown, and round 2's village
+//! (owner's pick, 2026-11-08) -- five houses and a bell tower, three crowns,
+//! six cuts for the whole night, scored on the fronts' clear fraction
+//! averaged across the night (`Kudzu::score`) so a vine left standing costs.
+//!
 //! It runs on the shipped plant engine and changes it for this world only:
 //!
 //! - `World::plant_speedup` runs every plant here [`SPEEDUP`] times faster
@@ -101,6 +107,16 @@ pub const ROOT_TIPS: usize = 6;
 /// upkeep.
 pub const RUNNER_MARGIN: f32 = 1.2;
 
+/// The village's night of growth before play: short, so the houses start
+/// mostly clear and the player watches the vine come for them.
+pub const VILLAGE_OVERNIGHT: u64 = 450;
+/// The village's shears: this many cuts for the whole night, none earned
+/// back. The owner, 2026-11-08: "if I wait I get more cuts. Nothing complex
+/// or interesting about that."
+pub const VILLAGE_SNIPS: u32 = 6;
+/// Frames between samples of the fronts' clear fraction for the night score.
+pub const SCORE_EVERY: u64 = 30;
+
 /// Wall clear at dawn for one, two and three stars.
 pub const STAR_BARS: [f32; 3] = [0.5, 0.75, 0.95];
 
@@ -162,6 +178,10 @@ pub struct Stats {
     pub regrown: u32,
     /// Crowns dug out.
     pub dug: u32,
+    /// The fronts' clear fraction summed every [`SCORE_EVERY`] frames of
+    /// play, and how many samples: `Kudzu::night_clear`.
+    pub clear_sum: f64,
+    pub clear_samples: u32,
 }
 
 /// Frames after a cut within which its predicted cells must have left the
@@ -271,7 +291,7 @@ impl Kudzu {
             layout,
             vine,
             tool: Tool::Snip,
-            snips: SNIP_CHARGES,
+            snips: 0,
             snip_timer: 0,
             digs,
             digging: None,
@@ -289,8 +309,16 @@ impl Kudzu {
             game.step_world();
             game.vigour();
         }
+        game.snips = game.layout.snips;
         game.last_cells = game.vine_cells();
+        game.sample_clear();
         game
+    }
+
+    /// Add the fronts' clear fraction now to the night's score.
+    fn sample_clear(&mut self) {
+        self.stats.clear_sum += self.wall_clear() as f64;
+        self.stats.clear_samples += 1;
     }
 
     fn step_world(&mut self) {
@@ -394,12 +422,15 @@ impl Kudzu {
         self.step_world();
         self.vigour();
         self.played += 1;
-        if self.snips < SNIP_CHARGES {
+        if self.played.is_multiple_of(SCORE_EVERY) {
+            self.sample_clear();
+        }
+        if let (Some(recharge), true) = (self.layout.recharge, self.snips < self.layout.snips) {
             self.snip_timer = self.snip_timer.saturating_sub(1);
             if self.snip_timer == 0 {
                 self.snips += 1;
-                if self.snips < SNIP_CHARGES {
-                    self.snip_timer = SNIP_RECHARGE;
+                if self.snips < self.layout.snips {
+                    self.snip_timer = recharge;
                 }
             }
         }
@@ -550,8 +581,8 @@ impl Kudzu {
             self.world.record_disturbance(cx, cy, 1);
             self.removed_by_hand.insert((cx, cy));
         }
-        if self.snips == SNIP_CHARGES {
-            self.snip_timer = SNIP_RECHARGE;
+        if let (Some(recharge), true) = (self.layout.recharge, self.snips == self.layout.snips) {
+            self.snip_timer = recharge;
         }
         self.snips -= 1;
         self.stats.cuts += 1;
@@ -682,6 +713,46 @@ impl Kudzu {
         self.layout.length.saturating_sub(self.played)
     }
 
+    /// **The fronts' clear fraction averaged over the night so far** --
+    /// every [`SCORE_EVERY`] frames from the start of play. Where the level
+    /// is scored on it, a vine left to grow costs for every second it
+    /// stands on a house, so waiting for the perfect cut is not free.
+    pub fn night_clear(&self) -> f32 {
+        if self.stats.clear_samples == 0 {
+            self.wall_clear()
+        } else {
+            (self.stats.clear_sum / self.stats.clear_samples as f64) as f32
+        }
+    }
+
+    /// What the stars are given for: the night's average on the village,
+    /// the fronts clear at dawn on the walls.
+    pub fn score(&self) -> f32 {
+        if self.layout.night_scored {
+            self.night_clear()
+        } else {
+            self.wall_clear()
+        }
+    }
+
+    /// Buildings with at least [`level::LOST_AT`] of their fronts under
+    /// vine now.
+    pub fn houses_lost(&self) -> usize {
+        self.layout
+            .buildings
+            .iter()
+            .filter(|b| {
+                let covered = b.faces.iter().filter(|&&(x, y)| self.is_vine(x, y)).count();
+                !b.faces.is_empty() && covered as f32 >= level::LOST_AT * b.faces.len() as f32
+            })
+            .count()
+    }
+
+    fn is_vine(&self, x: i32, y: i32) -> bool {
+        let id = self.world.get(x, y).organism_id();
+        id != 0 && self.world.organism(id).is_some_and(|s| s.species == self.vine)
+    }
+
     /// Stars for a wall-clear fraction: 50 / 75 / 95%.
     pub fn stars_for(clear: f32) -> u32 {
         STAR_BARS.iter().filter(|&&b| clear >= b).count() as u32
@@ -701,8 +772,7 @@ impl Kudzu {
         let mut clear = 0u32;
         for &(x, y) in &self.layout.faces {
             total += 1;
-            let id = self.world.get(x, y).organism_id();
-            if id == 0 || !self.world.organism(id).is_some_and(|s| s.species == self.vine) {
+            if !self.is_vine(x, y) {
                 clear += 1;
             }
         }
@@ -807,6 +877,20 @@ mod tests {
         assert!(alive * 20 <= p.wilt.len(), "{alive} of {} wilting cells still on the vine", p.wilt.len());
         assert_eq!(game.stats.wilted as usize, p.wilt.len() - alive, "the counter agrees with the cells");
         assert_eq!(game.stats.wilt_judged as usize, p.wilt.len(), "and the promise was judged");
+    }
+
+    /// **The village opens as a village under threat, not one already
+    /// lost**: six buildings with fronts to lose, three vines up, none of
+    /// the buildings lost yet, and six cuts with none to earn back.
+    #[test]
+    fn the_village_opens_with_every_house_standing() {
+        let game = Kudzu::new(Level::Village, 1);
+        assert_eq!(game.layout.buildings.len(), 6);
+        assert!(game.layout.buildings.iter().all(|b| b.faces.len() > 40), "every building has fronts to lose");
+        assert_eq!(game.vines().len(), 3, "a vine from each crown");
+        assert_eq!(game.houses_lost(), 0);
+        assert!(game.wall_clear() > 0.6, "fronts clear at the start: {:.2}", game.wall_clear());
+        assert_eq!((game.snips, game.layout.recharge), (VILLAGE_SNIPS, None));
     }
 
     /// Every switch the game turns on is off in a world it did not make.
