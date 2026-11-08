@@ -461,3 +461,47 @@ fn draw_bar(g: &Game, out: &mut [u8], (ow, oh): (u32, u32), ui: Ui) {
     };
     hud.text(out, width - crate::hud::text_width(&verdict) - 4, top + 6, &verdict, if score.burst { [255, 120, 110, 255] } else { [250, 220, 140, 255] });
 }
+
+/// **How to play**, on screen before the first click and again on `H`
+/// (owner's playtests of Storm and Mould, 2026-11-08: "I didn't really know
+/// what I was doing" -- the goal, the tools and what wins were nowhere on
+/// screen). One line of goal, one per tool, one per star, then the keys.
+/// Every character must be in the HUD font (`hud::has_glyph`); an
+/// apostrophe would draw as a gap.
+pub const HELP: [&str; 15] = [
+    "HOW TO PLAY",
+    "THE LAKE RISES FOR 120 SECONDS. IF IT REACHES THE TOP OF THE WALL, IT BURSTS.",
+    "CUT A PIECE OF ICE FREE: THE LAKE PUSHES IT OFF THE TOP AND DRAINS THROUGH.",
+    "",
+    "1 TAP        START A CRACK. HOVER FIRST: THE AMBER LINE SHOWS ITS PATH.",
+    "2 DRILL      BORE A HOLE. CRACKS STOP AT HOLES, AND HOLES PULL CRACKS IN.",
+    "3 MELTWATER  HOLD THE MOUSE BUTTON TO POUR WATER INTO CRACKS.",
+    "4 FROST      FREEZE WET CRACKS. THEIR STOPPED ENDS START RUNNING AGAIN.",
+    "",
+    "STAR 1  THE WALL DOES NOT BURST.",
+    "STAR 2  THE LAKE STAYS UNDER THE SAFE LINE AND ABOVE THE MILL RACE.",
+    "STAR 3  NO ICE HITS THE MILL, AND THE MILL STAYS DRY.",
+    "",
+    "R RESTART   N NEW WALL   S STRAIN SHIMMER   H THIS HELP   ESC QUIT",
+    "CLICK OR PRESS ANY KEY TO START",
+];
+
+/// Draw the how-to-play panel over the top of the play area. The game is
+/// paused while it shows (`src/bin/fault.rs`).
+pub fn draw_help(out: &mut [u8]) {
+    let (ow, oh) = size();
+    let hud = Hud::new(ow, oh, TEXT);
+    let (x0, y0) = (8, 8);
+    let w = ow as i32 / TEXT - 2 * x0;
+    let line = 10;
+    hud.fill_rect(out, x0, y0, w, HELP.len() as i32 * line + 12, [18, 24, 34, 255]);
+    for (i, text) in HELP.iter().enumerate() {
+        let colour = match i {
+            0 | 14 => SAFE,
+            9..=11 => CUT_FREE,
+            13 => [170, 185, 205, 255],
+            _ => [235, 240, 250, 255],
+        };
+        hud.text(out, x0 + 8, y0 + 8 + i as i32 * line, text, colour);
+    }
+}

@@ -7,7 +7,9 @@
 //!
 //! Keys: `1`-`4` pick Tap, Drill, Meltwater, Frost (or click the buttons);
 //! click the ice to use the tool (hold for Meltwater); `R` restarts the same
-//! wall, `N` deals a new one; `S` toggles the tension shimmer.
+//! wall, `N` deals a new one; `S` toggles the tension shimmer; `H` shows the
+//! how-to-play panel, which also opens the game, with the thaw paused until
+//! the first click or key.
 //!
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=n` writes the frame buffer to
 //! `fault-screenshot.png` after `n` drawn frames and exits -- the window's
@@ -55,6 +57,8 @@ struct Handler {
     /// The cursor, in buffer pixels.
     px: Option<(i32, i32)>,
     pressed: bool,
+    /// The how-to-play panel is up; the game does not step under it.
+    help: bool,
     pour_clock: u32,
     last_frame: Instant,
     accumulator: Duration,
@@ -75,6 +79,7 @@ impl Handler {
             cell: None,
             px: None,
             pressed: false,
+            help: true,
             pour_clock: 0,
             last_frame: Instant::now(),
             accumulator: Duration::ZERO,
@@ -116,7 +121,7 @@ impl Handler {
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
             self.accumulator -= TICK;
             ticks += 1;
-            if !self.game.over() {
+            if !self.game.over() && !self.help {
                 if self.pressed && self.ui.tool == Tool::Meltwater {
                     self.pour_clock += 1;
                     if self.pour_clock.is_multiple_of(POUR_EVERY) {
@@ -132,6 +137,9 @@ impl Handler {
         self.ui.cursor = self.cell;
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.draw(&self.game, pixels.frame_mut(), self.ui);
+        if self.help {
+            view::draw_help(pixels.frame_mut());
+        }
         if let Some(n) = self.screenshot_countdown.as_mut() {
             *n = n.saturating_sub(1);
             if *n == 0 {
@@ -184,6 +192,13 @@ impl ApplicationHandler for Handler {
                     return;
                 }
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // Any key closes the panel (and still does its job); H
+                    // opens it again.
+                    if code == KeyCode::KeyH {
+                        self.help = !self.help;
+                        return;
+                    }
+                    self.help = false;
                     match code {
                         KeyCode::Digit1 => self.ui.tool = Tool::Tap,
                         KeyCode::Digit2 => self.ui.tool = Tool::Drill,
@@ -213,6 +228,10 @@ impl ApplicationHandler for Handler {
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 let down = state == ElementState::Pressed;
                 if down {
+                    if self.help {
+                        self.help = false;
+                        return;
+                    }
                     if let Some(t) = self.px.and_then(|(x, y)| view::tool_at(&self.game, x, y)) {
                         self.ui.tool = t;
                         return;
