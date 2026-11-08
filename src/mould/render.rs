@@ -31,6 +31,14 @@ pub struct View {
     pub paused: bool,
     /// Draw the key list when there is room.
     pub keys: bool,
+    /// The briefing card over the dish: the goal, the colours, the stars
+    /// and the tools. The window shows it at the start of every dish, held
+    /// until a key or click (owner's playtest, 2026-11-08: "I didn't really
+    /// know what I was doing").
+    pub brief: bool,
+    /// The lesson's banner, on the first dish: step number, the two lines,
+    /// and whether the step has only just begun (it flashes).
+    pub banner: Option<Banner>,
 }
 
 impl Default for View {
@@ -41,8 +49,19 @@ impl Default for View {
             fast: false,
             paused: false,
             keys: true,
+            brief: false,
+            banner: None,
         }
     }
+}
+
+/// One lesson step, as the banner draws it.
+#[derive(Clone, Copy, Debug)]
+pub struct Banner {
+    pub number: u32,
+    pub of: u32,
+    pub lines: [&'static str; 2],
+    pub fresh: bool,
 }
 
 const AGAR: [u8; 3] = [20, 32, 30];
@@ -91,7 +110,7 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         // Stretch: the tube threshold is the bottom of the ramp.
         let lo = (1.0 + d.params.tube * 0.5).ln() / (1.0 + TRAIL_TOP).ln();
         let v = (v - lo) / (1.0 - lo);
-        return if d.fed[i] != u16::MAX {
+        return if d.looks_fed(i) {
             ramp(&FED_RAMP, v)
         } else {
             ramp(&PALE_RAMP, v)
@@ -310,7 +329,14 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
         };
         ring(frame, fw, scale, c, r, [120, 126, 140]);
     }
+    labels(d, scale, frame, (fw, fh));
     hud_lines(d, view, scale, frame, (fw, fh));
+    if let Some(b) = view.banner {
+        banner(&b, frame, (fw, fh));
+    }
+    if view.brief {
+        brief(view, frame, (fw, fh), scale);
+    }
 }
 
 fn stock(d: &Dish, t: Tool) -> Option<u32> {
@@ -356,6 +382,12 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     // Line 2: the state of the dish.
     let joined = d.measure();
     let status = match d.phase {
+        Phase::Growing if d.storm_at == u64::MAX => format!(
+            "LESSON  FOOD JOINED {}/{}  MOULD {}",
+            joined.reach,
+            joined.piles,
+            d.walkers.len()
+        ),
         Phase::Growing => {
             let left = d.seconds_left();
             format!(
@@ -416,7 +448,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
         } else if view.fast {
             "FAST  SPACE: NORMAL"
         } else {
-            "SPACE: FAST  P: PAUSE  R: RESTART"
+            "SPACE: FAST  P: PAUSE  R: RESTART  H: HELP"
         };
         let w = text_px(keys);
         let hx = 6 + text_px(&hint) + 24;
@@ -462,14 +494,129 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
 /// probe's half-size pictures as well as the window.
 fn score_lines(d: &Dish, frame: &mut [u8], (fw, fh): (u32, u32), y: i32) {
     let Some(s) = d.score.clone() else { return };
+    // Below THRIFT_MIN_JOINED there is no tree to measure and ratio() is 0,
+    // which read as a perfect "0.00X" thrift.
+    let thrift = if s.reach >= super::THRIFT_MIN_JOINED {
+        format!("{:.2}X", s.ratio())
+    } else {
+        "--".to_string()
+    };
     let a = format!(
-        "REACH {}/{} JOINED. THRIFT {:.2}X, BAR {:.2}X",
+        "REACH {}/{} JOINED. THRIFT {}, BAR {:.2}X",
         s.reach,
         s.piles,
-        s.ratio(),
+        thrift,
         super::THRIFT_BAR
     );
     let b = format!("TOUGH: {} OF {} STILL JOINED AFTER STORM", s.after, s.reach);
     text(frame, (fw, fh), 6, y, &a, TEXT);
     text(frame, (fw, fh), 6, y + 16, &b, TEXT);
+}
+
+/// Words on the dish itself, where the thing they name is: the storm's
+/// warning line and the scar it leaves. Owner's playtest, 2026-11-08: the
+/// scar read as "a weird red rectangle ... a bug or an error".
+fn labels(d: &Dish, scale: u32, frame: &mut [u8], (fw, fh): (u32, u32)) {
+    let line = match d.phase {
+        Phase::Growing => d.storm_line,
+        _ => d.cuts.first().copied(),
+    };
+    let Some((a, b)) = line else { return };
+    let word = match d.phase {
+        Phase::Growing => "STORM WILL CUT HERE",
+        _ => "STORM SCAR",
+    };
+    // Beside the line's lower end, nudged to stay on screen.
+    let (x, y) = if a.1 > b.1 { a } else { b };
+    let s = scale as f32;
+    let w = text_px(word);
+    let px = ((x * s) as i32 - w / 2).clamp(4, fw as i32 - w - 4);
+    let py = ((y * s) as i32 + 6).clamp(4, (H as u32 * scale) as i32 - 18);
+    for yy in py - 2..py + 14 {
+        for xx in px - 3..px + w + 3 {
+            put(frame, fw, xx, yy, [16, 12, 18]);
+        }
+    }
+    let c = match d.phase {
+        Phase::Growing => [214, 150, 230, 255],
+        _ => [255, 120, 100, 255],
+    };
+    text(frame, (fw, fh), px, py, word, c);
+}
+
+fn panel(frame: &mut [u8], fw: u32, (x0, y0, w, h): (i32, i32, i32, i32), edge: [u8; 3]) {
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
+            put(frame, fw, x, y, [14, 18, 20]);
+        }
+    }
+    for x in x0..x0 + w {
+        put(frame, fw, x, y0, edge);
+        put(frame, fw, x, y0 + h - 1, edge);
+    }
+    for y in y0..y0 + h {
+        put(frame, fw, x0, y, edge);
+        put(frame, fw, x0 + w - 1, y, edge);
+    }
+}
+
+/// The lesson's banner, across the top of the dish.
+fn banner(b: &Banner, frame: &mut [u8], (fw, fh): (u32, u32)) {
+    let head = if b.number > b.of {
+        "LESSON DONE".to_string()
+    } else {
+        format!("LESSON {} OF {}", b.number, b.of)
+    };
+    let w = [text_px(&head), text_px(b.lines[0]), text_px(b.lines[1])]
+        .into_iter()
+        .max()
+        .unwrap_or(0)
+        + 20;
+    let x0 = (fw as i32 - w) / 2;
+    let edge = if b.fresh { [255, 236, 120] } else { [120, 110, 70] };
+    panel(frame, fw, (x0, 4, w, 58), edge);
+    text(frame, (fw, fh), x0 + 10, 10, &head, HOT);
+    text(frame, (fw, fh), x0 + 10, 26, b.lines[0], TEXT);
+    text(frame, (fw, fh), x0 + 10, 42, b.lines[1], TEXT);
+}
+
+/// The briefing card: what the game is, in the order a new player needs it.
+fn brief(view: &View, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+    let lesson = view.banner.is_some();
+    let storm = if lesson {
+        "A STORM COMES AT THE END.".to_string()
+    } else {
+        let s = super::DISH_SECONDS;
+        format!("A STORM COMES AT {}:{:02}.", s / 60, s % 60)
+    };
+    let lines: Vec<(String, [u8; 4])> = vec![
+        ("MOULD".into(), HOT),
+        ("YOUR MOULD LIVES ON FOOD. JOIN THE".into(), TEXT),
+        ("FOOD PILES WITH ITS TUBES.".into(), TEXT),
+        (storm, TEXT),
+        (String::new(), TEXT),
+        ("TAN: FOOD    YELLOW: FED MOULD".into(), [214, 172, 104, 255]),
+        ("GREY: CUT OFF FROM FOOD, STARVING".into(), [180, 180, 174, 255]),
+        (String::new(), TEXT),
+        ("STARS".into(), HOT),
+        ("* JOIN ALL THE FOOD".into(), TEXT),
+        ("* KEEP THE NETWORK SHORT".into(), TEXT),
+        ("* LOSE NOTHING TO THE STORM".into(), TEXT),
+        (String::new(), TEXT),
+        ("TOOLS".into(), HOT),
+        ("1 LAMP  HOLD: PUSHES THE MOULD AWAY".into(), TEXT),
+        ("2 OATS  CLICK: IT GROWS TOWARD THEM".into(), TEXT),
+        ("3 SALT  DRAG: A WALL IT CANNOT CROSS".into(), TEXT),
+        ("4 SNIP  DRAG: CUT A TUBE".into(), TEXT),
+        (String::new(), TEXT),
+        ("CLICK OR PRESS A KEY TO START".into(), HOT),
+    ];
+    let w = lines.iter().map(|(l, _)| text_px(l)).max().unwrap_or(0) + 28;
+    let h = 16 * lines.len() as i32 + 20;
+    let dish_h = (H as u32 * scale) as i32;
+    let (x0, y0) = ((fw as i32 - w) / 2, ((dish_h - h) / 2).max(2));
+    panel(frame, fw, (x0, y0, w, h), [120, 110, 70]);
+    for (k, (l, c)) in lines.iter().enumerate() {
+        text(frame, (fw, fh), x0 + 14, y0 + 10 + 16 * k as i32, l, *c);
+    }
 }

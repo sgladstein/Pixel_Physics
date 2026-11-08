@@ -1,7 +1,10 @@
 # Mould probe: herding a slime mould with a lamp (2026-11-07)
 
-**Status: probe built; playtest fixes 1-5 from the 2026-11-08 demo review
-are in (see *Playtest fixes* at the end), waiting on the owner's play.**
+**Status: the owner played it (2026-11-08): "the most promise so far ...
+the core mechanism is inherently just kind of fun ... we definitely want to
+dig deeper", but it needs instruction, a clearer interface and a real
+challenge. The lesson and briefing card are in (see *What the owner's play
+found*, at the end); the challenge is next.**
 Code: `src/mould/`,
 `src/bin/mould.rs`; harness `examples/mouldprobe.rs`. Brief:
 `/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/prototypes/2-mould.md`
@@ -208,4 +211,62 @@ worst 13.38 -> **16.72 ms**. The worst is now the frame that aims the storm
 whole dish per trial cut and cost **36 ms**; flooding only the piece's own
 cells gives identical aims on all 35 runs at 16.7 ms. Peak walkers rose
 1,500 -> 1,800 with the sixth pile.
+
+## What the owner's play found (2026-11-08)
+
+The owner's verdict, from playing it: the mechanism is fun to play with and
+looks good, but "I didn't really know what I was doing", the salt and the
+snip were mysteries, the storm's scar read as "a weird red rectangle ... a
+bug", "things were flashing gray", and there "needs to be a challenge".
+
+- **The grey flashing was a drawing bug.** The feeding search walks only
+  cells over the tube threshold, but tube is drawn from half of it, so the
+  soft edge of every fed tube was drawn grey, and edge cells whose trail
+  wobbled across the threshold switched yellow-grey-yellow every few
+  frames. `mouldprobe flicker=1` counts cells that switch yellow<->grey 4+
+  times in a second, lamp-lit cells left out: **about 420 a second** on a
+  working network (seeds 1-3: 427, 417, 426), **0** after. A cell now shows
+  fed if it or a neighbour was fed in the last half second
+  (`Dish::looks_fed`, `FED_LOOK_REACH` 1, `FED_LOOK_SECONDS` 0.5); the
+  simulation still reads `fed` alone, so every census is unchanged (all 35
+  runs identical). Widening to 2 cells or 1 s changed nothing.
+- **The game now explains itself.** Every dish opens behind a briefing card
+  (the goal, what tan, yellow and grey mean, the three stars, what each
+  tool does), held until a key or click; H brings it back. The tool hints
+  say what each tool does to the mould. The storm's line is labelled
+  "STORM WILL CUT HERE" and its scar "STORM SCAR".
+- **The game opens on a lesson** (`mould::lesson`, seed 0; N goes on to
+  dish 1). Six steps, each judged from the dish's own counters: hold the
+  lamp near the mould (2 s); put oats down and let the mould eat them; join
+  all the food; snip a tube; draw salt; then the storm, aimed and shown for
+  the whole 20 s it gives. The storm is held back until that step
+  (`Dish::storm_at`). Each step stays up at least 4 s: on the first
+  scripted run the mould joined three piles 1.6 s into "join 3 piles",
+  before the banner could be read, and the oats step passed with no oats
+  eaten because the home blob touched a second pile on its own; the join
+  step now asks for all the food, and the oats step for oats eaten.
+  `mouldprobe lesson=DIR` plays it with a scripted hand: all six steps pass,
+  the lesson ends at 51 s, 2 stars.
+- **An independent bug check of the lesson** (2026-11-08, full write-up in
+  the project's `game-design/mould-game-brainstorm-2026-11-08/bug-check.md`)
+  found two ways a new player gets stuck, both now fixed:
+  - *A slow lesson starved.* The lesson has no clock, but the mould still
+    ate: a 20,000 pile lasts about 139 s at a full table. Reading for 60 s a
+    step left 20 walkers at the storm; left alone, 0 of 400 walkers at
+    200 s, and Join could then never pass. The dish's own piles now stay
+    full until the storm step (oats still run out).
+    `a_slow_lesson_does_not_starve` goes red with the refill switched off
+    (0 of 400) and green with it.
+  - *Spent tools made a step impossible.* Salt (1) and snips (3) never come
+    back, so salt drawn during step 1 left the salt step stuck for good.
+    The snip and salt steps now hand one back whenever the stock is empty,
+    and the snip step needs a snip that cut mould, not a click on agar.
+  - Smaller fixes from the same check: a stroke released over the HUD
+    strip stayed live for the next press; the lamp could stay on after H
+    or alt-tab; a window shorter than 726 px cropped the frame (it now
+    shrinks to fit, crisp whole-pixel scaling whenever it fits); a score
+    with fewer than 3 piles joined read "THRIFT 0.00X" (now "--"); R and N
+    kept fast and pause on; salt and snip worked during the storm watch,
+    letting a player cut their own network after the strike (now refused,
+    like oats already were).
 

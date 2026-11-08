@@ -244,7 +244,7 @@ fn leads(d: &Dish) -> Vec<Lead> {
 }
 
 /// Oats `ahead` cells from the mould toward the nearest unjoined pile.
-fn oats_toward_nearest(d: &mut Dish, ahead: f32) -> bool {
+pub fn oats_toward_nearest(d: &mut Dish, ahead: f32) -> bool {
     let Some(((px, py, _), (wx, wy), g)) = leads(d).first().copied() else {
         return false;
     };

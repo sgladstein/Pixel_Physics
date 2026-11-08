@@ -6571,7 +6571,11 @@ file unless its report says so.
   0:30 and 0:55, and the storm is warned 5 s ahead and aimed at the worst
   cut. Over the same seven scripted hands, doing nothing fell from 2 stars to
   0 and a random hand from 6 to 3, while the plan rose 6 to 8 and a fresh
-  player's script 6 to 9. Also records why the storm is one cut, not three.
+  player's script 6 to 9. **Owner played it (2026-11-08): "the most promise
+  so far", but needs instruction and a challenge.** The game now opens on a
+  six-step lesson and a briefing card, labels the storm and its scar, and
+  no longer flashes grey (about 420 cells a second to 0). Also records why
+  the storm is one cut, not three.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
