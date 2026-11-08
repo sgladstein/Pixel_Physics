@@ -48,6 +48,7 @@
 //!   ahead, and toughness is read after the full watch, once regrowth has
 //!   had its chance.
 
+pub mod organ;
 pub mod play;
 pub mod render;
 
