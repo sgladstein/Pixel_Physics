@@ -38,7 +38,8 @@ struct Args {
     pull: bool,
     /// `looks=DIR`: the interface looks' scripted frames (`mould::look`).
     looks: Option<String>,
-    /// `style=NAME|LETTER`: the interface look every picture is drawn in.
+    /// `style=NAME|LETTER`: the interface look every picture is drawn in;
+    /// the game's own (`Style::GAME`) unless named.
     style: Style,
     cut: Option<String>,
     /// `push`: how far beside the tube the lamp is held.
@@ -71,7 +72,7 @@ fn parse() -> Args {
         lesson: None,
         pull: false,
         looks: None,
-        style: Style::Classic,
+        style: Style::GAME,
         cut: None,
         offset: 12.0,
         scale: 2,
@@ -796,7 +797,7 @@ fn moment_counts(d: &Dish) -> String {
     let s = d.measure();
     let c = &d.counts;
     format!(
-        "t {:.1} s | food joined {}/{} | mould {} | oats placed {} | salt cells {} | snips {} | starved {} | storm-killed {}",
+        "t {:.1} s | food joined {}/{} | mould {} | oats placed {} | salt cells {} | snips {} | wound cells {} | joins flashed {} | starved {} | storm-killed {}{}",
         d.t as f32 / STEPS_PER_SECOND as f32,
         s.reach,
         s.piles + d.pending.len() as u32,
@@ -804,9 +805,33 @@ fn moment_counts(d: &Dish) -> String {
         c.oats_placed,
         c.salt_cells,
         c.snips_used,
+        c.wound_cells,
+        c.snaps,
         c.starved + c.hungry,
-        c.stormed
+        c.stormed,
+        match d.wander_state() {
+            Some(w) => format!(
+                " | wanderer: go open {} | joined to crack {} | in line {} | through {} | died in line {} | outcome {:?}",
+                d.can_go(),
+                w.joined,
+                w.pouring.len(),
+                w.through,
+                w.lost_on_way,
+                w.outcome
+            ),
+            None => String::new(),
+        }
     )
+}
+
+/// A file's tag for a look: the window's look before this round is
+/// `current`, the built one `built`, the candidates their blind letter.
+fn tag(style: Style) -> &'static str {
+    match style {
+        Style::Classic => "current",
+        Style::Night => "built",
+        _ => style.letter(),
+    }
 }
 
 /// **The interface looks, frame by frame** (`mould::look`; brief: the
@@ -918,6 +943,7 @@ fn looks(a: &Args, dir: &str) {
     let gif = (Dish::dish_steps() - 4 * sps)..(Dish::dish_steps() + 4 * sps);
     let mut gifs: Vec<Vec<image::RgbaImage>> = vec![Vec::new(); Style::ALL.len()];
     let mut frame = 0u32;
+    let mut joined = false;
     while d.t < end {
         let t0 = Instant::now();
         hand.act(&mut d);
@@ -1013,6 +1039,26 @@ fn looks(a: &Args, dir: &str) {
                     ..base
                 },
             });
+            // A snip across the trunk, a second after: the wound open and
+            // the far side going grey.
+            let mut cut = d.clone();
+            cut.snips_left = cut.snips_left.max(1);
+            if cut.begin_stroke(Tool::Snip, tp.0 - n.0 * 12.0, tp.1 - n.1 * 12.0) {
+                cut.drag_stroke(tp.0 + n.0 * 12.0, tp.1 + n.1 * 12.0);
+                cut.end_stroke();
+            }
+            for _ in 0..sps {
+                cut.step();
+            }
+            moments.push(Moment {
+                name: "snip-cut",
+                what: "a second after a snip across the trunk: the open wound",
+                dish: cut,
+                view: View {
+                    tool: Tool::Snip,
+                    ..base
+                },
+            });
             // (f) A snip held over the trunk, not yet pressed.
             let mut snip = d.clone();
             snip.snips_left = snip.snips_left.max(1);
@@ -1025,6 +1071,16 @@ fn looks(a: &Args, dir: &str) {
                     cursor: Some(tp),
                     ..base
                 },
+            });
+        }
+        // The first join after 10 s, a tenth of a second into its flash.
+        if !joined && d.t > 10 * sps && d.snaps.iter().any(|&(_, _, at)| (at + sps / 10..at + sps / 4).contains(&d.t)) {
+            joined = true;
+            moments.push(Moment {
+                name: "join-flash",
+                what: "two pieces meeting: the join's flash",
+                dish: d.clone(),
+                view: base,
             });
         }
         if d.t == Dish::dish_steps() - 3 * sps {
@@ -1045,9 +1101,88 @@ fn looks(a: &Args, dir: &str) {
         dish: d.clone(),
         view: base,
     });
-    // a b c d first, as the brief lists them, then the extra previews.
-    let order = ["lesson-oats", "lamp-held", "storm-warning", "score", "salt-drag", "snip-hover", "brief", "oats-far"];
-    moments.sort_by_key(|m| order.iter().position(|o| *o == m.name).unwrap_or(9));
+    // The Wanderer (`mould::wander`), led by the leading hand: her card,
+    // Go open, the pour, and the arrival. A GIF of the pour in the game's
+    // look.
+    let mut wd = Dish::wanderer_with_params(seed, 1, FIRST_WALKERS, a.params.clone());
+    moments.push(Moment {
+        name: "wander-brief",
+        what: "the Wanderer's card",
+        dish: wd.clone(),
+        view: View { brief: true, ..base },
+    });
+    let mut lead = Leader::new(false);
+    let mut pour_gif = Vec::new();
+    let (mut go_seen, mut pour_at, mut over_at) = (false, None, None);
+    let mut frame = 0u32;
+    while wd.t < 10 * 60 * sps {
+        if wd.can_go() && !go_seen {
+            go_seen = true;
+            moments.push(Moment {
+                name: "wander-go",
+                what: "the Wanderer: fed mould in the crack, Go open",
+                dish: wd.clone(),
+                view: View {
+                    tool: Tool::Lamp,
+                    ..base
+                },
+            });
+        }
+        lead.act(&mut wd);
+        for _ in 0..STEPS_PER_FRAME {
+            wd.step();
+        }
+        frame += 1;
+        if let Phase::Crossing(at) = wd.phase {
+            pour_at.get_or_insert(at);
+        }
+        if pour_at.is_some() && frame.is_multiple_of(6) {
+            pour_gif.push(half(&draw_view(&wd, &View { style: Style::GAME, ..base }, scale)));
+        }
+        if pour_at.is_some_and(|at| wd.t == at + 3 * sps) {
+            moments.push(Moment {
+                name: "wander-pour",
+                what: "the Wanderer: 3 s into the pour",
+                dish: wd.clone(),
+                view: base,
+            });
+        }
+        if wd.phase == Phase::Over && over_at.is_none() {
+            over_at = Some(wd.t);
+        }
+        if over_at.is_some_and(|t| wd.t >= t + sps) {
+            moments.push(Moment {
+                name: "wander-arrived",
+                what: "the Wanderer: the arrival card",
+                dish: wd.clone(),
+                view: base,
+            });
+            break;
+        }
+    }
+    if !pour_gif.is_empty() {
+        write_wander_gif(&format!("{dir}/{}-wander-pour.gif", tag(Style::GAME)), pour_gif);
+    }
+
+    // a b c d first, as the brief lists them, then the extra previews, then
+    // the Wanderer.
+    let order = [
+        "lesson-oats",
+        "lamp-held",
+        "storm-warning",
+        "score",
+        "salt-drag",
+        "snip-hover",
+        "brief",
+        "oats-far",
+        "snip-cut",
+        "join-flash",
+        "wander-brief",
+        "wander-go",
+        "wander-pour",
+        "wander-arrived",
+    ];
+    moments.sort_by_key(|m| order.iter().position(|o| *o == m.name).unwrap_or(order.len()));
 
     let mut counts = String::new();
     for (k, m) in moments.iter().enumerate() {
@@ -1056,7 +1191,7 @@ fn looks(a: &Args, dir: &str) {
         counts.push_str(&line);
     }
     for (j, style) in Style::ALL.iter().enumerate() {
-        let tag = if *style == Style::Classic { "current" } else { style.letter() };
+        let tag = tag(*style);
         let mut tiles = Vec::new();
         for (k, m) in moments.iter().enumerate() {
             let v = View { style: *style, ..m.view };
@@ -1079,7 +1214,7 @@ fn looks(a: &Args, dir: &str) {
         sim.1
     );
     for (j, style) in Style::ALL.iter().enumerate() {
-        let tag = if *style == Style::Classic { "current" } else { style.letter() };
+        let tag = tag(*style);
         let mut v = each[j].clone();
         v.sort_by(f64::total_cmp);
         let p99 = v[(v.len() * 99 / 100).min(v.len() - 1)];
@@ -1435,12 +1570,13 @@ fn wander_player(name: &str) -> Box<dyn Player> {
     }
 }
 
-fn wander_frame(d: &Dish, scale: u32, brief: bool) -> image::RgbaImage {
+fn wander_frame(d: &Dish, scale: u32, style: Style, brief: bool) -> image::RgbaImage {
     let (w, h) = render::frame_size(scale);
     let mut buf = vec![0u8; (w * h * 4) as usize];
     let view = View {
         keys: false,
         brief,
+        style,
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
@@ -1468,7 +1604,7 @@ fn journey(seed: u64, who: &str, a: &Args) -> Vec<Stretch> {
         let mut over_at = None;
         if let Some(dir) = &a.gif {
             if k <= 2 && who == "lead" {
-                wander_frame(&d, a.scale, true)
+                wander_frame(&d, a.scale, a.style, true)
                     .save(format!("{dir}/wander-s{seed}-d{k}-brief.png"))
                     .unwrap();
             }
@@ -1487,7 +1623,7 @@ fn journey(seed: u64, who: &str, a: &Args) -> Vec<Stretch> {
                 // second through the pour: keeps the GIF near 3 MB.
                 let every = if pouring || over_at.is_some() { 6 } else { 120 };
                 if frame.is_multiple_of(every) {
-                    shots.push(wander_frame(&d, a.scale, false));
+                    shots.push(wander_frame(&d, a.scale, a.style, false));
                 }
             }
             frame += 1;
@@ -1501,7 +1637,7 @@ fn journey(seed: u64, who: &str, a: &Args) -> Vec<Stretch> {
         }
         let w = d.wander_state().cloned().expect("a wanderer dish");
         if let Some(dir) = &a.gif {
-            wander_frame(&d, a.scale, false)
+            wander_frame(&d, a.scale, a.style, false)
                 .save(format!("{dir}/wander-s{seed}-{who}-d{k}-end.png"))
                 .unwrap();
             if gif {

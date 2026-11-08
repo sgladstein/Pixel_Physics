@@ -10,10 +10,11 @@
 //! starts on dish seed 3, and `-- 0` is the lesson. Every dish opens behind
 //! the briefing card; H shows it again.
 //!
-//! **F2 cycles the interface looks** (`mould::look`, round 1 of the
-//! interface pass): the current look, then three candidates, named only by
-//! a letter in the bottom-right corner so they can be judged blind.
-//! `-- 0 B` opens the lesson in look B.
+//! **It opens in the game's look** (`mould::look::Style::GAME`, the owner's
+//! pick from the interface round: B's dark culture with C's tool tiles and
+//! storm timeline). **F2 cycles the looks**: that one, the look before it,
+//! then the three candidates, named only by a letter in the bottom-right
+//! corner as they were judged. `-- 0 B` opens the lesson in look B.
 //!
 //! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
 //! (or `-- wander 3` for dish seed 3), or W from any dish. No clock and no
@@ -140,6 +141,7 @@ impl Handler {
             journey,
             view: View {
                 brief: true,
+                style: Style::GAME,
                 ..View::default()
             },
             cursor: None,

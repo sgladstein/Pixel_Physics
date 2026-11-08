@@ -10,6 +10,15 @@
 //! the briefing card, lesson banner and score card; the dish itself; and a
 //! font -- so the owner can pick one by eye, blind (`Style::letter`).
 //!
+//! **Round 2 built the pick** (`Style::Night`, the window's look since
+//! 2026-11-08): B's dish and mood with C's tool tiles and storm timeline,
+//! drawing everything `render.rs` draws -- the pulse along fed tube, the
+//! join flashes, open wounds, and the Wanderer's crack, label, bar, card
+//! and arrival -- inside about 1.7 ms a frame over the classic look (the
+//! cuts: a half-size glow grid computed every other frame, the food's glow
+//! folded into it, the tile bar redrawn only when it changes, the rim's
+//! alarm flash and the bare dish kept per look, opaque corner chips).
+//!
 //! **A sibling of `render.rs`, not a rewrite of it.** `render::draw` hands
 //! over to `draw` here when `View::style` is not `Classic`, and nothing else
 //! in `render.rs` changed: other builds are editing it (a pulse along the
@@ -30,7 +39,8 @@
 //! (`theme.md`: the mould's colour already *is* its health; no meter
 //! covers it).
 
-use super::render::{frame_size, View};
+use super::render::{frame_size, thousands, View};
+use super::wander::{self, Outcome, Wander};
 use super::{
     disc, Dish, Ground, Phase, Tool, H, OATS_R, OATS_REGROW_SECONDS, OATS_SECONDS, OATS_STOCK, SALT_LEN, SALT_STOCK,
     SNIP_LEN, SNIP_STOCK, STEPS_PER_SECOND, STORM_WARNING_SECONDS, THRIFT_BAR, THRIFT_MIN_JOINED, W,
@@ -81,6 +91,13 @@ const TRAIL_TOP: f32 = 30.0;
 pub enum Style {
     #[default]
     Classic,
+    /// **The game's look** (`Style::GAME`), built from the owner's pick
+    /// (2026-11-08, judged blind before the designer's note, and the same
+    /// pick): B's dish and mood -- glowing tube on a dark culture, the lamp
+    /// lighting the agar, the mixed-case font, the storm's big count -- with
+    /// C's labelled tool tiles (name, key, stock pips, "+1 in 5s", "3 left")
+    /// and C's timeline to the storm with the late food marked on it.
+    Night,
     /// A clean specimen bench: a glass dish on graph paper, glossy embossed
     /// tubes, tiles with stock pips, a timeline to the storm.
     Bench,
@@ -93,7 +110,14 @@ pub enum Style {
 }
 
 impl Style {
-    pub const ALL: [Style; 4] = [Style::Classic, Style::Bench, Style::Glow, Style::Toy];
+    /// What the window opens in. `View::default()` stays `Classic`, because
+    /// the Mould Organ (`organ.rs`) paints its own rows over the classic
+    /// frame and is left alone.
+    pub const GAME: Style = Style::Night;
+
+    /// F2's order: the game's look, then the old one, then the three
+    /// candidates it was picked from.
+    pub const ALL: [Style; 5] = [Style::Night, Style::Classic, Style::Bench, Style::Glow, Style::Toy];
 
     pub fn next(self) -> Style {
         let i = Self::ALL.iter().position(|s| *s == self).unwrap_or(0);
@@ -103,6 +127,7 @@ impl Style {
     pub fn name(self) -> &'static str {
         match self {
             Style::Classic => "classic",
+            Style::Night => "night",
             Style::Bench => "bench",
             Style::Glow => "glow",
             Style::Toy => "toy",
@@ -115,6 +140,7 @@ impl Style {
     pub fn letter(self) -> &'static str {
         match self {
             Style::Classic => "-",
+            Style::Night => "N",
             Style::Toy => "A",
             Style::Glow => "B",
             Style::Bench => "C",
@@ -144,7 +170,14 @@ enum Font {
 type Rgb = [u8; 3];
 
 struct Theme {
+    /// Which look's dish, piles, storm and cards this draws: `Night` draws
+    /// them as `Glow`.
     style: Style,
+    /// Which look's tool bar and corner chips: `Night` draws them as
+    /// `Bench`.
+    hud: Style,
+    /// The look itself.
+    look: Style,
     font: Font,
     agar: Rgb,
     agar_edge: Rgb,
@@ -173,8 +206,15 @@ struct Theme {
 
 fn theme(style: Style) -> Theme {
     match style {
+        Style::Night => Theme {
+            hud: Style::Bench,
+            look: Style::Night,
+            ..theme(Style::Glow)
+        },
         Style::Glow => Theme {
             style,
+            hud: style,
+            look: style,
             font: Font::Mixed,
             agar: [9, 17, 22],
             agar_edge: [3, 7, 10],
@@ -202,6 +242,8 @@ fn theme(style: Style) -> Theme {
         },
         Style::Toy => Theme {
             style,
+            hud: style,
+            look: style,
             font: Font::Chunky,
             agar: [160, 204, 186],
             agar_edge: [124, 172, 156],
@@ -230,6 +272,8 @@ fn theme(style: Style) -> Theme {
         // Bench, and the fallback.
         _ => Theme {
             style: Style::Bench,
+            hud: Style::Bench,
+            look: Style::Bench,
             font: Font::Crisp,
             agar: [28, 46, 44],
             agar_edge: [15, 26, 26],
@@ -529,6 +573,9 @@ fn lower(c: char) -> Option<[u8; 9]> {
         'x' => [".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", ".....", "....."],
         'y' => [".....", ".....", "#...#", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
         'z' => [".....", ".....", "#####", "...#.", "..#..", ".#...", "#####", ".....", "....."],
+        // The dot font's comma reads as a full stop at this size, and
+        // "1,265" read as "1.265": a comma with a tail below the line.
+        ',' => [".....", ".....", ".....", ".....", ".....", ".##..", ".##..", "..#..", ".#..."],
         _ => return None,
     };
     let mut g = [0u8; 9];
@@ -796,6 +843,59 @@ struct Status {
     flash: bool,
 }
 
+/// The pulse along fed tube (`render.rs`'s `pulse`, the same numbers, so
+/// every look shows food moving the same way): the colour a band blends
+/// toward, how far, cells a second, cells between bands, and the share of
+/// that spacing its tail covers.
+const PULSE: Rgb = [255, 252, 230];
+const PULSE_STRENGTH: f32 = 0.45;
+const PULSE_SPEED: f32 = 45.0;
+const PULSE_SPACING: f32 = 60.0;
+const PULSE_TAIL: f32 = 0.3;
+
+/// The pulse's brightness on a cell, 0 to 1: a band riding out from the
+/// food along the feeding search's own distances (`Dish::fed`), so a
+/// starving branch's beat stops at the cut.
+fn pulse(d: &Dish, i: usize) -> f32 {
+    let dist = d.fed[i];
+    if dist == u16::MAX {
+        return 0.0;
+    }
+    let secs = d.t as f32 / STEPS_PER_SECOND as f32;
+    let phase = (secs * PULSE_SPEED - dist as f32) / PULSE_SPACING;
+    let s = phase - phase.floor();
+    if s < PULSE_TAIL {
+        1.0 - s / PULSE_TAIL
+    } else {
+        0.0
+    }
+}
+
+/// The Wanderer's crack (`wander::in_exit`) on bare agar: a cool glow,
+/// brighter toward the rim, beating once fed mould stands in it and Go is
+/// open; full while she pours. Teal, never tan, yellow or grey.
+fn exit_colour(th: &Theme, d: &Dish, w: &Wander, x: usize, y: usize, agar: Rgb) -> Rgb {
+    let depth = (x as f32 - wander::EXIT_X as f32) / (W - wander::EXIT_X) as f32;
+    let edge = 1.0 - (y as f32 + 0.5 - wander::EXIT_Y).abs() / wander::EXIT_HALF;
+    let mut g = 0.35 + 0.45 * depth.clamp(0.0, 1.0) + 0.2 * edge.clamp(0.0, 1.0);
+    if w.touching && d.phase == Phase::Growing {
+        let secs = d.t as f32 / STEPS_PER_SECOND as f32;
+        g *= 0.8 + 0.2 * ((secs * 4.0).sin() * 0.5 + 0.5);
+    }
+    if matches!(d.phase, Phase::Crossing(_)) {
+        g = g.max(0.9);
+    }
+    lerp(agar, exit_teal(th), g)
+}
+
+fn exit_teal(th: &Theme) -> Rgb {
+    match th.style {
+        Style::Glow => [64, 214, 198],
+        Style::Toy => [96, 214, 200],
+        _ => [70, 190, 178],
+    }
+}
+
 fn cell_at(x: f32, y: f32) -> Option<usize> {
     if x < 0.0 || y < 0.0 {
         return None;
@@ -877,6 +977,22 @@ fn clock(secs: u32) -> String {
 /// What the next press does, in two short lines (the corner chip).
 fn hint(d: &Dish, view: &View, st: &Status) -> [String; 2] {
     let two = |a: &str, b: &str| [a.to_string(), b.to_string()];
+    if let Some(w) = &d.wander {
+        match d.phase {
+            Phase::Over if matches!(w.outcome, Some(Outcome::Arrived { .. })) => {
+                return two("N: next dish, with her", "R: try this dish again");
+            }
+            Phase::Over => return two("R: try this dish again", "N: a new journey"),
+            Phase::Crossing(_) => {
+                return [
+                    format!("Through {}", thousands(w.through)),
+                    format!("In line {}, died {}", thousands(w.pouring.len() as u32), thousands(w.lost_on_way)),
+                ]
+            }
+            _ if d.can_go() => return two("G: go now. She leaves", "through the crack"),
+            _ => {}
+        }
+    }
     match d.phase {
         Phase::Over => two("Dish over.", "R: again  N: next dish"),
         Phase::Storm(_) | Phase::Crossing(_) => two("The storm struck.", "Watch what stays joined"),
@@ -919,6 +1035,7 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     piles(&mut cv, d, &th, s, &st);
     marks(&mut cv, d, &th, s);
     storm(&mut cv, d, &th, s, &st);
+    exit_label(&mut cv, d, &th, s);
     lamp(&mut cv, d, &th, s);
     preview(&mut cv, d, view, &th, s);
     corners(&mut cv, d, view, &th, &st, s);
@@ -928,8 +1045,11 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
         banner(&mut cv, &th, &b, d);
     }
     alarm(&mut cv, d, view, &th, s, &st);
+    if d.phase == Phase::Over {
+        arrival(&mut cv, d, &th);
+    }
     if view.brief {
-        brief(&mut cv, view, &th, s);
+        brief(&mut cv, d, view, &th, s);
     }
     // The debug corner: which look this is, by its blind letter only.
     hud::draw_text(cv.f, fw, fh, fw as i32 - 8, fh as i32 - 9, view.style.letter(), [90, 96, 100, 255]);
@@ -937,57 +1057,125 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
 
 // ------------------------------------------------------------------- dish
 
-/// Fed and starving glow around tube, for `Theme::glow`: the tube mask
-/// box-blurred twice, at cell resolution.
-fn halos(d: &Dish, thr: f32) -> (Vec<f32>, Vec<f32>) {
-    let mut f = vec![0.0f32; W * H];
-    let mut p = vec![0.0f32; W * H];
-    for i in 0..W * H {
-        if d.ground[i] == Ground::Agar && d.trail[i] > thr {
-            if d.looks_fed(i) {
-                f[i] = 1.0;
-            } else {
-                p[i] = 1.0;
-            }
-        }
-    }
-    let mut tmp = vec![0.0f32; W * H];
-    for a in [&mut f, &mut p] {
-        for _ in 0..2 {
-            blur(a, &mut tmp, 3);
-        }
-    }
-    (f, p)
+/// Half the dish's width and height: the glow fields' grid.
+const HW: usize = W / 2;
+const HH: usize = H / 2;
+
+/// The glow for `Theme::glow`: fed tube, starving tube and food, each a
+/// mask box-blurred twice. **On a half-size grid**, read back bilinearly:
+/// at full size the two tube masks cost 0.70 ms a frame of the 3.4 ms the
+/// look took (seed 1 at 40 s), and the piles' own glow, drawn pixel by
+/// pixel around each pile, another 0.2 ms; a glow is soft by nature, so
+/// the half grid shows no blocks. The food's glow rides in the same pass.
+struct Halo {
+    fed: Vec<f32>,
+    pale: Vec<f32>,
+    food: Vec<f32>,
 }
 
-fn blur(a: &mut [f32], tmp: &mut [f32], r: usize) {
+impl Halo {
+    fn new(d: &Dish, thr: f32) -> Halo {
+        let mut h = Halo {
+            fed: vec![0.0; HW * HH],
+            pale: vec![0.0; HW * HH],
+            food: vec![0.0; HW * HH],
+        };
+        for y in 0..H {
+            for x in 0..W {
+                let i = y * W + x;
+                if d.ground[i] == Ground::Agar && d.trail[i] > thr {
+                    let m = if d.looks_fed(i) { &mut h.fed } else { &mut h.pale };
+                    m[(y / 2) * HW + x / 2] += 0.25;
+                }
+            }
+        }
+        for p in d.piles.iter().filter(|p| !p.oats) {
+            let w = 0.25 * (0.4 + 0.6 * (p.food / p.full).clamp(0.0, 1.0));
+            for (ox, oy) in disc(p.r) {
+                if let Some(i) = cell_at(p.x + ox, p.y + oy) {
+                    h.food[(i / W / 2) * HW + (i % W) / 2] += w;
+                }
+            }
+        }
+        let mut tmp = vec![0.0f32; HW * HH];
+        for a in [&mut h.fed, &mut h.pale, &mut h.food] {
+            for _ in 0..2 {
+                blur(a, &mut tmp, HW, HH, 2);
+            }
+        }
+        h
+    }
+
+    /// **Worked out every other frame**: a glow 1/60 s old cannot be seen,
+    /// and this was the look's largest single cost after the dish itself.
+    /// Kept per look and per dish (by its address, so the window's one dish
+    /// hits and a picture of another dish does not) and reused while the
+    /// dish is under four steps on, or paused.
+    fn cached(d: &Dish, th: &Theme, thr: f32) -> std::sync::Arc<Halo> {
+        use std::sync::{Arc, Mutex};
+        type Slot = Option<(usize, u64, Arc<Halo>)>;
+        static CACHE: Mutex<[Slot; 5]> = Mutex::new([const { None }; 5]);
+        let k = Style::ALL.iter().position(|s| *s == th.look).unwrap_or(0);
+        let addr = d as *const Dish as usize;
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((a, t, h)) = &cache[k] {
+            if *a == addr && d.t >= *t && d.t < *t + 4 {
+                return h.clone();
+            }
+        }
+        let h = Arc::new(Halo::new(d, thr));
+        cache[k] = Some((addr, d.t, h.clone()));
+        h
+    }
+
+    /// The three fields at a dish cell, read between half-grid centres.
+    #[inline]
+    fn at(&self, x: usize, y: usize) -> (f32, f32, f32) {
+        let fx = (x as f32 + 0.5) * 0.5 - 0.5;
+        let fy = (y as f32 + 0.5) * 0.5 - 0.5;
+        let (x0, y0) = (fx.max(0.0) as usize, fy.max(0.0) as usize);
+        let (x1, y1) = ((x0 + 1).min(HW - 1), (y0 + 1).min(HH - 1));
+        let (ax, ay) = ((fx - x0 as f32).clamp(0.0, 1.0), (fy - y0 as f32).clamp(0.0, 1.0));
+        let k = [y0 * HW + x0, y0 * HW + x1, y1 * HW + x0, y1 * HW + x1];
+        let wt = [(1.0 - ax) * (1.0 - ay), ax * (1.0 - ay), (1.0 - ax) * ay, ax * ay];
+        let mut o = (0.0, 0.0, 0.0);
+        for (k, w) in k.iter().zip(wt) {
+            o.0 += self.fed[*k] * w;
+            o.1 += self.pale[*k] * w;
+            o.2 += self.food[*k] * w;
+        }
+        o
+    }
+}
+
+fn blur(a: &mut [f32], tmp: &mut [f32], w: usize, h: usize, r: usize) {
     let n = (2 * r + 1) as f32;
-    for y in 0..H {
-        let row = &a[y * W..(y + 1) * W];
-        let mut sum: f32 = row[..r.min(W)].iter().sum();
-        for x in 0..W {
-            if x + r < W {
+    for y in 0..h {
+        let row = &a[y * w..(y + 1) * w];
+        let mut sum: f32 = row[..r.min(w)].iter().sum();
+        for x in 0..w {
+            if x + r < w {
                 sum += row[x + r];
             }
             if x > r {
                 sum -= row[x - r - 1];
             }
-            tmp[y * W + x] = sum / n;
+            tmp[y * w + x] = sum / n;
         }
     }
-    for x in 0..W {
+    for x in 0..w {
         let mut sum = 0.0f32;
-        for y in 0..r.min(H) {
-            sum += tmp[y * W + x];
+        for y in 0..r.min(h) {
+            sum += tmp[y * w + x];
         }
-        for y in 0..H {
-            if y + r < H {
-                sum += tmp[(y + r) * W + x];
+        for y in 0..h {
+            if y + r < h {
+                sum += tmp[(y + r) * w + x];
             }
             if y > r {
-                sum -= tmp[(y - r - 1) * W + x];
+                sum -= tmp[(y - r - 1) * w + x];
             }
-            a[y * W + x] = sum / n;
+            a[y * w + x] = sum / n;
         }
     }
 }
@@ -1050,10 +1238,12 @@ fn rim_colour(th: &Theme, x: usize, y: usize, st: &Status) -> Rgb {
 /// The bare dish and what is outside it, which never change within a
 /// look: worked out once per look and kept (it was a tenth of the dish's
 /// cost every frame).
-fn background(th: &Theme) -> &'static [Rgb] {
+/// `flash`: the rim lit by the storm alarm's flash, kept likewise (worked
+/// out each flash frame it was 0.3 ms of the storm's last seconds).
+fn background(th: &Theme, flash: bool) -> &'static [Rgb] {
     use std::sync::OnceLock;
-    static CACHE: [OnceLock<Vec<Rgb>>; 4] = [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
-    let k = Style::ALL.iter().position(|s| *s == th.style).unwrap_or(0);
+    static CACHE: [OnceLock<Vec<Rgb>>; 10] = [const { OnceLock::new() }; 10];
+    let k = Style::ALL.iter().position(|s| *s == th.style).unwrap_or(0) * 2 + flash as usize;
     CACHE[k].get_or_init(|| {
         let calm = Status {
             joined: Vec::new(),
@@ -1061,8 +1251,8 @@ fn background(th: &Theme) -> &'static [Rgb] {
             coming: 0,
             lesson: false,
             left: 0,
-            alarm: false,
-            flash: false,
+            alarm: flash,
+            flash,
         };
         let mut v = Vec::with_capacity(W * H);
         for y in 0..H {
@@ -1139,6 +1329,14 @@ fn scar_colour(th: &Theme, x: usize, y: usize, t: u64) -> Rgb {
     }
 }
 
+fn pulsed(c: Rgb, beat: f32) -> Rgb {
+    if beat > 0.0 {
+        lerp(c, PULSE, beat * PULSE_STRENGTH)
+    } else {
+        c
+    }
+}
+
 /// An open snip (`Ground::Wound`): raw and dark while open, closing back
 /// to the agar under it over its last second, as `render.rs` draws it, so
 /// the cut is seen to heal rather than vanish.
@@ -1198,11 +1396,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         })
         .collect();
     let vof = |t: f32| lut[((t * 16.0) as usize).min(1023)];
-    let (hf, hp) = if th.glow > 0.0 {
-        halos(d, thr)
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let halo = (th.glow > 0.0).then(|| Halo::cached(d, th, thr));
     // Trail on open dish only, padded by two cells of nothing all round.
     const PAD: usize = 2;
     let pw = W + 2 * PAD;
@@ -1236,7 +1430,8 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     let tr = |x: i32, y: i32| -> f32 { padded[(y + PAD as i32) as usize * pw + (x + PAD as i32) as usize] };
     let shadow_of_salt = th.style != Style::Glow;
     let sf = s as f32;
-    let bg = background(th);
+    let bg = background(th, false);
+    let rim = background(th, st.alarm && st.flash);
     for y in 0..H {
         for x in 0..W {
             let i = y * W + x;
@@ -1245,22 +1440,31 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let mut edge = false;
             let mut fed = false;
             let mut shade = 0.0;
+            let mut beat = 0.0;
             let ground = match d.ground[i] {
-                Ground::Rim if !(st.alarm && st.flash) => bg[i],
-                Ground::Rim => rim_colour(th, x, y, st),
+                Ground::Rim => rim[i],
                 Ground::Salt => salt_colour(th, d, x, y),
                 Ground::Scar => scar_colour(th, x, y, d.t),
                 Ground::Wound => wound_colour(th, d, i, bg[i]),
                 Ground::Agar => {
                     let mut c = bg[i];
+                    if let Some(w) = &d.wander {
+                        if wander::in_exit(x, y) {
+                            c = exit_colour(th, d, w, x, y, c);
+                        }
+                    }
                     if shadow_of_salt && x > 0 && y > 0 && d.ground[i - W - 1] == Ground::Salt {
                         c = mul(c, 0.68);
                     }
-                    if th.glow > 0.0 {
-                        let (gf, gp) = (hf[i], hp[i]);
-                        for (k, ck) in c.iter_mut().enumerate() {
-                            let add = th.fed[2][k] as f32 * gf * th.glow * 0.55 + th.pale[1][k] as f32 * gp * th.glow * 0.5;
-                            *ck = (*ck as f32 + add).min(255.0) as u8;
+                    if let Some(h) = &halo {
+                        let (gf, gp, gd) = h.at(x, y);
+                        if gf + gp + gd > 0.004 {
+                            for (k, ck) in c.iter_mut().enumerate() {
+                                let add = th.fed[2][k] as f32 * gf * th.glow * 0.55
+                                    + th.pale[1][k] as f32 * gp * th.glow * 0.5
+                                    + th.food[k] as f32 * gd * th.glow * 0.7;
+                                *ck = (*ck as f32 + add).min(255.0) as u8;
+                            }
                         }
                     }
                     let t0 = tr(xi, yi);
@@ -1275,6 +1479,9 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                             any = true;
                             if !nfed && d.looks_fed(ny as usize * W + nx as usize) {
                                 nfed = true;
+                                if !is_tube {
+                                    beat = pulse(d, ny as usize * W + nx as usize);
+                                }
                             }
                         } else {
                             all = false;
@@ -1287,8 +1494,14 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         // tube's shape rather than the trail's grain.
                         shade = ((tr(xi + 2, yi + 2) - tr(xi - 2, yi - 2)) / (t0 + 6.0)).clamp(-1.0, 1.0);
                     }
+                    if is_tube && fed {
+                        beat = pulse(d, i);
+                    }
+                    if !fed {
+                        beat = 0.0;
+                    }
                     if is_tube {
-                        tube = Some(tube_colour(th, vof(t0), fed, shade));
+                        tube = Some(pulsed(tube_colour(th, vof(t0), fed, shade), beat));
                     }
                     c
                 }
@@ -1296,12 +1509,11 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let (px0, py0) = (xi * s, yi * s);
             if !edge {
                 let c = tube.unwrap_or(ground);
+                let px4 = [c[0], c[1], c[2], 255];
                 for py in 0..s {
                     let row = ((py0 + py) as usize * cv.w as usize + px0 as usize) * 4;
-                    for px in 0..s as usize {
-                        let o = row + px * 4;
-                        cv.f[o..o + 3].copy_from_slice(&c);
-                        cv.f[o + 3] = 255;
+                    for p in cv.f[row..row + 4 * s as usize].chunks_exact_mut(4) {
+                        p.copy_from_slice(&px4);
                     }
                 }
                 continue;
@@ -1317,7 +1529,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     let c = if v > thr {
                         match th.ink {
                             Some(ink) if v < thr * 1.9 => ink,
-                            _ => tube_colour(th, vof(v), fed, shade),
+                            _ => pulsed(tube_colour(th, vof(v), fed, shade), beat),
                         }
                     } else {
                         ground
@@ -1400,10 +1612,8 @@ fn piles(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         dish_index += 1;
         match th.style {
             Style::Glow => {
-                cv.around(cx, cy, rp + 6.0 * sf, |cv, x, y, dd| {
-                    let f = (1.0 - (dd - rp).max(0.0) / (6.0 * sf)).clamp(0.0, 1.0);
-                    cv.add(x, y, th.food, 0.22 * f * f * (0.4 + 0.6 * frac));
-                });
+                // Its glow is the halo's food field (`Halo`), drawn with
+                // the dish.
                 grain_disc(cv, cx, cy, rp, mul(th.food, 0.5 + 0.5 * frac), 1.0);
                 if p.reached() {
                     let beat = 0.55 + 0.45 * ((d.t as f32 / sps as f32) * TAU).sin();
@@ -1432,7 +1642,7 @@ fn piles(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             }
         }
         // At the end, each pile says whether it ended joined.
-        if d.phase == Phase::Over {
+        if d.phase == Phase::Over && d.wander.is_none() {
             badge(cv, th, cx + rp * 0.8, cy - rp * 0.8, joined);
         }
     }
@@ -1477,9 +1687,33 @@ fn badge(cv: &mut Cv, th: &Theme, x: f32, y: f32, ok: bool) {
 }
 
 /// Snip strokes as a cut: the stroke's own width, fading over a second.
+/// And joins (`Dish::snaps`): where two pieces met and became one, a burst
+/// that spreads and fades over 0.8 s, as `render.rs` draws it.
 fn marks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
     let sf = s as f32;
     let sps = STEPS_PER_SECOND as u64;
+    for &(x, y, at) in &d.snaps {
+        let age = d.t.saturating_sub(at) as f32 / sps as f32;
+        if age >= 0.8 {
+            continue;
+        }
+        let f = age / 0.8;
+        let (cx, cy) = (x * sf, y * sf);
+        let r = (2.0 + 10.0 * f) * sf;
+        if th.glow > 0.0 {
+            cv.around(cx, cy, r + 4.0 * sf, |cv, px, py, dd| {
+                let g = (1.0 - dd / (r + 4.0 * sf)).max(0.0);
+                cv.add(px, py, th.hot, 0.55 * (1.0 - f) * g * g);
+            });
+        }
+        if let Some(ink) = th.ink {
+            cv.ring(cx, cy, r, 6.0, ink, 1.0 - f, None);
+        }
+        cv.ring(cx, cy, r, 3.0, [255, 255, (230.0 * (1.0 - f) + 120.0 * f) as u8], 1.0 - 0.5 * f, None);
+        if f < 0.5 {
+            cv.ring(cx, cy, (1.0 + 4.0 * f) * sf, 2.0, [255, 255, 255], 1.0, None);
+        }
+    }
     for &(x, y, at) in &d.snip_marks {
         let age = d.t.saturating_sub(at);
         if age < sps {
@@ -1503,7 +1737,10 @@ fn chip(cv: &mut Cv, th: &Theme, x: i32, y: i32, lines: &[&str], c: Rgb) -> (i32
             cv.rbox(x, y, w, h, 10.0, Some((th.panel_edge, 1.0)), Some((ink, 3.0)));
         }
         Style::Glow => {
-            cv.rbox(x, y, w, h, 8.0, Some((th.panel, 0.82)), Some((mul(c, 0.7), 1.5)));
+            // Opaque in the game's look: a see-through chip was blended
+            // pixel by pixel, a tenth of a millisecond for the two corners.
+            let a = if th.look == Style::Night { 1.0 } else { 0.82 };
+            cv.rbox(x, y, w, h, 8.0, Some((th.panel, a)), Some((mul(c, 0.7), 1.5)));
         }
         _ => {
             cv.rbox(x, y, w, h, 5.0, Some((th.panel, 0.92)), Some((mul(c, 0.6), 1.0)));
@@ -1844,13 +2081,14 @@ fn corners(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, st: &Status, s: i32) 
     let bottom = H as i32 * s - 2 * line_h(th) - 14;
     let h = hint(d, view, st);
     let hc = if d.phase == Phase::Growing && !st.alarm { th.text } else { th.hot };
-    if th.style != Style::Glow {
+    let hc = if d.can_go() { exit_teal(th) } else { hc };
+    if th.hud != Style::Glow {
         chip(cv, th, 6, bottom, &[&h[0], &h[1]], hc);
     }
     if view.keys {
         let k = keys_lines(view);
         let w = k.iter().map(|l| text_w(th, l)).max().unwrap_or(0) + 16;
-        if th.style == Style::Glow {
+        if th.hud == Style::Glow {
             for (n, l) in k.iter().enumerate() {
                 text(cv, th, cv.w - w, bottom + 6 + n as i32 * line_h(th), l, th.dim);
             }
@@ -1864,11 +2102,76 @@ fn corners(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, st: &Status, s: i32) 
 
 fn hud_strip(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32, st: &Status) {
     let y0 = H as i32 * s;
-    match th.style {
+    if d.wander.is_some() {
+        // The Wanderer's bar is the tile bar in every look: the candidates
+        // were drawn before she existed.
+        return hud_wander(cv, d, view, th, y0);
+    }
+    match th.hud {
         Style::Glow => hud_glow(cv, d, view, th, y0, st),
         Style::Toy => hud_toy(cv, d, view, th, y0, st),
-        _ => hud_bench(cv, d, view, th, y0, st),
+        _ => {
+            // The tile bar is redrawn only when something on it changes; the
+            // mould count, which changes nearly every frame, goes on after.
+            let key = bench_key(d, view, th, cv.w, st);
+            hud_cached(cv, th, y0, key, |cv| hud_bench(cv, d, view, th, y0, st));
+            if d.score.is_none() {
+                let m = format!("Mould {}", d.walkers.len());
+                let mw = text_w(th, &m);
+                text(cv, th, cv.w - mw - 10, y0 + 10, &m, th.dim);
+            }
+        }
     }
+}
+
+/// Everything `hud_bench` draws, but the mould count: the tile bar's cache
+/// key. Pixel positions where something moves, so a bar that moved less than
+/// a pixel is the same bar.
+fn bench_key(d: &Dish, view: &View, th: &Theme, w: i32, st: &Status) -> String {
+    let stocks: Vec<_> = Tool::ALL
+        .iter()
+        .map(|t| stock(d, *t).map(|(h, o, g)| (h, o, (10.0 * g) as i32)))
+        .collect();
+    let bw = w - 616 - 10;
+    let line = timeline(d).map(|(f, ticks)| {
+        let px: Vec<i32> = ticks.iter().map(|t| (bw as f32 * t) as i32).collect();
+        ((bw as f32 * f) as i32, px)
+    });
+    format!(
+        "{:?} {w} {:?} {:?} {} {} {} {} {:?} {:?} {} {} {:?} {:?}",
+        th.look,
+        view.tool,
+        stocks,
+        oats_wait(d),
+        phase_words(d, st),
+        st.alarm,
+        matches!(d.phase, Phase::Storm(_)),
+        line,
+        st.joined,
+        st.reach,
+        st.coming,
+        score_words(d),
+        d.score.as_ref().map(|s| s.stars),
+    )
+}
+
+/// The HUD strip below the dish (rows `y0` on), drawn by `draw` only when
+/// `key` differs from the last frame's for this look, and otherwise copied.
+fn hud_cached(cv: &mut Cv, th: &Theme, y0: i32, key: String, draw: impl FnOnce(&mut Cv)) {
+    use std::sync::Mutex;
+    type Slot = Option<(String, Vec<u8>)>;
+    static CACHE: Mutex<[Slot; 5]> = Mutex::new([const { None }; 5]);
+    let k = Style::ALL.iter().position(|s| *s == th.look).unwrap_or(0);
+    let from = (y0 * cv.w * 4) as usize;
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((was, px)) = &cache[k] {
+        if *was == key && px.len() == cv.f.len() - from {
+            cv.f[from..].copy_from_slice(px);
+            return;
+        }
+    }
+    draw(cv);
+    cache[k] = Some((key, cv.f[from..].to_vec()));
 }
 
 fn score_words(d: &Dish) -> Option<[String; 3]> {
@@ -1947,33 +2250,41 @@ fn food_pips(cv: &mut Cv, th: &Theme, x: i32, y: i32, st: &Status) -> i32 {
     cx - 10 - x
 }
 
-fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Status) {
-    cv.rect(0, y0, cv.w, cv.h - y0, th.hud_bg, 1.0);
-    cv.rect(0, y0, cv.w, 1, th.panel_edge, 1.0);
-    let right = 616;
-    if let Some(words) = score_words(d) {
-        big(cv, th, 3, 12, y0 + 10, &words[0], th.hot);
-        text(cv, th, 12, y0 + 40, &words[1], th.text);
-        text(cv, th, 12, y0 + 60, &words[2], th.dim);
-        let sc = d.score.clone().unwrap_or_default();
-        for (k, name) in ["Join", "Short", "Storm"].iter().enumerate() {
-            let x = right + 20 + k as i32 * 96;
-            star(cv, th, x + 10, y0 + 10, 4, sc.stars[k]);
-            let w = text_w(th, name);
-            text(cv, th, x + 28 - w / 2, y0 + 58, name, if sc.stars[k] { th.text } else { th.dim });
-        }
-        return;
+/// The tile bar's own greys: C's, or drawn from the look's panel for
+/// `Night`. (selected tile, key badge, timeline track)
+fn tones(th: &Theme) -> (Rgb, Rgb, Rgb) {
+    if th.look == Style::Night {
+        (lerp(th.panel, th.hot, 0.12), lerp(th.panel, th.panel_edge, 0.32), lerp(th.panel, th.panel_edge, 0.24))
+    } else {
+        ([38, 42, 30], [44, 50, 56], [30, 36, 40])
     }
+}
+
+fn hud_back(cv: &mut Cv, th: &Theme, y0: i32) {
+    cv.rect(0, y0, cv.w, cv.h - y0, th.hud_bg, 1.0);
+    if th.style == Style::Glow {
+        for k in 0..4 {
+            cv.rect(0, y0 + k, cv.w, 1, th.panel_edge, 0.5 / (k + 1) as f32);
+        }
+    } else {
+        cv.rect(0, y0, cv.w, 1, th.panel_edge, 1.0);
+    }
+}
+
+/// C's tool tiles: key, name, icon, stock pips with the next one growing,
+/// and what is left in words.
+fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
+    let (sel_fill, badge_fill, _) = tones(th);
     for (k, t) in Tool::ALL.iter().enumerate() {
         let x = 8 + k as i32 * 150;
         let y = y0 + 8;
         let sel = *t == view.tool;
         let st_ = stock(d, *t);
         let spent = st_.is_some_and(|(h, _, _)| h == 0);
-        let fill = if sel { [38, 42, 30] } else { th.panel };
+        let fill = if sel { sel_fill } else { th.panel };
         let edge = if sel { (th.hot, 2.0) } else { (th.panel_edge, 1.0) };
         cv.rbox(x, y, 142, 70, th.radius, Some((fill, 1.0)), Some(edge));
-        cv.rbox(x + 6, y + 6, 18, 18, 4.0, Some((if sel { th.hot } else { [44, 50, 56] }, 1.0)), None);
+        cv.rbox(x + 6, y + 6, 18, 18, 4.0, Some((if sel { th.hot } else { badge_fill }, 1.0)), None);
         text(cv, th, x + 10, y + 8, &(k + 1).to_string(), if sel { [20, 20, 20] } else { th.text });
         let nc = if sel {
             th.hot
@@ -2010,21 +2321,39 @@ fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Statu
                     Tool::Salt => "Used".into(),
                     _ => format!("{have} left"),
                 };
-                text(cv, th, x + 42, y + 50, &sub, th.dim);
+                // "+1 in 13s" is wider than the tile at x + 42 in the mixed font.
+                let sx = if th.font == Font::Mixed { x + 34 } else { x + 42 };
+                text(cv, th, sx, y + 50, &sub, th.dim);
             }
         }
     }
+}
+
+fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Status) {
+    hud_back(cv, th, y0);
+    let right = 616;
+    if let Some(words) = score_words(d) {
+        big(cv, th, 3, 12, y0 + 10, &words[0], th.hot);
+        text(cv, th, 12, y0 + 40, &words[1], th.text);
+        text(cv, th, 12, y0 + 60, &words[2], th.dim);
+        let sc = d.score.clone().unwrap_or_default();
+        for (k, name) in ["Join", "Short", "Storm"].iter().enumerate() {
+            let x = right + 20 + k as i32 * 96;
+            star(cv, th, x + 10, y0 + 10, 4, sc.stars[k]);
+            let w = text_w(th, name);
+            text(cv, th, x + 28 - w / 2, y0 + 58, name, if sc.stars[k] { th.text } else { th.dim });
+        }
+        return;
+    }
+    tiles(cv, d, view, th, y0);
     // Status: the storm, a timeline to it, the food joined, the mould.
     let ph = phase_words(d, st);
     let pc = if st.alarm || matches!(d.phase, Phase::Storm(_)) { th.storm } else { th.text };
     text(cv, th, right, y0 + 10, &ph, pc);
-    let m = format!("Mould {}", d.walkers.len());
-    let mw = text_w(th, &m);
-    text(cv, th, cv.w - mw - 10, y0 + 10, &m, th.dim);
     let bw = cv.w - right - 10;
     let by = y0 + 32;
     if let Some((f, ticks)) = timeline(d) {
-        cv.rbox(right, by, bw, 10, 3.0, Some(([30, 36, 40], 1.0)), None);
+        cv.rbox(right, by, bw, 10, 3.0, Some((tones(th).2, 1.0)), None);
         let wf = warn_frac(d);
         let wx = right + (bw as f32 * (1.0 - wf)) as i32;
         cv.band((wx as f32, (by + 5) as f32), ((right + bw) as f32, (by + 5) as f32), 5.0, |cv, _a, _c, x, y| {
@@ -2046,6 +2375,110 @@ fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Statu
     let pw = food_pips(cv, th, right + w + 8, fy, st);
     let total = st.joined.len() as u32 + st.coming;
     text(cv, th, right + w + 18 + pw, fy - 7, &format!("{} of {} joined", st.reach, total), th.dim);
+}
+
+/// The Wanderer's bar: the tiles, then her dish, her size, the food left
+/// under her (the clock she has instead of a storm), and what Go would do.
+fn hud_wander(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
+    let Some(w) = &d.wander else { return };
+    hud_back(cv, th, y0);
+    tiles(cv, d, view, th, y0);
+    let right = 616;
+    let bw = cv.w - right - 10;
+    text(cv, th, right, y0 + 10, &format!("Dish {}", w.stretch), th.text);
+    let m = format!(
+        "Mould {}  best {}",
+        thousands(d.walkers.len() as u32 + w.pouring.len() as u32),
+        thousands(w.peak)
+    );
+    let mw = text_w(th, &m);
+    text(cv, th, cv.w - mw - 10, y0 + 10, &m, th.dim);
+    // Food left on the dish's piles, draining: her clock.
+    let food = d.food_left().clamp(0.0, 1.0);
+    let fl = text(cv, th, right, y0 + 30, "Food", th.text);
+    let pct = format!("{}%", (food * 100.0).round() as u32);
+    let pw = text_w(th, &pct);
+    let (bx, by, bl) = (right + fl + 10, y0 + 34, bw - fl - pw - 22);
+    cv.rbox(bx, by, bl, 10, 3.0, Some((tones(th).2, 1.0)), None);
+    let low = food < 0.2;
+    let fc = if low { th.bad } else { th.food };
+    cv.rbox(bx, by, (bl as f32 * food) as i32, 10, 3.0, Some((fc, 1.0)), None);
+    text(cv, th, cv.w - pw - 10, y0 + 30, &pct, if low { th.bad } else { th.dim });
+    let teal = exit_teal(th);
+    let (line, c) = match (d.phase, w.outcome) {
+        (Phase::Crossing(_), _) => (
+            format!(
+                "Through {}  in line {}  died {}",
+                thousands(w.through),
+                thousands(w.pouring.len() as u32),
+                thousands(w.lost_on_way)
+            ),
+            teal,
+        ),
+        (Phase::Over, Some(Outcome::Arrived { n, .. })) => (format!("N: next dish, with {}", thousands(n)), th.hot),
+        (Phase::Over, _) => ("R: try again  N: new journey".to_string(), th.hot),
+        _ if d.can_go() => (
+            format!("G: go. {} of {} would come", thousands(w.joined), thousands(d.walkers.len() as u32)),
+            teal,
+        ),
+        _ => ("Lead her to the crack, then G".to_string(), th.dim),
+    };
+    if d.can_go() && th.glow > 0.0 {
+        cv.rbox(right - 6, y0 + 52, bw + 12, 26, 8.0, Some((teal, 0.12)), Some((teal, 1.0)));
+    }
+    text(cv, th, right, y0 + 56, &line, c);
+}
+
+/// "The way on", above the crack: dim until Go is open.
+fn exit_label(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
+    if d.wander.is_none() || d.phase == Phase::Over {
+        return;
+    }
+    let word = "The way on";
+    let w = text_w(th, word) + 16;
+    let y = ((wander::EXIT_Y - wander::EXIT_HALF) as i32 * s - line_h(th) - 18).max(4);
+    let c = if d.can_go() { exit_teal(th) } else { mul(exit_teal(th), 0.6) };
+    chip(cv, th, cv.w - w - 4, y, &[word], c);
+}
+
+/// The end of a stretch, across the top of the dish so what stayed behind
+/// shows under it. The amount leads: how much of her came.
+fn arrival(cv: &mut Cv, d: &Dish, th: &Theme) {
+    let Some(w) = &d.wander else { return };
+    let sps = STEPS_PER_SECOND as u64;
+    let name = title(wander::NAME);
+    let (head, hc, rest): (String, Rgb, Vec<String>) = match w.outcome {
+        Some(Outcome::Arrived { n, of }) => {
+            let pct = (n as f32 / of.max(1) as f32 * 100.0).round() as u32;
+            let at = w.go_at.unwrap_or(0) / sps;
+            (
+                format!("{name} arrived with {} of {}", thousands(n), thousands(of)),
+                th.hot,
+                vec![
+                    format!("{pct}%. Left at {}, {} died in line", clock(at as u32), thousands(w.lost_on_way)),
+                    format!("N: dish {} with {}   R: again", w.stretch + 1, thousands(n)),
+                ],
+            )
+        }
+        Some(Outcome::Lost { at }) => (
+            format!("{name} didn't make it"),
+            th.bad,
+            vec![
+                format!("She starved at {}", clock((at / sps) as u32)),
+                "R: try again   N: new journey".into(),
+            ],
+        ),
+        None => return,
+    };
+    let k = 3;
+    let lh = line_h(th);
+    let tw = rest.iter().map(|l| text_w(th, l)).max().unwrap_or(0).max(big_w(th, k, &head));
+    let (w_, h) = (tw + 40, 7 * k + 2 * lh + 34);
+    let x0 = (cv.w - w_) / 2;
+    card(cv, th, x0, 8, w_, h, Some(if matches!(w.outcome, Some(Outcome::Arrived { .. })) { exit_teal(th) } else { th.bad }));
+    big(cv, th, k, x0 + 20, 20, &head, hc);
+    text(cv, th, x0 + 20, 20 + 7 * k + 10, &rest[0], th.text);
+    text(cv, th, x0 + 20, 20 + 7 * k + 10 + lh, &rest[1], th.dim);
 }
 
 fn hud_glow(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Status) {
@@ -2340,6 +2773,7 @@ fn banner(cv: &mut Cv, th: &Theme, b: &super::render::Banner, d: &Dish) {
 
 enum Row {
     Gap,
+    Crack(&'static str),
     Head(&'static str),
     Line(String, Rgb),
     Swatch(u8, &'static str),
@@ -2349,14 +2783,64 @@ enum Row {
 
 /// The briefing card: what the game is, in the order a new player needs it,
 /// with the real colours and icons beside the words that name them.
-fn brief(cv: &mut Cv, view: &View, th: &Theme, s: i32) {
+fn brief(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     let lesson = view.banner.is_some();
     let storm = if lesson {
         "A storm comes at the end.".to_string()
     } else {
         format!("A storm comes at {}.", clock(super::DISH_SECONDS))
     };
-    let rows = vec![
+    let tools = [
+        Row::Head("Tools"),
+        Row::Tool(Tool::Lamp, "Lamp   hold: pushes the mould away"),
+        Row::Tool(Tool::Oats, "Oats   click: it grows toward them"),
+        Row::Tool(Tool::Salt, "Salt   drag: a wall it can't cross"),
+        Row::Tool(Tool::Snip, "Snip   drag: cut a tube"),
+    ];
+    let name = title(wander::NAME);
+    let (heading, rows) = match &d.wander {
+        Some(w) => {
+            let heading = if w.stretch == 1 {
+                format!("{name}, the Wanderer")
+            } else {
+                format!("{name}, dish {}", w.stretch)
+            };
+            let mut rows = vec![];
+            if w.stretch > 1 {
+                rows.push(Row::Line(format!("{} of her came this far.", thousands(w.came_in)), th.hot));
+            }
+            rows.extend([
+                Row::Line(format!("{name} is your slime mould. The food"), th.text),
+                Row::Line("under her runs out. Lead her to the".into(), th.text),
+                Row::Line("glowing crack on the right, then G: go.".into(), exit_teal(th)),
+                Row::Gap,
+                Row::Swatch(0, "Yellow: fed mould"),
+                Row::Swatch(1, "Grey: cut off from food, starving"),
+                Row::Swatch(2, "Tan: food"),
+                Row::Crack("Teal: the way on"),
+                Row::Gap,
+                Row::Head("Who comes with her"),
+                Row::Line("All fed mould joined to the crack pours".into(), th.text),
+                Row::Line("out along its tubes, and starves in a".into(), th.text),
+                Row::Line("long or narrow line: build a thick, short".into(), th.text),
+                Row::Line("trunk. What arrives starts the next dish.".into(), th.text),
+                Row::Gap,
+            ]);
+            rows.extend(tools);
+            (heading, rows)
+        }
+        None => {
+            let mut rows = brief_rows(th, storm);
+            rows.extend(tools);
+            ("Mould".to_string(), rows)
+        }
+    };
+    brief_card(cv, th, s, &heading, &rows);
+}
+
+/// The scored dish's card, above its tools.
+fn brief_rows(th: &Theme, storm: String) -> Vec<Row> {
+    vec![
         Row::Line("Your mould lives on food. Join the".into(), th.text),
         Row::Line("food piles with its tubes.".into(), th.text),
         Row::Line(storm, th.text),
@@ -2370,12 +2854,10 @@ fn brief(cv: &mut Cv, view: &View, th: &Theme, s: i32) {
         Row::Star("Keep the network short"),
         Row::Star("Lose nothing to the storm"),
         Row::Gap,
-        Row::Head("Tools"),
-        Row::Tool(Tool::Lamp, "Lamp   hold: pushes the mould away"),
-        Row::Tool(Tool::Oats, "Oats   click: it grows toward them"),
-        Row::Tool(Tool::Salt, "Salt   drag: a wall it can't cross"),
-        Row::Tool(Tool::Snip, "Snip   drag: cut a tube"),
-    ];
+    ]
+}
+
+fn brief_card(cv: &mut Cv, th: &Theme, s: i32, heading: &str, rows: &[Row]) {
     let lh = line_h(th) + 4;
     let indent = 40;
     let tool_indent = 52;
@@ -2383,12 +2865,13 @@ fn brief(cv: &mut Cv, view: &View, th: &Theme, s: i32) {
         .iter()
         .map(|r| match r {
             Row::Line(l, _) => text_w(th, l),
-            Row::Swatch(_, l) | Row::Star(l) => text_w(th, l) + indent,
+            Row::Swatch(_, l) | Row::Star(l) | Row::Crack(l) => text_w(th, l) + indent,
             Row::Tool(_, l) => text_w(th, l) + tool_indent,
             _ => 0,
         })
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(big_w(th, 4, heading));
     let w = tw + 48;
     let title_h = 7 * 4 + 16;
     let prompt = "Click or press a key to start";
@@ -2397,9 +2880,9 @@ fn brief(cv: &mut Cv, view: &View, th: &Theme, s: i32) {
     let (x0, y0) = ((cv.w - w) / 2, ((dish_h - h) / 2).max(4));
     card(cv, th, x0, y0, w, h, None);
     let x = x0 + 24;
-    big(cv, th, 4, x, y0 + 14, "Mould", th.hot);
+    big(cv, th, 4, x, y0 + 14, heading, th.hot);
     let mut y = y0 + 14 + title_h;
-    for r in &rows {
+    for r in rows {
         match r {
             Row::Gap => {}
             Row::Head(l) => {
@@ -2428,6 +2911,14 @@ fn brief(cv: &mut Cv, view: &View, th: &Theme, s: i32) {
                         }
                         grain_disc(cv, (sx + 14) as f32, (sy + 6) as f32, 7.0, th.food, 1.0);
                     }
+                }
+                text(cv, th, x + indent, y, l, th.text);
+            }
+            Row::Crack(l) => {
+                let teal = exit_teal(th);
+                for k in 0..28 {
+                    let g = 0.4 + 0.6 * k as f32 / 27.0;
+                    cv.rect(x + k, y + 2, 1, 12, lerp(th.agar, teal, g), 1.0);
                 }
                 text(cv, th, x + indent, y, l, th.text);
             }
@@ -2499,6 +2990,23 @@ mod tests {
                 "+1 in 7s",
                 "Lesson: no storm",
                 "Storm! Score in 6 s",
+                "Mabel arrived with 1,234 of 1,900",
+                "67%. Left at 0:38, 307 died in line",
+                "N: dish 2 with 926   R: again",
+                "Mabel didn't make it",
+                "She starved at 2:10",
+                "Through 532  in line 507  died 194",
+                "G: go. 1,258 of 1,265 would come",
+                "Lead her to the crack, then G",
+                "Mould 1,265  best 1,387",
+                "G: go now. She leaves",
+                "The way on",
+                "Teal: the way on",
+                "Mabel, the Wanderer",
+                "Who comes with her",
+                "long or narrow line: build a thick, short",
+                "N: next dish, with her",
+                "On her way",
             ]
             .map(String::from),
         );
@@ -2553,7 +3061,7 @@ mod cost {
         let mut d = Dish::new(1);
         let (fw, fh) = frame_size(4);
         let mut buf = vec![0u8; (fw * fh * 4) as usize];
-        for (at, style) in [40, 87].into_iter().flat_map(|a| [Style::Bench, Style::Glow, Style::Toy].map(|s| (a, s))) {
+        for (at, style) in [40, 87].into_iter().flat_map(|a| [Style::Night, Style::Bench, Style::Glow, Style::Toy].map(|s| (a, s))) {
             while d.t < at * STEPS_PER_SECOND as u64 {
                 d.step();
             }
