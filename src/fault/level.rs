@@ -34,16 +34,43 @@ pub const WALL_TOP: i32 = 40;
 /// Where the lake's surface starts.
 pub const LAKE_START: i32 = 100;
 /// The mill's left wall.
-pub const MILL_X0: i32 = 196;
+pub const MILL_X0: i32 = 200;
 /// The gorge: columns `GORGE_X0..GORGE_X1`, cut down through the floor.
-pub const GORGE_X0: i32 = 150;
-pub const GORGE_X1: i32 = 166;
+/// 36 wide since the 2026-11-08 playtest: at 16 it was dammed by the debris
+/// of every spillway that drained half the lake, and the flood went to the
+/// mill on 4 runs of 4 -- a staged spillway could not be mill-safe at all.
+pub const GORGE_X0: i32 = 140;
+pub const GORGE_X1: i32 = 176;
+/// The terrace the mill stands on: rock from `TERRACE_X0` to the right
+/// edge, its top at `TERRACE_Y`. A spillway's flood runs past its foot into
+/// the gorge; only a wall breaking low, with the whole lake behind it, comes
+/// up over it. Added with the gorge widening, same playtest.
+pub const TERRACE_X0: i32 = 184;
+pub const TERRACE_Y: i32 = 136;
+/// The safe line: the lake must never stand above this row. Fifteen rows
+/// under the crest, painted on the ice. The playtest's proposal: what a
+/// spillway is *for* is holding the lake down, and the old grading (share
+/// drained) scored a held lake as a failure.
+pub const SAFE_LINE: i32 = WALL_TOP + 15;
+/// The mill race: the lake must end the thaw at or above this row, because
+/// the mill runs on it. Without it the cheapest way to keep the lake under
+/// the safe line was to empty it: a deep cut early, while the lake was
+/// still low, drained it to the floor of the cut for good, and tapping the
+/// wall's foot under water scored best of six strategies (24 stars of 30,
+/// to a careful notch's 18; 2026-11-08). What the game asks is a spillway
+/// that *holds* the lake between the lines.
+pub const MILL_RACE: i32 = 80;
+/// Top of the mill's walls.
+const MILL_TOP: i32 = TERRACE_Y - 22;
 /// Anything at or below this row in the gorge is carried away.
 pub const DRAIN_Y: i32 = H - 4;
 /// Melt stream, full water cells per second. Sized so that with nothing
 /// done the lake reaches the wall's top at about 90 s of a 120 s thaw:
 /// 60 rows x 96 columns over 90 s.
 pub const INFLOW_PER_SEC: f32 = 64.0;
+/// What the river below the gorge carries away, full water cells a second:
+/// about three times the melt stream. See `Level::drain`.
+pub const RIVER_PER_SEC: f32 = 200.0;
 
 #[derive(Clone)]
 pub struct Level {
@@ -77,6 +104,12 @@ pub fn build(seed: u64) -> World {
             world.set(x, y, Cell::EMPTY);
         }
     }
+    // The terrace, before the sky is frozen: it is ground.
+    for y in TERRACE_Y..FLOOR_Y {
+        for x in TERRACE_X0..W {
+            world.set(x, y, Cell::new(material::BEDROCK, 0));
+        }
+    }
     // **Fix "underground" before the wall goes up.** The renderer draws
     // everything below each column's first solid cell -- recorded once, at
     // the first step, and never revised -- as the inside of a cave. With the
@@ -102,9 +135,9 @@ pub fn build(seed: u64) -> World {
             world.set(x, y, Cell::new(material::WATER, 0).with_aux(material::LIQUID_FULL));
         }
     }
-    // The mill: two stone walls, a log roof, on the far bank.
-    let (mx0, mx1, my0) = (MILL_X0, MILL_X0 + 32, 128);
-    for y in my0..FLOOR_Y {
+    // The mill: two stone walls, a log roof, on the terrace.
+    let (mx0, mx1, my0) = (MILL_X0, MILL_X0 + 32, MILL_TOP);
+    for y in my0..TERRACE_Y {
         for x in [mx0, mx0 + 1, mx1 - 1, mx1] {
             world.set(x, y, Cell::new(material::STONE, 1));
         }
@@ -124,7 +157,7 @@ pub fn build(seed: u64) -> World {
 
 impl Level {
     pub fn new(world: &World) -> Self {
-        let mill = (MILL_X0 - 2, 122, MILL_X0 + 34, FLOOR_Y - 1);
+        let mill = (MILL_X0 - 2, MILL_TOP - 6, MILL_X0 + 34, TERRACE_Y - 1);
         let mut l = Level { mill, surface: LAKE_START, inflow_acc: 0.0, burst_started: false, mill_cells: 0 };
         l.mill_cells = l.mill_standing(world);
         l
@@ -210,15 +243,31 @@ impl Level {
     /// or slush that has come to rest in its bottom, which the river carries
     /// off too (a slab that plugged the gorge for good would flood the mill
     /// from a spillway that was the right size).
+    ///
+    /// **The river carries `RIVER_PER_SEC` and no more.** Water past that
+    /// stays, backs up the gorge and over the valley floor, and a flood big
+    /// enough comes up over the terrace into the mill. A spillway the size
+    /// of the melt stream drains for ever; a wall split low dumps the lake
+    /// faster than the river can take it. Without the cap the gorge took
+    /// anything, and once the mill was on its terrace a random deep cut that
+    /// emptied the lake was the safest play there was (random 14 stars of
+    /// 30 to the plan's 8, 2026-11-08).
     pub fn drain(&self, world: &mut World) -> u32 {
         let mut out = 0u32;
-        for y in DRAIN_Y..H - 1 {
-            for x in GORGE_X0..GORGE_X1 {
+        let budget = (RIVER_PER_SEC / super::FPS as f32 * material::LIQUID_FULL as f32) as u32;
+        // Bottom row first, then up; columns alternate direction by frame
+        // so neither side of the gorge is favoured.
+        for y in (DRAIN_Y..H - 1).rev() {
+            for i in 0..(GORGE_X1 - GORGE_X0) {
+                let x = if world.frame.is_multiple_of(2) { GORGE_X0 + i } else { GORGE_X1 - 1 - i };
                 let c = world.get(x, y);
                 if c.material == material::EMPTY || c.material == material::BEDROCK {
                     continue;
                 }
                 if world.materials.kind(c.material) == material::MaterialKind::Liquid {
+                    if out + c.aux() as u32 > budget {
+                        continue;
+                    }
                     out += c.aux() as u32;
                 }
                 world.set(x, y, Cell::EMPTY);
@@ -251,6 +300,13 @@ impl Level {
         let mut pushes = Vec::new();
         for (i, b) in world.chunk_bodies.iter().enumerate() {
             let (bx, by) = (b.x.round() as i32, b.y.round() as i32);
+            // Only in the gap it came out of. Pushed all the way down the
+            // valley, every block a spillway shed rode the flood onto the
+            // terrace and hit the mill (seen 2026-11-08, wall 1: 8 hits from
+            // a notch that held the lake 17 rows under the safe line).
+            if bx > WALL_X1 + 4 {
+                continue;
+            }
             let mut wet = 0;
             for c in &b.cells {
                 let (x, y) = (bx + c.dx, by + c.dy);
