@@ -56,6 +56,13 @@ crack would run. It ranked five fixes; all five are in.
 5. **A burst sheds the face as slabs**: the top 28 rows not already moving
    go as one slide, broken at the grain into blocks.
 
+**How to play on screen** (after the owner's Storm and Mould playtests,
+where the goal and the tools were the complaint): the game opens on a panel
+with the goal, one line per tool and key, and one per star; the thaw does
+not start until the first click or key, and `H` brings the panel back. A
+test checks every character is in the HUD font and every line fits (red for
+`&` and for an over-long line).
+
 **Two bugs found on the way.** The engine's `paint_circle` is rounder than
 the hole the cracks see (`r^2 + 1`), so a drilled hole kept four cells of
 ice that cracks took for hole: a tip stopped one cell short, and a
