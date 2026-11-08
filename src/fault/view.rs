@@ -35,9 +35,15 @@ pub struct Ui {
     pub plain: bool,
 }
 
+/// A worked-out tap preview: the corner it was worked out for, the frame,
+/// and the edges, `(owner x, owner y, horizontal)`.
+type Preview = ((i32, i32), u64, Vec<(i32, i32, bool)>);
+
 pub struct View {
     renderer: Renderer,
     cells: Vec<u8>,
+    /// Where the tap under the cursor would run.
+    preview: Option<Preview>,
 }
 
 const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -51,7 +57,7 @@ pub const ICE_PALETTE: [[u8; 4]; 4] = [[70, 128, 168, 255], [62, 118, 160, 255],
 
 impl View {
     pub fn new() -> Self {
-        View { renderer: Renderer::new(), cells: vec![0; (W * H * 4) as usize] }
+        View { renderer: Renderer::new(), cells: vec![0; (W * H * 4) as usize], preview: None }
     }
 
     pub fn draw(&mut self, g: &Game, out: &mut [u8], ui: Ui) {
@@ -73,9 +79,123 @@ impl View {
                 }
             }
         }
+        draw_safe_line(g, out, (ow, oh));
         draw_cracks(g, out, ow);
+        draw_severed(g, out, (ow, oh));
+        self.draw_preview(g, out, ow, ui);
         draw_marks(g, out, ow, ui);
         draw_bar(g, out, (ow, oh), ui);
+    }
+}
+
+impl View {
+    /// **The tap's run, shown before the click** (2026-11-08 playtest, fix
+    /// 2): an amber line where the crack would go, worked out by playing the
+    /// tap on a copy of the game (`Game::trial` + `settle_cracks`) -- the
+    /// planned player's own look-ahead, given to the player. Recomputed when
+    /// the corner under the cursor changes, or every half second as the lake
+    /// moves the strain.
+    fn draw_preview(&mut self, g: &Game, out: &mut [u8], ow: u32, ui: Ui) {
+        let corner = match (ui.tool, ui.cursor) {
+            (Tool::Tap, Some((cx, cy))) if !g.over() && g.taps_left > 0 && g.tips.tips.is_empty() => tips::tap_corner(g, cx, cy),
+            _ => None,
+        };
+        let Some(v) = corner else {
+            self.preview = None;
+            return;
+        };
+        let stale = self.preview.as_ref().is_none_or(|(pv, f, _)| *pv != v || g.world.frame >= f + 30);
+        if stale {
+            self.preview = Some((v, g.world.frame, super::preview_tap(g, v)));
+        }
+        let s = SCALE as i32;
+        let Some((_, _, edges)) = &self.preview else { return };
+        for &(x, y, horizontal) in edges {
+            // A solid amber line a pixel either side of the edge: the colour,
+            // not a dash, says "not cut yet" -- a dotted line at one pixel
+            // was invisible at play scale.
+            let (x0, y0, along_x) = if horizontal { (x * s, (y + 1) * s, true) } else { ((x + 1) * s, y * s, false) };
+            for k in 0..s {
+                for w in -1..1 {
+                    let (px, py) = if along_x { (x0 + k, y0 + w) } else { (x0 + w, y0 + k) };
+                    blend(out, ow, px, py, PREVIEW, 0.75);
+                }
+            }
+        }
+    }
+}
+
+const PREVIEW: [u8; 4] = [255, 186, 60, 255];
+const SAFE: [u8; 4] = [255, 196, 70, 255];
+const DANGER: [u8; 4] = [255, 110, 90, 255];
+const RACE: [u8; 4] = [190, 235, 255, 255];
+const CUT_FREE: [u8; 4] = [255, 226, 90, 255];
+
+/// **The safe line** (playtest fix 1): a dashed amber line across the lake
+/// and the wall, fifteen rows under the crest, named on the water. Red once
+/// the lake has stood above it.
+fn draw_safe_line(g: &Game, out: &mut [u8], (ow, oh): (u32, u32)) {
+    let s = SCALE as i32;
+    let crossed = g.lake_high < level::SAFE_LINE - 1;
+    let c = if crossed { DANGER } else { SAFE };
+    let py = level::SAFE_LINE * s;
+    for px in 0..(level::WALL_X1 + 2) * s {
+        if (px / 6) % 2 == 0 {
+            put(out, ow, px, py, c);
+            put(out, ow, px, py + 1, c);
+        }
+    }
+    let hud = Hud::new(ow, oh, TEXT);
+    let label = if crossed { "SAFE LINE - CROSSED" } else { "SAFE LINE - KEEP THE LAKE UNDER IT" };
+    hud.text(out, 4, py / TEXT - 9, label, c);
+    // And the mill race below it: the lake must not be emptied either. Red
+    // only once the lake has been up past it and fallen back, or at the end:
+    // it starts below it and rises.
+    let low = g.level.surface > level::MILL_RACE && (g.lake_high <= level::MILL_RACE || g.over());
+    let c = if low { DANGER } else { RACE };
+    let py = level::MILL_RACE * s;
+    for px in 0..level::WALL_X0 * s {
+        if (px / 6) % 2 == 0 {
+            put(out, ow, px, py, c);
+            put(out, ow, px, py + 1, c);
+        }
+    }
+    let label = if low { "MILL RACE - THE LAKE IS TOO LOW" } else { "MILL RACE - KEEP THE LAKE ABOVE IT" };
+    hud.text(out, 4, py / TEXT + 3, label, c);
+}
+
+/// **A piece cut free** (playtest fix 3): outlined the moment its ring
+/// closes, and a tick on the upstream face at the row the lake must reach
+/// to push it -- so a tap whose payoff is forty seconds off says so now.
+fn draw_severed(g: &Game, out: &mut [u8], (ow, _): (u32, u32)) {
+    let s = SCALE as i32;
+    let pulse = 0.55 + 0.35 * ((g.world.frame as f32) * 0.15).sin();
+    for p in &g.tips.severed {
+        let set: std::collections::HashSet<(i32, i32)> = p.cells.iter().copied().collect();
+        for &(x, y) in &p.cells {
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                if set.contains(&(x + dx, y + dy)) {
+                    continue;
+                }
+                // The cell's side facing out, drawn just inside it.
+                for k in 0..s {
+                    let (px, py) = match (dx, dy) {
+                        (-1, _) => (x * s, y * s + k),
+                        (1, _) => (x * s + s - 1, y * s + k),
+                        (_, -1) => (x * s + k, y * s),
+                        _ => (x * s + k, y * s + s - 1),
+                    };
+                    blend(out, ow, px, py, CUT_FREE, pulse);
+                }
+            }
+        }
+        if let Some(row) = tips::push_row(g, p) {
+            let py = row * s + s / 2;
+            for px in (level::WALL_X0 - 6) * s..level::WALL_X0 * s {
+                put(out, ow, px, py, CUT_FREE);
+                put(out, ow, px, py + 1, CUT_FREE);
+            }
+        }
     }
 }
 
@@ -298,32 +418,46 @@ fn draw_bar(g: &Game, out: &mut [u8], (ow, oh): (u32, u32), ui: Ui) {
         hud.text(out, x + 4, top + 6, &label, if held { [20, 24, 30, 255] } else { [210, 220, 235, 255] });
         x += w + 4;
     }
-    let says = if g.over() { "THE THAW IS OVER. R TO PLAY AGAIN" } else { ui.tool.says() };
-    hud.text(out, 4, top + 21, says, [235, 240, 250, 255]);
+    // A cut-free piece takes the hint's line: the two side by side ran into
+    // each other at the window's width.
+    let (says, colour) = if g.over() {
+        ("THE THAW IS OVER. R TO PLAY AGAIN", [235, 240, 250, 255])
+    } else if !g.tips.severed.is_empty() {
+        ("CUT FREE - THE LAKE WILL PUSH IT OUT WHEN IT REACHES THE MARK", [255, 226, 90, 255])
+    } else {
+        (ui.tool.says(), [235, 240, 250, 255])
+    };
+    hud.text(out, 4, top + 21, says, colour);
     if ui.plain {
         return;
     }
     let left = super::THAW_SECONDS as f32 - g.seconds();
     let score = g.score();
-    let lake_rows = level::FLOOR_Y - g.level.surface;
-    let wall_rows = level::FLOOR_Y - level::WALL_TOP;
-    let line = format!(
-        "THAW {:>3}S   LAKE {:>2}/{} HIGH   SPILLWAY {:>3}/S (MARK {})   SLABS {}",
-        left.max(0.0) as i32,
-        lake_rows,
-        wall_rows,
-        g.flow_now() as i32,
-        super::FLOW_MARK as i32,
-        g.counts.slabs_freed
-    );
+    let under = g.level.surface - level::SAFE_LINE;
+    let lake = if under < 0 {
+        format!("LAKE {} ROWS OVER THE SAFE LINE", -under)
+    } else if g.level.surface > level::MILL_RACE {
+        format!("LAKE {} ROWS UNDER THE MILL RACE", g.level.surface - level::MILL_RACE)
+    } else {
+        format!("LAKE {under} ROWS UNDER THE SAFE LINE")
+    };
+    let line = format!("THAW {:>3}S   {}   SPILLWAY {:>3}/S   SLABS {}", left.max(0.0) as i32, lake, g.flow_now() as i32, g.counts.slabs_freed);
     hud.text(out, 4, top + 31, &line, [170, 200, 230, 255]);
     let stars = "*".repeat(score.stars as usize) + &".".repeat(3 - score.stars as usize);
+    let held = if g.lake_high < level::SAFE_LINE - 1 {
+        "LINE CROSSED"
+    } else if g.level.surface > level::MILL_RACE && (g.lake_high <= level::MILL_RACE || g.over()) {
+        "LAKE TOO LOW"
+    } else {
+        "LAKE HELD"
+    };
+    let mill = if score.mill_hit { "MILL HIT" } else { "MILL SAFE" };
     let verdict = if score.burst {
         "THE WALL BURST".to_string()
     } else if g.over() {
-        format!("{}   DRAINED {:.0}%   {}", stars, score.drained * 100.0, if score.mill_hit { "MILL HIT" } else { "MILL SAFE" })
+        format!("{stars}   {held}   {mill}")
     } else {
-        format!("DRAINED {:.0}%   {}", score.drained * 100.0, if score.mill_hit { "MILL HIT" } else { "MILL SAFE" })
+        format!("{held}   {mill}")
     };
     hud.text(out, width - crate::hud::text_width(&verdict) - 4, top + 6, &verdict, if score.burst { [255, 120, 110, 255] } else { [250, 220, 140, 255] });
 }

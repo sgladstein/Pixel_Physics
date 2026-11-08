@@ -6579,16 +6579,22 @@ file unless its report says so.
 - [fault-probe-2026-11-07.md](fault-probe-2026-11-07.md) — **probe 6 of 6
   (`--bin fault`): crack an ice wall before the rising lake bursts it; is a
   running crack satisfying, and can you read where it goes?** Doing nothing
-  bursts 10 of 10 walls; random play and a look-ahead planner both burst 5 of
-  10 (stars 7 vs 5, p = 1.0), so a plan does not win yet. The same tap on the
-  same wall gives the same crack; across walls it stays near the tap but turns
-  a different way. Frame mean 1.4-1.8 ms, worst 11 ms. Verdict waits on the
-  owner's playtest. Records five rejected ways to get a cut slab off the crest.
+  bursts 10 of 10 walls. Round 1: random play and a look-ahead planner both
+  burst 5 of 10 (stars 7 vs 5, p = 1.0). **Round 2 (11-08) made the playtest
+  review's five fixes** (a safe line and a mill race to hold the lake between,
+  a tap preview, a cut-free outline, holes that pull cracks in, a burst that
+  sheds slabs) and a plan now wins: 28 stars to random's 11, 9-0-1, p = 0.004;
+  careless deep taps never hold the lake. Open: one recipe (a row of holes,
+  taps between) wins every wall. Records five rejected ways to get a cut slab
+  off the crest, and a drilled hole that left ice the cracks took for hole.
 - [heartwood-probe-2026-11-07.md](heartwood-probe-2026-11-07.md) — **probe 8 (`--bin heartwood`): your tree grows only
   where you play a card, against a free shipped tree; does the order matter?** Doing nothing gets 0% of the light on 12 of 12
   seeds. A plan ends with more light than random cards on 8 of 12 (p 0.39) and a star on 9 seeds to random's 5 (p 0.06):
   keeping every tip busy is most of what it buys. A card ends a median 3 cells from its outline's end. Adds the
-  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. Verdict waits on the owner.
+  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. **Round 2 (2026-11-08)**, the
+  playtest's six fixes (one card one tip, upkeep, big cards, two low suns, outline checked before paying, fixed rival):
+  the plan beats 6 of 7 scripted strategies on final light (pick-every-tip 3-9 -> 10-2, mashing 7-5 -> 10-1, p 0.012,
+  none past the corrected bar) and ties Leaf Out only (6-4). Verdict waits on the owner.
 
 - [kudzu-probe-2026-11-07.md](kudzu-probe-2026-11-07.md) — **probe 7 (`--bin kudzu`): a vine over two walls; does a cut
   that drops a whole sheet feel good, and does the hover preview make cutting a deduction?** Over 12 paired seeds, doing
