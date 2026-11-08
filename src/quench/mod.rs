@@ -109,8 +109,40 @@ pub const FORGE_NEEDS: u32 = 6;
 /// Ticks between molten cells the forge burns. The vent gives one every
 /// `VENT_EVERY` (4), so the forge alone takes two-thirds of the pour.
 pub const FORGE_EATS_EVERY: u64 = 6;
-/// Seconds of a burning forge that score full marks.
-pub const FORGE_FULL_SECONDS: f32 = 45.0;
+/// Seconds of a burning forge that score full marks. 45 until the
+/// 2026-11-08 playtest: the forge topped out at ~70% in every plan, so the
+/// best round scored ~170 and three stars (175) could not be reached.
+pub const FORGE_FULL_SECONDS: f32 = 40.0;
+/// Ground cells the shovel can move in a round. **Unlimited until the
+/// 2026-11-08 playtest**, where 70 free digs saved every house with no water
+/// and no lid (score 166 against lid-and-water's 145): the shovel was the
+/// game. A budget makes a pit one tool among three.
+pub const DIG_BUDGET: i32 = 150;
+/// The eruption's surge: for `SURGE_SECONDS` starting somewhere in
+/// `SURGE_FROM..SURGE_FROM + SURGE_SPREAD` seconds (the seed picks), the vent
+/// pours every `SURGE_EVERY` ticks instead of [`VENT_EVERY`]. Every seed
+/// played the same round until the 2026-11-08 playtest.
+pub const SURGE_FROM: u64 = 18;
+pub const SURGE_SPREAD: u64 = 30;
+pub const SURGE_SECONDS: u64 = 12;
+pub const SURGE_EVERY: u64 = 3;
+/// After the surge the vent lulls for as long, at `LULL_EVERY`, so every
+/// seed pours the same lava and only *when* differs. A surge alone added 60
+/// cells and cost the two-lid plan a house on three seeds of four (113-161
+/// cells past against 105 with no surge).
+pub const LULL_EVERY: u64 = 6;
+/// The forge is hot: water that runs into its pit, or into the air over it,
+/// boils off, up to this many cells a tick. A new player's first move --
+/// throw the held Splash at the lava -- ran into the pit and left the forge
+/// at 3% (2026-11-08 playtest; 12% in this probe's `fresh` plan).
+///
+/// **Boil only, never melt.** A first version also melted the pit's loose
+/// crust back to lava; it kept every pit molten for the whole round, the
+/// forge burned 1,341 cells in every plan (more than the vent pours), and
+/// doing nothing scored three stars.
+pub const FORGE_BOILS_PER_TICK: u32 = 24;
+/// How far above the forge's pit its heat reaches, in rows.
+pub const FORGE_HEAT_ROWS: i32 = 14;
 /// Lava (molten, or the loose stone it became) at or right of this column has
 /// got past the dam site: [`Counts::past`].
 pub const PAST_X: i32 = 175;
@@ -254,6 +286,17 @@ pub struct Counts {
     /// Lava, and loose stone made from it, at or past [`PAST_X`] now: what
     /// got past the dam site.
     pub past: u32,
+    /// The most `past` has been: loose stone settles and its count can fall
+    /// late in a round, so the peak is what got through.
+    pub past_peak: u32,
+    /// Stone made under a lid, ever (cells that turned from lava to stone
+    /// inside a lid's zone with water at hand), and standing now.
+    pub dam_made: u32,
+    pub dam_yours_now: u32,
+    /// Water the forge boiled off.
+    pub forge_boiled: u32,
+    /// Ground cells the shovel moved.
+    pub dug: u32,
     /// Splashes, lids and digs used.
     pub splashes: u32,
     pub lids: u32,
@@ -304,7 +347,45 @@ pub struct Quench {
     /// village too, so a flood check then counted the player's own splashes.
     /// The probe's `flood=8` puts it back.
     pub flood_seconds: u64,
+    /// Ground cells the shovel may still move ([`DIG_BUDGET`]).
+    pub dig_left: i32,
+    /// The space under every lid, down to the ground: where stone made from
+    /// lava counts as the player's dam.
+    lid_zone: Vec<bool>,
+    /// Cells that are stone the player made under a lid -- drawn in their own
+    /// colour for as long as they stay stone.
+    yours: Vec<bool>,
+    /// Splashes waiting to report what they made, and the reports on screen.
+    pending_pops: Vec<PendingPop>,
+    pub pops: Vec<Pop>,
+    /// When the eruption surges, in ticks: `[start, end)`.
+    pub surge: (u64, u64),
+    through_seen: u32,
 }
+
+/// A splash waiting [`POP_AFTER`] ticks before it reports what it made.
+#[derive(Clone, Copy, Debug)]
+struct PendingPop {
+    tick: u64,
+    x: i32,
+    y: i32,
+    yours_at: u32,
+    quench_at: u32,
+}
+
+/// "+N DAM STONE" over the place a splash made it.
+#[derive(Clone, Debug)]
+pub struct Pop {
+    pub x: i32,
+    pub y: i32,
+    pub text: String,
+    pub good: bool,
+    pub until: u64,
+}
+
+/// Ticks after a splash before its "+N" appears, and how long it stays.
+pub const POP_AFTER: u64 = 75;
+pub const POP_SHOWS: u64 = 120;
 
 fn idx(x: i32, y: i32) -> usize {
     (y * W + x) as usize
@@ -410,7 +491,9 @@ impl Quench {
             tick: 0,
             tank: TANK,
             lids_left: LIDS,
-            tool: Tool::Splash,
+            // Lid first: with Splash in hand a new player's first move was to
+            // throw it at the lava (2026-11-08 playtest).
+            tool: Tool::Lid,
             houses,
             dam,
             forge,
@@ -431,6 +514,16 @@ impl Quench {
             vent_every: VENT_EVERY,
             // Off by default; see `flood_seconds`.
             flood_seconds: 0,
+            dig_left: DIG_BUDGET,
+            lid_zone: vec![false; (W * H) as usize],
+            yours: vec![false; (W * H) as usize],
+            pending_pops: Vec::new(),
+            pops: Vec::new(),
+            through_seen: 0,
+            surge: {
+                let start = SURGE_FROM + (crate::sim::rng::jitter3(seed as i32, 11, 3) * SURGE_SPREAD as f32) as u64;
+                (start * TICKS_PER_SECOND, (start + SURGE_SECONDS) * TICKS_PER_SECOND)
+            },
         };
         // The overhang is a roof the engine's frozen map will not see (it is
         // narrower than the 32-cell reach of the open sky), so it is declared
@@ -527,6 +620,7 @@ impl Quench {
         }
         self.tank -= n;
         self.counts.splashes += 1;
+        self.pending_pops.push(PendingPop { tick: self.tick, x: cx, y: cy - SPLASH_RADIUS - 2, yours_at: self.counts.dam_made, quench_at: self.counts.quenched });
         self.last_splash_tick = Some(self.tick);
         true
     }
@@ -557,7 +651,7 @@ impl Quench {
             }
         }
         if ground * 20 > total {
-            return Some("A LID NEEDS OPEN SPACE UNDER IT");
+            return Some("TOO LOW: A LID HANGS 7 ROWS CLEAR - AIM HIGHER");
         }
         None
     }
@@ -593,6 +687,11 @@ impl Quench {
             return false;
         }
         self.declare_roof(Area { x0: area.x0 + 2, x1: area.x1 - 2, ..area });
+        for x in area.x0..=area.x1 {
+            for y in area.y0..floor_y(x) {
+                self.lid_zone[idx(x, y)] = true;
+            }
+        }
         self.lid_areas.push(area);
         self.lids_left -= 1;
         self.counts.lids += 1;
@@ -600,6 +699,10 @@ impl Quench {
     }
 
     fn dig(&mut self, cx: i32, cy: i32) -> bool {
+        if self.dig_left <= 0 {
+            self.note = Some(("THE SHOVEL IS SPENT".into(), self.tick));
+            return false;
+        }
         let r = DIG_RADIUS;
         let mut n = 0;
         for y in (cy - r)..=(cy + r) {
@@ -608,7 +711,7 @@ impl Quench {
                     continue;
                 }
                 let c = self.world.get(x, y);
-                if self.is_ground(c.material) && c.material != material::BEDROCK {
+                if self.is_ground(c.material) && c.material != material::BEDROCK && n < self.dig_left {
                     self.world.set(x, y, Cell::EMPTY);
                     n += 1;
                 }
@@ -616,6 +719,8 @@ impl Quench {
         }
         if n > 0 {
             self.counts.digs += 1;
+            self.counts.dug += n as u32;
+            self.dig_left -= n;
         }
         n > 0
     }
@@ -630,7 +735,15 @@ impl Quench {
         // The vent keeps itself open: crust or rubble on its mouth is
         // re-melted, or the first skin of stone over it ends the eruption
         // (seen 2026-11-07: the vent sealed itself at ~20 s).
-        if secs < VENT_SECONDS && self.tick.is_multiple_of(self.vent_every) {
+        let len = self.surge.1 - self.surge.0;
+        let every = if (self.surge.0..self.surge.1).contains(&self.tick) {
+            SURGE_EVERY.min(self.vent_every)
+        } else if (self.surge.1..self.surge.1 + len).contains(&self.tick) {
+            LULL_EVERY.max(self.vent_every)
+        } else {
+            self.vent_every
+        };
+        if secs < VENT_SECONDS && self.tick.is_multiple_of(every) {
             let (vx, vy) = self.vent;
             // The seed picks which of the vent's three cells each pour comes
             // out of, so paired seeds are different eruptions and not one
@@ -654,6 +767,7 @@ impl Quench {
                 }
             }
         }
+        self.forge_heat();
         for (i, slot) in self.prev_mat.iter_mut().enumerate() {
             *slot = self.world.get(i as i32 % W, i as i32 / W).material;
         }
@@ -685,6 +799,63 @@ impl Quench {
             }
         }
         self.census();
+        self.report_splashes();
+    }
+
+    /// The forge boils off water that ran into its pit or the air over it,
+    /// [`FORGE_BOILS_PER_TICK`] cells a tick, bottom up.
+    fn forge_heat(&mut self) {
+        let f = self.forge;
+        let mut boiled = 0;
+        'scan: for y in (f.y0 - FORGE_HEAT_ROWS..=f.y1).rev() {
+            for x in f.x0..=f.x1 {
+                let c = self.world.get(x, y);
+                if c.material == material::WATER {
+                    // Gone, not turned to steam. **Writing a 400C steam cell
+                    // here with `World::set` made rounds non-deterministic**
+                    // -- the same seed gave 67, 55 and 60 cells past the dam
+                    // on three runs, still so at RAYON_NUM_THREADS=1 -- and
+                    // removing the cell is repeatable (74, 74, 74). Not
+                    // chased further (2026-11-08); see the report.
+                    self.world.set(x, y, Cell::EMPTY);
+                    boiled += 1;
+                    if boiled >= FORGE_BOILS_PER_TICK {
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        if boiled > 0 && self.counts.forge_boiled == 0 {
+            self.note = Some(("THE FORGE BOILS OFF WATER - IT NEEDS LAVA".into(), self.tick));
+        }
+        self.counts.forge_boiled += boiled;
+    }
+
+    /// Each splash, [`POP_AFTER`] ticks on, says what it made: dam stone under
+    /// a lid, or crust in the open that a lid would have kept.
+    fn report_splashes(&mut self) {
+        let now = self.tick;
+        let (made, quench) = (self.counts.dam_made, self.counts.quenched);
+        let mut i = 0;
+        while i < self.pending_pops.len() {
+            let p = self.pending_pops[i];
+            if now < p.tick + POP_AFTER {
+                i += 1;
+                continue;
+            }
+            self.pending_pops.swap_remove(i);
+            let dam = made - p.yours_at;
+            let crust = quench - p.quench_at;
+            let (text, good) = if dam > 0 {
+                (format!("+{dam} DAM STONE"), true)
+            } else if crust > 0 {
+                (format!("+{crust} CRUST, NO LID: STEAM LOST"), false)
+            } else {
+                ("NO LAVA HERE".to_string(), false)
+            };
+            self.pops.push(Pop { x: p.x, y: p.y, text, good, until: now + POP_SHOWS });
+        }
+        self.pops.retain(|p| p.until > now);
     }
 
     /// Glow, drips, forge, houses, dam -- one pass over the world.
@@ -694,6 +865,12 @@ impl Quench {
         let mut dam_rock = 0;
         let mut dam_cells = 0;
         let mut past = 0;
+        let mut yours_now = 0;
+        // A through-crust quench leaves its stone a few cells under the
+        // water, so "wet" cannot see it; this tick's count can.
+        let through_now = self.world.phase_changes.reacted_through_crust;
+        let through = through_now > self.through_seen;
+        self.through_seen = through_now;
         for y in 0..H {
             for x in 0..W {
                 let i = idx(x, y);
@@ -708,6 +885,10 @@ impl Quench {
                         let n = self.world.get(x + dx, y + dy).material;
                         n == self.steam || n == material::WATER
                     });
+                    if (wet || through) && self.lid_zone[i] {
+                        self.yours[i] = true;
+                        self.counts.dam_made += 1;
+                    }
                     if wet {
                         self.glow[i] = 40;
                         if self.world.is_game_roofed(x, y) || self.world.is_game_roofed(x, y - 1) {
@@ -717,6 +898,13 @@ impl Quench {
                 }
                 if was == self.steam && m == material::WATER && self.world.is_game_roofed(x, y) {
                     self.counts.drips += 1;
+                }
+                if self.yours[i] {
+                    if m == material::STONE || m == material::RUBBLE {
+                        yours_now += 1;
+                    } else {
+                        self.yours[i] = false;
+                    }
                 }
                 if self.forge.contains(x, y) && m == self.lava {
                     forge_molten += 1;
@@ -751,6 +939,8 @@ impl Quench {
             }
         }
         self.counts.past = past;
+        self.counts.past_peak = self.counts.past_peak.max(past);
+        self.counts.dam_yours_now = yours_now;
         self.counts.dam_now = dam_rock as f32 / dam_cells.max(1) as f32;
         self.counts.dam_peak = self.counts.dam_peak.max(self.counts.dam_now);
         for h in 0..self.houses.len() {
@@ -804,11 +994,13 @@ impl Quench {
     }
 
     /// Stars, 0..=3.
+    /// Thresholds moved after the 2026-11-08 playtest, where doing nothing
+    /// earned one star (120 against the old 75) and nothing could reach three.
     pub fn stars(&self) -> u32 {
         match self.score() {
             s if s >= 175 => 3,
-            s if s >= 125 => 2,
-            s if s >= 75 => 1,
+            s if s >= 160 => 2,
+            s if s >= 140 => 1,
             _ => 0,
         }
     }
@@ -834,11 +1026,25 @@ impl Quench {
                 if edge && (x + y) % 3 == 0 {
                     blend(buf, x, y, [255, 255, 255], 0.75);
                 }
-                // Steam under a roof reads as a glow, so the engine is visible
-                // at phone size.
+                // The engine under a lid, drawn so it reads against the sky
+                // (2026-11-08 playtest: the drip was pale blue on sky blue):
+                // steam a bright white haze, water -- the drops and the pool
+                // they make -- a deep blue.
                 let m = self.world.get(x, y).material;
-                if self.world.is_game_roofed(x, y) && (m == self.steam || m == material::WATER) {
-                    blend(buf, x, y, [190, 235, 255], 0.55);
+                if self.world.is_game_roofed(x, y) && m == self.steam {
+                    blend(buf, x, y, [250, 250, 255], 0.7);
+                }
+                if self.world.is_game_roofed(x, y) && m == material::WATER {
+                    blend(buf, x, y, [20, 60, 190], 0.85);
+                }
+                // **Your dam**: stone made from lava under a lid keeps a colour
+                // of its own -- pale sandstone -- for as long as it stands, so
+                // the dam reads as built and not as the gorge's rock. The
+                // review asked for a warm brown; brown sat too close to
+                // cooling lava's own crust on screen.
+                if self.yours[i] {
+                    let j = crate::sim::rng::jitter(x, y);
+                    blend(buf, x, y, [222 + (j * 25.0) as u8, 196 + (j * 22.0) as u8, 140 + (j * 20.0) as u8], 0.95);
                 }
                 if self.glow[i] > 0 {
                     let a = self.glow[i] as f32 / 40.0;
@@ -854,7 +1060,7 @@ impl Quench {
 
 /// The window's frame: the world at [`SCALE`]x, with the HUD band under it.
 pub const SCALE: i32 = 3;
-pub const HUD_H: i32 = 66;
+pub const HUD_H: i32 = 106;
 pub const FRAME_W: u32 = (W * SCALE) as u32;
 pub const FRAME_H: u32 = (H * SCALE + HUD_H) as u32;
 
@@ -930,9 +1136,11 @@ impl Quench {
         let mut x = 3;
         for (t, c) in [
             (format!("FORGE {forge}%"), if forge > 0 { HOT } else { DIM }),
-            (format!("HOUSES SAFE {}/{}", self.houses_safe(), self.houses.len()), if self.houses_safe() == self.houses.len() { INK } else { BAD }),
+            (format!("HOUSES {}/{}", self.houses_safe(), self.houses.len()), if self.houses_safe() == self.houses.len() { INK } else { BAD }),
+            (format!("DAM {}", self.counts.dam_yours_now), [230, 150, 90, 255]),
             (format!("WATER {}", self.tank), COOL),
             (format!("LIDS {}", self.lids_left), INK),
+            (format!("SHOVEL {}", self.dig_left.max(0)), INK),
         ] {
             text(frame, x, 0, &t, c);
             x += crate::hud::text_width(&t) + 8;
@@ -945,18 +1153,34 @@ impl Quench {
         } else {
             "ROUND OVER".to_string()
         };
-        text(frame, FRAME_W as i32 / 2 - crate::hud::text_width(&clock) - 3, 0, &clock, if flood && secs >= FLOOD_AT as f32 { COOL } else { INK });
-        // Row 2: the tools.
+        // The clock sits in the sky's top-right corner: the status row is
+        // full, and it ran over SHOVEL there (seen 2026-11-08).
+        let cx = FRAME_W as i32 / 2 - crate::hud::text_width(&clock) - 4;
+        crate::hud::draw_text_scaled(frame, size, 2, (cx + 1, 4), &clock, [20, 16, 14, 255]);
+        crate::hud::draw_text_scaled(frame, size, 2, (cx, 3), &clock, if flood && secs >= FLOOD_AT as f32 { COOL } else { INK });
+        // Rows 2-3: the goal and what counts as winning, always on screen.
+        // Both playtests of the sibling prototypes (Storm, Mould,
+        // 2026-11-08) said the same thing first: "I didn't know what I was
+        // supposed to do". 64 characters is the most a row holds.
+        text(frame, 3, 1, "GOAL: DAM THE LAVA. FEED THE FORGE, KEEP IT OFF THE HOUSES.", INK);
+        text(frame, 3, 2, "WIN: SCORE 140+ (FORGE % + 25 PER SAFE HOUSE). 3 STARS: 175", DIM);
+        // Row 4: the tools, each with what it does, and the round keys.
         let mut x = 3;
         for (i, t) in Tool::ALL.iter().enumerate() {
-            let label = format!("{} {}", i + 1, t.name());
-            text(frame, x, 1, &label, if *t == self.tool { [255, 255, 120, 255] } else { DIM });
+            let does = match t {
+                Tool::Splash => "SPLASH WATER",
+                Tool::Lid => "DROP A LID",
+                Tool::Dig => "DIG DIRT",
+            };
+            let label = format!("{} {does}", i + 1);
+            text(frame, x, 3, &label, if *t == self.tool { [255, 255, 120, 255] } else { DIM });
             x += crate::hud::text_width(&label) + 8;
         }
-        let on = |b: bool| if b { "ON" } else { "OFF" };
-        let rules = format!("F LID DRIP {}  C WATER THROUGH CRUST {}", on(self.fast_drip), on(self.world.crust_quench_depth > 0));
-        text(frame, x, 1, &rules, DIM);
-        // Row 3: what the next click does, or what just happened.
+        text(frame, x + 4, 3, "R RETRY  N NEW", DIM);
+        // The engine switches (`F`, `C`) stay on their keys and off the
+        // screen: "LID DRIP / WATER THROUGH CRUST" was engine talk to a
+        // player (2026-11-08 playtest).
+        // Row 5: what the next click does, or what just happened.
         let line = if self.over() {
             format!("SCORE {} - STARS {}/3   R TO PLAY AGAIN", self.score(), self.stars())
         } else if let Some((n, t)) = self.note.as_ref().filter(|(_, t)| self.tick < t + 120) {
@@ -968,10 +1192,23 @@ impl Quench {
                 Err(t) => t,
             }
         } else {
-            // Round 2's one hint: the combo is not guessable from the tools.
-            "A LID IS A ROOF. WATER UNDER IT AS LAVA ARRIVES SEALS IT.".to_string()
+            // The goal first, then the combo, which is not guessable from
+            // the tools (2026-11-08 playtest).
+            if self.lid_areas.is_empty() {
+                "BUILD THE DAM ON THE DOTTED LINE. START WITH A LID.".to_string()
+            } else {
+                "WATER UNDER A LID AS THE LAVA ARRIVES TURNS IT TO DAM.".to_string()
+            }
         };
-        text(frame, 3, 2, &line, INK);
+        text(frame, 3, 4, &line, INK);
+        // What each splash made, over where it landed.
+        for p in &self.pops {
+            let w = crate::hud::text_width(&p.text);
+            let px = ((p.x * SCALE) / 2 - w / 2).clamp(2, FRAME_W as i32 / 2 - w - 2);
+            let py = ((p.y * SCALE) / 2 - 6).max(2);
+            crate::hud::draw_text_scaled(frame, size, 2, (px + 1, py + 1), &p.text, [20, 16, 14, 255]);
+            crate::hud::draw_text_scaled(frame, size, 2, (px, py), &p.text, if p.good { [255, 190, 110, 255] } else { [210, 220, 230, 255] });
+        }
     }
 }
 

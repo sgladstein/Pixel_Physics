@@ -3539,8 +3539,17 @@ fn exchange_with_fluid(world: &mut World, occupied: &HashSet<(i32, i32)>, motion
         // column gives nothing up. There is still a spare -- the counts
         // match -- so take the nearest of them rather than dropping the
         // water, which is the one outcome this whole path exists to avoid.
+        //
+        // **Ties are broken by position, not by the set.** `min_by_key`
+        // keeps the first of equal keys, and the first in a std `HashSet`
+        // is whatever its per-instance random hasher made it -- so two
+        // spares at the same distance went to either one, run to run, from
+        // one identical world. Found 2026-11-08 by stepping twenty clones of
+        // one Quench frame (seed 5, tick 3371): 11 of 20 swapped one water
+        // cell diagonally the other way, and the run ended 144 or 180 lava
+        // cells past the dam depending on which.
         let target = target.or_else(|| {
-            let pick = vacating.iter().copied().min_by_key(|&(x, y)| (x - sx).abs() + (y - sy).abs());
+            let pick = vacating.iter().copied().min_by_key(|&(x, y)| ((x - sx).abs() + (y - sy).abs(), y, x));
             if let Some(p) = pick {
                 vacating.remove(&p);
             }
@@ -4299,6 +4308,30 @@ mod tests {
     /// off and the game does not.
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
+    }
+
+    /// **Determinism: a tie between two spare cells goes the same way every
+    /// time.** The body moves right and gives up `(10,10)` and `(10,12)`;
+    /// the water at `(11,11)` finds nothing straight behind it, so it takes
+    /// the nearest spare, and both are two cells away. Each call builds a
+    /// fresh std `HashSet` with its own random hasher, which is exactly what
+    /// made the pick vary run to run before ties were broken by position
+    /// (Quench seed 5 ended 144 or 180 lava past the dam from one world,
+    /// 2026-11-08). Positive control: with the old key, 64 calls agreeing
+    /// has odds of about 2^-63.
+    #[test]
+    fn displaced_water_breaks_a_distance_tie_the_same_way_every_time() {
+        let mut picked = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            let mut w = test_world();
+            w.set(11, 11, Cell::new(material::WATER, 0));
+            let occupied: HashSet<(i32, i32)> = [(10, 10), (10, 12)].into_iter().collect();
+            exchange_with_fluid(&mut w, &occupied, (1, 0), &[(11, 11)], 4);
+            let at: Vec<(i32, i32)> = [(10, 10), (10, 12)].into_iter().filter(|&(x, y)| w.get(x, y).material == material::WATER).collect();
+            assert_eq!(at.len(), 1, "the water must land in exactly one spare, found {at:?}");
+            picked.insert(at[0]);
+        }
+        assert_eq!(picked.len(), 1, "one world, two outcomes: the tie went to {picked:?}");
     }
 
     #[test]
