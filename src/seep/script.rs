@@ -404,7 +404,7 @@ pub(crate) fn stall_road(g: &Game) -> Vec<(i32, i32)> {
 fn lead_spot(g: &Game, target: (i32, i32)) -> Option<(i32, i32)> {
     let d2 = |x: i32, y: i32| (x - target.0) * (x - target.0) + (y - target.1) * (y - target.1);
     let tip = g.mould.tips.iter().filter(|t| t.alive).min_by_key(|t| d2(t.x, t.y))?;
-    let gr = super::ground(&g.solid, &g.water, &g.wet);
+    let gr = super::ground(&g.solid, &g.water, &g.wet, &g.wet_floor);
     let mut best: Option<(i32, i32)> = None;
     for dy in -6..=6 {
         for dx in -6..=6 {
@@ -420,7 +420,7 @@ fn lead_spot(g: &Game, target: (i32, i32)) -> Option<(i32, i32)> {
 /// A dry tube cell with fire beside it and a lamp still alight within 40:
 /// where a fuse is about to run on.
 fn fuse_front(g: &Game) -> Option<(i32, i32)> {
-    let gr = super::ground(&g.solid, &g.water, &g.wet);
+    let gr = super::ground(&g.solid, &g.water, &g.wet, &g.wet_floor);
     for e in g.mould.edges.iter().filter(|e| e.alive) {
         for &(x, y) in &e.cells {
             let burning = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| {
@@ -506,7 +506,7 @@ fn safe_spark(g: &Game) -> Option<SparkPlan> {
                 .iter()
                 .max_by_key(|&&(x, y)| lamps.iter().map(|&(lx, ly)| (x - lx).abs() + (y - ly).abs()).min().unwrap_or(0))
                 .unwrap();
-            let gr = super::ground(&g.solid, &g.water, &g.wet);
+            let gr = super::ground(&g.solid, &g.water, &g.wet, &g.wet_floor);
             let mut dry = Vec::new();
             for &(x, y) in &body {
                 if let Some(e) = g.mould.tube_at(x, y) {

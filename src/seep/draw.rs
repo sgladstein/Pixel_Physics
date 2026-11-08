@@ -108,6 +108,15 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
                 if w > 0.05 {
                     col = mix(col, [40, 62, 110], 0.8 * w);
                 }
+                // Water the player has just put down glistens, so a stroke
+                // reads as fresh, and fades as it dries back.
+                let fresh = w - g.wet_floor[i];
+                if fresh > 0.05 {
+                    col = mix(col, [70, 135, 230], 0.55 * fresh);
+                    if fresh > 0.3 && (x * 31 + y * 17 + t as usize / 5).is_multiple_of(29) {
+                        col = [205, 232, 255];
+                    }
+                }
             } else if c.material == material::EMPTY {
                 // Air beside damp rock gets a faint sheen so a Damp stroke is
                 // visible even where the rock edge is thin.
@@ -214,10 +223,24 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
                 }
             }
         }
+        // A tip racing on fresh water burns white with a halo: the answer
+        // to the stroke, seen at once.
+        let i = idx(tip.x.clamp(0, W as i32 - 1) as usize, tip.y.clamp(0, H as i32 - 1) as usize);
+        let racing = g.wet[i] - g.wet_floor[i] > 0.3;
+        if racing {
+            for dy in -3i32..=3 {
+                for dx in -3i32..=3 {
+                    let d2 = dx * dx + dy * dy;
+                    if d2 > 2 && d2 <= 10 {
+                        blend_cell(frame, tip.x + dx, tip.y + dy, [255, 250, 200], 0.45 * (1.0 - d2 as f32 / 11.0));
+                    }
+                }
+            }
+        }
         for dy in -1..=1 {
             for dx in -1..=1 {
                 if g.air.is_open(tip.x + dx, tip.y + dy) {
-                    cell(frame, (tip.x + dx) as usize, (tip.y + dy) as usize, [255, 255, 190]);
+                    cell(frame, (tip.x + dx) as usize, (tip.y + dy) as usize, if racing { [255, 255, 245] } else { [255, 255, 190] });
                 }
             }
         }
@@ -239,6 +262,19 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
             let pal = &mats.get(p.material).palette;
             let [r, gg, b, _] = pal[p.shade as usize % pal.len()];
             cell(frame, x as usize, y as usize, [r, gg, b]);
+        }
+    }
+    // Wind streaks: a short pale line along each wisp's motion.
+    for st in &g.streaks {
+        let a = 0.85 * st.life as f32 / super::STREAK_LIFE as f32;
+        let sp = (st.vx * st.vx + st.vy * st.vy).sqrt().max(1e-3);
+        let len = (sp * 14.0).clamp(2.0, 7.0);
+        for k in 0..=(len as i32) {
+            let f = k as f32 / len;
+            let (px, py) = (st.x - st.vx / sp * len * f, st.y - st.vy / sp * len * f);
+            if g.air.is_open(px as i32, py as i32) {
+                blend_cell(frame, px as i32, py as i32, [215, 235, 255], a * (1.0 - 0.7 * f));
+            }
         }
     }
     // Cracks, lamps, fuses, the air shaft.
@@ -322,7 +358,25 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         let lw = text_width(&label);
         let lx = (l.x - lw / 2).clamp(1, W as i32 - lw - 1);
         let ly = if l.y < 80 { l.y + 4 } else { l.y - 13 };
-        text(frame, lx, ly, &label, [240, 230, 200]);
+        let lc = match l.state {
+            LampState::Working => [160, 240, 130],
+            LampState::Choked => [255, 140, 170],
+            LampState::Singed => [255, 170, 90],
+            LampState::Blown => [255, 90, 70],
+        };
+        rect(frame, (lx as usize).saturating_sub(1) * SCALE, (ly as usize).saturating_sub(1) * SCALE, (lw as usize + 2) * SCALE, 9 * SCALE, [12, 10, 16]);
+        text(frame, lx, ly, &label, lc);
+    }
+    // Rings round whatever the coach is talking about.
+    for &(px, py, until) in &g.pointers {
+        let left = until.saturating_sub(t) as f32;
+        let r = 9.0 + 3.0 * ((t as f32 / 8.0).sin());
+        let a = (left / 30.0).min(1.0);
+        for k in 0..48 {
+            let ang = k as f32 / 48.0 * std::f32::consts::TAU;
+            let (cx, cy) = (px as f32 + r * ang.cos(), py as f32 + r * ang.sin());
+            blend_cell(frame, cx.round() as i32, cy.round() as i32, [255, 236, 120], 0.9 * a);
+        }
     }
     text(frame, 18, 2, "AIR", [170, 200, 230]);
     // Floating words.
@@ -363,26 +417,77 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         let label = if *tl == Tool::Fuse { format!("{} FUSE {}", k + 1, g.fuses_left) } else { format!("{} {}", k + 1, tl.name()) };
         text(frame, (x0 as i32 + 4) / 2, hy + 2, &label, if sel { [255, 240, 190] } else { [190, 190, 200] });
     }
-    let secs = super::LEVEL_TICKS.saturating_sub(g.tick) / TICKS_PER_SECOND;
-    let stars = format!("{}{}", "*".repeat(g.stars() as usize), "-".repeat(3 - g.stars() as usize));
-    // Carts against the next star, so the number always has a target.
-    let next = super::STAR_CARTS.iter().copied().find(|&k| g.carts() < k).unwrap_or(super::STAR_CARTS[2]);
-    let status = format!("CARTS {}/{} {}:{:02} {}", g.carts(), next, secs / 60, secs % 60, stars);
-    text(frame, 2, hy + 15, &status, [240, 230, 200]);
-    if let Some((cx, cy)) = cursor {
-        if g.air.is_open(cx, cy) {
-            let here = band(g.air.at(cx, cy)).words();
-            let w = text_width(here);
-            text(frame, W as i32 - w - 2, hy + 15, here, [200, 200, 220]);
-        }
-    }
+    star_bar(g, frame, hy + 14);
     text(frame, 2, hy + 24, tool.hint(), [160, 160, 185]);
-    text(frame, W as i32 - text_width("H HELP") - 2, hy + 24, "H HELP", [130, 130, 150]);
+    let here = cursor.filter(|&(cx, cy)| g.air.is_open(cx, cy)).map(|(cx, cy)| band(g.air.at(cx, cy)).words());
+    let right = here.unwrap_or("H HELP");
+    text(frame, W as i32 - text_width(right) - 2, hy + 24, right, if here.is_some() { [200, 200, 220] } else { [130, 130, 150] });
     if g.over() {
         let msg = format!("SHIFT OVER: {} CARTS, {} STARS. R TO GO AGAIN", g.carts(), g.stars());
         let w = text_width(&msg);
         rect(frame, 0, (H * SCALE) / 2 - 14, FW, 28, [10, 8, 14]);
         text(frame, (W as i32 - w) / 2, H as i32 / 2 - 6, &msg, [255, 236, 170]);
+    }
+}
+
+/// **The star bar** (owner playtest 2026-11-08: "when you're doing well it
+/// needs to be clearer"). Carts so far fill a bar with the three star marks
+/// on it, which light when passed; a dimmer fill ahead of it is where the
+/// shift ends if the lamps keep working as they are now, so a lamp choking
+/// or clearing moves it at once. The bar flashes when a star is won.
+fn star_bar(g: &Game, frame: &mut [u8], y: i32) {
+    let carts = g.carts();
+    text(frame, 2, y + 1, &format!("CARTS {carts}"), [240, 230, 200]);
+    let (x0, x1) = (54i32, 212i32);
+    let max = 96.0f32;
+    let at = |c: f32| x0 + ((x1 - x0) as f32 * (c / max).min(1.0)) as i32;
+    let py = (y as usize + 2) * SCALE;
+    rect(frame, x0 as usize * SCALE, py, (x1 - x0) as usize * SCALE, 8, [44, 40, 56]);
+    // Where the shift ends at this rate.
+    let left_s = super::LEVEL_TICKS.saturating_sub(g.tick) as f32 / TICKS_PER_SECOND as f32;
+    let working = g.lamps.iter().filter(|l| l.state == LampState::Working).count() as f32;
+    let pace = g.lamps.iter().map(|l| l.carts).sum::<f32>() + working * super::CARTS_PER_SECOND * left_s;
+    let flash = g.star_won_at.is_some_and(|w| g.tick.saturating_sub(w) < 90 && (g.tick / 8).is_multiple_of(2));
+    rect(frame, x0 as usize * SCALE, py + 1, (at(pace) - x0) as usize * SCALE, 6, [92, 82, 46]);
+    let fill = if flash { [255, 255, 220] } else { [240, 196, 60] };
+    rect(frame, x0 as usize * SCALE, py, (at(carts as f32) - x0) as usize * SCALE, 8, fill);
+    for &need in super::STAR_CARTS.iter() {
+        let sx = at(need as f32);
+        let won = carts >= need;
+        let col = if won { [255, 236, 120] } else if pace >= need as f32 { [170, 150, 90] } else { [96, 92, 108] };
+        star(frame, sx, y + 3, col);
+    }
+    let secs = super::LEVEL_TICKS.saturating_sub(g.tick) / TICKS_PER_SECOND;
+    text(frame, x1 + 8, y + 1, &format!("{}:{:02}", secs / 60, secs % 60), [200, 200, 215]);
+}
+
+/// A five-point star about 7 cells across, centred on (cx, cy) in cells.
+fn star(frame: &mut [u8], cx: i32, cy: i32, col: [u8; 3]) {
+    let (ox, oy) = (cx as f32 * SCALE as f32, cy as f32 * SCALE as f32);
+    let (r_out, r_in) = (8.0f32, 3.4f32);
+    let pts: Vec<(f32, f32)> = (0..10)
+        .map(|k| {
+            let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+            let r = if k % 2 == 0 { r_out } else { r_in };
+            (ox + r * a.cos(), oy + r * a.sin())
+        })
+        .collect();
+    for py in (oy - r_out) as i32..=(oy + r_out) as i32 {
+        for px in (ox - r_out) as i32..=(ox + r_out) as i32 {
+            let (fx, fy) = (px as f32 + 0.5, py as f32 + 0.5);
+            // Even-odd fill.
+            let mut inside = false;
+            for k in 0..10 {
+                let (ax, ay) = pts[k];
+                let (bx, by) = pts[(k + 1) % 10];
+                if (ay > fy) != (by > fy) && fx < ax + (fy - ay) / (by - ay) * (bx - ax) {
+                    inside = !inside;
+                }
+            }
+            if inside && px >= 0 && py >= 0 {
+                put(frame, px as usize, py as usize, col);
+            }
+        }
     }
 }
 
@@ -400,15 +505,15 @@ pub fn help(frame: &mut [u8]) {
         ("WIN: 40 / 65 / 85 CARTS IN 4 MINUTES", [255, 236, 170]),
         ("     FOR 1 / 2 / 3 STARS", [225, 220, 210]),
         ("", AIR),
-        ("1 BLOW   DRAG TO PUSH GAS AWAY", [210, 210, 225]),
+        ("1 BLOW   DRAG: A GUST PUSHES GAS AWAY", [210, 210, 225]),
         ("2 SPARK  CLICK: BURNS PINK GAS ONLY.", [255, 150, 200]),
         ("         FIRE AT A LAMP WRECKS IT", [210, 210, 225]),
-        ("3 DAMP   DRAG TO WET THE ROCK", [210, 210, 225]),
+        ("3 DAMP   DRAG: MOULD RACES ALONG IT", [210, 210, 225]),
         ("4 CUT    DRAG TO SNIP DRY MOULD AHEAD", [210, 210, 225]),
         ("         OF FIRE OR IT RUNS TO A LAMP", [210, 210, 225]),
         ("5 FUSE   CLICK: FIRES WHEN GAS IS PINK", [210, 210, 225]),
         ("", AIR),
-        ("YELLOW MOULD EATS GAS AND CREEPS ALONG", [240, 210, 90]),
+        ("YELLOW MOULD EATS GAS AND RUNS ALONG", [240, 210, 90]),
         ("WET ROCK. SPARKS CANNOT CLEAR LAMP B", [240, 210, 90]),
         ("IN ITS DRIPPING STALL.", [240, 210, 90]),
         ("", AIR),

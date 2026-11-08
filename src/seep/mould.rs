@@ -33,6 +33,23 @@ const GROW_COST: f32 = 0.12;
 /// Tip speed, cells per tick, on damp and on dry rock.
 const FAST: f32 = 0.07;
 const SLOW: f32 = 0.008;
+/// **Fresh water makes it race** (owner playtest 2026-11-08: "I just kind
+/// of click water along the edge and then it kind of slowly grows there").
+/// On rock the player has just wetted -- damp above the rock's own -- a tip
+/// runs at 12 cells a second, so a stroke is answered while the hand is
+/// still on it, and slows to `FAST` as the stroke dries over ~20 s.
+const RACE: f32 = 0.2;
+/// Fresh damp above which a tip races.
+const RACE_FRESH: f32 = 0.35;
+/// **The mould reaches for the brush.** For this long after a Damp stroke
+/// the tips within `LURE_RANGE` lean toward it, and if none is near it a
+/// new tip sets out for it from the nearest rooted junction -- the stroke
+/// gets an answer on screen at once instead of waiting for a tip to wander
+/// onto the wet.
+const LURE_TICKS: u32 = 240;
+const LURE_RANGE: i32 = 48;
+const LURE_PULL: f32 = 1.4;
+const LURE_SPROUT_EVERY: u32 = 40;
 pub const MAX_TIPS: usize = 18;
 /// The most of a crack's leak a mould can take at the mouth. Less than all
 /// of it on purpose: a capped crack still feeds the pocket above it slowly.
@@ -110,6 +127,8 @@ pub struct Ground<'a> {
     pub water: &'a [bool],
     /// Damp level of each cell, 0..1, rock and air alike.
     pub wet: &'a [f32],
+    /// The level's own damp, which the player's dries back to.
+    pub floor: &'a [f32],
 }
 
 impl Ground<'_> {
@@ -134,6 +153,20 @@ impl Ground<'_> {
         })
     }
     /// How damp the ground under a cell is.
+    /// How much fresher than the rock's own the damp here is: water the
+    /// player put down. Read like `damp`, the most of the cell and its four
+    /// neighbours.
+    pub fn fresh(&self, x: i32, y: i32) -> f32 {
+        let mut m: f32 = 0.0;
+        for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if Self::inside(nx, ny) {
+                let i = idx(nx as usize, ny as usize);
+                m = m.max(self.wet[i] - self.floor[i]);
+            }
+        }
+        m
+    }
     pub fn damp(&self, x: i32, y: i32) -> f32 {
         let mut m: f32 = 0.0;
         for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
@@ -172,6 +205,8 @@ pub struct MouldCounts {
     pub tubes_cut: u64,
     pub tubes_faded: u64,
     pub loops: u64,
+    /// Tips sent toward a Damp stroke.
+    pub lure_sprouts: u64,
 }
 
 pub struct Mould {
@@ -190,6 +225,10 @@ pub struct Mould {
     rng: Rng,
     food_since_solve: f32,
     pub counts: MouldCounts,
+    /// The last Damp stroke: where, and the tick it was laid.
+    pub lure: Option<(i32, i32, u32)>,
+    now: u32,
+    last_lure_sprout: u32,
 }
 
 impl Mould {
@@ -206,6 +245,9 @@ impl Mould {
             rng: Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1),
             food_since_solve: 0.0,
             counts: MouldCounts::default(),
+            lure: None,
+            now: 0,
+            last_lure_sprout: 0,
         };
         for k in 0..4 {
             let a = k as f32 * std::f32::consts::FRAC_PI_2 + 0.4;
@@ -414,7 +456,17 @@ impl Mould {
     }
 
     /// Grow, then every `SOLVE_EVERY` ticks solve the flow and adapt.
+    /// A Damp stroke at (x, y) this tick: see `LURE_TICKS`.
+    pub fn lure_at(&mut self, x: i32, y: i32, tick: u32) {
+        self.lure = Some((x, y, tick));
+    }
+
+    fn live_lure(&self) -> Option<(i32, i32)> {
+        self.lure.filter(|&(_, _, t0)| self.now.saturating_sub(t0) < LURE_TICKS).map(|(x, y, _)| (x, y))
+    }
+
     pub fn step(&mut self, tick: u32, air: &Air, ground: &Ground) {
+        self.now = tick;
         self.reserve += CORE_INCOME;
         if tick.is_multiple_of(2) {
             for h in self.husk.iter_mut() {
@@ -429,6 +481,7 @@ impl Mould {
     }
 
     fn grow(&mut self, air: &Air, ground: &Ground) {
+        let lure = self.live_lure();
         let n_tips = self.tips.len();
         let mut new_tips = Vec::new();
         for t in 0..n_tips {
@@ -436,7 +489,18 @@ impl Mould {
                 continue;
             }
             let (tx, ty) = (self.tips[t].x, self.tips[t].y);
-            let speed = if ground.damp(tx, ty) > 0.3 { FAST } else { SLOW };
+            // A tip the brush is calling moves at damp-rock speed even over
+            // dry rock: the first try left a tip 10 cells from a stroke
+            // crawling at `SLOW`, and it blocked the new tip that would
+            // have answered (3 cells in 6 s).
+            let lured = lure.is_some_and(|(lx, ly)| (lx - tx).abs().max((ly - ty).abs()) <= LURE_RANGE);
+            let speed = if ground.fresh(tx, ty) > RACE_FRESH {
+                RACE
+            } else if lured || ground.damp(tx, ty) > 0.3 {
+                FAST
+            } else {
+                SLOW
+            };
             if self.reserve < GROW_COST {
                 continue;
             }
@@ -465,6 +529,39 @@ impl Mould {
             let (x, y) = (self.nodes[n].x, self.nodes[n].y);
             new_tips.push(Tip { node: n, x, y, dir: (a.cos(), a.sin()), path: Vec::new(), progress: 0.0, alive: true });
             self.reserve -= SPROUT_COST;
+        }
+        // A fresh stroke with no tip near it: send one from the nearest
+        // rooted junction in range.
+        if let Some((lx, ly)) = self.live_lure() {
+            // Any live tip in range is already running to it (see `lured`
+            // in the speed rule), so only a stroke no tip can answer sends
+            // one. The first rule ("none within 12") sent seven tips in six
+            // seconds at a roof stroke the floor tips could not reach yet,
+            // 28 reserve for nothing.
+            let near = self.tips.iter().chain(new_tips.iter()).any(|t| t.alive && (t.x - lx).abs().max((t.y - ly).abs()) <= LURE_RANGE);
+            if !near && self.now >= self.last_lure_sprout + LURE_SPROUT_EVERY && self.reserve > SPROUT_COST + 10.0 * GROW_COST {
+                let mut best: Option<(usize, i32)> = None;
+                for e in self.edges.iter().filter(|e| e.alive && e.rooted) {
+                    for n in [e.a, e.b] {
+                        let d = (self.nodes[n].x - lx).abs().max((self.nodes[n].y - ly).abs());
+                        if d <= LURE_RANGE && best.is_none_or(|(_, bd)| d < bd) {
+                            best = Some((n, d));
+                        }
+                    }
+                }
+                if best.is_none() && (self.nodes[self.core].x - lx).abs().max((self.nodes[self.core].y - ly).abs()) <= LURE_RANGE {
+                    best = Some((self.core, 0));
+                }
+                if let Some((n, _)) = best {
+                    let (x, y) = (self.nodes[n].x, self.nodes[n].y);
+                    let (dx, dy) = ((lx - x) as f32, (ly - y) as f32);
+                    let l = (dx * dx + dy * dy).sqrt().max(1.0);
+                    new_tips.push(Tip { node: n, x, y, dir: (dx / l, dy / l), path: Vec::new(), progress: 0.0, alive: true });
+                    self.reserve -= SPROUT_COST;
+                    self.last_lure_sprout = self.now;
+                    self.counts.lure_sprouts += 1;
+                }
+            }
         }
         // The core grows back out after a snip or a burn has taken
         // everything: see `CORE_GUARD`.
@@ -532,6 +629,14 @@ impl Mould {
             let gas = (air.mean_near(nx, ny, 6) - here) * 900.0 + air.mean_near(nx, ny, 6) * 6.0;
             let persist = 0.9 * (dir.0 * dx as f32 + dir.1 * dy as f32) / len;
             let damp = 1.6 * ground.damp(nx, ny);
+            let lure = match self.live_lure() {
+                Some((lx, ly)) if (lx - x).abs().max((ly - y).abs()) <= LURE_RANGE && (lx, ly) != (x, y) => {
+                    let (ux, uy) = ((lx - x) as f32, (ly - y) as f32);
+                    let ul = (ux * ux + uy * uy).sqrt();
+                    LURE_PULL * (ux * dx as f32 + uy * dy as f32) / (ul * len)
+                }
+                _ => 0.0,
+            };
             // Crowding: avoid running beside its own tubes, which is what
             // turns a mould into a fan instead of a smear.
             let mut crowd = 0.0;
@@ -543,7 +648,7 @@ impl Mould {
                 }
             }
             let noise = 0.7 * self.rng.f();
-            let mut score = gas + persist + damp - crowd + noise;
+            let mut score = gas + persist + damp + lure - crowd + noise;
             if other.is_some() {
                 // Meeting another tube closes a loop. Worth it, but not so
                 // much the tips do nothing else.
