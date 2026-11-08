@@ -427,3 +427,97 @@ after (its mould grew onto the new piles by itself, helped by a stray oat),
 so the 5-seed bar it passes is not an order statistic yet. Frame cost (dish
 1, intended hand, back to back): mean 2.71 ms, worst 4.85 ms, against 3.08 /
 5.70 before.
+
+## Review 2 fixes (2026-11-08)
+
+A second independent check, of 754853039
+(`game-design/mould-game-brainstorm-2026-11-08/review-2.md`), found 2 high,
+2 medium, 5 low and 3 probe-only findings; all are fixed, with 13 new tests.
+The 12 that guard a fix were run red with their faults put back at once,
+12 of 12. The card's "inf" guard was blind at first, because Rust writes an
+infinite float "inf" and the test looked for "INF". The thirteenth guards
+the two-press Escape that the organ now shares. Two window-only changes,
+the organ's scaling and its title, have no test.
+
+- **Food still due when a dish ends (H1).** Running Dry's losing hands end
+  before its 80 and 100 s piles, and the Wanderer's Go comes before its
+  55 s pile. That food stayed due for ever: the built look counted down to
+  it and then wrapped to `153722867280912906` (a panic in a debug build).
+  Now the dish's end and Go drop it, and the look draws food due only while
+  the dish grows. At Running Dry's "mould died" moment the bar reads food
+  1/6 rather than 1/8.
+- **Oats on just-starved mould (H2, M2).** The 2 s grace rescued only oats
+  laid within about 1.5 s of the last fed cell going, and none while
+  another piece was still eating. Meanwhile the preview said "It will reach
+  these". The ground *under the oats* now counts as fed for 8 s after it
+  was (`Params::oats_grace`), whatever else is fed. Two oats on the
+  mould's middle walker, Running Dry left alone, seeds 1-3:
+
+  | laid after the last fed cell went | +0 s | +1 s | +2 s | +3 s | +5 s | +8 s |
+  |---|---|---|---|---|---|---|
+  | before (review 2's table) | eaten | eaten | never | never | never | - |
+  | after | eaten | eaten | eaten | eaten | eaten | never |
+
+  Mould alive at those times: 950, 763, 604, 459, 280 and 139 on seed 1.
+  The M2 case (random hand, seed 4, a branch starved far from home while
+  home still ate) is eaten now.
+  - Where oats would not be started, the preview now says "Only starving
+    strays here: too far from fed mould", reading the same rule
+    (`Dish::oats_would_start`).
+  - **Two wider rules failed the ship bar on 8 seeds.**
+    - Oats exempt from the leash outright (the review's option a) brought
+      the beachhead back. A random hand took 3 stars on Behind the Wall on
+      seeds 1, 6 and 8, and on Running Dry on seeds 2, 4 and 7.
+    - An 8 s oats grace read over the whole 27-cell leash let strays start
+      the intended hand's oats, laid ahead of the tube on Beat the Ruler.
+      It joined round the side on seed 7 (1.16x, 1 star) at graces of 2, 4
+      and 8 s.
+
+  **Star table, `level=all` seeds 1-8, before (754853039) / after:**
+
+  | dish | idle | random | intended |
+  |---|---|---|---|
+  | Behind the Wall | 0 0 0 0 0 0 0 0 / same | 0 0 0 0 1 0 0 0 / same | 3 on all 8 / same |
+  | Beat the Ruler | 0 on all 8 / same | 0 on all 8 / same | 3 on all 8 / same |
+  | Running Dry | 0 on all 8 / same | 0 0 0 0 0 0 3 0 / same | 3 on all 8 / same |
+
+  - Every star cell is the same before and after. Five random-hand runs
+    differ in detail (mould left, how near), so the rule does fire.
+  - The bar (idle 0, random at most 1, intended 3) holds on seeds 1-5.
+  - Running Dry's random hand on seed 7 still takes 3 stars, 723 alive at
+    the bell, the same before as after. Review 1 found it, and it is not
+    from this rule.
+- **Tool tiles (M1).** A click on a tile in the built look or C (and on
+  any look's Wanderer bar) now selects that tool. Only a press on the dish
+  holds the button. Before, the tiles did nothing, and a press on the bar
+  slid up onto the dish lit the lamp. The window and the tests share one
+  hit test (`render::press_at`, `look::tile_at`).
+- **Lows.**
+  - L1: the refusal under a tool names the phase: "Dish over", "Not now:
+    she's on her way", and "the storm" only in the storm.
+  - L2: the glow cache is keyed by the dish as well as its address. The
+    lesson, M and a challenge dish showed 41,888-50,857 pixels of the
+    lesson's glow behind the briefing card; now 0.
+  - L3: the armed Escape's window title goes back after 2 s.
+  - L4: the organ shrinks to fit a short screen and quits only on a second
+    Escape within 2 s. Both windows share the rule (`render::QuitArm`,
+    `render::frame_fits`).
+  - L5: Behind the Wall with both foods eaten apart now reads "NOT JOINED:
+    BOTH FOODS EATEN, APART", not "CAME WITHIN inf CELLS". This state was
+    met for real on random seed 5 under option a.
+- **Probe.**
+  - P1: a chip wider than the frame no longer panics, so `level=3` at the
+    default scale 2 draws.
+  - P2: `pull=` and `looks=` refuse `oats=`.
+  - P3: `lesson=`, `looks=` and `menu=` build their dishes from the printed
+    parameters (`Lesson::dish_with`).
+
+**Frame cost, back to back** (dish 1, intended hand, steps plus draw at
+scale 4, 664 frames; run order Night, Classic, Night, Classic):
+
+| look | mean, run 1 | mean, run 2 | worst, run 1 | worst, run 2 |
+|---|---|---|---|---|
+| built look (Night) | 4.02 ms | 4.27 ms | 8.65 ms | 12.57 ms |
+| old look (Classic) | 2.73 ms | 2.68 ms | 4.50 ms | 14.10 ms |
+
+The built look costs about 1.3-1.6 ms more on average.

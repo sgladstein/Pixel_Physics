@@ -287,6 +287,10 @@ impl Dish {
         self.update_light();
         self.stamp_fed();
         self.phase = Phase::Crossing(self.t);
+        // Late food lands only while the dish grows (review 2, finding H1:
+        // the careless lead pressed Go at 24-54 s on all 6 seeds tried,
+        // before the 55 s pile every time).
+        self.pending.clear();
         true
     }
 
@@ -566,6 +570,16 @@ mod tests {
         assert!(n > 0 && n <= set_off && n <= of);
         assert_eq!(n + w.lost_on_way, set_off, "every walker in the line is accounted for");
         assert!(w.pouring.is_empty());
+    }
+
+    /// Review 2, finding H1: after Go no food lands, so none is still
+    /// coming. It stayed due, and the look counted down to it and wrapped.
+    #[test]
+    fn go_leaves_no_food_still_coming() {
+        let mut d = bridged(1, 8);
+        assert!(!d.pending.is_empty(), "the control: late food is due at 1 s");
+        assert!(d.go());
+        assert!(d.pending.is_empty(), "{} piles still due after Go", d.pending.len());
     }
 
     /// The thicker the trunk, the more comes through: the same bridge one

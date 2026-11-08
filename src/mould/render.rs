@@ -1119,6 +1119,84 @@ fn level_brief(l: &super::level::Level, frame: &mut [u8], (fw, fh): (u32, u32), 
     }
 }
 
+/// What a mouse press on a dish's frame lands on (`press_at`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Press {
+    /// The dish, at this point in dish cells: the tool acts here, and the
+    /// button counts as held.
+    Dish(f32, f32),
+    /// A tool tile on the bar: the press selects that tool, held nowhere.
+    Tile(Tool),
+    /// Anywhere else (the bar between tiles, the old look's bar): nothing.
+    Off,
+}
+
+/// What a press at frame pixel (px, py) lands on, at `scale`. Only a press
+/// on the dish holds the button: one on the bar used to set it held, so
+/// sliding up onto the dish with the button still down lit the lamp, and a
+/// click on a tile did nothing at all (review 2, finding M1).
+pub fn press_at(d: &Dish, view: &View, scale: u32, px: f32, py: f32) -> Press {
+    let (x, y) = (px / scale as f32, py / scale as f32);
+    if x >= 0.0 && y >= 0.0 && x < W as f32 && y < H as f32 {
+        return Press::Dish(x, y);
+    }
+    match super::look::tile_at(d, view.style, scale, px as i32, py as i32) {
+        Some(t) => Press::Tile(t),
+        None => Press::Off,
+    }
+}
+
+/// **Escape twice to quit**, shared by the mould and organ windows: the
+/// first press arms it for `QuitArm::WINDOW`, a second inside that quits.
+/// Once quitting on the first press lost a dish to a stray Escape (review
+/// 1, finding 9); the organ still did (review 2, finding L4).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct QuitArm {
+    at: Option<std::time::Instant>,
+}
+
+impl QuitArm {
+    pub const WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// Escape pressed at `now`: true means quit.
+    pub fn press(&mut self, now: std::time::Instant) -> bool {
+        let quit = self.armed(now);
+        self.at = if quit { None } else { Some(now) };
+        quit
+    }
+
+    /// Any other key: disarm.
+    pub fn clear(&mut self) {
+        self.at = None;
+    }
+
+    /// Whether a second Escape at `now` would quit (what the look shows).
+    pub fn armed(&self, now: std::time::Instant) -> bool {
+        self.at.is_some_and(|at| now.saturating_duration_since(at) <= Self::WINDOW)
+    }
+
+    /// True once, on the first call after the window ran out unused: the
+    /// moment to put the window's title back. The title said "press Esc
+    /// again to quit" until the next key, however long that was (review 2,
+    /// finding L3).
+    pub fn lapsed(&mut self, now: std::time::Instant) -> bool {
+        let gone = self.at.is_some() && !self.armed(now);
+        if gone {
+            self.at = None;
+        }
+        gone
+    }
+}
+
+/// Whether a window of `width` x `height` shows the whole frame at
+/// `scale` at 1:1 or larger. Where it does not, the windows shrink the
+/// frame to fit instead of pixel-perfect scaling, which never scales below
+/// 1:1 and so cropped it, bar and all, on a 768-px laptop screen.
+pub fn frame_fits(width: u32, height: u32, scale: u32) -> bool {
+    let (fw, fh) = frame_size(scale);
+    width >= fw && height >= fh
+}
+
 /// The dish picker: the lesson, the challenge dishes, and free play, with
 /// best stars and what opens a locked one.
 #[derive(Clone, Copy, Debug)]
@@ -1201,5 +1279,50 @@ fn menu(m: &Menu, frame: &mut [u8], (fw, fh): (u32, u32), _scale: u32) {
             };
             text(frame, (fw, fh), x + 10, y + 38, &need, [200, 120, 100, 255]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Escape twice within 2 s quits; a second press later only arms again
+    /// (review 1, finding 9; the organ's own, review 2, finding L4).
+    #[test]
+    fn escape_twice_quits_and_once_does_not() {
+        let t0 = Instant::now();
+        let mut q = QuitArm::default();
+        assert!(!q.press(t0), "the first Escape never quits");
+        assert!(q.press(t0 + Duration::from_millis(1500)), "a second within 2 s quits");
+        let mut q = QuitArm::default();
+        assert!(!q.press(t0));
+        assert!(!q.press(t0 + Duration::from_secs(3)), "a second after 2 s arms again");
+        assert!(q.armed(t0 + Duration::from_secs(4)));
+    }
+
+    /// Review 2, finding L3: once the 2 s run out, the window is told once,
+    /// so its title stops saying "press Esc again to quit".
+    #[test]
+    fn an_unused_escape_lapses_once() {
+        let t0 = Instant::now();
+        let mut q = QuitArm::default();
+        assert!(!q.lapsed(t0), "nothing armed, nothing lapses");
+        q.press(t0);
+        assert!(!q.lapsed(t0 + Duration::from_secs(1)), "still armed");
+        assert!(q.lapsed(t0 + Duration::from_secs(3)), "ran out: put the title back");
+        assert!(!q.lapsed(t0 + Duration::from_secs(4)), "only once");
+        assert!(!q.armed(t0 + Duration::from_secs(4)));
+    }
+
+    /// Review 2, finding L4: a window shorter than the frame shrinks it to
+    /// fit rather than crop it (the frame is 726 px tall at scale 4).
+    #[test]
+    fn a_short_window_does_not_fit_the_frame() {
+        let (w, h) = frame_size(4);
+        assert!(frame_fits(w, h, 4));
+        assert!(frame_fits(1920, 1080, 4));
+        assert!(!frame_fits(1366, 700, 4), "a 768-px laptop's window");
+        assert!(!frame_fits(w - 1, h, 4));
     }
 }

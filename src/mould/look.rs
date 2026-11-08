@@ -1127,6 +1127,23 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
 const HW: usize = W / 2;
 const HH: usize = H / 2;
 
+/// Which dish this is, for the glow cache: what two dishes differ by and a
+/// dish keeps from step to step (its seed, its challenge dish, the
+/// Wanderer's stretch and carry, where its food lies), not its trail,
+/// which moves every step and would make the cache never hit.
+fn dish_identity(d: &Dish) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    d.seed.hash(&mut h);
+    d.level.map(|l| l.key).hash(&mut h);
+    d.wander.as_ref().map(|w| (w.stretch, w.came_in)).hash(&mut h);
+    d.storm_at.hash(&mut h);
+    for p in &d.piles {
+        (p.x.to_bits(), p.y.to_bits(), p.oats).hash(&mut h);
+    }
+    h.finish()
+}
+
 /// The glow for `Theme::glow`: fed tube, starving tube and food, each a
 /// mask box-blurred twice. **On a half-size grid**, read back bilinearly:
 /// at full size the two tube masks cost 0.70 ms a frame of the 3.4 ms the
@@ -1174,23 +1191,28 @@ impl Halo {
 
     /// **Worked out every other frame**: a glow 1/60 s old cannot be seen,
     /// and this was the look's largest single cost after the dish itself.
-    /// Kept per look and per dish (by its address, so the window's one dish
-    /// hits and a picture of another dish does not) and reused while the
-    /// dish is under four steps on, or paused.
+    /// Kept per look and per dish and reused while the dish is under four
+    /// steps on, or paused. A dish is its address *and* `dish_identity`:
+    /// by address alone, a new dish in the same place at the same step
+    /// reused the old one's glow, which the window does on every M-and-pick
+    /// (lesson, then a challenge dish, both at t = 0 in `Handler::dish`):
+    /// 41,888-50,857 pixels of the lesson's glow round the briefing card
+    /// (review 2, finding L2).
     fn cached(d: &Dish, th: &Theme, thr: f32) -> std::sync::Arc<Halo> {
         use std::sync::{Arc, Mutex};
-        type Slot = Option<(usize, u64, Arc<Halo>)>;
+        type Slot = Option<(usize, u64, u64, Arc<Halo>)>;
         static CACHE: Mutex<[Slot; 5]> = Mutex::new([const { None }; 5]);
         let k = Style::ALL.iter().position(|s| *s == th.look).unwrap_or(0);
         let addr = d as *const Dish as usize;
+        let id = dish_identity(d);
         let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((a, t, h)) = &cache[k] {
-            if *a == addr && d.t >= *t && d.t < *t + 4 {
+        if let Some((a, i, t, h)) = &cache[k] {
+            if *a == addr && *i == id && d.t >= *t && d.t < *t + 4 {
                 return h.clone();
             }
         }
         let h = Arc::new(Halo::new(d, thr));
-        cache[k] = Some((addr, d.t, h.clone()));
+        cache[k] = Some((addr, id, d.t, h.clone()));
         h
     }
 
@@ -1713,13 +1735,17 @@ fn piles(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         }
     }
     // Food on its way: a ring where it will land and the seconds to go.
-    for (at, p) in &d.pending {
+    // Only while the dish grows, which is the only time food lands: a dish
+    // that ended early kept counting down "5, 4, 3, 2, 1" to food that
+    // never came, then `at - d.t` wrapped to an 18-digit number (a panic
+    // in a debug build; review 2, finding H1).
+    for (at, p) in d.pending.iter().filter(|_| d.phase == Phase::Growing) {
         if *at <= d.t + 5 * sps {
             let (cx, cy) = (p.x * sf, p.y * sf);
             let spin = (d.t as f32 / sps as f32) * 0.25;
             let c = th.ink.unwrap_or(th.food);
             cv.ring(cx, cy, p.r * sf, 3.0, c, 0.85, Some((10, spin)));
-            let secs = (at - d.t).div_ceil(sps).to_string();
+            let secs = at.saturating_sub(d.t).div_ceil(sps).to_string();
             let w = text_w(th, &secs);
             if th.font == Font::Chunky {
                 hud::draw_text_scaled(cv.f, (cv.w as u32, cv.h as u32), 2, ((cx as i32 - w / 2 + 2) / 2, (cy as i32 - 7) / 2), &secs, [c[0], c[1], c[2], 255]);
@@ -1795,7 +1821,10 @@ fn marks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
 fn chip(cv: &mut Cv, th: &Theme, x: i32, y: i32, lines: &[&str], c: Rgb) -> (i32, i32) {
     let w = lines.iter().map(|l| text_w(th, l)).max().unwrap_or(0) + 16;
     let h = line_h(th) * lines.len() as i32 + 8;
-    let x = x.clamp(4, cv.w - w - 4);
+    // Not `clamp`: a chip wider than the frame (Running Dry's stars chip,
+    // 506 px, in the probe's 512-px frame at scale 2) made min > max and
+    // panicked (review 2, P1). Too wide, it starts at the left margin.
+    let x = x.min(cv.w - w - 4).max(4);
     match th.style {
         Style::Toy => {
             let ink = th.ink.unwrap_or([0, 0, 0]);
@@ -2023,6 +2052,19 @@ fn refuse(cv: &mut Cv, th: &Theme, s: i32, (cx, cy): (f32, f32), words: &str) {
     tip(cv, th, s, (cx, cy), 10.0, words, c);
 }
 
+/// Why a tool is refused once the dish has stopped growing, by phase.
+/// "Not now: the storm" in every phase told the player of a storm on
+/// dishes that have none: every challenge dish once over, and the Wanderer
+/// after Go (review 2, finding L1).
+fn not_now(d: &Dish) -> Option<&'static str> {
+    match d.phase {
+        Phase::Growing => None,
+        Phase::Storm(_) => Some("Not now: the storm"),
+        Phase::Crossing(_) => Some("Not now: she's on her way"),
+        Phase::Over => Some("Dish over"),
+    }
+}
+
 fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     if view.brief || d.lamp.is_some() {
         return;
@@ -2031,9 +2073,9 @@ fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     let sf = s as f32;
     let (cx, cy) = (x * sf, y * sf);
     let line = if th.style == Style::Toy { th.ink.unwrap_or([0, 0, 0]) } else { [235, 240, 250] };
-    if d.phase != Phase::Growing {
+    if let Some(words) = not_now(d) {
         if view.tool != Tool::Lamp {
-            refuse(cv, th, s, (cx, cy), "Not now: the storm");
+            refuse(cv, th, s, (cx, cy), words);
         }
         return;
     }
@@ -2066,7 +2108,10 @@ fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
                 .map(|w| (len2(w.x - x, w.y - y), (w.x, w.y)))
                 .min_by(|a, b| a.0.total_cmp(&b.0));
             let pull = OATS_PULL * sf;
-            let reach = near.is_some_and(|(dist, _)| dist <= OATS_PULL);
+            // In the pull is not enough on a dish with a leash: only mould
+            // fed lately can start oats, as the census rules (review 2, H2).
+            let strays = !d.oats_would_start(x, y);
+            let reach = !strays && near.is_some_and(|(dist, _)| dist <= OATS_PULL);
             // Toy draws its marks in ink: yellow on its pale agar vanished.
             let good = if th.style == Style::Toy { line } else { th.hot };
             cv.ring(cx, cy, pull, 2.5, if reach { good } else { line }, 0.55, Some((24, 0.0)));
@@ -2075,6 +2120,8 @@ fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
                 cv.seg((wx * sf, wy * sf), (cx, cy), 3.0, c, if reach { 0.95 } else { 0.5 }, 6.0);
                 let words = if reach {
                     "It will reach these".to_string()
+                } else if strays && dist <= OATS_MAYBE {
+                    "Only starving strays here: too far from fed mould".to_string()
                 } else if dist <= OATS_MAYBE {
                     "It may reach these, slowly".to_string()
                 } else {
@@ -2395,13 +2442,35 @@ fn hud_back(cv: &mut Cv, th: &Theme, y0: i32) {
     }
 }
 
+/// A tool tile's rectangle (x, y, w, h) in frame pixels, the bar starting
+/// at `y0`: what `tiles` draws and the window's click reads.
+fn tile_rect(k: usize, y0: i32) -> (i32, i32, i32, i32) {
+    (8 + k as i32 * 150, y0 + 8, 142, 70)
+}
+
+/// The tool under a frame pixel, in the looks that draw tool tiles (the
+/// built look and C, and every look but the old one on a Wanderer dish):
+/// what a click on the bar selects. They look like buttons, and a click
+/// did nothing (review 2, finding M1). `None` off the tiles, and always in
+/// a look whose bar has none.
+pub fn tile_at(d: &Dish, style: Style, scale: u32, px: i32, py: i32) -> Option<Tool> {
+    let tiled = style != Style::Classic && (d.wander.is_some() || theme(style).hud == Style::Bench);
+    if !tiled {
+        return None;
+    }
+    let y0 = H as i32 * scale as i32;
+    Tool::ALL.iter().enumerate().find_map(|(k, &t)| {
+        let (x, y, w, h) = tile_rect(k, y0);
+        (px >= x && px < x + w && py >= y && py < y + h).then_some(t)
+    })
+}
+
 /// C's tool tiles: key, name, icon, stock pips with the next one growing,
 /// and what is left in words.
 fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
     let (sel_fill, badge_fill, _) = tones(th);
     for (k, t) in Tool::ALL.iter().enumerate() {
-        let x = 8 + k as i32 * 150;
-        let y = y0 + 8;
+        let (x, y, _, _) = tile_rect(k, y0);
         if !d.has_tool(*t) {
             // A challenge dish without this tool: its slot stays, empty, so
             // the keys keep their places.
@@ -3304,6 +3373,10 @@ mod tests {
                 "Salt used up",
                 "No snips left",
                 "Not now: the storm",
+                "Not now: she's on her way",
+                "Dish over",
+                "Only starving strays here: too far from fed mould",
+                "Not joined: both foods eaten, apart",
                 "Space: fast  P: pause",
                 "Fast, 4x",
                 "Network 1.32x the shortest (star at 1.15x)",
@@ -3406,6 +3479,125 @@ mod tests {
             d.step();
         }
         assert_eq!(status(&d).reach, d.measure().reach);
+    }
+
+    const SPS: u64 = STEPS_PER_SECOND as u64;
+
+    fn frame(d: &Dish, view: &View, scale: u32) -> Vec<u8> {
+        let (w, h) = frame_size(scale);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        crate::mould::render::draw(d, view, scale, &mut buf);
+        buf
+    }
+
+    fn night() -> View {
+        View {
+            style: Style::Night,
+            ..View::default()
+        }
+    }
+
+    /// Running Dry with every walker gone at 2 s, 3 s after it ended (the
+    /// window keeps stepping a finished dish while its card is read).
+    fn dead_running_dry() -> Dish {
+        let mut d = Dish::from_level(&crate::mould::level::DISHES[2], 1);
+        for _ in 0..2 * SPS {
+            d.step();
+        }
+        while !d.walkers.is_empty() {
+            d.remove_walker(0, crate::mould::Kill::Snip);
+        }
+        while d.phase != Phase::Over {
+            d.step();
+        }
+        for _ in 0..3 * SPS {
+            d.step();
+        }
+        d
+    }
+
+    /// Review 2, finding H1: food still due on a dish that has stopped
+    /// growing is never drawn. It counted down to food that never came,
+    /// then `at - d.t` wrapped to an 18-digit number (a panic in debug).
+    #[test]
+    fn food_still_due_is_not_drawn_once_the_dish_is_over() {
+        let d = dead_running_dry();
+        let mut stale = d.clone();
+        let p = stale.piles[0].clone();
+        stale.pending.push((d.t - SPS, p.clone()));
+        stale.pending.push((d.t + 2 * SPS, p));
+        let mut growing = stale.clone();
+        growing.phase = Phase::Growing;
+        assert_ne!(frame(&growing, &night(), 4), frame(&d, &night(), 4), "the control: while growing, due food is drawn");
+        assert_eq!(frame(&stale, &night(), 4), frame(&d, &night(), 4), "food due after the end was drawn");
+    }
+
+    /// Review 2, finding L1: the refusal under a tool names the phase; "the
+    /// storm" only in the storm.
+    #[test]
+    fn a_refused_tool_names_the_phase() {
+        let mut d = dead_running_dry();
+        assert_eq!(not_now(&d), Some("Dish over"));
+        d.phase = Phase::Crossing(d.t);
+        assert_eq!(not_now(&d), Some("Not now: she's on her way"));
+        d.phase = Phase::Storm(d.t);
+        assert_eq!(not_now(&d), Some("Not now: the storm"));
+        d.phase = Phase::Growing;
+        assert_eq!(not_now(&d), None);
+    }
+
+    /// Review 2, finding L2: a new dish in the same place at the same step
+    /// gets its own glow. The window's own path: the lesson behind its
+    /// card, then M and a challenge dish, both at t = 0 in one variable.
+    /// By address alone, 41,888-50,857 pixels showed the lesson's glow.
+    #[test]
+    fn a_new_dish_in_the_same_place_gets_its_own_glow() {
+        let v = View { brief: true, ..night() };
+        for k in 0..crate::mould::level::DISHES.len() {
+            let mut slot = crate::mould::lesson::Lesson::dish().0;
+            let _ = frame(&slot, &v, 4);
+            slot = Dish::from_level(&crate::mould::level::DISHES[k], 1);
+            let reused = frame(&slot, &v, 4);
+            let other = Box::new(slot.clone());
+            let clean = frame(&other, &v, 4);
+            let differ = reused.chunks(4).zip(clean.chunks(4)).filter(|(a, b)| a != b).count();
+            assert_eq!(differ, 0, "dish {}: {differ} pixels of the old dish's glow", k + 1);
+        }
+    }
+
+    /// Review 2, P1: a chip wider than the frame (Running Dry's stars chip
+    /// at scale 2) panicked in `clamp`. Every look, scales 1 and 2.
+    #[test]
+    fn a_chip_wider_than_the_frame_does_not_panic() {
+        let mut d = Dish::from_level(&crate::mould::level::DISHES[2], 1);
+        d.step();
+        for style in Style::ALL.into_iter().filter(|s| *s != Style::Classic) {
+            for scale in [1, 2] {
+                let _ = frame(&d, &View { style, ..View::default() }, scale);
+            }
+        }
+    }
+
+    /// Review 2, finding M1: a click on a tool tile is a click on that
+    /// tool, in the looks that draw tiles; nothing in the old look's bar;
+    /// and only a press on the dish holds the button.
+    #[test]
+    fn a_press_on_a_tile_picks_its_tool_and_holds_nothing() {
+        use crate::mould::render::{press_at, Press};
+        let d = Dish::new(1);
+        let y = H as f32 * 4.0 + 8.0 + 35.0;
+        for (k, t) in Tool::ALL.into_iter().enumerate() {
+            let x = 8.0 + k as f32 * 150.0 + 71.0;
+            assert_eq!(press_at(&d, &night(), 4, x, y), Press::Tile(t));
+            assert_eq!(press_at(&d, &View { style: Style::Bench, ..night() }, 4, x, y), Press::Tile(t));
+            assert_eq!(press_at(&d, &View::default(), 4, x, y), Press::Off, "the old look's bar has no tiles");
+        }
+        assert_eq!(press_at(&d, &night(), 4, 8.0 + 146.0, y), Press::Off, "between two tiles");
+        assert_eq!(press_at(&d, &night(), 4, 700.0, y), Press::Off, "the timeline");
+        assert_eq!(press_at(&d, &night(), 4, 400.0, 200.0), Press::Dish(100.0, 50.0));
+        // The Wanderer's bar is tiles in every look but the old one.
+        let w = Dish::wanderer(1, 1, crate::mould::wander::FIRST_WALKERS);
+        assert_eq!(press_at(&w, &View { style: Style::Toy, ..night() }, 4, 79.0, y), Press::Tile(Tool::Lamp));
     }
 }
 

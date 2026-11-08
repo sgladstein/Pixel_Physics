@@ -298,6 +298,21 @@ pub fn clock(s: u32) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// Behind the Wall's card when the far food was not joined in time, from
+/// `Dish::nearest_unjoined_gap`. Under a cell: mould stood on the food, but
+/// only strays far from fed tube, which cannot start it. Infinite: no
+/// unjoined food is unreached, so both foods are being eaten by separate
+/// pieces; it read "CAME WITHIN inf CELLS" (review 2, finding L5).
+fn not_reached_words(gap: f32) -> String {
+    if gap.is_infinite() {
+        "NOT JOINED: BOTH FOODS EATEN, APART".to_string()
+    } else if gap < 1.0 {
+        "NOT REACHED: ONLY STARVING STRAYS GOT THERE".to_string()
+    } else {
+        format!("NOT REACHED: THE MOULD CAME WITHIN {gap:.0} CELLS")
+    }
+}
+
 /// The score card's words: an amount, and one line of why, in world words,
 /// picked by the condition that failed.
 #[derive(Clone, Debug, Default)]
@@ -574,14 +589,7 @@ impl Dish {
                     } else {
                         "SCENT CAN'T CROSS SALT: LEAD IT TO THE GAP".to_string()
                     };
-                    // Under a cell: mould stood on the food, but only strays
-                    // far from fed tube, which cannot start it.
-                    let amount = if gap < 1.0 {
-                        "NOT REACHED: ONLY STARVING STRAYS GOT THERE".to_string()
-                    } else {
-                        format!("NOT REACHED: THE MOULD CAME WITHIN {gap:.0} CELLS")
-                    };
-                    self.finish(s, 0, amount, why)
+                    self.finish(s, 0, not_reached_words(gap), why)
                 }
             }
             Win::UnderRuler { bars } => {
@@ -645,6 +653,10 @@ impl Dish {
         });
         self.card = Some(Card { stars, amount, why });
         self.phase = Phase::Over;
+        // Late food lands only while the dish grows: what is still due will
+        // never come, so it is not "coming" either (review 2, finding H1:
+        // Running Dry's losing hands end before its 80 and 100 s piles).
+        self.pending.clear();
     }
 
     /// Cells from the nearest walker to the rim of the nearest dish pile not
@@ -765,6 +777,7 @@ impl Progress {
 mod tests {
     use super::*;
     use crate::mould::play::{Player, Route};
+    use crate::mould::{cell, H, W};
 
     fn play(level: usize, seed: u64, hand: &mut dyn Player) -> Dish {
         let mut d = Dish::from_level(&DISHES[level], seed);
@@ -878,5 +891,174 @@ mod tests {
         assert_eq!(Progress::parse(&p.text()), p);
         let fresh = Progress::parse("");
         assert!(fresh.unlocked(0) && !fresh.unlocked(1) && fresh.unlocked(FREE) && fresh.unlocked(WANDER));
+    }
+
+    const SPS: u64 = super::super::STEPS_PER_SECOND as u64;
+
+    /// Running Dry with every walker gone at 2 s: it ends at once.
+    fn dead_running_dry() -> Dish {
+        let mut d = Dish::from_level(&DISHES[2], 1);
+        for _ in 0..2 * SPS {
+            d.step();
+        }
+        while !d.walkers.is_empty() {
+            d.remove_walker(0, super::super::Kill::Snip);
+        }
+        while d.phase != Phase::Over {
+            d.step();
+        }
+        d
+    }
+
+    /// Review 2, finding H1: a dish that ends early must not keep food it
+    /// will never land. Running Dry's piles were left due at 20-100 s, so
+    /// the look counted down to them and then wrapped.
+    #[test]
+    fn a_dish_that_ends_has_no_food_still_coming() {
+        let d = Dish::from_level(&DISHES[2], 1);
+        assert_eq!(d.pending.len(), 5, "the control: Running Dry starts with five piles due");
+        let d = dead_running_dry();
+        assert!(d.pending.is_empty(), "ended at {} s with {} piles still due", d.t / SPS, d.pending.len());
+    }
+
+    /// Review 2, finding L5: both foods eaten by separate pieces, not
+    /// joined, read "CAME WITHIN inf CELLS". (Lowercase: Rust formats an
+    /// infinite float "inf", so a check for "INF" alone stayed green with
+    /// the fault put back.)
+    #[test]
+    fn the_wall_card_never_says_inf() {
+        let w = not_reached_words(f32::INFINITY);
+        assert!(!w.to_uppercase().contains("INF"), "{w}");
+        assert_eq!(not_reached_words(0.4), "NOT REACHED: ONLY STARVING STRAYS GOT THERE");
+        assert_eq!(not_reached_words(12.3), "NOT REACHED: THE MOULD CAME WITHIN 12 CELLS");
+    }
+
+    /// The walker nearest the mould's middle.
+    fn middle_walker(d: &Dish) -> (f32, f32) {
+        let n = d.walkers.len() as f32;
+        let (cx, cy) = (
+            d.walkers.iter().map(|w| w.x).sum::<f32>() / n,
+            d.walkers.iter().map(|w| w.y).sum::<f32>() / n,
+        );
+        let w = d
+            .walkers
+            .iter()
+            .min_by(|a, b| (a.x - cx).hypot(a.y - cy).total_cmp(&(b.x - cx).hypot(b.y - cy)))
+            .unwrap();
+        (w.x, w.y)
+    }
+
+    /// Whether oats laid at (x, y) are eaten within 8 s.
+    fn oats_eaten(mut d: Dish, (x, y): (f32, f32)) -> bool {
+        d.oats_left = d.oats_left.max(2);
+        assert!(d.place_oats(x, y) && d.place_oats(x + 3.0, y));
+        for _ in 0..8 * SPS {
+            d.step();
+            if d.piles.iter().any(|p| p.oats && p.reached()) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Review 2, finding H2: oats laid on mould that has just gone grey are
+    /// eaten however late they come, as the preview promises ("It will
+    /// reach these"). Under the 2 s grace alone they were eaten only if
+    /// laid within about 1.5 s of the last fed cell going: seed 1, from
+    /// +2 s, 604 walkers stood round oats never eaten.
+    #[test]
+    fn oats_on_starving_mould_are_eaten_however_late() {
+        let mut d = Dish::from_level(&DISHES[2], 1);
+        while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+            d.step();
+            assert_ne!(d.phase, Phase::Over);
+        }
+        let dry = d.t;
+        for late in [3, 5] {
+            let mut e = d.clone();
+            while e.t < dry + late * SPS {
+                e.step();
+            }
+            let at = middle_walker(&e);
+            let alive = e.walkers.len();
+            assert!(alive > 100, "the scene: mould still alive at +{late} s ({alive})");
+            assert!(oats_eaten(e, at), "+{late} s: oats on {alive} starving mould never eaten");
+        }
+    }
+
+    /// Review 2's H2 table, for the record: Running Dry left alone, two
+    /// oats on the mould's middle walker at +0 to +8 s after the last fed
+    /// cell went, seeds 1-3. `cargo test --release --lib
+    /// mould::level::tests::rescue_table -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn rescue_table() {
+        for seed in 1..=3 {
+            let mut d = Dish::from_level(&DISHES[2], seed);
+            while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+                d.step();
+            }
+            let dry = d.t;
+            let mut row = Vec::new();
+            for late in [0, 1, 2, 3, 5, 8] {
+                let mut e = d.clone();
+                while e.t < dry + late * SPS {
+                    e.step();
+                }
+                if e.walkers.is_empty() {
+                    row.push(format!("+{late}s none left"));
+                    continue;
+                }
+                let (at, alive) = (middle_walker(&e), e.walkers.len());
+                row.push(format!("+{late}s {} ({alive})", if oats_eaten(e, at) { "eaten" } else { "NEVER" }));
+            }
+            println!("seed {seed}, dry from {} s: {}", dry / SPS, row.join(" | "));
+        }
+    }
+
+    /// Review 2, finding M2: a piece that has just starved, far from a
+    /// piece still eating, takes oats laid on it. The grace was off while
+    /// any cell anywhere was fed, so on Running Dry the random hand's seed
+    /// 4 at 36 s had 229 mould round an oat it never ate.
+    #[test]
+    fn oats_on_a_starved_branch_are_eaten_while_home_still_feeds() {
+        use crate::mould::play::Random;
+        let mut d = Dish::from_level(&DISHES[2], 4);
+        let mut hand = Random::new(4);
+        let grace = 2 * SPS;
+        let mut found = None;
+        while d.phase == Phase::Growing && found.is_none() {
+            hand.act(&mut d);
+            for _ in 0..super::super::STEPS_PER_FRAME {
+                d.step();
+            }
+            if !d.t.is_multiple_of(SPS) {
+                continue;
+            }
+            let fed: Vec<usize> = (0..W * H).filter(|&i| d.fed[i] != u16::MAX).collect();
+            if fed.is_empty() {
+                continue;
+            }
+            found = d.walkers.iter().copied().find(|w| {
+                let Some(i) = cell(w.x, w.y) else { return false };
+                d.fed[i] == u16::MAX
+                    && d.fed_at[i] != u64::MAX
+                    && d.t.saturating_sub(d.fed_at[i]) <= grace
+                    && fed.iter().all(|&j| {
+                        let (x, y) = ((j % W) as f32 + 0.5, (j / W) as f32 + 0.5);
+                        (x - w.x).hypot(y - w.y) > 40.0
+                    })
+            });
+        }
+        let w = found.expect("the scene: a just-starved branch far from fed mould, while some is fed");
+        let mut e = d.clone();
+        e.oats_left = e.oats_left.max(1);
+        assert!(e.place_oats(w.x, w.y));
+        let mut eaten = false;
+        for _ in 0..6 * SPS {
+            e.step();
+            eaten |= e.piles.iter().any(|p| p.oats && p.reached());
+        }
+        assert!(eaten, "seed 4 at {} s: an oat on a just-starved branch never eaten", d.t / SPS);
     }
 }

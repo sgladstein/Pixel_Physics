@@ -199,6 +199,13 @@ pub struct Params {
     /// rescues: oats laid as the last pile runs dry are eaten. (The random
     /// hand's 3 stars on seed 7 is the old rule's too: 0 s scores the same.)
     pub stray_grace: f32,
+    /// **Seconds the ground under player oats counts as fed for the stray
+    /// rule**, whether or not anything else on the dish is fed: oats laid
+    /// on mould that went grey up to this long ago are eaten, so a player a
+    /// little late to rescue a branch is not refused (review 2, H2 and M2).
+    /// Under the oats only, not over the whole leash. See
+    /// `Dish::strays_may_start` for what was tried first.
+    pub oats_grace: f32,
 }
 
 impl Default for Params {
@@ -231,6 +238,7 @@ impl Default for Params {
             wound: 4.0,
             stray_reach: f32::INFINITY,
             stray_grace: 2.0,
+            oats_grace: 8.0,
         }
     }
 }
@@ -818,6 +826,17 @@ impl Dish {
         self.lamp = at;
     }
 
+    /// Whether oats laid at (x, y) now could be started by the mould there:
+    /// the stray rule as the census will read it (`Params::stray_reach`,
+    /// `Params::oats_grace`). False only on a dish with a leash, where no
+    /// mould within it has been fed lately, so only strays could come. The
+    /// oats preview reads this, so it never says "It will reach these"
+    /// where the rule refuses (review 2, finding H2).
+    pub fn oats_would_start(&self, x: f32, y: f32) -> bool {
+        let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
+        self.t == 0 || self.strays_may_start(x, y, OATS_R, true, none_fed)
+    }
+
     /// Drop oats. False if there are none left or the spot is not open dish.
     pub fn place_oats(&mut self, x: f32, y: f32) -> bool {
         if self.oats_left == 0 || self.phase != Phase::Growing {
@@ -1218,7 +1237,10 @@ impl Dish {
         let limit = self.params.stray_reach;
         let strays_ok: Vec<bool> = if limit.is_finite() && self.t > 0 {
             let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
-            self.piles.iter().map(|p| self.fed_within(p.x, p.y, p.r + limit, none_fed)).collect()
+            self.piles
+                .iter()
+                .map(|p| self.strays_may_start(p.x, p.y, p.r, p.oats, none_fed))
+                .collect()
         } else {
             vec![true; self.piles.len()]
         };
@@ -1323,9 +1345,38 @@ impl Dish {
         }
     }
 
-    /// Whether any cell within `r` of a point is fed, or, when no cell on
-    /// the dish is fed (`none_fed`), was within the last
-    /// `Params::stray_grace` seconds: the stray rule's test
+    /// **The stray rule** (`Params::stray_reach`): whether strays may start
+    /// food of radius `r` at (x, y). Mould fed within the leash, or fed in
+    /// the last `Params::stray_grace` seconds once nothing on the dish is
+    /// fed (`fed_within`), may; and player oats laid *on* ground fed in the
+    /// last `Params::oats_grace` seconds may, whatever else is fed.
+    ///
+    /// The oats clause is review 2's findings H2 and M2. Under the 2 s
+    /// grace alone, oats on just-starved mould were eaten only if laid
+    /// within about 1.5 s of the last fed cell going (Running Dry, seeds
+    /// 1-3: 450-680 walkers stood round oats never eaten at +2, +3 and +5
+    /// s), and never while another piece was still eating (seed 3 at 37 s:
+    /// 263 mould round an oat, 1,130 fed cells elsewhere), all while the
+    /// preview said "It will reach these". Two wider versions failed the
+    /// ship bar over 8 seeds. Oats exempt from the leash outright (the
+    /// review's option a) brought the beachhead back: a random hand's oats
+    /// took 3 stars on Behind the Wall on seeds 1, 6 and 8 and on Running
+    /// Dry on 2, 4 and 7. The oats grace read over the whole leash (27
+    /// cells) rather than under the oats let strays start the intended
+    /// hand's oats laid ahead of Beat the Ruler's tube, which then joined
+    /// round the side on seed 7 (1.16x, 1 star) at graces of 2, 4 and 8 s,
+    /// the dish grace's own failure (`fed_within`).
+    fn strays_may_start(&self, x: f32, y: f32, r: f32, oats: bool, none_fed: bool) -> bool {
+        let limit = self.params.stray_reach;
+        if !limit.is_finite() {
+            return true;
+        }
+        let grace = if none_fed { self.params.stray_grace } else { 0.0 };
+        self.fed_within(x, y, r + limit, grace) || (oats && self.fed_within(x, y, r + 1.0, self.params.oats_grace))
+    }
+
+    /// Whether any cell within `r` of a point is fed, or was within the
+    /// last `grace` seconds. The stray rule's test
     /// (`Params::stray_reach`). Fed now only, it locked a dish whose food
     /// had all run out (review 1, finding 1): once no cell anywhere was fed
     /// every walker was a stray and every pile refused them, so on Running
@@ -1341,12 +1392,8 @@ impl Dish {
     /// a moment, and Beat the Ruler's intended hand on seed 7 joined round
     /// the side (1.10x, 1 star) at every grace from 1 to 3 s, against 0.88x
     /// and 3 stars at 0.
-    fn fed_within(&self, x: f32, y: f32, r: f32, none_fed: bool) -> bool {
-        let grace = if none_fed {
-            (self.params.stray_grace.max(0.0) * STEPS_PER_SECOND as f32) as u64
-        } else {
-            0
-        };
+    fn fed_within(&self, x: f32, y: f32, r: f32, grace: f32) -> bool {
+        let grace = (grace.max(0.0) * STEPS_PER_SECOND as f32) as u64;
         let t = self.t;
         disc(r).any(|(ox, oy)| {
             cell(x + ox, y + oy).is_some_and(|i| {

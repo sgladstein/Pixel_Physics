@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 use pixel_physics::mould::lesson::{Lesson, Step};
 use pixel_physics::mould::level::{Progress, DISHES, ENTRIES, FREE, WANDER};
 use pixel_physics::mould::look::Style;
-use pixel_physics::mould::render::{self, Banner, Menu, View};
+use pixel_physics::mould::render::{self, Banner, Menu, QuitArm, View};
 use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
 use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
@@ -127,9 +127,6 @@ impl Journey {
     };
 }
 
-/// How soon a second Escape must follow the first to quit.
-const QUIT_WINDOW: Duration = Duration::from_secs(2);
-
 /// The first tool a dish offers, in bar order.
 fn first_tool(d: &Dish) -> Tool {
     [Tool::Lamp, Tool::Oats, Tool::Salt, Tool::Snip]
@@ -201,16 +198,19 @@ struct Handler {
     /// The Wanderer's journey, when that is what is being played.
     journey: Option<Journey>,
     view: View,
-    /// Cursor in dish cells.
+    /// Cursor in dish cells, on the dish only.
     cursor: Option<(f32, f32)>,
+    /// Cursor in frame pixels, anywhere on the frame: the bar's tool tiles
+    /// are clicked through this (`render::press_at`).
+    pointer: Option<(f32, f32)>,
     pressed: bool,
     last_frame: Instant,
     accumulator: Duration,
     frames: u64,
     screenshot_after: Option<u64>,
     /// Escape was pressed once on a dish, at this time: a second within
-    /// `QUIT_WINDOW` quits.
-    quit_armed: Option<Instant>,
+    /// `QuitArm::WINDOW` quits.
+    quit: QuitArm,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -240,12 +240,13 @@ impl Handler {
                 ..View::default()
             },
             cursor: None,
+            pointer: None,
             pressed: false,
             last_frame: Instant::now(),
             accumulator: Duration::ZERO,
             frames: 0,
             screenshot_after,
-            quit_armed: None,
+            quit: QuitArm::default(),
             result: Ok(()),
         }
     }
@@ -423,16 +424,29 @@ impl Handler {
             self.let_go();
             return;
         }
+        // Only a press on the dish holds the button; one on a tool tile
+        // selects the tool (review 2, finding M1: the tiles did nothing,
+        // and a press on the bar slid up onto the dish lit the lamp).
+        let Some((px, py)) = self.pointer else { return };
+        let (x, y) = match render::press_at(&self.dish, &self.view, SCALE, px, py) {
+            render::Press::Dish(x, y) => (x, y),
+            render::Press::Tile(t) => {
+                if self.dish.has_tool(t) {
+                    self.view.tool = t;
+                }
+                return self.let_go();
+            }
+            render::Press::Off => return,
+        };
         self.pressed = true;
-        let Some((x, y)) = self.cursor else { return };
-        match (down, self.view.tool) {
-            (true, Tool::Oats) => {
+        match self.view.tool {
+            Tool::Oats => {
                 self.dish.place_oats(x, y);
             }
-            (true, t @ (Tool::Salt | Tool::Snip)) => {
+            t @ (Tool::Salt | Tool::Snip) => {
                 self.dish.begin_stroke(t, x, y);
             }
-            _ => {}
+            Tool::Lamp => {}
         }
         self.hold();
     }
@@ -440,7 +454,8 @@ impl Handler {
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
         // Escape quits only twice running on a dish: once closing the picker
         // made the next Escape quit the game outright (review 1, finding 9).
-        let armed = self.quit_armed.take().is_some_and(|at| at.elapsed() <= QUIT_WINDOW);
+        let armed = self.quit.armed(Instant::now());
+        self.quit.clear();
         if let Some(w) = &self.window {
             w.set_title(&title(self.entry, self.journey));
         }
@@ -515,7 +530,7 @@ impl Handler {
             KeyCode::KeyW => self.start_journey(),
             KeyCode::Escape if armed => event_loop.exit(),
             KeyCode::Escape => {
-                self.quit_armed = Some(Instant::now());
+                self.quit.press(Instant::now());
                 if let Some(w) = &self.window {
                     w.set_title("Mould - press Esc again to quit");
                 }
@@ -562,9 +577,16 @@ impl Handler {
         if let Some(m) = self.view.menu.as_mut() {
             m.progress = self.progress;
         }
+        // The 2 s ran out with no second Escape: the title stops saying so
+        // (review 2, finding L3; it waited for the next key).
+        if self.quit.lapsed(now) {
+            if let Some(w) = &self.window {
+                w.set_title(&title(self.entry, self.journey));
+            }
+        }
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.cursor = self.cursor;
-        self.view.quit_armed = self.quit_armed.is_some_and(|at| at.elapsed() <= QUIT_WINDOW);
+        self.view.quit_armed = self.quit.armed(now);
         render::draw(&self.dish, &self.view, SCALE, pixels.frame_mut());
         if let Err(err) = pixels.render() {
             return self.fail(event_loop, format!("render failed: {err}"));
@@ -586,11 +608,10 @@ impl Handler {
 /// does not. Pixel-perfect never scales below 1:1, so a window shorter than
 /// the frame (726 px: a 768-px laptop) showed it cropped, HUD and all.
 fn scaling_for(width: u32, height: u32) -> ScalingMode {
-    let (fw, fh) = render::frame_size(SCALE);
-    if width < fw || height < fh {
-        ScalingMode::Fill
-    } else {
+    if render::frame_fits(width, height, SCALE) {
         ScalingMode::PixelPerfect
+    } else {
+        ScalingMode::Fill
     }
 }
 
@@ -650,11 +671,14 @@ impl ApplicationHandler for Handler {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor = self
+                self.pointer = self
                     .pixels
                     .as_ref()
                     .and_then(|p| p.window_pos_to_pixel((position.x as f32, position.y as f32)).ok())
-                    .map(|(x, y)| (x as f32 / SCALE as f32, y as f32 / SCALE as f32))
+                    .map(|(x, y)| (x as f32, y as f32));
+                self.cursor = self
+                    .pointer
+                    .map(|(x, y)| (x / SCALE as f32, y / SCALE as f32))
                     .filter(|&(_, y)| y < H as f32);
                 if let Some((x, y)) = self.cursor {
                     if self.pressed && self.dish.stroke_active() {
@@ -667,6 +691,7 @@ impl ApplicationHandler for Handler {
             WindowEvent::Focused(false) => self.let_go(),
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
+                self.pointer = None;
                 self.hold();
             }
             WindowEvent::MouseInput {

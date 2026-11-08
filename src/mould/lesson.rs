@@ -84,7 +84,14 @@ impl Lesson {
     /// The lesson's dish: the storm held back until the last step, and no
     /// late food (one new thing at a time).
     pub fn dish() -> (Dish, Lesson) {
-        let mut d = Dish::new(LESSON_SEED);
+        Self::dish_with(super::Params::default())
+    }
+
+    /// The lesson's dish under other rules: the probe's, so that its
+    /// `lesson=` pictures play the parameters it prints (review 2, P3:
+    /// `pieces=0` was echoed and the lesson played with pieces on).
+    pub fn dish_with(params: super::Params) -> (Dish, Lesson) {
+        let mut d = Dish::with_params(LESSON_SEED, params);
         d.storm_at = u64::MAX;
         d.pending.clear();
         let l = Lesson {

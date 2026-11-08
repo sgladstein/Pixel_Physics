@@ -174,6 +174,7 @@ fn parse() -> Args {
                 a.strays = Some(f());
             }
             "stray_grace" => p.stray_grace = f(),
+            "oats_grace" => p.oats_grace = f(),
             "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
@@ -713,7 +714,7 @@ fn lesson(a: &Args, dir: &str) {
     use pixel_physics::mould::play::oats_toward_nearest;
     use pixel_physics::mould::render::Banner;
     use pixel_physics::mould::Tool;
-    let (mut d, mut l) = Lesson::dish();
+    let (mut d, mut l) = Lesson::dish_with(a.params.clone());
     let sps = STEPS_PER_SECOND as u64;
     let (hx, hy) = (d.piles[0].x, d.piles[0].y);
     let frame = |d: &Dish, l: &Lesson, brief: bool| {
@@ -902,7 +903,7 @@ fn looks(a: &Args, dir: &str) {
     let mut moments: Vec<Moment> = Vec::new();
 
     // (g) The briefing card over the lesson's opening frame.
-    let (d0, l0) = Lesson::dish();
+    let (d0, l0) = Lesson::dish_with(a.params.clone());
     moments.push(Moment {
         name: "brief",
         what: "the briefing card, over the lesson's first frame",
@@ -920,7 +921,7 @@ fn looks(a: &Args, dir: &str) {
     });
     // (a) The lesson, half a second into step 2, cursor where the banner
     // says to click: between the mould and the nearest pile.
-    let (mut d, mut l) = Lesson::dish();
+    let (mut d, mut l) = Lesson::dish_with(a.params.clone());
     let (hx, hy) = (d.piles[0].x, d.piles[0].y);
     let mut began = 0;
     while !(l.step == Step::Oats && d.t >= began + sps / 2) {
@@ -1210,7 +1211,7 @@ fn looks(a: &Args, dir: &str) {
         }
     }
     // Running Dry left alone: the dish ends the moment the mould has died.
-    let mut dry = Dish::from_level(&pixel_physics::mould::level::DISHES[2], seed);
+    let mut dry = level_dish(2, seed, a);
     while dry.phase != Phase::Over && dry.t < 5 * 60 * sps {
         dry.step();
     }
@@ -1662,7 +1663,7 @@ fn levels(a: &Args, which: &[usize]) {
 fn menu(a: &Args, dir: &str) {
     use pixel_physics::mould::level::Progress;
     use pixel_physics::mould::render::Menu;
-    let d = Dish::new(1);
+    let d = Dish::with_params(a.seeds[0], a.params.clone());
     for (tag, text) in [("fresh", ""), ("some", "lesson 1\nwall 3\nruler 1\n")] {
         let view = View {
             keys: false,
@@ -1695,10 +1696,19 @@ fn main() {
     // `oats=` is read by the scored dish, `level=`, `wander=` and `cut=`.
     // Anywhere else it would be silently ignored, so it is refused.
     let oats_read = a.level.is_some() || a.wander || a.cut.is_some();
-    let other_mode = a.menu.is_some() || a.lean || a.push || a.flicker || a.lesson.is_some() || a.verbs.is_some();
+    // `pull=` and `looks=` were missing here and ran on with `oats=0`
+    // (review 2, P2).
+    let other_mode = a.menu.is_some()
+        || a.lean
+        || a.push
+        || a.flicker
+        || a.lesson.is_some()
+        || a.verbs.is_some()
+        || a.pull
+        || a.looks.is_some();
     assert!(
         a.oats.is_none() || oats_read || !other_mode,
-        "oats= is not read by this mode (menu, lean, bend, flicker, lesson, verbs): drop it"
+        "oats= is not read by this mode (menu, lean, bend, flicker, lesson, verbs, pull, looks): drop it"
     );
     if let Some(which) = &a.level {
         levels(&a, which);

@@ -8,7 +8,8 @@
 //! hold it; wall it off with salt and lead it round with oats and it goes
 //! silent, then comes back late; join two bells and the loop rings an echo.
 //!
-//! Keys: 1-4 tools, T target rhythm on/off, P pause, R restart, N next dish.
+//! Keys: 1-4 tools, T target rhythm on/off, P pause, R restart, N next dish,
+//! Esc twice within 2 s quits.
 //! `cargo run --release --bin organ -- 3` starts on dish seed 3.
 //!
 //! **Sound** plays where the build has a sound device -- macOS and Windows,
@@ -25,9 +26,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::mould::organ::{self, Note, Organ};
-use pixel_physics::mould::render::{self, View};
+use pixel_physics::mould::render::{self, QuitArm, View};
 use pixel_physics::mould::{Tool, H, STEPS_PER_FRAME, W};
-use pixels::{Pixels, SurfaceTexture};
+use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -62,6 +63,8 @@ struct Handler {
     frames: u64,
     screenshot_after: Option<u64>,
     speaker: speaker::Speaker,
+    /// Escape twice to quit, as the mould window (review 2, finding L4).
+    quit: QuitArm,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -84,6 +87,7 @@ impl Handler {
             frames: 0,
             screenshot_after,
             speaker,
+            quit: QuitArm::default(),
             result: Ok(()),
         }
     }
@@ -145,6 +149,13 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        // Escape quits only twice running, inside 2 s: once, it ended the
+        // session on a stray press (review 2, finding L4).
+        let armed = self.quit.armed(Instant::now());
+        self.quit.clear();
+        if let Some(w) = &self.window {
+            w.set_title(&format!("Mould Organ - dish {}", self.seed));
+        }
         match code {
             KeyCode::Digit1 => self.view.tool = Tool::Lamp,
             KeyCode::Digit2 => self.view.tool = Tool::Oats,
@@ -154,7 +165,13 @@ impl Handler {
             KeyCode::KeyP => self.view.paused = !self.view.paused,
             KeyCode::KeyR => self.restart(self.seed),
             KeyCode::KeyN => self.restart(self.seed + 1),
-            KeyCode::Escape => event_loop.exit(),
+            KeyCode::Escape if armed => event_loop.exit(),
+            KeyCode::Escape => {
+                self.quit.press(Instant::now());
+                if let Some(w) = &self.window {
+                    w.set_title("Mould Organ - press Esc again to quit");
+                }
+            }
             _ => {}
         }
         self.hold();
@@ -179,6 +196,11 @@ impl Handler {
             self.accumulator = Duration::ZERO;
         }
         self.speaker.send(&sounded);
+        if self.quit.lapsed(now) {
+            if let Some(w) = &self.window {
+                w.set_title(&format!("Mould Organ - dish {}", self.seed));
+            }
+        }
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.cursor = self.cursor;
         organ::draw(&self.organ, &self.view, SCALE, pixels.frame_mut());
@@ -195,6 +217,16 @@ impl Handler {
                 other => eprintln!("screenshot failed: {other:?}"),
             }
         }
+    }
+}
+
+/// Whole-pixel scaling when the frame fits the window, shrink-to-fit when it
+/// does not (`render::frame_fits`; the mould window's rule).
+fn scaling_for(width: u32, height: u32) -> ScalingMode {
+    if render::frame_fits(width, height, SCALE) {
+        ScalingMode::PixelPerfect
+    } else {
+        ScalingMode::Fill
     }
 }
 
@@ -215,7 +247,10 @@ impl ApplicationHandler for Handler {
         let size = window.inner_size();
         let surface = SurfaceTexture::new(size.width, size.height, Arc::clone(&window));
         match Pixels::new(w, h, surface) {
-            Ok(p) => self.pixels = Some(p),
+            Ok(mut p) => {
+                p.set_scaling_mode(scaling_for(size.width, size.height));
+                self.pixels = Some(p);
+            }
             Err(err) => return self.fail(event_loop, format!("pixels init failed: {err}")),
         }
         self.window = Some(window);
@@ -227,6 +262,11 @@ impl ApplicationHandler for Handler {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
+                    // Shrink to fit a window shorter than the frame, as the
+                    // mould window does (review 2, finding L4: it cropped).
+                    if let Some(p) = self.pixels.as_mut() {
+                        p.set_scaling_mode(scaling_for(size.width, size.height));
+                    }
                     let err = self
                         .pixels
                         .as_mut()
