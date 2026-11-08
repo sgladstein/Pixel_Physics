@@ -209,6 +209,81 @@ struct PendingBang {
     due: u64,
 }
 
+/// How big a lit patch goes: the label the preview puts on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BangSize {
+    /// Burns, but too little gas inside it to go bang.
+    Pop,
+    Bang,
+    Big,
+}
+
+impl BangSize {
+    pub fn label(self) -> &'static str {
+        match self {
+            BangSize::Pop => "POP",
+            BangSize::Bang => "BANG",
+            BangSize::Big => "BIG BANG",
+        }
+    }
+}
+
+/// What a light here would do to one face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Risk {
+    Safe,
+    /// Dark for ten seconds.
+    Singed,
+    /// Gone for the shift.
+    Lost,
+}
+
+/// Where a match dropped at the pointer, or a fuse set there, would end up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// It lights the patch in [`Preview::cells`].
+    Burns,
+    /// It goes out in gas too thick to burn.
+    FizzleThick,
+    /// It lands and goes out: nothing near it can burn.
+    FizzleThin,
+    /// A fuse on gas that cannot burn yet: it waits.
+    Waits,
+}
+
+/// **The playtest's first fix (2026-11-08): show the patch a light will
+/// burn before the click.** A light burns the joined yellow it starts in
+/// (measured: 27,001 of 27,019 cells over six seeds), but nothing on screen
+/// said which yellow was joined to which, a thin ribbon could join the sump
+/// to a lamp unseen, and the whole burn is over in under a second -- too
+/// fast to watch a front stop. So with a match or fuse in hand the patch is
+/// outlined, labelled by how big it will go, its blast drawn, and turned red
+/// if it costs a face.
+#[derive(Clone, Debug)]
+pub struct Preview {
+    pub tool: Tool,
+    /// Where it lights, fizzles or waits.
+    pub at: (i32, i32),
+    pub outcome: Outcome,
+    /// The joined yellow it would burn (empty unless it burns).
+    pub cells: Vec<usize>,
+    pub size: BangSize,
+    /// Where the bang goes off, and its radius (0 for a pop).
+    pub heart: (i32, i32),
+    pub radius: i32,
+    /// Per face, low first: what this light would do to it.
+    pub risk: [Risk; 2],
+}
+
+/// Inside-gas at which a bang is labelled BIG BANG: radius 17 and up. The
+/// planned player's bangs run 30-147 inside-gas, so both labels turn up.
+pub const BIG_BANG: f32 = 60.0;
+
+/// The blast radius a pocket of this much inside-gas goes off with.
+pub fn bang_radius(g: f32) -> i32 {
+    (4.0 + 1.7 * g.sqrt()).clamp(6.0, 22.0) as i32
+}
+
 pub struct Game {
     pub seed: u64,
     pub tick: u64,
@@ -236,6 +311,9 @@ pub struct Game {
     pub pops: Vec<(i32, i32, String, u64)>,
     /// A fan being aimed, by index.
     pub aiming: Option<usize>,
+    /// What the match or fuse in hand would do at the pointer, refreshed by
+    /// [`Game::aim_preview`] each drawn frame and drawn by `paint`.
+    pub preview: Option<Preview>,
     /// Fans need their cones re-cast.
     fans_dirty: bool,
     pending: Vec<PendingBang>,
@@ -296,6 +374,7 @@ impl Game {
             over: false,
             pops: Vec::new(),
             aiming: None,
+            preview: None,
             fans_dirty: true,
             pending: Vec::new(),
             claimed: vec![0; N],
@@ -982,7 +1061,7 @@ impl Game {
     /// Hand a pocket to the engine's explosion. Its size follows the gas
     /// that was in it.
     pub fn bang(&mut self, x: i32, y: i32, g: f32) {
-        let radius = (4.0 + 1.7 * g.sqrt()).clamp(6.0, 22.0) as i32;
+        let radius = bang_radius(g);
         let strength = (50.0 + 3.0 * g).min(220.0);
         self.blasts.trigger_with(&mut self.world, &mut self.particles, x, y, radius, strength);
         self.counts.bangs += 1;
@@ -1031,7 +1110,14 @@ impl Game {
         self.counts.faces_blown += 1;
         self.events.push(Event::FaceBlown { x, y });
         let n = Face::name(k);
-        self.say(&format!("THE {n} BLEW UP. GAS REACHED ITS LAMP."));
+        // Say which: a bang's blast and a lamp lighting its own gas look
+        // alike once the face is gone, and the player needs to know which
+        // light cost it.
+        if with_blast {
+            self.say(&format!("THE {n} BLEW UP. GAS REACHED ITS LAMP."));
+        } else {
+            self.say(&format!("THE {n} WAS CAUGHT IN THE BLAST AND IS GONE."));
+        }
         if with_blast {
             self.blasts.trigger_with(&mut self.world, &mut self.particles, x, y, 9, 130.0);
             self.flash = 1.0;
@@ -1149,6 +1235,110 @@ impl Game {
         }
         Some((p.cells.len(), p.inner_gas))
     }
+
+    /// Fill every open cell within `r` of (`cx`, `cy`) with gas at `c`: a
+    /// pocket made on purpose, for tests and the harness's pictures.
+    pub fn plant_pocket(&mut self, cx: i32, cy: i32, r: i32, c: f32) {
+        for y in cy - r..=cy + r {
+            for x in cx - r..=cx + r {
+                if (x - cx).pow(2) + (y - cy).pow(2) <= r * r && self.cell_open(x, y) {
+                    self.gas.c[idx(x, y)] = c;
+                }
+            }
+        }
+    }
+
+    /// Refresh [`Game::preview`] for the pointer: what the match or fuse in
+    /// hand would do there now. Cleared for the other tools, off the mine,
+    /// on rock and with none left.
+    pub fn aim_preview(&mut self, cursor: Option<(i32, i32)>) {
+        self.preview = cursor.and_then(|(x, y)| self.preview_at(self.tool, x, y));
+    }
+
+    pub fn preview_at(&mut self, tool: Tool, x: i32, y: i32) -> Option<Preview> {
+        let left = match tool {
+            Tool::Match => self.stock.matches,
+            Tool::Fuse => self.stock.fuses,
+            _ => return None,
+        };
+        if left == 0 || self.over || !self.rock_empty(x, y) {
+            return None;
+        }
+        let (at, outcome) = if tool == Tool::Match { self.match_lands(x, y) } else { self.fuse_lights(x, y) };
+        let mut p = Preview { tool, at, outcome, cells: Vec::new(), size: BangSize::Pop, heart: at, radius: 0, risk: [Risk::Safe; 2] };
+        if outcome != Outcome::Burns {
+            return Some(p);
+        }
+        let Some(pocket) = gas::pocket(&self.gas, at.0, at.1, &mut self.seen) else {
+            // Burnable but already burning: nothing new to show.
+            p.outcome = Outcome::FizzleThin;
+            return Some(p);
+        };
+        for &c in &pocket.cells {
+            self.seen[c] = false;
+        }
+        if pocket.inner_gas >= BANG_MIN {
+            p.size = if pocket.inner_gas >= BIG_BANG { BangSize::Big } else { BangSize::Bang };
+            p.heart = pocket.heart;
+            p.radius = bang_radius(pocket.inner_gas);
+        }
+        // The same rules `bang` and `step_faces` apply, read ahead.
+        for k in 0..2 {
+            if self.faces[k].state == FaceState::Blown {
+                continue;
+            }
+            let (lx, ly) = self.faces[k].lamp;
+            let mut r = Risk::Safe;
+            if p.radius > 0 {
+                let d2 = (lx - p.heart.0).pow(2) + (ly - p.heart.1).pow(2);
+                if d2 <= (p.radius + 2).pow(2) {
+                    r = Risk::Lost;
+                } else if d2 <= (p.radius + 10).pow(2) {
+                    r = Risk::Singed;
+                }
+            }
+            // Yellow within reach of the lamp is the face gone (the lamp
+            // lights it: `step_faces`); a flame passing within 4 singes it.
+            let near = pocket.cells.iter().map(|&c| ((c % W) as i32 - lx).pow(2) + ((c / W) as i32 - ly).pow(2)).min().unwrap_or(i32::MAX);
+            if near <= LAMP_LIGHTS * LAMP_LIGHTS {
+                r = Risk::Lost;
+            } else if r < Risk::Singed && near <= 16 {
+                r = Risk::Singed;
+            }
+            p.risk[k] = r;
+        }
+        p.cells = pocket.cells;
+        Some(p)
+    }
+
+    /// Follow a match down from the pointer as `step_matches` would, with
+    /// the gas as it is now.
+    fn match_lands(&self, x: i32, y0: i32) -> ((i32, i32), Outcome) {
+        let mut y = y0;
+        loop {
+            let c = self.gas.at(x, y);
+            if burnable(c) && self.gas.open[idx(x, y)] {
+                return ((x, y), Outcome::Burns);
+            }
+            if c > gas::BURN_HI {
+                return ((x, y), Outcome::FizzleThick);
+            }
+            if !self.cell_open(x, y + 1) {
+                return match self.gas.burnable_near(x, y, 1) {
+                    Some(p) => (p, Outcome::Burns),
+                    None => ((x, y), Outcome::FizzleThin),
+                };
+            }
+            y += 1;
+        }
+    }
+
+    fn fuse_lights(&self, x: i32, y: i32) -> ((i32, i32), Outcome) {
+        match self.gas.burnable_near(x, y, 1) {
+            Some(p) => (p, Outcome::Burns),
+            None => ((x, y), Outcome::Waits),
+        }
+    }
 }
 
 /// Bresenham through open cells.
@@ -1223,5 +1413,36 @@ mod tests {
             assert!(g.faces.iter().all(|f| f.blown_at.is_none()), "a face blew while the flare burnt, so the test no longer measures the flare");
             assert!(g.tick < lit_at + 10 * TICKS_PER_SECOND, "still burning 10 s after the only light: the crack is a torch again");
         }
+    }
+    /// The preview's red is true: a burnable pocket planted in the low
+    /// face's gallery, its edge six cells short of the lamp (so the lamp
+    /// itself does not light it), is shown as a bang that takes the low
+    /// face -- and a match there does take it. Red never came up on its own
+    /// in twelve random mines (`firedampprobe previews=1`), so this is its
+    /// positive control.
+    #[test]
+    fn a_red_preview_costs_the_face_it_names() {
+        let mut g = Game::new(1);
+        g.plant_pocket(176, 106, 6, 0.35);
+        let p = g.preview_at(Tool::Match, 176, 103).expect("a match in hand over open tunnel");
+        assert_eq!(p.outcome, Outcome::Burns);
+        assert_ne!(p.size, BangSize::Pop, "the planted pocket should go bang");
+        assert_eq!(p.risk[0], Risk::Lost, "preview: {:?} radius {}", p.risk, p.radius);
+        assert!(g.throw_match(176, 103));
+        let t0 = g.tick;
+        while g.tick < t0 + 3 * TICKS_PER_SECOND && g.faces[0].state != FaceState::Blown {
+            g.step();
+        }
+        assert_eq!(g.faces[0].state, FaceState::Blown, "the preview said the low face would go, and it did not");
+    }
+
+    /// ...and a pocket of the same size far from both lamps is shown safe.
+    #[test]
+    fn a_pocket_far_from_the_lamps_is_shown_safe() {
+        let mut g = Game::new(1);
+        g.plant_pocket(80, 81, 6, 0.35);
+        let p = g.preview_at(Tool::Match, 80, 78).expect("a match in hand over open tunnel");
+        assert_eq!(p.outcome, Outcome::Burns);
+        assert_eq!(p.risk, [Risk::Safe; 2]);
     }
 }

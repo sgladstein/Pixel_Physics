@@ -147,6 +147,7 @@ impl Handler {
         }
         self.sounds();
         let Some(pixels) = &mut self.pixels else { return };
+        self.game.aim_preview(self.cursor);
         paint::paint(&self.game, pixels.frame_mut(), self.cursor);
         if self.paused {
             paint::text(pixels.frame_mut(), FW as i32 / 2 - 36, 200, "PAUSED", [255, 255, 255, 255]);
