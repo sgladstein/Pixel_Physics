@@ -7,7 +7,7 @@
 //! line under the hand always says what the card under the pointer would do
 //! to the tip you have picked.
 
-use super::{CardKind, Heartwood, H, W};
+use super::{CardKind, Heartwood, Verdict, H, W};
 use crate::hud::{draw_text_scaled, GLYPH_HEIGHT, GLYPH_WIDTH};
 use crate::render::Renderer;
 
@@ -122,12 +122,43 @@ const THEIRS: [u8; 4] = [220, 120, 90, 255];
 /// Marks drawn over the valley.
 fn overlay(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
     let cell = |(x, y): (i32, i32)| (x * ZOOM + ZOOM / 2, y * ZOOM + ZOOM / 2);
-    // Where the card would go: faint dots.
+    // **Leaves the low sun does not reach**, either tree's: dimmed, so
+    // shading the rival is something you can watch happen.
+    for &(x, y) in &game.dark {
+        fill(frame, (x * ZOOM, y * ZOOM, ZOOM, ZOOM), [10, 16, 30, 150]);
+    }
+    // The two low suns, in the top corners, and the way their light comes in.
+    for &(fx, fy) in &super::SUNS {
+        let sx0 = if fx < 0 { 34 } else { VIEW_W as i32 - 34 };
+        let sy0 = 34;
+        fill(frame, (sx0 - 10, sy0 - 10, 21, 21), [255, 222, 120, 255]);
+        for k in 1..6 {
+            let (dx, dy) = (-fx * k * 5, -fy * k * 5);
+            fill(frame, (sx0 + dx, sy0 + dy, 3, 3), [255, 222, 120, 150]);
+        }
+    }
+    // **Where the card would go**: the whole footprint, bold enough to read
+    // on a phone -- white when it will play, amber when water will stop it
+    // short, red when it will not play at all (with the reason on the line
+    // under the hand).
     let preview_card = hover.or(if game.hand.is_empty() { None } else { Some(0) });
     if let Some(i) = preview_card {
+        let colour = match game.preview_verdict(i) {
+            Some(Verdict::No(_)) => [240, 70, 60, 230],
+            Some(Verdict::Short(_)) => [250, 180, 60, 230],
+            _ => [255, 255, 255, 220],
+        };
+        let leafy = game.hand.get(i) == Some(&CardKind::LeafOut);
         for p in game.preview(i) {
             let (sx, sy) = cell(p);
-            fill(frame, (sx - 1, sy - 1, 3, 3), [255, 255, 255, 120]);
+            fill(frame, (sx - 2, sy - 2, 5, 5), [0, 0, 0, 120]);
+            fill(frame, (sx - 1, sy - 1, 3, 3), colour);
+            if leafy {
+                for dx in [-2, 2] {
+                    let (lx, ly) = cell((p.0 + dx, p.1));
+                    fill(frame, (lx - 1, ly - 1, 3, 3), [110, 200, 90, 200]);
+                }
+            }
         }
     }
     let blink = (game.world.frame / 20).is_multiple_of(2);
@@ -179,7 +210,8 @@ fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
         fill(frame, (bx + (bw as f32 * s) as i32, top + 4, 1, 18), GOLD);
     }
     text(frame, (bx + 4, top + 8), &format!("YOUR LIGHT {}%", (share * 100.0).round() as i32), 1, WHITE);
-    let s3 = format!("SUGAR {}  PRUNES {}", game.sugar.floor() as i32, game.prunes);
+    let rate = game.net_rate();
+    let s3 = format!("SUGAR {} ({}{:.1}/S)  PRUNES {}", game.sugar.floor() as i32, if rate >= 0.0 { "+" } else { "" }, rate, game.prunes);
     text(frame, (FRAME_W as i32 - text_w(&s3, 2) - 6, top + 6), &s3, 2, GOLD);
     // The tree's books, in words: is it fed or starving?
     let (msg, col) = if game.starving() {
@@ -209,14 +241,21 @@ fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
                     s.push_str(if side > 0.0 { " (RIGHT)" } else { " (LEFT)" });
                 }
             }
-            if game.selected.len() > 1 {
-                s.push_str(&format!(" - ON {} TIPS", game.selected.len()));
+            match hover.or(Some(0)).and_then(|i| game.preview_verdict(i)) {
+                Some(Verdict::No(why)) => s = format!("{}: {}", card.name(), why),
+                Some(Verdict::Short(n)) => s = format!("{}: WATER REACHES ONLY {} MORE CELLS", card.name(), n),
+                _ => {}
             }
             s
         }
         None => format!("NO CARDS IN HAND. A NEW ONE COMES EVERY {:.1} S", heartwood_draw_seconds()),
     };
-    text(frame, (6, top + 92), &line3, 2, WHITE);
+    let line3_colour = match hover.or(Some(0)).and_then(|i| game.preview_verdict(i)) {
+        Some(Verdict::No(_)) => [240, 90, 80, 255],
+        Some(Verdict::Short(_)) => [250, 190, 80, 255],
+        _ => WHITE,
+    };
+    text(frame, (6, top + 92), &line3, 2, line3_colour);
     // The picked tip's queue, and the latest note.
     let queue = game.selected.iter().next().map(|&t| {
         let mut parts: Vec<&str> = Vec::new();
@@ -241,7 +280,7 @@ fn hud(game: &Heartwood, frame: &mut [u8], hover: Option<usize>) {
         let s = &n.text;
         text(frame, (FRAME_W as i32 - text_w(s, 1) - 6, top + 118), s, 1, DIM);
     }
-    let keys = "CLICK A TIP: PICK IT   SHIFT-CLICK: ADD   1-5 OR CLICK A CARD: PLAY   RIGHT-CLICK YOUR TREE: PRUNE   N: NEW VALLEY";
+    let keys = "CLICK A TIP: PICK IT   1-5 OR CLICK A CARD: PLAY IT THERE   RIGHT-CLICK YOUR TREE: PRUNE   N: NEW GAME";
     text(frame, (6, top + 138), keys, 1, DIM);
     let seasons: Vec<String> = game.tally.seasons.iter().map(|s| format!("{}%", (s * 100.0).round() as i32)).collect();
     let st = format!(

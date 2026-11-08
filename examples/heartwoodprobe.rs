@@ -16,7 +16,13 @@
 //!   twice, lean toward the light, leaf out, and keep leafing the tips that
 //!   stand in the sun;
 //! - `combo`: the design's showpiece on one tip -- Fork, Fork, Lean, Leaf Out
-//!   with a Bud under it holding Grow Up -- then the plan.
+//!   with a Bud under it holding Grow Up -- then the plan;
+//! - the 2026-11-08 playtest's players, which choose nothing: `mash` (key 1
+//!   every half second on whatever tip the game has picked), `top` (always
+//!   the highest tip, card 1), `overhang` (race the top tip above the rival,
+//!   then lean and leaf toward it), `leafonly` (only Leaf Out, on the
+//!   best-lit tip) and `selectall` (shift-pick every tip, play card 1; since
+//!   one card goes to one tip, the last tip clicked).
 //!
 //! `shots=PREFIX` writes `PREFIX-<play>-s<seed>-<season>.png` at the end of
 //! each season. `gif=PATH` writes one GIF of the first (play, seed) pair,
@@ -50,6 +56,13 @@ enum Play {
     Random,
     Plan,
     Combo,
+    /// The 2026-11-08 playtest's thoughtless players, so a fix is judged
+    /// against the strategies that showed the cards were not a decision.
+    Mash,
+    Top,
+    Overhang,
+    LeafOnly,
+    SelectAll,
 }
 
 struct Lcg(u64);
@@ -77,7 +90,7 @@ fn decide(g: &mut Heartwood, play: Play, rng: &mut Lcg, combo_done: &mut bool) {
                 return;
             }
             let (tag, _) = tips[(rng.next() as usize) % tips.len()];
-            g.select(tag, false);
+            g.select(tag);
             g.play(i);
         }
         Play::Combo if !*combo_done => {
@@ -100,58 +113,110 @@ fn decide(g: &mut Heartwood, play: Play, rng: &mut Lcg, combo_done: &mut bool) {
             *combo_done = true;
         }
         Play::Plan | Play::Combo => plan(g),
+        Play::Mash => {
+            if g.t % 30 < 15 {
+                g.play(0);
+            }
+        }
+        Play::Top => {
+            if let Some(&(tag, _)) = tips.iter().min_by_key(|&&(t, (_, y))| (y, t)) {
+                g.select(tag);
+                g.play(0);
+            }
+        }
+        Play::Overhang => overhang(g),
+        Play::LeafOnly => {
+            // Leaf Out whenever it is in hand, on the best-lit idle tip; any
+            // other card only when the hand is full, so the hand keeps moving.
+            let light = |p: (i32, i32)| pixel_physics::sim::plant::ambient_light_above(&g.world, p.0, p.1 - 2);
+            let card = g.hand.iter().position(|&c| c == CardKind::LeafOut).or(if g.hand.len() >= heartwood::HAND { Some(0) } else { None });
+            if let Some(i) = card {
+                if let Some(&(tag, _)) = tips.iter().filter(|&&(t, _)| g.idle(t)).max_by(|a, b| light(a.1).total_cmp(&light(b.1))) {
+                    g.select(tag);
+                    g.play(i);
+                }
+            }
+        }
+        Play::SelectAll => {
+            // Picking every tip is no longer possible (one card, one tip):
+            // this is what the same clicks do now -- the last tip picked
+            // gets card 1.
+            for &(tag, _) in &tips {
+                g.select(tag);
+            }
+            g.play(0);
+        }
     }
 }
 
 /// Put `card` on `tag`'s queue as if it had been in the hand and played.
 fn force(g: &mut Heartwood, tag: u32, card: CardKind) {
     g.hand.insert(0, card);
-    g.select(tag, false);
+    g.select(tag);
     if !g.play(0) {
         g.hand.remove(0);
     }
 }
 
 fn plan(g: &mut Heartwood) {
-    // What a player who has read the cards would do: keep every tip busy
-    // rather than stacking one, split early to get a crown of tips, send a
-    // shaded tip toward the light, a low one up, and a lit one into leaf.
-    // It stacks only when the hand is full.
+    // What a player who has read the cards and the outline would do: keep
+    // every tip busy, split early for a crown of tips, lean a tip in shadow
+    // out toward the low sun, leaf a sunlit one, send a low one up -- and
+    // never play a card the outline shows red.
     let tips = g.tips();
-    let light = |g: &Heartwood, p: (i32, i32)| pixel_physics::sim::plant::ambient_light_above(&g.world, p.0, p.1 - 2);
-    let brightest = tips.iter().map(|t| light(g, t.1)).fold(0.0f32, f32::max).max(1e-3);
-    // A tip the screen calls stuck is left alone, as a player reading it would.
-    let pick = |only_idle: bool| {
-        tips.iter()
-            .copied()
-            .filter(|&(t, _)| !g.blocked.contains_key(&t) && (!only_idle || g.idle(t)))
-            .max_by(|a, b| light(g, a.1).total_cmp(&light(g, b.1)))
-    };
-    let any = || tips.iter().copied().max_by(|a, b| light(g, a.1).total_cmp(&light(g, b.1)));
-    let chosen = pick(true).or_else(|| if g.hand.len() >= heartwood::HAND { pick(false).or_else(any) } else { None });
-    let Some((tag, p)) = chosen else { return };
-    let height = heartwood::GROUND_Y - p.1;
-    let lit = light(g, p) / brightest;
+    let sun = |p: (i32, i32)| heartwood::sun_at(&g.world, p);
+    // Idle tips first; with a full hand, any tip (the card waits its turn).
+    let full = g.hand.len() >= heartwood::HAND;
+    let mut idle: Vec<(u32, (i32, i32))> = tips.iter().copied().filter(|&(t, _)| full || g.idle(t)).collect();
+    idle.sort_by(|a, b| sun(b.1).total_cmp(&sun(a.1)).then(a.0.cmp(&b.0)));
     let n = tips.len();
-    let want: &[CardKind] = if g.starving() && height >= 15 {
-        &[CardKind::LeafOut, CardKind::Lean, CardKind::Fork, CardKind::GrowUp]
-    } else if height < 25 || height < 60 && lit < 0.8 {
-        &[CardKind::GrowUp, CardKind::Lean, CardKind::Fork, CardKind::LeafOut]
-    } else if n < 6 {
-        &[CardKind::Fork, CardKind::GrowUp, CardKind::Lean, CardKind::LeafOut]
-    } else if lit < 0.5 {
-        &[CardKind::Lean, CardKind::LeafOut, CardKind::Fork, CardKind::GrowUp]
-    } else {
-        &[CardKind::LeafOut, CardKind::Fork, CardKind::Lean, CardKind::GrowUp]
-    };
-    for &c in want.iter().chain([CardKind::Bud].iter()) {
-        if let Some(i) = g.hand.iter().position(|&h| h == c) {
-            if g.sugar >= c.cost() {
-                g.select(tag, false);
+    for (tag, p) in idle {
+        let height = heartwood::GROUND_Y - p.1;
+        let lit = sun(p);
+        let want: &[CardKind] = if height < 30 {
+            &[CardKind::GrowUp, CardKind::Lean, CardKind::Fork]
+        } else if n < 5 {
+            &[CardKind::Fork, CardKind::LeafOut, CardKind::Lean]
+        } else if lit < 0.5 {
+            &[CardKind::Lean, CardKind::Fork, CardKind::GrowUp]
+        } else {
+            &[CardKind::LeafOut, CardKind::Fork, CardKind::Lean]
+        };
+        for &c in want {
+            if let Some(i) = g.hand.iter().position(|&h| h == c) {
+                if matches!(g.verdict(c, tag), heartwood::Verdict::No(_)) {
+                    continue;
+                }
+                g.select(tag);
                 g.play(i);
+                return;
             }
+        }
+    }
+}
+
+/// The playtest's "clever" player: get the top tip above the rival's crown,
+/// then lean over toward it and leaf out.
+fn overhang(g: &mut Heartwood) {
+    let tips = g.tips();
+    let Some(&(tag, (_, y))) = tips.iter().min_by_key(|&&(t, (_, y))| (y, t)) else { return };
+    let rival_top = g.world.organism(g.rival).and_then(|s| s.cells.keys().map(|c| c.1).min()).unwrap_or(heartwood::GROUND_Y);
+    let want: &[CardKind] = if y > rival_top - 4 {
+        &[CardKind::GrowUp, CardKind::Lean, CardKind::Fork]
+    } else {
+        &[CardKind::Lean, CardKind::LeafOut, CardKind::Fork, CardKind::GrowUp]
+    };
+    for &c in want {
+        if let Some(i) = g.hand.iter().position(|&h| h == c) {
+            g.select(tag);
+            g.play(i);
             return;
         }
+    }
+    // Nothing it wants in hand: a full hand still gets played.
+    if g.hand.len() >= heartwood::HAND {
+        g.select(tag);
+        g.play(0);
     }
 }
 
@@ -167,6 +232,11 @@ fn main() {
                     "random" => Play::Random,
                     "plan" => Play::Plan,
                     "combo" => Play::Combo,
+                    "mash" => Play::Mash,
+                    "top" => Play::Top,
+                    "overhang" => Play::Overhang,
+                    "leafonly" => Play::LeafOnly,
+                    "selectall" => Play::SelectAll,
                     other => panic!("unknown play={other}"),
                 },
             )
@@ -369,7 +439,7 @@ fn main() {
                     within(6.0)
                 );
             }
-            println!("        blocked by reason: {:?}", g.tally.blocked_why);
+            println!("        blocked by reason: {:?}; refused before paying: {:?}; sugar left {:.0}, earned {:.0}, upkeep {:.0}", g.tally.blocked_why, g.tally.refused_why, g.sugar, g.tally.sugar_earned, g.tally.upkeep_paid);
             println!("        worst tick at frame {} with {} tips; p99 tick {:.2} ms", worst_at.0, worst_at.1, ticks[(ticks.len() - 1) * 99 / 100]);
             if want_gif {
                 let path = gif.clone().unwrap();

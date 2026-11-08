@@ -40,7 +40,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         last_frame: Instant::now(),
         accumulator: Duration::ZERO,
         cursor: None,
-        shift: false,
         screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
         result: Ok(()),
     };
@@ -58,7 +57,6 @@ struct Handler {
     accumulator: Duration,
     /// The pointer, in frame pixels.
     cursor: Option<(i32, i32)>,
-    shift: bool,
     screenshot_countdown: Option<u32>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
@@ -89,7 +87,7 @@ impl Handler {
         match button {
             MouseButton::Left => {
                 if let Some(tag) = self.game.nearest_tip(cell, 8) {
-                    self.game.select(tag, self.shift);
+                    self.game.select(tag);
                 }
             }
             MouseButton::Right => {
@@ -172,9 +170,6 @@ impl ApplicationHandler for Handler {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
-                    if matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight) {
-                        self.shift = pressed;
-                    }
                     if !pressed || event.repeat {
                         return;
                     }

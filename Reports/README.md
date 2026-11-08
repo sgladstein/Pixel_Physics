@@ -6584,7 +6584,10 @@ file unless its report says so.
   where you play a card, against a free shipped tree; does the order matter?** Doing nothing gets 0% of the light on 12 of 12
   seeds. A plan ends with more light than random cards on 8 of 12 (p 0.39) and a star on 9 seeds to random's 5 (p 0.06):
   keeping every tip busy is most of what it buys. A card ends a median 3 cells from its outline's end. Adds the
-  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. Verdict waits on the owner.
+  default-off `sim::tip_cards` hook to plant.rs; the lab's same-seed picture is identical. **Round 2 (2026-11-08)**, the
+  playtest's six fixes (one card one tip, upkeep, big cards, two low suns, outline checked before paying, fixed rival):
+  the plan beats 6 of 7 scripted strategies on final light (pick-every-tip 3-9 -> 10-2, mashing 7-5 -> 10-1, p 0.012,
+  none past the corrected bar) and ties Leaf Out only (6-4). Verdict waits on the owner.
 
 - [kudzu-probe-2026-11-07.md](kudzu-probe-2026-11-07.md) — **probe 7 (`--bin kudzu`): a vine over two walls; does a cut
   that drops a whole sheet feel good, and does the hover preview make cutting a deduction?** Over 12 paired seeds, doing
