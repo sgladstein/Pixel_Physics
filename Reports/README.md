@@ -623,7 +623,7 @@ by somebody about to try it on creatures.
 ## Liquids and granular  ·  `engine`
 
 - [quench-probe-2026-11-07.md](quench-probe-2026-11-07.md) —
-  **prototype probe, 2026-11-07; built (`--bin quench`), round 2 done, verdict pending.**
+  **prototype probe, 2026-11-07; built (`--bin quench`), round 3 done, verdict pending.**
   Does a placed stone lid plus a splash make a dam out of lava? Round 1: not
   on the shipped engine (a placed lid is not a roof to condensation, steam
   leaves sideways, the first splash's crust keeps later water off the lava;
@@ -633,6 +633,11 @@ by somebody about to try it on creatures.
   (10/10 seeds); a pit ties it. Most of the gain was the level (lids that
   crusted shut by themselves); the two engine rules take 115 to 71. Adds the
   game-only `World::set_game_roofed` and `World::crust_quench_depth`.
+  Round 3 (the playtest's fixes: a dam you can see, a 150-cell shovel,
+  re-based stars, a seeded surge, the rules on screen): lid and water ties
+  the limited shovel 6-6 over 12 seeds, doing nothing gets 0 stars. Also
+  fixes an engine determinism bug: `rigid::exchange_with_fluid` broke
+  distance ties by std `HashSet` order.
 - [aquatic-life-research-2026-09-14.md](aquatic-life-research-2026-09-14.md) —
   **research and brainstorm, 2026-09-14; nothing built, no build order.**
   Aquatic creatures and plants across all three games. Four one-line
