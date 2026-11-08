@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use pixel_physics::mould::play::{Idle, Plan, Player, Random};
+use pixel_physics::mould::play::{Dump, Fresh, Idle, LampOnly, Plan, Player, Random, Shepherd};
 use pixel_physics::mould::render::{self, View};
 use pixel_physics::mould::{Dish, Params, Phase, Score, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
 
@@ -25,6 +25,9 @@ struct Args {
     look: Option<String>,
     lean: bool,
     verbs: Option<String>,
+    push: bool,
+    /// `push`: how far beside the tube the lamp is held.
+    offset: f32,
     scale: u32,
     every: u32,
     /// Oats per dish, if not the game's own stock.
@@ -35,11 +38,15 @@ struct Args {
 fn parse() -> Args {
     let mut a = Args {
         seeds: vec![1, 2, 3, 4, 5],
-        players: vec!["idle".into(), "random".into(), "plan".into()],
+        players: ["idle", "random", "plan", "fresh", "shepherd", "lamponly", "dump"]
+            .map(String::from)
+            .to_vec(),
         gif: None,
         look: None,
         lean: false,
         verbs: None,
+        push: false,
+        offset: 12.0,
         scale: 2,
         every: 15,
         oats: None,
@@ -58,6 +65,7 @@ fn parse() -> Args {
             "look" => a.look = Some(v.into()),
             "lean" => a.lean = v == "1",
             "verbs" => a.verbs = Some(v.into()),
+            "bend" => a.push = v == "1",
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
@@ -81,6 +89,10 @@ fn parse() -> Args {
             "starve" => p.starve = f(),
             "hungry" => p.hungry = f(),
             "burn" => p.burn = f(),
+            "lamp_reach" => p.lamp_reach = f(),
+            "lamp_soft" => p.lamp_soft = v == "1",
+            "push" => p.push = f(),
+            "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
     }
@@ -92,6 +104,10 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "idle" => Box::new(Idle),
         "random" => Box::new(Random::new(seed)),
         "plan" => Box::new(Plan::new()),
+        "fresh" => Box::new(Fresh::new()),
+        "shepherd" => Box::new(Shepherd),
+        "lamponly" => Box::new(LampOnly::new()),
+        "dump" => Box::new(Dump),
         _ => panic!("unknown player {name}"),
     }
 }
@@ -153,6 +169,16 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         peak = peak.max(d.walkers.len());
         if a.gif.is_some() && frame.is_multiple_of(a.every) {
             shots.push(frame_of(&d, a.scale));
+        }
+        // Stills also just after each late pile turns up and during the
+        // storm warning, the moments the 2026-11-08 fixes draw.
+        let sps = STEPS_PER_SECOND as u64;
+        if d.t.is_multiple_of(sps) && [31, 56, 87].contains(&(d.t / sps)) {
+            if let Some(dir) = &a.look {
+                frame_of(&d, a.scale)
+                    .save(format!("{dir}/look-s{seed}-{who}-{:03}.png", d.t / sps))
+                    .unwrap();
+            }
         }
         if d.t.is_multiple_of(10 * STEPS_PER_SECOND as u64) {
             let s = d.measure();
@@ -280,6 +306,119 @@ fn lean(a: &Args) {
             }
             println!("              lamp on {start} walkers: recoil {}", fmt(recoil_at));
         }
+    }
+}
+
+/// The thickest tube cell away from every pile, and the unit normal to the
+/// line from home through it (roughly across the tube).
+fn trunk(d: &Dish) -> ((f32, f32), (f32, f32)) {
+    let w = pixel_physics::mould::W;
+    let mut best = (0.0f32, 0usize);
+    for (i, &t) in d.trail.iter().enumerate() {
+        let (x, y) = ((i % w) as f32, (i / w) as f32);
+        if t > best.0 && d.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + LAMP_R + 4.0) {
+            best = (t, i);
+        }
+    }
+    let (tx, ty) = ((best.1 % w) as f32 + 0.5, (best.1 / w) as f32 + 0.5);
+    let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+    let len = (tx - hx).hypot(ty - hy).max(1.0);
+    ((tx, ty), (-(ty - hy) / len, (tx - hx) / len))
+}
+
+/// Trail-weighted offset of the tube along `n`, within 14 cells of `at`.
+fn tube_offset(d: &Dish, at: (f32, f32), n: (f32, f32)) -> f32 {
+    let w = pixel_physics::mould::W;
+    let (mut sum, mut wsum) = (0.0f32, 0.0f32);
+    for (i, &t) in d.trail.iter().enumerate() {
+        if t <= d.params.tube {
+            continue;
+        }
+        let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+        if (x - at.0).hypot(y - at.1) <= 14.0 {
+            sum += t * ((x - at.0) * n.0 + (y - at.1) * n.1);
+            wsum += t;
+        }
+    }
+    if wsum > 0.0 {
+        sum / wsum
+    } else {
+        f32::NAN
+    }
+}
+
+/// **Does the lamp push or erase?** (playtest 2026-11-08, fix 1). Hold the
+/// lamp 12 cells beside the thickest tube for 3 s, against the same dish
+/// with no lamp: how far the tube moved away, whether it is still whole
+/// (food joined), and how much mould the light killed.
+fn push(a: &Args) {
+    println!(
+        "\n== lamp held {} cells beside the trunk for 3 s, against the no-lamp twin ==",
+        a.offset
+    );
+    for &seed in &a.seeds {
+        let mut base = Dish::with_params(seed, a.params.clone());
+        while base.t < (25 * STEPS_PER_SECOND) as u64 {
+            base.step();
+        }
+        let (at, n) = trunk(&base);
+        let (mut lit, mut dark) = (base.clone(), base.clone());
+        lit.set_lamp(Some((at.0 + n.0 * a.offset, at.1 + n.1 * a.offset)));
+        let j0 = base.measure().reach;
+        let mut min_join = j0;
+        // With gif=DIR: the lit dish in real time, half a second before the
+        // lamp, the 3 s it is held, and a second after, at 30 frames a
+        // second -- the paired picture for the 2026-11-08 lamp change.
+        let mut shots = Vec::new();
+        let lamp = lit.lamp;
+        if a.gif.is_some() {
+            let mut pre = base.clone();
+            for k in 0..STEPS_PER_SECOND / 2 {
+                pre.step();
+                if k % (2 * STEPS_PER_FRAME) == 0 {
+                    shots.push(frame_of(&pre, a.scale));
+                }
+            }
+        }
+        for k in 0..3 * STEPS_PER_SECOND {
+            lit.step();
+            dark.step();
+            if lit.t.is_multiple_of(30) {
+                min_join = min_join.min(lit.measure().reach);
+            }
+            if a.gif.is_some() && k % (2 * STEPS_PER_FRAME) == 0 {
+                shots.push(frame_of(&lit, a.scale));
+            }
+        }
+        let shift = tube_offset(&dark, at, n) - tube_offset(&lit, at, n);
+        if let Some(dir) = &a.gif {
+            let mut after = lit.clone();
+            after.set_lamp(None);
+            for k in 0..STEPS_PER_SECOND {
+                after.step();
+                if k % (2 * STEPS_PER_FRAME) == 0 {
+                    shots.push(frame_of(&after, a.scale));
+                }
+            }
+            let path = format!("{dir}/push-s{seed}.gif");
+            let delay = image::Delay::from_numer_denom_ms(1000, 30);
+            let frames: Vec<image::Frame> = shots
+                .into_iter()
+                .map(|img| image::Frame::from_parts(img, 0, 0, delay))
+                .collect();
+            let file = std::fs::File::create(&path).expect("gif file");
+            let mut enc = image::codecs::gif::GifEncoder::new_with_speed(file, 10);
+            enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+            enc.encode_frames(frames).expect("gif encode");
+            println!("seed {seed}: lamp at {lamp:?} -> {path}");
+        }
+        println!(
+            "seed {seed}: tube moved {shift:+.1} cells away from the lamp; food joined {j0} -> lowest {min_join} while lit (dark twin {}); mould {} vs {} dark, burned {}",
+            dark.measure().reach,
+            lit.walkers.len(),
+            dark.walkers.len(),
+            lit.counts.burned
+        );
     }
 }
 
@@ -423,6 +562,10 @@ fn main() {
         lean(&a);
         return;
     }
+    if a.push {
+        push(&a);
+        return;
+    }
     if let Some(dir) = &a.verbs {
         verbs(&a, dir);
         return;
@@ -456,6 +599,31 @@ fn main() {
             println!("    trace (s, mould, joined): {:?}", r.trace);
             table.push((seed, who.clone(), r));
         }
+    }
+    // Per hand: the playtest's numbers (2026-11-08 review).
+    println!("\n== per hand: stars by kind, and the playtest's three complaints ==");
+    println!("frozen = food joined at 30 s equals food joined at 80 s; storm cost = joined after the storm < before");
+    for who in &a.players {
+        let runs: Vec<&Run> = table.iter().filter(|(_, w, _)| w == who).map(|(_, _, r)| r).collect();
+        let stars: u32 = runs.iter().map(|r| r.score.star_count()).sum();
+        let kind = |k: usize| runs.iter().filter(|r| r.score.stars[k]).count();
+        let at = |r: &Run, s: u32| r.trace.iter().find(|t| t.0 == s).map(|t| t.2);
+        let frozen = runs
+            .iter()
+            .filter(|r| at(r, 30).is_some() && at(r, 30) == at(r, 80))
+            .count();
+        let cost = runs.iter().filter(|r| r.score.after < r.score.reach).count();
+        let per_seed: Vec<String> = runs.iter().map(|r| r.score.star_count().to_string()).collect();
+        let joined: Vec<String> = runs.iter().map(|r| r.score.reach.to_string()).collect();
+        println!(
+            "{who:>9}: {stars:>2} stars [{}]  reach {} thrift {} tough {}  joined [{}]  frozen {frozen}/{n}  storm cost {cost}/{n}",
+            per_seed.join(" "),
+            kind(0),
+            kind(1),
+            kind(2),
+            joined.join(" "),
+            n = runs.len()
+        );
     }
     // Paired: each player against do-nothing, seed by seed.
     let get = |seed: u64, who: &str| table.iter().find(|(s, w, _)| *s == seed && w == who).map(|(_, _, r)| r);

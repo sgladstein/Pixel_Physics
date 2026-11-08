@@ -1,6 +1,8 @@
 # Mould probe: herding a slime mould with a lamp (2026-11-07)
 
-**Status: probe built, waiting on the owner's playtest.** Code: `src/mould/`,
+**Status: probe built; playtest fixes 1-5 from the 2026-11-08 demo review
+are in (see *Playtest fixes* at the end), waiting on the owner's play.**
+Code: `src/mould/`,
 `src/bin/mould.rs`; harness `examples/mouldprobe.rs`. Brief:
 `/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/prototypes/2-mould.md`
 (probe 2 of the 2026-11-07 new-game brainstorm).
@@ -35,7 +37,8 @@ cargo run --release --example mouldprobe # the census below
   pale, so a cut branch fades over seconds rather than vanishing.
 - **Tools:** Lamp (held, unlimited), Oats x5, Salt x1 line, Snip x3.
 - **The storm:** at 90 s, one strike across the thickest tube. Read the score
-  2 s later, then watch for 6 s more.
+  2 s later, then watch for 6 s more. *(Changed 2026-11-08: aimed at the
+  worst cut, warned 5 s ahead, read after the full 8 s. See the end.)*
 - **Three stars.** *Reach*: all 5 piles joined. *Thrift*: network at most 1.5x
   the shortest possible, with at least 3 piles joined. *Tough*: nothing lost
   to the storm, with at least 2 piles joined.
@@ -123,3 +126,85 @@ tubes, lightning as the finale, a rival mould, more dishes, and between-dish
 perks. If it is fun, this module becomes the mould half of Seep
 (`review-3-synthesis.md` §4a). Seep's own probe is building a graph mould,
 and the two should be compared before either is kept.
+
+## Playtest fixes (2026-11-08)
+
+The demo playtest (`/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/playtest-2026-11-08/mould-review.md`)
+ranked Mould 4th of 8 and asked for five fixes, in this order. All five are
+in, and all ship on.
+
+1. **The lamp pushes instead of erasing** (`Params::push`, `push_light`). The
+   lamp was a repulsive term in every sensor plus a trail fade and a burn, so
+   held on a tube it emptied that stretch and the tube came apart. It now
+   carries trail and walkers outward one cell at a time; the old three levers
+   default to 0. Measured (`mouldprobe bend=1`, lamp held 3 s at 25 s, against
+   the no-lamp twin, 5 seeds):
+
+   | lamp held | old lamp: food join lost while lit | new lamp |
+   |---|---|---|
+   | on the tube | 5 of 5 | **0 of 5** (the tube parts round the light) |
+   | 8 cells beside it | 2 of 5 (tube moved 6.5-8.1 cells) | **0 of 5** (moved 5.2-6.6 cells) |
+
+   The new lamp swings a tube a little less far, and never cuts it. Lamp to
+   recoil is still **0.02-0.07 s** (`lean=1`, 9 of 9 placements with mould
+   under the lamp); with `push=0` it never recoils in 10 s (control). Oats to
+   a lean: **0.50-0.70 s**, 10 of 10. A sensor-only lamp at every lighter
+   setting tried also lost the join: `Reports/dead-ends.md`, `other`.
+2. **The middle minute has news.** An oat comes back every 15 s (up to the 5
+   held). The far pile is not there at the start and turns up at 0:30, and a
+   sixth pile turns up at 0:55 somewhere at least 45 cells from every pile.
+   Each is announced: a dotted ring for 5 s before, a flash ring when it
+   lands, and the time on the bar.
+3. **The storm is warned and aimed.** 5 s ahead, a purple dashed line shows
+   where it will cut. It is aimed at the cut that leaves the fewest piles
+   joined (thickest tube among equals), not the thickest tube, so a spur out
+   to stray oats no longer earns a random hand a free star. Toughness is
+   read at the end of the 8 s watch, so a tube that grows back round the
+   scar, or a bypass built during the warning, counts.
+4. **Thrift bar 1.15** (was 1.5), so a branchy network has to be trimmed.
+5. **The score is off the dish**: two lines of the bar under it, which grew
+   from 3 lines to 5. The bar's lines are kept to about 40 characters so
+   they read whole in the half-size pictures too.
+
+**The same seven hands, before and after** (`mouldprobe`, seeds 1-5; the
+hands in `mould::play` are this probe's own versions of the reviewer's, so
+the before column is our replay, not the reviewer's numbers, which differ
+for fresh 7, shepherd 4 and dump 5; the reviewer's plan-plus-decoy was not
+rebuilt). After the fix there are 6 piles, not 5.
+
+| hand | stars before | stars after | reach / thrift / tough after | food joined at 30 s = at 80 s (before -> after) |
+|---|---|---|---|---|
+| do nothing | 2 | **0** | 0 / 0 / 0 | 4/5 -> 3/5 |
+| random hand | 6 | **3** | 0 / 2 / 1 | 3/5 -> 3/5 |
+| simple plan | 6 | **8** | 5 / 1 / 2 | 1/5 -> 0/5 |
+| fresh player | 6 | **9** | 4 / 3 / 2 | 3/5 -> 0/5 |
+| lamp shepherd | 3 | 3 | 0 / 0 / 3 | 3/5 -> 2/5 |
+| plan's lamp, no oats | 1 | 3 | 0 / 1 / 2 | 4/5 -> 3/5 |
+| dump all oats at 1 s | 1 | 2 | 0 / 1 / 1 | 5/5 -> 3/5 |
+
+- **Doing nothing now loses outright**: plan and fresh player each beat it
+  on 5 of 5 seeds (sign test p 0.062, the floor for five pairs). Before,
+  3 of 5 and level on 2 (p 0.25).
+- **Random no longer ties the plan**: 3 stars against 8. Plan better on 3
+  seeds, level on 2 (p 0.25); fresh player better on 4, level on 1
+  (p 0.125). Random's toughness went from 3 stars to 1, as the aimed storm
+  intended.
+- **Reach is what the oats bought**: plan reached all piles on 5 of 5 seeds
+  (2 of 5 before), fresh 4 of 5 (0 before). Thrift got harder for everyone
+  (plan 4 -> 1, fresh 5 -> 3), which is the point of fix 4.
+- **The lamp alone still cannot win**: shepherd 3 stars, lamp-only plan 3,
+  and neither ever reached all food. The lamp steers and shapes; oats are
+  still the only thing that leads the mould somewhere new.
+- The storm still costs a pile in 24 of 35 runs (27 before): an aimed cut
+  hits harder, and the warning only helps a hand that answers it. None of
+  the scripted hands answer it, so the number to watch is the owner's.
+- None of these comparisons survives a multiple-comparison correction: five
+  seeds. Read them as a direction.
+
+**Frame cost** (window frame, plan bot, 4x): mean 2.32 -> **2.56 ms**,
+worst 13.38 -> **16.72 ms**. The worst is now the frame that aims the storm
+(several hundred trial cuts, once per dish). Its first version flooded the
+whole dish per trial cut and cost **36 ms**; flooding only the piece's own
+cells gives identical aims on all 35 runs at 16.7 ms. Peak walkers rose
+1,500 -> 1,800 with the sixth pile.
+

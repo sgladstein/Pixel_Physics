@@ -219,3 +219,210 @@ impl Player for Plan {
         d.set_lamp(far.map(|f| f.1));
     }
 }
+
+/// One unjoined pile as a lead: (pile x, y, radius), the nearest walker,
+/// and the gap from that walker to the pile's rim.
+type Lead = ((f32, f32, f32), (f32, f32), f32);
+
+/// Unjoined dish piles, nearest to the mould first.
+fn leads(d: &Dish) -> Vec<Lead> {
+    let mut out = Vec::new();
+    for p in d.dish_piles().filter(|p| !p.reached()) {
+        let mut best: Option<((f32, f32), f32)> = None;
+        for w in d.walkers.iter().step_by(5) {
+            let g = (w.x - p.x).hypot(w.y - p.y) - p.r;
+            if best.is_none_or(|b| g < b.1) {
+                best = Some(((w.x, w.y), g));
+            }
+        }
+        if let Some((at, g)) = best {
+            out.push(((p.x, p.y, p.r), at, g));
+        }
+    }
+    out.sort_by(|a, b| a.2.total_cmp(&b.2));
+    out
+}
+
+/// Oats `ahead` cells from the mould toward the nearest unjoined pile.
+fn oats_toward_nearest(d: &mut Dish, ahead: f32) -> bool {
+    let Some(((px, py, _), (wx, wy), g)) = leads(d).first().copied() else {
+        return false;
+    };
+    let f = (ahead / (g + 6.0)).min(1.0);
+    d.place_oats(wx + (px - wx) * f, wy + (py - wy) * f)
+}
+
+/// The playtest's fresh player (2026-11-08 review): lamp on the blob for the
+/// first 4 s, five oats in a line toward the far side by 18 s, a salt line,
+/// and the three snips on strays. Oats that come back later go toward the
+/// nearest unjoined pile, as anyone would spend them.
+pub struct Fresh {
+    line: Vec<(f32, f32)>,
+}
+
+impl Fresh {
+    pub fn new() -> Self {
+        Fresh { line: Vec::new() }
+    }
+}
+
+impl Default for Fresh {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Player for Fresh {
+    fn name(&self) -> &'static str {
+        "fresh player"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing {
+            return;
+        }
+        let s = super::STEPS_PER_SECOND as u64;
+        let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+        if d.t < 4 * s {
+            d.set_lamp(Some((hx + 4.0, hy)));
+            return;
+        }
+        d.set_lamp(None);
+        if self.line.is_empty() {
+            // Toward the farthest pile on the dish.
+            let far = d
+                .dish_piles()
+                .map(|p| (p.x, p.y))
+                .max_by(|a, b| (a.0 - hx).hypot(a.1 - hy).total_cmp(&(b.0 - hx).hypot(b.1 - hy)))
+                .unwrap();
+            self.line = (1..=5)
+                .map(|k| k as f32 / 6.0)
+                .map(|f| (hx + (far.0 - hx) * f, hy + (far.1 - hy) * f))
+                .collect();
+        }
+        // One oat every 2.8 s from 4 s: all five down by 18 s.
+        let placed = d.counts.oats_placed as usize;
+        if placed < 5 && d.t >= 4 * s + placed as u64 * (28 * s / 10) {
+            let (x, y) = self.line[placed];
+            d.place_oats(x, y);
+        } else if placed >= 5 && d.oats_left > 0 && d.t.is_multiple_of(s) {
+            oats_toward_nearest(d, 22.0);
+        }
+        // A salt line at 20 s, behind home where nothing is wanted.
+        if d.t == 20 * s && d.salt_left > 0 && d.begin_stroke(super::Tool::Salt, hx - 22.0, hy - 25.0) {
+            d.drag_stroke(hx - 22.0, hy + 25.0);
+            d.end_stroke();
+        }
+        // Snips on strays at 25, 35 and 45 s: the walker farthest from every pile.
+        if [25, 35, 45].iter().any(|&k| d.t == k * s) && d.snips_left > 0 {
+            let piles: Vec<(f32, f32)> = d.dish_piles().map(|p| (p.x, p.y)).collect();
+            let stray = d.walkers.iter().map(|w| (w.x, w.y)).max_by(|a, b| {
+                let da = piles
+                    .iter()
+                    .map(|p| (p.0 - a.0).hypot(p.1 - a.1))
+                    .fold(f32::INFINITY, f32::min);
+                let db = piles
+                    .iter()
+                    .map(|p| (p.0 - b.0).hypot(p.1 - b.1))
+                    .fold(f32::INFINITY, f32::min);
+                da.total_cmp(&db)
+            });
+            if let Some((x, y)) = stray {
+                if d.begin_stroke(super::Tool::Snip, x - 8.0, y - 8.0) {
+                    d.drag_stroke(x + 8.0, y + 8.0);
+                    d.end_stroke();
+                }
+            }
+        }
+    }
+}
+
+/// The playtest's clever player: lamp only, lighting strays beside the front
+/// so the growth heads for the nearest unjoined pile.
+pub struct Shepherd;
+
+impl Player for Shepherd {
+    fn name(&self) -> &'static str {
+        "lamp shepherd"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing || !d.t.is_multiple_of(super::STEPS_PER_SECOND as u64 / 2) {
+            return;
+        }
+        let Some(((px, py, _), tip, _)) = leads(d).first().copied() else {
+            d.set_lamp(None);
+            return;
+        };
+        // The source: the reached pile nearest the tip.
+        let src = d
+            .dish_piles()
+            .filter(|p| p.reached())
+            .map(|p| (p.x, p.y))
+            .min_by(|a, b| {
+                (a.0 - tip.0)
+                    .hypot(a.1 - tip.1)
+                    .total_cmp(&(b.0 - tip.0).hypot(b.1 - tip.1))
+            })
+            .unwrap_or(tip);
+        let mut stray: Option<(f32, (f32, f32))> = None;
+        for w in d.walkers.iter().step_by(3) {
+            if (w.x - tip.0).hypot(w.y - tip.1) > 50.0 {
+                continue;
+            }
+            let off = seg_dist((w.x, w.y), src, (px, py));
+            if off > 12.0 && stray.is_none_or(|s| off > s.0) {
+                stray = Some((off, (w.x, w.y)));
+            }
+        }
+        d.set_lamp(stray.map(|s| s.1));
+    }
+}
+
+/// The builder's plan with its oats taken away: the lamp logic alone.
+pub struct LampOnly(Plan);
+
+impl LampOnly {
+    pub fn new() -> Self {
+        LampOnly(Plan::new())
+    }
+}
+
+impl Default for LampOnly {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Player for LampOnly {
+    fn name(&self) -> &'static str {
+        "plan's lamp, no oats"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        d.oats_left = 0;
+        self.0.act(d);
+    }
+}
+
+/// Cheese: every oat dropped the moment it is in hand, a short step from
+/// home toward each pile in turn.
+pub struct Dump;
+
+impl Player for Dump {
+    fn name(&self) -> &'static str {
+        "dump the oats"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing || d.t < super::STEPS_PER_SECOND as u64 || d.oats_left == 0 {
+            return;
+        }
+        let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+        let piles: Vec<(f32, f32)> = d.dish_piles().skip(1).map(|p| (p.x, p.y)).collect();
+        while d.oats_left > 0 {
+            let k = d.counts.oats_placed as usize % piles.len().max(1);
+            let (px, py) = piles[k];
+            let l = (px - hx).hypot(py - hy).max(1.0);
+            if !d.place_oats(hx + (px - hx) / l * 25.0, hy + (py - hy) / l * 25.0) {
+                break;
+            }
+        }
+    }
+}
