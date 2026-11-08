@@ -7,10 +7,11 @@
 //!
 //! Keys (also on screen):
 //! - hold **Space**: call lightning above the pointer; release to strike
-//! - **click**: pour water at the pointer
+//! - **click**: pour water at the pointer -- it puts out fire
 //! - **right click**: drive an iron rod into the ground below the pointer
 //!   (open ground under open sky only; anywhere else it says why and keeps
 //!   the rod)
+//! - **H**: show how to play again (it shows for the first ten seconds)
 //! - **R**: start the storm again (a new seed)
 //! - **Esc**: quit
 //!
@@ -51,6 +52,7 @@ struct Handler {
     hold: bool,
     splash: bool,
     rod: bool,
+    help: bool,
     pointer: (i32, i32),
     shot_after: Option<u32>,
     drawn: u32,
@@ -70,6 +72,7 @@ impl Handler {
             hold: false,
             splash: false,
             rod: false,
+            help: false,
             pointer: (128, 30),
             shot_after: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             drawn: 0,
@@ -88,10 +91,11 @@ impl Handler {
         self.last = now;
         let mut n = 0;
         while self.acc >= TICK && n < MAX_TICKS_PER_FRAME {
-            let input = Input { at: self.pointer, hold: self.hold, splash: self.splash, rod: self.rod };
+            let input = Input { at: self.pointer, hold: self.hold, splash: self.splash, rod: self.rod, help: self.help };
             // Edges are consumed by the first tick that sees them.
             self.splash = false;
             self.rod = false;
+            self.help = false;
             self.game.update(input);
             self.acc -= TICK;
             n += 1;
@@ -172,6 +176,7 @@ impl ApplicationHandler for Handler {
                             self.game = Storm::new(self.seed);
                             self.hold = false;
                         }
+                        KeyCode::KeyH if down && !event.repeat => self.help = true,
                         KeyCode::Escape if down => el.exit(),
                         _ => {}
                     }

@@ -49,12 +49,44 @@ pub const BOLTS: u32 = 8;
 pub const SPLASHES: u32 = 4;
 pub const RODS: u32 = 2;
 
+/// **The storm drifts toward the bell** (round 2, Scott's playtest
+/// 2026-11-08: "there wasn't really any challenge" -- a bolt landed where
+/// you pointed, bell or lamp alike). The cloud covers [`CLOUD_WIDTH`]
+/// cells, starts over the far end of the valley and moves toward the tower
+/// one step per bolt spent, so the lamp under the rock can only be reached
+/// early and the hill lamp only late, and the last calls are made over the
+/// bell. A call is made from under the cloud: a pointer past its edge calls
+/// from the edge.
+pub const CLOUD_WIDTH: i32 = 110;
+pub const CLOUD_START: f32 = 181.0;
+pub const CLOUD_END: f32 = 75.0;
+/// Cells per tick the cloud moves toward where it should be.
+const CLOUD_SPEED: f32 = 0.25;
+
+/// **Wind.** A prevailing push for the storm plus gusts that change every
+/// second or two, in [`bolt::Push::wind`] units. The dotted line bends with
+/// it while you hold, and a gust can move it before you let go, so leading
+/// the shot and timing the release are the aim. Calibrated with
+/// `stormprobe mode=wind`: a held bolt over open ground lands about 3.5
+/// cells downwind per 0.01 of wind (0.04: a median 14 cells), so a storm
+/// blows from about 12 to 35 cells, more in a gust.
+pub const WIND_PREVAILING: (f32, f32) = (0.035, 0.065);
+pub const WIND_GUST: f32 = 0.035;
+
+/// Ticks a fresh burn glows as embers before it settles to a burn line.
+pub const EMBER_TICKS: u64 = 150;
+
 /// Points for 0, 1, 2 and 3 stars, out of 12 light in four lamps. Set from
 /// the playtest replays on 10 seeds (2026-11-08): filling the three lamps in
 /// the open and never wiring is 9 points, 2 stars on 10 of 10 storms; 3
 /// stars needs the lamp under the rock lit through a scorch line as well,
 /// which a rod at the shelf mouth managed on 1 to 2 storms in 10. The rock-lamp
 /// cheese that used to give 29 of 30 stars now gives 11.
+///
+/// Kept through round 2 (wind, drifting cloud, tighter lamp pull). Careless
+/// play still makes 2 stars on 9 of 10 storms -- a bolt blown off its lamp
+/// often lands on the next one, and any lamp counts -- and no scripted
+/// player reached 3 (the rock lamp's wiring is harder to place in wind).
 pub const STAR_POINTS: [i32; 4] = [i32::MIN, 4, 7, 10];
 
 /// Seconds of hold that make a full-weight bolt.
@@ -186,6 +218,8 @@ pub struct Input {
     pub splash: bool,
     /// Drive an iron rod at the pointer (an edge).
     pub rod: bool,
+    /// Show the how-to-play panel again (an edge).
+    pub help: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +286,8 @@ pub struct Tally {
     pub rods: u32,
     /// Right clicks where a rod would not stand (no sky, or not ground).
     pub rods_refused: u32,
+    /// Burning cells water put out.
+    pub douses: u32,
     /// Where each called bolt was aimed and where it landed.
     pub landings: Vec<Landing>,
 }
@@ -280,6 +316,20 @@ pub struct Storm {
     pub lamps: [u8; LAMPS],
     /// A refusal to show on the strip until the given tick ("NO SKY ABOVE").
     pub note: Option<(&'static str, u64)>,
+    /// The wind now, and where the current gust is taking it.
+    pub wind: f32,
+    wind_aim: f32,
+    prevailing: f32,
+    /// A probe can hold the wind still.
+    wind_pin: Option<f32>,
+    /// The middle of the cloud, in cells.
+    pub cloud_x: f32,
+    /// The tick each burn cell was made on, 0 for none: fresh burns glow.
+    pub scorch_born: Vec<u64>,
+    /// The how-to-play panel shows until this tick or the first call.
+    pub help_until: u64,
+    /// Burning cells in the village and its grass, this tick.
+    pub village_fire: u32,
     pub tally: Tally,
     pub huts_start: u32,
     pub pointer: (i32, i32),
@@ -326,12 +376,24 @@ impl Storm {
             rods_left: RODS,
             lamps: [0; LAMPS],
             note: None,
+            wind: 0.0,
+            wind_aim: 0.0,
+            prevailing: 0.0,
+            wind_pin: None,
+            cloud_x: CLOUD_START,
+            scorch_born: vec![0; n],
+            help_until: 10 * TICKS_PER_SECOND as u64,
+            village_fire: 0,
             tally: Tally::default(),
             huts_start,
             pointer: (W / 2, CLOUD_BASE + 10),
             world_buf: vec![0; n * 4],
             world_buf_fresh: false,
         };
+        let lo = WIND_PREVAILING.0 + (WIND_PREVAILING.1 - WIND_PREVAILING.0) * s.rng.unit_f32();
+        s.prevailing = if s.rng.flip() { lo } else { -lo };
+        s.wind = s.prevailing;
+        s.wind_aim = s.prevailing;
         // Let the powders settle before the first bolt.
         for _ in 0..30 {
             s.step_world();
@@ -371,10 +433,61 @@ impl Storm {
         STAR_POINTS.iter().skip(1).filter(|&&need| p >= need).count() as u32
     }
 
+    /// Hold the wind at `w` for the rest of the storm (probes).
+    pub fn pin_wind(&mut self, w: f32) {
+        self.wind_pin = Some(w);
+        self.wind = w;
+    }
+
+    /// The cells the cloud covers, inclusive.
+    pub fn cloud_span(&self) -> (i32, i32) {
+        let c = self.cloud_x.round() as i32;
+        ((c - CLOUD_WIDTH / 2).max(0), (c + CLOUD_WIDTH / 2).min(W - 1))
+    }
+
+    /// Where a call from the pointer starts: above it, or the nearest edge
+    /// of the cloud.
+    pub fn call_from(&self) -> (i32, i32) {
+        let (x0, x1) = self.cloud_span();
+        (self.pointer.0.clamp(x0 + 2, x1 - 2), CLOUD_BASE)
+    }
+
+    fn weather(&mut self) {
+        let used = (BOLTS - self.bolts_left).min(BOLTS - 1) as f32;
+        let want = CLOUD_START - (CLOUD_START - CLOUD_END) * used / (BOLTS - 1) as f32;
+        self.cloud_x += (want - self.cloud_x).clamp(-CLOUD_SPEED, CLOUD_SPEED);
+        match self.wind_pin {
+            Some(w) => self.wind = w,
+            None => {
+                if self.rng.chance(1.0 / 80.0) {
+                    self.wind_aim = self.prevailing + WIND_GUST * (2.0 * self.rng.unit_f32() - 1.0);
+                }
+                self.wind += (self.wind_aim - self.wind) * 0.03;
+            }
+        }
+        self.village_fire = 0;
+        for hut in &self.level.huts {
+            for y in hut.y0 - 2..=hut.y1 {
+                for x in hut.x0 - 2..=hut.x1 + 2 {
+                    if self.world.get(x, y).is_burning() {
+                        self.village_fire += 1;
+                    }
+                }
+            }
+        }
+    }
+
     /// One tick of the game.
     pub fn update(&mut self, input: Input) {
         self.tick += 1;
         self.pointer = (input.at.0.clamp(0, W - 1), input.at.1.clamp(0, H - 1));
+        if input.help {
+            self.help_until = self.tick + 10 * TICKS_PER_SECOND as u64;
+        }
+        if input.hold {
+            self.help_until = 0;
+        }
+        self.weather();
         if !self.is_over() {
             if input.splash && self.splashes_left > 0 && self.pour(self.pointer) {
                 self.splashes_left -= 1;
@@ -420,7 +533,7 @@ impl Storm {
             }
             Phase::Ready { t } => {
                 if input.hold {
-                    let from = (self.pointer.0, CLOUD_BASE);
+                    let from = self.call_from();
                     Phase::Calling { t: 0, from, leader: Vec::new(), last: (0, 1) }
                 } else if t as f32 >= PATIENCE * TICKS_PER_SECOND as f32 {
                     self.self_strike(None, Cause::Ignored);
@@ -431,7 +544,7 @@ impl Storm {
             }
             Phase::Calling { t, from, mut leader, mut last } => {
                 self.sense(None);
-                let push = Push { heavy: Self::heaviness(t), pull: 1.0, range: bolt::CALLED_RANGE };
+                let push = Push { heavy: Self::heaviness(t), pull: 1.0, range: bolt::CALLED_RANGE, wind: self.wind };
                 let tip = leader.last().copied().unwrap_or(from);
                 if t as f32 >= OVERFLOW_HOLD * TICKS_PER_SECOND as f32 {
                     self.self_strike(Some((from, &leader)), Cause::Overheld);
@@ -547,7 +660,7 @@ impl Storm {
             }
         };
         let start = leader.last().copied().unwrap_or(origin);
-        let push = Push { heavy: 0.8, pull: 2.0, range: 400.0 };
+        let push = Push { heavy: 0.8, pull: 2.0, range: 400.0, wind: 0.0 };
         let mut forks = Vec::new();
         let p = bolt::grow(&self.medium, start, (0, 1), push, &mut self.rng, 900, Some(&mut forks));
         let mut main = vec![origin];
@@ -873,6 +986,7 @@ impl Storm {
         let shade = (crate::sim::rng::jitter(x, y) * 255.0) as u8;
         if m == self.ids.soil {
             self.world.set(x, y, Cell::new(self.ids.scorch, shade));
+            self.scorch_born[(y * W + x) as usize] = self.tick.max(1);
             self.tally.scorch_cells += 1;
             changed.push((x, y));
         } else if m == material::SAND {
@@ -926,9 +1040,32 @@ impl Storm {
         out
     }
 
-    /// A splash of water: a ball of it at the pointer, in open air only.
+    /// A splash of water: a ball of it at the pointer, in open air only,
+    /// and **it puts out and cools every fire within nine cells**. Water's one job on
+    /// screen (round 2: "I could click and drop water and I had no idea what
+    /// the point of that was"). It still conducts and still draws a bolt a
+    /// little, but nothing tells the player to use it for that.
     fn pour(&mut self, (cx, cy): (i32, i32)) -> bool {
         let mut placed = 0;
+        // Douse and cool: a cell put out but left hot lit again from its
+        // own heat within a second.
+        for y in cy - 9..=cy + 10 {
+            for x in cx - 9..=cx + 9 {
+                if x < 0 || y < 0 || x >= W || y >= H {
+                    continue;
+                }
+                let mut c = self.world.get(x, y);
+                if c.is_burning() || c.temperature() > 60 {
+                    if c.is_burning() {
+                        c.extinguish();
+                        self.tally.douses += 1;
+                        placed += 1;
+                    }
+                    c.set_temperature(20);
+                    self.world.set(x, y, c);
+                }
+            }
+        }
         for y in cy - 3..=cy + 3 {
             for x in cx - 3..=cx + 3 {
                 if (x - cx).pow(2) + (y - cy).pow(2) > 10 || x < 0 || y < 0 || x >= W || y >= H {
