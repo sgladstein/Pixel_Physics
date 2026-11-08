@@ -12,8 +12,11 @@
 use super::{Dish, Ground, Phase, Tool, H, LAMP_R, W};
 use crate::hud;
 
-/// Pixel rows under the dish for the three text lines.
-pub const HUD_ROWS: u32 = 52;
+/// Pixel rows under the dish for the five text lines. Two were added on
+/// 2026-11-08: the playtest review found the end-of-dish score panel, then
+/// drawn over the top of the dish, covered the piles the score was about.
+/// The score now has its own two lines here.
+pub const HUD_ROWS: u32 = 86;
 
 pub fn frame_size(scale: u32) -> (u32, u32) {
     (W as u32 * scale, H as u32 * scale + HUD_ROWS)
@@ -231,6 +234,49 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
             );
         }
     }
+    // New food: an expanding ring for two seconds where a pile turned up,
+    // and a faint dotted ring for the five seconds before one does, so a
+    // pile never just appears under the player's eye unannounced.
+    let sps = super::STEPS_PER_SECOND as u64;
+    for &(x, y, at) in &d.arrived {
+        let age = d.t.saturating_sub(at);
+        if age < 2 * sps {
+            let f = age as f32 / (2 * sps) as f32;
+            ring(frame, fw, scale, (x, y), 6.0 + 14.0 * f, [255, 250, 220]);
+        }
+    }
+    for (at, p) in &d.pending {
+        if *at <= d.t + 5 * sps && (d.t / 30).is_multiple_of(2) {
+            ring(frame, fw, scale, (p.x, p.y), p.r, [120, 104, 70]);
+        }
+    }
+    // The storm's shadow: the line it will strike, shown for the
+    // `STORM_WARNING_SECONDS` before it comes, pulsing. (Added 2026-11-08:
+    // the playtest found the storm read as luck because it came unannounced
+    // and its target could not be guessed.)
+    if d.phase == Phase::Growing {
+        if let Some((a, b)) = d.storm_line {
+            let on = (d.t / (sps / 4)).is_multiple_of(2);
+            let c = if on { [150, 40, 150] } else { [90, 30, 96] };
+            let n = ((b.0 - a.0).hypot(b.1 - a.1) * scale as f32).ceil() as usize;
+            for k in 0..=n {
+                // Dashed, so the tube under it still shows through.
+                if (k / (2 * scale as usize)) % 2 == 1 {
+                    continue;
+                }
+                let f = k as f32 / n as f32;
+                let (x, y) = (
+                    (a.0 + (b.0 - a.0) * f) * scale as f32,
+                    (a.1 + (b.1 - a.1) * f) * scale as f32,
+                );
+                let t = scale as i32 / 2;
+                for o in -t..=t {
+                    put(frame, fw, x as i32 + o, y as i32, c);
+                    put(frame, fw, x as i32, y as i32 + o, c);
+                }
+            }
+        }
+    }
     // Storm cuts.
     // Bright for the first second, so the strike reads; the scar stays.
     if let Phase::Storm(at) = d.phase {
@@ -317,7 +363,7 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
                 left / 60,
                 left % 60,
                 joined.reach,
-                joined.piles,
+                joined.piles + d.pending.len() as u32,
                 d.walkers.len()
             )
         }
@@ -343,7 +389,10 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
     // Line 3: what a click does now, or what to do next.
     let hint = match d.phase {
         Phase::Over => "R: TRY AGAIN   N: NEXT DISH".to_string(),
-        Phase::Storm(_) => "THE STORM STRUCK THE THICKEST TUBE. WATCH.".to_string(),
+        Phase::Storm(_) => "THE STORM STRUCK. WATCH WHAT STAYS JOINED.".to_string(),
+        Phase::Growing if d.storm_line.is_some() => {
+            format!("STORM IN {} S: IT CUTS THE PURPLE LINE", d.seconds_left())
+        }
         Phase::Growing => {
             let spent = stock(d, view.tool) == Some(0);
             if spent {
@@ -375,46 +424,52 @@ fn hud_lines(d: &Dish, view: &View, scale: u32, frame: &mut [u8], (fw, fh): (u32
             text(frame, (fw, fh), fw as i32 - w - 6, line(2), keys, DIM);
         }
     }
-    if d.phase == Phase::Over {
-        score_panel(d, frame, (fw, fh), scale);
+    // Lines 4 and 5: what is coming while the dish grows, and the score,
+    // off the dish, once it is over.
+    let sps = super::STEPS_PER_SECOND as u64;
+    match d.phase {
+        Phase::Over => score_lines(d, frame, (fw, fh), line(3)),
+        Phase::Growing => {
+            let mut next = Vec::new();
+            if d.oats_left < super::OATS_STOCK {
+                let every = super::OATS_REGROW_SECONDS as u64 * sps;
+                let wait = (every - d.t % every).div_ceil(sps);
+                next.push(format!("OATS +1 IN {wait} S"));
+            }
+            if !d.pending.is_empty() {
+                let at: Vec<String> = d
+                    .pending
+                    .iter()
+                    .map(|(at, _)| format!("{}:{:02}", at / sps / 60, at / sps % 60))
+                    .collect();
+                next.push(format!("NEW FOOD {}", at.join(" ")));
+            }
+            text(frame, (fw, fh), 6, line(3), &next.join("   "), DIM);
+            text(
+                frame,
+                (fw, fh),
+                6,
+                line(4),
+                "STARS: JOIN ALL, KEEP IT SHORT, SURVIVE",
+                DIM,
+            );
+        }
+        Phase::Storm(_) => {}
     }
 }
 
-fn score_panel(d: &Dish, frame: &mut [u8], (fw, fh): (u32, u32), scale: u32) {
+/// Kept to about 40 characters a line, so the score reads whole in the
+/// probe's half-size pictures as well as the window.
+fn score_lines(d: &Dish, frame: &mut [u8], (fw, fh): (u32, u32), y: i32) {
     let Some(s) = d.score.clone() else { return };
-    let st = |b: bool| if b { "*" } else { "-" };
-    let lines = [
-        format!("{} OF 3 STARS", s.star_count()),
-        format!("{} REACH: FOOD JOINED {} OF {}", st(s.stars[0]), s.reach, s.piles),
-        format!("{} THRIFT: NETWORK {:.1}X THE SHORTEST", st(s.stars[1]), s.ratio()),
-        format!(
-            "{} TOUGH: STILL JOINED AFTER STORM {} OF {}",
-            st(s.stars[2]),
-            s.after,
-            s.reach
-        ),
-    ];
-    let w = lines.iter().map(|l| text_px(l)).max().unwrap_or(0) + 20;
-    let h = 16 * lines.len() as i32 + 14;
-    // At the top of the dish, so the network the score is about stays in view.
-    let (x0, y0) = ((fw as i32 - w) / 2, 2 * scale as i32);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            put(frame, fw, x, y, [16, 18, 22]);
-        }
-    }
-    for x in x0..x0 + w {
-        put(frame, fw, x, y0, [90, 96, 104]);
-        put(frame, fw, x, y0 + h - 1, [90, 96, 104]);
-    }
-    for (k, l) in lines.iter().enumerate() {
-        text(
-            frame,
-            (fw, fh),
-            x0 + 10,
-            y0 + 8 + 16 * k as i32,
-            l,
-            if k == 0 { HOT } else { TEXT },
-        );
-    }
+    let a = format!(
+        "REACH {}/{} JOINED. THRIFT {:.2}X, BAR {:.2}X",
+        s.reach,
+        s.piles,
+        s.ratio(),
+        super::THRIFT_BAR
+    );
+    let b = format!("TOUGH: {} OF {} STILL JOINED AFTER STORM", s.after, s.reach);
+    text(frame, (fw, fh), 6, y, &a, TEXT);
+    text(frame, (fw, fh), 6, y + 16, &b, TEXT);
 }

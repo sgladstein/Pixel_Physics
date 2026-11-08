@@ -6559,12 +6559,14 @@ the engine (`src/bin/<name>.rs`), not a lab seat, and touches no shared engine
 file unless its report says so.
 
 - [mould-probe-2026-11-07.md](mould-probe-2026-11-07.md) — **probe built,
-  waiting on the owner's playtest.** A Jones-model slime mould herded with a
-  lamp, oats, salt and snips (`--bin mould`). Oats pull the front over in
-  0.45-0.85 s, and the lamp clears the mould under it in under 0.1 s. A simple
-  plan beats doing nothing (6 stars to 2; food joined better on 5 of 5
-  seeds), but a random hand ties the plan on stars. Also records why the storm
-  is one cut, not three.
+  playtest fixes in (2026-11-08), waiting on the owner's play.** A Jones-model
+  slime mould herded with a lamp, oats, salt and snips (`--bin mould`). The
+  lamp now pushes a tube aside instead of erasing it (join lost while held on
+  it: 5 of 5 seeds before, 0 of 5 after); oats come back, food turns up at
+  0:30 and 0:55, and the storm is warned 5 s ahead and aimed at the worst
+  cut. Over the same seven scripted hands, doing nothing fell from 2 stars to
+  0 and a random hand from 6 to 3, while the plan rose 6 to 8 and a fresh
+  player's script 6 to 9. Also records why the storm is one cut, not three.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
