@@ -9,6 +9,8 @@
 //! - hold **Space**: call lightning above the pointer; release to strike
 //! - **click**: pour water at the pointer
 //! - **right click**: drive an iron rod into the ground below the pointer
+//!   (open ground under open sky only; anywhere else it says why and keeps
+//!   the rod)
 //! - **R**: start the storm again (a new seed)
 //! - **Esc**: quit
 //!

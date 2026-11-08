@@ -11,11 +11,13 @@ use crate::hud;
 use crate::sim::material::{self, MaterialKind};
 
 use super::gas::{self, coin, idx, Band, H, W};
-use super::{FaceState, Game, Tool, LEVEL_TICKS, TICKS_PER_SECOND};
+use super::{BangSize, FaceState, Game, Outcome, Preview, Risk, Tool, LEVEL_TICKS, TICKS_PER_SECOND};
 
 /// Screen pixels per cell.
 pub const S: usize = 4;
-pub const HUD_H: usize = 100;
+/// Four lines under the tool row: the tool, the pointer, and a two-line
+/// message. At three lines the pointer's reading was cut off mid-word.
+pub const HUD_H: usize = 118;
 pub const FW: usize = W * S;
 pub const FH: usize = H * S + HUD_H;
 
@@ -382,6 +384,11 @@ pub fn paint(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         }
     }
 
+    // What the match or fuse in hand would burn.
+    if let Some(p) = g.preview.as_ref().filter(|p| p.tool == g.tool) {
+        draw_preview(g, frame, p);
+    }
+
     // Flash.
     if g.flash > 0.02 {
         let a = g.flash * 0.45;
@@ -416,13 +423,19 @@ pub fn paint(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>) {
     for s in 0..3 {
         star(frame, 940 + s * 28, top + 19, 10, (s as u32) < stars_now);
     }
-    let reading = cursor.filter(|&(x, y)| gas::inside(x, y)).map(|(x, y)| g.reading(x, y)).unwrap_or("");
-    let sentence = if reading.is_empty() { tool_sentence(g.tool).to_string() } else { format!("{}  {reading}.", tool_sentence(g.tool)) };
     let mut y = top + 40;
-    for l in wrap(&sentence, 84).iter().take(1) {
-        text(frame, 10, y, l, DIM);
-        y += 18;
+    text(frame, 10, y, tool_sentence(g.tool), DIM);
+    y += 18;
+    // The pointer's own line: what a light here would do, or the gas here.
+    let preview = g.preview.as_ref().filter(|p| p.tool == g.tool);
+    let (reading, colour) = match preview {
+        Some(p) => verdict(p),
+        None => (cursor.filter(|&(x, y)| gas::inside(x, y)).map(|(x, y)| format!("{}.", g.reading(x, y))).unwrap_or_default(), TEXT),
+    };
+    if let Some(l) = wrap(&reading, 84).first() {
+        text(frame, 10, y, l, colour);
     }
+    y += 18;
     if let Some((m, _)) = &g.message {
         for l in wrap(m, 84).iter().take(2) {
             text(frame, 10, y, l, [255, 236, 170, 255]);
@@ -446,4 +459,132 @@ pub fn paint(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         text(frame, px + (pw - text_w(l)) / 2, py + 116, l, DIM);
     }
     let _ = LEVEL_TICKS;
+}
+
+const RED: [u8; 3] = [255, 72, 60];
+const AMBER: [u8; 3] = [255, 160, 60];
+
+fn worst(p: &Preview) -> Risk {
+    p.risk[0].max(p.risk[1])
+}
+
+/// The pointer line for a match or fuse in hand.
+fn verdict(p: &Preview) -> (String, [u8; 4]) {
+    let thing = if p.tool == Tool::Match { "THE MATCH" } else { "THE FUSE" };
+    let s = match p.outcome {
+        Outcome::FizzleThick => format!("{thing} WILL FIZZLE IN THE GREEN: TOO THICK. STIR IT WITH A FAN FIRST."),
+        Outcome::FizzleThin => format!("{thing} WILL GO OUT: NO GAS THAT CAN BURN WHERE IT LANDS."),
+        Outcome::Waits => "THE FUSE WILL WAIT HERE UNTIL THE GAS ON IT TURNS YELLOW.".to_string(),
+        Outcome::Burns => {
+            let what = match p.size {
+                BangSize::Pop => "POP: IT BURNS THE OUTLINED YELLOW, TOO LITTLE TO GO BANG.".to_string(),
+                b => format!("{}: IT BURNS THE OUTLINED YELLOW AND BLASTS THE CIRCLE.", b.label()),
+            };
+            let mut harm = String::new();
+            for (k, r) in p.risk.iter().enumerate() {
+                let name = super::Face::name(k);
+                match r {
+                    Risk::Lost => harm = format!(" IT TAKES THE {name}."),
+                    Risk::Singed if harm.is_empty() => harm = format!(" IT SINGES THE {name}."),
+                    _ => {}
+                }
+            }
+            what + &harm
+        }
+    };
+    let c = match (p.outcome, worst(p)) {
+        (Outcome::Burns, Risk::Lost) => [RED[0], RED[1], RED[2], 255],
+        (Outcome::Burns, Risk::Singed) => [AMBER[0], AMBER[1], AMBER[2], 255],
+        (Outcome::Burns, _) => [255, 255, 255, 255],
+        _ => [200, 190, 175, 255],
+    };
+    (s, c)
+}
+
+fn draw_preview(g: &Game, frame: &mut [u8], p: &Preview) {
+    let sc = |v: i32| v * S as i32 + S as i32 / 2;
+    let (ax, ay) = (sc(p.at.0), sc(p.at.1));
+    match p.outcome {
+        Outcome::FizzleThick | Outcome::FizzleThin => {
+            line(frame, (ax - 6, ay - 6), (ax + 6, ay + 6), 2, [220, 210, 195]);
+            line(frame, (ax - 6, ay + 6), (ax + 6, ay - 6), 2, [220, 210, 195]);
+            let s = if p.outcome == Outcome::FizzleThick { "FIZZLES: TOO THICK" } else { "GOES OUT" };
+            label(frame, ax - text_w(s) / 2, ay + 10, s, [230, 222, 205, 255]);
+            return;
+        }
+        Outcome::Waits => {
+            let s = "WAITS FOR YELLOW";
+            label(frame, ax - text_w(s) / 2, ay + 10, s, [230, 222, 205, 255]);
+            return;
+        }
+        Outcome::Burns => {}
+    }
+    // The outline pulses, so it reads as a forecast over the gas and never
+    // as gas itself; red when it costs a face, amber when it singes one.
+    let pulse = ((g.tick as f32 / 9.0).sin() * 0.5 + 0.5) * 0.2 + 0.8;
+    let base = match worst(p) {
+        Risk::Lost => RED,
+        Risk::Singed => AMBER,
+        Risk::Safe => [255, 255, 255],
+    };
+    let col = base.map(|v| (v as f32 * pulse) as u8);
+    let mut mark = vec![false; W * H];
+    for &c in &p.cells {
+        mark[c] = true;
+    }
+    let s = S as i32;
+    for &c in &p.cells {
+        let (x, y) = ((c % W) as i32, (c / W) as i32);
+        let (px, py) = (x * s, y * s);
+        // Lift the patch itself a little, so a thin ribbon stands out from
+        // yellow that is not joined to it.
+        for yy in py..py + s {
+            for xx in px..px + s {
+                let o = (yy as usize * FW + xx as usize) * 4;
+                for v in &mut frame[o..o + 3] {
+                    *v = (*v as f32 + (255.0 - *v as f32) * 0.15) as u8;
+                }
+            }
+        }
+        let open = |dx: i32, dy: i32| {
+            let (nx, ny) = (x + dx, y + dy);
+            !gas::inside(nx, ny) || !mark[idx(nx, ny)]
+        };
+        // Two pixels wide on the patch's own side of the edge, so a
+        // one-cell ribbon still shows as a solid line, with a dark pixel
+        // just outside it so it reads against pale yellow and violet alike.
+        const EDGE: [u8; 3] = [20, 16, 24];
+        if open(-1, 0) {
+            rect(frame, px - 1, py, 1, s, EDGE);
+            rect(frame, px, py, 2, s, col);
+        }
+        if open(1, 0) {
+            rect(frame, px + s, py, 1, s, EDGE);
+            rect(frame, px + s - 2, py, 2, s, col);
+        }
+        if open(0, -1) {
+            rect(frame, px, py - 1, s, 1, EDGE);
+            rect(frame, px, py, s, 2, col);
+        }
+        if open(0, 1) {
+            rect(frame, px, py + s, s, 1, EDGE);
+            rect(frame, px, py + s - 2, s, 2, col);
+        }
+    }
+    // Where it starts.
+    disc(frame, ax, ay, 3, col);
+    // The blast, dotted, from the pocket's heart.
+    let (hx, hy) = (sc(p.heart.0), sc(p.heart.1));
+    if p.radius > 0 {
+        let r = (p.radius * s) as f32;
+        let n = (r * 0.9) as i32;
+        for k in 0..n {
+            let a = k as f32 / n as f32 * std::f32::consts::TAU;
+            let (x, y) = (hx + (r * a.cos()) as i32, hy + (r * a.sin()) as i32);
+            rect(frame, x - 1, y - 1, 3, 3, col);
+        }
+    }
+    let word = p.size.label();
+    let ly = if p.radius > 0 { hy - p.radius * s - 22 } else { hy - 26 };
+    label(frame, hx - text_w(word) / 2, ly.max(4), word, [col[0], col[1], col[2], 255]);
 }

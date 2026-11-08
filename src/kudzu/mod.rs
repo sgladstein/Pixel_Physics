@@ -33,9 +33,15 @@
 //!   pours down, because the engine's own fall left a cut sheet standing;
 //! - `water_all`: the garden is kept at field capacity.
 //!
-//! The cut preview is `plant::severed_if_cut`, the engine's support walk run
-//! read-only; `tests::preview_lights_what_the_engine_drops` makes a cut with
-//! the game's own fall left out and checks the engine drops what was lit.
+//! The cut preview has two parts. **FALLS** is `plant::severed_if_cut`, the
+//! engine's support walk run read-only; `tests::preview_lights_what_the_
+//! engine_drops` makes a cut with the game's own fall left out and checks
+//! the engine drops what was lit. **WILTS** is what the cut parts from the
+//! roots while something else still holds it up ([`Kudzu::starved_if_cut`]):
+//! it stays up and dies over the next ten seconds or so. The playtest of
+//! 2026-11-08 found that a cut at the crown lit nothing and was the best
+//! move in the game -- 3 stars on 8 of 8 seeds -- because only the fall was
+//! shown.
 //! Regrowth from the stump and going pale when hungry are the engine's own.
 //!
 //! The binary (`src/bin/kudzu.rs`) is the window; this module is the game,
@@ -138,6 +144,17 @@ pub struct Stats {
     /// `let_go` turns every lit cell to litter; the preview's truth against
     /// the engine is the test's job, not this count's.
     pub fell: u32,
+    /// Vine cells a snip parted from the roots without dropping them (what
+    /// the preview's WILTS promised), summed over every cut.
+    pub wilt_predicted: u32,
+    /// WILTS promises whose [`WILT_WINDOW`] has closed (or whose cells are
+    /// all gone): a promise made in the last 15 s before dawn is never
+    /// judged, so `wilted` is read against this, not `wilt_predicted`.
+    pub wilt_judged: u32,
+    /// Of the judged, how many had left the vine within the window: the
+    /// engine's answer, not the game's -- nothing in the game removes a
+    /// wilting cell, so unlike `fell` this count can disagree.
+    pub wilted: u32,
     /// Vine cells that came down, by any route: every cell that stopped
     /// being part of a vine organism other than by being cut or dug out.
     pub green_dropped: u32,
@@ -151,11 +168,30 @@ pub struct Stats {
 /// vine to count as `fell`.
 pub const FALL_WINDOW: u64 = 600;
 
+/// Frames after a cut within which its WILTS cells must have left the vine
+/// to count as `wilted`: 15 s. Measured on root cuts (seeds 1, 2, 7, 8): of
+/// the tissue parted from the roots, about two thirds is gone 5 s after the
+/// cut and the rest by 10-14 s; the last to go is stem lying on the soil.
+pub const WILT_WINDOW: u64 = 900;
+
 #[derive(Clone, Debug)]
 struct PendingCut {
     at: u64,
     cells: Vec<(i32, i32)>,
     organism: OrganismId,
+    /// A WILTS promise (`wilted`, [`WILT_WINDOW`]) rather than a FALLS one.
+    wilt: bool,
+}
+
+/// **What a snip would do, before it is made**: the hover preview.
+#[derive(Clone, Debug, Default)]
+pub struct Preview {
+    /// Cells nothing would hold up any more: they come down at once.
+    pub fall: Cells,
+    /// Cells still held up but parted from every root: they stay and die.
+    pub wilt: Cells,
+    /// The blade's own cells.
+    pub blade: Cells,
 }
 
 /// The game, headless.
@@ -374,8 +410,14 @@ impl Kudzu {
         while i < self.pending.len() {
             let p = &self.pending[i];
             let gone = p.cells.iter().filter(|&&(x, y)| self.world.get(x, y).organism_id() != p.organism).count();
-            if gone == p.cells.len() || frame_now >= p.at + FALL_WINDOW {
-                self.stats.fell += gone as u32;
+            let window = if p.wilt { WILT_WINDOW } else { FALL_WINDOW };
+            if gone == p.cells.len() || frame_now >= p.at + window {
+                if p.wilt {
+                    self.stats.wilted += gone as u32;
+                    self.stats.wilt_judged += p.cells.len() as u32;
+                } else {
+                    self.stats.fell += gone as u32;
+                }
                 self.pending.swap_remove(i);
             } else {
                 i += 1;
@@ -404,19 +446,83 @@ impl Kudzu {
         out
     }
 
-    /// **The hover preview**: every vine cell a snip at `(x, y)` would drop,
-    /// and the blade's own cells. Empty if the blade touches no vine.
-    pub fn preview(&self, x: i32, y: i32) -> (Cells, Cells) {
+    /// **The hover preview**: what a snip at `(x, y)` would drop, what it
+    /// would leave standing but part from the roots, and the blade's own
+    /// cells. All empty if the blade touches no vine.
+    pub fn preview(&self, x: i32, y: i32) -> Preview {
         let blade = self.blade(x, y);
-        let mut drop = Vec::new();
+        let mut out = Preview { blade: blade.iter().map(|b| (b.0, b.1)).collect(), ..Preview::default() };
         let mut ids: Vec<OrganismId> = blade.iter().map(|b| b.2).collect();
         ids.sort_unstable();
         ids.dedup();
         for id in ids {
             let removed: PosSet = blade.iter().filter(|b| b.2 == id).map(|b| (b.0, b.1)).collect();
-            drop.extend(plant::severed_if_cut(&self.world, id, &removed));
+            let fall = plant::severed_if_cut(&self.world, id, &removed);
+            out.wilt.extend(self.starved_if_cut(id, &removed, &fall));
+            out.fall.extend(fall);
         }
-        (drop, blade.iter().map(|b| (b.0, b.1)).collect())
+        out
+    }
+
+    /// Whether this cell is root: what the vine drinks through. The same
+    /// test as the dig's.
+    fn is_root(&self, c: Cell) -> bool {
+        self.world.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip)
+    }
+
+    /// The cells of `id` joined to one of its roots through its own tissue,
+    /// eight-connected, with `removed` gone.
+    fn rooted(&self, id: OrganismId, removed: &PosSet) -> PosSet {
+        let Some(s) = self.world.organism(id) else { return PosSet::default() };
+        let mut reached = PosSet::default();
+        let mut stack: Cells = Vec::new();
+        for &p in s.cells.keys() {
+            if !removed.contains(&p) && self.is_root(self.world.get(p.0, p.1)) && reached.insert(p) {
+                stack.push(p);
+            }
+        }
+        while let Some((x, y)) = stack.pop() {
+            for (dx, dy) in crate::sim::structural::NEIGHBOURS_8 {
+                let q = (x + dx, y + dy);
+                if !removed.contains(&q) && s.cells.contains_key(&q) && reached.insert(q) {
+                    stack.push(q);
+                }
+            }
+        }
+        reached
+    }
+
+    /// **What a cut would starve**: cells of `id` joined to a root now and
+    /// not after `removed` is cut, less what falls (`fall`). They stay up --
+    /// a stem lying on the soil still holds them -- and die over the next
+    /// ten seconds or so.
+    ///
+    /// Not an engine walk, and that is stated rather than hidden: the
+    /// engine has no one rule for "parted from the roots dies". Measured
+    /// instead, on root cuts at the crown over seeds 1, 2, 7 and 8 (the
+    /// probe's `mode=rootcut`): every cell this walk left out died within
+    /// 15 s (1,359 of 1,359 on seed 1; 1,410, 1,082 and 1,607 on the others,
+    /// the stems on the soil last), and of the cells it reached, none did
+    /// beyond the vine's ordinary turnover. **Not sap flow**: with
+    /// `PIXEL_PHYSICS_SAP_FLOW=off` the parted piece died the same way. The
+    /// probe counts every promise against what left (`Stats::wilted`), so
+    /// if the engine stops agreeing the count says so.
+    ///
+    /// Only cells rooted *now* are counted, so a piece already parted by an
+    /// earlier cut is not promised twice; and a cut that would leave the
+    /// vine no root at all promises nothing, because a vine with no roots
+    /// grows new ones from its stems on the soil (measured after a dig:
+    /// seed 1, 0 root cells -> 51 in 300 frames).
+    pub fn starved_if_cut(&self, id: OrganismId, removed: &PosSet, fall: &[(i32, i32)]) -> Cells {
+        let after = self.rooted(id, removed);
+        if after.is_empty() {
+            return Vec::new();
+        }
+        let before = self.rooted(id, &PosSet::default());
+        let fall: PosSet = fall.iter().copied().collect();
+        let mut out: Cells = before.into_iter().filter(|p| !after.contains(p) && !removed.contains(p) && !fall.contains(p)).collect();
+        out.sort_unstable();
+        out
     }
 
     /// Snip at `(x, y)`. Returns how many cells the preview said would fall,
@@ -429,7 +535,7 @@ impl Kudzu {
         if blade.is_empty() {
             return None;
         }
-        let (drop, _) = self.preview(x, y);
+        let Preview { fall: drop, wilt, .. } = self.preview(x, y);
         let organism = blade[0].2;
         for &(cx, cy, _) in &blade {
             self.world.set(cx, cy, Cell::EMPTY);
@@ -442,10 +548,14 @@ impl Kudzu {
         self.snips -= 1;
         self.stats.cuts += 1;
         self.stats.predicted += drop.len() as u32;
-        let n = drop.len();
+        self.stats.wilt_predicted += wilt.len() as u32;
+        let (n, w) = (drop.len(), wilt.len());
         self.let_go(&drop);
-        self.pending.push(PendingCut { at: self.world.frame, cells: drop, organism });
-        self.world.log_player_action(format!("SNIPPED AT {x},{y} -- {n} CELLS LET GO"));
+        self.pending.push(PendingCut { at: self.world.frame, cells: drop, organism, wilt: false });
+        if !wilt.is_empty() {
+            self.pending.push(PendingCut { at: self.world.frame, cells: wilt, organism, wilt: true });
+        }
+        self.world.log_player_action(format!("SNIPPED AT {x},{y} -- {n} CELLS LET GO, {w} PARTED FROM THE ROOTS"));
         Some(n)
     }
 
@@ -606,7 +716,7 @@ mod tests {
         cells.sort_unstable();
         let mut best = ((0, 0), Vec::new());
         for &(x, y) in cells.iter().step_by(7) {
-            let drop = game.preview(x, y).0;
+            let drop = game.preview(x, y).fall;
             if drop.len() > best.1.len() {
                 best = ((x, y), drop);
             }
@@ -650,6 +760,37 @@ mod tests {
             .filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() != id)
             .count();
         assert!(unlit_lost * 10 <= drop.len(), "{unlit_lost} cells the preview did not light left the vine (lit {})", drop.len());
+    }
+
+    /// **WILTS is what the engine starves.** The playtest's best move: cut
+    /// the vine off from its roots at the crown (seed 1, 87,127). Nothing
+    /// falls, and the preview must light the parted vine as WILTS; within
+    /// [`WILT_WINDOW`] the engine must have taken almost all of it, while
+    /// the rooted stump it did not light stays.
+    ///
+    /// Positive control, run by hand 2026-11-08: with `starved_if_cut`
+    /// returning every cell rooted *before* the cut (the stump included),
+    /// this failed on the "still on the vine" assert -- the lit stump lived.
+    #[test]
+    fn preview_wilts_what_the_engine_starves() {
+        let mut game = Kudzu::new(Level::Walls, 1);
+        let (x, y) = (87, 127);
+        let p = game.preview(x, y);
+        assert!(p.fall.is_empty(), "a cut at the crown drops nothing at once: {} lit to fall", p.fall.len());
+        assert!(p.wilt.len() > 1000, "and parts the vine from its roots: {} lit to wilt", p.wilt.len());
+        let id = game.blade(x, y)[0].2;
+        let lit: PosSet = p.wilt.iter().copied().chain(p.blade.iter().copied()).collect();
+        let stump: Vec<(i32, i32)> = game.vine_cells().into_iter().filter(|q| !lit.contains(q)).collect();
+        game.snip(x, y).expect("a charge and vine under the blade");
+        for _ in 0..WILT_WINDOW {
+            game.tick();
+        }
+        let alive = p.wilt.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
+        assert!(alive * 20 <= p.wilt.len(), "{alive} of {} wilting cells still on the vine", p.wilt.len());
+        assert_eq!(game.stats.wilted as usize, p.wilt.len() - alive, "the counter agrees with the cells");
+        assert_eq!(game.stats.wilt_judged as usize, p.wilt.len(), "and the promise was judged");
+        let kept = stump.iter().filter(|&&(cx, cy)| game.world.get(cx, cy).organism_id() == id).count();
+        assert!(kept * 10 >= stump.len() * 8, "the rooted stump stays: {kept} of {}", stump.len());
     }
 
     /// Every switch the game turns on is off in a world it did not make.
