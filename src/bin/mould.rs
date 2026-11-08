@@ -10,6 +10,11 @@
 //! starts on dish seed 3, and `-- 0` is the lesson. Every dish opens behind
 //! the briefing card; H shows it again.
 //!
+//! **F2 cycles the interface looks** (`mould::look`, round 1 of the
+//! interface pass): the current look, then three candidates, named only by
+//! a letter in the bottom-right corner so they can be judged blind.
+//! `-- 0 B` opens the lesson in look B.
+//!
 //! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
 //! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
 //! frames, the same hook the other binaries have.
@@ -18,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
+use pixel_physics::mould::look::Style;
 use pixel_physics::mould::render::{self, Banner, View};
 use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
@@ -40,9 +46,11 @@ const FAST: u32 = 4;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Seed 0 is the lesson, and the game opens on it.
     let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let style = std::env::args().nth(2).and_then(|s| Style::parse(&s)).unwrap_or_default();
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut handler = Handler::new(seed);
+    handler.view.style = style;
     event_loop.run_app(&mut handler)?;
     handler.result
 }
@@ -175,7 +183,7 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
-        if self.view.brief && code != KeyCode::Escape {
+        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 {
             self.view.brief = false;
             self.let_go();
             return;
@@ -194,6 +202,7 @@ impl Handler {
             KeyCode::KeyP => self.view.paused = !self.view.paused,
             KeyCode::KeyR => self.restart(self.seed),
             KeyCode::KeyN => self.restart(self.seed + 1),
+            KeyCode::F2 => self.view.style = self.view.style.next(),
             KeyCode::Escape => event_loop.exit(),
             _ => {}
         }

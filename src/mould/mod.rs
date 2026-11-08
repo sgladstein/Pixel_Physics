@@ -49,6 +49,7 @@
 //!   had its chance.
 
 pub mod lesson;
+pub mod look;
 pub mod play;
 pub mod render;
 
@@ -714,6 +715,12 @@ impl Dish {
 
     pub fn stroke_active(&self) -> bool {
         self.stroke.is_some()
+    }
+
+    /// Drawing only (`look.rs`'s stroke preview): the live stroke's tool,
+    /// where it last reached, and the length it has left to draw.
+    pub fn stroke_state(&self) -> Option<(Tool, (f32, f32), f32)> {
+        self.stroke.map(|s| (s.tool, s.last, s.left))
     }
 
     fn stroke_dab(&mut self, tool: Tool, x: f32, y: f32) {

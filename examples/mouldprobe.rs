@@ -7,6 +7,9 @@
 //! cargo run --release --example mouldprobe -- lean=1               # oats-to-lean and lamp recoil timing only
 //! cargo run --release --example mouldprobe -- look=out/ seeds=1    # PNG stills every 10 s, do nothing and plan
 //! cargo run --release --example mouldprobe -- divide=0.05 feed_reach=60   # any Params field by name
+//! cargo run --release --example mouldprobe -- looks=out/ seeds=1  # the interface looks, same moments in each (mould::look)
+//! cargo run --release --example mouldprobe -- pull=1 seeds=1,2,3,4,5  # how far oats pull: the oats preview's ring
+//! cargo run --release --example mouldprobe -- lesson=out/ style=B     # any picture mode, drawn in an interface look
 //! ```
 //!
 //! Everything it draws goes through `mould::render::draw`, the window's own
@@ -15,6 +18,7 @@
 use std::time::Instant;
 
 use pixel_physics::mould::play::{Dump, Fresh, Idle, LampOnly, Plan, Player, Random, Shepherd};
+use pixel_physics::mould::look::Style;
 use pixel_physics::mould::render::{self, View};
 use pixel_physics::mould::{Dish, Params, Phase, Score, LAMP_R, STEPS_PER_FRAME, STEPS_PER_SECOND};
 
@@ -28,6 +32,12 @@ struct Args {
     push: bool,
     flicker: bool,
     lesson: Option<String>,
+    /// `pull=1`: how far from the mould's front oats still pull it.
+    pull: bool,
+    /// `looks=DIR`: the interface looks' scripted frames (`mould::look`).
+    looks: Option<String>,
+    /// `style=NAME|LETTER`: the interface look every picture is drawn in.
+    style: Style,
     /// `push`: how far beside the tube the lamp is held.
     offset: f32,
     scale: u32,
@@ -50,6 +60,9 @@ fn parse() -> Args {
         push: false,
         flicker: false,
         lesson: None,
+        pull: false,
+        looks: None,
+        style: Style::Classic,
         offset: 12.0,
         scale: 2,
         every: 15,
@@ -72,6 +85,9 @@ fn parse() -> Args {
             "bend" => a.push = v == "1",
             "flicker" => a.flicker = v == "1",
             "lesson" => a.lesson = Some(v.into()),
+            "pull" => a.pull = v == "1",
+            "looks" => a.looks = Some(v.into()),
+            "style" => a.style = Style::parse(v).unwrap_or_else(|| panic!("style: unknown {v}")),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
@@ -118,11 +134,12 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
     }
 }
 
-fn frame_of(d: &Dish, scale: u32) -> image::RgbaImage {
+fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
     let (w, h) = render::frame_size(scale);
     let mut buf = vec![0u8; (w * h * 4) as usize];
     let view = View {
         keys: false,
+        style,
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
@@ -174,14 +191,14 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         }
         peak = peak.max(d.walkers.len());
         if a.gif.is_some() && frame.is_multiple_of(a.every) {
-            shots.push(frame_of(&d, a.scale));
+            shots.push(frame_of(&d, a.scale, a.style));
         }
         // Stills also just after each late pile turns up and during the
         // storm warning, the moments the 2026-11-08 fixes draw.
         let sps = STEPS_PER_SECOND as u64;
         if d.t.is_multiple_of(sps) && [31, 56, 87].contains(&(d.t / sps)) {
             if let Some(dir) = &a.look {
-                frame_of(&d, a.scale)
+                frame_of(&d, a.scale, a.style)
                     .save(format!("{dir}/look-s{seed}-{who}-{:03}.png", d.t / sps))
                     .unwrap();
             }
@@ -190,7 +207,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
             let s = d.measure();
             trace.push(((d.t / STEPS_PER_SECOND as u64) as u32, d.walkers.len(), s.reach));
             if let Some(dir) = &a.look {
-                frame_of(&d, a.scale)
+                frame_of(&d, a.scale, a.style)
                     .save(format!(
                         "{dir}/look-s{seed}-{who}-{:03}.png",
                         d.t / STEPS_PER_SECOND as u64
@@ -203,7 +220,7 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
     assert_eq!(d.phase, Phase::Over);
     if let Some(dir) = &a.gif {
         write_gif(&format!("{dir}/mould-s{seed}-{who}.gif"), shots, a.every);
-        frame_of(&d, a.scale)
+        frame_of(&d, a.scale, a.style)
             .save(format!("{dir}/mould-s{seed}-{who}-end.png"))
             .unwrap();
     }
@@ -382,7 +399,7 @@ fn push(a: &Args) {
             for k in 0..STEPS_PER_SECOND / 2 {
                 pre.step();
                 if k % (2 * STEPS_PER_FRAME) == 0 {
-                    shots.push(frame_of(&pre, a.scale));
+                    shots.push(frame_of(&pre, a.scale, a.style));
                 }
             }
         }
@@ -393,7 +410,7 @@ fn push(a: &Args) {
                 min_join = min_join.min(lit.measure().reach);
             }
             if a.gif.is_some() && k % (2 * STEPS_PER_FRAME) == 0 {
-                shots.push(frame_of(&lit, a.scale));
+                shots.push(frame_of(&lit, a.scale, a.style));
             }
         }
         let shift = tube_offset(&dark, at, n) - tube_offset(&lit, at, n);
@@ -403,7 +420,7 @@ fn push(a: &Args) {
             for k in 0..STEPS_PER_SECOND {
                 after.step();
                 if k % (2 * STEPS_PER_FRAME) == 0 {
-                    shots.push(frame_of(&after, a.scale));
+                    shots.push(frame_of(&after, a.scale, a.style));
                 }
             }
             let path = format!("{dir}/push-s{seed}.gif");
@@ -444,7 +461,7 @@ fn verbs(a: &Args, dir: &str) {
                 d.step();
             }
             if frame.is_multiple_of(2) {
-                shots.push(frame_of(d, a.scale));
+                shots.push(frame_of(d, a.scale, a.style));
             }
             frame += 1;
         };
@@ -528,7 +545,10 @@ fn cost(a: &Args) {
     let mut p = Plan::new();
     let (w, h) = render::frame_size(4);
     let mut buf = vec![0u8; (w * h * 4) as usize];
-    let view = View::default();
+    let view = View {
+        style: a.style,
+        ..View::default()
+    };
     let (mut sim_t, mut draw_t, mut worst, mut worst_sim) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let mut n = 0;
     while d.phase != Phase::Over {
@@ -642,6 +662,7 @@ fn lesson(a: &Args, dir: &str) {
                 lines: l.step.lines(),
                 fresh: l.fresh(d),
             }),
+            style: a.style,
             ..View::default()
         };
         let (w, h) = render::frame_size(a.scale);
@@ -738,6 +759,422 @@ fn lesson(a: &Args, dir: &str) {
     write_gif(&format!("{dir}/lesson.gif"), shots, a.every);
 }
 
+/// One scripted moment, drawn in every look.
+struct Moment {
+    name: &'static str,
+    what: &'static str,
+    dish: Dish,
+    view: View,
+}
+
+/// The counts that say whether anything happened, for the caption beside a
+/// picture (`CLAUDE.md`: an image says what and where, only a number says
+/// whether it fired).
+fn moment_counts(d: &Dish) -> String {
+    let s = d.measure();
+    let c = &d.counts;
+    format!(
+        "t {:.1} s | food joined {}/{} | mould {} | oats placed {} | salt cells {} | snips {} | starved {} | storm-killed {}",
+        d.t as f32 / STEPS_PER_SECOND as f32,
+        s.reach,
+        s.piles + d.pending.len() as u32,
+        d.walkers.len(),
+        c.oats_placed,
+        c.salt_cells,
+        c.snips_used,
+        c.starved + c.hungry,
+        c.stormed
+    )
+}
+
+/// **The interface looks, frame by frame** (`mould::look`; brief: the
+/// interface round, 2026-11-08). One scripted run, the same moments drawn in
+/// the current look and in each candidate: (a) the lesson's oats step with
+/// the oats preview under the cursor, (b) mid-dish with the lamp held,
+/// (c) the storm's last seconds, (d) the score, and two more previews, (e) a
+/// salt wall mid-drag, (f) a snip held over a tube, (g) the briefing card
+/// and (h) oats held too far away to pull. Writes one PNG per
+/// moment per look (`{letter}-{n}-{name}.png`; the current look is
+/// `current`), a contact sheet per look, a GIF per look of the storm and the
+/// score, `counts.txt`, and the draw cost of each look over the whole dish,
+/// timed on the same dish state frame by frame.
+fn looks(a: &Args, dir: &str) {
+    use pixel_physics::mould::lesson::{Lesson, Step};
+    use pixel_physics::mould::play::Fresh;
+    use pixel_physics::mould::render::Banner;
+    use pixel_physics::mould::Tool;
+    let scale = 4;
+    let sps = STEPS_PER_SECOND as u64;
+    let seed = a.seeds[0];
+    let base = View {
+        keys: true,
+        ..View::default()
+    };
+    let mut moments: Vec<Moment> = Vec::new();
+
+    // (g) The briefing card over the lesson's opening frame.
+    let (d0, l0) = Lesson::dish();
+    moments.push(Moment {
+        name: "brief",
+        what: "the briefing card, over the lesson's first frame",
+        dish: d0.clone(),
+        view: View {
+            brief: true,
+            banner: Some(Banner {
+                number: l0.step.number(),
+                of: Step::COUNT,
+                lines: l0.step.lines(),
+                fresh: false,
+            }),
+            ..base
+        },
+    });
+    // (a) The lesson, half a second into step 2, cursor where the banner
+    // says to click: between the mould and the nearest pile.
+    let (mut d, mut l) = Lesson::dish();
+    let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+    let mut began = 0;
+    while !(l.step == Step::Oats && d.t >= began + sps / 2) {
+        if l.step == Step::Lamp {
+            d.set_lamp(Some((hx + 12.0, hy)));
+        } else {
+            d.set_lamp(None);
+        }
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        let before = l.step;
+        l.update(&mut d);
+        if l.step != before {
+            began = d.t;
+        }
+    }
+    let p = d.dish_piles().nth(1).map(|p| (p.x, p.y)).unwrap();
+    let w = d
+        .walkers
+        .iter()
+        .map(|w| (w.x, w.y))
+        .min_by(|u, v| (u.0 - p.0).hypot(u.1 - p.1).total_cmp(&(v.0 - p.0).hypot(v.1 - p.1)))
+        .unwrap();
+    let gap = (p.0 - w.0).hypot(p.1 - w.1);
+    let f = (14.0 / gap).min(0.6);
+    let cursor = (w.0 + (p.0 - w.0) * f, w.1 + (p.1 - w.1) * f);
+    moments.push(Moment {
+        name: "lesson-oats",
+        what: "lesson step 2, oats preview under the cursor",
+        dish: d.clone(),
+        view: View {
+            tool: Tool::Oats,
+            cursor: Some(cursor),
+            banner: Some(Banner {
+                number: l.step.number(),
+                of: Step::COUNT,
+                lines: l.step.lines(),
+                fresh: l.fresh(&d),
+            }),
+            ..base
+        },
+    });
+
+    // The dish: the scripted fresh player, start to score, drawn in every
+    // look every frame for the cost, with the moments cut from it.
+    let mut d = Dish::with_params(seed, a.params.clone());
+    let mut hand = Fresh::new();
+    let end = Dish::dish_steps() + Dish::storm_steps() + 3 * sps;
+    let mut cost: Vec<(f64, f64, u32)> = vec![(0.0, 0.0, 0); Style::ALL.len()];
+    let mut each: Vec<Vec<f64>> = vec![Vec::new(); Style::ALL.len()];
+    let mut sim = (0.0f64, 0.0f64);
+    let (w4, h4) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w4 * h4 * 4) as usize];
+    let timed = View {
+        tool: Tool::Oats,
+        cursor: Some((128.0, 80.0)),
+        ..base
+    };
+    // The GIF: the storm's last four seconds, the strike and four seconds
+    // of the watch, four frames a second; then the score, held.
+    let gif = (Dish::dish_steps() - 4 * sps)..(Dish::dish_steps() + 4 * sps);
+    let mut gifs: Vec<Vec<image::RgbaImage>> = vec![Vec::new(); Style::ALL.len()];
+    let mut frame = 0u32;
+    while d.t < end {
+        let t0 = Instant::now();
+        hand.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        let st = (Instant::now() - t0).as_secs_f64() * 1e3;
+        sim.0 += st;
+        sim.1 = sim.1.max(st);
+        // Every look on the same state, in a rotating order.
+        for k in 0..Style::ALL.len() {
+            let j = (k + frame as usize) % Style::ALL.len();
+            let v = View {
+                style: Style::ALL[j],
+                ..timed
+            };
+            let t1 = Instant::now();
+            render::draw(&d, &v, scale, &mut buf);
+            let ms = (Instant::now() - t1).as_secs_f64() * 1e3;
+            cost[j].0 += ms;
+            cost[j].1 = cost[j].1.max(ms);
+            cost[j].2 += 1;
+            each[j].push(ms);
+        }
+        if gif.contains(&d.t) && frame.is_multiple_of(15) {
+            for (j, style) in Style::ALL.iter().enumerate() {
+                let v = View { style: *style, ..base };
+                gifs[j].push(half(&draw_view(&d, &v, scale)));
+            }
+        }
+        let at = |s: u64| d.t == s * sps;
+        if at(25) {
+            // (b) The lamp held beside the trunk for half a second.
+            let (tp, n) = trunk(&d);
+            let lamp = (tp.0 + n.0 * 10.0, tp.1 + n.1 * 10.0);
+            let mut lit = d.clone();
+            lit.set_lamp(Some(lamp));
+            for _ in 0..sps / 2 {
+                lit.step();
+            }
+            moments.push(Moment {
+                name: "lamp-held",
+                what: "mid-dish, the lamp held beside the trunk",
+                dish: lit,
+                view: View {
+                    tool: Tool::Lamp,
+                    cursor: Some(lamp),
+                    ..base
+                },
+            });
+            // (e) A salt wall, 26 cells into its 60, still being dragged.
+            let mut salt = d.clone();
+            salt.salt_left = salt.salt_left.max(1);
+            let from = (tp.0 + n.0 * 24.0, tp.1 + n.1 * 24.0 - 13.0);
+            let to = (from.0, from.1 + 26.0);
+            if salt.begin_stroke(Tool::Salt, from.0, from.1) {
+                salt.drag_stroke(to.0, to.1);
+            }
+            moments.push(Moment {
+                name: "salt-drag",
+                what: "a salt wall mid-drag: the length still to draw",
+                dish: salt,
+                view: View {
+                    tool: Tool::Salt,
+                    cursor: Some(to),
+                    ..base
+                },
+            });
+            // (h) Oats held where the mould is too far to be pulled: the
+            // open spot whose nearest mould is closest to 44 cells away.
+            let mut far = (f32::INFINITY, (0.0, 0.0));
+            for gy in (12..148).step_by(4) {
+                for gx in (12..244).step_by(4) {
+                    let (x, y) = (gx as f32, gy as f32);
+                    let open = d.ground[gy * pixel_physics::mould::W + gx] == pixel_physics::mould::Ground::Agar;
+                    let on_pile = d.piles.iter().any(|p| (p.x - x).hypot(p.y - y) < p.r + 6.0);
+                    if !open || on_pile {
+                        continue;
+                    }
+                    let near = d.walkers.iter().map(|w| (w.x - x).hypot(w.y - y)).fold(f32::INFINITY, f32::min);
+                    if (near - 44.0).abs() < far.0 {
+                        far = ((near - 44.0).abs(), (x, y));
+                    }
+                }
+            }
+            moments.push(Moment {
+                name: "oats-far",
+                what: "oats held too far from the mould to pull it",
+                dish: d.clone(),
+                view: View {
+                    tool: Tool::Oats,
+                    cursor: Some(far.1),
+                    ..base
+                },
+            });
+            // (f) A snip held over the trunk, not yet pressed.
+            let mut snip = d.clone();
+            snip.snips_left = snip.snips_left.max(1);
+            moments.push(Moment {
+                name: "snip-hover",
+                what: "snip held over a tube: the cells a press would cut",
+                dish: snip,
+                view: View {
+                    tool: Tool::Snip,
+                    cursor: Some(tp),
+                    ..base
+                },
+            });
+        }
+        if d.t == Dish::dish_steps() - 3 * sps {
+            // (c) Three seconds to the storm.
+            moments.push(Moment {
+                name: "storm-warning",
+                what: "the storm's last seconds",
+                dish: d.clone(),
+                view: base,
+            });
+        }
+        frame += 1;
+    }
+    // (d) The score.
+    moments.push(Moment {
+        name: "score",
+        what: "the score",
+        dish: d.clone(),
+        view: base,
+    });
+    // a b c d first, as the brief lists them, then the extra previews.
+    let order = ["lesson-oats", "lamp-held", "storm-warning", "score", "salt-drag", "snip-hover", "brief", "oats-far"];
+    moments.sort_by_key(|m| order.iter().position(|o| *o == m.name).unwrap_or(9));
+
+    let mut counts = String::new();
+    for (k, m) in moments.iter().enumerate() {
+        let line = format!("{}  {:<14} {}\n    {}\n", (b'a' + k as u8) as char, m.name, m.what, moment_counts(&m.dish));
+        print!("{line}");
+        counts.push_str(&line);
+    }
+    for (j, style) in Style::ALL.iter().enumerate() {
+        let tag = if *style == Style::Classic { "current" } else { style.letter() };
+        let mut tiles = Vec::new();
+        for (k, m) in moments.iter().enumerate() {
+            let v = View { style: *style, ..m.view };
+            let img = draw_view(&m.dish, &v, scale);
+            img.save(format!("{dir}/{tag}-{}-{}.png", (b'a' + k as u8) as char, m.name)).unwrap();
+            tiles.push(half(&img));
+        }
+        sheet(&tiles, 4).save(format!("{dir}/{tag}-sheet.png")).unwrap();
+        let mut g = std::mem::take(&mut gifs[j]);
+        let score = half(&draw_view(&d, &View { style: *style, ..base }, scale));
+        g.extend(std::iter::repeat_n(score, 6));
+        // 45: the GIF plays at the dish's own speed (`write_gif` runs 3x).
+        write_gif(&format!("{dir}/{tag}-storm.gif"), g, 45);
+    }
+    let n = cost[0].2 as f64;
+    let mut table = format!(
+        "\n== draw cost per look, scale 4, the fresh hand's whole dish (seed {seed}), {} frames, every look on the same state ==\nsim (all looks share it): mean {:.2} ms, worst {:.2} ms\n",
+        cost[0].2,
+        sim.0 / n,
+        sim.1
+    );
+    for (j, style) in Style::ALL.iter().enumerate() {
+        let tag = if *style == Style::Classic { "current" } else { style.letter() };
+        let mut v = each[j].clone();
+        v.sort_by(f64::total_cmp);
+        let p99 = v[(v.len() * 99 / 100).min(v.len() - 1)];
+        table.push_str(&format!(
+            "{tag:>8}: draw mean {:.2} ms, 99th percentile {:.2} ms, worst {:.2} ms;  frame (sim + draw) mean {:.2} ms\n",
+            cost[j].0 / n,
+            p99,
+            cost[j].1,
+            (sim.0 + cost[j].0) / n
+        ));
+    }
+    print!("{table}");
+    counts.push_str(&table);
+    std::fs::write(format!("{dir}/counts.txt"), counts).unwrap();
+}
+
+fn draw_view(d: &Dish, v: &View, scale: u32) -> image::RgbaImage {
+    let (w, h) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    render::draw(d, v, scale, &mut buf);
+    image::RgbaImage::from_raw(w, h, buf).unwrap()
+}
+
+fn half(img: &image::RgbaImage) -> image::RgbaImage {
+    image::imageops::resize(img, img.width() / 2, img.height() / 2, image::imageops::FilterType::Triangle)
+}
+
+/// Tiles in a grid, `cols` wide, with a 6-pixel gutter.
+fn sheet(tiles: &[image::RgbaImage], cols: usize) -> image::RgbaImage {
+    let (tw, th) = (tiles[0].width(), tiles[0].height());
+    let rows = tiles.len().div_ceil(cols);
+    let g = 6;
+    let mut out = image::RgbaImage::from_pixel(
+        cols as u32 * (tw + g) + g,
+        rows as u32 * (th + g) + g,
+        image::Rgba([40, 40, 44, 255]),
+    );
+    for (k, t) in tiles.iter().enumerate() {
+        let (c, r) = ((k % cols) as u32, (k / cols) as u32);
+        image::imageops::overlay(&mut out, t, (g + c * (tw + g)) as i64, (g + r * (th + g)) as i64);
+    }
+    out
+}
+
+/// **How far from the mould do oats still pull it?** The interface looks'
+/// oats preview (`mould::look`) draws this reach around the cursor, so it is
+/// measured here rather than guessed. At 6 s into each seed's dish, oats go
+/// down beyond the mould's front along eight rays from home, at a range of
+/// distances, each on its own copy of the dish; a placement counts as pulled
+/// if the mould is on the oats within 5 s. Binned by the distance from the
+/// oats to the nearest walker, which is what the preview can see.
+fn pull(a: &Args) {
+    println!("\n== oats pull: nearest mould D cells away; on the oats within 5 s? ==");
+    let sps = STEPS_PER_SECOND as u64;
+    let beyond = [6.0f32, 10.0, 14.0, 18.0, 22.0, 26.0, 30.0, 36.0, 44.0];
+    // Bins of 4 cells of nearest-walker distance: (pulled, tried, seconds).
+    let mut bins = [(0u32, 0u32, 0.0f32); 14];
+    for &seed in &a.seeds {
+        let mut d = Dish::with_params(seed, a.params.clone());
+        while d.t < 6 * sps {
+            d.step();
+        }
+        let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+        for k in 0..8 {
+            let ang = k as f32 / 8.0 * std::f32::consts::TAU;
+            let (ux, uy) = (ang.cos(), ang.sin());
+            let front = d
+                .walkers
+                .iter()
+                .filter_map(|w| {
+                    let (dx, dy) = (w.x - hx, w.y - hy);
+                    let r = dx.hypot(dy);
+                    (r > 1.0 && (dx * ux + dy * uy) / r > 0.966).then_some(r)
+                })
+                .fold(0.0f32, f32::max);
+            for &b in &beyond {
+                let (x, y) = (hx + ux * (front + b), hy + uy * (front + b));
+                let mut t = d.clone();
+                if !t.place_oats(x, y) {
+                    continue;
+                }
+                let near = t
+                    .walkers
+                    .iter()
+                    .map(|w| (w.x - x).hypot(w.y - y))
+                    .fold(f32::INFINITY, f32::min);
+                let bin = ((near / 4.0) as usize).min(bins.len() - 1);
+                let n = t.piles.len() - 1;
+                bins[bin].1 += 1;
+                let start = t.t;
+                while t.t < start + 5 * sps {
+                    t.step();
+                    if t.piles[n].reached() {
+                        bins[bin].0 += 1;
+                        bins[bin].2 += (t.t - start) as f32 / sps as f32;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for (k, (hit, n, secs)) in bins.iter().enumerate() {
+        if *n > 0 {
+            println!(
+                "nearest mould {:>2}-{:>2} cells: pulled {hit:>2} of {n:>2}{}",
+                k * 4,
+                k * 4 + 4,
+                if *hit > 0 {
+                    format!(", mean {:.2} s", secs / *hit as f32)
+                } else {
+                    String::new()
+                }
+            );
+        }
+    }
+}
+
 fn main() {
     let a = parse();
     println!(
@@ -758,6 +1195,14 @@ fn main() {
     }
     if let Some(dir) = &a.lesson {
         lesson(&a, dir);
+        return;
+    }
+    if a.pull {
+        pull(&a);
+        return;
+    }
+    if let Some(dir) = &a.looks {
+        looks(&a, dir);
         return;
     }
     if let Some(dir) = &a.verbs {

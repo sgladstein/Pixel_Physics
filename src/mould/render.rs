@@ -39,6 +39,8 @@ pub struct View {
     /// The lesson's banner, on the first dish: step number, the two lines,
     /// and whether the step has only just begun (it flashes).
     pub banner: Option<Banner>,
+    /// Which look draws the frame (`look.rs`); `Classic` is this file.
+    pub style: super::look::Style,
 }
 
 impl Default for View {
@@ -51,6 +53,7 @@ impl Default for View {
             keys: true,
             brief: false,
             banner: None,
+            style: super::look::Style::Classic,
         }
     }
 }
@@ -161,6 +164,9 @@ fn text_px(s: &str) -> i32 {
 }
 
 pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
+    if view.style != super::look::Style::Classic {
+        return super::look::draw(d, view, scale, frame);
+    }
     let (fw, fh) = frame_size(scale);
     debug_assert_eq!(frame.len(), (fw * fh * 4) as usize);
     let s = scale as usize;
