@@ -125,6 +125,11 @@ pub struct Push {
     /// bolt's is short -- see [`CALLED_RANGE`] -- and the cloud's own strike
     /// onto the bell reaches across the whole valley.
     pub range: f32,
+    /// Sideways push from the wind, in score units per cell of sideways
+    /// step: positive blows right. Added to every step's score before the
+    /// power, so it bends a light bolt more than a heavy one, and the dotted
+    /// preview (which grows with the same push) bends with it.
+    pub wind: f32,
 }
 
 /// **The conductor pull on a called bolt fades over about seven cells.**
@@ -137,7 +142,13 @@ pub struct Push {
 /// the lamp takes 9-10/10 aimed at it, 5/10 from 12 cells with a tap and
 /// 9/10 with a hold, and over open sand a tap lands a median 19 cells off
 /// against 6 for a medium hold: hits fall with distance and rise with hold.
-pub const CALLED_RANGE: f32 = 14.0;
+///
+/// **Then tightened from 14 to 8 (about four cells), round 2, 2026-11-08**,
+/// when wind came in: at 14 a lamp still caught a bolt aimed straight at it
+/// in a strong wind (`stormprobe mode=windaim`, wind -0.07: 3/10 straight,
+/// +0.07: 6/10), so reading the wind bought little. At 8, straight down in
+/// a wind of 0.07 or more lights it 0-4 times in 10 and aiming upwind 6-10.
+pub const CALLED_RANGE: f32 = 8.0;
 
 impl Push {
     /// The straightness power the weights are raised to.
@@ -185,7 +196,8 @@ fn score(m: &Medium, from: usize, to: usize, d: (i32, i32), last: (i32, i32), pu
     // 0.49 and it rights itself; a light bolt's is 0.84 and it still runs.
     let keep = if d == last { 0.08 + 0.35 * (1.0 - push.heavy.clamp(0.0, 1.0)) } else { 0.0 };
     let touch = if m.stuff[to] == Stuff::Ground { 0.25 + m.cond[to] } else { 0.0 };
-    (0.55 * down + pull + ion + keep + touch).max(0.0) + 0.01
+    let blown = d.0 as f32 * push.wind;
+    (0.55 * down + pull + ion + keep + touch + blown).max(0.0) + 0.01
 }
 
 /// Choose the next step from `tip`, or `None` if boxed in.
@@ -260,7 +272,7 @@ pub fn grow(m: &Medium, start: (i32, i32), last: (i32, i32), push: Push, rng: &m
         d = step;
         if let Some(f) = forks.as_deref_mut() {
             if f.len() < 10 && rng.chance(fork_p) {
-                let light = Push { heavy: push.heavy * 0.3, pull: push.pull * 0.6, range: push.range };
+                let light = Push { heavy: push.heavy * 0.3, pull: push.pull * 0.6, ..push };
                 let side = if rng.flip() { (-1, 1) } else { (1, 1) };
                 let len = 10 + rng.below(40) as usize;
                 let b = grow(m, tip, side, light, rng, len, None);
@@ -333,7 +345,7 @@ mod tests {
     fn a_bolt_reaches_the_ground() {
         let m = medium(80, 60, 50, None);
         let mut rng = Rng::new(7);
-        let p = grow(&m, (40, 0), (0, 1), Push { heavy: 0.5, pull: 1.0, range: CALLED_RANGE }, &mut rng, 400, None);
+        let p = grow(&m, (40, 0), (0, 1), Push { heavy: 0.5, pull: 1.0, range: CALLED_RANGE, wind: 0.0 }, &mut rng, 400, None);
         assert!(p.hit.is_some(), "a bolt in open air must find the floor");
     }
 
@@ -346,7 +358,7 @@ mod tests {
             let mut sum = 0.0;
             for s in 0..40 {
                 let mut rng = Rng::new(100 + s);
-                let p = grow(&m, (80, 0), (0, 1), Push { heavy, pull: 1.0, range: CALLED_RANGE }, &mut rng, 800, None);
+                let p = grow(&m, (80, 0), (0, 1), Push { heavy, pull: 1.0, range: CALLED_RANGE, wind: 0.0 }, &mut rng, 800, None);
                 sum += (p.hit.expect("lands").0 - 80).abs() as f32;
             }
             sum / 40.0
@@ -359,16 +371,36 @@ mod tests {
     /// lands on the floor. Guards the conductor pull being connected at all.
     #[test]
     fn an_iron_post_draws_the_bolt() {
-        let with = medium(160, 100, 90, Some(92));
+        // Eight cells off since the pull was tightened to about four (round
+        // 2): at twelve it took 11/20, which is the point of the change.
+        let with = medium(160, 100, 90, Some(88));
         let mut hits = 0;
         for s in 0..20 {
             let mut rng = Rng::new(300 + s);
-            let p = grow(&with, (80, 0), (0, 1), Push { heavy: 0.5, pull: 1.0, range: CALLED_RANGE }, &mut rng, 800, None);
-            if p.hit.is_some_and(|(x, _)| x == 92) {
+            let p = grow(&with, (80, 0), (0, 1), Push { heavy: 0.5, pull: 1.0, range: CALLED_RANGE, wind: 0.0 }, &mut rng, 800, None);
+            if p.hit.is_some_and(|(x, _)| x == 88) {
                 hits += 1;
             }
         }
-        assert!(hits >= 14, "the post 12 cells off the aim should take most bolts, took {hits}/20");
+        assert!(hits >= 14, "the post 8 cells off the aim should take most bolts, took {hits}/20");
+    }
+
+    /// Wind carries a bolt downwind, both ways, and no wind does not.
+    #[test]
+    fn the_wind_carries_a_bolt() {
+        let m = medium(200, 100, 90, None);
+        let mean = |wind: f32| {
+            let mut sum = 0.0;
+            for s in 0..30 {
+                let mut rng = Rng::new(500 + s);
+                let p = grow(&m, (100, 0), (0, 1), Push { heavy: 1.0, pull: 1.0, range: CALLED_RANGE, wind }, &mut rng, 800, None);
+                sum += (p.hit.expect("lands").0 - 100) as f32;
+            }
+            sum / 30.0
+        };
+        let (left, calm, right) = (mean(-0.05), mean(0.0), mean(0.05));
+        assert!(calm.abs() < 3.0, "no wind should land near the aim: {calm:.1}");
+        assert!(right > 8.0 && left < -8.0, "wind 0.05 should carry a held bolt 8+ cells: {left:.1} / {right:.1}");
     }
 
     /// Glass is never entered and nothing pulls through it.
@@ -382,7 +414,7 @@ mod tests {
         m.build_reach(None);
         for s in 0..20 {
             let mut rng = Rng::new(s);
-            let p = grow(&m, (40, 0), (0, 1), Push { heavy: 0.3, pull: 1.0, range: CALLED_RANGE }, &mut rng, 800, None);
+            let p = grow(&m, (40, 0), (0, 1), Push { heavy: 0.3, pull: 1.0, range: CALLED_RANGE, wind: 0.0 }, &mut rng, 800, None);
             assert!(p.cells.iter().all(|&(x, y)| !(y == 30 && (30..50).contains(&x))));
         }
     }

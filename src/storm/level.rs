@@ -84,6 +84,8 @@ pub struct Lamp {
     pub area: Area,
     pub head: Area,
     pub name: &'static str,
+    /// One word painted over the lamp on screen.
+    pub tag: &'static str,
 }
 
 pub const SOIL_DEPTH: i32 = 16;
@@ -93,9 +95,9 @@ pub const SOIL_MOISTURE: u16 = 260;
 
 impl Level {
     pub fn valley() -> Self {
-        let lamp = |x: i32, top: i32, name| {
+        let lamp = |x: i32, top: i32, name, tag| {
             let g = ground_y(x);
-            Lamp { area: Area::new(x - 2, top, x + 3, g + 3), head: Area::new(x - 2, top, x + 3, top + 3), name }
+            Lamp { area: Area::new(x - 2, top, x + 3, g + 3), head: Area::new(x - 2, top, x + 3, top + 3), name, tag }
         };
         Level {
             tower: Area::new(26, 50, 38, 95),
@@ -105,7 +107,7 @@ impl Level {
             // bolt called there, 8 of 8 on seed 1, so it was a trap rather
             // than a risk. The sand lamp stands in the sand strip, where a
             // miss melts glass that no scorch line can cross.
-            lamps: [lamp(62, 88, "HILL LAMP"), lamp(99, 105, "SAND LAMP"), lamp(134, 106, "FIELD LAMP"), lamp(196, 112, "LAMP UNDER THE ROCK")],
+            lamps: [lamp(62, 88, "HILL LAMP", "HILL"), lamp(99, 105, "SAND LAMP", "SAND"), lamp(134, 106, "FIELD LAMP", "FIELD"), lamp(196, 112, "LAMP UNDER THE ROCK", "ROCK")],
             huts: vec![Area::new(142, 113, 151, 123), Area::new(155, 115, 162, 123)],
             ledge: Area::new(176, 99, 213, 104),
             sand: Area::new(84, 0, 114, 0),
