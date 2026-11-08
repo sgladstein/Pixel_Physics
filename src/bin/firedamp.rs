@@ -9,6 +9,8 @@
 //!   open it
 //! - right button: pick a fan, door or fuse back up
 //! - `Space` pause, `R` same mine again, `N` a new mine, `Esc` quit
+//! - `H` the start card again: the goal, the tools and the stars. The window
+//!   opens on it, paused, and any click or key closes it
 //!
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` writes the window to
 //! `<temp>/pixel_physics_firedamp.png` after N drawn frames, the same hook
@@ -44,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cursor: None,
         screen_cursor: None,
         paused: false,
+        help: true,
         sound: audio::Output::open(seed, audio::Style::default()).ok(),
         shot: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
         down: false,
@@ -63,6 +66,8 @@ struct Handler {
     /// The pointer in screen pixels, for the bar.
     screen_cursor: Option<(i32, i32)>,
     paused: bool,
+    /// The start card is up; the mine waits while it is.
+    help: bool,
     sound: Option<audio::Output>,
     shot: Option<u32>,
     down: bool,
@@ -70,7 +75,12 @@ struct Handler {
 
 impl Handler {
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        if self.help && code != KeyCode::Escape {
+            self.help = false;
+            return;
+        }
         match code {
+            KeyCode::KeyH => self.help = true,
             KeyCode::Digit1 => self.game.tool = Tool::Fan,
             KeyCode::Digit2 => self.game.tool = Tool::Door,
             KeyCode::Digit3 => self.game.tool = Tool::Match,
@@ -133,7 +143,7 @@ impl Handler {
         let now = Instant::now();
         let dt = now - self.last;
         self.last = now;
-        if !self.paused {
+        if !self.paused && !self.help {
             self.accumulator += dt;
             let mut n = 0;
             while self.accumulator >= TICK && n < MAX_TICKS_PER_FRAME {
@@ -149,7 +159,9 @@ impl Handler {
         let Some(pixels) = &mut self.pixels else { return };
         self.game.aim_preview(self.cursor);
         paint::paint(&self.game, pixels.frame_mut(), self.cursor);
-        if self.paused {
+        if self.help {
+            paint::help(pixels.frame_mut());
+        } else if self.paused {
             paint::text(pixels.frame_mut(), FW as i32 / 2 - 36, 200, "PAUSED", [255, 255, 255, 255]);
         }
         if let Some(n) = self.shot {
@@ -232,6 +244,7 @@ impl ApplicationHandler for Handler {
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = state == ElementState::Pressed;
                 match (button, pressed) {
+                    (MouseButton::Left, true) if self.help => self.help = false,
                     (MouseButton::Left, true) => {
                         if let Some(t) = self.screen_cursor.and_then(|(x, y)| paint::button_at(x, y)) {
                             self.game.tool = t;
