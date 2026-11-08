@@ -5,7 +5,10 @@
 //! you grow a slime mould that eats it -- but a mould that eats a pocket too
 //! thick to burn thins it until it *can* burn. The design is review-3 §4a in
 //! `/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/`; the
-//! level is its "Two Lamps".
+//! level is its "Two Lamps", reworked after the 2026-11-08 playtest found the
+//! mould was decoration: lamp B now hangs in a dripping stall whose seep no
+//! spark can clear, so the mould has a job (see `level.rs` and the report's
+//! Round 2, `Reports/seep-probe-2026-11-07.md`).
 //!
 //! **The question this probe exists to answer** is whether the mould is
 //! something a player *uses* or decoration beside the gas. So the harness
@@ -40,11 +43,32 @@ use gas::{band, idx, Air, Band, H, W};
 use mould::{Ground, Mould, Rng};
 
 pub const TICKS_PER_SECOND: u32 = 60;
-/// Four minutes, review-3's "30 carts in 4 minutes".
 pub const LEVEL_TICKS: u32 = 4 * 60 * TICKS_PER_SECOND;
-/// Carts a working face hauls per second.
+/// Carts a working face hauls per second: two faces for four minutes is 96.
 const CARTS_PER_SECOND: f32 = 1.0 / 5.0;
-pub const GOAL_CARTS: u32 = 30;
+/// **Stars are carts** (2026-11-08). The first version scored stars by
+/// faces surviving plus every crack capped, against a "30 carts" goal that
+/// doing nothing beat (53 carts on seeds 1-2), so the number on screen meant
+/// nothing and a choked face cost nothing. Now a face that is choked,
+/// singed or lost stops hauling, and the stars are hauled carts.
+pub const STAR_CARTS: [u32; 3] = [40, 65, 85];
+/// Seconds before crack 2 opens that the rock starts to hiss there.
+pub const HISS_LEAD: u32 = 30 * TICKS_PER_SECOND;
+/// A burning tube this close to a lamp sets off the fuse alarm.
+const FUSE_ALARM_RANGE: i32 = 32;
+/// The stall seep's leak per tick, against crack 1's 0.22. Swept on 3
+/// paired seeds (2026-11-08) on the *first* stall (seep in the floor under
+/// it, x 101), for the plan (mould led there by a damp road), the same plan
+/// with the mould left alone, and nothing. Kept for the dripping stall,
+/// where 5 paired seeds give led 90 carts, unled 71-72, nothing 28-29:
+/// - 0.03: the unled mould's mine still hauls 75-96 -- the stall barely bites;
+/// - **0.05**: led 96/96/96 with lamp B never choked, unled 58-60 (lamp B
+///   choked ~3 minutes; the mould finds the stall alone only at ~111 s);
+/// - 0.07: led 90-91, unled 52-53;
+/// - 0.10: even led loses 35-43 carts -- the pocket outlasts the cap.
+const STALL_RATE: f32 = 0.05;
+/// Mean gas round a safety lamp at which its face stops work: mid-pink.
+const SAFETY_CHOKE: f32 = 0.08;
 /// A singe darkens a face for this long.
 const SINGE_TICKS: u32 = 10 * TICKS_PER_SECOND;
 /// Gas burnt within `BURN_WINDOW` ticks round a lamp above which the face is
@@ -58,6 +82,9 @@ const BLAST_WATCH: u32 = 90;
 /// Ticks a cell burns once lit, and how long before it can light again.
 const BURN_TICKS: u8 = 7;
 const REFRACTORY: u8 = 45;
+/// Ticks for a flame to run one cell along a dry tube: about 10 cells a
+/// second, against about 25 through burnable gas.
+const FUSE_STEP: u32 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
@@ -84,8 +111,8 @@ impl Tool {
         match self {
             Tool::Blow => "DRAG: PUSH THE GAS",
             Tool::Spark => "CLICK: LIGHT IT. ONLY PINK BURNS",
-            Tool::Damp => "DRAG: WET ROCK. MOULD RUNS ON WET",
-            Tool::Cut => "DRAG: SNIP THE MOULD",
+            Tool::Damp => "DRAG: WET ROCK. MOULD FOLLOWS WET",
+            Tool::Cut => "DRAG: SNIP A DRY TUBE AHEAD OF FIRE",
             Tool::Fuse => "CLICK: LIGHTS WHEN GAS HERE CAN BURN",
         }
     }
@@ -144,6 +171,15 @@ pub struct Lamp {
     pub blown_at: Option<u32>,
     /// When flame first reached this face in the current burn.
     pub burn_from: Option<u32>,
+    /// **A safety lamp** (a gauze lamp, the miners' answer to firedamp)
+    /// never lights the gas itself, but the face stops work once the gas
+    /// at it is `SAFETY_CHOKE` -- burnable, not only too thick -- and a
+    /// flame that reaches it still singes or blows it. Lamp B in the stall
+    /// is one (2026-11-08): a naked lamp at the top of the stall lit the
+    /// seep's plume the moment it arrived and was lost at 8 s, before
+    /// anything could be done; a safety lamp turns the same pocket into a
+    /// standing problem a spark cannot clear, because the flame reaches it.
+    pub safety: bool,
 }
 
 pub struct Crack {
@@ -189,6 +225,12 @@ pub struct Counts {
     /// reads Damp and Cut after the first minute from these.
     pub uses: [Vec<u32>; 5],
     pub cuts_hit: u32,
+    /// Cuts that landed on the core's own tubes and did nothing.
+    pub cuts_guarded: u32,
+    /// Times a burning dry tube came within `FUSE_ALARM_RANGE` of a lamp.
+    pub fuse_alarms: u32,
+    /// Ticks each lamp spent choked by thick gas.
+    pub choked_ticks: [u32; 2],
     pub frames: u32,
 }
 
@@ -206,6 +248,11 @@ pub struct Game {
     wet_floor: Vec<f32>,
     pub fire: Vec<u8>,
     refractory: Vec<u8>,
+    /// Tube cells waiting for a fuse to reach them: (tick, cell).
+    fuse_queue: Vec<(u32, usize)>,
+    /// Burning as part of a fuse: its flame takes the next dry tube for
+    /// certain, not on a coin toss.
+    fuse_cell: Vec<bool>,
     pub lamps: Vec<Lamp>,
     pub cracks: Vec<Crack>,
     pub fuses: Vec<FusePlaced>,
@@ -221,6 +268,8 @@ pub struct Game {
     drip: (i32, i32),
     told_thinning: bool,
     told_capped: bool,
+    told_fuse: bool,
+    fuse_alarm_until: u32,
     pub seed: u64,
     /// False only for the probe's `nomould` arm: Firedamp alone, the mine
     /// with no mould in it at all.
@@ -248,13 +297,17 @@ impl Game {
             wet_floor,
             fire: vec![0; W * H],
             refractory: vec![0; W * H],
+            fuse_queue: Vec::new(),
+            fuse_cell: vec![false; W * H],
             lamps: vec![
-                Lamp { name: "A", x: 234, y: 46, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None },
-                Lamp { name: "B", x: 100, y: 128, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None },
+                Lamp { name: "A", x: 234, y: 46, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: false },
+                Lamp { name: "B", x: level::STALL_X, y: 100, state: LampState::Working, dark_until: 0, carts: 0.0, worked_ticks: 0, singes: 0, blown_at: None, burn_from: None, safety: true },
             ],
             cracks: vec![
                 Crack { x0: 178, x1: 181, y: 139, opens_at: 0, rate: 0.22, emitted: 0.0, capped: 0.0, cap_ema: 0.0 },
                 Crack { x0: 119, x1: 122, y: 63, opens_at: 90 * TICKS_PER_SECOND, rate: 0.14, emitted: 0.0, capped: 0.0, cap_ema: 0.0 },
+                // The stall's seep, in its wet roof beside lamp B.
+                Crack { x0: level::STALL_X + 5, x1: level::STALL_X + 7, y: 100, opens_at: 0, rate: STALL_RATE, emitted: 0.0, capped: 0.0, cap_ema: 0.0 },
             ],
             fuses: Vec::new(),
             fuses_left: 2,
@@ -269,11 +322,18 @@ impl Game {
             drip: (149, 67),
             told_thinning: false,
             told_capped: false,
+            told_fuse: false,
+            fuse_alarm_until: 0,
             seed,
             mould_on: true,
         };
         g.refresh_masks(true);
         g.air.sky_row = 36;
+        // The stall seep sits in the stall's roof: the top open cell there.
+        let sx = level::STALL_X + 6;
+        if let Some(y) = (80..120).find(|&y| g.air.is_open(sx, y)) {
+            g.cracks[2].y = y;
+        }
         g
     }
 
@@ -297,16 +357,10 @@ impl Game {
         self.cracks.iter().filter(|c| self.tick >= c.opens_at && c.cap_ema > 0.6).count()
     }
 
-    /// Review-3's stars: 1 for one face surviving, 2 for both, 3 for both
-    /// and every open crack capped by mould.
+    /// One star for each of `STAR_CARTS` hauled.
     pub fn stars(&self) -> u32 {
-        let alive = self.lamps.iter().filter(|l| l.state != LampState::Blown).count();
-        match alive {
-            0 => 0,
-            1 => 1,
-            _ if self.cracks_capped() == self.cracks_open() && self.cracks_open() > 0 => 3,
-            _ => 2,
-        }
+        let c = self.carts();
+        STAR_CARTS.iter().filter(|&&k| c >= k).count() as u32
     }
 
     pub fn meter(&self, t: Tool) -> f32 {
@@ -381,6 +435,9 @@ impl Game {
                 self.counts.cuts_hit += n as u32;
                 if n > 0 {
                     self.say("SNIP", x, y - 4, [240, 220, 120]);
+                } else if self.mould.guarded(x, y) && self.mould.tube_at(x, y).is_some() {
+                    self.counts.cuts_guarded += 1;
+                    self.say("TOO TOUGH", x, y - 4, [240, 220, 120]);
                 }
             }
             Act::Fuse { x, y } => {
@@ -546,9 +603,20 @@ impl Game {
                 (c.opens_at, c.rate, c.x0, c.x1, c.y)
             };
             if self.tick < opens_at {
+                // **A crack about to open hisses first** (playtest: "show
+                // crack 2 before it opens", so leading the mould there is a
+                // plan the player can see coming).
+                let lead = opens_at.saturating_sub(self.tick);
+                if lead <= HISS_LEAD && lead.is_multiple_of(3 * TICKS_PER_SECOND) {
+                    let (x, y) = ((cx0 + cx1) / 2, cy);
+                    self.say("HISS", x, y - 6, [230, 150, 190]);
+                    if lead == HISS_LEAD {
+                        self.banner = Some(("THE ROCK IS HISSING. A CRACK WILL OPEN".into(), self.tick + 5 * TICKS_PER_SECOND));
+                    }
+                }
                 continue;
             }
-            if self.tick == opens_at && k > 0 {
+            if self.tick == opens_at && opens_at > 0 {
                 let (x, y) = ((cx0 + cx1) / 2, cy);
                 self.say("A NEW CRACK!", x, y - 8, [255, 120, 160]);
                 self.banner = Some(("A NEW CRACK HAS OPENED".into(), self.tick + 4 * TICKS_PER_SECOND));
@@ -582,8 +650,22 @@ impl Game {
     fn burn(&mut self) {
         let mut burnt_now = 0.0;
         let mut lit = Vec::new();
+        // A fuse reaches its next cell.
+        let now = self.tick;
+        let mut k = 0;
+        while k < self.fuse_queue.len() {
+            if self.fuse_queue[k].0 <= now {
+                let (_, i) = self.fuse_queue.swap_remove(k);
+                if self.fire[i] == 0 && self.refractory[i] == 0 && !self.solid[i] {
+                    self.fire[i] = BURN_TICKS;
+                    self.fuse_cell[i] = true;
+                }
+            } else {
+                k += 1;
+            }
+        }
         let g = ground(&self.solid, &self.water, &self.wet);
-        let mut tubes_hit: Vec<usize> = Vec::new();
+        let mut tubes_hit: Vec<(usize, usize)> = Vec::new();
         for y in 0..H {
             for x in 0..W {
                 let i = idx(x, y);
@@ -599,27 +681,31 @@ impl Game {
                 self.air.heat[i] += 0.35;
                 self.air.expand[i] += take * 1.6 + 0.01;
                 self.fire[i] -= 1;
+                let fuse = self.fuse_cell[i];
                 if self.fire[i] == 0 {
                     self.refractory[i] = REFRACTORY;
+                    self.fuse_cell[i] = false;
                 }
                 if let Some(e) = self.mould.tube_at(x as i32, y as i32) {
-                    tubes_hit.push(e);
+                    tubes_hit.push((e, i));
                 }
                 for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)] {
                     let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                    lit.push((nx, ny, dx != 0 && dy != 0));
+                    lit.push((nx, ny, dx != 0 && dy != 0, fuse));
                 }
             }
         }
         let _ = &g;
-        for (nx, ny, diag) in lit {
+        for (nx, ny, diag, fuse) in lit {
             if !self.ignitable(nx, ny) {
                 continue;
             }
             let tube = self.mould.tube_at(nx, ny).is_some();
-            // Through gas a flame runs at about 25 cells a second; along a
-            // dry tube, like a fuse, about a third of that.
+            // Through gas a flame runs at about 25 cells a second. A fuse
+            // takes the next dry tube it touches for certain; any other
+            // flame catches a dry tube on a coin toss.
             let p = match (tube, diag) {
+                (true, _) if fuse => 1.0,
                 (true, _) => 0.09,
                 (false, false) => 0.42,
                 (false, true) => 0.12,
@@ -629,18 +715,52 @@ impl Game {
             }
         }
         tubes_hit.sort_unstable();
-        tubes_hit.dedup();
-        for e in tubes_hit {
+        tubes_hit.dedup_by_key(|h| h.0);
+        // **The fuse alarm.** A dry tube burning toward a lit lamp is the
+        // job Cut was missing (playtest: "Cut has no good use"): say so where
+        // the fire is, so a snip ahead of it is a rescue.
+        if self.tick >= self.fuse_alarm_until {
+            let burning: Option<(i32, i32, usize)> = tubes_hit.iter().find_map(|&(e, _)| {
+                let (fx, fy) = self.mould.edges[e].cells[0];
+                self.lamps
+                    .iter()
+                    .enumerate()
+                    .find(|(_, l)| l.state != LampState::Blown && (l.x - fx).abs() + (l.y - fy).abs() <= FUSE_ALARM_RANGE)
+                    .map(|(k, _)| (fx, fy, k))
+            });
+            if let Some((fx, fy, k)) = burning {
+                self.counts.fuse_alarms += 1;
+                self.fuse_alarm_until = self.tick + 3 * TICKS_PER_SECOND;
+                self.say("FUSE! CUT IT", fx, fy - 6, [255, 200, 90]);
+                if !self.told_fuse {
+                    self.told_fuse = true;
+                    let name = self.lamps[k].name;
+                    self.banner = Some((format!("A DRY TUBE IS BURNING TO LAMP {name}. CUT IT"), self.tick + 5 * TICKS_PER_SECOND));
+                }
+            }
+        }
+        for (e, at) in tubes_hit {
             if self.mould.edges[e].alive {
                 self.mould.remove_edge(e);
                 self.mould.counts.tubes_burnt += 1;
-                // The cells keep burning a moment, so the fuse carries on.
-                for &(x, y) in &self.mould.edges[e].cells.clone() {
-                    let i = idx(x as usize, y as usize);
-                    if self.fire[i] == 0 && self.refractory[i] == 0 {
-                        self.fire[i] = 1 + (self.rng.f() * 30.0) as u8;
+                // **The flame runs along the tube from where it caught,
+                // one cell every `FUSE_STEP` ticks, and takes the next dry
+                // tube at the far end.** The first version lit every cell of
+                // the tube at once on a random timer, and only the end cell
+                // touched the next tube: when that cell's timer was short
+                // the flame died at the junction. Traced 2026-11-08 on a
+                // dry 8-tube line laid at a lamp: one tube burnt, the lamp
+                // untouched -- "burns like a fuse" was never true past one
+                // tube.
+                let cells = self.mould.edges[e].cells.clone();
+                let j = cells.iter().position(|&(x, y)| idx(x as usize, y as usize) == at).unwrap_or(0);
+                for (k, &(x, y)) in cells.iter().enumerate() {
+                    let d = (k as i64 - j as i64).unsigned_abs() as u32;
+                    if d > 0 {
+                        self.fuse_queue.push((self.tick + d * FUSE_STEP, idx(x as usize, y as usize)));
                     }
                 }
+                self.fuse_cell[at] = true;
             }
         }
         self.counts.burnt += burnt_now as f64;
@@ -695,7 +815,7 @@ impl Game {
                 continue;
             }
             // A naked lamp lights any burnable gas that reaches its flame.
-            if matches!(self.lamps[k].state, LampState::Working | LampState::Choked) {
+            if !self.lamps[k].safety && matches!(self.lamps[k].state, LampState::Working | LampState::Choked) {
                 for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (0, -2), (2, 0), (-2, 0)] {
                     if self.ignitable(x + dx, y + dy) {
                         self.fire[idx((x + dx) as usize, (y + dy) as usize)] = BURN_TICKS;
@@ -745,10 +865,14 @@ impl Game {
             match self.lamps[k].state {
                 LampState::Singed if self.tick >= self.lamps[k].dark_until => self.lamps[k].state = LampState::Working,
                 LampState::Working | LampState::Choked => {
-                    let thick = self.air.mean_near(x, y, 3) > gas::THICK;
+                    let limit = if self.lamps[k].safety { SAFETY_CHOKE } else { gas::THICK };
+                    let thick = self.air.mean_near(x, y, 3) > limit;
                     self.lamps[k].state = if thick { LampState::Choked } else { LampState::Working };
                 }
                 _ => {}
+            }
+            if self.lamps[k].state == LampState::Choked && k < 2 {
+                self.counts.choked_ticks[k] += 1;
             }
             if self.lamps[k].state == LampState::Working && self.tick < LEVEL_TICKS {
                 self.lamps[k].worked_ticks += 1;

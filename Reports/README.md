@@ -6571,7 +6571,11 @@ file unless its report says so.
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
   the mould is not needed to survive and only earns the third star (both cracks capped, 4 of 6 seeds). Frame mean 4 ms,
-  worst 23 ms. Verdict waits on the owner's playtest. Records the water-over-crack leak bug and four dead ends.
+  worst 23 ms. **Round 2 (2026-11-08)**, from the playtest that found the mould was decoration: a dripping stall over a
+  third seep chokes lamp B and no spark can clear it, so leading the mould there is the only way to the third star (plan
+  3 stars on 5 of 5 seeds, sparking alone 2, nothing 0); the mould drawn 3 cells wide and coloured by state; the core
+  can't be snipped and regrows; stars are carts. Records two mould bugs (twin tips dying at corners, fuses dying at every
+  junction) and that Cut still has no job in play.
 - [fault-probe-2026-11-07.md](fault-probe-2026-11-07.md) — **probe 6 of 6
   (`--bin fault`): crack an ice wall before the rising lake bursts it; is a
   running crack satisfying, and can you read where it goes?** Doing nothing

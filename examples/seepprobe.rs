@@ -26,6 +26,12 @@ struct Run {
     player: String,
     seed: u64,
     carts: u32,
+    carts_a: f32,
+    carts_b: f32,
+    choked_b_s: u32,
+    fuse_alarms: u32,
+    cuts_guarded: u32,
+    stall_capped_s: Option<u32>,
     stars: u32,
     blown: u32,
     first_blown_s: Option<f32>,
@@ -98,7 +104,7 @@ fn main() {
     let mut frame = vec![0u8; FW * FH * 4];
     for &seed in &seeds {
         for pname in &players {
-            let mut player = Player::by_name(pname, seed).expect("player: nothing, planned, gasonly, nomould or random");
+            let mut player = Player::by_name(pname, seed).expect("player: nothing, planned, gasonly, nomould, random, fresh, freshdamp, mouldonly or ring");
             let mut g = Game::new(seed);
             // `nomould` is `gasonly`'s plan in a mine with no mould at all:
             // Firedamp alone. `gasonly` keeps the mould but never Damps or
@@ -109,6 +115,7 @@ fn main() {
             let (mut total, mut worst, mut worst_burn) = (0.0f64, 0.0f64, 0.0f64);
             let mut tubes_peak = 0;
             let mut first_blown = None;
+            let mut stall_capped = None;
             for t in 0..secs * TICKS_PER_SECOND {
                 let s = Instant::now();
                 let acts = player.acts(&g);
@@ -121,6 +128,9 @@ fn main() {
                     worst_burn = worst_burn.max(dt);
                 }
                 tubes_peak = tubes_peak.max(g.mould.live_tubes());
+                if stall_capped.is_none() && g.cracks.get(2).is_some_and(|c| c.cap_ema > 0.6) {
+                    stall_capped = Some(g.tick / TICKS_PER_SECOND);
+                }
                 if first_blown.is_none() {
                     if let Some(l) = g.lamps.iter().filter_map(|l| l.blown_at).min() {
                         first_blown = Some(l as f32 / TICKS_PER_SECOND as f32);
@@ -155,6 +165,12 @@ fn main() {
                 player: pname.clone(),
                 seed,
                 carts: g.carts(),
+                carts_a: g.lamps[0].carts,
+                carts_b: g.lamps[1].carts,
+                choked_b_s: g.counts.choked_ticks[1] / TICKS_PER_SECOND,
+                fuse_alarms: g.counts.fuse_alarms,
+                cuts_guarded: g.counts.cuts_guarded,
+                stall_capped_s: stall_capped,
                 stars: g.stars(),
                 blown: g.lamps.iter().filter(|l| l.state == LampState::Blown).count() as u32,
                 first_blown_s: first_blown,
@@ -179,10 +195,16 @@ fn main() {
                 worst_burn_ms: worst_burn,
             };
             println!(
-                "run player={} seed={} carts={} stars={} blown={} first_blown_s={} face_s={:.0} capped={}/{} eaten={:.1} burnt={:.1} vented={:.1} left={:.1} buried={:.1} emitted={:.1} singes={} booms={} uses_0-60s(B,S,D,C,F)={:?} uses_60s+={:?} tubes_peak={} tubes_burnt={} tubes_cut={} tick_mean_ms={:.2} tick_worst_ms={:.2} worst_during_burn_ms={:.2}",
+                "run player={} seed={} carts={} carts_a={:.0} carts_b={:.0} choked_b_s={} stall_capped_s={} fuse_alarms={} cuts_guarded={} stars={} blown={} first_blown_s={} face_s={:.0} capped={}/{} eaten={:.1} burnt={:.1} vented={:.1} left={:.1} buried={:.1} emitted={:.1} singes={} booms={} uses_0-60s(B,S,D,C,F)={:?} uses_60s+={:?} tubes_peak={} tubes_burnt={} tubes_cut={} tick_mean_ms={:.2} tick_worst_ms={:.2} worst_during_burn_ms={:.2}",
                 r.player,
                 r.seed,
                 r.carts,
+                r.carts_a,
+                r.carts_b,
+                r.choked_b_s,
+                r.stall_capped_s.map(|s| s.to_string()).unwrap_or("-".into()),
+                r.fuse_alarms,
+                r.cuts_guarded,
                 r.stars,
                 r.blown,
                 r.first_blown_s.map(|s| format!("{s:.0}")).unwrap_or("-".into()),

@@ -54,6 +54,16 @@ fn cell(frame: &mut [u8], x: usize, y: usize, c: [u8; 3]) {
     }
 }
 
+/// Blend a cell toward `c` over whatever is already drawn there.
+fn blend_cell(frame: &mut [u8], x: i32, y: i32, c: [u8; 3], a: f32) {
+    if x < 0 || y < 0 || x as usize >= W || y as usize >= H {
+        return;
+    }
+    let p = ((y as usize * SCALE) * FW + x as usize * SCALE) * 4;
+    let cur = [frame[p], frame[p + 1], frame[p + 2]];
+    cell(frame, x as usize, y as usize, mix(cur, c, a));
+}
+
 fn rect(frame: &mut [u8], x0: usize, y0: usize, w: usize, h: usize, c: [u8; 3]) {
     for y in y0..y0 + h {
         for x in x0..x0 + w {
@@ -73,7 +83,7 @@ fn text_width(s: &str) -> i32 {
 }
 
 fn rr_of(g: &Game, pulse: f32) -> i32 {
-    (2.0 + (g.mould.reserve / 40.0).sqrt() + 0.4 * pulse).clamp(2.0, 6.0) as i32
+    (3.0 + (g.mould.reserve / 40.0).sqrt() + 0.4 * pulse).clamp(3.0, 6.0) as i32
 }
 
 pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool) {
@@ -124,34 +134,93 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
             cell(frame, x, y, col);
         }
     }
-    // The mould. Thick fed tubes bright yellow, pulsing; starving tubes the
-    // brown of dry straw -- the colour that says "this one will burn".
-    for e in g.mould.edges.iter().filter(|e| e.alive) {
-        let fed = (e.fed / super::mould::FED_WET).min(3.0) / 3.0;
-        let wet = e.fed > super::mould::FED_WET || e.d > super::mould::THICK_WET;
-        let base = if wet { mix([210, 170, 40], [255, 236, 90], fed) } else { [150, 110, 50] };
-        let glow = if wet { 0.12 * pulse } else { 0.0 };
-        let col = mix(base, [255, 255, 200], glow.max(0.0));
-        let r = if e.d > 1.9 { 2 } else if e.d > 0.95 { 1 } else { 0 };
-        for &(x, y) in &e.cells {
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    if dx * dx + dy * dy > r * r {
-                        continue;
-                    }
-                    let (cx, cy) = (x + dx, y + dy);
-                    if g.air.is_open(cx, cy) && g.fire[idx(cx as usize, cy as usize)] == 0 {
-                        cell(frame, cx as usize, cy as usize, col);
+    // **The mould** (redrawn 2026-11-08). The first drawing was a 1-2 cell
+    // yellow line that the playtest read as "a painted road", with fed,
+    // starving and dead all but the same colour. Now every tube is at least
+    // three cells wide, thicker with flow, with a glow round the fed ones,
+    // and its state is its colour: bright pulsing yellow when fed and wet,
+    // straw when starving and dry (the colour that says "this one burns"),
+    // grey-brown when cut off from the core, and a grey husk where a tube
+    // has died. All of it is drawn only: the tube's cells, which the fire
+    // and the cap read, are still the one-cell path.
+    let mould = &g.mould;
+    for y in 0..H as i32 {
+        for x in 0..W as i32 {
+            let h = mould.husk[idx(x as usize, y as usize)];
+            if h > 0 && g.air.is_open(x, y) {
+                let a = 0.75 * h as f32 / super::mould::HUSK_TICKS as f32;
+                for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if g.air.is_open(x + dx, y + dy) {
+                        blend_cell(frame, x + dx, y + dy, [110, 108, 112], a);
                     }
                 }
             }
         }
     }
-    for tip in g.mould.tips.iter().filter(|t| t.alive) {
-        for &(x, y) in &tip.path {
-            cell(frame, x as usize, y as usize, [230, 200, 70]);
+    let wet_of = |e: &super::mould::Edge| e.fed > super::mould::FED_WET || e.d > super::mould::THICK_WET;
+    // The glow under the fed tubes first, so the tubes sit on it.
+    for e in mould.edges.iter().filter(|e| e.alive && e.rooted && wet_of(e)) {
+        let r = if e.d > 1.9 { 4 } else { 3 };
+        for &(x, y) in e.cells.iter().step_by(2) {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let d2 = dx * dx + dy * dy;
+                    if d2 > r * r || d2 <= 2 || !g.air.is_open(x + dx, y + dy) {
+                        continue;
+                    }
+                    let a = (0.10 + 0.05 * pulse) * (1.0 - d2 as f32 / (r * r + 1) as f32);
+                    blend_cell(frame, x + dx, y + dy, [255, 220, 90], a);
+                }
+            }
         }
-        cell(frame, tip.x as usize, tip.y as usize, [255, 255, 170]);
+    }
+    for e in mould.edges.iter().filter(|e| e.alive) {
+        let wet = wet_of(e);
+        let fed = (e.fed / super::mould::FED_WET).min(3.0) / 3.0;
+        let col = if !e.rooted {
+            [128, 112, 86]
+        } else if wet {
+            // A slow wave runs along a fed tube: food moving.
+            mix([235, 190, 50], [255, 245, 150], 0.35 * fed + 0.25 * (pulse * 0.5 + 0.5))
+        } else {
+            [196, 158, 92]
+        };
+        let r = if e.d > 1.9 { 2 } else { 1 };
+        for &(x, y) in &e.cells {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx * dx + dy * dy > r * r + 1 {
+                        continue;
+                    }
+                    let (cx, cy) = (x + dx, y + dy);
+                    // Drawn over the rock edge too: the mould is a film on
+                    // the rock, and a tube drawn only in the air beside a
+                    // floor showed half its width.
+                    if cx >= 0 && cy >= 0 && (cx as usize) < W && (cy as usize) < H && g.fire[idx(cx as usize, cy as usize)] == 0 {
+                        // The middle of the tube a little lighter, so it reads
+                        // as a round strand, not a flat stripe.
+                        let c = if dx == 0 && dy == 0 { mix(col, [255, 255, 230], 0.25) } else { col };
+                        cell(frame, cx as usize, cy as usize, c);
+                    }
+                }
+            }
+        }
+    }
+    for tip in mould.tips.iter().filter(|t| t.alive) {
+        for &(x, y) in &tip.path {
+            for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                if g.air.is_open(x + dx, y + dy) {
+                    cell(frame, (x + dx) as usize, (y + dy) as usize, [236, 204, 80]);
+                }
+            }
+        }
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if g.air.is_open(tip.x + dx, tip.y + dy) {
+                    cell(frame, (tip.x + dx) as usize, (tip.y + dy) as usize, [255, 255, 190]);
+                }
+            }
+        }
     }
     // The core: a blob whose size is the reserve.
     let core = &g.mould.nodes[g.mould.core];
@@ -175,10 +244,24 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
     // Cracks, lamps, fuses, the air shaft.
     for c in &g.cracks {
         let open = g.tick >= c.opens_at;
+        if !open {
+            // A crack about to open shows as a hairline that grows and
+            // flickers through its last `HISS_LEAD`.
+            let lead = c.opens_at - g.tick;
+            if lead <= super::HISS_LEAD {
+                let grow = 1.0 - lead as f32 / super::HISS_LEAD as f32;
+                let mid = (c.x0 + c.x1) as f32 / 2.0;
+                let half = 1.0 + grow * ((c.x1 - c.x0) as f32 / 2.0 + 3.0);
+                for x in (mid - half).round() as i32..=(mid + half).round() as i32 {
+                    let lit = (x + t as i32 / 4) % 4 == 0;
+                    cell(frame, x as usize, (c.y + 1) as usize, if lit { [200, 110, 160] } else { [96, 52, 80] });
+                }
+            }
+            continue;
+        }
         for x in c.x0..=c.x1 {
-            let col = if open { [40, 10, 30] } else { [70, 70, 76] };
-            cell(frame, x as usize, (c.y + 1) as usize, col);
-            if open && (x + t as i32 / 6) % 3 == 0 {
+            cell(frame, x as usize, (c.y + 1) as usize, [40, 10, 30]);
+            if (x + t as i32 / 6) % 3 == 0 {
                 cell(frame, x as usize, c.y as usize, [255, 150, 200]);
             }
         }
@@ -214,8 +297,14 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         cell(frame, x, y - 1, [90, 80, 60]);
         cell(frame, x + 1, y - 1, [90, 80, 60]);
         cell(frame, x, y, glass);
-        cell(frame, x - 1, y, glass);
-        cell(frame, x + 1, y, glass);
+        if l.safety {
+            // The gauze: a safety lamp's glass is caged.
+            cell(frame, x - 1, y, [150, 150, 160]);
+            cell(frame, x + 1, y, [150, 150, 160]);
+        } else {
+            cell(frame, x - 1, y, glass);
+            cell(frame, x + 1, y, glass);
+        }
         cell(frame, x, y + 1, [90, 80, 60]);
         if l.state == LampState::Blown {
             for k in -3i32..=3 {
@@ -225,6 +314,7 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         }
         let label = match l.state {
             LampState::Working => format!("{}: {} CARTS", l.name, l.carts as u32),
+            LampState::Choked if l.safety => format!("{}: GAS, NO DIGGING", l.name),
             LampState::Choked => "GAS!".to_string(),
             LampState::Singed => format!("SINGED {}", (l.dark_until.saturating_sub(g.tick)) / TICKS_PER_SECOND + 1),
             LampState::Blown => "LOST".to_string(),
@@ -275,7 +365,9 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
     }
     let secs = super::LEVEL_TICKS.saturating_sub(g.tick) / TICKS_PER_SECOND;
     let stars = format!("{}{}", "*".repeat(g.stars() as usize), "-".repeat(3 - g.stars() as usize));
-    let status = format!("CARTS {}/{} {}:{:02} {}", g.carts(), super::GOAL_CARTS, secs / 60, secs % 60, stars);
+    // Carts against the next star, so the number always has a target.
+    let next = super::STAR_CARTS.iter().copied().find(|&k| g.carts() < k).unwrap_or(super::STAR_CARTS[2]);
+    let status = format!("CARTS {}/{} {}:{:02} {}", g.carts(), next, secs / 60, secs % 60, stars);
     text(frame, 2, hy + 15, &status, [240, 230, 200]);
     if let Some((cx, cy)) = cursor {
         if g.air.is_open(cx, cy) {
@@ -285,10 +377,58 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         }
     }
     text(frame, 2, hy + 24, tool.hint(), [160, 160, 185]);
+    text(frame, W as i32 - text_width("H HELP") - 2, hy + 24, "H HELP", [130, 130, 150]);
     if g.over() {
         let msg = format!("SHIFT OVER: {} CARTS, {} STARS. R TO GO AGAIN", g.carts(), g.stars());
         let w = text_width(&msg);
         rect(frame, 0, (H * SCALE) / 2 - 14, FW, 28, [10, 8, 14]);
         text(frame, (W as i32 - w) / 2, H as i32 / 2 - 6, &msg, [255, 236, 170]);
     }
+}
+
+/// **The help card** (2026-11-08): the goal, what each key does and what
+/// counts as winning, over the mine before the first tick and on H. The
+/// owner's playtests of Storm and Mould: "the game needs better instruction
+/// of what you're supposed to do. What your actual options are." It names
+/// the mould's two facts (it eats gas, it follows wet rock) and that sparks
+/// cannot clear lamp B's stall, and stops there: leading the mould in is
+/// the puzzle, so the card does not say how.
+pub fn help(frame: &mut [u8]) {
+    const LINES: [(&str, [u8; 3]); 18] = [
+        ("GOAL: KEEP GAS OFF THE TWO LAMPS.", [255, 236, 170]),
+        ("A CLEAR LAMP DIGS CARTS. GAS STOPS IT.", [225, 220, 210]),
+        ("WIN: 40 / 65 / 85 CARTS IN 4 MINUTES", [255, 236, 170]),
+        ("     FOR 1 / 2 / 3 STARS", [225, 220, 210]),
+        ("", AIR),
+        ("1 BLOW   DRAG TO PUSH GAS AWAY", [210, 210, 225]),
+        ("2 SPARK  CLICK: BURNS PINK GAS ONLY.", [255, 150, 200]),
+        ("         FIRE AT A LAMP WRECKS IT", [210, 210, 225]),
+        ("3 DAMP   DRAG TO WET THE ROCK", [210, 210, 225]),
+        ("4 CUT    DRAG TO SNIP DRY MOULD AHEAD", [210, 210, 225]),
+        ("         OF FIRE OR IT RUNS TO A LAMP", [210, 210, 225]),
+        ("5 FUSE   CLICK: FIRES WHEN GAS IS PINK", [210, 210, 225]),
+        ("", AIR),
+        ("YELLOW MOULD EATS GAS AND CREEPS ALONG", [240, 210, 90]),
+        ("WET ROCK. SPARKS CANNOT CLEAR LAMP B", [240, 210, 90]),
+        ("IN ITS DRIPPING STALL.", [240, 210, 90]),
+        ("", AIR),
+        ("SPACE PAUSE  R RESTART  N NEXT  H HELP", [170, 170, 190]),
+    ];
+    let (x0, y0, w, h) = (4usize, 0usize, W - 8, H);
+    rect(frame, x0 * SCALE, y0 * SCALE, w * SCALE, h * SCALE, [10, 8, 14]);
+    for k in 0..w * SCALE {
+        put(frame, x0 * SCALE + k, y0 * SCALE, [167, 125, 0]);
+        put(frame, x0 * SCALE + k, (y0 + h) * SCALE - 1, [167, 125, 0]);
+    }
+    let mut y = y0 as i32 + 4;
+    for (s, c) in LINES {
+        if s.is_empty() {
+            y += 5;
+            continue;
+        }
+        text(frame, x0 as i32 + 6, y, s, c);
+        y += 8;
+    }
+    let go = "CLICK OR PRESS ANY KEY TO START";
+    text(frame, (W as i32 - text_width(go)) / 2, y + 3, go, [255, 255, 255]);
 }

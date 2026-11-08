@@ -2,7 +2,8 @@
 //! of the engine so a scratch harness can draw it without a `World`.
 //!
 //! Lower gallery y 110-140 with the mould's damp sump bottom left, crack 1
-//! in its floor at x 180 under a roof dome, lamp B low at x 100. A slanted
+//! in its floor at x 180 under a roof dome, and lamp B hung in the top of a
+//! dripping roof alcove at x 54 (the stall) with a third seep in its roof. A slanted
 //! shaft climbs from x 200 to the upper gallery (y 40-65), whose roof rises
 //! to the right to lamp A at the high end -- where overflowing gas pools.
 //! An air shaft at x 20-30 reaches the surface; a damp drip chimney at
@@ -16,6 +17,11 @@ pub struct Layout {
     pub wet: Vec<f32>,
     pub water: Vec<(i32, i32)>,
 }
+
+/// The stall's middle column, half-width and depth above the gallery roof.
+pub const STALL_X: i32 = 54;
+pub const STALL_HALF: i32 = 13;
+pub const STALL_DEPTH: f32 = 15.0;
 
 pub fn two_lamps(seed: u64) -> Layout {
     let _ = Rng(seed | 1);
@@ -41,6 +47,27 @@ pub fn two_lamps(seed: u64) -> Layout {
     for x in 20..=46 {
         let depth = 143 - ((x - 33) * (x - 33)) / 60;
         for y in 138..=depth.max(140) {
+            carve(x, y);
+        }
+    }
+    // **The stall** (2026-11-08): a dripping roof alcove near the sump, with
+    // lamp B hung in its top and a third seep in its own wet ceiling. Gas
+    // pools there round the lamp and stops its digging, and nothing in the
+    // stall will light -- the rock is wet -- so no spark can clear it. The
+    // answer is the mould: led up the sump wall and along the roof, it runs
+    // fast on the wet stall, caps the seep and eats the pocket. The
+    // playtest's first fix ("make the level need the mould: a pocket near a
+    // lamp that sparking can't clear ... under a damp roof").
+    //
+    // The first stall (same day) sat at x 101 over a seep in the gallery
+    // *floor*. Left alone it choked lamp B for 188 of 240 s, but a player
+    // who sparked the biggest pink pocket every 2 s burned the plume on its
+    // way up and kept lamp B working on 5 of 5 seeds: sparking still cleared
+    // it, so the level still did not need the mould.
+    for x in STALL_X - STALL_HALF..=STALL_X + STALL_HALF {
+        let t = (x - STALL_X) as f32 / STALL_HALF as f32;
+        let top = 112.0 - STALL_DEPTH * (1.0 - t * t).max(0.0).sqrt();
+        for y in (top.round() as i32)..=112 {
             carve(x, y);
         }
     }
@@ -81,6 +108,12 @@ pub fn two_lamps(seed: u64) -> Layout {
         let w = wob(y, 5.0) / 3;
         for x in (147 + w)..=(151 + w) {
             carve(x, y);
+        }
+    }
+    // The stall drips: its rock and air are wet for good.
+    for x in STALL_X - STALL_HALF - 1..=STALL_X + STALL_HALF + 1 {
+        for y in 80..=113 {
+            wet[idx(x as usize, y as usize)] = 1.0;
         }
     }
     let mut water = Vec::new();
