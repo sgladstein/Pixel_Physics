@@ -10,6 +10,11 @@
 //! starts on dish seed 3, and `-- 0` is the lesson. Every dish opens behind
 //! the briefing card; H shows it again.
 //!
+//! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
+//! (or `-- wander 3` for dish seed 3), or W from any dish. No clock and no
+//! stars: lead her to the crack on the right and press G. N goes on to the
+//! next dish with what arrived; R tries this dish again with what came in.
+//!
 //! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
 //! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
 //! frames, the same hook the other binaries have.
@@ -19,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
 use pixel_physics::mould::render::{self, Banner, View};
+use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
 use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -38,17 +44,39 @@ const MAX_TICKS_PER_FRAME: u32 = 4;
 const FAST: u32 = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Seed 0 is the lesson, and the game opens on it.
-    let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    // Seed 0 is the lesson, and the game opens on it. `wander [seed]` opens
+    // the Wanderer instead.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let wander = args.first().is_some_and(|a| a == "wander");
+    let seed_arg = if wander { args.get(1) } else { args.first() };
+    let seed = seed_arg
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(if wander { 1 } else { 0 });
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut handler = Handler::new(seed);
+    let journey = wander.then_some(Journey {
+        stretch: 1,
+        carry: FIRST_WALKERS,
+    });
+    let mut handler = Handler::new(seed, journey);
     event_loop.run_app(&mut handler)?;
     handler.result
 }
 
-/// Seed 0 is the lesson; any other seed is a scored dish.
-fn new_dish(seed: u64) -> (Dish, Option<Lesson>) {
+/// Where a Wanderer run is: which dish of the journey, and how many walkers
+/// it starts with.
+#[derive(Clone, Copy, Debug)]
+struct Journey {
+    stretch: u32,
+    carry: u32,
+}
+
+/// Seed 0 is the lesson; any other seed is a scored dish, or a stretch of
+/// the Wanderer's journey.
+fn new_dish(seed: u64, journey: Option<Journey>) -> (Dish, Option<Lesson>) {
+    if let Some(j) = journey {
+        return (Dish::wanderer(seed.max(1), j.stretch, j.carry), None);
+    }
     if seed == 0 {
         let (d, l) = Lesson::dish();
         (d, Some(l))
@@ -57,7 +85,10 @@ fn new_dish(seed: u64) -> (Dish, Option<Lesson>) {
     }
 }
 
-fn title(seed: u64) -> String {
+fn title(seed: u64, journey: Option<Journey>) -> String {
+    if let Some(j) = journey {
+        return format!("Mould - Mabel, dish {}", j.stretch);
+    }
     if seed == 0 {
         "Mould - lesson".into()
     } else {
@@ -71,6 +102,8 @@ struct Handler {
     dish: Dish,
     seed: u64,
     lesson: Option<Lesson>,
+    /// The Wanderer's journey, when that is what is being played.
+    journey: Option<Journey>,
     view: View,
     /// Cursor in dish cells.
     cursor: Option<(f32, f32)>,
@@ -83,17 +116,18 @@ struct Handler {
 }
 
 impl Handler {
-    fn new(seed: u64) -> Self {
+    fn new(seed: u64, journey: Option<Journey>) -> Self {
         let screenshot_after = std::env::var("PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES")
             .ok()
             .and_then(|s| s.parse().ok());
-        let (dish, lesson) = new_dish(seed);
+        let (dish, lesson) = new_dish(seed, journey);
         Handler {
             window: None,
             pixels: None,
             dish,
             seed,
             lesson,
+            journey,
             view: View {
                 brief: true,
                 ..View::default()
@@ -115,7 +149,7 @@ impl Handler {
 
     fn restart(&mut self, seed: u64) {
         self.seed = seed;
-        (self.dish, self.lesson) = new_dish(seed);
+        (self.dish, self.lesson) = new_dish(seed, self.journey);
         self.pressed = false;
         self.view.brief = true;
         // Speed and pause belong to one dish: a fast dish's successor
@@ -123,8 +157,31 @@ impl Handler {
         self.view.fast = false;
         self.view.paused = false;
         if let Some(w) = &self.window {
-            w.set_title(&title(seed));
+            w.set_title(&title(seed, self.journey));
         }
+    }
+
+    /// N in the Wanderer: on to the next dish with what arrived, or, after
+    /// she died, a new journey from the first dish.
+    fn next_stretch(&mut self) {
+        let Some(j) = self.journey else { return };
+        let arrived = match self.dish.wander_state().and_then(|w| w.outcome) {
+            Some(Outcome::Arrived { n, .. }) => Some(n),
+            Some(Outcome::Lost { .. }) => None,
+            // Still on this dish: N does nothing until she has left or died.
+            None => return,
+        };
+        self.journey = Some(match arrived {
+            Some(n) => Journey {
+                stretch: j.stretch + 1,
+                carry: n,
+            },
+            None => Journey {
+                stretch: 1,
+                carry: FIRST_WALKERS,
+            },
+        });
+        self.restart(self.seed + 1);
     }
 
     /// What holding the mouse does, every frame it is held.
@@ -193,7 +250,21 @@ impl Handler {
             KeyCode::Space => self.view.fast = !self.view.fast,
             KeyCode::KeyP => self.view.paused = !self.view.paused,
             KeyCode::KeyR => self.restart(self.seed),
+            KeyCode::KeyN if self.journey.is_some() => self.next_stretch(),
             KeyCode::KeyN => self.restart(self.seed + 1),
+            // Go: only while fed mould is in the crack (the dish refuses
+            // otherwise, and the hint line says why).
+            KeyCode::KeyG => {
+                self.dish.go();
+            }
+            // W: start a Wanderer journey from wherever you are.
+            KeyCode::KeyW => {
+                self.journey = Some(Journey {
+                    stretch: 1,
+                    carry: FIRST_WALKERS,
+                });
+                self.restart(self.seed.max(1));
+            }
             KeyCode::Escape => event_loop.exit(),
             _ => {}
         }
@@ -271,7 +342,7 @@ impl ApplicationHandler for Handler {
         }
         let (w, h) = render::frame_size(SCALE);
         let attributes = Window::default_attributes()
-            .with_title(title(self.seed))
+            .with_title(title(self.seed, self.journey))
             .with_inner_size(LogicalSize::new(w, h))
             .with_min_inner_size(LogicalSize::new(W as u32 * 2, H as u32 * 2));
         let window = match event_loop.create_window(attributes) {
