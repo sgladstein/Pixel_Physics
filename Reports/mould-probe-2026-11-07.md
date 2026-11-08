@@ -131,7 +131,8 @@ and the two should be compared before either is kept.
 
 The demo playtest (`/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/playtest-2026-11-08/mould-review.md`)
 ranked Mould 4th of 8 and asked for five fixes, in this order. All five are
-in, and all ship on.
+in, and all ship on. Before/after page:
+https://claude.ai/artifact/52KtqyTGjyhKMb7L14Eqq6
 
 1. **The lamp pushes instead of erasing** (`Params::push`, `push_light`). The
    lamp was a repulsive term in every sensor plus a trail fade and a burn, so
