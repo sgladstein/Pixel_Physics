@@ -976,12 +976,26 @@ fn oats_wait(d: &Dish) -> Option<u64> {
 /// One of the game's capital lines in sentence case (the mixed font's), with
 /// a ratio's "X" set small ("0.88x the ruler"): `sentence` keeps a lone
 /// capital as a key's name.
+/// A line that opens on a number keeps its first word small ("400 mould
+/// alive at the bell").
 fn up(s: &str) -> String {
     let line = sentence(&[s]).remove(0);
+    let number_first = line.starts_with(|c: char| c.is_ascii_digit());
     let mut out = String::with_capacity(line.len());
     let mut prev = ' ';
-    for c in line.chars() {
-        out.push(if c == 'X' && prev.is_ascii_digit() { 'x' } else { c });
+    let mut first_word = true;
+    let chars: Vec<char> = line.chars().collect();
+    for (k, &c) in chars.iter().enumerate() {
+        let lone = !chars.get(k + 1).is_some_and(|n| n.is_alphabetic());
+        let c = if c == 'X' && prev.is_ascii_digit() {
+            'x'
+        } else if number_first && first_word && c.is_ascii_uppercase() && prev == ' ' && !lone {
+            first_word = false;
+            c.to_ascii_lowercase()
+        } else {
+            c
+        };
+        out.push(c);
         prev = c;
     }
     out
@@ -3316,6 +3330,8 @@ mod tests {
     fn up_sets_a_ratio_small() {
         assert_eq!(up("ALL 3 JOINED, 0.88X THE RULER"), "All 3 joined, 0.88x the ruler");
         assert_eq!(up("N: NEXT DISH"), "N: next dish");
+        assert_eq!(up("400 MOULD ALIVE AT THE BELL"), "400 mould alive at the bell");
+        assert_eq!(up("3 OF 6 FOODS"), "3 of 6 foods");
     }
 
     #[test]
