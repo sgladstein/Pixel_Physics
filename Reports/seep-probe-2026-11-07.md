@@ -6,7 +6,11 @@ Its own binary (`cargo run --release --bin seep`), not a lab seat; all code
 is in `src/seep/` and touches nothing in `src/sim/`. Picture page:
 https://claude.ai/artifact/TvVYwZUQ5Y6bsza7sUYUFK
 
-**Status: probe built and measured; the verdict waits on the owner's
+**Status (2026-11-08): playtested -- the mould was decoration -- and
+reworked from the playtest (Round 2, at the end): the level now needs the
+mould for the third star. Waits on the owner's second look.** Round 1 below
+is the first build, kept as measured.
+**Round 1 status: probe built and measured; the verdict waits on the owner's
 playtest.** The question is whether the mould is something a player *uses*
 or decoration beside the gas. The stop rule: if a player never Damps or Cuts
 after the first minute, the mould is decoration and Firedamp alone is the
@@ -105,3 +109,82 @@ settled frame to skip: the gas and the mould move every tick.
   this was written. Add the side-by-side when it does.
 - If the owner reached for Damp and it felt good, the next level is one where
   sparking alone cannot hold; if not, Firedamp alone is the result.
+
+## Round 2 (2026-11-08): fixes from the playtest
+
+Before/after page: https://claude.ai/artifact/FvUwqbkRK4DwheTaAeSdJu
+
+The 2026-11-08 playtest (`/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/playtest-2026-11-08/seep-review.md`)
+answered the probe's question: **for a fresh player the mould was decoration.** Sparking alone held both lamps; one
+curious Cut by the sump killed the mould for the level; Blow was never used; doing nothing beat the 30-cart goal. Its
+ranked fixes, and what was done with each:
+
+1. **Make the level need the mould.** A dripping roof alcove beside the sump, *the stall*, with lamp B hung in its top and
+   a third seep in its own wet roof. Gas pools round lamp B ("B: GAS, NO DIGGING") and nothing in the stall will light, so
+   no spark clears it. Lamp B is now a **safety lamp**: it never lights gas itself, but gas at the face stops its digging,
+   and a flame that reaches it still singes or blows it. The answer is to lead the mould up the sump wall and along the
+   roof (a Damp stroke), where it runs fast on the wet stall, caps the seep and eats the pocket.
+2. **Draw the mould the way the swarm looks.** Every tube is at least 3 cells wide, wider with flow, with a glow round the
+   fed ones, and its state is its colour: pulsing bright yellow when fed, straw when starving (it will burn), grey-brown
+   when cut off from the core, and a grey husk where a tube has died.
+3. **Give Cut a job and make it safe.** Tubes touching the core cannot be cut ("TOO TOUGH"), the sump feeds the core a
+   trickle, and a mould with fewer than 2 tips sprouts from the free ends of what is still rooted. A dry tube burning
+   within 32 cells of a lamp sets off a "FUSE! CUT IT" alarm.
+4. **Crack 2 hisses for 30 s before it opens**: a growing hairline, "HISS", and a banner.
+5. **Stars are carts**: 40 / 65 / 85 of a possible 96, shown against the next star. A choked, singed or lost face hauls
+   nothing, so the score is the thing the lamps are for.
+
+### Before and after, same scripts, 5 paired seeds
+
+The playtest's strategies were added as scripted players (`script.rs`): `fresh` sparks the biggest pink pocket every
+2 s wherever it is and tries each other tool once (including one Cut by the sump at 20 s); `freshdamp` is the same
+without the Cut, damping just ahead of the mould toward the nearest open crack after the first minute; `mouldonly` is
+the plan without Blow, Spark or Fuse; `ring` damps rings round the lamps and nothing else. "Before" is the merged
+game (PR #1031) with these players added and nothing else changed. Stars below are carts-stars on both sides, so the
+columns compare (the old game's own stars rule is in its runs).
+
+| Player | Before: carts | Before: stars | After: carts | After: stars | After: lamp B choked |
+|---|---|---|---|---|---|
+| nothing | 32-53 | 1 1 0 0 0 | 28-29 | 0 on all 5 | 116-121 s |
+| planned (mould led to the stall, then crack 1, then crack 2) | 96 | 3 on all 5 | 90 | 3 on all 5 | 26-27 s |
+| gasonly (the plan, no Damp or Cut) | 96 | 3 on all 5 | 71-72 | 2 on all 5 | 118-121 s |
+| fresh | 96 | 3 on all 5 | 71-72 | 2 on all 5 | 118-121 s |
+| freshdamp | 96 | 3 on all 5 | 77-78 | 2 on all 5 | 87-91 s |
+| mouldonly | 53 | 1 on all 5 | 47 | 1 on all 5 | 26-27 s |
+| ring | 53 | 1 on all 5 | 27-29 | 0 on all 5 | 117-129 s |
+
+- **The mould now earns the third star and about 18 carts**, and nothing else does. The plan that leads it beats sparking
+  alone on 5 of 5 seeds (sign test p = 0.0625: five seeds cannot clear 0.05, and the seeds barely differ -- the stall's
+  timing is set by the rock, not the seed, so this is a deterministic level more than a sample).
+- **Left alone the mould finds the stall at 105-106 s**, too late to save most of lamp B's shift; led by a Damp stroke it
+  caps the seep at 26 s.
+- The damp-ring cheese is gone (0 stars), and so is the curious snip: it lands on the core and does nothing.
+- **Still unanswered: Cut and Blow.** No tube caught fire in any of the 35 after-runs, so the fuse alarm never fired and
+  no scripted player cut anything; Blow was used only by the plan's upper-roof stroke. Cut's rescue is real (the paired
+  test `snipping_a_fuse_saves_the_lamp`) but no level situation makes it happen yet: tubes in a pocket eat and stay wet,
+  tubes outside one are dry but have no flame near them. A level where an old starved network lies between a pocket and a
+  lamp is the next step for Cut.
+
+### Two mould bugs found on the way
+
+- **Twin tips at a corner closed a one-cell loop and both died.** A tip climbing the sump wall branched at the roof
+  corner; the two tips stood side by side and each "met another tube", its twin's, on the next step. Every led mould
+  stopped dead at that corner. A tip now ignores tubes within 3 cells of the junction it left.
+- **"A starving tube burns like a fuse" was never true past one tube.** A burning tube lit all its cells at once on
+  random timers, and only its end cell touched the next tube; when that cell's timer was short the flame died at the
+  junction (8-tube dry line at a lamp: 1 tube burnt, lamp untouched). The flame now runs along the tube cell by cell,
+  about 10 cells a second, and takes the next dry tube for certain.
+
+### Tried and rejected this round
+
+- **A naked lamp B in a stall over a floor seep**: the plume reached the lamp first and it was blown at 8 s, before
+  anything could be done.
+- **A safety lamp B in that same stall (seep in the floor under it)**: left alone it choked lamp B 188 of 240 s, but the
+  fresh player who sparks the biggest pink every 2 s burned the plume on its way up and held lamp B on 5 of 5 seeds --
+  sparking still cleared it. Hence the dripping stall with the seep in its own wet roof.
+- **Regrowth from the core itself**: the core sits in the sump boxed in by its own tubes and the water; a tip put there
+  died on its first step, and 40 s after a mould was cut back to the core it had regrown one tube.
+
+Frame cost, paired on one quiet machine and one build profile (the fast iteration profile, not the shipped one), the
+plan on seed 1 for 4 minutes: tick plus full repaint **mean 3.25 ms before, 3.53 ms after** (+0.3 ms: the husk pass and
+the wider, glowing tubes); worst 19 ms before, 12 ms after, which is within run-to-run noise.

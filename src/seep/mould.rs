@@ -54,6 +54,19 @@ const PRUNE: f32 = 0.12;
 /// tip has not had time to find anything yet.
 const YOUNG_TICKS: u32 = 420;
 const YOUNG_FLOOR: f32 = 0.55;
+/// **The core is never snipped and never gives up** (playtest 2026-11-08:
+/// one curious Cut beside the sump at 20 s killed the mould for the whole
+/// level on 5 of 5 seeds, and nothing on screen said so). Tubes with a cell
+/// this close to the core cannot be cut...
+pub const CORE_GUARD: i32 = 6;
+/// ...the sump feeds the core this much reserve a tick whatever happens...
+const CORE_INCOME: f32 = 0.005;
+/// ...and a core with fewer than this many tips sprouts one when it can
+/// pay for a few cells, about once a second and a half.
+const REGROW_BELOW_TIPS: usize = 2;
+const REGROW_CHANCE: f32 = 1.0 / 90.0;
+/// Ticks a dead tube's grey husk stays on screen.
+pub const HUSK_TICKS: u8 = 240;
 /// Flow at which a tube is "fed" and holds water.
 pub const FED_WET: f32 = 0.004;
 /// Thickness at which a tube holds water whatever it is carrying.
@@ -170,6 +183,10 @@ pub struct Mould {
     /// Edge id + 1 on each tube cell, 0 elsewhere.
     pub occ: Vec<u32>,
     occ_dirty: bool,
+    /// Ticks left on the grey husk a dead tube leaves on each cell: drawn
+    /// only, so a cut, burnt or starved tube is seen to die rather than
+    /// vanish.
+    pub husk: Vec<u8>,
     rng: Rng,
     food_since_solve: f32,
     pub counts: MouldCounts,
@@ -185,6 +202,7 @@ impl Mould {
             reserve,
             occ: vec![0; W * H],
             occ_dirty: true,
+            husk: vec![0; W * H],
             rng: Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1),
             food_since_solve: 0.0,
             counts: MouldCounts::default(),
@@ -245,7 +263,20 @@ impl Mould {
         if self.edges[e].alive {
             self.edges[e].alive = false;
             self.occ_dirty = true;
+            self.leave_husk(e);
         }
+    }
+
+    fn leave_husk(&mut self, e: usize) {
+        for &(x, y) in &self.edges[e].cells {
+            self.husk[idx(x as usize, y as usize)] = HUSK_TICKS;
+        }
+    }
+
+    /// Too near the core to snip.
+    pub fn guarded(&self, x: i32, y: i32) -> bool {
+        let c = &self.nodes[self.core];
+        (x - c.x).abs() <= CORE_GUARD && (y - c.y).abs() <= CORE_GUARD
     }
 
     /// A tube laid by hand from the core, for tests.
@@ -287,11 +318,12 @@ impl Mould {
         self.occ_dirty = false;
     }
 
-    /// **Cut**: snip every tube within `r` of the point. Returns how many.
+    /// **Cut**: snip every tube within `r` of the point, except those that
+    /// touch the core (`CORE_GUARD`). Returns how many.
     pub fn cut(&mut self, x: i32, y: i32, r: i32) -> usize {
         let mut hit = Vec::new();
         for (k, e) in self.edges.iter().enumerate() {
-            if e.alive && e.cells.iter().any(|&(cx, cy)| (cx - x).abs() <= r && (cy - y).abs() <= r) {
+            if e.alive && e.cells.iter().any(|&(cx, cy)| (cx - x).abs() <= r && (cy - y).abs() <= r) && !e.cells.iter().any(|&(cx, cy)| self.guarded(cx, cy)) {
                 hit.push(k);
             }
         }
@@ -383,6 +415,12 @@ impl Mould {
 
     /// Grow, then every `SOLVE_EVERY` ticks solve the flow and adapt.
     pub fn step(&mut self, tick: u32, air: &Air, ground: &Ground) {
+        self.reserve += CORE_INCOME;
+        if tick.is_multiple_of(2) {
+            for h in self.husk.iter_mut() {
+                *h = h.saturating_sub(1);
+            }
+        }
         self.grow(air, ground);
         if tick.is_multiple_of(SOLVE_EVERY) {
             self.solve_and_adapt();
@@ -428,6 +466,26 @@ impl Mould {
             new_tips.push(Tip { node: n, x, y, dir: (a.cos(), a.sin()), path: Vec::new(), progress: 0.0, alive: true });
             self.reserve -= SPROUT_COST;
         }
+        // The core grows back out after a snip or a burn has taken
+        // everything: see `CORE_GUARD`.
+        // It sprouts from a free end of what is still rooted, not from the
+        // core: the core sits in the sump boxed in by its own tubes and the
+        // water, and a tip put there died on its first step, every time
+        // (first try, 2026-11-08: 40 s after a mould was cut back to the
+        // core it had regrown one tube, its reserve spent on dead sprouts).
+        if self.live_tips() + new_tips.len() < REGROW_BELOW_TIPS && self.reserve > SPROUT_COST + 20.0 * GROW_COST && self.rng.f() < REGROW_CHANCE {
+            let mut degree = vec![0u32; self.nodes.len()];
+            for e in self.edges.iter().filter(|e| e.alive && e.rooted) {
+                degree[e.a] += 1;
+                degree[e.b] += 1;
+            }
+            let ends: Vec<usize> = (0..self.nodes.len()).filter(|&n| n != self.core && degree[n] == 1).collect();
+            let n = if ends.is_empty() { self.core } else { ends[(self.rng.next_u64() % ends.len() as u64) as usize] };
+            let a = self.rng.f() * std::f32::consts::TAU;
+            let (x, y) = (self.nodes[n].x, self.nodes[n].y);
+            new_tips.push(Tip { node: n, x, y, dir: (a.cos(), a.sin()), path: Vec::new(), progress: 0.0, alive: true });
+            self.reserve -= SPROUT_COST;
+        }
         let live = self.live_tips();
         for nt in new_tips.into_iter().take(MAX_TIPS.saturating_sub(live)) {
             self.tips.push(nt);
@@ -458,7 +516,15 @@ impl Mould {
                 continue;
             }
             let own_node = self.tips[t].node;
-            let other = self.tube_at(nx, ny).filter(|&e| self.edges[e].a != own_node && self.edges[e].b != own_node);
+            // **A tip cannot join a tube within 3 cells of the junction it
+            // left.** Traced 2026-11-08: a tip climbing the sump wall
+            // branched at the roof corner, the two tips stood side by side,
+            // and each "met another tube" -- its twin's -- on the next step,
+            // closed a one-cell loop and died. Every led mould stopped dead
+            // at that corner.
+            let (ox, oy) = (self.nodes[own_node].x, self.nodes[own_node].y);
+            let near_home = (nx - ox).abs() <= 3 && (ny - oy).abs() <= 3;
+            let other = self.tube_at(nx, ny).filter(|&e| self.edges[e].a != own_node && self.edges[e].b != own_node && !near_home);
             if self.tube_at(nx, ny).is_some() && other.is_none() {
                 continue;
             }
@@ -625,6 +691,9 @@ impl Mould {
             if e.d < PRUNE {
                 e.alive = false;
                 faded += 1;
+                for &(x, y) in &e.cells {
+                    self.husk[idx(x as usize, y as usize)] = HUSK_TICKS;
+                }
             }
         }
         if faded > 0 {
