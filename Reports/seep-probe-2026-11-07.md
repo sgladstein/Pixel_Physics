@@ -194,7 +194,7 @@ the wider, glowing tubes); worst 19 ms before, 12 ms after, which is within run-
 
 ## Round 3 (2026-11-08): the owner's own playtest
 
-Page: https://claude.ai/artifact/FvUwqbkRK4DwheTaAeSdJu (the round-2 page, with a round-3 section on top).
+Page: https://claude.ai/artifact/3NDjQ5H1shLGDboZiZVSwW
 
 The owner, verbatim: "The gas is fun and satisfying. Sparking it satisfying blowing is not very satisfying. I like the
 idea of the mold growing. It's still not super satisfying. I just kind of click water along the edge and then it kind of
@@ -205,8 +205,9 @@ slowly grows there. The instructions need to be better. When you're doing well i
 - **The mould answers a Damp stroke at once.** On water the player has just put down (damp above the rock's own) a tip
   runs at 12 cells a second (`RACE`, was `FAST`, 4.2), slowing as the stroke dries over ~20 s. For 4 s after a stroke,
   any tip within 48 cells leans toward it and moves at damp speed even over dry rock; if no tip is in range a new one
-  sets out from the nearest rooted junction. The same hand stroke up the sump wall and along the roof (2 s, seed 1)
-  reached lamp B's stall about 5 s after the stroke ended, against about 25 s before. Fresh damp glistens, and a racing
+  sets out from the nearest rooted junction. The same hand stroke up the sump wall and along the roof (2 s, seed 1):
+  the mould's first tube enters lamp B's stall 2.0 s after the stroke ends, against 6.9 s before; lamp B digs again
+  21.8 s after it, against 27.8 s -- eating the stall's pocket, not the journey, is now most of the wait. Fresh damp glistens, and a racing
   tip burns white with a halo.
 - **Blow is a gust you can see.** Radius 6 to 8, push 0.035 to 0.055 a tick, centred 2 cells ahead of the hand, and
   every stroke throws pale wind streaks that ride the air (placed by a hash of the tick, not the game's dice, so they do
