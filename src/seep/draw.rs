@@ -377,10 +377,58 @@ pub fn render(g: &Game, frame: &mut [u8], cursor: Option<(i32, i32)>, tool: Tool
         }
     }
     text(frame, 2, hy + 24, tool.hint(), [160, 160, 185]);
+    text(frame, W as i32 - text_width("H HELP") - 2, hy + 24, "H HELP", [130, 130, 150]);
     if g.over() {
         let msg = format!("SHIFT OVER: {} CARTS, {} STARS. R TO GO AGAIN", g.carts(), g.stars());
         let w = text_width(&msg);
         rect(frame, 0, (H * SCALE) / 2 - 14, FW, 28, [10, 8, 14]);
         text(frame, (W as i32 - w) / 2, H as i32 / 2 - 6, &msg, [255, 236, 170]);
     }
+}
+
+/// **The help card** (2026-11-08): the goal, what each key does and what
+/// counts as winning, over the mine before the first tick and on H. The
+/// owner's playtests of Storm and Mould: "the game needs better instruction
+/// of what you're supposed to do. What your actual options are." It names
+/// the mould's two facts (it eats gas, it follows wet rock) and that sparks
+/// cannot clear lamp B's stall, and stops there: leading the mould in is
+/// the puzzle, so the card does not say how.
+pub fn help(frame: &mut [u8]) {
+    const LINES: [(&str, [u8; 3]); 18] = [
+        ("GOAL: KEEP GAS OFF THE TWO LAMPS.", [255, 236, 170]),
+        ("A CLEAR LAMP DIGS CARTS. GAS STOPS IT.", [225, 220, 210]),
+        ("WIN: 40 / 65 / 85 CARTS IN 4 MINUTES", [255, 236, 170]),
+        ("     FOR 1 / 2 / 3 STARS", [225, 220, 210]),
+        ("", AIR),
+        ("1 BLOW   DRAG TO PUSH GAS AWAY", [210, 210, 225]),
+        ("2 SPARK  CLICK: BURNS PINK GAS ONLY.", [255, 150, 200]),
+        ("         FIRE AT A LAMP WRECKS IT", [210, 210, 225]),
+        ("3 DAMP   DRAG TO WET THE ROCK", [210, 210, 225]),
+        ("4 CUT    DRAG TO SNIP DRY MOULD AHEAD", [210, 210, 225]),
+        ("         OF FIRE OR IT RUNS TO A LAMP", [210, 210, 225]),
+        ("5 FUSE   CLICK: FIRES WHEN GAS IS PINK", [210, 210, 225]),
+        ("", AIR),
+        ("YELLOW MOULD EATS GAS AND CREEPS ALONG", [240, 210, 90]),
+        ("WET ROCK. SPARKS CANNOT CLEAR LAMP B", [240, 210, 90]),
+        ("IN ITS DRIPPING STALL.", [240, 210, 90]),
+        ("", AIR),
+        ("SPACE PAUSE  R RESTART  N NEXT  H HELP", [170, 170, 190]),
+    ];
+    let (x0, y0, w, h) = (4usize, 0usize, W - 8, H);
+    rect(frame, x0 * SCALE, y0 * SCALE, w * SCALE, h * SCALE, [10, 8, 14]);
+    for k in 0..w * SCALE {
+        put(frame, x0 * SCALE + k, y0 * SCALE, [167, 125, 0]);
+        put(frame, x0 * SCALE + k, (y0 + h) * SCALE - 1, [167, 125, 0]);
+    }
+    let mut y = y0 as i32 + 4;
+    for (s, c) in LINES {
+        if s.is_empty() {
+            y += 5;
+            continue;
+        }
+        text(frame, x0 as i32 + 6, y, s, c);
+        y += 8;
+    }
+    let go = "CLICK OR PRESS ANY KEY TO START";
+    text(frame, (W as i32 - text_width(go)) / 2, y + 3, go, [255, 255, 255]);
 }

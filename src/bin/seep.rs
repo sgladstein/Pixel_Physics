@@ -3,7 +3,9 @@
 //!
 //! Window and input only; the game is `pixel_physics::seep`. Keys are on
 //! screen in the tool bar: 1-5 pick a tool (Blow, Spark, Damp, Cut, Fuse),
-//! the left mouse button uses it, R restarts, Space pauses.
+//! the left mouse button uses it, R restarts, N tries the next seed, Space
+//! pauses, H shows the help card. The card (goal, keys, stars) is up when
+//! the game opens and the mine waits under it; any key or click starts.
 //!
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` saves `seep-screenshot.png`
 //! after N drawn frames and exits, the same hook the other binaries carry.
@@ -39,6 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         down: false,
         drag_dir: (1.0, 0.0),
         paused: false,
+        // The screenshot hook wants the mine, not the card.
+        show_help: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").is_err() || std::env::var("SEEP_HELP").is_ok(),
         last: Instant::now(),
         acc: Duration::ZERO,
         frames: 0,
@@ -61,6 +65,8 @@ struct Handler {
     down: bool,
     drag_dir: (f32, f32),
     paused: bool,
+    /// The help card is over the mine, and the mine is waiting.
+    show_help: bool,
     last: Instant,
     acc: Duration,
     frames: u32,
@@ -144,7 +150,13 @@ impl ApplicationHandler for Handler {
                     return;
                 }
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // With the card up, any key but Escape just starts.
+                    if self.show_help && code != KeyCode::Escape {
+                        self.show_help = false;
+                        return;
+                    }
                     match code {
+                        KeyCode::KeyH => self.show_help = true,
                         KeyCode::Digit1 => self.tool = Tool::Blow,
                         KeyCode::Digit2 => self.tool = Tool::Spark,
                         KeyCode::Digit3 => self.tool = Tool::Damp,
@@ -173,6 +185,13 @@ impl ApplicationHandler for Handler {
                 self.down = false;
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+                if self.show_help {
+                    if state == ElementState::Pressed {
+                        self.show_help = false;
+                    }
+                    self.down = false;
+                    return;
+                }
                 self.down = state == ElementState::Pressed;
                 self.last_cursor = None;
                 // A press on the bar picks a tool.
@@ -197,7 +216,7 @@ impl ApplicationHandler for Handler {
                 while self.acc >= TICK && n < MAX_TICKS_PER_FRAME {
                     self.acc -= TICK;
                     n += 1;
-                    if !self.paused && !self.game.over() {
+                    if !self.paused && !self.show_help && !self.game.over() {
                         let acts = self.acts();
                         self.game.step(&acts);
                     }
@@ -209,6 +228,9 @@ impl ApplicationHandler for Handler {
                 let (game, tool) = (&self.game, self.tool);
                 if let Some(p) = self.pixels.as_mut() {
                     draw::render(game, p.frame_mut(), cursor, tool);
+                    if self.show_help {
+                        draw::help(p.frame_mut());
+                    }
                     if let Some(after) = self.shot_after {
                         if self.frames >= after {
                             let _ = image::save_buffer("seep-screenshot.png", p.frame(), FW as u32, FH as u32, image::ColorType::Rgba8);
