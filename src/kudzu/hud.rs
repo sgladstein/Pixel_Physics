@@ -12,6 +12,9 @@ use crate::render::Renderer;
 
 use super::{Kudzu, Tool, DIG_HOLD, HEIGHT, SNIP_CHARGES, SNIP_RADIUS, TICKS_PER_SECOND, WIDTH};
 
+/// Seconds the bar says a parted piece takes to wilt: most of it is gone
+/// by then, all of it by about 14 s (`super::WILT_WINDOW`'s measurement).
+pub const WILT_SECONDS: u32 = 10;
 /// Pixels per world cell in the window.
 pub const SCALE: u32 = 3;
 /// The bar under the world, in pixels.
@@ -22,6 +25,9 @@ pub const FRAME_H: u32 = HEIGHT as u32 * SCALE + BAR;
 
 /// What would fall: a pale wash, the colour of a leaf with the light behind it.
 pub const PREVIEW: [u8; 4] = [240, 244, 160, 255];
+/// What would stay up but die: parted from the roots. A dull orange, the
+/// colour the vine goes as it wilts, so the preview says what is coming.
+pub const WILT: [u8; 4] = [196, 118, 48, 255];
 /// The blade's own cells.
 pub const BLADE: [u8; 4] = [255, 80, 50, 255];
 /// A crown the dig would pull.
@@ -43,23 +49,40 @@ pub fn draw_world(game: &mut Kudzu, renderer: &mut Renderer, cells: &mut [u8]) {
     renderer.draw(&game.world, &game.particles, &touched, cells, (WIDTH as u32, HEIGHT as u32), true);
 }
 
+/// What the preview lit: cells that would fall now, and cells that would
+/// stay up and wilt. For the dig, the crown's root cells are `fall`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Lit {
+    pub fall: usize,
+    pub wilt: usize,
+}
+
+impl Lit {
+    pub fn any(self) -> bool {
+        self.fall + self.wilt > 0
+    }
+}
+
 /// Paint the hover preview for a pointer at `(x, y)` over a drawn
-/// cell-resolution frame. Returns how many cells it said would fall.
-pub fn draw_preview(game: &Kudzu, cells: &mut [u8], x: i32, y: i32) -> usize {
+/// cell-resolution frame. Returns what it lit.
+pub fn draw_preview(game: &Kudzu, cells: &mut [u8], x: i32, y: i32) -> Lit {
     match game.tool {
         Tool::Snip => {
-            let (drop, blade) = game.preview(x, y);
-            for &(px, py) in &drop {
+            let p = game.preview(x, y);
+            for &(px, py) in &p.wilt {
+                put(cells, px, py, WILT);
+            }
+            for &(px, py) in &p.fall {
                 put(cells, px, py, PREVIEW);
             }
-            for &(px, py) in &blade {
+            for &(px, py) in &p.blade {
                 put(cells, px, py, BLADE);
             }
-            drop.len()
+            Lit { fall: p.fall.len(), wilt: p.wilt.len() }
         }
         Tool::Dig => {
-            let Some(id) = game.crown_near(x, y) else { return 0 };
-            let Some(s) = game.world.organism(id) else { return 0 };
+            let Some(id) = game.crown_near(x, y) else { return Lit::default() };
+            let Some(s) = game.world.organism(id) else { return Lit::default() };
             let mut n = 0;
             for &(px, py) in s.cells.keys() {
                 let c = game.world.get(px, py);
@@ -68,7 +91,7 @@ pub fn draw_preview(game: &Kudzu, cells: &mut [u8], x: i32, y: i32) -> usize {
                     n += 1;
                 }
             }
-            n
+            Lit { fall: n, wilt: 0 }
         }
     }
 }
@@ -116,13 +139,13 @@ fn star(frame: &mut [u8], cx: i32, cy: i32, r: i32, c: [u8; 4]) {
 }
 
 /// The whole window: world, preview, cursor, bar. `cells` is scratch at
-/// `WIDTH * HEIGHT * 4`; `frame` is `FRAME_W * FRAME_H * 4`. Returns how many
-/// cells the preview lit.
-pub fn draw_frame(game: &mut Kudzu, renderer: &mut Renderer, cells: &mut [u8], frame: &mut [u8], hover: Hover) -> usize {
+/// `WIDTH * HEIGHT * 4`; `frame` is `FRAME_W * FRAME_H * 4`. Returns what
+/// the preview lit.
+pub fn draw_frame(game: &mut Kudzu, renderer: &mut Renderer, cells: &mut [u8], frame: &mut [u8], hover: Hover) -> Lit {
     draw_world(game, renderer, cells);
     let lit = match hover {
         Some((x, y)) if !game.over() => draw_preview(game, cells, x, y),
-        _ => 0,
+        _ => Lit::default(),
     };
     // Scale the world up, nearest-neighbour.
     for y in 0..HEIGHT as u32 * SCALE {
@@ -150,7 +173,7 @@ pub fn draw_frame(game: &mut Kudzu, renderer: &mut Renderer, cells: &mut [u8], f
     lit
 }
 
-fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: usize, hover: Hover) {
+fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: Lit, hover: Hover) {
     let top = (HEIGHT as u32 * SCALE) as i32;
     fill(frame, 0, top, FRAME_W as i32, BAR as i32, BAR_BG);
     let (l1, l2, l3) = (top + 6, top + 32, top + 58);
@@ -190,10 +213,29 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: usize, hover: Hover) {
 
     // Line 3: what the next click does -- the owner's bar: the screen says
     // what your next action will do.
+    // **A cut that starves is said in its own colour**, beside the fall:
+    // "CLICK: 0 FALL NOW, 1365 WILT IN 10 S" -- no thousands comma: at this
+    // font's size it read as a decimal point. The fall alone keeps its old
+    // line, which the playtest liked.
+    if !game.over() && game.tool == Tool::Snip && game.snips > 0 && lit.wilt > 0 {
+        let mut x = 8;
+        for (part, c) in [
+            ("CLICK: ".to_string(), TEXT),
+            (format!("{} FALL NOW", lit.fall), if lit.fall > 0 { PREVIEW } else { DIM }),
+            (", ".to_string(), TEXT),
+            (format!("{} WILT IN {WILT_SECONDS} S", lit.wilt), WILT),
+        ] {
+            text(frame, x, l3, &part, c);
+            x += text_w(&part);
+        }
+        let keys = "R RESTART";
+        text(frame, FRAME_W as i32 - text_w(keys) - 8, l3, keys, DIM);
+        return;
+    }
     let hint = match (game.tool, hover) {
         _ if game.over() => "R PLAY AGAIN".to_string(),
         (Tool::Snip, Some(_)) if game.snips == 0 => "SHEARS BLUNT - WAIT FOR THE NEXT CHARGE".to_string(),
-        (Tool::Snip, Some(_)) if lit > 0 => format!("CLICK: {lit} CELLS OF VINE COME DOWN"),
+        (Tool::Snip, Some(_)) if lit.fall > 0 => format!("CLICK: {} CELLS OF VINE COME DOWN", lit.fall),
         (Tool::Snip, Some((x, y))) if !game.blade(x, y).is_empty() => "CLICK: CUTS HERE, NOTHING ELSE LETS GO".to_string(),
         (Tool::Dig, Some((x, y))) if game.digs > 0 && game.crown_near(x, y).is_some() => match game.digging {
             Some((_, n)) => format!("DIGGING... {}%", n * 100 / DIG_HOLD),
@@ -203,7 +245,7 @@ fn draw_bar(game: &Kudzu, frame: &mut [u8], lit: usize, hover: Hover) {
         (Tool::Dig, Some(_)) => "NO ROOTS HERE - FIND WHERE THE VINE GOES INTO THE GROUND".to_string(),
         _ => "HOVER OVER THE VINE".to_string(),
     };
-    text(frame, 8, l3, &hint, if lit > 0 { PREVIEW } else { DIM });
+    text(frame, 8, l3, &hint, if lit.any() { PREVIEW } else { DIM });
     let keys = "R RESTART";
     text(frame, FRAME_W as i32 - text_w(keys) - 8, l3, keys, DIM);
 }
