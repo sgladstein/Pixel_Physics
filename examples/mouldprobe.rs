@@ -7,6 +7,9 @@
 //! cargo run --release --example mouldprobe -- lean=1               # oats-to-lean and lamp recoil timing only
 //! cargo run --release --example mouldprobe -- look=out/ seeds=1    # PNG stills every 10 s, do nothing and plan
 //! cargo run --release --example mouldprobe -- divide=0.05 feed_reach=60   # any Params field by name
+//! cargo run --release --example mouldprobe -- level=all                # the challenge dishes' ship bar
+//! cargo run --release --example mouldprobe -- level=2 look=out/ gif=out/   # ...with its pictures
+//! cargo run --release --example mouldprobe -- menu=out/                # the dish picker, as drawn
 //! ```
 //!
 //! Everything it draws goes through `mould::render::draw`, the window's own
@@ -36,6 +39,17 @@ struct Args {
     /// Oats per dish, if not the game's own stock.
     oats: Option<u32>,
     params: Params,
+    /// `level=1,2,3` (or `all`): the challenge dishes' ship bar.
+    level: Option<Vec<usize>>,
+    /// `menu=DIR`: a still of the dish picker.
+    menu: Option<String>,
+    /// `players=` was given, so `level=` plays those hands.
+    players_given: bool,
+    /// `stray_reach=` was given: a level plays with it (levels default to
+    /// `level::STRAY_REACH`).
+    strays: Option<f32>,
+    /// `stills=DIR`: level runs write a still every 5 s of the first seed.
+    stills: Option<String>,
 }
 
 fn parse() -> Args {
@@ -57,6 +71,11 @@ fn parse() -> Args {
         every: 15,
         oats: None,
         params: Params::default(),
+        level: None,
+        menu: None,
+        players_given: false,
+        strays: None,
+        stills: None,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else {
@@ -66,7 +85,23 @@ fn parse() -> Args {
         let p = &mut a.params;
         match k {
             "seeds" => a.seeds = v.split(',').map(|s| s.parse().unwrap()).collect(),
-            "players" => a.players = v.split(',').map(String::from).collect(),
+            "players" => {
+                a.players = v.split(',').map(String::from).collect();
+                a.players_given = true;
+            }
+            "level" => {
+                let n = pixel_physics::mould::level::DISHES.len();
+                a.level = Some(if v == "all" {
+                    (0..n).collect()
+                } else {
+                    v.split(',')
+                        .map(|s| s.parse::<usize>().ok().filter(|k| (1..=n).contains(k)).map(|k| k - 1))
+                        .map(|k| k.unwrap_or_else(|| panic!("level: 1 to {n}, or all")))
+                        .collect()
+                });
+            }
+            "menu" => a.menu = Some(v.into()),
+            "stills" => a.stills = Some(v.into()),
             "gif" => a.gif = Some(v.into()),
             "look" => a.look = Some(v.into()),
             "lean" => a.lean = v == "1",
@@ -103,6 +138,10 @@ fn parse() -> Args {
             "push" => p.push = f(),
             "pieces" => p.pieces = v == "1",
             "wound" => p.wound = f(),
+            "stray_reach" => {
+                p.stray_reach = f();
+                a.strays = Some(f());
+            }
             "offset" => a.offset = f(),
             _ => panic!("unknown argument {k}"),
         }
@@ -813,8 +852,207 @@ fn cut(a: &Args, dir: &str) {
     }
 }
 
+/// One hand on one hand-made dish, to the bell: the dish, and every
+/// second's (walkers, fed piles, tube over ruler where there is one).
+fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dish {
+    use pixel_physics::mould::level::DISHES;
+    use pixel_physics::mould::play::Route;
+    let params = pixel_physics::mould::Params {
+        stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
+        ..a.params.clone()
+    };
+    let mut d = Dish::from_level_with(&DISHES[k], seed, params);
+    let mut p: Box<dyn Player> = if who == "intended" {
+        Box::new(Route::for_level(k))
+    } else {
+        player(who, seed)
+    };
+    let mut shots = Vec::new();
+    let mut frame = 0u32;
+    // To the bell, then 2 s of the score card.
+    let mut over_at = None;
+    while over_at.is_none_or(|t| d.t < t + 2 * STEPS_PER_SECOND as u64) {
+        p.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        if d.phase == Phase::Over && over_at.is_none() {
+            over_at = Some(d.t);
+        }
+        if gif.is_some() && frame.is_multiple_of(a.every) {
+            shots.push(frame_of(&d, a.scale));
+        }
+        // `stills=DIR`: a picture every 5 s of the first seed.
+        if let Some(dir) = &a.stills {
+            let sps = STEPS_PER_SECOND as u64;
+            if seed == a.seeds[0] && d.t.is_multiple_of(5 * sps) {
+                frame_of(&d, a.scale)
+                    .save(format!("{dir}/dish{}-{who}-{:03}.png", k + 1, d.t / sps))
+                    .unwrap();
+            }
+        }
+        frame += 1;
+    }
+    if let Some(path) = gif {
+        write_gif(path, shots, a.every);
+    }
+    d
+}
+
+/// **Does each challenge dish meet its ship bar?** Do nothing must score 0,
+/// a random hand at most 1, the scripted intended hand (`play::Route`) 3,
+/// over every seed (the layout is fixed; the seed moves the mould and the
+/// random hand). Prints each run's stars, the card's amount and why line,
+/// and the hand's oats and joins, then the table. `look=DIR` writes a
+/// still of each dish's start (with its briefing card and without) and of
+/// the intended hand's end, `gif=DIR` a GIF of the intended hand on the
+/// first seed, and the frame cost of the intended hand on the first seed.
+fn levels(a: &Args, which: &[usize]) {
+    use pixel_physics::mould::level::DISHES;
+    let hands = if a.players_given {
+        a.players.clone()
+    } else {
+        ["idle", "random", "plan", "fresh", "intended"].map(String::from).to_vec()
+    };
+    let mut table: Vec<(usize, String, Vec<u32>)> = Vec::new();
+    for &k in which {
+        let l = &DISHES[k];
+        println!("\n== dish {} {}: {} ==", k + 1, l.name, l.stars_line());
+        if let Some(dir) = &a.look {
+            let d = Dish::from_level(l, a.seeds[0]);
+            for (brief, tag) in [(true, "brief"), (false, "start")] {
+                let view = View {
+                    keys: false,
+                    brief,
+                    ..View::default()
+                };
+                let (w, h) = render::frame_size(a.scale);
+                let mut buf = vec![0u8; (w * h * 4) as usize];
+                render::draw(&d, &view, a.scale, &mut buf);
+                image::RgbaImage::from_raw(w, h, buf)
+                    .unwrap()
+                    .save(format!("{dir}/dish{}-{}-{tag}.png", k + 1, l.key))
+                    .unwrap();
+            }
+        }
+        for who in &hands {
+            let mut row = Vec::new();
+            for &seed in &a.seeds {
+                let gif = match (&a.gif, who.as_str()) {
+                    (Some(dir), "intended") if seed == a.seeds[0] => Some(format!("{dir}/dish{}-{}-intended.gif", k + 1, l.key)),
+                    _ => None,
+                };
+                let t0 = Instant::now();
+                let d = level_run(k, seed, who, a, gif.as_deref());
+                let c = d.card.clone().unwrap_or_default();
+                let ratio = d.ruler_ratio().map(|r| format!(" ruler {r:.2}x")).unwrap_or_default();
+                println!(
+                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  ({:.1} s)",
+                    c.stars,
+                    c.amount,
+                    c.why,
+                    d.walkers.len(),
+                    d.counts.oats_placed,
+                    d.counts.snips_used,
+                    d.counts.lamp_steps as f32 / STEPS_PER_SECOND as f32,
+                    d.counts.snaps,
+                    t0.elapsed().as_secs_f32()
+                );
+                if who == "intended" && seed == a.seeds[0] {
+                    if let Some(dir) = &a.look {
+                        frame_of(&d, a.scale)
+                            .save(format!("{dir}/dish{}-{}-intended-end.png", k + 1, l.key))
+                            .unwrap();
+                    }
+                }
+                row.push(c.stars);
+            }
+            table.push((k, who.clone(), row));
+        }
+    }
+    println!("\n== ship bar: do nothing 0, random at most 1, intended 3 (stars per seed {:?}) ==", a.seeds);
+    for &k in which {
+        let row = |who: &str| table.iter().find(|(kk, w, _)| *kk == k && w == who).map(|(_, _, r)| r.clone());
+        let mut cells = Vec::new();
+        for who in &hands {
+            if let Some(r) = row(who) {
+                cells.push(format!("{who} {:?}", r));
+            }
+        }
+        let pass = row("idle").is_none_or(|r| r.iter().all(|&s| s == 0))
+            && row("random").is_none_or(|r| r.iter().all(|&s| s <= 1))
+            && row("intended").is_none_or(|r| r.iter().all(|&s| s == 3));
+        println!(
+            "dish {} {:<16} {}  -> {}",
+            k + 1,
+            DISHES[k].name,
+            cells.join("  "),
+            if pass { "MEETS THE BAR" } else { "FAILS THE BAR" }
+        );
+    }
+    // Frame cost, the window's frame (steps + draw at scale 4), on the
+    // first dish asked for, intended hand.
+    let k = which[0];
+    let mut d = Dish::from_level(&DISHES[k], a.seeds[0]);
+    let mut p = pixel_physics::mould::play::Route::for_level(k);
+    let (w, h) = render::frame_size(4);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    let view = View::default();
+    let (mut total, mut worst, mut n) = (0.0f64, 0.0f64, 0);
+    while d.phase != Phase::Over {
+        let t0 = Instant::now();
+        p.act(&mut d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        render::draw(&d, &view, 4, &mut buf);
+        let ms = t0.elapsed().as_secs_f64() * 1e3;
+        total += ms;
+        worst = worst.max(ms);
+        n += 1;
+    }
+    println!(
+        "\nframe cost, dish {} intended hand: {n} frames, mean {:.2} ms, worst {:.2} ms",
+        k + 1,
+        total / n as f64,
+        worst
+    );
+}
+
+/// The dish picker as the window draws it, for a picture: `menu=DIR`.
+fn menu(a: &Args, dir: &str) {
+    use pixel_physics::mould::level::Progress;
+    use pixel_physics::mould::render::Menu;
+    let d = Dish::new(1);
+    for (tag, text) in [("fresh", ""), ("some", "lesson 1\nwall 3\nruler 1\n")] {
+        let view = View {
+            keys: false,
+            menu: Some(Menu {
+                progress: Progress::parse(text),
+                cursor: 1,
+            }),
+            ..View::default()
+        };
+        let (w, h) = render::frame_size(a.scale);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        render::draw(&d, &view, a.scale, &mut buf);
+        image::RgbaImage::from_raw(w, h, buf)
+            .unwrap()
+            .save(format!("{dir}/menu-{tag}.png"))
+            .unwrap();
+    }
+}
+
 fn main() {
     let a = parse();
+    if let Some(which) = &a.level {
+        levels(&a, which);
+        return;
+    }
+    if let Some(dir) = &a.menu {
+        menu(&a, dir);
+        return;
+    }
     println!(
         "mouldprobe: seeds {:?} players {:?} scale {} params {:?}",
         a.seeds, a.players, a.scale, a.params

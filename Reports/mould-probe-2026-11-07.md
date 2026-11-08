@@ -270,3 +270,74 @@ bug", "things were flashing gray", and there "needs to be a challenge".
     letting a player cut their own network after the strike (now refused,
     like oats already were).
 
+
+## Challenge dishes and the dish picker (2026-11-08)
+
+The owner's "there needs to be a challenge", answered with the first three
+dishes of the near-term-challenges brainstorm (`game-design/mould-game-
+brainstorm-2026-11-08/near-term-challenges.md`), built for real in
+`src/mould/level.rs`. Each asks one question and gives only the tools it
+needs; none has a storm (a Steiner tree is a tree, which the storm always
+splits, and Running Dry's only tube worth cutting is the finger to the next
+food; Storm Season, dish 5, is where it belongs).
+
+- **Behind the Wall** (90 s, lamp + oats): the food is behind a level-drawn
+  salt wall with one gap at the bottom; scent does not cross salt. Stars by
+  when the food is joined: at all, by 1:00, by 0:45. Moved from the
+  brainstorm's layout: at (40,80)/(210,80) the way round was 207 cells and a
+  relay of oats (each drains in ~3 s once eaten) died out after carrying the
+  front 98 cells, so the scripted hand never arrived. Now 157 cells.
+- **Beat the Ruler** (100 s, lamp + oats): three foods in a triangle and a
+  dotted ruler (the two short sides). Scored on **the shortest join through
+  the tube** (`Dish::best_join`: least over tube cells of the summed tube
+  distance to the three piles), not tube area: area is set by food joined,
+  not shape, and on the first run doing nothing read 1.40x and the meeting
+  point 1.39-1.75x. Stars: all joined, 0.98x, 0.95x. The best possible
+  (0.87x) is drawn faintly after.
+- **Running Dry** (120 s, lamp + oats back every 10 s): small piles (~35 s
+  of food each), a new one every 20 s further on. Stars at 100, 200, 300
+  mould alive at the bell. The brainstorm's 300/600/900 is out of reach: the
+  bell always finds the mould between piles (intended hand 354-411).
+
+**A model change, hand-made dishes only: strays.** An unfed walker can walk
+off the leash (a cell a step, ~5 s to live), and any walker on food made it
+a source of the feeding search, so strays colonised food far past the leash.
+With that, doing nothing joined all three in Beat the Ruler (1-2 stars on 3
+of 3 seeds, `mouldprobe level=2 stray_reach=inf`) and a random hand took 3
+stars there and on Behind the Wall. `Params::stray_reach` now limits it: on
+a hand-made dish a stray can start eating only within 24 cells of fed mould
+(infinite, the old rule, on the seeded dishes, which are unchanged). Shut
+out entirely, an oat just past the leash could never be eaten and every
+relay died.
+
+**Ship bar** (`mouldprobe level=all`, seeds 1-5; stars per seed; the layout
+is fixed, the seed moves the mould and the random hand):
+
+| dish | do nothing | random | simple plan | fresh player | intended hand | bar |
+|---|---|---|---|---|---|---|
+| Behind the Wall | 0 0 0 0 0 | 0 0 0 0 1 | 0 0 0 0 0 | 0 0 0 0 0 | 3 3 3 3 3 (0:10-0:11) | met |
+| Beat the Ruler | 0 0 0 0 0 | 0 0 0 0 0 | 0 0 0 0 0 | 1 0 0 0 0 | 3 3 3 3 3 (0.87-0.91x) | met |
+| Running Dry | 0 0 0 0 0 | 0 0 0 0 0 | 2 0 1 0 0 | 0 0 0 0 0 | 3 3 3 3 3 (354-411 alive) | met |
+
+The intended hand is `play::Route`: oats one at a time, a short step ahead
+of home's fed tube along a route (down to the gap and up; home to the empty
+middle, then the middle out to each far food; on Running Dry, from the fed
+mould toward each new food as its ring shows). Two things it needed are
+things a player needs too: **lay a relay in one go** (it saves up before
+starting one), and in Beat the Ruler **keep feeding the meeting point**: left
+alone, a junction slides toward a side (the mould straightens any bend it is
+not pulled into), and one seed in five went from 0.87x to 0.99x by the bell.
+
+The score card now says **why** in one line, from the failed condition, on
+every dish including the free ones ("THE STORM CUT OFF 3 PILES: A LOOP
+HOLDS", "SCENT CAN'T CROSS SALT: LEAD IT TO THE GAP"). **M** opens the dish
+picker: the lesson, the three dishes (each opens on a star from the one
+before; the lesson counts once finished) and FREE DISH, with best stars
+saved to `mould-progress.txt` beside the executable.
+
+Frame cost (steps + draw at scale 4, intended hand, one process alone): mean
+2.4-3.3 ms, worst 7-12 ms, against 2.6 / 17 ms before. **Not fixed, noted:**
+a dish whose mould has all died steps about 3x slower than a live one (idle
+Running Dry: 27 s for 120 s of dish against 9 s with the intended hand),
+probably subnormal floats in the fading trail; about 5 ms a frame, inside
+budget, unverified.

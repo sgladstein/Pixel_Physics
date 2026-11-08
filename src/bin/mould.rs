@@ -6,9 +6,13 @@
 //!
 //! The keys are on screen (the bottom line), and so is what the next click
 //! will do. It opens on the lesson (`mould::lesson`), a dish that teaches one
-//! tool at a time; N goes on to dish 1. `cargo run --release --bin mould -- 3`
-//! starts on dish seed 3, and `-- 0` is the lesson. Every dish opens behind
-//! the briefing card; H shows it again.
+//! tool at a time; N goes on to the first challenge dish (`mould::level`).
+//! M opens the dish picker: the lesson, the challenge dishes (each opens on
+//! a star from the one before) and the free seeded dishes, where N deals
+//! another. Best stars are kept in `mould-progress.txt` beside the
+//! executable. `cargo run --release --bin mould -- 3` starts on free dish
+//! seed 3, `-- 0` is the lesson and `-- d2` challenge dish 2. Every dish
+//! opens behind the briefing card; H shows it again.
 //!
 //! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
 //! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
@@ -18,8 +22,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
-use pixel_physics::mould::render::{self, Banner, View};
-use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
+use pixel_physics::mould::level::{Progress, DISHES, ENTRIES};
+use pixel_physics::mould::render::{self, Banner, Menu, View};
+use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -38,30 +43,92 @@ const MAX_TICKS_PER_FRAME: u32 = 4;
 const FAST: u32 = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Seed 0 is the lesson, and the game opens on it.
-    let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    // The lesson by default; a number is a free dish seed (0 the lesson),
+    // `d1`.. a challenge dish.
+    let arg = std::env::args().nth(1).unwrap_or_default();
+    let dish = arg
+        .strip_prefix('d')
+        .and_then(|n| n.parse::<usize>().ok())
+        .filter(|k| (1..=DISHES.len()).contains(k));
+    let entry = match (dish, arg.parse::<u64>()) {
+        (Some(k), _) => Entry::Dish(k - 1),
+        (None, Ok(seed)) if seed > 0 => Entry::Free(seed),
+        _ => Entry::Lesson,
+    };
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut handler = Handler::new(seed);
+    let mut handler = Handler::new(entry);
     event_loop.run_app(&mut handler)?;
     handler.result
 }
 
-/// Seed 0 is the lesson; any other seed is a scored dish.
-fn new_dish(seed: u64) -> (Dish, Option<Lesson>) {
-    if seed == 0 {
-        let (d, l) = Lesson::dish();
-        (d, Some(l))
-    } else {
-        (Dish::new(seed), None)
+/// What is being played: the lesson, a challenge dish, or a seeded free dish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Entry {
+    Lesson,
+    Dish(usize),
+    Free(u64),
+}
+
+impl Entry {
+    /// Its card on the picker.
+    fn index(self) -> usize {
+        match self {
+            Entry::Lesson => 0,
+            Entry::Dish(k) => k + 1,
+            Entry::Free(_) => ENTRIES - 1,
+        }
+    }
+    fn from_index(e: usize, free: u64) -> Entry {
+        match e {
+            0 => Entry::Lesson,
+            _ if e >= ENTRIES - 1 => Entry::Free(free),
+            _ => Entry::Dish(e - 1),
+        }
     }
 }
 
-fn title(seed: u64) -> String {
-    if seed == 0 {
-        "Mould - lesson".into()
-    } else {
-        format!("Mould - dish {seed}")
+/// The mould's own randomness on a challenge dish: fixed, so a retry is the
+/// same dish until the hand changes it.
+const LEVEL_SEED: u64 = 1;
+
+fn new_dish(entry: Entry) -> (Dish, Option<Lesson>) {
+    match entry {
+        Entry::Lesson => {
+            let (d, l) = Lesson::dish();
+            (d, Some(l))
+        }
+        Entry::Dish(k) => (Dish::from_level(&DISHES[k], LEVEL_SEED), None),
+        Entry::Free(seed) => (Dish::new(seed), None),
+    }
+}
+
+fn title(entry: Entry) -> String {
+    match entry {
+        Entry::Lesson => "Mould - lesson".into(),
+        Entry::Dish(k) => format!("Mould - {}", DISHES[k].name.to_lowercase()),
+        Entry::Free(seed) => format!("Mould - free dish {seed}"),
+    }
+}
+
+/// `mould-progress.txt` beside the executable.
+fn progress_path() -> Option<std::path::PathBuf> {
+    Some(std::env::current_exe().ok()?.parent()?.join("mould-progress.txt"))
+}
+
+/// Best stars so far: a missing or unreadable file is a fresh start.
+fn load_progress() -> Progress {
+    progress_path()
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|b| Progress::parse(&String::from_utf8_lossy(&b)))
+        .unwrap_or_default()
+}
+
+fn save_progress(p: &Progress) {
+    if let Some(path) = progress_path() {
+        if let Err(err) = std::fs::write(&path, p.text()) {
+            eprintln!("could not save {}: {err}", path.display());
+        }
     }
 }
 
@@ -69,7 +136,12 @@ struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     dish: Dish,
-    seed: u64,
+    entry: Entry,
+    /// The free dish N deals next from, kept across visits to the picker.
+    free_seed: u64,
+    progress: Progress,
+    /// This dish's result is recorded (once per dish).
+    recorded: bool,
     lesson: Option<Lesson>,
     view: View,
     /// Cursor in dish cells.
@@ -83,16 +155,22 @@ struct Handler {
 }
 
 impl Handler {
-    fn new(seed: u64) -> Self {
+    fn new(entry: Entry) -> Self {
         let screenshot_after = std::env::var("PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES")
             .ok()
             .and_then(|s| s.parse().ok());
-        let (dish, lesson) = new_dish(seed);
+        let (dish, lesson) = new_dish(entry);
         Handler {
             window: None,
             pixels: None,
             dish,
-            seed,
+            entry,
+            free_seed: match entry {
+                Entry::Free(s) => s,
+                _ => 1,
+            },
+            progress: load_progress(),
+            recorded: false,
             lesson,
             view: View {
                 brief: true,
@@ -113,17 +191,72 @@ impl Handler {
         event_loop.exit();
     }
 
-    fn restart(&mut self, seed: u64) {
-        self.seed = seed;
-        (self.dish, self.lesson) = new_dish(seed);
+    fn restart(&mut self, entry: Entry) {
+        self.entry = entry;
+        if let Entry::Free(s) = entry {
+            self.free_seed = s;
+        }
+        (self.dish, self.lesson) = new_dish(entry);
+        self.recorded = false;
         self.pressed = false;
         self.view.brief = true;
+        self.view.menu = None;
         // Speed and pause belong to one dish: a fast dish's successor
         // started at 4x.
         self.view.fast = false;
         self.view.paused = false;
         if let Some(w) = &self.window {
-            w.set_title(&title(seed));
+            w.set_title(&title(entry));
+        }
+    }
+
+    /// N: the next dish in the run if it is open, the next free dish on
+    /// free play, and otherwise the picker, which says what opens it.
+    fn next(&mut self) {
+        let e = self.entry.index() + 1;
+        match self.entry {
+            Entry::Free(s) => self.restart(Entry::Free(s + 1)),
+            _ if self.progress.unlocked(e) => self.restart(Entry::from_index(e, self.free_seed)),
+            _ => self.open_menu(),
+        }
+    }
+
+    fn open_menu(&mut self) {
+        self.let_go();
+        self.view.menu = Some(Menu {
+            progress: self.progress,
+            cursor: self.entry.index(),
+        });
+    }
+
+    /// Pick a picker entry: played if open, otherwise only highlighted.
+    fn pick(&mut self, e: usize) {
+        if e >= ENTRIES {
+            return;
+        }
+        if self.progress.unlocked(e) {
+            self.restart(Entry::from_index(e, self.free_seed));
+        } else if let Some(m) = self.view.menu.as_mut() {
+            m.cursor = e;
+        }
+    }
+
+    /// Keep the best result: a challenge dish's stars when it ends, and the
+    /// lesson once it is finished.
+    fn record(&mut self) {
+        if self.recorded {
+            return;
+        }
+        let stars = match (self.entry, &self.lesson) {
+            (Entry::Lesson, Some(l)) if l.step == Step::Done => 1,
+            (Entry::Dish(_), _) if self.dish.phase == Phase::Over => {
+                self.dish.card.as_ref().map_or(0, |c| c.stars)
+            }
+            _ => return,
+        };
+        self.recorded = true;
+        if self.progress.record(self.entry.index(), stars) {
+            save_progress(&self.progress);
         }
     }
 
@@ -145,6 +278,22 @@ impl Handler {
     }
 
     fn mouse(&mut self, down: bool) {
+        // A click on the picker picks the card under it.
+        if self.view.menu.is_some() {
+            if down {
+                if let Some((x, y)) = self.cursor {
+                    let (px, py) = ((x * SCALE as f32) as i32, (y * SCALE as f32) as i32);
+                    let hit = render::menu_cards(render::frame_size(SCALE))
+                        .iter()
+                        .position(|&(cx, cy, w, h)| px >= cx && px < cx + w && py >= cy && py < cy + h);
+                    if let Some(e) = hit {
+                        self.pick(e);
+                    }
+                }
+            }
+            self.let_go();
+            return;
+        }
         // A click on the briefing card only puts it away.
         if self.view.brief {
             if down {
@@ -175,6 +324,39 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        // The picker: 1-5 picks, the arrows and Enter choose, M or Escape
+        // goes back to the dish.
+        if let Some(m) = self.view.menu {
+            let digit = [
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Digit5,
+                KeyCode::Digit6,
+                KeyCode::Digit7,
+                KeyCode::Digit8,
+                KeyCode::Digit9,
+            ]
+            .iter()
+            .position(|&k| k == code);
+            match code {
+                KeyCode::KeyM | KeyCode::Escape => self.view.menu = None,
+                KeyCode::ArrowUp => self.view.menu = Some(Menu { cursor: m.cursor.saturating_sub(1), ..m }),
+                KeyCode::ArrowDown => self.view.menu = Some(Menu { cursor: (m.cursor + 1).min(ENTRIES - 1), ..m }),
+                KeyCode::Enter | KeyCode::Space => self.pick(m.cursor),
+                _ => {
+                    if let Some(e) = digit {
+                        self.pick(e);
+                    }
+                }
+            }
+            return;
+        }
+        if code == KeyCode::KeyM {
+            self.open_menu();
+            return;
+        }
         if self.view.brief && code != KeyCode::Escape {
             self.view.brief = false;
             self.let_go();
@@ -192,8 +374,8 @@ impl Handler {
             KeyCode::Digit4 => self.view.tool = Tool::Snip,
             KeyCode::Space => self.view.fast = !self.view.fast,
             KeyCode::KeyP => self.view.paused = !self.view.paused,
-            KeyCode::KeyR => self.restart(self.seed),
-            KeyCode::KeyN => self.restart(self.seed + 1),
+            KeyCode::KeyR => self.restart(self.entry),
+            KeyCode::KeyN => self.next(),
             KeyCode::Escape => event_loop.exit(),
             _ => {}
         }
@@ -208,7 +390,7 @@ impl Handler {
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
             self.accumulator -= TICK;
             ticks += 1;
-            if !self.view.paused && !self.view.brief {
+            if !self.view.paused && !self.view.brief && self.view.menu.is_none() {
                 let n = if self.view.fast {
                     STEPS_PER_FRAME * FAST
                 } else {
@@ -232,6 +414,10 @@ impl Handler {
             });
         } else {
             self.view.banner = None;
+        }
+        self.record();
+        if let Some(m) = self.view.menu.as_mut() {
+            m.progress = self.progress;
         }
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.cursor = self.cursor;
@@ -271,7 +457,7 @@ impl ApplicationHandler for Handler {
         }
         let (w, h) = render::frame_size(SCALE);
         let attributes = Window::default_attributes()
-            .with_title(title(self.seed))
+            .with_title(title(self.entry))
             .with_inner_size(LogicalSize::new(w, h))
             .with_min_inner_size(LogicalSize::new(W as u32 * 2, H as u32 * 2));
         let window = match event_loop.create_window(attributes) {

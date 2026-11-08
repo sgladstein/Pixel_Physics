@@ -4,7 +4,7 @@
 //! nothing at all*, which is the owner's bar ("doing nothing must lose, and
 //! random play must lose to a plan"). A person should beat the plan.
 
-use super::{Dish, Phase, Rng, Tool, LAMP_R};
+use super::{Dish, Phase, Rng, Tool, LAMP_R, STEPS_PER_SECOND};
 
 pub trait Player {
     fn name(&self) -> &'static str;
@@ -422,6 +422,253 @@ impl Player for Dump {
             let l = (px - hx).hypot(py - hy).max(1.0);
             if !d.place_oats(hx + (px - hx) / l * 25.0, hy + (py - hy) / l * 25.0) {
                 break;
+            }
+        }
+    }
+}
+
+/// **The intended hand for a hand-made dish** (`level.rs`): what the
+/// dish's designer would do, scripted, so the probe can show a dish pays
+/// three stars to a player who reads it (the ship bar: do nothing 0,
+/// random at most 1, this 3).
+///
+/// Oats are laid along a route, one at a time, a short step ahead of the
+/// furthest point on it that home's mould has *tube* to, and the next only
+/// once the tube has caught up with the last (or `WAIT_S` has passed). A
+/// route is a list of legs, each a polyline, done in order: Behind the Wall
+/// goes down to the gap and back up; Beat the Ruler goes home to the empty
+/// middle, then out from the middle to each far food. Running Dry has no
+/// fixed route: it `chase`s, leading a finger from the fed mould toward the
+/// next food as soon as its dotted ring shows.
+///
+/// The front is fed mould in home's piece. The first version took any fed
+/// cell, and a single walker wandering onto an oat 30 cells out made that
+/// oat "fed": all five oats were down by 3.5 s and none of them pulled.
+/// Oats never go on a dish pile (one did, on the far food, and was wasted).
+pub struct Route {
+    legs: Vec<Vec<(f32, f32)>>,
+    leg: usize,
+    chase: bool,
+    next_think: u64,
+    /// The last oat laid, and when.
+    last: Option<((f32, f32), u64)>,
+    /// Cells ahead of the front each oat goes.
+    ahead: f32,
+    /// Seconds to let home's mould grow out on its own before the first oat.
+    start: u64,
+    /// A meeting point to keep fed once the route is done (Beat the Ruler).
+    tend: Option<(f32, f32)>,
+}
+
+/// Seconds the hand waits for the tube to reach its last oat before it lays
+/// another.
+const WAIT_S: f32 = 4.0;
+
+impl Route {
+    pub fn new(legs: Vec<Vec<(f32, f32)>>) -> Self {
+        Route {
+            legs,
+            leg: 0,
+            chase: false,
+            next_think: 0,
+            last: None,
+            ahead: 22.0,
+            start: 6,
+            tend: None,
+        }
+    }
+
+    /// The intended hand for `super::level::DISHES[k]`.
+    pub fn for_level(k: usize) -> Self {
+        let l = &super::level::DISHES[k];
+        let p = |i: usize| (l.piles[i].x, l.piles[i].y);
+        match l.key {
+            // Down the wall to the gap, through it, and up to the food.
+            "wall" => Route::new(vec![vec![
+                p(0),
+                (88.0, 114.0),
+                (116.0, 136.0),
+                (140.0, 136.0),
+                (168.0, 114.0),
+                p(1),
+            ]]),
+            // Home to the empty middle (the meeting point), then from the
+            // middle -- not from home -- out to each far food.
+            "ruler" => {
+                let (m, _) = l.meeting_point();
+                Route {
+                    ahead: 26.0,
+                    tend: Some(m),
+                    ..Route::new(vec![vec![p(0), m], vec![m, p(1)], vec![m, p(2)]])
+                }
+            }
+            _ => Route {
+                chase: true,
+                start: 0,
+                ..Route::new(Vec::new())
+            },
+        }
+    }
+
+    /// Points every 2 cells along a polyline.
+    fn samples(path: &[(f32, f32)]) -> Vec<(f32, f32)> {
+        let mut out = Vec::new();
+        for w in path.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let n = ((b.0 - a.0).hypot(b.1 - a.1) / 2.0).ceil().max(1.0) as usize;
+            for k in 0..n {
+                let f = k as f32 / n as f32;
+                out.push((a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f));
+            }
+        }
+        if let Some(&last) = path.last() {
+            out.push(last);
+        }
+        out
+    }
+
+    /// The piece the front must belong to: home's, or (chasing, where home
+    /// runs dry) any.
+    fn anchor(&self, d: &Dish) -> Option<usize> {
+        if self.chase {
+            return None;
+        }
+        let h = d.dish_piles().next()?;
+        d.piece_of(h.y as usize * super::W + h.x as usize)
+    }
+
+    /// Whether fed tube of the anchor's piece lies within `r` cells.
+    fn tube_near(d: &Dish, anchor: Option<usize>, (x, y): (f32, f32), r: f32) -> bool {
+        let n = r.ceil() as i32;
+        for dy in -n..=n {
+            for dx in -n..=n {
+                if (dx * dx + dy * dy) as f32 > r * r {
+                    continue;
+                }
+                let (cx, cy) = (x as i32 + dx, y as i32 + dy);
+                if cx < 0 || cy < 0 || cx as usize >= super::W || cy as usize >= super::H {
+                    continue;
+                }
+                let i = cy as usize * super::W + cx as usize;
+                let f = d.fed[i];
+                if f != u16::MAX && (anchor.is_none() || d.piece_of(i) == anchor) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Lay an oat `ahead` cells past the furthest tube on `path`. Returns
+    /// true once the end of the path has tube.
+    fn lead_along(&mut self, d: &mut Dish, path: &[(f32, f32)], anchor: Option<usize>) -> bool {
+        let s = Self::samples(path);
+        let front = (0..s.len()).rev().find(|&k| Self::tube_near(d, anchor, s[k], 4.0)).unwrap_or(0);
+        if front + 3 >= s.len() {
+            return true;
+        }
+        // Save up: an oat drains in about 3 s once eaten, so a relay must
+        // be laid in one go. Between relays, wait until there are oats
+        // enough to reach the end (the food's own scent pulls the last
+        // 20 cells), or a full hand.
+        let sps = STEPS_PER_SECOND as u64;
+        let in_relay = self.last.is_some_and(|(_, when)| d.t < when + (WAIT_S * sps as f32) as u64);
+        let left = (s.len() - 1 - front) as f32 * 2.0;
+        let need = (((left - 20.0) / self.ahead).ceil().max(1.0) as u32).min(d.oats_stock);
+        if !self.chase && !in_relay && d.oats_left < need {
+            return false;
+        }
+        let want = (front + (self.ahead / 2.0) as usize).min(s.len() - 1);
+        for k in (front + 1..=want).rev() {
+            let on_pile = d.dish_piles().any(|p| (p.x - s[k].0).hypot(p.y - s[k].1) <= p.r + 3.0);
+            if !on_pile && d.place_oats(s[k].0, s[k].1) {
+                self.last = Some((s[k], d.t));
+                break;
+            }
+        }
+        false
+    }
+
+    /// Running Dry: the food to head for next -- the next pile whose ring
+    /// is showing, else the newest pile with food not yet eaten.
+    fn next_food(d: &Dish) -> Option<(f32, f32)> {
+        let sps = STEPS_PER_SECOND as u64;
+        let soon = d
+            .pending
+            .iter()
+            .filter(|(at, _)| *at <= d.t + 5 * sps)
+            .map(|(_, p)| (p.x, p.y))
+            .next();
+        soon.or_else(|| {
+            d.dish_piles()
+                .filter(|p| !p.reached() && p.food > 0.0)
+                .map(|p| (p.x, p.y))
+                .last()
+        })
+    }
+}
+
+impl Player for Route {
+    fn name(&self) -> &'static str {
+        "intended hand"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        let sps = STEPS_PER_SECOND as u64;
+        if d.phase != Phase::Growing || d.t < self.next_think || d.t < self.start * sps {
+            return;
+        }
+        self.next_think = d.t + sps / 2;
+        let anchor = self.anchor(d);
+        // One oat at a time: wait until the tube has reached the last one.
+        if let Some((at, when)) = self.last {
+            let caught = Self::tube_near(d, anchor, at, 6.0);
+            if !caught && d.t < when + (WAIT_S * sps as f32) as u64 {
+                return;
+            }
+        }
+        if d.oats_left == 0 {
+            return;
+        }
+        if self.chase {
+            if let Some(target) = Self::next_food(d) {
+                // From the fed tube nearest the target.
+                let mut from: Option<((f32, f32), f32)> = None;
+                for (i, &f) in d.fed.iter().enumerate() {
+                    if f == u16::MAX || f == 0 || i % 3 != 0 {
+                        continue;
+                    }
+                    let (x, y) = ((i % super::W) as f32 + 0.5, (i / super::W) as f32 + 0.5);
+                    let g = (x - target.0).hypot(y - target.1);
+                    if from.is_none_or(|b| g < b.1) {
+                        from = Some(((x, y), g));
+                    }
+                }
+                if let Some((from, _)) = from {
+                    self.lead_along(d, &[from, target], None);
+                }
+            }
+        } else {
+            while self.leg < self.legs.len() {
+                let path = self.legs[self.leg].clone();
+                if self.lead_along(d, &path, anchor) {
+                    self.leg += 1;
+                } else {
+                    break;
+                }
+            }
+            // Tending a meeting point: once every leg is done, a junction
+            // left alone slides toward a side (the mould straightens any
+            // bend it is not pulled into), and on 1 seed in 5 the intended
+            // hand's 0.87x had become 0.99x by the bell. So while the join
+            // reads worse than 0.90x, an oat goes on the meeting point,
+            // one at a time.
+            if let (true, Some(m)) = (self.leg >= self.legs.len(), self.tend) {
+                let slack = d.join_now.is_none_or(|r| r > 0.90);
+                let quiet = self.last.is_none_or(|(_, when)| d.t >= when + 6 * sps);
+                let oat_there = d.piles.iter().any(|p| p.oats && (p.x - m.0).hypot(p.y - m.1) < 8.0);
+                if slack && quiet && !oat_there && d.place_oats(m.0, m.1) {
+                    self.last = Some((m, d.t));
+                }
             }
         }
     }

@@ -47,8 +47,17 @@
 //!   not three). Its line is shown as a shadow `STORM_WARNING_SECONDS`
 //!   ahead, and toughness is read after the full watch, once regrowth has
 //!   had its chance.
+//!
+//! # Dishes
+//!
+//! The window opens on the lesson (`lesson.rs`). After it come the
+//! hand-made challenge dishes (`level.rs`: Behind the Wall, Beat the Ruler,
+//! Running Dry), each with its own food, salt, tools, clock and win rule and
+//! no storm, and the seeded free dishes above. M in the window is the dish
+//! picker; a dish opens on a star from the one before.
 
 pub mod lesson;
+pub mod level;
 pub mod play;
 pub mod render;
 
@@ -159,6 +168,23 @@ pub struct Params {
     /// beyond it ever went grey (toy-feel brainstorm, 2026-11-08: 0 grey
     /// tube pixels at 30, 60 and 82 s of a whole scripted game).
     pub wound: f32,
+    /// **How near fed mould a stray can start eating food**, in cells. A
+    /// stray is a walker on unfed ground: off the leash it can still walk
+    /// (a cell a step, about 5 s to live), and a pile it stands on becomes
+    /// a source of the feeding search like any other. Infinite (the seeded
+    /// dishes, which were balanced with it): a stray anywhere colonises any
+    /// food. Finite (every hand-made dish, `level.rs`): food more than this
+    /// far from fed mould can only be started on by fed mould, so the mould
+    /// reaches far food by growing tube to it, and the leash means what the
+    /// card says. With no limit, strays broke two dishes' premise: in Beat
+    /// the Ruler they reached both far foods and doing nothing joined all
+    /// three on 2 of 2 seeds; on Behind the Wall a random hand's stray oat
+    /// across the dish became a beachhead and it scored 3 stars. Shut out
+    /// entirely (0), an oat even a little past the leash could never be
+    /// eaten, so the relays every dish needs died: Running Dry's 86-cell
+    /// hop failed with three oats lying round its grey front. 24 is an oat
+    /// laid one step ahead (the hands lay them 22 out).
+    pub stray_reach: f32,
 }
 
 impl Default for Params {
@@ -189,6 +215,7 @@ impl Default for Params {
             push: 0.9,
             pieces: true,
             wound: 4.0,
+            stray_reach: f32::INFINITY,
         }
     }
 }
@@ -507,6 +534,20 @@ pub struct Dish {
     /// The step each wound cell heals (`u64::MAX` where none), for drawing.
     pub wound_until: Vec<u64>,
     pub counts: Counts,
+    /// The hand-made dish this is (`level.rs`), or `None` for a seeded free
+    /// dish and the lesson.
+    pub level: Option<&'static level::Level>,
+    /// Most oats in hand, and seconds per oat coming back (0: never). The
+    /// free dish's are `OATS_STOCK` and `OATS_REGROW_SECONDS`; a level sets
+    /// its own.
+    pub oats_stock: u32,
+    pub oats_regrow: u32,
+    /// The score card's words once the dish is over: the amount and the
+    /// one line of why (`level::Card`).
+    pub card: Option<level::Card>,
+    /// Beat the Ruler's live number, refreshed twice a second: the
+    /// shortest join through the tube over the ruler (`Dish::best_join`).
+    pub join_now: Option<f32>,
     rng: Rng,
 }
 
@@ -551,6 +592,28 @@ fn layout(rng: &mut Rng) -> Vec<(f32, f32, f32)> {
         .collect()
 }
 
+/// The empty dish: agar inside an ellipse a few cells in from the edge, rim
+/// outside it.
+fn agar_ground() -> Vec<Ground> {
+    let mut ground = vec![Ground::Rim; W * H];
+    let (cx, cy, rx, ry) = (
+        W as f32 / 2.0,
+        H as f32 / 2.0,
+        W as f32 / 2.0 - 3.0,
+        H as f32 / 2.0 - 3.0,
+    );
+    for y in 0..H {
+        for x in 0..W {
+            let dx = (x as f32 + 0.5 - cx) / rx;
+            let dy = (y as f32 + 0.5 - cy) / ry;
+            if dx * dx + dy * dy <= 1.0 {
+                ground[idx(x, y)] = Ground::Agar;
+            }
+        }
+    }
+    ground
+}
+
 impl Dish {
     pub fn new(seed: u64) -> Self {
         Self::with_params(seed, Params::default())
@@ -558,22 +621,7 @@ impl Dish {
 
     pub fn with_params(seed: u64, params: Params) -> Self {
         let mut rng = Rng::new(seed);
-        let mut ground = vec![Ground::Rim; W * H];
-        let (cx, cy, rx, ry) = (
-            W as f32 / 2.0,
-            H as f32 / 2.0,
-            W as f32 / 2.0 - 3.0,
-            H as f32 / 2.0 - 3.0,
-        );
-        for y in 0..H {
-            for x in 0..W {
-                let dx = (x as f32 + 0.5 - cx) / rx;
-                let dy = (y as f32 + 0.5 - cy) / ry;
-                if dx * dx + dy * dy <= 1.0 {
-                    ground[idx(x, y)] = Ground::Agar;
-                }
-            }
-        }
+        let ground = agar_ground();
         let mut piles = layout(&mut rng)
             .into_iter()
             .map(|(x, y, r)| Pile {
@@ -613,6 +661,20 @@ impl Dish {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
         }
+        Self::assemble(seed, params, rng, ground, piles, pending)
+    }
+
+    /// The dish around a ground and its food: the fields, the inoculum on
+    /// the first pile, and the first census. Shared by the seeded dishes
+    /// and `Dish::from_level`.
+    fn assemble(
+        seed: u64,
+        params: Params,
+        rng: Rng,
+        ground: Vec<Ground>,
+        piles: Vec<Pile>,
+        pending: Vec<(u64, Pile)>,
+    ) -> Self {
         let mut dish = Dish {
             params,
             seed,
@@ -655,6 +717,11 @@ impl Dish {
             wounds: Vec::new(),
             wound_until: vec![u64::MAX; W * H],
             counts: Counts::default(),
+            level: None,
+            oats_stock: OATS_STOCK,
+            oats_regrow: OATS_REGROW_SECONDS,
+            card: None,
+            join_now: None,
             rng,
         };
         // The inoculum: a blob on the home pile.
@@ -1094,8 +1161,19 @@ impl Dish {
         for p in self.piles.iter_mut() {
             p.eaters = 0;
         }
+        // Read before the search below refills it: last census's answer.
+        let limit = self.params.stray_reach;
+        let strays_ok: Vec<bool> = if limit.is_finite() && self.t > 0 {
+            self.piles.iter().map(|p| self.fed_within(p.x, p.y, p.r + limit)).collect()
+        } else {
+            vec![true; self.piles.len()]
+        };
         for w in &self.walkers {
-            for p in self.piles.iter_mut() {
+            let stray = cell(w.x, w.y).is_some_and(|i| self.fed[i] == u16::MAX);
+            for (p, &ok) in self.piles.iter_mut().zip(&strays_ok) {
+                if stray && !ok {
+                    continue;
+                }
                 if p.food > 0.0 && (p.x - w.x).powi(2) + (p.y - w.y).powi(2) <= (p.r + 1.0).powi(2) {
                     p.eaters += 1;
                 }
@@ -1185,6 +1263,11 @@ impl Dish {
                 }
             }
         }
+    }
+
+    /// Whether any cell within `r` of a point was fed at the last census.
+    fn fed_within(&self, x: f32, y: f32, r: f32) -> bool {
+        disc(r).any(|(ox, oy)| cell(x + ox, y + oy).is_some_and(|i| self.fed[i] != u16::MAX))
     }
 
     /// Union the piles whose searches met into pieces, flash every join
@@ -1554,7 +1637,11 @@ impl Dish {
         let sps = STEPS_PER_SECOND as u64;
         if self.phase == Phase::Growing {
             // Oats come back, and late food turns up.
-            if self.t > 0 && self.t.is_multiple_of(OATS_REGROW_SECONDS as u64 * sps) && self.oats_left < OATS_STOCK {
+            if self.t > 0
+                && self.oats_regrow > 0
+                && self.t.is_multiple_of(self.oats_regrow as u64 * sps)
+                && self.oats_left < self.oats_stock
+            {
                 self.oats_left += 1;
             }
             let t = self.t;
@@ -1567,6 +1654,10 @@ impl Dish {
                 } else {
                     k += 1;
                 }
+            }
+            // A hand-made dish ends by its own rule, with no storm.
+            if let Some(level) = self.level {
+                return self.level_tick(level);
             }
             if self.storm_line.is_none() && self.t + 1 >= self.storm_at.saturating_sub(self.storm_warning) {
                 self.storm_line = self.aim_storm();
@@ -1599,6 +1690,7 @@ impl Dish {
                     networked && s.ratio() <= THRIFT_BAR,
                     networked && s.after == s.reach,
                 ];
+                self.card = Some(level::free_card(&s));
                 self.score = Some(s);
                 self.phase = Phase::Over;
             }
