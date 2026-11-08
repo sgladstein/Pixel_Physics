@@ -51,6 +51,7 @@
 pub mod lesson;
 pub mod play;
 pub mod render;
+pub mod wander;
 
 use std::f32::consts::TAU;
 
@@ -342,6 +343,9 @@ pub enum Phase {
     Growing,
     /// The storm struck at this step.
     Storm(u64),
+    /// The Wanderer pressed Go at this step and is pouring through the
+    /// crack (`wander.rs`).
+    Crossing(u64),
     Over,
 }
 
@@ -447,6 +451,10 @@ pub struct Dish {
     /// Recent snip strokes, for drawing a mark that fades: (x, y, step).
     pub snip_marks: Vec<(f32, f32, u64)>,
     pub counts: Counts,
+    /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
+    /// place of the clock, the storm and the stars. `None` in a scored dish
+    /// and the lesson.
+    pub wander: Option<wander::Wander>,
     rng: Rng,
 }
 
@@ -497,6 +505,13 @@ impl Dish {
     }
 
     pub fn with_params(seed: u64, params: Params) -> Self {
+        Self::build(seed, params, false)
+    }
+
+    /// `wander`: keep the sixth pile's late spot off the exit's face (the
+    /// spot at (232, 80) sits in the crack), so reaching the way on always
+    /// needs a bridge. A scored dish draws the same numbers either way.
+    fn build(seed: u64, params: Params, wander: bool) -> Self {
         let mut rng = Rng::new(seed);
         let mut ground = vec![Ground::Rim; W * H];
         let (cx, cy, rx, ry) = (
@@ -548,7 +563,10 @@ impl Dish {
         let taken: Vec<(f32, f32)> = piles.iter().chain(std::iter::once(&far)).map(|p| (p.x, p.y)).collect();
         if let Some(&k) = order
             .iter()
-            .find(|&&k| taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0))
+            .find(|&&k| {
+                taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0)
+                    && !(wander && spots[k].0 > 215.0)
+            })
         {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
@@ -587,6 +605,7 @@ impl Dish {
             cuts: Vec::new(),
             snip_marks: Vec::new(),
             counts: Counts::default(),
+            wander: None,
             rng,
         };
         // The inoculum: a blob on the home pile.
@@ -786,13 +805,22 @@ impl Dish {
         self.push_light();
         self.deposit_food();
         self.move_walkers();
+        self.flow_out();
         self.diffuse();
         if self.t.is_multiple_of(FED_EVERY) {
-            self.census();
+            // Once the Wanderer has gone, who is fed is settled: the part
+            // that left is fed, everything left behind is not (`wander.rs`).
+            if self.wander_frozen() {
+                self.stamp_fed();
+            } else {
+                self.census();
+                self.wander_census();
+            }
         }
         self.economy();
         self.expire_oats();
         self.phase_tick();
+        self.wander_tick();
         if self.lamp.is_some() {
             self.counts.lamp_steps += 1;
         }
@@ -1062,8 +1090,12 @@ impl Dish {
                 visit(i + W, &mut self.fed);
             }
         }
-        // What the drawing reads (`looks_fed`): fed tube and the cells
-        // beside it, stamped with the time.
+        self.stamp_fed();
+    }
+
+    /// What the drawing reads (`looks_fed`): fed tube and the cells beside
+    /// it, stamped with the time.
+    fn stamp_fed(&mut self) {
         let t = self.t;
         let r = FED_LOOK_REACH as isize;
         for i in 0..W * H {

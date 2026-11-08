@@ -426,3 +426,212 @@ impl Player for Dump {
         }
     }
 }
+
+// ------------------------------------------------------------ the Wanderer
+
+/// Oats `ahead` cells from the walker nearest `to`, toward it (never past it).
+pub fn oats_toward(d: &mut Dish, to: (f32, f32), ahead: f32) -> bool {
+    let Some((wx, wy)) = d
+        .walkers
+        .iter()
+        .step_by(3)
+        .map(|w| (w.x, w.y))
+        .min_by(|a, b| (a.0 - to.0).hypot(a.1 - to.1).total_cmp(&(b.0 - to.0).hypot(b.1 - to.1)))
+    else {
+        return false;
+    };
+    let g = (wx - to.0).hypot(wy - to.1).max(1.0);
+    let f = (ahead / g).min(1.0);
+    d.place_oats(wx + (to.0 - wx) * f, wy + (to.1 - wy) * f)
+}
+
+/// A point on the dish, in cells.
+type Pt = (f32, f32);
+
+/// The closest pair (stranded, joined): a fed walker in a piece not joined
+/// to the crack, and a walker that is, if at least a tenth of her is
+/// stranded. Sampled, every fourth walker of each.
+fn bridge_gap(d: &Dish) -> Option<(Pt, Pt)> {
+    let w = d.wander_state()?;
+    let at = |x: f32, y: f32| y as usize * super::W + x as usize;
+    let (mut joined, mut stranded) = (Vec::new(), Vec::new());
+    for k in d.walkers.iter().step_by(4) {
+        let i = at(k.x, k.y);
+        if w.exit_dist[i] != u16::MAX {
+            joined.push((k.x, k.y));
+        } else if d.fed[i] != u16::MAX {
+            stranded.push((k.x, k.y));
+        }
+    }
+    if joined.is_empty() || stranded.len() * 10 < (joined.len() + stranded.len()) {
+        return None;
+    }
+    let mut best: Option<(f32, Pt, Pt)> = None;
+    for &a in &stranded {
+        for &b in &joined {
+            let g = (a.0 - b.0).hypot(a.1 - b.1);
+            if best.is_none_or(|x| g < x.0) {
+                best = Some((g, a, b));
+            }
+        }
+    }
+    best.map(|b| (b.1, b.2))
+}
+
+/// Does nothing, but presses Go the moment it is open: the control for the
+/// Go rule itself (how much arrives when nobody leads).
+pub struct IdleGo;
+
+impl Player for IdleGo {
+    fn name(&self) -> &'static str {
+        "do nothing, Go when open"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.can_go() {
+            d.go();
+        }
+    }
+}
+
+/// **The Wanderer's leading hand**, lamp and oats. Oats one at a time, 22
+/// cells ahead of the mould: first to the food on the crack's side of the
+/// dish (x > 150), via the nearest food if none of that is out yet, then to
+/// the crack, then kept at the crack's mouth so the bridge stays fed. The
+/// lamp shepherds strays beside the front back toward the line it is being
+/// led along (as `Shepherd`). Once in the crack, it waits for the trunk to
+/// thicken: Go when the mould joined to the crack has peaked (a tenth below
+/// its best, or no new best for 15 s), or the food is nearly gone.
+///
+/// `careless`: the same lead, but Go the first moment it is open.
+pub struct Leader {
+    careless: bool,
+    best: u32,
+    best_at: u64,
+    next_think: u64,
+}
+
+impl Leader {
+    pub fn new(careless: bool) -> Self {
+        Leader {
+            careless,
+            best: 0,
+            best_at: 0,
+            next_think: 0,
+        }
+    }
+}
+
+impl Player for Leader {
+    fn name(&self) -> &'static str {
+        if self.careless {
+            "careless lead, Go at once"
+        } else {
+            "lead, Go at the peak"
+        }
+    }
+    fn act(&mut self, d: &mut Dish) {
+        use super::wander::{in_exit, EXIT_X, EXIT_Y};
+        if d.phase != Phase::Growing || d.t < self.next_think {
+            return;
+        }
+        let s = super::STEPS_PER_SECOND as u64;
+        self.next_think = d.t + s / 2;
+        if d.can_go() {
+            if self.careless {
+                d.go();
+                return;
+            }
+            // Wait until most of her is joined to the crack and the joined
+            // count has stopped climbing for a few seconds (the trunk has
+            // had time to thicken); give up waiting after 20 s without a new
+            // best, or when the food is nearly gone. On the first census
+            // this hand went at the first dip of the count and took only
+            // the far pile's 203 walkers, its main body never joined.
+            let wc = d.wander_state().map_or(0, |w| w.joined);
+            if wc > self.best {
+                self.best = wc;
+                self.best_at = d.t;
+            }
+            let whole = wc as usize * 100 >= d.walkers.len() * 85;
+            if (whole && d.t > self.best_at + 5 * s) || d.t > self.best_at + 20 * s || d.food_left() < 0.05 {
+                d.go();
+                return;
+            }
+        }
+        let crack = (EXIT_X as f32 + 6.0, EXIT_Y);
+        let touching = d.wander_state().is_some_and(|w| w.touching);
+        let reached_east = d.dish_piles().any(|p| p.reached() && p.x > 150.0);
+        let east: Vec<(f32, f32)> = d
+            .dish_piles()
+            .filter(|p| !p.reached() && p.x > 150.0)
+            .map(|p| (p.x, p.y))
+            .collect();
+        let gap = |d: &Dish, p: (f32, f32)| {
+            d.walkers
+                .iter()
+                .map(|w| (w.x - p.0).hypot(w.y - p.1))
+                .fold(f32::INFINITY, f32::min)
+        };
+        // Where it is being led.
+        let target = if touching {
+            crack
+        } else if let Some(&p) = east.iter().min_by(|a, b| gap(d, **a).total_cmp(&gap(d, **b))) {
+            p
+        } else {
+            crack
+        };
+        let live_oats = d.piles.iter().filter(|p| p.oats).count();
+        if d.oats_left > 0 && live_oats == 0 {
+            if touching {
+                if let Some((a, b)) = bridge_gap(d) {
+                    // Part of her is not joined to the crack: oats from the
+                    // stranded mould toward the nearest joined tube.
+                    let g = (a.0 - b.0).hypot(a.1 - b.1).max(1.0);
+                    let f = (22.0 / g).min(0.5);
+                    d.place_oats(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+                } else {
+                    // All joined: keep the bridge fed and thick, oats at
+                    // the crack's mouth level with the mould already in it.
+                    let y = d
+                        .walkers
+                        .iter()
+                        .find(|w| in_exit(w.x as usize, w.y as usize))
+                        .map_or(EXIT_Y, |w| w.y);
+                    d.place_oats(EXIT_X as f32 - 2.0, y);
+                }
+            } else if !reached_east && east.is_empty() {
+                oats_toward_nearest(d, 22.0);
+            } else {
+                oats_toward(d, target, 22.0);
+            }
+        }
+        // Lamp: a stray near the front, well off the line it is led along.
+        let Some(tip) = d
+            .walkers
+            .iter()
+            .map(|w| (w.x, w.y))
+            .min_by(|a, b| (a.0 - target.0).hypot(a.1 - target.1).total_cmp(&(b.0 - target.0).hypot(b.1 - target.1)))
+        else {
+            d.set_lamp(None);
+            return;
+        };
+        let src = d
+            .dish_piles()
+            .filter(|p| p.reached())
+            .map(|p| (p.x, p.y))
+            .min_by(|a, b| (a.0 - tip.0).hypot(a.1 - tip.1).total_cmp(&(b.0 - tip.0).hypot(b.1 - tip.1)))
+            .unwrap_or(tip);
+        let mut stray: Option<(f32, (f32, f32))> = None;
+        for w in d.walkers.iter().step_by(3) {
+            if (w.x - tip.0).hypot(w.y - tip.1) > 50.0 {
+                continue;
+            }
+            let near_food = d.piles.iter().any(|p| (p.x - w.x).hypot(p.y - w.y) < p.r + LAMP_R + 2.0);
+            let off = seg_dist((w.x, w.y), src, target);
+            if off > 16.0 && !near_food && stray.is_none_or(|s| off > s.0) {
+                stray = Some((off, (w.x, w.y)));
+            }
+        }
+        d.set_lamp(stray.map(|s| s.1));
+    }
+}
