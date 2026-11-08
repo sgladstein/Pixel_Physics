@@ -1,7 +1,10 @@
 # Mould probe: herding a slime mould with a lamp (2026-11-07)
 
-**Status: probe built; playtest fixes 1-5 from the 2026-11-08 demo review
-are in (see *Playtest fixes* at the end), waiting on the owner's play.**
+**Status: the owner played it (2026-11-08): "the most promise so far ...
+the core mechanism is inherently just kind of fun ... we definitely want to
+dig deeper", but it needs instruction, a clearer interface and a real
+challenge. The lesson and briefing card are in (see *What the owner's play
+found*, at the end); the challenge is next.**
 Code: `src/mould/`,
 `src/bin/mould.rs`; harness `examples/mouldprobe.rs`. Brief:
 `/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/prototypes/2-mould.md`
@@ -208,4 +211,40 @@ worst 13.38 -> **16.72 ms**. The worst is now the frame that aims the storm
 whole dish per trial cut and cost **36 ms**; flooding only the piece's own
 cells gives identical aims on all 35 runs at 16.7 ms. Peak walkers rose
 1,500 -> 1,800 with the sixth pile.
+
+## What the owner's play found (2026-11-08)
+
+The owner's verdict, from playing it: the mechanism is fun to play with and
+looks good, but "I didn't really know what I was doing", the salt and the
+snip were mysteries, the storm's scar read as "a weird red rectangle ... a
+bug", "things were flashing gray", and there "needs to be a challenge".
+
+- **The grey flashing was a drawing bug.** The feeding search walks only
+  cells over the tube threshold, but tube is drawn from half of it, so the
+  soft edge of every fed tube was drawn grey, and edge cells whose trail
+  wobbled across the threshold switched yellow-grey-yellow every few
+  frames. `mouldprobe flicker=1` counts cells that switch yellow<->grey 4+
+  times in a second, lamp-lit cells left out: **about 420 a second** on a
+  working network (seeds 1-3: 427, 417, 426), **0** after. A cell now shows
+  fed if it or a neighbour was fed in the last half second
+  (`Dish::looks_fed`, `FED_LOOK_REACH` 1, `FED_LOOK_SECONDS` 0.5); the
+  simulation still reads `fed` alone, so every census is unchanged (all 35
+  runs identical). Widening to 2 cells or 1 s changed nothing.
+- **The game now explains itself.** Every dish opens behind a briefing card
+  (the goal, what tan, yellow and grey mean, the three stars, what each
+  tool does), held until a key or click; H brings it back. The tool hints
+  say what each tool does to the mould. The storm's line is labelled
+  "STORM WILL CUT HERE" and its scar "STORM SCAR".
+- **The game opens on a lesson** (`mould::lesson`, seed 0; N goes on to
+  dish 1). Six steps, each judged from the dish's own counters: hold the
+  lamp near the mould (2 s); put oats down and let the mould eat them; join
+  all the food; snip a tube; draw salt; then the storm, aimed and shown for
+  the whole 20 s it gives. The storm is held back until that step
+  (`Dish::storm_at`). Each step stays up at least 4 s: on the first
+  scripted run the mould joined three piles 1.6 s into "join 3 piles",
+  before the banner could be read, and the oats step passed with no oats
+  eaten because the home blob touched a second pile on its own; the join
+  step now asks for all the food, and the oats step for oats eaten.
+  `mouldprobe lesson=DIR` plays it with a scripted hand: all six steps pass,
+  the lesson ends at 53 s, 3 stars.
 

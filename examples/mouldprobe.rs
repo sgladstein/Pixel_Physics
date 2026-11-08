@@ -26,6 +26,8 @@ struct Args {
     lean: bool,
     verbs: Option<String>,
     push: bool,
+    flicker: bool,
+    lesson: Option<String>,
     /// `push`: how far beside the tube the lamp is held.
     offset: f32,
     scale: u32,
@@ -46,6 +48,8 @@ fn parse() -> Args {
         lean: false,
         verbs: None,
         push: false,
+        flicker: false,
+        lesson: None,
         offset: 12.0,
         scale: 2,
         every: 15,
@@ -66,6 +70,8 @@ fn parse() -> Args {
             "lean" => a.lean = v == "1",
             "verbs" => a.verbs = Some(v.into()),
             "bend" => a.push = v == "1",
+            "flicker" => a.flicker = v == "1",
+            "lesson" => a.lesson = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
@@ -552,6 +558,186 @@ fn cost(a: &Args) {
     );
 }
 
+/// **Does the drawn mould flash grey?** (Owner's playtest, 2026-11-08:
+/// "sometimes things were flashing gray a bit".) Plays the plan bot and, every
+/// drawn frame, classes each dish cell by its drawn colour -- yellow (fed
+/// tube), grey (unfed tube) or neither -- and counts cells that switch
+/// between yellow and grey from one frame to the next. A cell that is
+/// genuinely starving goes grey once and stays; flashing is a cell that
+/// switches back and forth, so the count is also split into cells that
+/// switched four or more times in a second.
+fn flicker(a: &Args) {
+    use pixel_physics::mould::{H, W};
+    println!("\n== yellow<->grey switches per drawn frame (plan bot, 10-60 s) ==");
+    let class = |c: [u8; 3]| -> u8 {
+        let (r, g, b) = (c[0] as i32, c[1] as i32, c[2] as i32);
+        if r > b + 40 && g > b {
+            1 // yellow ramp
+        } else if (r - b).abs() < 16 && (g - b).abs() < 16 && r > 40 {
+            2 // pale ramp
+        } else {
+            0
+        }
+    };
+    for &seed in &a.seeds {
+        let mut d = Dish::with_params(seed, a.params.clone());
+        let mut p = player("plan", seed);
+        let mut prev = vec![0u8; W * H];
+        let mut flips_in_second = vec![0u8; W * H];
+        let (mut switches, mut frames, mut flashing) = (0u64, 0u64, 0u64);
+        while d.t < (60 * STEPS_PER_SECOND) as u64 {
+            p.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+            let on = d.t >= (10 * STEPS_PER_SECOND) as u64;
+            for i in 0..W * H {
+                // Lamp-lit agar is drawn pale on purpose; leave it out.
+                let c = if d.light[i] > 0.0 {
+                    0
+                } else {
+                    class(render::cell_colour(&d, i))
+                };
+                if on && c != 0 && prev[i] != 0 && c != prev[i] {
+                    switches += 1;
+                    flips_in_second[i] = flips_in_second[i].saturating_add(1);
+                }
+                prev[i] = c;
+            }
+            if on {
+                frames += 1;
+                if frames.is_multiple_of(60) {
+                    flashing += flips_in_second.iter().filter(|&&f| f >= 4).count() as u64;
+                    flips_in_second.fill(0);
+                }
+            }
+        }
+        println!(
+            "seed {seed}: {:.1} cells switch yellow<->grey per frame; {:.1} cells per second switch 4+ times (flashing)",
+            switches as f64 / frames as f64,
+            flashing as f64 / (frames / 60) as f64
+        );
+    }
+}
+
+/// **Can every step of the lesson be passed?** Plays `mould::lesson` with a
+/// scripted hand that does what each banner says, prints when each step
+/// began, and writes the window's frame (banner and all) half a second into
+/// each step to DIR, plus the briefing card over the opening frame.
+fn lesson(a: &Args, dir: &str) {
+    use pixel_physics::mould::lesson::{Lesson, Step};
+    use pixel_physics::mould::play::oats_toward_nearest;
+    use pixel_physics::mould::render::Banner;
+    use pixel_physics::mould::Tool;
+    let (mut d, mut l) = Lesson::dish();
+    let sps = STEPS_PER_SECOND as u64;
+    let (hx, hy) = (d.piles[0].x, d.piles[0].y);
+    let frame = |d: &Dish, l: &Lesson, brief: bool| {
+        let view = View {
+            keys: false,
+            brief,
+            banner: Some(Banner {
+                number: l.step.number(),
+                of: Step::COUNT,
+                lines: l.step.lines(),
+                fresh: l.fresh(d),
+            }),
+            ..View::default()
+        };
+        let (w, h) = render::frame_size(a.scale);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        render::draw(d, &view, a.scale, &mut buf);
+        image::RgbaImage::from_raw(w, h, buf).unwrap()
+    };
+    frame(&d, &l, true).save(format!("{dir}/lesson-0-brief.png")).unwrap();
+    let mut shots = Vec::new();
+    let mut began = d.t;
+    let mut saved = false;
+    let mut frames = 0u32;
+    let stuck = 150 * sps;
+    loop {
+        match l.step {
+            Step::Lamp => d.set_lamp(Some((hx + 12.0, hy))),
+            Step::Oats | Step::Join | Step::Storm => {
+                d.set_lamp(None);
+                if d.t.is_multiple_of(sps) && d.oats_left > 0 {
+                    oats_toward_nearest(&mut d, 22.0);
+                }
+            }
+            Step::Snip if d.t == began + sps => {
+                // The walker farthest from every pile: a stray branch.
+                let piles: Vec<(f32, f32)> = d.dish_piles().map(|p| (p.x, p.y)).collect();
+                let far = |w: &(f32, f32)| {
+                    piles
+                        .iter()
+                        .map(|p| (p.0 - w.0).hypot(p.1 - w.1))
+                        .fold(f32::INFINITY, f32::min)
+                };
+                if let Some((x, y)) = d
+                    .walkers
+                    .iter()
+                    .map(|w| (w.x, w.y))
+                    .max_by(|p, q| far(p).total_cmp(&far(q)))
+                {
+                    if d.begin_stroke(Tool::Snip, x - 8.0, y - 8.0) {
+                        d.drag_stroke(x + 8.0, y + 8.0);
+                        d.end_stroke();
+                    }
+                }
+            }
+            Step::Salt if d.t == began + sps && d.begin_stroke(Tool::Salt, hx - 22.0, hy - 25.0) => {
+                d.drag_stroke(hx - 22.0, hy + 25.0);
+                d.end_stroke();
+            }
+            _ => {}
+        }
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+        let before = l.step;
+        l.update(&mut d);
+        if l.step != before {
+            println!(
+                "{:?} passed at {:.1} s ({:.1} s on it); now {:?}",
+                before,
+                d.t as f32 / sps as f32,
+                (d.t - began) as f32 / sps as f32,
+                l.step
+            );
+            began = d.t;
+            saved = false;
+        }
+        if !saved && d.t >= began + sps / 2 {
+            frame(&d, &l, false)
+                .save(format!(
+                    "{dir}/lesson-{}-{}.png",
+                    l.step.number(),
+                    format!("{:?}", l.step).to_lowercase()
+                ))
+                .unwrap();
+            saved = true;
+        }
+        if frames.is_multiple_of(a.every) {
+            shots.push(frame(&d, &l, false));
+        }
+        frames += 1;
+        if l.step == Step::Done && d.t >= began + 3 * sps {
+            break;
+        }
+        if d.t >= began + stuck {
+            println!("STUCK on {:?} for 150 s", l.step);
+            break;
+        }
+    }
+    let s = d.score.clone();
+    println!(
+        "lesson over at {:.1} s; score {:?}",
+        d.t as f32 / sps as f32,
+        s.map(|s| (s.star_count(), s.reach, s.piles, s.after))
+    );
+    write_gif(&format!("{dir}/lesson.gif"), shots, a.every);
+}
+
 fn main() {
     let a = parse();
     println!(
@@ -564,6 +750,14 @@ fn main() {
     }
     if a.push {
         push(&a);
+        return;
+    }
+    if a.flicker {
+        flicker(&a);
+        return;
+    }
+    if let Some(dir) = &a.lesson {
+        lesson(&a, dir);
         return;
     }
     if let Some(dir) = &a.verbs {

@@ -5,7 +5,10 @@
 //! the split `src/bin/lab.rs` and `src/bin/druid.rs` use.
 //!
 //! The keys are on screen (the bottom line), and so is what the next click
-//! will do. `cargo run --release --bin mould -- 3` starts on dish seed 3.
+//! will do. It opens on the lesson (`mould::lesson`), a dish that teaches one
+//! tool at a time; N goes on to dish 1. `cargo run --release --bin mould -- 3`
+//! starts on dish seed 3, and `-- 0` is the lesson. Every dish opens behind
+//! the briefing card; H shows it again.
 //!
 //! Headless: `PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES=N` writes
 //! `pixel_physics_mould_screenshot.png` to the temp directory after N drawn
@@ -14,7 +17,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pixel_physics::mould::render::{self, View};
+use pixel_physics::mould::lesson::{Lesson, Step};
+use pixel_physics::mould::render::{self, Banner, View};
 use pixel_physics::mould::{Dish, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -34,7 +38,8 @@ const MAX_TICKS_PER_FRAME: u32 = 4;
 const FAST: u32 = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+    // Seed 0 is the lesson, and the game opens on it.
+    let seed = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut handler = Handler::new(seed);
@@ -42,11 +47,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     handler.result
 }
 
+/// Seed 0 is the lesson; any other seed is a scored dish.
+fn new_dish(seed: u64) -> (Dish, Option<Lesson>) {
+    if seed == 0 {
+        let (d, l) = Lesson::dish();
+        (d, Some(l))
+    } else {
+        (Dish::new(seed), None)
+    }
+}
+
+fn title(seed: u64) -> String {
+    if seed == 0 {
+        "Mould - lesson".into()
+    } else {
+        format!("Mould - dish {seed}")
+    }
+}
+
 struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     dish: Dish,
     seed: u64,
+    lesson: Option<Lesson>,
     view: View,
     /// Cursor in dish cells.
     cursor: Option<(f32, f32)>,
@@ -63,12 +87,17 @@ impl Handler {
         let screenshot_after = std::env::var("PIXEL_PHYSICS_MOULD_SCREENSHOT_AFTER_FRAMES")
             .ok()
             .and_then(|s| s.parse().ok());
+        let (dish, lesson) = new_dish(seed);
         Handler {
             window: None,
             pixels: None,
-            dish: Dish::new(seed),
+            dish,
             seed,
-            view: View::default(),
+            lesson,
+            view: View {
+                brief: true,
+                ..View::default()
+            },
             cursor: None,
             pressed: false,
             last_frame: Instant::now(),
@@ -86,10 +115,11 @@ impl Handler {
 
     fn restart(&mut self, seed: u64) {
         self.seed = seed;
-        self.dish = Dish::new(seed);
+        (self.dish, self.lesson) = new_dish(seed);
         self.pressed = false;
+        self.view.brief = true;
         if let Some(w) = &self.window {
-            w.set_title(&format!("Mould - dish {seed}"));
+            w.set_title(&title(seed));
         }
     }
 
@@ -103,6 +133,14 @@ impl Handler {
     }
 
     fn mouse(&mut self, down: bool) {
+        // A click on the briefing card only puts it away.
+        if self.view.brief {
+            if down {
+                self.view.brief = false;
+            }
+            self.pressed = false;
+            return;
+        }
         self.pressed = down;
         let Some((x, y)) = self.cursor else { return };
         match (down, self.view.tool) {
@@ -119,7 +157,12 @@ impl Handler {
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
+        if self.view.brief && code != KeyCode::Escape {
+            self.view.brief = false;
+            return;
+        }
         match code {
+            KeyCode::KeyH => self.view.brief = true,
             KeyCode::Digit1 => self.view.tool = Tool::Lamp,
             KeyCode::Digit2 => self.view.tool = Tool::Oats,
             KeyCode::Digit3 => self.view.tool = Tool::Salt,
@@ -142,7 +185,7 @@ impl Handler {
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
             self.accumulator -= TICK;
             ticks += 1;
-            if !self.view.paused {
+            if !self.view.paused && !self.view.brief {
                 let n = if self.view.fast {
                     STEPS_PER_FRAME * FAST
                 } else {
@@ -155,6 +198,17 @@ impl Handler {
         }
         if ticks == MAX_TICKS_PER_FRAME {
             self.accumulator = Duration::ZERO;
+        }
+        if let Some(l) = self.lesson.as_mut() {
+            l.update(&mut self.dish);
+            self.view.banner = Some(Banner {
+                number: l.step.number(),
+                of: Step::COUNT,
+                lines: l.step.lines(),
+                fresh: l.fresh(&self.dish),
+            });
+        } else {
+            self.view.banner = None;
         }
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.view.cursor = self.cursor;
@@ -182,7 +236,7 @@ impl ApplicationHandler for Handler {
         }
         let (w, h) = render::frame_size(SCALE);
         let attributes = Window::default_attributes()
-            .with_title(format!("Mould - dish {}", self.seed))
+            .with_title(title(self.seed))
             .with_inner_size(LogicalSize::new(w, h))
             .with_min_inner_size(LogicalSize::new(W as u32 * 2, H as u32 * 2));
         let window = match event_loop.create_window(attributes) {

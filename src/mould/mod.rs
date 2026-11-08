@@ -48,6 +48,7 @@
 //!   ahead, and toughness is read after the full watch, once regrowth has
 //!   had its chance.
 
+pub mod lesson;
 pub mod play;
 pub mod render;
 
@@ -225,6 +226,10 @@ pub const THRIFT_MIN_JOINED: u32 = 3;
 /// the probe's straight home-to-pile tubes, which are about 12 cells wide at
 /// the `tube` threshold; at 4 a straight tube read as 3.8x its own length.
 pub const TUBE_WIDTH: f32 = 12.0;
+/// Drawing only (`Dish::looks_fed`): how far beside fed tube, and for how
+/// long after, a tube cell still shows fed.
+pub const FED_LOOK_REACH: usize = 1;
+pub const FED_LOOK_SECONDS: f32 = 0.5;
 /// How often (steps) the feeding search and pile census run.
 const FED_EVERY: u64 = 6;
 
@@ -324,10 +329,10 @@ impl Tool {
     /// What pressing the mouse will do, in world words, for the hint line.
     pub fn hint(self) -> &'static str {
         match self {
-            Tool::Lamp => "HOLD CLICK: LAMP. THE MOULD FLEES LIGHT",
-            Tool::Oats => "CLICK: DROP OATS. THE MOULD WILL REACH FOR THEM",
-            Tool::Salt => "DRAG: A SALT LINE THE MOULD CANNOT CROSS",
-            Tool::Snip => "DRAG: CUT THE MOULD",
+            Tool::Lamp => "HOLD THE MOUSE: LIGHT PUSHES THE MOULD",
+            Tool::Oats => "CLICK: OATS. THE MOULD GROWS TOWARD THEM",
+            Tool::Salt => "DRAG: A SALT WALL THE MOULD CAN'T CROSS",
+            Tool::Snip => "DRAG ACROSS A TUBE TO CUT IT",
         }
     }
 }
@@ -411,6 +416,9 @@ pub struct Dish {
     /// Tube distance to the nearest food the mould is touching; `u16::MAX`
     /// where no tube reaches.
     pub fed: Vec<u16>,
+    /// The step at which each cell was last on, or beside, fed tube
+    /// (`u64::MAX`: never). Drawing only: see `Dish::looks_fed`.
+    pub fed_at: Vec<u64>,
     pub store: f32,
     pub lamp: Option<(f32, f32)>,
     pub oats_left: u32,
@@ -430,6 +438,12 @@ pub struct Dish {
     pub storm_line: Option<((f32, f32), (f32, f32))>,
     /// Piles that have turned up, with the step, for the arrival flash.
     pub arrived: Vec<(f32, f32, u64)>,
+    /// The step the storm strikes at. `Dish::dish_steps()` in a normal dish;
+    /// the lesson (`lesson.rs`) holds it at `u64::MAX` until its last step.
+    pub storm_at: u64,
+    /// Steps before `storm_at` that the storm is aimed and its line shown:
+    /// `STORM_WARNING_SECONDS` in a dish; the lesson's whole storm step.
+    pub storm_warning: u64,
     /// Recent snip strokes, for drawing a mark that fades: (x, y, step).
     pub snip_marks: Vec<(f32, f32, u64)>,
     pub counts: Counts,
@@ -554,12 +568,15 @@ impl Dish {
             order: Vec::new(),
             piles,
             fed: vec![u16::MAX; W * H],
+            fed_at: vec![u64::MAX; W * H],
             store: START_STORE,
             lamp: None,
             oats_left: OATS_STOCK,
             pending,
             storm_line: None,
             arrived: Vec::new(),
+            storm_at: Self::dish_steps(),
+            storm_warning: (STORM_WARNING_SECONDS * STEPS_PER_SECOND) as u64,
             salt_left: SALT_STOCK,
             snips_left: SNIP_STOCK,
             stroke: None,
@@ -604,11 +621,11 @@ impl Dish {
 
     /// Seconds until the storm, or 0 once it has come.
     pub fn seconds_left(&self) -> u32 {
-        let end = Self::dish_steps();
+        let end = self.storm_at;
         if self.t >= end {
             0
         } else {
-            ((end - self.t) as u32).div_ceil(STEPS_PER_SECOND)
+            ((end - self.t).min(u32::MAX as u64) as u32).div_ceil(STEPS_PER_SECOND)
         }
     }
 
@@ -1042,6 +1059,39 @@ impl Dish {
                 visit(i + W, &mut self.fed);
             }
         }
+        // What the drawing reads (`looks_fed`): fed tube and the cells
+        // beside it, stamped with the time.
+        let t = self.t;
+        let r = FED_LOOK_REACH as isize;
+        for i in 0..W * H {
+            if self.fed[i] == u16::MAX {
+                continue;
+            }
+            let (x, y) = ((i % W) as isize, (i / W) as isize);
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx >= 0 && ny >= 0 && (nx as usize) < W && (ny as usize) < H {
+                        self.fed_at[ny as usize * W + nx as usize] = t;
+                    }
+                }
+            }
+        }
+    }
+
+    /// **Whether a drawn tube cell shows fed (yellow) or starving (grey).**
+    /// Owner's playtest, 2026-11-08: "sometimes things were flashing gray".
+    /// The feeding search only walks cells over the tube threshold, but a
+    /// tube is drawn from half that, so the soft edge of every fed tube
+    /// was drawn grey, and edge cells whose trail wobbled across the
+    /// threshold switched yellow-grey-yellow every few frames: about 500
+    /// cells a second flashing on a working network. A cell now shows fed
+    /// if it, or a cell within `FED_LOOK_REACH`, was fed in the last
+    /// `FED_LOOK_SECONDS`, so a starving branch still goes grey, a fraction
+    /// of a second later. The simulation still reads `fed` alone.
+    pub fn looks_fed(&self, i: usize) -> bool {
+        let at = self.fed_at[i];
+        at != u64::MAX && self.t.saturating_sub(at) <= (FED_LOOK_SECONDS * STEPS_PER_SECOND as f32) as u64
     }
 
     fn economy(&mut self) {
@@ -1169,12 +1219,12 @@ impl Dish {
                     k += 1;
                 }
             }
-            if self.storm_line.is_none() && self.t + 1 >= Self::dish_steps() - STORM_WARNING_SECONDS as u64 * sps {
+            if self.storm_line.is_none() && self.t + 1 >= self.storm_at.saturating_sub(self.storm_warning) {
                 self.storm_line = self.aim_storm();
             }
         }
         match self.phase {
-            Phase::Growing if self.t + 1 >= Self::dish_steps() => {
+            Phase::Growing if self.t + 1 >= self.storm_at => {
                 self.lamp = None;
                 self.stroke = None;
                 self.update_light();
@@ -1619,6 +1669,24 @@ mod tests {
             lit.walkers.len(),
             dark.walkers.len()
         );
+    }
+
+    /// The lesson holds the storm back until its last step, however long
+    /// the player takes; a real dish's storm still comes on time.
+    #[test]
+    fn the_lesson_holds_the_storm_until_its_last_step() {
+        let (mut d, mut l) = lesson::Lesson::dish();
+        for _ in 0..Dish::dish_steps() + STEPS_PER_SECOND as u64 {
+            d.step();
+            l.update(&mut d);
+        }
+        assert_eq!(
+            l.step,
+            lesson::Step::Lamp,
+            "nothing was done, so the lesson stays on step 1"
+        );
+        assert_eq!(d.phase, Phase::Growing, "no storm during the lesson");
+        assert!(d.storm_line.is_none());
     }
 
     #[test]
