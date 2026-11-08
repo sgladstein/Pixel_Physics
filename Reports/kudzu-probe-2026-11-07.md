@@ -140,6 +140,50 @@ vine can bridge; the page says so. Making the bridge visible, or the cut wider, 
 ms a frame at 1,487 cells and 0.77 ms at 2,101 (seeds 1 and 7), against 0.13 and 0.20 for FALLS alone on
 main, same machine. No engine file changed, so the lab cannot move.
 
+## Round 2, step 1 (2026-11-08): the vine never stops growing
+
+**Why.** The owner played it (11-08 05:31Z): he likes a vine that "keeps growing and growing and you have to
+stop it eating the village", but "most of the time not much was happening... it would stop growing", and a
+cut made it "perk up a little but then it would stop growing". He picked "relentless vine, village" for the
+next round (card, 06:04Z). This step is the relentless vine; the village comes next.
+
+**What stopped it.** The game holds the sky at noon, and the vine earns noon income every tick (earnings
+read `World::sky_frame`). But the engine's starvation test and die-back judge a plant by what it collects
+*over a day*, `income * MEAN_NIGHT_INCOME_FACTOR` (0.49), which assumes nights. So a vine earning 1.5x its
+bill read as starving, die-back trimmed it, and the game's runner push (gated on the same books) never fired.
+Seed 1, nobody cutting: 1,487 cells at the start of play, 1,365 at dawn, 12 runners in three minutes, the
+starvation count pinned at its hold. A cut removed mouths but not roots, so the books briefly read rich and
+the vine "perked up" -- the owner's observation, exactly.
+
+**The switch.** `World::plant_held_sky_budget` (off everywhere else): where the sky is held,
+`plant::day_mean_income_factor` is the income factor at the held hour (1.0 at noon) instead of the 0.49 day
+mean. Routed through the three readers: the starvation test, die-back, and `day_budget_ratio`. Kudzu turns it
+on; `KUDZU_HELD_SKY_BUDGET=0` is the old vine. **The lab did not move**: `labshot frames=0,3000` on main
+(ce50ea0f7) and this branch, census text identical and PNG identical to the byte. Note for the plant line:
+`labshot` itself holds noon, so the lab's held-sky plants are judged by the same 0.49 -- probably the same
+defect, not measured here.
+
+**Old vine against new, 8 paired seeds, walls clear at dawn (mean, 3-star nights):**
+
+| player | old vine | new vine | paired |
+|---|---|---|---|
+| do nothing | 48% (0) | 33% (0) | new lower 6-0-2, p 0.031 |
+| random snips | 92% (3) | 60% (1) | 7-0-1, p 0.016 |
+| fresh player | 95% (4) | 78% (4) | 4-2-2, p 0.69 |
+| wait, then 6 cuts | 95% (4) | 86% (2) | 5-1-2, p 0.22 |
+| planned | 99% (8) | 99% (7) | 1-1-6, p 1.0 |
+| cut at the roots | 100% (8) | 90% (7) | 1-0-7, p 1.0 |
+
+**Planned now beats random 8-0 (p 0.008)**, where on the old vine it was 6-0-2 (p 0.031) and in the first
+build 9-2-1 (p 0.065). The plan matters; random snipping no longer wins. Untouched, the vine regrows 2,112
+cells a night against 421 and peaks at 4,469 cells (old 2,449). Still trivial for the planned player: one
+crown, so one root cut ends the night. That is what the village's several crowns are for.
+
+**Cost.** The bigger vine costs frames: across 8 untouched nights, ticks over 16.7 ms went from 1 to 51 (of
+86,400; worst 17.7 -> 29.3 ms; p99 8.7 -> 11.8 ms); random snipping 2 -> 72. Under 0.1% of frames, but it
+grows with the vine, and a village with several crowns will carry more vine: measure it there before
+shipping.
+
 ## Guards
 
 `kudzu::tests::preview_lights_what_the_engine_drops` makes the biggest cut with the game's own fall left
@@ -148,5 +192,5 @@ Positive control: with the climber anchor rule off it fails (no cut lights a she
 `predicted`/`fell` counts agree by construction (the game turns lit cells to litter itself) and are not a
 check. `the_game_switches_are_off_by_default` holds the defaults. `preview_wilts_what_the_engine_starves`
 (2026-11-08) makes the crown cut on seed 1 and requires the lit WILTS to have left the vine within 15 s,
-the counter to agree, and the unlit stump to stay; positive control: with the walk returning every cell
+the counter to agree, and the unlit stump to be whole at 10 s (after that a crown cut starves the stump too, which is the cut working); positive control: with the walk returning every cell
 rooted before the cut, it fails.
