@@ -93,7 +93,7 @@ identical, PNG identical to the byte.
 (`/mnt/project-files/game-design/new-game-brainstorm-2026-11-07/playtest-2026-11-08/kudzu-review.md`)
 found the best move in the game invisible: cutting the vine off from its roots at the crown lit **0 cells**
 ("NOTHING ELSE LETS GO") and won 3 stars on 8 of 8 seeds with 4-12 cuts. The owner chose this as the
-first fix (decision card, 11-08 03:26Z). Picture page: PAGE_URL.
+first fix (decision card, 11-08 03:26Z). Picture page: https://claude.ai/artifact/K6fTeh9vWxo63ZeRrYYdYu.
 
 **What it does.** The hover preview now has two colours. Pale is **FALLS** (unchanged: the engine's
 support walk). Dull orange is **WILTS**: cells the cut parts from every root while something else -- a stem
