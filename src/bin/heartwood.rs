@@ -8,6 +8,9 @@
 //! **Fixed timestep**, for the reason `main.rs` gives: every CA rule is one
 //! cell per step, so a variable step changes behaviour with the frame rate.
 //!
+//! **How to play** (`hud::HELP`) is up at the start, with the year paused,
+//! and comes back on H.
+//!
 //! Headless capture, the same hook the other binaries carry:
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N PIXEL_PHYSICS_SCREENSHOT_PATH=x.png`.
 
@@ -40,6 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         last_frame: Instant::now(),
         accumulator: Duration::ZERO,
         cursor: None,
+        help: true,
         screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
         result: Ok(()),
     };
@@ -57,6 +61,9 @@ struct Handler {
     accumulator: Duration,
     /// The pointer, in frame pixels.
     cursor: Option<(i32, i32)>,
+    /// The how-to-play page is up: the year waits, and the next click or key
+    /// (other than H, which toggles it) only closes it.
+    help: bool,
     screenshot_countdown: Option<u32>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
@@ -76,6 +83,10 @@ impl Handler {
     }
 
     fn click(&mut self, button: MouseButton) {
+        if self.help {
+            self.help = false;
+            return;
+        }
         let Some(p) = self.cursor else { return };
         if button == MouseButton::Left {
             if let Some(i) = hud::card_under(&self.game, p) {
@@ -102,6 +113,9 @@ impl Handler {
         self.accumulator += now - self.last_frame;
         self.last_frame = now;
         let mut ticks = 0;
+        if self.help {
+            self.accumulator = Duration::ZERO;
+        }
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
             self.game.tick();
             self.accumulator -= TICK;
@@ -113,6 +127,9 @@ impl Handler {
         let hover = self.cursor.and_then(|p| hud::card_under(&self.game, p));
         let Some(pixels) = self.pixels.as_mut() else { return };
         self.screen.draw(&mut self.game, pixels.frame_mut(), hover);
+        if self.help {
+            hud::help_panel(pixels.frame_mut());
+        }
         if let Some(n) = self.screenshot_countdown.as_mut() {
             if *n == 0 {
                 let path = std::env::var("PIXEL_PHYSICS_SCREENSHOT_PATH").unwrap_or_else(|_| "heartwood.png".to_string());
@@ -171,6 +188,14 @@ impl ApplicationHandler for Handler {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
                     if !pressed || event.repeat {
+                        return;
+                    }
+                    if code == KeyCode::KeyH {
+                        self.help = !self.help;
+                        return;
+                    }
+                    if self.help && code != KeyCode::Escape {
+                        self.help = false;
                         return;
                     }
                     match code {

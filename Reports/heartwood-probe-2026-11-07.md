@@ -133,6 +133,14 @@ for selectall (51.8) and its cheese bots; both have selectall ahead of plan.
 the next lever is its price (rising with each play, or with how much of
 your crown is already dark).
 
+**On-screen goal (2026-11-08, after Scott's Storm and Mould playtests,
+where he did not know the goal, his options or what each tool did)**: the
+game opens on a how-to-play page (`hud::HELP`) with the year paused -- the
+goal, how a star is won, the two clicks a card takes, each card in a line,
+sugar, shade and the keys; any click or key starts, H brings it back. The
+goal and star marks stay at the top of the sky. Draw-only: `play=plan
+seeds=6` gives the same 32/47/48 as before.
+
 **Lab check (round 2)**: `labshot frames=0,3000,12000` at main 4e0cf639
 and on this tree: PNG md5 `53565093abd9020d842557802f60ede8` both, printed
 counts identical except the output path.
