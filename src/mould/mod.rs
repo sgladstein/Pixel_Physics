@@ -50,8 +50,10 @@
 
 pub mod lesson;
 pub mod look;
+pub mod organ;
 pub mod play;
 pub mod render;
+pub mod wander;
 
 use std::f32::consts::TAU;
 
@@ -143,6 +145,23 @@ pub struct Params {
     /// fully lit walker is stepped one cell outward. 0 is the sensor-only
     /// lamp, which repels but cannot move a tube (see `push_light`).
     pub push: f32,
+    /// **Each piece of mould eats only the food it is joined to** (owner's
+    /// card, 2026-11-08: "Yes, each piece eats its own food"). Off, one
+    /// shared store paid for every walker on the dish, so a piece cut away
+    /// from most of the food was fed by food it no longer touched, and a cut
+    /// cost nothing. On, every walker carries its share of its piece's food
+    /// (`Walker::food`), a piece is the tube joined along the feeding search
+    /// (`Dish::piece_of`), and when a piece's food runs out its walkers go
+    /// hungry, farthest from food first -- the same rule the shared store
+    /// used, per piece. Food is never made or lost by a split or a join:
+    /// shares travel with their walkers.
+    pub pieces: bool,
+    /// Seconds a snip stays open: the cut cells are wound, which the mould
+    /// cannot cross, then heal back to agar. 0 is the old snip, which only
+    /// wiped trail and was healed by the walkers in about 0.5 s, so nothing
+    /// beyond it ever went grey (toy-feel brainstorm, 2026-11-08: 0 grey
+    /// tube pixels at 30, 60 and 82 s of a whole scripted game).
+    pub wound: f32,
 }
 
 impl Default for Params {
@@ -171,6 +190,8 @@ impl Default for Params {
             lamp_reach: LAMP_R,
             lamp_soft: false,
             push: 0.9,
+            pieces: true,
+            wound: 4.0,
         }
     }
 }
@@ -233,6 +254,16 @@ pub const FED_LOOK_REACH: usize = 1;
 pub const FED_LOOK_SECONDS: f32 = 0.5;
 /// How often (steps) the feeding search and pile census run.
 const FED_EVERY: u64 = 6;
+/// A join between two piles flashes only if they were not joined within
+/// this long: a thin tube flickering across the tube threshold would
+/// otherwise snap every census.
+pub const SNAP_FORGET_SECONDS: f32 = 2.0;
+
+/// A pile's identity across censuses: its position. Piles never move, and
+/// oats are refused on a cell that is not open agar.
+fn pile_key(p: &Pile) -> u64 {
+    ((p.x.to_bits() as u64) << 32) | p.y.to_bits() as u64
+}
 
 /// A straight stroke across the dish, end to end, in cells: a storm cut,
 /// a salt line, a snip.
@@ -278,6 +309,8 @@ pub enum Ground {
     Salt,
     /// Where the storm struck.
     Scar,
+    /// A snip, open for `Params::wound` seconds, then agar again.
+    Wound,
 }
 
 #[derive(Clone, Debug)]
@@ -307,6 +340,9 @@ pub struct Walker {
     pub x: f32,
     pub y: f32,
     pub heading: f32,
+    /// This walker's share of its piece's food (`Params::pieces`). Unused
+    /// with the shared store.
+    pub food: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -343,6 +379,9 @@ pub enum Phase {
     Growing,
     /// The storm struck at this step.
     Storm(u64),
+    /// The Wanderer pressed Go at this step and is pouring through the
+    /// crack (`wander.rs`).
+    Crossing(u64),
     Over,
 }
 
@@ -396,6 +435,10 @@ pub struct Counts {
     pub snips_used: u32,
     pub salt_cells: u32,
     pub lamp_steps: u64,
+    /// Joins flashed (`Dish::snaps`).
+    pub snaps: u32,
+    /// Wound cells opened by snips.
+    pub wound_cells: u32,
 }
 
 #[derive(Clone)]
@@ -447,7 +490,33 @@ pub struct Dish {
     pub storm_warning: u64,
     /// Recent snip strokes, for drawing a mark that fades: (x, y, step).
     pub snip_marks: Vec<(f32, f32, u64)>,
+    /// Which pile (index at the last census) each fed cell's food comes
+    /// from; meaningless where `fed` is `u16::MAX`.
+    fed_src: Vec<u16>,
+    /// The piece each census pile belongs to, by census pile index.
+    piece_of_src: Vec<u16>,
+    /// Each census pile's identity (`pile_key`), by census pile index, so a
+    /// pile added or gone since the census is never confused for another.
+    census_keys: Vec<u64>,
+    /// Pieces at the last census.
+    pub piece_count: usize,
+    /// When each pair of piles (by `pile_key`, smaller first) was last
+    /// joined into one piece: what keeps a tube that flickers across the
+    /// tube threshold from snapping every census.
+    last_joined: std::collections::BTreeMap<(u64, u64), u64>,
+    /// Joins: where two pieces met and became one, and the step. Drawn as a
+    /// flash; the owner's favourite moment, "little bridges where there
+    /// wasn't even food", made an event the game can see and count.
+    pub snaps: Vec<(f32, f32, u64)>,
+    /// Open wounds: cell and the step it heals.
+    wounds: Vec<(usize, u64)>,
+    /// The step each wound cell heals (`u64::MAX` where none), for drawing.
+    pub wound_until: Vec<u64>,
     pub counts: Counts,
+    /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
+    /// place of the clock, the storm and the stars. `None` in a scored dish
+    /// and the lesson.
+    pub wander: Option<wander::Wander>,
     rng: Rng,
 }
 
@@ -498,6 +567,13 @@ impl Dish {
     }
 
     pub fn with_params(seed: u64, params: Params) -> Self {
+        Self::build(seed, params, false)
+    }
+
+    /// `wander`: keep the sixth pile's late spot off the exit's face (the
+    /// spot at (232, 80) sits in the crack), so reaching the way on always
+    /// needs a bridge. A scored dish draws the same numbers either way.
+    fn build(seed: u64, params: Params, wander: bool) -> Self {
         let mut rng = Rng::new(seed);
         let mut ground = vec![Ground::Rim; W * H];
         let (cx, cy, rx, ry) = (
@@ -549,7 +625,10 @@ impl Dish {
         let taken: Vec<(f32, f32)> = piles.iter().chain(std::iter::once(&far)).map(|p| (p.x, p.y)).collect();
         if let Some(&k) = order
             .iter()
-            .find(|&&k| taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0))
+            .find(|&&k| {
+                taken.iter().all(|t| (t.0 - spots[k].0).hypot(t.1 - spots[k].1) >= 45.0)
+                    && !(wander && spots[k].0 > 215.0)
+            })
         {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
@@ -587,7 +666,16 @@ impl Dish {
             after: None,
             cuts: Vec::new(),
             snip_marks: Vec::new(),
+            fed_src: vec![0; W * H],
+            piece_of_src: Vec::new(),
+            census_keys: Vec::new(),
+            piece_count: 0,
+            last_joined: std::collections::BTreeMap::new(),
+            snaps: Vec::new(),
+            wounds: Vec::new(),
+            wound_until: vec![u64::MAX; W * H],
             counts: Counts::default(),
+            wander: None,
             rng,
         };
         // The inoculum: a blob on the home pile.
@@ -603,9 +691,15 @@ impl Dish {
                 if dish.ground[i] == Ground::Agar && dish.occ[i] == 0 {
                     dish.occ[i] = 1;
                     let heading = dish.rng.f32() * TAU;
-                    dish.walkers.push(Walker { x, y, heading });
+                    dish.walkers.push(Walker { x, y, heading, food: 0.0 });
                     placed += 1;
                 }
+            }
+        }
+        if dish.params.pieces {
+            let share = START_STORE / dish.walkers.len().max(1) as f32;
+            for w in dish.walkers.iter_mut() {
+                w.food = share;
             }
         }
         dish.census();
@@ -740,9 +834,16 @@ impl Dish {
                 self.kill_in(x, y, 1.5, Kill::Snip);
             }
             Tool::Snip => {
+                let heal = self.t + (self.params.wound * STEPS_PER_SECOND as f32) as u64;
                 for (ox, oy) in disc(2.5) {
                     if let Some(i) = cell(x + ox, y + oy) {
                         self.trail[i] = 0.0;
+                        if self.params.wound > 0.0 && self.ground[i] == Ground::Agar && !self.on_pile(i) {
+                            self.ground[i] = Ground::Wound;
+                            self.wounds.push((i, heal));
+                            self.wound_until[i] = heal;
+                            self.counts.wound_cells += 1;
+                        }
                     }
                 }
                 self.kill_in(x, y, 2.5, Kill::Snip);
@@ -793,13 +894,23 @@ impl Dish {
         self.push_light();
         self.deposit_food();
         self.move_walkers();
+        self.flow_out();
         self.diffuse();
         if self.t.is_multiple_of(FED_EVERY) {
-            self.census();
+            // Once the Wanderer has gone, who is fed is settled: the part
+            // that left is fed, everything left behind is not (`wander.rs`).
+            if self.wander_frozen() {
+                self.stamp_fed();
+            } else {
+                self.census();
+                self.wander_census();
+            }
         }
         self.economy();
+        self.heal_wounds();
         self.expire_oats();
         self.phase_tick();
+        self.wander_tick();
         if self.lamp.is_some() {
             self.counts.lamp_steps += 1;
         }
@@ -1026,18 +1137,34 @@ impl Dish {
                 }
             }
         }
-        // Breadth-first along tube from every pile the mould is eating.
+        // Breadth-first along tube from every pile the mould is eating. Each
+        // fed cell also remembers which pile its food comes from
+        // (`fed_src`); where two piles' searches meet, those piles are one
+        // piece (`Params::pieces`), and the cell where they met is where a
+        // join is drawn (`snaps`). The distances, and so everything the
+        // shared-store game reads, are exactly what they were before the
+        // sources were tracked.
         self.fed.fill(u16::MAX);
+        let n = self.piles.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        // (pile a, pile b, cell where they met), in the order found.
+        let mut meets: Vec<(usize, usize, usize)> = Vec::new();
         let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
-        for p in &self.piles {
+        for (k, p) in self.piles.iter().enumerate() {
             if !p.reached() {
                 continue;
             }
             for (ox, oy) in disc(p.r + 1.0) {
                 if let Some(i) = cell(p.x + ox, p.y + oy) {
-                    if self.ground[i] == Ground::Agar && self.fed[i] != 0 {
-                        self.fed[i] = 0;
-                        queue.push_back(i);
+                    if self.ground[i] == Ground::Agar {
+                        if self.fed[i] != 0 {
+                            self.fed[i] = 0;
+                            self.fed_src[i] = k as u16;
+                            queue.push_back(i);
+                        } else if self.fed_src[i] as usize != k {
+                            // Two piles close enough to share a cell.
+                            meets.push((self.fed_src[i] as usize, k, i));
+                        }
                     }
                 }
             }
@@ -1049,28 +1176,39 @@ impl Dish {
             if d >= reach {
                 continue;
             }
+            let src = self.fed_src[i];
             let (x, y) = (i % W, i / W);
-            let mut visit = |j: usize, fed: &mut Vec<u16>| {
-                if self.ground[j] == Ground::Agar && self.trail[j] > tube && fed[j] == u16::MAX {
-                    fed[j] = d + 1;
-                    queue.push_back(j);
+            let mut visit = |j: usize, fed: &mut Vec<u16>, fed_src: &mut Vec<u16>| {
+                if self.ground[j] == Ground::Agar && self.trail[j] > tube {
+                    if fed[j] == u16::MAX {
+                        fed[j] = d + 1;
+                        fed_src[j] = src;
+                        queue.push_back(j);
+                    } else if fed_src[j] != src {
+                        meets.push((src as usize, fed_src[j] as usize, j));
+                    }
                 }
             };
             if x > 0 {
-                visit(i - 1, &mut self.fed);
+                visit(i - 1, &mut self.fed, &mut self.fed_src);
             }
             if x + 1 < W {
-                visit(i + 1, &mut self.fed);
+                visit(i + 1, &mut self.fed, &mut self.fed_src);
             }
             if y > 0 {
-                visit(i - W, &mut self.fed);
+                visit(i - W, &mut self.fed, &mut self.fed_src);
             }
             if y + 1 < H {
-                visit(i + W, &mut self.fed);
+                visit(i + W, &mut self.fed, &mut self.fed_src);
             }
         }
-        // What the drawing reads (`looks_fed`): fed tube and the cells
-        // beside it, stamped with the time.
+        self.join_pieces(&mut parent, &meets);
+        self.stamp_fed();
+    }
+
+    /// What the drawing reads (`looks_fed`): fed tube and the cells beside
+    /// it, stamped with the time.
+    fn stamp_fed(&mut self) {
         let t = self.t;
         let r = FED_LOOK_REACH as isize;
         for i in 0..W * H {
@@ -1089,6 +1227,93 @@ impl Dish {
         }
     }
 
+    /// Union the piles whose searches met into pieces, flash every join
+    /// that was not already joined a moment ago, and remember the pieces.
+    fn join_pieces(&mut self, parent: &mut [usize], meets: &[(usize, usize, usize)]) {
+        fn root(parent: &mut [usize], mut a: usize) -> usize {
+            while parent[a] != a {
+                parent[a] = parent[parent[a]];
+                a = parent[a];
+            }
+            a
+        }
+        let t = self.t;
+        let forget = (SNAP_FORGET_SECONDS * STEPS_PER_SECOND as f32) as u64;
+        let keys: Vec<u64> = self.piles.iter().map(pile_key).collect();
+        for &(a, b, at) in meets {
+            let (ra, rb) = (root(parent, a), root(parent, b));
+            if ra == rb {
+                continue;
+            }
+            parent[ra.max(rb)] = ra.min(rb);
+            let pair = (keys[a].min(keys[b]), keys[a].max(keys[b]));
+            let recent = self.last_joined.get(&pair).is_some_and(|&was| t.saturating_sub(was) <= forget);
+            // Not at the census that builds the dish: the inoculum lying
+            // over two piles is not a join anyone made.
+            if !recent && t > 0 {
+                let (x, y) = ((at % W) as f32 + 0.5, (at / W) as f32 + 0.5);
+                self.snaps.push((x, y, t));
+                self.counts.snaps += 1;
+            }
+        }
+        // Pieces, numbered in pile order, and the pairs now joined.
+        let n = self.piles.len();
+        let mut number = vec![u16::MAX; n];
+        self.piece_of_src = vec![0; n];
+        let mut count = 0u16;
+        for k in 0..n {
+            let r = root(parent, k);
+            if number[r] == u16::MAX {
+                number[r] = count;
+                count += 1;
+            }
+            self.piece_of_src[k] = number[r];
+        }
+        for a in 0..n {
+            if !self.piles[a].reached() {
+                continue;
+            }
+            for b in a + 1..n {
+                if self.piles[b].reached() && self.piece_of_src[a] == self.piece_of_src[b] {
+                    let pair = (keys[a].min(keys[b]), keys[a].max(keys[b]));
+                    self.last_joined.insert(pair, t);
+                }
+            }
+        }
+        self.piece_count = count as usize;
+        self.census_keys = keys;
+        let keep = 2 * STEPS_PER_SECOND as u64;
+        self.snaps.retain(|&(_, _, at)| t.saturating_sub(at) <= keep);
+    }
+
+    /// The piece a cell's mould belongs to, by the last census: `None` where
+    /// it is not fed.
+    pub fn piece_of(&self, i: usize) -> Option<usize> {
+        if self.fed[i] == u16::MAX {
+            return None;
+        }
+        self.piece_of_src.get(self.fed_src[i] as usize).map(|&p| p as usize)
+    }
+
+    fn heal_wounds(&mut self) {
+        if self.wounds.is_empty() {
+            return;
+        }
+        let t = self.t;
+        let (ground, until) = (&mut self.ground, &mut self.wound_until);
+        self.wounds.retain(|&(i, heal)| {
+            if heal > t {
+                return true;
+            }
+            // A later snip over the same cell keeps it open longer.
+            if until[i] <= t && ground[i] == Ground::Wound {
+                ground[i] = Ground::Agar;
+                until[i] = u64::MAX;
+            }
+            false
+        });
+    }
+
     /// **Whether a drawn tube cell shows fed (yellow) or starving (grey).**
     /// Owner's playtest, 2026-11-08: "sometimes things were flashing gray".
     /// The feeding search only walks cells over the tube threshold, but a
@@ -1104,7 +1329,160 @@ impl Dish {
         at != u64::MAX && self.t.saturating_sub(at) <= (FED_LOOK_SECONDS * STEPS_PER_SECOND as f32) as u64
     }
 
+    /// The economy with `Params::pieces`: the shared-store rules below,
+    /// applied to each piece's own food. A piece's food is the sum of its
+    /// walkers' shares; it earns what its piles are eaten for, pays upkeep
+    /// per walker, goes hungry when it runs dry, and pays for its own
+    /// births; then what is left is shared out again. An unfed walker (on
+    /// tube no food reaches) lives on its own share until it starves.
+    fn economy_by_piece(&mut self) {
+        let pieces = self.piece_count;
+        let upkeep = self.params.upkeep;
+        let mut food = vec![0.0f32; pieces];
+        // Eating, credited to the eating pile's piece. A pile added since
+        // the census has no eaters yet; one gone since is simply absent.
+        let eat = self.params.eat;
+        let table = self.params.table;
+        for p in self.piles.iter_mut() {
+            if p.eaters > 0 && p.food > 0.0 {
+                let key = pile_key(p);
+                let Some(k) = self.census_keys.iter().position(|&c| c == key) else { continue };
+                let e = (p.eaters.min(table) as f32 * eat).min(p.food);
+                p.food -= e;
+                food[self.piece_of_src[k] as usize] += e;
+            }
+        }
+        // Each walker's piece, its share pooled, and upkeep.
+        let mut piece_of: Vec<Option<usize>> = Vec::with_capacity(self.walkers.len());
+        let mut size = vec![0u32; pieces];
+        for k in 0..self.walkers.len() {
+            let w = self.walkers[k];
+            let i = cell(w.x, w.y).expect("walker inside the dish");
+            let g = self.piece_of(i);
+            match g {
+                Some(g) => {
+                    food[g] += w.food - upkeep;
+                    size[g] += 1;
+                }
+                None => self.walkers[k].food = (w.food - upkeep).max(0.0),
+            }
+            piece_of.push(g);
+        }
+        let empty: Vec<bool> = food.iter().map(|&f| f <= 0.0).collect();
+        for f in food.iter_mut() {
+            *f = f.max(0.0);
+        }
+        // Deaths: the shared-store rules, with "the store is empty" read
+        // per piece (or per walker, for an unfed one).
+        let reach = self.params.feed_reach as f32;
+        let mut k = 0;
+        while k < self.walkers.len() {
+            let w = self.walkers[k];
+            let i = cell(w.x, w.y).expect("walker inside the dish");
+            let d = self.fed[i];
+            let g = piece_of[k];
+            let fed = g.is_some();
+            let dry = match g {
+                Some(g) => empty[g],
+                None => w.food <= 0.0,
+            };
+            let roll = self.rng.f32();
+            let mut why = None;
+            let l = self.light[i];
+            if l > 0.0 && roll < self.params.burn * l {
+                why = Some(Kill::Burned);
+            } else if !fed && roll < self.params.starve {
+                why = Some(Kill::Starved);
+            } else if dry {
+                let far = if fed { d as f32 / reach } else { 1.5 };
+                if roll < self.params.hungry * (0.25 + far) {
+                    why = Some(Kill::Hungry);
+                }
+            }
+            if let Some(why) = why {
+                // `remove_walker` swaps the last walker into k: keep the
+                // piece list in step.
+                self.remove_walker(k, why);
+                piece_of.swap_remove(k);
+                if let Some(g) = g {
+                    size[g] -= 1;
+                }
+            } else {
+                k += 1;
+            }
+        }
+        // Births, each paid for by its parent's piece.
+        let n = self.walkers.len();
+        let crowd = self.params.crowd;
+        for k in 0..n {
+            if self.rng.f32() >= self.params.divide {
+                continue;
+            }
+            let Some(g) = piece_of[k] else { continue };
+            if food[g] < 1.0 {
+                continue;
+            }
+            let w = self.walkers[k];
+            let (wx, wy) = (w.x as i32, w.y as i32);
+            if self.light[idx(wx as usize, wy as usize)] > 0.0 {
+                continue;
+            }
+            let mut count = 0;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    let (x, y) = (wx + dx, wy + dy);
+                    if x >= 0
+                        && y >= 0
+                        && (x as usize) < W
+                        && (y as usize) < H
+                        && self.occ[idx(x as usize, y as usize)] != 0
+                    {
+                        count += 1;
+                    }
+                }
+            }
+            if count > crowd {
+                continue;
+            }
+            let dir = self.rng.below(8) as i32;
+            let (dx, dy) = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)][dir as usize];
+            let (x, y) = (wx + dx, wy + dy);
+            if x < 0 || y < 0 || x as usize >= W || y as usize >= H {
+                continue;
+            }
+            let j = idx(x as usize, y as usize);
+            if self.ground[j] != Ground::Agar || self.occ[j] != 0 {
+                continue;
+            }
+            self.occ[j] = 1;
+            let heading = self.rng.f32() * TAU;
+            self.walkers.push(Walker {
+                x: x as f32 + 0.5,
+                y: y as f32 + 0.5,
+                heading,
+                food: 0.0,
+            });
+            piece_of.push(Some(g));
+            size[g] += 1;
+            food[g] -= 1.0;
+            self.counts.births += 1;
+        }
+        // Share each piece's food out again; the store is the total, for
+        // the HUD and anything else that reads it.
+        let mut total = 0.0;
+        for (k, w) in self.walkers.iter_mut().enumerate() {
+            if let Some(g) = piece_of[k] {
+                w.food = food[g] / size[g].max(1) as f32;
+            }
+            total += w.food;
+        }
+        self.store = total;
+    }
+
     fn economy(&mut self) {
+        if self.params.pieces {
+            return self.economy_by_piece();
+        }
         // Eating.
         let eat = self.params.eat;
         for p in self.piles.iter_mut() {
@@ -1200,6 +1578,7 @@ impl Dish {
                 x: x as f32 + 0.5,
                 y: y as f32 + 0.5,
                 heading,
+                food: 0.0,
             });
             self.store -= 1.0;
             self.counts.births += 1;
@@ -1249,11 +1628,16 @@ impl Dish {
                 let mut s = self.before.clone().unwrap_or_default();
                 s.after = self.measure().reach.min(s.reach);
                 self.after = Some(s.after);
-                let joined_two = s.reach >= 2;
+                // Toughness, like thrift, needs a network worth the name:
+                // with each piece eating its own food, two piles left alone
+                // regrow to each other round the scar within the watch, and
+                // a do-nothing hand took the star on 2 of 5 seeds (0 of 5
+                // with the shared store). Three piles, as for thrift.
+                let networked = s.reach >= THRIFT_MIN_JOINED;
                 s.stars = [
                     s.reach == s.piles,
-                    s.reach >= THRIFT_MIN_JOINED && s.ratio() <= THRIFT_BAR,
-                    joined_two && s.after == s.reach,
+                    networked && s.ratio() <= THRIFT_BAR,
+                    networked && s.after == s.reach,
                 ];
                 self.score = Some(s);
                 self.phase = Phase::Over;

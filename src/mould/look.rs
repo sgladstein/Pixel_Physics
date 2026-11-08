@@ -879,7 +879,7 @@ fn hint(d: &Dish, view: &View, st: &Status) -> [String; 2] {
     let two = |a: &str, b: &str| [a.to_string(), b.to_string()];
     match d.phase {
         Phase::Over => two("Dish over.", "R: again  N: next dish"),
-        Phase::Storm(_) => two("The storm struck.", "Watch what stays joined"),
+        Phase::Storm(_) | Phase::Crossing(_) => two("The storm struck.", "Watch what stays joined"),
         Phase::Growing if d.storm_line.is_some() && !st.lesson => {
             [format!("Storm in {} s:", st.left), "it cuts the marked line".into()]
         }
@@ -1139,6 +1139,19 @@ fn scar_colour(th: &Theme, x: usize, y: usize, t: u64) -> Rgb {
     }
 }
 
+/// An open snip (`Ground::Wound`): raw and dark while open, closing back
+/// to the agar under it over its last second, as `render.rs` draws it, so
+/// the cut is seen to heal rather than vanish.
+fn wound_colour(th: &Theme, d: &Dish, i: usize, agar: Rgb) -> Rgb {
+    let left = d.wound_until[i].saturating_sub(d.t) as f32 / STEPS_PER_SECOND as f32;
+    let raw = match th.style {
+        Style::Glow => [132, 26, 58],
+        Style::Toy => [120, 30, 44],
+        _ => [92, 18, 40],
+    };
+    lerp(agar, raw, left.clamp(0.0, 1.0))
+}
+
 fn tube_colour(th: &Theme, v: f32, fed: bool, shade: f32) -> Rgb {
     let stops: &[Rgb] = if fed { &th.fed } else { &th.pale };
     match th.style {
@@ -1237,6 +1250,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                 Ground::Rim => rim_colour(th, x, y, st),
                 Ground::Salt => salt_colour(th, d, x, y),
                 Ground::Scar => scar_colour(th, x, y, d.t),
+                Ground::Wound => wound_colour(th, d, i, bg[i]),
                 Ground::Agar => {
                     let mut c = bg[i];
                     if shadow_of_salt && x > 0 && y > 0 && d.ground[i - W - 1] == Ground::Salt {
@@ -1878,6 +1892,7 @@ fn phase_words(d: &Dish, st: &Status) -> String {
     let sps = STEPS_PER_SECOND as u64;
     match d.phase {
         Phase::Over => "Dish over".into(),
+        Phase::Crossing(_) => "On her way".into(),
         Phase::Storm(at) => {
             let end = at + super::Dish::storm_steps();
             format!("Storm! Score in {} s", end.saturating_sub(d.t).div_ceil(sps))
