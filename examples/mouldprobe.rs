@@ -153,6 +153,8 @@ fn parse() -> Args {
             "cap" => a.cap_min = v.parse().unwrap(),
             "sensor_angle" => p.sensor_angle = f().to_radians(),
             "rotate_angle" => p.rotate_angle = f().to_radians(),
+            "settle_seconds" => p.settle_seconds = f(),
+            "explore_angle" => p.explore_angle = f().to_radians(),
             "sensor_offset" => p.sensor_offset = f(),
             "deposit" => p.deposit = f(),
             "keep" => p.keep = f(),

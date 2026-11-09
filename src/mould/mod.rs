@@ -275,6 +275,19 @@ pub struct Params {
     pub wall_grow: f32,
     pub wall_half_life: f32,
     pub wall_pull: f32,
+    /// **Explore, then settle** (owner, 2026-11-09, after the 22.5 vs 45
+    /// page). Seconds over which the sensor angle eases from
+    /// `explore_angle` to `sensor_angle`; 0 is off (the angle is
+    /// `sensor_angle` throughout). Jones 2010: 22.5 with a 45 turn "never
+    /// stabilizes completely" and keeps sprouting branches across gaps,
+    /// 45/45 pulls tight and holds still (pp.135-136); he suggests slowing
+    /// the model over time to mimic the plasmodium sticking to its ground
+    /// (p.141). Measured at 22.5 throughout, doing nothing joined every pile
+    /// on 4 of 4 seeds and earned stars, so the dish no longer needed the
+    /// player: easing back is what is meant to give the tools their job.
+    pub settle_seconds: f32,
+    /// The sensor angle a dish starts at when `settle_seconds` is on, radians.
+    pub explore_angle: f32,
 }
 
 impl Default for Params {
@@ -322,6 +335,8 @@ impl Default for Params {
             wall_grow: 1.0,
             wall_half_life: 30.0,
             wall_pull: 1.0,
+            settle_seconds: 0.0,
+            explore_angle: 22.5f32.to_radians(),
         }
     }
 }
@@ -1284,6 +1299,17 @@ impl Dish {
         }
     }
 
+    /// The sensor angle this step: `sensor_angle`, or on its way there
+    /// from `explore_angle` while `settle_seconds` runs.
+    pub fn sensor_angle_now(&self) -> f32 {
+        let p = &self.params;
+        if p.settle_seconds <= 0.0 {
+            return p.sensor_angle;
+        }
+        let k = (self.t as f32 / STEPS_PER_SECOND as f32 / p.settle_seconds).min(1.0);
+        p.explore_angle + (p.sensor_angle - p.explore_angle) * k
+    }
+
     fn move_walkers(&mut self) {
         let n = self.walkers.len();
         self.order.clear();
@@ -1293,7 +1319,7 @@ impl Dish {
             self.order.swap(k, j);
         }
         let (sa, ra, so, dep) = (
-            self.params.sensor_angle,
+            self.sensor_angle_now(),
             self.params.rotate_angle,
             self.params.sensor_offset,
             self.params.deposit,

@@ -42,7 +42,7 @@ fn b(v: bool) -> f32 {
 
 /// The rows, in panel order: level 1 (food carried), level 2 (food in the
 /// tube, its stream and pulse), level 3 (walls), then the old rule's reach.
-pub static KNOBS: [Knob; 19] = [
+pub static KNOBS: [Knob; 21] = [
     Knob {
         name: "flow",
         help: "Food flows. Off: the old rule, food reaches feed_reach cells of tube at once",
@@ -204,6 +204,26 @@ pub static KNOBS: [Knob; 19] = [
         help: "Degrees either side the walkers look. 45 pulls tight and settles; 22.5 keeps branching across gaps",
         get: |p| p.sensor_angle.to_degrees(),
         set: |p, v| p.sensor_angle = v.to_radians(),
+        step: 2.5,
+        min: 0.0,
+        max: 90.0,
+        switch: false,
+    },
+    Knob {
+        name: "settle_seconds",
+        help: "Explore, then settle: seconds to ease from explore_angle to sensor_angle (0 off)",
+        get: |p| p.settle_seconds,
+        set: |p, v| p.settle_seconds = v,
+        step: 5.0,
+        min: 0.0,
+        max: 300.0,
+        switch: false,
+    },
+    Knob {
+        name: "explore_angle",
+        help: "Sensor angle a dish starts at while settle_seconds runs (22.5 roams and branches)",
+        get: |p| p.explore_angle.to_degrees(),
+        set: |p, v| p.explore_angle = v.to_radians(),
         step: 2.5,
         min: 0.0,
         max: 90.0,
