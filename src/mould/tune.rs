@@ -285,8 +285,11 @@ pub fn draw(frame: &mut [u8], (fw, fh): (u32, u32), p: &Params, cursor: usize) {
     let line = (hud::GLYPH_HEIGHT + 3) * K;
     let rows: Vec<(String, String)> = (0..KNOBS.len()).map(|r| (KNOBS[r].name.to_string(), value_text(p, r))).collect();
     let name_w = rows.iter().map(|(n, _)| hud::text_width(n)).max().unwrap_or(0) * K;
-    let w = name_w + 12 * K + 7 * 6 * K;
     let head = ["TUNE  (T closes)", "Up/Down pick  Left/Right change"];
+    // As wide as the widest of the rows and the header, so the header's
+    // second line is not cut at the window's edge (it was, at K = 2).
+    let head_w = head.iter().map(|h| hud::text_width(h)).max().unwrap_or(0) * K;
+    let w = (name_w + 12 * K + 7 * 6 * K).max(head_w + 16);
     let h = line * (rows.len() as i32 + head.len() as i32 + 1) + 10;
     let x0 = fw as i32 - w - 8;
     let y0 = 8;

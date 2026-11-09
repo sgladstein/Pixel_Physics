@@ -1676,7 +1676,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                             any = true;
                             if !nfed && d.looks_fed(ny as usize * W + nx as usize) {
                                 nfed = true;
-                                if !is_tube {
+                                if !is_tube && super::render::DRAWN_PULSE {
                                     beat = pulse(d, ny as usize * W + nx as usize);
                                 }
                             }
@@ -1699,7 +1699,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         // tube's shape rather than the trail's grain.
                         shade = ((tr(xi + 2, yi + 2) - tr(xi - 2, yi - 2)) / (t0 + 6.0)).clamp(-1.0, 1.0);
                     }
-                    if is_tube && fed {
+                    if is_tube && fed && super::render::DRAWN_PULSE {
                         beat = pulse(d, i);
                     }
                     if !fed || flow {

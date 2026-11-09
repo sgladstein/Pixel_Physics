@@ -111,6 +111,15 @@ const WOUND: [u8; 3] = [92, 18, 40];
 /// (cells a second), how far apart bands are (cells), and the fraction of
 /// that spacing its tail covers.
 const PULSE: [u8; 3] = [255, 252, 230];
+/// **The drawn pulse is off** (owner, 2026-11-09: "I also really don't
+/// like the fact that the pulse is just drawn on screen. Everything we're
+/// seeing should be based on real pixel simulations"). It was drawing
+/// only; nothing in the dish moved with it. The beat that is simulated is
+/// `Params::flow`'s sap (`pulse_seconds`, `pulse_strength`), which shows
+/// as food in the tube. Kept behind this switch, not deleted, so the two
+/// can be put side by side; the Organ's pulse (`organ.rs`) is its game's
+/// mechanic and is not this.
+pub const DRAWN_PULSE: bool = false;
 const PULSE_STRENGTH: f32 = 0.45;
 const PULSE_SPEED: f32 = 45.0;
 const PULSE_SPACING: f32 = 60.0;
@@ -154,7 +163,7 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         }
         return if d.looks_fed(i) {
             let c = ramp(&FED_RAMP, v);
-            let b = pulse(d, i);
+            let b = if DRAWN_PULSE { pulse(d, i) } else { 0.0 };
             if b > 0.0 {
                 [0, 1, 2].map(|k| (c[k] as f32 + (PULSE[k] as f32 - c[k] as f32) * b * PULSE_STRENGTH) as u8)
             } else {
