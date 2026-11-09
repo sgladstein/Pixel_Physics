@@ -532,7 +532,7 @@ The built look costs about 1.3-1.6 ms more on average.
 2. **Food in the tube, a stream and a pulse** (`sap`). Piles pump into the tube cells at their rim on the beat (`pulse_seconds`, `pulse_strength`); the tube's food is carried outward and back by a stream (`stream`, `stream_bias`, scaled by tube thickness) and soaks along it (`sap_speed`); a walker draws from its cell only what it is short of `want`. The beat is the real organism's shuttle streaming, sped up.
 3. **Tubes that remember** (`wall_grow`, `wall_half_life`, `wall_pull`). Food moving through a cell builds a wall (capped at `WALL_MAX`) that fades slowly, widens the tube's conductance and is sensed by walkers on top of the trail.
 
-What is drawn with flow on is the walkers' average load (`Dish::carried` over `Dish::walkers_seen`) plus the tube's food (`Dish::sap`), graded; the drawn-only pulse is off. T in the window opens the tuning panel (`mould::tune`): 15 rows, live, saved to `mould-tune.txt`.
+What is drawn with flow on is the walkers' average load (`Dish::carried` over `Dish::walkers_seen`) plus the tube's food (`Dish::sap`), graded; the drawn-only pulse is off. T in the window opens the tuning panel (`mould::tune`): 19 rows, live, saved to `mould-tune.txt`; the last four (2026-11-09) are Jones's sensor angle, turn angle, sensor reach and the piles' smell.
 
 **Measured** (free dish, seeds 1-4, old rule against flow at its defaults):
 

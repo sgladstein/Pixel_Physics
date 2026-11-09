@@ -42,7 +42,7 @@ fn b(v: bool) -> f32 {
 
 /// The rows, in panel order: level 1 (food carried), level 2 (food in the
 /// tube, its stream and pulse), level 3 (walls), then the old rule's reach.
-pub static KNOBS: [Knob; 15] = [
+pub static KNOBS: [Knob; 19] = [
     Knob {
         name: "flow",
         help: "Food flows. Off: the old rule, food reaches feed_reach cells of tube at once",
@@ -191,6 +191,52 @@ pub static KNOBS: [Knob; 15] = [
         step: 5.0,
         min: 5.0,
         max: 400.0,
+        switch: false,
+    },
+    // Jones's own three agent levers (Jones 2010, Table 1 and s3.4). The
+    // shipped 45/45 is the corner of his map that pulls tight and then
+    // holds still; his default, 22.5/45, "never stabilizes completely" and
+    // keeps sprouting branches across empty gaps. On the panel so the owner
+    // can feel the difference (2026-11-09); the dishes' bars were set at
+    // 45/45, so changing them here is play, not a new default.
+    Knob {
+        name: "sensor_angle",
+        help: "Degrees either side the walkers look. 45 pulls tight and settles; 22.5 keeps branching across gaps",
+        get: |p| p.sensor_angle.to_degrees(),
+        set: |p, v| p.sensor_angle = v.to_radians(),
+        step: 2.5,
+        min: 0.0,
+        max: 90.0,
+        switch: false,
+    },
+    Knob {
+        name: "turn_angle",
+        help: "Degrees a walker turns toward the strongest smell. Wider than the sensor angle: restless branching",
+        get: |p| p.rotate_angle.to_degrees(),
+        set: |p, v| p.rotate_angle = v.to_radians(),
+        step: 2.5,
+        min: 0.0,
+        max: 90.0,
+        switch: false,
+    },
+    Knob {
+        name: "sensor_reach",
+        help: "Cells ahead the walkers smell. Small: fine lacy tubes; large: coarse thick ones that change faster",
+        get: |p| p.sensor_offset,
+        set: |p, v| p.sensor_offset = v,
+        step: 1.0,
+        min: 2.0,
+        max: 30.0,
+        switch: false,
+    },
+    Knob {
+        name: "food_smell",
+        help: "How strongly piles smell. Weak: tubes meet at junctions in open space; strong: straight spokes pile to pile",
+        get: |p| p.food_deposit,
+        set: |p, v| p.food_deposit = v,
+        step: 2.0,
+        min: 0.0,
+        max: 200.0,
         switch: false,
     },
 ];
