@@ -6618,6 +6618,13 @@ file unless its report says so.
   most 99% (3 stars on 11); planned beats random 9-2-1, p = 0.065, not significant: the box is too easy. Records the seven
   game-only engine switches (speed-up, climbing, soil-only anchoring, runners and roots, dieback guard) and what each fixed.
   Frame mean 1.3 ms, worst 21.6 ms at 2,880 vine cells. Verdict waits on the owner's playtest.
+- [mould-real-world-2026-11-09.md](mould-real-world-2026-11-09.md) — **design exploration, no build: what the mould game
+  looks like out of the dish.** The shipped mould dropped unchanged into a side-on slice of the lab box grows one runner
+  along the ground (4 of the 5 surface piles beyond home in 10 s, untouched), because the world's dead matter lies on the
+  surface; with five piles buried 12+ rows down it branches into roots (9 of 10), where the same ground without buried
+  food stays a runner. From above, a forest floor keeps the dish's network but is not the engine. Records an edge-of-window
+  trail bug the review caught (`Dish::spread` skips the border). Recommends a side-on "mould under the garden" probe in its
+  own binary, top-down as the fallback; waits on the owner.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
