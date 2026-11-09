@@ -1,0 +1,201 @@
+<title>Mould Out of the Dish</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column of field notes; each finding is a specimen plate (picture + its counts), then three option sheets and a verdict. */
+:root {
+  --bg: #f3f1ea;
+  --paper: #fbfaf6;
+  --ink: #23201a;
+  --muted: #6b6455;
+  --rule: #d9d3c4;
+  --mould: #b8860b;
+  --mould-soft: #f3e3b3;
+  --soil: #4a3a2a;
+  --good: #3d6b35;
+  --warn: #9a4b1f;
+  --display: "Young Serif", Georgia, "Times New Roman", serif;
+  --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17140f; --paper: #201c16; --ink: #ece6d8; --muted: #a79f8c; --rule: #3a3428;
+    --mould: #e3b341; --mould-soft: #3b3014; --soil: #c9b18f; --good: #8fc27f; --warn: #e39a6a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17140f; --paper: #201c16; --ink: #ece6d8; --muted: #a79f8c; --rule: #3a3428;
+  --mould: #e3b341; --mould-soft: #3b3014; --soil: #c9b18f; --good: #8fc27f; --warn: #e39a6a;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 64px;
+}
+main { max-width: 860px; margin: 0 auto; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 400; text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 6vw, 3rem); }
+h2 { font-size: 1.6rem; }
+h3 { font-size: 1.2rem; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header { display: grid; gap: 14px; }
+.answer { border-left: 4px solid var(--mould); padding: 4px 0 4px 16px; display: grid; gap: 10px; }
+.answer strong { color: var(--ink); }
+section { display: grid; gap: 16px; }
+figure { margin: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 12px; display: grid; gap: 10px; }
+figure img { width: 100%; height: auto; display: block; image-rendering: pixelated; border-radius: 3px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pair > div { display: grid; gap: 6px; min-width: 0; }
+@media (max-width: 620px) { .pair { grid-template-columns: 1fr; } }
+figcaption { font-size: 0.95rem; color: var(--muted); display: grid; gap: 6px; }
+.label { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+.counts { font-family: var(--mono); font-size: 0.82rem; font-variant-numeric: tabular-nums; color: var(--ink); background: var(--mould-soft); border-radius: 4px; padding: 6px 8px; overflow-wrap: anywhere; }
+.counts b { font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.9rem; font-variant-numeric: tabular-nums; min-width: 560px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 400; }
+.options { display: grid; gap: 16px; }
+.opt { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; display: grid; gap: 10px; }
+.opt.pick { border-color: var(--mould); box-shadow: 0 0 0 1px var(--mould); }
+.opt .tag { justify-self: start; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; background: var(--mould-soft); color: var(--ink); }
+.opt dl { margin: 0; display: grid; grid-template-columns: 8.5em 1fr; gap: 6px 14px; }
+.opt dt { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); padding-top: 3px; }
+.opt dd { margin: 0; min-width: 0; }
+@media (max-width: 520px) { .opt dl { grid-template-columns: 1fr; } .opt dd { margin-bottom: 6px; } }
+.plus { color: var(--good); }
+.minus { color: var(--warn); }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.note { font-size: 0.9rem; color: var(--muted); }
+code { font-family: var(--mono); font-size: 0.85em; }
+</style>
+
+<main>
+  <header>
+    <span class="eyebrow">Mould design exploration · 9 Nov 2026</span>
+    <h1>Mould out of the dish</h1>
+    <p>You asked how the slime mould game would look in a real world instead of a dish. I dropped the shipped mould, unchanged, into a real slice of the lab box seen side-on, and onto a forest floor seen from above, and let it grow untouched for a minute. Every yellow pixel below is the mould's own simulation.</p>
+    <div class="answer">
+      <p><strong>Side-on, in the real engine, the mould turns into a runner, or into roots.</strong> With food lying on the surface it grows one long runner along the ground and reaches nearly everything by itself. Bury food in the soil and it branches down to it like a root system. That gives a new tension the dish never had: food is on top, damp soil is below, and light pushes it down.</p>
+      <p><strong>From above, on a forest floor, it looks just like the dish game</strong> with logs and stones around it. That keeps everything you liked, but the world would be the mould game's own, not the engine.</p>
+      <p><strong>My recommendation:</strong> try side-on first, as a small game of its own on a lab-style box ("mould under the garden"), and keep the forest floor as the fallback.</p>
+    </div>
+  </header>
+
+  <section>
+    <span class="eyebrow">Finding 1 · side-on, food on the surface</span>
+    <h2>It grows a runner, not a network</h2>
+    <p>The lab's played bed, aged 20,000 frames so leaves, fruit and dead ants have fallen. The mould may live in litter, dead matter and the top rows of soil, and in a thin layer of air just above the ground (it cannot crawl over a surface side-on; it has to be inside something). Food piles sit on the box's own fallen food.</p>
+    <figure>
+      <img src="surface40.gif" alt="Side-on lab box: the mould spreads into a single yellow tube along the ground under the plants" width="768" height="480">
+      <div class="counts">40 soil rows + air film · <b>4 of the 5 piles beyond home reached by 10 s</b> with no player · 1,465 walkers, 2,711 tube cells at 60 s</div>
+    </figure>
+    <div class="pair">
+      <figure>
+        <img src="surface14-t60.png" alt="Thin soil skin: a short yellow slab that stops at a stone" width="768" height="480" loading="lazy">
+        <figcaption><span class="label">Only 14 soil rows, 60 s</span><span class="counts">1 of 4 piles beyond home · 536 walkers · stops at the nest's stone</span></figcaption>
+      </figure>
+      <figure>
+        <img src="surface40-mask.png" alt="Where it may live: a pale band along the top of the soil, red marks for food" width="768" height="480" loading="lazy">
+        <figcaption><span class="label">Where it may live (pale) and its food (red)</span><span class="counts">9,704 livable cells · home + 5 piles</span></figcaption>
+      </figure>
+    </div>
+    <p>Nearly all the world's dead matter lies on the surface, so the food is in a line, and the mould becomes a line. It also nearly wins on its own, which leaves the player little to do.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Finding 2 · side-on, food buried</span>
+    <h2>Bury food and the roots come back</h2>
+    <p>Same box, same mould, plus five piles at least 12 rows under the surface: a stand-in for a buried dead ant, a root, or an ants' larder.</p>
+    <figure>
+      <img src="buried.gif" alt="Side-on: the mould runs along the surface and sends thick branches down into the soil to buried food, with a loop" width="768" height="480">
+      <div class="counts">60 soil rows + air film + 5 buried piles · <b>9 of the 10 piles beyond home</b> at 10 s and at 60 s · 2,634 walkers, 4,902 tube cells at 60 s</div>
+    </figure>
+    <div class="pair">
+      <figure>
+        <img src="deep60-t60.png" alt="Control: the same 60-row ground with no buried food grows the runner plus one loop that dips and starves" width="768" height="480" loading="lazy">
+        <figcaption><span class="label">Control: same ground, no buried food, 60 s</span><span class="counts">4 of 5 piles beyond home · 1,472 walkers · 3,449 tube cells: still a runner, one loop that starves</span></figcaption>
+      </figure>
+      <figure>
+        <img src="reach4-t60.png" alt="With the sensor reach halved the branches are thinner and wander more" width="768" height="480" loading="lazy">
+        <figcaption><span class="label">Buried food, sensor reach 4 instead of 9, 60 s</span><span class="counts">5 of 10 at 10 s, 9 of 10 at 60 s · 3,144 walkers · 5,639 tube cells: thinner, wandering branches</span></figcaption>
+      </figure>
+    </div>
+    <p>So side-on, the network is shaped by where the world puts food under the ground; deeper soil alone does not do it. By eye a tube is about 10 to 14 cells wide against a 2-cell ant, so here the mould is a big creature. Halving its sensor reach gave thinner branches on this one seed, which is the first knob to try.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Finding 3 · from above</span>
+    <h2>A forest floor keeps the dish's network</h2>
+    <p>A seeded floor: moss, two fallen logs it can cross, stones and a puddle it cannot, eight piles of leaves.</p>
+    <div class="pair">
+      <figure>
+        <img src="top.gif" alt="From above: the mould grows a bent tube joining three leaf piles across a log, among stones and a puddle" width="768" height="480">
+        <figcaption><span class="label">First 60 s</span><span class="counts"><b>2 of the 7 piles beyond home</b> alone · 900 walkers · 1,918 tube cells at 60 s</span></figcaption>
+      </figure>
+      <figure>
+        <img src="top-mask.png" alt="Where it may live from above: everywhere except stones and the puddle" width="768" height="480" loading="lazy">
+        <figcaption><span class="label">Where it may live (pale) and food (red)</span><span class="counts">the other 5 are, I think, beyond its 70-cell feeding reach: the player's job</span></figcaption>
+      </figure>
+    </div>
+    <p>This is the game you have been playing, with scenery. The scenery is painted from the same map the mould steps on, so it is honest, but rain, drying, shade and wind would all have to be built inside the mould game.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Options</span>
+    <h2>Three ways the game could look</h2>
+    <div class="options">
+      <article class="opt pick">
+        <span class="tag">A · recommended first</span>
+        <h3>Mould under the garden (side-on, real engine)</h3>
+        <dl>
+          <dt>What you see</dt><dd>The box cut open: plants and sky above, soil below, a yellow mould living in the topsoil and litter and branching down to buried food. With the lamps off it comes up to eat what has fallen; under a lamp it is pushed down; after the mister rains it surges; in a dry spell it pulls down to where the soil stays damp.</dd>
+          <dt>Camera</dt><dd>The 512 x 320 box, whole or as a half-width window that pans.</dd>
+          <dt>Your verbs</dt><dd>Drop food (it falls for real) · water (soaks the real soil) · move a lamp (the box's real light pushes it) · dig and fill (bury food so it must reach down). The dish's storm becomes the world's: rain, an ant tunnel through a tube, a dry spell.</dd>
+          <dt>Goals</dt><dd>Reach the fallen fruit before it rots or the ants take it · keep a branch alive through a dry spell by getting it deep · feed the garden: it leaves rich soil where it eats and the plants grow from it.</dd>
+          <dt class="plus">For</dt><dd>Real by construction, which is your newest rule. Water, gravity, day and night and rot come free. The up-for-food, down-for-water pull only exists side-on. It is the project's own goal: a fun sim in the lab box.</dd>
+          <dt class="minus">Against</dt><dd>With surface food it is a line and nearly wins alone (4 of 5 piles beyond home in 10 s). Tubes are fat at this scale. It goes through things, never over them. It reverses your 8 Nov call to keep the world out of the mould game.</dd>
+          <dt>Cost</dt><dd>0.17 to 0.56 ms per mould step on a half-box window here, two steps a frame. The whole box is four times the cells: roughly 1 to 2 ms a step, inferred, not measured. As its own game it cannot move the lab or ant training; if it ever goes into the lab itself, the Teacher lane is told first.</dd>
+        </dl>
+      </article>
+      <article class="opt">
+        <span class="tag">B · fallback</span>
+        <h3>A forest floor from above (its own world)</h3>
+        <dl>
+          <dt>What you see</dt><dd>The dish mould and its networks on a mossy floor bigger than one screen, logs and stones around it, the camera following the front. Rain drops, a dry spell spreading from sunny gaps, canopy shade sliding across with the day.</dd>
+          <dt>Your verbs</dt><dd>Today's lamp, oats, salt and snip, plus water; the depth report's crust, fruiting and spores fit unchanged.</dd>
+          <dt class="plus">For</dt><dd>Keeps everything already tuned and liked. No engine coupling, no risk to other games. Cheapest.</dd>
+          <dt class="minus">Against</dt><dd>The world is the mould game's own simple layers, each of which must be built as real simulation. Not the engine, and never part of the lab.</dd>
+          <dt>Cost</dt><dd>0.89 to 1.04 ms per step for one all-open screen here, so a bigger floor needs to step only what is near the mould.</dd>
+        </dl>
+      </article>
+      <article class="opt">
+        <span class="tag">C · a later layer on A</span>
+        <h3>Across the outdoor world (a journey)</h3>
+        <dl>
+          <dt>What you see</dt><dd>A mould in one rotting patch that, when it starves, fruits; its spores ride the real weather wind to another patch along the 8,192-wide world, and the camera follows the new colony.</dd>
+          <dt class="plus">For</dt><dd>The biggest, most real-world version; spores on real wind give fruiting a purpose.</dd>
+          <dt class="minus">Against</dt><dd>A freshly made outdoor world probably has little to eat on the surface (one early check found 0 food cells in its best window; not rechecked). The world is 512 dishes in size, so the mould lives in windows. Needs A working first.</dd>
+        </dl>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Recommendation</span>
+    <h2>Try side-on first, small, on its own</h2>
+    <ul>
+      <li>A small game of its own: a lab-style box, the shipped mould in its soil, the engine doing water, light, gravity and rot, and four verbs (drop, water, lamp, dig). The mould game's own code stays with its thread.</li>
+      <li><strong>How we would judge it, decided now:</strong> your play, plus two counts on the same seeds: piles joined by doing nothing against a planned hand (the dish's star test), and how much of the tube lies below 12 rows (a runner scores near zero, roots well above it).</li>
+      <li><strong>The first risk to check:</strong> whether the real damp-below soil and the lamp stop it winning alone. If side-on feels like steering a rope along a line rather than growing roots, switch to the forest floor.</li>
+    </ul>
+  </section>
+
+  <p class="note">How these were made: <code>examples/mould_world_sketch.rs</code> runs the shipped mould model at its shipped settings on a new ground; nothing in the mould game or the engine was changed. Side-on: the lab's played bed, seed 1, aged 20,000 frames with the game's own step and mister, window at x 240, y 90. "Reached" means mould standing on the pile, home not counted. One seed per picture, so these show what the shapes look like, not how often; reruns gave identical counts. Step times are rough (six runs shared one machine). An independent code review caught a bug in my first pictures (trail on the window's edge never faded); these are the corrected reruns. Full write-up: <code>Reports/mould-real-world-2026-11-09.md</code>.</p>
+</main>
