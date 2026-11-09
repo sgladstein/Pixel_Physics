@@ -521,3 +521,29 @@ scale 4, 664 frames; run order Night, Classic, Night, Classic):
 | old look (Classic) | 2.73 ms | 2.68 ms | 4.50 ms | 14.10 ms |
 
 The built look costs about 1.3-1.6 ms more on average.
+
+## Food that flows (2026-11-09)
+
+**The owner's ask:** food that stopped at a tube distance "clearly is just like a distance metric", the drawn pulse was disliked ("everything we're seeing should be based on real pixel simulations"), and all three levels of real flow were asked for, each behind a switch or a number to play with.
+
+**What it is** (`Params::flow`, off by default until the owner has played it; the dishes were tuned against the old rule):
+
+1. **Food carried by the mould.** Walkers carry a load (`Walker::food`), pay upkeep from it, divide from it and starve when it is empty; neighbours even out (`share`). There is no reach: the census still runs, uncapped, only for the score, joins, the stray rule and which way along a tube is outward.
+2. **Food in the tube, a stream and a pulse** (`sap`). Piles pump into the tube cells at their rim on the beat (`pulse_seconds`, `pulse_strength`); the tube's food is carried outward and back by a stream (`stream`, `stream_bias`, scaled by tube thickness) and soaks along it (`sap_speed`); a walker draws from its cell only what it is short of `want`. The beat is the real organism's shuttle streaming, sped up.
+3. **Tubes that remember** (`wall_grow`, `wall_half_life`, `wall_pull`). Food moving through a cell builds a wall (capped at `WALL_MAX`) that fades slowly, widens the tube's conductance and is sensed by walkers on top of the trail.
+
+What is drawn with flow on is the walkers' average load (`Dish::carried` over `Dish::walkers_seen`) plus the tube's food (`Dish::sap`), graded; the drawn-only pulse is off. T in the window opens the tuning panel (`mould::tune`): 15 rows, live, saved to `mould-tune.txt`.
+
+**Measured** (free dish, seeds 1-4, old rule against flow at its defaults):
+
+| | Old rule | Flow |
+|---|---|---|
+| Plan: food joined | 6 6 6 6 | 6 6 6 6 |
+| Plan: stars | 2 2 2 2 | 1 1 2 1 |
+| Plan: storm cost a pile | 2 of 4 | 4 of 4 |
+| Plan: peak mould | 1,857-2,199 | 1,566-1,664 |
+| Do nothing / random: stars | 0 on all | 0 on all |
+| Frame, mean (sim + draw) | 3.33 ms (1.13 + 2.21) | 5.01 ms (2.57 + 2.44) |
+
+The storm now costs a pile every time because a cut-off piece really starves; toughness is the star lost. **What was tried first:** food handed to walkers on the pile (level 1 alone) left 90% of walkers within 20 cells of food carrying it and the middle of long tubes starving (load 0.6 near food, 0.02 at 40+ cells), and a total of carried food drew every pile bright and every tube dim (median tube cell 0.6 against 8 at p90), hence the average load; spreading alone (`sap_speed` 12-24, no stream) was absorbed within about 5 cells of the rim. The stream plus demand-only drawing is what moved food down the tube: far walkers' mean load 0.076 with stream and spreading on against 0.010 with both off (seeds 1-4, 40 s; the test runs seeds 1-2; `flowing_food_reaches_down_the_tube`). Mid-tube walkers are still lean: the next tuning question for the owner's panel.
+

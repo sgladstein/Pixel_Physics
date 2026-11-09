@@ -175,6 +175,25 @@ fn parse() -> Args {
             "lamp_soft" => p.lamp_soft = v == "1",
             "push" => p.push = f(),
             "pieces" => p.pieces = v == "1",
+            "flow" => p.flow = v == "1",
+            "tune" => {
+                let text = std::fs::read_to_string(v).unwrap_or_else(|e| panic!("tune: {v}: {e}"));
+                let bad = pixel_physics::mould::tune::from_text(&text, p);
+                assert!(bad.is_empty(), "tune: {v}: not understood: {bad:?}");
+            }
+            "carry_cap" => p.carry_cap = f(),
+            "share" => p.share = f(),
+            "sap" => p.sap = v == "1",
+            "sap_speed" => p.sap_speed = v.parse().unwrap(),
+            "absorb" => p.absorb = f(),
+            "want" => p.want = f(),
+            "stream" => p.stream = f(),
+            "stream_bias" => p.stream_bias = f(),
+            "pulse_seconds" => p.pulse_seconds = f(),
+            "pulse_strength" => p.pulse_strength = f(),
+            "wall_grow" => p.wall_grow = f(),
+            "wall_half_life" => p.wall_half_life = f(),
+            "wall_pull" => p.wall_pull = f(),
             "wound" => p.wound = f(),
             "stray_reach" => {
                 p.stray_reach = f();
@@ -208,6 +227,8 @@ fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
     let view = View {
         keys: false,
         style,
+        // `PANEL=ROW`: the tuning panel open on that row, as T shows it.
+        tune: std::env::var("PANEL").ok().and_then(|v| v.parse().ok()),
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
@@ -260,7 +281,13 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
             d.step();
         }
         peak = peak.max(d.walkers.len());
-        if a.gif.is_some() && frame.is_multiple_of(a.every) {
+        // `GIF_SECONDS=A-B`: only that stretch of the run goes in the GIF.
+        let in_window = std::env::var("GIF_SECONDS").ok().and_then(|v| {
+            let (lo, hi) = v.split_once('-')?;
+            Some((lo.parse::<u64>().ok()?, hi.parse::<u64>().ok()?))
+        });
+        let secs_now = d.t / STEPS_PER_SECOND as u64;
+        if a.gif.is_some() && frame.is_multiple_of(a.every) && in_window.is_none_or(|(lo, hi)| secs_now >= lo && secs_now < hi) {
             shots.push(frame_of(&d, a.scale, a.style));
         }
         // Stills also just after each late pile turns up and during the
@@ -276,6 +303,32 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         if d.t.is_multiple_of(10 * STEPS_PER_SECOND as u64) {
             let s = d.measure();
             trace.push(((d.t / STEPS_PER_SECOND as u64) as u32, d.walkers.len(), s.reach));
+            if std::env::var("FLOWSTATS").is_ok() {
+                // Carried food (`Params::flow`): walkers' loads and the drawn
+                // field over tube cells, as percentiles.
+                let pct = |mut v: Vec<f32>| -> String {
+                    v.sort_by(|a, b| a.total_cmp(b));
+                    let at = |q: f32| v.get(((v.len().max(1) - 1) as f32 * q) as usize).copied().unwrap_or(0.0);
+                    format!("p10 {:.3} p50 {:.3} p90 {:.3} max {:.3} zero {}", at(0.1), at(0.5), at(0.9), at(1.0), v.iter().filter(|&&x| x <= 0.0).count())
+                };
+                let loads: Vec<f32> = d.walkers.iter().map(|w| w.food).collect();
+                let field: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.carried[i]).collect();
+                let sap: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.sap[i]).collect();
+                let wall: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.wall[i]).collect();
+                let bands = [0u16, 20, 40, 70, 100, 150, u16::MAX];
+                let mut by = vec![(0.0f32, 0u32); bands.len() - 1];
+                for w in &d.walkers {
+                    let i = (w.y as usize) * 256 + w.x as usize;
+                    let dist = d.fed[i];
+                    if let Some(b) = bands.windows(2).position(|r| dist >= r[0] && dist < r[1]) {
+                        by[b].0 += w.food;
+                        by[b].1 += 1;
+                    }
+                }
+                let by: Vec<String> = by.iter().zip(bands.windows(2)).map(|((s, n), r)| format!("{}+:{:.2}/{}", r[0], if *n > 0 { s / *n as f32 } else { 0.0 }, n)).collect();
+                println!("    flow t={}s load by tube distance (band: mean load/walkers) {}", d.t / sps, by.join(" "));
+                println!("    flow t={}s walkers {} loads [{}] carried-on-tube [{}] sap [{}] wall [{}]", d.t / sps, d.walkers.len(), pct(loads), pct(field), pct(sap), pct(wall));
+            }
             if let Some(dir) = &a.look {
                 frame_of(&d, a.scale, a.style)
                     .save(format!(

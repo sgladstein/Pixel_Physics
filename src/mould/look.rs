@@ -1168,7 +1168,11 @@ impl Halo {
             for x in 0..W {
                 let i = y * W + x;
                 if d.ground[i] == Ground::Agar && d.trail[i] > thr {
-                    let m = if d.looks_fed(i) { &mut h.fed } else { &mut h.pale };
+                    let lit = match d.carried_look(i) {
+                        Some(c) => c > 0.3,
+                        None => d.looks_fed(i),
+                    };
+                    let m = if lit { &mut h.fed } else { &mut h.pale };
                     m[(y / 2) * HW + x / 2] += 0.25;
                 }
             }
@@ -1514,10 +1518,13 @@ fn hunger(d: &Dish, i: usize) -> f32 {
 
 /// A tube cell's colour with the starving look applied: `fed` and `hun`
 /// as the cell reads them.
-fn starve_colour(th: &Theme, v: f32, fed: bool, hun: f32, shade: f32) -> Rgb {
+fn starve_colour(th: &Theme, v: f32, fed: bool, hun: f32, shade: f32, flow: bool) -> Rgb {
     let pal = match starve_look() {
         1 => &EMBERS,
         2 => &DRIED,
+        // With food flowing, grey too is graded: there is no reach for
+        // the line to sit at.
+        _ if flow => &th.pale,
         _ => return tube_colour(th, v, fed, shade),
     };
     // Starved tube keeps a little of its shape, never its light.
@@ -1554,7 +1561,11 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     // tube still fed met tube starved since the pile ran dry along a hard
     // line, which is the grey's own defect in another colour. Averaged over
     // tube cells only, so open agar does not count as hungry.
-    let hunger_field = (starve_look() != 0).then(|| {
+    let flow = d.params.flow;
+    // With food flowing, a tube's yellow follows the food in it, so a wave
+    // of food is seen as a brighter band.
+    let flow_v = |v: f32, hun: f32| if flow { (0.55 * v + 0.45 * (1.0 - hun)).clamp(0.0, 1.0) } else { v };
+    let hunger_field = (starve_look() != 0 && !flow).then(|| {
         // On the glow's half-size grid: hunger is soft by construction,
         // and at full size the field cost ~1 ms a frame.
         let mut num = vec![0.0f32; HW * HH];
@@ -1676,7 +1687,12 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     edge = (is_tube && !all) || (!is_tube && any);
                     if is_tube || any {
                         fed = if is_tube { d.looks_fed(i) } else { nfed };
-                        if let Some(h) = &hunger_field {
+                        if let Some(c) = d.carried_look(i) {
+                            // Food flowing (`Params::flow`): what is drawn
+                            // is what the walkers here carry.
+                            hun = 1.0 - c;
+                            fed = c > 0.0;
+                        } else if let Some(h) = &hunger_field {
                             hun = half_at(h, x, y);
                         }
                         // Two cells either side, so the light reads the
@@ -1686,11 +1702,12 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     if is_tube && fed {
                         beat = pulse(d, i);
                     }
-                    if !fed {
+                    if !fed || flow {
+                        // With food flowing, the only pulse is the food.
                         beat = 0.0;
                     }
                     if is_tube {
-                        tube = Some(pulsed(starve_colour(th, vof(t0), fed, hun, shade), beat));
+                        tube = Some(pulsed(starve_colour(th, flow_v(vof(t0), hun), fed, hun, shade, flow), beat));
                     }
                     c
                 }
@@ -1718,7 +1735,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     let c = if v > thr {
                         match th.ink {
                             Some(ink) if v < thr * 1.9 => ink,
-                            _ => pulsed(starve_colour(th, vof(v), fed, hun, shade), beat),
+                            _ => pulsed(starve_colour(th, flow_v(vof(v), hun), fed, hun, shade, flow), beat),
                         }
                     } else {
                         ground

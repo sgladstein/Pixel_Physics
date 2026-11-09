@@ -48,6 +48,8 @@ pub struct View {
     /// quits: the game's look (`look.rs`) says so on screen; this file
     /// leaves it to the window title.
     pub quit_armed: bool,
+    /// The tuning panel (T, `tune.rs`), open on this row.
+    pub tune: Option<usize>,
 }
 
 impl Default for View {
@@ -63,6 +65,7 @@ impl Default for View {
             style: super::look::Style::Classic,
             menu: None,
             quit_armed: false,
+            tune: None,
         }
     }
 }
@@ -141,6 +144,14 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         // Stretch: the tube threshold is the bottom of the ramp.
         let lo = (1.0 + d.params.tube * 0.5).ln() / (1.0 + TRAIL_TOP).ln();
         let v = (v - lo) / (1.0 - lo);
+        if let Some(c) = d.carried_look(i) {
+            // Food flowing (`Params::flow`): the yellow is the food the
+            // walkers here carry, graded, with no drawn pulse.
+            let lit = ramp(&FED_RAMP, (0.55 * v + 0.45 * c).clamp(0.0, 1.0));
+            let pale = ramp(&PALE_RAMP, v);
+            let k = c * (2.0 - c);
+            return [0, 1, 2].map(|j| (pale[j] as f32 + (lit[j] as f32 - pale[j] as f32) * k) as u8);
+        }
         return if d.looks_fed(i) {
             let c = ramp(&FED_RAMP, v);
             let b = pulse(d, i);
@@ -245,8 +256,16 @@ fn text_px(s: &str) -> i32 {
 
 pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     if view.style != super::look::Style::Classic {
-        return super::look::draw(d, view, scale, frame);
+        super::look::draw(d, view, scale, frame);
+    } else {
+        classic(d, view, scale, frame);
     }
+    if let Some(row) = view.tune {
+        super::tune::draw(frame, frame_size(scale), &d.params, row);
+    }
+}
+
+fn classic(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     let (fw, fh) = frame_size(scale);
     debug_assert_eq!(frame.len(), (fw * fh * 4) as usize);
     let s = scale as usize;

@@ -38,7 +38,7 @@ use pixel_physics::mould::level::{Progress, DISHES, ENTRIES, FREE, WANDER};
 use pixel_physics::mould::look::{self, Style};
 use pixel_physics::mould::render::{self, Banner, Menu, QuitArm, View};
 use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
-use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
+use pixel_physics::mould::{tune, Dish, Params, Phase, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -211,6 +211,10 @@ struct Handler {
     /// Escape was pressed once on a dish, at this time: a second within
     /// `QuitArm::WINDOW` quits.
     quit: QuitArm,
+    /// The tuning panel's values (T, `mould::tune`), applied to every dish
+    /// opened and saved to `tune::TUNE_FILE`.
+    tuned: Params,
+    shift: bool,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -220,7 +224,14 @@ impl Handler {
             .ok()
             .and_then(|s| s.parse().ok());
         let journey = matches!(entry, Entry::Wander(_)).then_some(Journey::FIRST);
-        let (dish, lesson) = new_dish(entry, journey);
+        let (mut dish, lesson) = new_dish(entry, journey);
+        let mut tuned = Params::default();
+        if let Ok(text) = std::fs::read_to_string(tune::TUNE_FILE) {
+            for bad in tune::from_text(&text, &mut tuned) {
+                eprintln!("{}: not understood: {bad}", tune::TUNE_FILE);
+            }
+        }
+        tune::apply(&tuned, &mut dish.params);
         Handler {
             window: None,
             pixels: None,
@@ -247,6 +258,8 @@ impl Handler {
             frames: 0,
             screenshot_after,
             quit: QuitArm::default(),
+            tuned,
+            shift: false,
             result: Ok(()),
         }
     }
@@ -272,6 +285,7 @@ impl Handler {
             _ => self.journey = None,
         }
         (self.dish, self.lesson) = new_dish(entry, self.journey);
+        tune::apply(&self.tuned, &mut self.dish.params);
         self.recorded = false;
         self.pressed = false;
         self.view.brief = true;
@@ -458,6 +472,51 @@ impl Handler {
         self.quit.clear();
         if let Some(w) = &self.window {
             w.set_title(&title(self.entry, self.journey));
+        }
+        // The tuning panel (T): the arrows pick and change a row, Enter
+        // flips a switch, Backspace resets it; the dish keeps running.
+        if code == KeyCode::KeyT {
+            self.view.tune = match self.view.tune {
+                Some(_) => None,
+                None => Some(0),
+            };
+            return;
+        }
+        if let Some(row) = self.view.tune {
+            let n = tune::KNOBS.len();
+            let steps = if self.shift { 5 } else { 1 };
+            let changed = match code {
+                KeyCode::ArrowUp => {
+                    self.view.tune = Some((row + n - 1) % n);
+                    false
+                }
+                KeyCode::ArrowDown => {
+                    self.view.tune = Some((row + 1) % n);
+                    false
+                }
+                KeyCode::ArrowLeft => {
+                    tune::nudge(&mut self.tuned, row, -steps);
+                    true
+                }
+                KeyCode::ArrowRight | KeyCode::Enter => {
+                    tune::nudge(&mut self.tuned, row, steps);
+                    true
+                }
+                KeyCode::Backspace => {
+                    tune::reset(&mut self.tuned, row);
+                    true
+                }
+                _ => false,
+            };
+            if changed {
+                tune::apply(&self.tuned, &mut self.dish.params);
+                if let Err(e) = std::fs::write(tune::TUNE_FILE, tune::to_text(&self.tuned)) {
+                    eprintln!("could not save {}: {e}", tune::TUNE_FILE);
+                }
+            }
+            if matches!(code, KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Backspace) {
+                return;
+            }
         }
         // The picker: 1-6 picks, the arrows and Enter choose, M or Escape
         // goes back to the dish.
@@ -673,9 +732,13 @@ impl ApplicationHandler for Handler {
                     }
                 }
             }
+            WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if event.state == ElementState::Pressed && !event.repeat {
+                    // Held arrows repeat in the tuning panel only.
+                    let repeat_ok = self.view.tune.is_some()
+                        && matches!(code, KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::ArrowUp | KeyCode::ArrowDown);
+                    if event.state == ElementState::Pressed && (!event.repeat || repeat_ok) {
                         self.key(code, event_loop);
                     }
                 }
