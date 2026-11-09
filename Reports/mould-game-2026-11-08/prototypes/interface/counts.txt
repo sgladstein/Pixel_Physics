@@ -1,0 +1,23 @@
+a  lesson-oats    lesson step 2, oats preview under the cursor
+    t 4.5 s | food joined 1/4 | mould 758 | oats placed 0 | salt cells 0 | snips 0 | starved 9 | storm-killed 0
+b  lamp-held      mid-dish, the lamp held beside the trunk
+    t 25.5 s | food joined 4/6 | mould 1199 | oats placed 5 | salt cells 159 | snips 0 | starved 584 | storm-killed 0
+c  storm-warning  the storm's last seconds
+    t 87.0 s | food joined 6/6 | mould 1800 | oats placed 7 | salt cells 159 | snips 3 | starved 845 | storm-killed 0
+d  score          the score
+    t 101.0 s | food joined 3/6 | mould 1800 | oats placed 7 | salt cells 159 | snips 3 | starved 848 | storm-killed 6
+e  salt-drag      a salt wall mid-drag: the length still to draw
+    t 25.0 s | food joined 4/6 | mould 1199 | oats placed 5 | salt cells 246 | snips 0 | starved 584 | storm-killed 0
+f  snip-hover     snip held over a tube: the cells a press would cut
+    t 25.0 s | food joined 4/6 | mould 1199 | oats placed 5 | salt cells 159 | snips 0 | starved 584 | storm-killed 0
+g  brief          the briefing card, over the lesson's first frame
+    t 0.0 s | food joined 0/4 | mould 400 | oats placed 0 | salt cells 0 | snips 0 | starved 0 | storm-killed 0
+h  oats-far       oats held too far from the mould to pull it
+    t 25.0 s | food joined 4/6 | mould 1199 | oats placed 5 | salt cells 159 | snips 0 | starved 584 | storm-killed 0
+
+== draw cost per look, scale 4, the fresh hand's whole dish (seed 1), 6060 frames, every look on the same state ==
+sim (all looks share it): mean 1.34 ms, worst 8.05 ms
+ current: draw mean 1.28 ms, 99th percentile 2.35 ms, worst 9.15 ms;  frame (sim + draw) mean 2.62 ms
+       C: draw mean 3.02 ms, 99th percentile 6.86 ms, worst 12.42 ms;  frame (sim + draw) mean 4.36 ms
+       B: draw mean 3.91 ms, 99th percentile 7.87 ms, worst 13.61 ms;  frame (sim + draw) mean 5.26 ms
+       A: draw mean 3.85 ms, 99th percentile 7.67 ms, worst 20.38 ms;  frame (sim + draw) mean 5.19 ms

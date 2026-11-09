@@ -1,0 +1,40 @@
+a  lesson-oats    lesson step 2, oats preview under the cursor
+    t 4.5 s | food joined 1/4 | mould 758 | oats placed 0 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 0 | starved 9 | storm-killed 0
+b  lamp-held      mid-dish, the lamp held beside the trunk
+    t 25.5 s | food joined 4/6 | mould 1239 | oats placed 5 | salt cells 159 | snips 0 | wound cells 0 | joins flashed 7 | starved 397 | storm-killed 0
+c  storm-warning  the storm's last seconds
+    t 87.0 s | food joined 6/6 | mould 1800 | oats placed 6 | salt cells 159 | snips 3 | wound cells 442 | joins flashed 12 | starved 839 | storm-killed 0
+d  score          the score
+    t 101.0 s | food joined 3/6 | mould 1800 | oats placed 6 | salt cells 159 | snips 3 | wound cells 442 | joins flashed 12 | starved 924 | storm-killed 8
+e  salt-drag      a salt wall mid-drag: the length still to draw
+    t 25.0 s | food joined 4/6 | mould 1266 | oats placed 5 | salt cells 246 | snips 0 | wound cells 0 | joins flashed 7 | starved 370 | storm-killed 0
+f  snip-hover     snip held over a tube: the cells a press would cut
+    t 25.0 s | food joined 4/6 | mould 1266 | oats placed 5 | salt cells 159 | snips 0 | wound cells 0 | joins flashed 7 | starved 370 | storm-killed 0
+g  brief          the briefing card, over the lesson's first frame
+    t 0.0 s | food joined 0/4 | mould 400 | oats placed 0 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 0 | starved 0 | storm-killed 0
+h  oats-far       oats held too far from the mould to pull it
+    t 25.0 s | food joined 4/6 | mould 1266 | oats placed 5 | salt cells 159 | snips 0 | wound cells 0 | joins flashed 7 | starved 370 | storm-killed 0
+i  snip-cut       a second after a snip across the trunk: the open wound
+    t 26.0 s | food joined 3/6 | mould 1239 | oats placed 5 | salt cells 159 | snips 1 | wound cells 145 | joins flashed 7 | starved 408 | storm-killed 0
+j  join-flash     two pieces meeting: the join's flash
+    t 10.1 s | food joined 3/6 | mould 985 | oats placed 3 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 5 | starved 192 | storm-killed 0
+k  wander-brief   the Wanderer's card
+    t 0.0 s | food joined 0/6 | mould 400 | oats placed 0 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 0 | starved 0 | storm-killed 0 | wanderer: go open false | joined to crack 0 | in line 0 | through 0 | died in line 0 | outcome None
+l  wander-go      the Wanderer: fed mould in the crack, Go open
+    t 28.0 s | food joined 4/6 | mould 1265 | oats placed 4 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 4 | starved 764 | storm-killed 0 | wanderer: go open true | joined to crack 1258 | in line 0 | through 0 | died in line 0 | outcome None
+m  wander-pour    the Wanderer: 3 s into the pour
+    t 41.0 s | food joined 2/6 | mould 22 | oats placed 4 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 4 | starved 905 | storm-killed 0 | wanderer: go open false | joined to crack 1235 | in line 507 | through 532 | died in line 194 | outcome None
+n  wander-arrived the Wanderer: the arrival card
+    t 47.9 s | food joined 1/6 | mould 3 | oats placed 4 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 4 | starved 924 | storm-killed 0 | wanderer: go open false | joined to crack 1235 | in line 0 | through 926 | died in line 307 | outcome Some(Arrived { n: 926, of: 1387 })
+o  dish-died      Running Dry left alone: the mould died
+    t 65.1 s | food joined 1/8 | mould 0 | oats placed 0 | salt cells 0 | snips 0 | wound cells 0 | joins flashed 0 | starved 1382 | storm-killed 0
+p  esc-armed      the first Esc on a dish: a second within 2 s quits
+    t 25.0 s | food joined 4/6 | mould 1266 | oats placed 5 | salt cells 159 | snips 0 | wound cells 0 | joins flashed 7 | starved 370 | storm-killed 0
+
+== draw cost per look, scale 4, the fresh hand's whole dish (seed 1), 6060 frames, every look on the same state ==
+sim (all looks share it): mean 1.50 ms, worst 8.64 ms
+   built: draw mean 3.07 ms, 99th percentile 5.04 ms, worst 11.21 ms;  frame (sim + draw) mean 4.58 ms
+ current: draw mean 1.43 ms, 99th percentile 2.30 ms, worst 5.87 ms;  frame (sim + draw) mean 2.93 ms
+       C: draw mean 2.86 ms, 99th percentile 4.55 ms, worst 8.24 ms;  frame (sim + draw) mean 4.36 ms
+       B: draw mean 3.17 ms, 99th percentile 5.13 ms, worst 10.50 ms;  frame (sim + draw) mean 4.67 ms
+       A: draw mean 4.01 ms, 99th percentile 6.44 ms, worst 13.73 ms;  frame (sim + draw) mean 5.51 ms

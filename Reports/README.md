@@ -6580,6 +6580,12 @@ file unless its report says so.
   meeting its ship bar over 5 seeds (do nothing 0, random at most 1, the
   scripted intended hand 3); strays limited on hand-made dishes, which
   doing nothing had used to join all three in Beat the Ruler.
+- [mould-game-2026-11-08/](mould-game-2026-11-08/README.md) — **the thinking around the mould game, kept so it
+  is not lost (owner, 2026-11-09):** the five-agent brainstorm after his first play, the overnight build's briefs and
+  results (dishes, Wanderer, Organ, the Night look and its blind key), both adversarial reviews, the HTML of every
+  picture page shown to him with links to the pages, and the 2026-11-09 depth reports: Jenson, Cherouvim and Jones 2010
+  against our model, and how tools, events, ground and the mould's responses could interact for discovery. Proposals,
+  not built.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so

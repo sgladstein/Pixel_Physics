@@ -1,0 +1,134 @@
+<title>Mabel the Wanderer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Silkscreen&display=swap">
+<style>
+/* Layout: one narrow column, like a field notebook kept beside the dish; each picture carries its counts underneath. Single dark look on purpose: it is the dish's own agar. */
+:root {
+  --agar: #14201e;
+  --rim: #0b0c10;
+  --panel: #1b2a27;
+  --ink: #e6e6dc;
+  --dim: #9aa5a0;
+  --fed: #fad028;
+  --food: #d6ac68;
+  --crack: #78e6d6;
+  --grey: #b4b4ae;
+  --display: "Silkscreen", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+body { background: var(--rim); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+main { max-width: 760px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; display: grid; gap: 34px; }
+h1, h2 { font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.7rem, 6vw, 2.4rem); color: var(--fed); line-height: 1.15; }
+h2 { font-size: 1.15rem; color: var(--crack); }
+p { margin: 0; max-width: 65ch; }
+.lede { display: grid; gap: 12px; }
+.q { color: var(--dim); }
+.answer { font-size: 1.12rem; }
+section { display: grid; gap: 12px; }
+figure { margin: 0; display: grid; gap: 8px; }
+figure img { width: 100%; height: auto; display: block; border: 1px solid #2d3d39; image-rendering: pixelated; background: var(--agar); }
+figcaption { color: var(--dim); font-size: 0.94rem; }
+figcaption b { color: var(--ink); }
+.n { font-variant-numeric: tabular-nums; color: var(--fed); font-weight: 700; }
+.bad { color: var(--grey); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--panel); padding: 12px 14px; display: grid; gap: 2px; }
+.tile .big { font-family: var(--display); font-size: 1.6rem; color: var(--fed); font-variant-numeric: tabular-nums; }
+.tile .big.grey { color: var(--grey); }
+.tile .lab { font-size: 0.88rem; color: var(--dim); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.92rem; min-width: 520px; width: 100%; }
+th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid #24322f; white-space: nowrap; }
+th { color: var(--crack); font-weight: 700; }
+td.hand { color: var(--dim); }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 65ch; }
+.notdone { border-left: 3px solid var(--grey); padding-left: 12px; }
+</style>
+
+<main>
+  <header class="lede">
+    <h1>Mabel the Wanderer</h1>
+    <p class="q">Does leading the mould somewhere feel better than scoring a dish? Prototype, 2026-11-08: the scored dish with the clock, storm and stars taken out, a glowing crack on the right edge, and G to go.</p>
+    <p class="answer">Leading her well brings <span class="n">58%</span> of her through the crack on a typical dish; pressing Go the moment you can brings <span class="n">11%</span>; doing nothing, she starves. Go is a verb you can watch: she pours out along her own tubes, and the part that doesn't make it goes grey.</p>
+  </header>
+
+  <section>
+    <h2>Dish 1, eight seeds per hand</h2>
+    <div class="tiles">
+      <div class="tile"><span class="big">58%</span><span class="lab">lead: lamp and oats, waits for the trunk to thicken (median, range 0&ndash;64%)</span></div>
+      <div class="tile"><span class="big">11%</span><span class="lab">careless: same lead, Go the moment it opens (median, range 0&ndash;62%)</span></div>
+      <div class="tile"><span class="big grey">0 of 8</span><span class="lab">do nothing: she starved on every seed, 2:43 to 9:02</span></div>
+    </div>
+    <p>Lead beats careless on 6 of 8 seeds. Count is "arrived N of M", M her peak that dish.</p>
+  </section>
+
+  <section>
+    <h2>One led dish, start to arrival</h2>
+    <figure>
+      <img src="wander-lead-seed1.gif" alt="Animated: the mould grows from home across the dish toward the teal crack, then pours along its tubes into the crack while the HUD counts walkers through">
+      <figcaption>Seed 1. <b>Arrived <span class="n">1,134</span> of 1,924</b>. 1,893 set off when G was pressed at 1:22, with 57% of the food left; 759 died in the line. 10 oats, 36 s of lamp. Growth runs at 20x; the pour runs at real speed (about 15 s).</figcaption>
+    </figure>
+    <figure>
+      <img src="lead-seed1-strip.png" alt="Nine frames of the same dish: growing, Go open, the pour draining toward the crack, and the arrival card">
+      <figcaption>Frames from the same run. The HUD under each pour frame counts it: <b>through</b> 158, 366, 497, 627, 788; <b>died in line</b> 53, 203, 393, 524, 661.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>The arrival card</h2>
+    <figure>
+      <img src="arrival-card-seed1.png" alt="The end of dish 1: a card reading MABEL ARRIVED WITH 1,134 OF 1,924, over an empty dish">
+      <figcaption>Seed 1, end of the pour. N carries to the next dish, which opens with "MABEL, DISH 2: 1,134 OF HER CAME".</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Careless against lead, same seed</h2>
+    <figure>
+      <img src="paired-careless-vs-lead.png" alt="Four pairs of end-of-dish frames; the careless side leaves a grey network behind">
+      <figcaption>Seeds 1&ndash;4, dish 1. Careless arrived with <span class="n">165 / 202 / 984 / 5</span>; lead with <span class="n">1,134 / 1,000 / 945 / 1,131</span>. The grey network left on the careless side is the part of her that stayed behind.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Every journey, three dishes</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Hand</th><th>Seed</th><th>Dish 1</th><th>Dish 2</th><th>Dish 3</th></tr></thead>
+        <tbody>
+          <tr><td class="hand">lead</td><td>1</td><td>1,134/1,924</td><td>1,524/1,948</td><td>1,039/1,884</td></tr>
+          <tr><td class="hand">lead</td><td>2</td><td>1,000/1,915</td><td>1,241/1,897</td><td>1,339/1,995</td></tr>
+          <tr><td class="hand">lead</td><td>3</td><td>945/1,617</td><td>953/1,640</td><td>1,048/1,730</td></tr>
+          <tr><td class="hand">lead</td><td>4</td><td>1,131/1,965</td><td>932/1,557</td><td>981/1,689</td></tr>
+          <tr><td class="hand">lead</td><td>5</td><td>1,130/1,762</td><td>1,096/1,928</td><td>188/1,970</td></tr>
+          <tr><td class="hand">lead</td><td>6</td><td>6/1,835</td><td>1,151/2,164</td><td>1,442/1,903</td></tr>
+          <tr><td class="hand">lead</td><td>7</td><td>1,147/1,977</td><td>1,195/1,996</td><td>1,236/1,847</td></tr>
+          <tr><td class="hand">lead</td><td>8</td><td>269/1,596</td><td>918/1,331</td><td>1,231/1,965</td></tr>
+          <tr><td class="hand">careless</td><td>1</td><td>165/1,705</td><td>850/1,280</td><td>80/1,550</td></tr>
+          <tr><td class="hand">careless</td><td>2</td><td>202/1,867</td><td>903/1,391</td><td>4/1,386</td></tr>
+          <tr><td class="hand">careless</td><td>3</td><td>984/1,586</td><td>931/1,579</td><td>943/1,523</td></tr>
+          <tr><td class="hand">careless</td><td>4</td><td>5/1,443</td><td>95/2,197</td><td>35/1,689</td></tr>
+          <tr><td class="hand">careless</td><td>5</td><td>885/1,439</td><td>122/1,834</td><td>112/1,768</td></tr>
+          <tr><td class="hand">careless</td><td>6</td><td>57/1,825</td><td>12/2,107</td><td>1,025/1,712</td></tr>
+          <tr><td class="hand">careless</td><td>7</td><td>209/1,694</td><td>191/1,695</td><td>117/1,718</td></tr>
+          <tr><td class="hand">careless</td><td>8</td><td>9/1,514</td><td>4/2,067</td><td>3/2,260</td></tr>
+          <tr><td class="hand">no hand, Go when open</td><td>3, 4</td><td>526/942, 514/1,216</td><td class="bad">died</td><td>&ndash;</td></tr>
+          <tr><td class="hand">no hand, Go when open</td><td>other 6</td><td class="bad">died</td><td>&ndash;</td><td>&ndash;</td></tr>
+          <tr><td class="hand">do nothing</td><td>all 8</td><td class="bad">died</td><td>&ndash;</td><td>&ndash;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="notdone">
+    <h2>Not working yet</h2>
+    <ul>
+      <li><b>Carrying her over doesn't compound.</b> Arriving with 6 walkers, she brought 1,151 through the next crack; arriving with 1,096, she brought 188. Each dish's food resets her size, so "it's your mould" is still words on the card.</li>
+      <li>The food rarely forces the decision: the lead left with about 55% of the food remaining (median).</li>
+      <li>The pour takes about 15 s to watch.</li>
+    </ul>
+  </section>
+</main>

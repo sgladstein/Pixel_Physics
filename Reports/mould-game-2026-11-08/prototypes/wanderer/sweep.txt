@@ -1,0 +1,115 @@
+mouldprobe: seeds [1, 2, 3, 4, 5, 6, 7, 8] players ["idle", "random", "plan", "fresh", "shepherd", "lamponly", "dump"] scale 2 params Params { sensor_angle: 0.7853982, rotate_angle: 0.7853982, sensor_offset: 9.0, deposit: 5.0, keep: 0.9, food_deposit: 20.0, scent_keep: 0.97, light_weight: 0.0, light_fade: 0.0, tube: 1.0, feed_reach: 70, upkeep: 0.004, eat: 0.03, table: 40, fed_scent: 0.15, divide: 0.03, crowd: 7, starve: 0.0016666667, hungry: 0.0011111111, burn: 0.0, lamp_reach: 16.0, lamp_soft: false, push: 0.9 }
+
+== the Wanderer: 3 stretches a journey, cap 10 min a stretch; dish k is seed + 100 (k - 1) ==
+seed 1 careless dish 1 (seed 1): in 400 -> 165/1705  peak 1705  set off 173 starved in line 8  go 58.0s  food left at go 73%  Go open 0.2s  end 61s alive 811  births 2111 starved 765 hungry 762 oats 7 lamp 18s
+seed 1 careless dish 2 (seed 101): in 165 -> 850/1280  peak 1280  set off 1235 starved in line 385  go 49.0s  food left at go 81%  Go open 0.4s  end 61s alive 4  births 1837 starved 54 hungry 709 oats 5 lamp 9s
+seed 1 careless dish 3 (seed 201): in 850 -> 80/1550  peak 1550  set off 81 starved in line 1  go 115.0s  food left at go 43%  Go open 0.1s  end 118s alive 770  births 1765 starved 740 hungry 1024 oats 9 lamp 24s
+seed 1     idle dish 1 (seed 1): in 400 -> died  peak 1332  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 391s alive 0  births 3822 starved 3022 hungry 1200 oats 0 lamp 0s
+seed 1   idlego dish 1 (seed 1): in 400 -> died  peak 1332  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 391s alive 0  births 3822 starved 3022 hungry 1200 oats 0 lamp 0s
+seed 1     lead dish 1 (seed 1): in 400 -> 1134/1924  peak 1924  set off 1893 starved in line 759  go 82.5s  food left at go 56%  Go open 21.8s  end 97s alive 2  births 2580 starved 71 hungry 1014 oats 10 lamp 36s
+seed 1     lead dish 2 (seed 101): in 1134 -> 1524/1948  peak 1948  set off 1920 starved in line 396  go 72.5s  food left at go 64%  Go open 14.7s  end 84s alive 0  births 1863 starved 79 hungry 998 oats 8 lamp 34s
+seed 1     lead dish 3 (seed 201): in 1524 -> 1039/1884  peak 1884  set off 1561 starved in line 522  go 86.5s  food left at go 57%  Go open 21.5s  end 100s alive 0  births 1660 starved 96 hungry 1527 oats 8 lamp 44s
+seed 2 careless dish 1 (seed 2): in 400 -> 202/1867  peak 1867  set off 209 starved in line 7  go 60.0s  food left at go 72%  Go open 0.4s  end 63s alive 874  births 2405 starved 789 hungry 933 oats 8 lamp 18s
+seed 2 careless dish 2 (seed 102): in 202 -> 903/1391  peak 1391  set off 1341 starved in line 438  go 41.5s  food left at go 81%  Go open 0.2s  end 54s alive 1  births 1736 starved 31 hungry 565 oats 6 lamp 14s
+seed 2 careless dish 3 (seed 202): in 903 -> 4/1386  peak 1386  set off 4 starved in line 0  go 106.5s  food left at go 56%  Go open 0.1s  end 110s alive 775  births 1388 starved 675 hungry 837 oats 7 lamp 28s
+seed 2     idle dish 1 (seed 2): in 400 -> died  peak 1185  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 178s alive 0  births 796 starved 486 hungry 710 oats 0 lamp 0s
+seed 2   idlego dish 1 (seed 2): in 400 -> died  peak 1185  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 178s alive 0  births 796 starved 486 hungry 710 oats 0 lamp 0s
+seed 2     lead dish 1 (seed 2): in 400 -> 1000/1915  peak 1915  set off 1873 starved in line 873  go 78.5s  food left at go 59%  Go open 11.9s  end 95s alive 0  births 2694 starved 55 hungry 1166 oats 10 lamp 29s
+seed 2     lead dish 2 (seed 102): in 1000 -> 1241/1897  peak 1897  set off 1846 starved in line 605  go 83.5s  food left at go 55%  Go open 21.5s  end 97s alive 0  births 2077 starved 58 hungry 1173 oats 9 lamp 26s
+seed 2     lead dish 3 (seed 202): in 1241 -> 1339/1995  peak 1995  set off 1847 starved in line 508  go 116.5s  food left at go 37%  Go open 23.8s  end 130s alive 1  births 2262 starved 201 hungry 1454 oats 11 lamp 72s
+seed 3 careless dish 1 (seed 3): in 400 -> 984/1586  peak 1586  set off 1545 starved in line 561  go 66.0s  food left at go 68%  Go open 0.3s  end 80s alive 0  births 2016 starved 38 hungry 833 oats 7 lamp 17s
+seed 3 careless dish 2 (seed 103): in 984 -> 931/1579  peak 1579  set off 1556 starved in line 625  go 43.0s  food left at go 83%  Go open 0.1s  end 57s alive 0  births 1468 starved 77 hungry 819 oats 5 lamp 17s
+seed 3 careless dish 3 (seed 203): in 931 -> 943/1523  peak 1523  set off 1377 starved in line 434  go 55.5s  food left at go 77%  Go open 0.2s  end 68s alive 6  births 1487 starved 211 hungry 824 oats 7 lamp 34s
+seed 3     idle dish 1 (seed 3): in 400 -> died  peak 942  set off 0 starved in line 0  go -  food left at go 100%  Go open 18.6s  end 386s alive 0  births 2275 starved 1367 hungry 1308 oats 0 lamp 0s
+seed 3   idlego dish 1 (seed 3): in 400 -> 526/942  peak 942  set off 592 starved in line 66  go 333.7s  food left at go 6%  Go open 0.0s  end 338s alive 3  births 2273 starved 1020 hungry 1058 oats 0 lamp 0s
+seed 3   idlego dish 2 (seed 103): in 526 -> died  peak 1030  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 167s alive 0  births 522 starved 469 hungry 579 oats 0 lamp 0s
+seed 3     lead dish 1 (seed 3): in 400 -> 945/1617  peak 1617  set off 1536 starved in line 591  go 82.5s  food left at go 58%  Go open 11.4s  end 97s alive 0  births 2224 starved 51 hungry 1037 oats 9 lamp 28s
+seed 3     lead dish 2 (seed 103): in 945 -> 953/1640  peak 1640  set off 1610 starved in line 657  go 77.0s  food left at go 63%  Go open 14.6s  end 92s alive 0  births 1793 starved 63 hungry 1065 oats 9 lamp 24s
+seed 3     lead dish 3 (seed 203): in 953 -> 1048/1730  peak 1730  set off 1419 starved in line 371  go 118.5s  food left at go 46%  Go open 32.3s  end 130s alive 7  births 2066 starved 132 hungry 1461 oats 12 lamp 28s
+seed 4 careless dish 1 (seed 4): in 400 -> 5/1443  peak 1443  set off 5 starved in line 0  go 44.0s  food left at go 79%  Go open 0.4s  end 47s alive 696  births 1671 starved 613 hungry 757 oats 6 lamp 24s
+seed 4 careless dish 2 (seed 104): in 5 -> 95/2197  peak 2197  set off 96 starved in line 1  go 62.5s  food left at go 72%  Go open 0.3s  end 66s alive 919  births 2763 starved 824 hungry 929 oats 7 lamp 22s
+seed 4 careless dish 3 (seed 204): in 95 -> 35/1689  peak 1689  set off 35 starved in line 0  go 49.5s  food left at go 80%  Go open 0.4s  end 53s alive 808  births 2275 starved 751 hungry 776 oats 8 lamp 19s
+seed 4     idle dish 1 (seed 4): in 400 -> died  peak 1216  set off 0 starved in line 0  go -  food left at go 100%  Go open 16.2s  end 542s alive 0  births 2769 starved 2112 hungry 1057 oats 0 lamp 0s
+seed 4   idlego dish 1 (seed 4): in 400 -> 514/1216  peak 1216  set off 573 starved in line 59  go 235.5s  food left at go 55%  Go open 0.0s  end 240s alive 3  births 1409 starved 554 hungry 679 oats 0 lamp 0s
+seed 4   idlego dish 2 (seed 104): in 514 -> died  peak 875  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 469s alive 0  births 1594 starved 1637 hungry 471 oats 0 lamp 0s
+seed 4     lead dish 1 (seed 4): in 400 -> 1131/1965  peak 1965  set off 1837 starved in line 706  go 127.0s  food left at go 30%  Go open 56.5s  end 142s alive 0  births 2882 starved 80 hungry 1365 oats 10 lamp 41s
+seed 4     lead dish 2 (seed 104): in 1131 -> 932/1557  peak 1557  set off 1537 starved in line 605  go 64.0s  food left at go 72%  Go open 0.8s  end 78s alive 0  births 1357 starved 88 hungry 863 oats 6 lamp 30s
+seed 4     lead dish 3 (seed 204): in 932 -> 981/1689  peak 1689  set off 1427 starved in line 446  go 122.0s  food left at go 41%  Go open 64.2s  end 135s alive 12  births 2161 starved 299 hungry 1355 oats 12 lamp 54s
+seed 5 careless dish 1 (seed 5): in 400 -> 885/1439  peak 1439  set off 1262 starved in line 377  go 177.0s  food left at go 42%  Go open 0.2s  end 189s alive 3  births 2752 starved 819 hungry 1068 oats 10 lamp 34s
+seed 5 careless dish 2 (seed 105): in 885 -> 122/1834  peak 1834  set off 125 starved in line 3  go 65.0s  food left at go 70%  Go open 0.3s  end 68s alive 935  births 1862 starved 863 hungry 824 oats 7 lamp 28s
+seed 5 careless dish 3 (seed 205): in 122 -> 112/1768  peak 1768  set off 114 starved in line 2  go 45.0s  food left at go 80%  Go open 0.1s  end 48s alive 761  births 2081 starved 710 hungry 618 oats 7 lamp 12s
+seed 5     idle dish 1 (seed 5): in 400 -> died  peak 955  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 167s alive 0  births 573 starved 471 hungry 502 oats 0 lamp 0s
+seed 5   idlego dish 1 (seed 5): in 400 -> died  peak 955  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 167s alive 0  births 573 starved 471 hungry 502 oats 0 lamp 0s
+seed 5     lead dish 1 (seed 5): in 400 -> 1130/1762  peak 1762  set off 1267 starved in line 137  go 184.5s  food left at go 39%  Go open 7.6s  end 189s alive 13  births 3237 starved 856 hungry 1501 oats 12 lamp 42s
+seed 5     lead dish 2 (seed 105): in 1130 -> 1096/1928  peak 1928  set off 1803 starved in line 707  go 113.5s  food left at go 36%  Go open 34.2s  end 129s alive 0  births 2332 starved 115 hungry 1544 oats 11 lamp 39s
+seed 5     lead dish 3 (seed 205): in 1096 -> 188/1970  peak 1970  set off 190 starved in line 2  go 74.0s  food left at go 63%  Go open 9.6s  end 77s alive 932  births 2011 starved 845 hungry 1140 oats 8 lamp 28s
+seed 6 careless dish 1 (seed 6): in 400 -> 57/1825  peak 1825  set off 60 starved in line 3  go 97.5s  food left at go 47%  Go open 1.4s  end 101s alive 969  births 2297 starved 827 hungry 841 oats 7 lamp 14s
+seed 6 careless dish 2 (seed 106): in 57 -> 12/2107  peak 2107  set off 12 starved in line 0  go 76.5s  food left at go 68%  Go open 0.2s  end 80s alive 979  births 2874 starved 836 hungry 1104 oats 9 lamp 14s
+seed 6 careless dish 3 (seed 206): in 12 -> 1025/1712  peak 1712  set off 1677 starved in line 652  go 61.0s  food left at go 77%  Go open 0.6s  end 77s alive 1  births 2300 starved 96 hungry 538 oats 9 lamp 16s
+seed 6     idle dish 1 (seed 6): in 400 -> died  peak 1145  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 180s alive 0  births 751 starved 513 hungry 638 oats 0 lamp 0s
+seed 6   idlego dish 1 (seed 6): in 400 -> died  peak 1145  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 180s alive 0  births 751 starved 513 hungry 638 oats 0 lamp 0s
+seed 6     lead dish 1 (seed 6): in 400 -> 6/1835  peak 1835  set off 6 starved in line 0  go 118.0s  food left at go 32%  Go open 21.8s  end 121s alive 993  births 2383 starved 874 hungry 910 oats 7 lamp 14s
+seed 6     lead dish 2 (seed 106): in 6 -> 1151/2164  peak 2164  set off 1805 starved in line 654  go 136.0s  food left at go 23%  Go open 23.7s  end 150s alive 0  births 3572 starved 158 hungry 1615 oats 14 lamp 92s
+seed 6     lead dish 3 (seed 206): in 1151 -> 1442/1903  peak 1903  set off 1832 starved in line 390  go 88.5s  food left at go 54%  Go open 10.4s  end 99s alive 0  births 1827 starved 78 hungry 1068 oats 7 lamp 32s
+seed 7 careless dish 1 (seed 7): in 400 -> 209/1694  peak 1694  set off 212 starved in line 3  go 57.5s  food left at go 73%  Go open 0.4s  end 61s alive 808  births 2021 starved 701 hungry 700 oats 6 lamp 6s
+seed 7 careless dish 2 (seed 107): in 209 -> 191/1695  peak 1695  set off 199 starved in line 8  go 58.0s  food left at go 74%  Go open 0.3s  end 61s alive 837  births 2172 starved 677 hungry 668 oats 7 lamp 14s
+seed 7 careless dish 3 (seed 207): in 191 -> 117/1718  peak 1718  set off 120 starved in line 3  go 93.0s  food left at go 57%  Go open 0.3s  end 96s alive 784  births 2319 starved 622 hungry 984 oats 9 lamp 11s
+seed 7     idle dish 1 (seed 7): in 400 -> died  peak 917  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 163s alive 0  births 526 starved 289 hungry 637 oats 0 lamp 0s
+seed 7   idlego dish 1 (seed 7): in 400 -> died  peak 917  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 163s alive 0  births 526 starved 289 hungry 637 oats 0 lamp 0s
+seed 7     lead dish 1 (seed 7): in 400 -> 1147/1977  peak 1977  set off 1725 starved in line 578  go 92.0s  food left at go 48%  Go open 21.7s  end 106s alive 7  births 2752 starved 184 hungry 1236 oats 11 lamp 38s
+seed 7     lead dish 2 (seed 107): in 1147 -> 1195/1996  peak 1996  set off 1970 starved in line 775  go 96.0s  food left at go 47%  Go open 27.0s  end 112s alive 0  births 2257 starved 95 hungry 1339 oats 11 lamp 29s
+seed 7     lead dish 3 (seed 207): in 1195 -> 1236/1847  peak 1847  set off 1818 starved in line 582  go 72.0s  food left at go 63%  Go open 21.6s  end 86s alive 0  births 1732 starved 107 hungry 1002 oats 7 lamp 48s
+seed 8 careless dish 1 (seed 8): in 400 -> 9/1514  peak 1514  set off 9 starved in line 0  go 99.0s  food left at go 55%  Go open 0.4s  end 102s alive 816  births 2118 starved 724 hungry 969 oats 6 lamp 21s
+seed 8 careless dish 2 (seed 108): in 9 -> 4/2067  peak 2067  set off 4 starved in line 0  go 107.5s  food left at go 50%  Go open 0.4s  end 111s alive 977  births 3363 starved 887 hungry 1504 oats 10 lamp 40s
+seed 8 careless dish 3 (seed 208): in 4 -> 3/2260  peak 2260  set off 3 starved in line 0  go 36.0s  food left at go 90%  Go open 0.1s  end 39s alive 731  births 2261 starved 630 hungry 901 oats 6 lamp 12s
+seed 8     idle dish 1 (seed 8): in 400 -> died  peak 1200  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 370s alive 0  births 3305 starved 2535 hungry 1170 oats 0 lamp 0s
+seed 8   idlego dish 1 (seed 8): in 400 -> died  peak 1200  set off 0 starved in line 0  go -  food left at go 100%  Go open 0.0s  end 370s alive 0  births 3305 starved 2535 hungry 1170 oats 0 lamp 0s
+seed 8     lead dish 1 (seed 8): in 400 -> 269/1596  peak 1596  set off 321 starved in line 52  go 228.0s  food left at go 8%  Go open 53.5s  end 233s alive 21  births 4797 starved 2469 hungry 2386 oats 19 lamp 131s
+seed 8     lead dish 2 (seed 108): in 269 -> 918/1331  peak 1331  set off 1318 starved in line 400  go 81.0s  food left at go 69%  Go open 17.5s  end 93s alive 0  births 2085 starved 46 hungry 990 oats 9 lamp 32s
+seed 8     lead dish 3 (seed 208): in 918 -> 1231/1965  peak 1965  set off 1856 starved in line 625  go 73.5s  food left at go 65%  Go open 14.6s  end 88s alive 0  births 1847 starved 82 hungry 827 oats 8 lamp 24s
+
+== arrived N of M, per hand per seed (dish 1 | dish 2 | dish 3; 'died' = starved, 'stayed' = never left) ==
+idle:
+  seed 1: died | - | -
+  seed 2: died | - | -
+  seed 3: died | - | -
+  seed 4: died | - | -
+  seed 5: died | - | -
+  seed 6: died | - | -
+  seed 7: died | - | -
+  seed 8: died | - | -
+  dish 1 share arrived: min 0%  median 0%  max 0%;  walkers through the last crack: [0, 0, 0, 0, 0, 0, 0, 0]
+idlego:
+  seed 1: died | - | -
+  seed 2: died | - | -
+  seed 3: 526/942 | died | -
+  seed 4: 514/1216 | died | -
+  seed 5: died | - | -
+  seed 6: died | - | -
+  seed 7: died | - | -
+  seed 8: died | - | -
+  dish 1 share arrived: min 0%  median 0%  max 56%;  walkers through the last crack: [0, 0, 0, 0, 0, 0, 0, 0]
+careless:
+  seed 1: 165/1705 | 850/1280 | 80/1550
+  seed 2: 202/1867 | 903/1391 | 4/1386
+  seed 3: 984/1586 | 931/1579 | 943/1523
+  seed 4: 5/1443 | 95/2197 | 35/1689
+  seed 5: 885/1439 | 122/1834 | 112/1768
+  seed 6: 57/1825 | 12/2107 | 1025/1712
+  seed 7: 209/1694 | 191/1695 | 117/1718
+  seed 8: 9/1514 | 4/2067 | 3/2260
+  dish 1 share arrived: min 0%  median 11%  max 62%;  walkers through the last crack: [3, 4, 35, 80, 112, 117, 943, 1025]
+lead:
+  seed 1: 1134/1924 | 1524/1948 | 1039/1884
+  seed 2: 1000/1915 | 1241/1897 | 1339/1995
+  seed 3: 945/1617 | 953/1640 | 1048/1730
+  seed 4: 1131/1965 | 932/1557 | 981/1689
+  seed 5: 1130/1762 | 1096/1928 | 188/1970
+  seed 6: 6/1835 | 1151/2164 | 1442/1903
+  seed 7: 1147/1977 | 1195/1996 | 1236/1847
+  seed 8: 269/1596 | 918/1331 | 1231/1965
+  dish 1 share arrived: min 0%  median 58%  max 64%;  walkers through the last crack: [188, 981, 1039, 1048, 1231, 1236, 1339, 1442]
+
+== frame cost: steps + draw at scale 4, mean and worst ==
+scored dish, plan: 5880 frames, peak 2030 walkers: mean 2.67 ms, worst 18.45 ms
+wanderer, lead: 5769 frames, peak 1924 walkers: mean 2.49 ms, worst 6.74 ms

@@ -1,0 +1,21 @@
+organprobe: seeds=[1, 2, 4, 5, 6, 7, 8, 9] step0=false bend=true play=false settle=20s window=10s from=18 to=-8 hold=4s bell=3 core=0
+bend: HIGH bell's tube, lamp +18 -> -8 cells across it over 4 s, then let go; ms at 50 cells/s
+seed  ruler  base   peak  +ms@peak  +5s after  +15s after  kept vs twin, ms  | gaps while lit
+   1  grid   99.0   99.0        0       99.0       99.0                0   | 0
+   1  geo    71.7   78.7      139       71.7       71.7                0   | 
+   2  grid   91.0   93.0       40       92.0       93.0               40   | 1
+   2  geo    67.2   75.3      161       70.8       73.2              120   | 
+   4  grid   95.0   95.0        0       95.0       95.0                0   | 2
+   4  geo    69.8   76.9      142       69.8       69.8                0   | 
+   5  grid   94.0   96.0       40       94.0       94.0                0   | 4
+   5  geo    68.1   85.0      339       68.1       68.1               -0   | 
+   6  grid   96.0   96.0        0       96.0       96.0                0   | 6
+   6  geo    69.0   83.6      292       69.0       69.0               -0   | 
+   7  grid   90.0   90.0        0       90.0       90.0                0   | 21
+   7  geo    65.2   73.0      156       65.2       65.2                0   | 
+   8  grid  102.0  104.0       40      102.0      102.0                0   | 9
+   8  geo    74.4   88.4      279       74.4       74.4                0   | 
+   9  grid   95.0   95.0        0       95.0       95.0                0   | 3
+   9  geo    68.2   75.4      144       68.2       68.2               -0   | 
+grid : note later while pushed, ms min/p50/max 0/0/40; still later 15 s after letting go (vs untouched twin) 0/0/40  n=8
+geo  : note later while pushed, ms min/p50/max 139/161/339; still later 15 s after letting go (vs untouched twin) -0/0/120  n=8
