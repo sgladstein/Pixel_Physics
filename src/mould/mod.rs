@@ -565,6 +565,10 @@ pub struct Score {
     pub shortest: f32,
     /// Dish piles still joined after the storm.
     pub after: u32,
+    /// Second at which every pile (three or more, the late ones included)
+    /// was first joined in one piece, checked once a second; `None` if
+    /// that never happened before the storm.
+    pub joined_at: Option<u32>,
     pub stars: [bool; 3],
 }
 
@@ -651,6 +655,8 @@ pub struct Dish {
     stroke: Option<Stroke>,
     pub phase: Phase,
     pub before: Option<Score>,
+    /// Step at which all the food was first joined (`Score::joined_at`).
+    pub all_joined_at: Option<u64>,
     pub score: Option<Score>,
     /// Food joined just after the storm.
     after: Option<u32>,
@@ -889,6 +895,7 @@ impl Dish {
             stroke: None,
             phase: Phase::Growing,
             before: None,
+            all_joined_at: None,
             score: None,
             after: None,
             cuts: Vec::new(),
@@ -2302,13 +2309,26 @@ impl Dish {
             if self.storm_line.is_none() && self.t + 1 >= self.storm_at.saturating_sub(self.storm_warning) {
                 self.storm_line = self.aim_storm();
             }
+            // When was all the food first joined? Once a second, and only
+            // once every late pile has landed: a measure is a flood fill.
+            if self.all_joined_at.is_none()
+                && self.phase == Phase::Growing
+                && self.pending.is_empty()
+                && self.t.is_multiple_of(sps)
+            {
+                let m = self.measure();
+                if m.piles >= THRIFT_MIN_JOINED && m.reach == m.piles {
+                    self.all_joined_at = Some(self.t);
+                }
+            }
         }
         match self.phase {
             Phase::Growing if self.t + 1 >= self.storm_at => {
                 self.lamp = None;
                 self.stroke = None;
                 self.update_light();
-                let before = self.measure();
+                let mut before = self.measure();
+                before.joined_at = self.all_joined_at.map(|t| (t / STEPS_PER_SECOND as u64) as u32);
                 self.strike();
                 self.before = Some(before);
                 self.phase = Phase::Storm(self.t);

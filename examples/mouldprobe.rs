@@ -219,7 +219,74 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "shepherd" => Box::new(Shepherd),
         "lamponly" => Box::new(LampOnly::new()),
         "dump" => Box::new(Dump),
+        "prune" => Box::new(Pruner { seed: seed | 1, frame: 0, from: 15, every: 30, len: 26.0 }),
         _ => panic!("unknown player {name}"),
+    }
+}
+
+/// **An oracle pruner, not a person**: with unlimited snips, every `every`
+/// frames from `from` seconds it tries short cuts across random tube cells
+/// (four directions each) on a copy of the dish, and makes the first one that
+/// leaves the joined food as joined as it was. It answers *can cutting alone
+/// make a 22.5-degree network lean*, before anyone designs a tool for it
+/// (2026-11-09). Only loops and dead spurs pass that test.
+struct Pruner {
+    seed: u64,
+    frame: u64,
+    from: u64,
+    every: u64,
+    len: f32,
+}
+
+impl Player for Pruner {
+    fn name(&self) -> &'static str {
+        "oracle pruner"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        self.frame += 1;
+        if d.phase != Phase::Growing
+            || d.t < self.from * STEPS_PER_SECOND as u64
+            || !self.frame.is_multiple_of(self.every)
+        {
+            return;
+        }
+        let w = pixel_physics::mould::W;
+        let tube = d.params.tube;
+        let cand: Vec<usize> = (0..d.trail.len())
+            .filter(|&i| {
+                let (x, y) = ((i % w) as f32, (i / w) as f32);
+                d.trail[i] > tube
+                    && d.ground[i] == Ground::Agar
+                    && d.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + 8.0)
+            })
+            .collect();
+        if cand.is_empty() {
+            return;
+        }
+        let base = d.measure().reach;
+        for _ in 0..16 {
+            self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let i = cand[(self.seed >> 33) as usize % cand.len()];
+            let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+            for k in 0..4 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let (dx, dy) = (a.cos() * self.len / 2.0, a.sin() * self.len / 2.0);
+                let mut c = d.clone();
+                c.snips_left = 1;
+                if !c.begin_stroke(Tool::Snip, x - dx, y - dy) {
+                    continue;
+                }
+                c.drag_stroke(x + dx, y + dy);
+                c.end_stroke();
+                if c.measure().reach >= base {
+                    d.snips_left = 1;
+                    d.begin_stroke(Tool::Snip, x - dx, y - dy);
+                    d.drag_stroke(x + dx, y + dy);
+                    d.end_stroke();
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -1822,13 +1889,14 @@ fn main() {
             let r = run(seed, who, &a);
             let s = &r.score;
             println!(
-                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
+                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{} at {}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
                 s.star_count(),
                 s.stars[0] as u8,
                 s.stars[1] as u8,
                 s.stars[2] as u8,
                 s.reach,
                 s.piles,
+                s.joined_at.map_or("-".to_string(), |t| format!("{t}s")),
                 s.after,
                 s.length,
                 s.shortest,
