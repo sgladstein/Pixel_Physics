@@ -178,6 +178,8 @@ fn parse() -> Args {
             "push" => p.push = f(),
             "pieces" => p.pieces = v == "1",
             "flow" => p.flow = v == "1",
+            "spared" => p.spared = f() as u32,
+            "spared_scent" => p.spared_scent = f(),
             "tune" => {
                 let text = std::fs::read_to_string(v).unwrap_or_else(|e| panic!("tune: {v}: {e}"));
                 let bad = pixel_physics::mould::tune::from_text(&text, p);
@@ -219,8 +221,41 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "shepherd" => Box::new(Shepherd),
         "lamponly" => Box::new(LampOnly::new()),
         "dump" => Box::new(Dump),
+        "guard" => Box::new(Guard),
         "prune" => Box::new(Pruner { seed: seed | 1, frame: 0, from: 15, every: 30, len: 26.0 }),
         _ => panic!("unknown player {name}"),
+    }
+}
+
+/// Guards the keep-off patches (`Params::spared`): one salt ring round the
+/// first at once, and the lamp held over the second all game. The simplest
+/// hand that tries; a person should do better.
+struct Guard;
+
+impl Player for Guard {
+    fn name(&self) -> &'static str {
+        "guard"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing {
+            return;
+        }
+        let sps = STEPS_PER_SECOND as u64;
+        if let Some(&(x, y, r)) = d.spared.first() {
+            if d.t >= sps && d.salt_left > 0 {
+                let rr = r + 1.5;
+                if d.begin_stroke(Tool::Salt, x + rr, y) {
+                    for k in 1..=64 {
+                        let a = k as f32 / 64.0 * std::f32::consts::TAU;
+                        d.drag_stroke(x + rr * a.cos(), y + rr * a.sin());
+                    }
+                    d.end_stroke();
+                }
+            }
+        }
+        if let Some(&(x, y, _)) = d.spared.get(1) {
+            d.set_lamp(Some((x, y)));
+        }
     }
 }
 
@@ -1889,7 +1924,7 @@ fn main() {
             let r = run(seed, who, &a);
             let s = &r.score;
             println!(
-                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{} at {}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
+                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{} at {}  patches {:?}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
                 s.star_count(),
                 s.stars[0] as u8,
                 s.stars[1] as u8,
@@ -1897,6 +1932,7 @@ fn main() {
                 s.reach,
                 s.piles,
                 s.joined_at.map_or("-".to_string(), |t| format!("{t}s")),
+                s.on_patch,
                 s.after,
                 s.length,
                 s.shortest,

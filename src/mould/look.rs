@@ -1932,6 +1932,14 @@ fn marks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
             cv.disc(x * sf, y * sf, SNIP_R * sf * 0.4, [255, 240, 230], 0.8 * f);
         }
     }
+    // Keep-off patches (`Params::spared`): a dashed ring, red once tube is on it.
+    if !d.spared.is_empty() {
+        let hit = d.on_patch();
+        for (k, &(x, y, r)) in d.spared.iter().enumerate() {
+            let c = if hit[k] > 0 { th.bad } else { [205, 225, 255] };
+            cv.ring(x * sf, y * sf, r * sf, 2.0, c, 0.95, Some((14, 0.55)));
+        }
+    }
 }
 
 // -------------------------------------------------------------- the storm

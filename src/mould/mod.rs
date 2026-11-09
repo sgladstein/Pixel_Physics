@@ -288,6 +288,18 @@ pub struct Params {
     pub settle_seconds: f32,
     /// The sensor angle a dish starts at when `settle_seconds` is on, radians.
     pub explore_angle: f32,
+    /// **Patches the mould must keep off** (free dish only), 0 = none.
+    /// A prototype goal for the 22.5-degree mould, which joins all the food
+    /// and shrugs off the storm by itself (2026-11-09 census): the patches
+    /// sit halfway along the routes from the start pile to its two nearest
+    /// neighbours, so doing nothing grows over them and guarding one means
+    /// steering the mould round it. Read as tube cells on each patch at the
+    /// bell (`Score::on_patch`).
+    pub spared: u32,
+    /// How strongly a keep-off patch smells, as a fraction of a full pile:
+    /// at 0 the 22.5-degree mould missed the second patch on 3 of 6 seeds
+    /// by routing round it, so a patch is bait, not just a place.
+    pub spared_scent: f32,
 }
 
 impl Default for Params {
@@ -336,6 +348,8 @@ impl Default for Params {
             wall_half_life: 30.0,
             wall_pull: 1.0,
             settle_seconds: 0.0,
+            spared: 0,
+            spared_scent: 0.5,
             explore_angle: 22.5f32.to_radians(),
         }
     }
@@ -389,6 +403,8 @@ pub const CUT_HALF: f32 = 20.0;
 /// where clean single tubes read 1.0-1.3x and branchy networks 1.6-1.9x.
 pub const THRIFT_BAR: f32 = 1.15;
 pub const THRIFT_MIN_JOINED: u32 = 3;
+/// Radius of a keep-off patch (`Params::spared`).
+pub const SPARED_R: f32 = 8.0;
 /// Cells of tube width that make one cell of network length. Calibrated on
 /// the probe's straight home-to-pile tubes, which are about 12 cells wide at
 /// the `tube` threshold; at 4 a straight tube read as 3.8x its own length.
@@ -569,6 +585,8 @@ pub struct Score {
     /// was first joined in one piece, checked once a second; `None` if
     /// that never happened before the storm.
     pub joined_at: Option<u32>,
+    /// Tube cells on each keep-off patch at the bell (`Params::spared`).
+    pub on_patch: Vec<u32>,
     pub stars: [bool; 3],
 }
 
@@ -657,6 +675,8 @@ pub struct Dish {
     pub before: Option<Score>,
     /// Step at which all the food was first joined (`Score::joined_at`).
     pub all_joined_at: Option<u64>,
+    /// Keep-off patches, (x, y, r) (`Params::spared`).
+    pub spared: Vec<(f32, f32, f32)>,
     pub score: Option<Score>,
     /// Food joined just after the storm.
     after: Option<u32>,
@@ -844,7 +864,36 @@ impl Dish {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
         }
-        Self::assemble(seed, params, rng, ground, piles, pending)
+        let n = params.spared as usize;
+        let mut d = Self::assemble(seed, params, rng, ground, piles, pending);
+        if n > 0 {
+            let home = (d.piles[0].x, d.piles[0].y);
+            let mut by: Vec<(f32, f32, f32)> = d.piles[1..]
+                .iter()
+                .map(|p| ((p.x - home.0).hypot(p.y - home.1), p.x, p.y))
+                .collect();
+            by.sort_by(|a, b| a.0.total_cmp(&b.0));
+            d.spared = by
+                .iter()
+                .take(n)
+                .map(|&(_, x, y)| ((home.0 + x) / 2.0, (home.1 + y) / 2.0, SPARED_R))
+                .collect();
+        }
+        d
+    }
+
+    /// Tube cells on each keep-off patch now (`Params::spared`).
+    pub fn on_patch(&self) -> Vec<u32> {
+        let tube = self.params.tube;
+        self.spared
+            .iter()
+            .map(|&(x, y, r)| {
+                disc(r)
+                    .filter_map(|(ox, oy)| cell(x + ox, y + oy))
+                    .filter(|&i| self.ground[i] == Ground::Agar && self.trail[i] > tube)
+                    .count() as u32
+            })
+            .collect()
     }
 
     /// The dish around a ground and its food: the fields, the inoculum on
@@ -896,6 +945,7 @@ impl Dish {
             phase: Phase::Growing,
             before: None,
             all_joined_at: None,
+            spared: Vec::new(),
             score: None,
             after: None,
             cuts: Vec::new(),
@@ -1289,6 +1339,18 @@ impl Dish {
                 if let Some(i) = cell(p.x + ox, p.y + oy) {
                     if self.ground[i] == Ground::Agar {
                         self.scent[i] += strength;
+                    }
+                }
+            }
+        }
+        let bait = fd * self.params.spared_scent;
+        if bait > 0.0 {
+            for &(x, y, r) in &self.spared {
+                for (ox, oy) in disc(r) {
+                    if let Some(i) = cell(x + ox, y + oy) {
+                        if self.ground[i] == Ground::Agar {
+                            self.scent[i] += bait;
+                        }
                     }
                 }
             }
@@ -2329,6 +2391,7 @@ impl Dish {
                 self.update_light();
                 let mut before = self.measure();
                 before.joined_at = self.all_joined_at.map(|t| (t / STEPS_PER_SECOND as u64) as u32);
+                before.on_patch = self.on_patch();
                 self.strike();
                 self.before = Some(before);
                 self.phase = Phase::Storm(self.t);
