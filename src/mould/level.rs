@@ -238,10 +238,16 @@ pub static DISHES: [Level; 4] = [
         },
         seconds: 600,
         sensor_deg: 22.5,
+        // Stars from the probe (16 seeds, `mouldprobe level=4`), lived:
+        // doing nothing 1:21-4:08 (median 2:27), random 1:23-3:22 (2:34),
+        // the scripted oat-saver (`play::Route`, "alive") 3:18-5:40
+        // (3:49), longer than doing nothing on 14 of 16 (p 0.004). One star
+        // past doing nothing's longest; two and three are for a person to
+        // beat the script.
         win: Win::Endless {
             every: 20,
             gap: [70.0, 6.0],
-            bars: [150, 240, 360],
+            bars: [255, 330, 400],
         },
     },
 ];
@@ -782,8 +788,8 @@ impl Dish {
 
 /// **Keep It Alive's food**: (arrives, x, y) for every pile to the cap.
 /// Each lands `gap[0] + gap[1] * k` cells from the last (home first), at
-/// most `GAP_MAX`, on agar with a 10-cell margin and 30 cells clear of the
-/// last three piles; where no such spot exists at that distance, a little
+/// most `GAP_MAX`, on agar with a 10-cell margin, off every earlier pile
+/// and 30 cells clear of the last three; where no such spot exists at that distance, a little
 /// nearer. From the seed, so a dish replays.
 fn endless_food(ground: &[super::Ground], level: &Level, every: u32, gap: [f32; 2], rng: &mut super::Rng) -> Vec<(u32, f32, f32)> {
     let agar = |x: f32, y: f32| {
@@ -802,7 +808,10 @@ fn endless_food(ground: &[super::Ground], level: &Level, every: u32, gap: [f32; 
             for _ in 0..48 {
                 let a = rng.f32() * std::f32::consts::TAU;
                 let (x, y) = (last.0 + a.cos() * g, last.1 + a.sin() * g);
-                let clear = recent.iter().rev().take(3).all(|r| (r.0 - x).hypot(r.1 - y) >= 30.0);
+                // Off every earlier pile (eaten ones stay on the dish), and
+                // well clear of the last three.
+                let clear = recent.iter().all(|r| (r.0 - x).hypot(r.1 - y) >= 16.0)
+                    && recent.iter().rev().take(3).all(|r| (r.0 - x).hypot(r.1 - y) >= 30.0);
                 if clear && agar(x, y) {
                     found = Some((x, y));
                     break;
