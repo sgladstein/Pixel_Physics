@@ -2473,6 +2473,7 @@ fn level_words(d: &Dish) -> Option<String> {
             let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
             Some(format!("Eating {fed} pile{}", if fed == 1 { "" } else { "s" }))
         }
+        Win::Endless { .. } => Some(format!("Alive {}  mould {}", clock((d.t / STEPS_PER_SECOND as u64) as u32), d.walkers.len())),
     }
 }
 
@@ -2486,6 +2487,9 @@ fn phase_words(d: &Dish, st: &Status) -> String {
             format!("Storm! Score in {} s", end.saturating_sub(d.t).div_ceil(sps))
         }
         Phase::Growing if st.lesson => "Lesson: no storm".into(),
+        Phase::Growing if d.level.is_some_and(|l| matches!(l.win, super::level::Win::Endless { .. })) => {
+            format!("Alive {}", clock((d.t / sps) as u32))
+        }
         Phase::Growing if d.level.is_some() => format!("Bell in {}", clock(st.left)),
         Phase::Growing => format!("Storm in {}", clock(st.left)),
     }
@@ -3307,6 +3311,11 @@ fn level_rows(d: &Dish, l: &super::level::Level, th: &Theme) -> Vec<Row> {
             format!("{} mould alive at {bell}", bars[0]),
             format!("{} alive", bars[1]),
             format!("{} alive", bars[2]),
+        ],
+        Win::Endless { bars, .. } => [
+            format!("Alive at {}", clock(bars[0])),
+            format!("At {}", clock(bars[1])),
+            format!("At {}", clock(bars[2])),
         ],
     };
     let goal = sentence(&l.goal);

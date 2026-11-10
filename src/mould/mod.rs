@@ -737,6 +737,8 @@ pub struct Dish {
     /// Beat the Ruler's live number, refreshed twice a second: the
     /// shortest join through the tube over the ruler (`Dish::best_join`).
     pub join_now: Option<f32>,
+    /// Most mould alive at once on this dish (Keep It Alive's card).
+    pub peak_mould: u32,
     /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
     /// place of the clock, the storm and the stars. `None` in a scored dish
     /// and the lesson.
@@ -961,6 +963,7 @@ impl Dish {
             wound_until: vec![u64::MAX; W * H],
             counts: Counts::default(),
             level: None,
+            peak_mould: 0,
             oats_stock: OATS_STOCK,
             oats_regrow: OATS_REGROW_SECONDS,
             card: None,

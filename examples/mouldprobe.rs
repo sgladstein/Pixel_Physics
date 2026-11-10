@@ -52,6 +52,7 @@ struct Args {
     every: u32,
     /// Oats per dish, if not the game's own stock.
     oats: Option<u32>,
+    oats_regrow: Option<u32>,
     /// The Wanderer (`mould::wander`): journeys of `dishes` stretches.
     wander: bool,
     dishes: u32,
@@ -93,6 +94,7 @@ fn parse() -> Args {
         scale: 2,
         every: 15,
         oats: None,
+        oats_regrow: None,
         wander: false,
         dishes: 3,
         cap_min: 10,
@@ -148,6 +150,7 @@ fn parse() -> Args {
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
+            "oats_regrow" => a.oats_regrow = Some(v.parse().unwrap()),
             "wander" => a.wander = v == "1",
             "dishes" => a.dishes = v.parse().unwrap(),
             "cap" => a.cap_min = v.parse().unwrap(),
@@ -371,6 +374,10 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
     let mut d = Dish::with_params(seed, a.params.clone());
     if let Some(n) = a.oats {
         d.oats_left = n;
+        d.oats_stock = d.oats_stock.max(n);
+    }
+    if let Some(n) = a.oats_regrow {
+        d.oats_regrow = n;
     }
     let mut p = player(who, seed);
     let mut shots = Vec::new();
@@ -1645,8 +1652,15 @@ fn give_oats(d: &mut Dish, a: &Args) {
 /// 1, P2: the stills and the frame cost were built at the defaults).
 fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
     use pixel_physics::mould::level::DISHES;
+    // The level's own sensor angle unless `sensor_angle=` moved it.
+    let angle = if a.params.sensor_angle == pixel_physics::mould::Params::default().sensor_angle {
+        DISHES[k].sensor_deg.to_radians()
+    } else {
+        a.params.sensor_angle
+    };
     let params = pixel_physics::mould::Params {
         stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
+        sensor_angle: angle,
         ..a.params.clone()
     };
     let mut d = Dish::from_level_with(&DISHES[k], seed, params);
@@ -1675,6 +1689,26 @@ fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dis
         }
         if d.phase == Phase::Over && over_at.is_none() {
             over_at = Some(d.t);
+        }
+        // `LEVELTRACE=1`: every 10 s, the mould, the food it is on, and how
+        // far its nearest walker is from each pile that still has food.
+        if std::env::var("LEVELTRACE").is_ok() && d.t.is_multiple_of(10 * STEPS_PER_SECOND as u64) && d.phase == Phase::Growing {
+            let piles: Vec<String> = d
+                .dish_piles()
+                .filter(|p| p.food > 0.0)
+                .map(|p| {
+                    let g = d.walkers.iter().map(|w| (w.x - p.x).hypot(w.y - p.y) - p.r).fold(f32::INFINITY, f32::min).max(0.0);
+                    format!("{}{:.0}%@{:.0}", if p.reached() { "*" } else { "" }, p.food / p.full * 100.0, g)
+                })
+                .collect();
+            println!(
+                "    t={:>3}s mould {:>4} store {:>7.0} oats {} piles {}",
+                d.t / STEPS_PER_SECOND as u64,
+                d.walkers.len(),
+                d.store,
+                d.oats_left,
+                piles.join(" ")
+            );
         }
         if gif.is_some() && frame.is_multiple_of(a.every) {
             shots.push(frame_of(&d, a.scale, a.style));
