@@ -3324,7 +3324,8 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
                 } else {
                     x + 42
                 };
-                if sx + text_w(th, &sub) <= x + tw - 4 {
+                // Narrow tiles drop the words when they would spill over.
+                if !narrow || sx + text_w(th, &sub) <= x + tw - 4 {
                     text(cv, th, sx, y + 50, &sub, th.dim);
                 }
             }

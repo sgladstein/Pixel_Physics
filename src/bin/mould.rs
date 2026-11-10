@@ -20,6 +20,12 @@
 //! then the three candidates, named only by a letter in the bottom-right
 //! corner as they were judged. `-- 0 B` opens the lesson in look B.
 //!
+//! **The looks pass** (2026-11-10), every one on by default and each with a
+//! key to compare it against the drawing before, named in the title bar:
+//! F3 how food in the tube is drawn (the food ramp, then grey, embers,
+//! dried slime), F4 the walkers (grains, glints, off), F5 the smoothing of
+//! the rim, tubes, salt and cuts, F6 the stain where mould has been.
+//!
 //! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
 //! (or `-- wander 3` for dish seed 3), W from any dish, or THE WANDERER on
 //! the picker. No clock and no stars: lead her to the crack on the right and
