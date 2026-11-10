@@ -73,6 +73,34 @@ integer weights.
   edge at 0.3, so a one-cell line still shows.
 - Stain blended per pixel: 2 ms a frame at 22.5 degrees (above).
 
+## The independent review, and what changed after it
+
+Fable review, 2026-11-10 (owner: "After you finish all your work, have the
+fable thread review it"): https://claude.ai/artifact/KjnPQPgCp6HqdU4VxjFXbD.
+The first pass above merged as PR #1057 before these fixes; they are a
+follow-up PR.
+
+| # | Finding | What changed |
+|---|---|---|
+| 1 | The rim stays stepped where a tube meets it: tube cells in the rim band were drawn as whole cells over the smooth rim | Tube cells inside the rim band are drawn per pixel with the anti-aliased rim laid over them |
+| 2 | **The most important.** With flow off, starving tube no longer read as starving: the graded hunger faded over 6 s and stayed orange, where the old grey said "hungry" on the 0.5 s clock | Flow off: the ramp's gold only while `looks_fed`, the old cold grey the moment it is not. The graded ramp is kept for flow on, where it is the food the tube carries |
+| 3 | The stain changed 29-31% of the dark agar's pixels, a second picture under the first, and was full the moment tube touched a cell | Builds only while tube stands on a cell (full after 10 s of dish time), from 0 on a fresh dish; strength 0.32 to 0.2. Build and fade both run on dish time, so how often the window draws does not change it |
+| 4 | Flow on looked dull amber-brown | Ramp's bottom three stops lifted; below a food level of 0.1 a flow tube blends to the cold grey |
+| 5 | The lamp showed a slate-grey disc on cleared agar | The light now multiplies what it lands on (up to 1.7x) and adds a little warm light ([255, 226, 170]); ring and chevrons in the same warm colour |
+| 6 | Walker specks read as pepper in stills and jump 8 px a frame | Left to the owner: grains, glints or off (F4) is the blind pick on the page |
+
+Cost after these fixes (same instrument, the three runs one after another,
+nothing else running): 45 degrees 4.28 to 6.30 ms (+2.02), 22.5 degrees
+5.46 to 8.09 ms (+2.63, now including the starving dish at 180 s), flow on
+4.16 to 5.86 ms (+1.70). The starving case, 22.5 degrees at 180 s: 5,041
+tube cells, 2,077 fed (41%), the rest drawn cold grey as the old look did.
+`mouldlooks hand=idle` was tried for it first: an unplayed dish stays 100%
+fed to 90 s.
+
+Minor: the narrow bar never triggers in the window (scale 4 is 1,024 px
+wide); the overlap was in scale-3 and scale-2 renders. Kept, since it costs
+nothing and smaller windows do happen.
+
 ## What this does not show
 
 - One seed. The looks are judged by eye on the page; no count can say whether

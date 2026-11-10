@@ -378,6 +378,23 @@ impl Cv<'_> {
         }
     }
 
+    /// Light falling on a pixel: what is there gets brighter in proportion
+    /// (`gain`), then is pulled `a` of the way to the light's own colour, so
+    /// a lit tube glows and lit agar warms instead of greying over. (Adding
+    /// warm light alone was tried first: the dish's teal agar, brightened,
+    /// still read as a slate disc, so the cool cast has to be pulled out.)
+    #[inline]
+    fn light(&mut self, x: i32, y: i32, c: Rgb, gain: f32, a: f32) {
+        if (gain <= 0.004 && a <= 0.004) || x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return;
+        }
+        let i = (y as usize * self.w as usize + x as usize) * 4;
+        for (px, &ck) in self.f[i..i + 3].iter_mut().zip(&c) {
+            let v = (*px as f32 * (1.0 + gain)).min(255.0);
+            *px = (v + (ck as f32 - v) * a).clamp(0.0, 255.0) as u8;
+        }
+    }
+
     fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, c: Rgb, a: f32) {
         for yy in y.max(0)..(y + h).min(self.h) {
             for xx in x.max(0)..(x + w).min(self.w) {
@@ -1170,7 +1187,7 @@ impl Halo {
                 let i = y * W + x;
                 if d.ground[i] == Ground::Agar && d.trail[i] > thr {
                     let k = (y / 2) * HW + x / 2;
-                    if starve_look() == 3 {
+                    if starve_look() == 3 && d.params.flow {
                         // The food ramp's glow is graded as its colour
                         // is: rich tube glows, empty tube barely does.
                         let f = fullness(d, i);
@@ -1654,7 +1671,13 @@ const DRIED: [Rgb; 3] = [[40, 42, 36], [104, 100, 78], [170, 162, 128]];
 /// The food ramp (`STARVE_LOOK` 3), none to rich. A fixed ramp, never the
 /// frame's own range (`CLAUDE.md`, *A debug readout must not be a function
 /// of the thing it debugs*).
-const FOOD_RAMP: [Rgb; 5] = [[58, 34, 18], [132, 66, 20], [222, 140, 28], [255, 208, 80], [255, 248, 214]];
+/// The bottom stop is a dim gold, not brown (Fable review of the pass,
+/// 2026-11-10: with flow on at 45 degrees, seed 2, 50 s, the whole network
+/// went a dull amber-brown); only tube with next to no food goes cold
+/// (`FOOD_COLD`).
+const FOOD_RAMP: [Rgb; 5] = [[124, 76, 26], [186, 114, 28], [230, 156, 36], [255, 210, 84], [255, 248, 214]];
+/// Below this food level a flowing tube blends to the look's cold grey.
+const FOOD_COLD: f32 = 0.1;
 /// Food in a tube cell, in `CARRIED_FULL`s of walker load plus `SAP_FULL`s
 /// of sap, at which the ramp tops out; read on a log scale. Measured on
 /// seed 1 with flow on (plan hand, 10-60 s): the sap alone spans 0.4 to
@@ -1683,9 +1706,29 @@ pub fn food_level(d: &Dish, i: usize) -> Option<f32> {
 }
 
 /// How full a tube cell looks under the food ramp: `food_level` with flow
-/// on, and with it off the census's graded hunger, scaled to `FED_NO_FLOW`.
+/// on; with it off, `FED_NO_FLOW` while the census feeds it and 0 from
+/// `FED_LOOK_SECONDS` after it stops.
 fn fullness(d: &Dish, i: usize) -> f32 {
-    food_level(d, i).unwrap_or_else(|| FED_NO_FLOW * (1.0 - hunger(d, i)))
+    food_level(d, i).unwrap_or_else(|| if d.looks_fed(i) { FED_NO_FLOW } else { 0.0 })
+}
+
+/// A tube cell's colour under the food ramp. **With flow off, starving
+/// tube is the look's cold grey at once** (Fable review, 2026-11-10: graded
+/// over `STARVE_FADE_SECONDS`, a Keep It Alive dish whose 376 tube cells
+/// were all unfed at 60 s still drew orange, and by 62 s a dim rust close
+/// to an empty pile and the stain: the warning came late and read as
+/// food). Fed tube is gold, its depth from thickness. With flow on the
+/// ramp is the food it holds, cooling to grey only near none.
+fn ramp_tube(th: &Theme, v: f32, full: f32, fed: bool, flow: bool, shade: f32) -> Rgb {
+    if !flow {
+        return if fed { food_colour(th, v, FED_NO_FLOW, shade) } else { tube_colour(th, v, false, shade) };
+    }
+    let warm = food_colour(th, v, full, shade);
+    if full >= FOOD_COLD {
+        warm
+    } else {
+        lerp(tube_colour(th, v, false, shade), warm, full / FOOD_COLD)
+    }
 }
 
 /// A tube cell under the food ramp: the ramp at `full`, its brightness
@@ -1807,7 +1850,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     // once, so the amount reads as a gradient along the tube rather than
     // the sap's cell-by-cell grain (and a per-cell read at full size cost
     // what the hunger field did).
-    let full_field = food_ramp.then(|| {
+    let full_field = (food_ramp && flow).then(|| {
         let mut num = vec![0.0f32; HW * HH];
         let mut den = vec![0.0f32; HW * HH];
         for y in 0..H {
@@ -1978,7 +2021,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     }
                     if is_tube {
                         tube = Some(if food_ramp {
-                            food_colour(th, vof(t0), full, shade)
+                            ramp_tube(th, vof(t0), full, fed, flow, shade)
                         } else {
                             pulsed(starve_colour(th, flow_v(vof(t0), hun), fed, hun, shade, flow), beat)
                         });
@@ -1990,8 +2033,17 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             // A cell the rim passes through, drawn pixel by pixel
             // (`rim_layer`), where nothing of the mould covers it. Salt,
             // scar and wound keep their own colours.
-            let fine = smooth.as_ref().map_or(u32::MAX, |l| l.at[i]);
-            let fine = (fine != u32::MAX && matches!(d.ground[i], Ground::Rim | Ground::Agar) && tube.is_none()).then_some(fine as usize);
+            let band = smooth.as_ref().map_or(u32::MAX, |l| l.at[i]);
+            let band = (band != u32::MAX && matches!(d.ground[i], Ground::Rim | Ground::Agar)).then_some(band as usize);
+            let fine = band.filter(|_| tube.is_none());
+            // A tube touching the rim: drawn pixel by pixel with the rim
+            // laid over it, so the rim stays a smooth curve there too (Fable
+            // review, 2026-11-10: it kept its 4-pixel steps wherever a tube
+            // met it).
+            let rim_over_tube = band.filter(|_| tube.is_some());
+            if rim_over_tube.is_some() {
+                edge = true;
+            }
             // What shows through inside the dish: the cell's own ground
             // on agar (glow and all), the bare agar under a rim cell.
             let inside = match (fine, d.ground[i]) {
@@ -2133,7 +2185,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                                     (Some(ff), true) => half_at_f(ff, fx + 0.5, fy + 0.5),
                                     _ => full,
                                 };
-                                food_colour(th, vof(v), f, shade)
+                                ramp_tube(th, vof(v), f, fed, flow, shade)
                             }
                             _ => pulsed(starve_colour(th, flow_v(vof(v), hun), fed, hun, shade, flow), beat),
                         }
@@ -2141,6 +2193,10 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         smooth.as_ref().unwrap().over(o + (py * s + px) as usize, inside)
                     } else {
                         ground
+                    };
+                    let c = match rim_over_tube {
+                        Some(o) => smooth.as_ref().unwrap().over(o + (py * s + px) as usize, c),
+                        None => c,
                     };
                     cv.put(px0 + px, py0 + py, c);
                 }
@@ -2217,8 +2273,10 @@ const MARK_EDGE: f32 = 0.3;
 /// **A stain where the mould has been** (independent review, 2026-11-10,
 /// its fourth look; owner "in addition to everything else"). The real
 /// organism leaves a film of slime where it has crawled; here every cell
-/// that has been tube keeps a faint stain on the agar once the tube has
-/// gone, fading by half every `STAIN_HALF_LIFE` seconds of dish time, so
+/// where tube has stood builds a faint stain on the agar (full after
+/// `STAIN_BUILD` seconds of standing tube, so a path the mould only brushed
+/// leaves next to nothing), kept once the tube has gone and fading by half
+/// every `STAIN_HALF_LIFE` seconds of dish time, so
 /// the dish shows where the mould went and gave up. Drawn from the trail
 /// alone, as it was each frame the window drew; the simulation never
 /// reads it, and the walkers do not avoid it. Paused, it does not fade.
@@ -2226,7 +2284,13 @@ const MARK_EDGE: f32 = 0.3;
 pub static STAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub const STAIN_HALF_LIFE: f32 = 20.0;
 const STAIN_COLOUR: Rgb = [92, 70, 30];
-const STAIN_STRENGTH: f32 = 0.32;
+/// Seconds of standing tube to a full stain.
+const STAIN_BUILD: f32 = 10.0;
+/// Was 0.32, with the stain full the moment tube stood on a cell: the
+/// Fable review (2026-11-10, https://claude.ai/artifact/KjnPQPgCp6HqdU4VxjFXbD)
+/// measured it changing 29-31% of the dark agar's pixels, a second picture
+/// under the first. Built up and fainter now.
+const STAIN_STRENGTH: f32 = 0.2;
 
 /// The stain by cell (0 to 1) for this dish, and the step it was brought
 /// up to. One dish's at a time, kept between frames: a different dish, or
@@ -2270,7 +2334,10 @@ fn stain_raw(d: &Dish) -> Option<std::sync::Arc<(u64, Vec<f32>)>> {
         None => true,
     };
     if fresh {
-        let v = (0..W * H).map(|i| if d.trail[i] > thr && d.ground[i] == Ground::Agar { 1.0 } else { 0.0 }).collect();
+        // A fresh dish starts clean: the stain is a record of where tube
+        // has *stood*, so it has to build (review 11-10: starting tube at
+        // full stain marked every live path and changed ~30% of the agar).
+        let v = vec![0.0; W * H];
         let f = Arc::new((d.t, v));
         *cache = Some((addr, id, f.clone()));
         return Some(f);
@@ -2285,9 +2352,17 @@ fn stain_raw(d: &Dish) -> Option<std::sync::Arc<(u64, Vec<f32>)>> {
     g.0 = d.t;
     for i in 0..W * H {
         let on = d.ground[i] == Ground::Agar && d.trail[i] > thr;
-        let v = g.1[i] * keep;
+        // Builds only while tube stands there (full after STAIN_BUILD
+        // seconds), fades at the half-life once it has gone; both run on
+        // dish time, so how often the dish is drawn does not change it.
         // Salt laid over a stain covers it.
-        g.1[i] = if on { 1.0 } else if d.ground[i] == Ground::Agar { v } else { 0.0 };
+        g.1[i] = if on {
+            (g.1[i] + dt / STAIN_BUILD).min(1.0)
+        } else if d.ground[i] == Ground::Agar {
+            g.1[i] * keep
+        } else {
+            0.0
+        };
     }
     Some(f.clone())
 }
@@ -2736,6 +2811,11 @@ fn chevrons(cv: &mut Cv, cx: f32, cy: f32, r: f32, n: u32, c: Rgb, a: f32, t: f3
     }
 }
 
+/// The colour of the lamp's light where it lands (Glow and Night): the
+/// ring and marks, and (`LAMP_POOL`) what lit ground is pulled towards.
+const LAMP_WARM: Rgb = [255, 226, 170];
+const LAMP_POOL: Rgb = [205, 170, 110];
+
 fn lamp(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
     let Some((lx, ly)) = d.lamp else { return };
     let sf = s as f32;
@@ -2761,10 +2841,13 @@ fn lamp(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
                 };
                 let l = l * l * (3.0 - 2.0 * l);
                 let scatter = ((rb - dd) / rb).clamp(0.0, 1.0).powi(3) * 0.10;
-                cv.add(x, y, th.lamp, 0.36 * l + scatter);
+                // Warm and multiplying (Fable review, 2026-11-10: adding
+                // the cool lamp colour turned cleared agar into a slate-grey
+                // disc). What the light lands on brightens, a lit tube most.
+                cv.light(x, y, LAMP_POOL, 0.5 * l + scatter, 0.45 * l + scatter * 0.5);
             });
-            cv.ring(cx, cy, r, 1.0, th.lamp, 0.3, None);
-            chevrons(cv, cx, cy, r, 8, th.lamp, 0.45, 2.0);
+            cv.ring(cx, cy, r, 1.0, LAMP_WARM, 0.22, None);
+            chevrons(cv, cx, cy, r, 8, LAMP_WARM, 0.4, 2.0);
         }
         Style::Toy => {
             cv.around(cx, cy, r, |cv, x, y, dd| {
