@@ -1034,6 +1034,12 @@ fn level_status(d: &Dish, joined: &super::Score) -> String {
             let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
             format!("TIME {left}  MOULD {}  EATING {fed} PILE{}", d.walkers.len(), if fed == 1 { "" } else { "S" })
         }
+        Win::Endless { .. } => format!(
+            "ALIVE {}  MOULD {}  MOST {}",
+            clock((d.t / super::STEPS_PER_SECOND as u64) as u32),
+            d.walkers.len(),
+            d.peak_mould
+        ),
     }
 }
 
@@ -1114,6 +1120,11 @@ fn level_brief(l: &super::level::Level, frame: &mut [u8], (fw, fh): (u32, u32), 
             format!("*   {} MOULD ALIVE AT {bell}", bars[0]),
             format!("**  {} ALIVE", bars[1]),
             format!("*** {} ALIVE", bars[2]),
+        ],
+        Win::Endless { bars, .. } => [
+            format!("*   ALIVE AT {}", clock(bars[0])),
+            format!("**  AT {}", clock(bars[1])),
+            format!("*** AT {}", clock(bars[2])),
         ],
     };
     lines.extend(stars.into_iter().map(|s| (s, TEXT)));
