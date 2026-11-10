@@ -378,6 +378,7 @@ fn main() {
         win: Win::AliveAtBell { bars: [1, 2, 3] },
         // The shipped free dish's angle (`Params::default`).
         sensor_deg: 45.0,
+        rival: None,
     }));
     // `so=`: Jones's sensor offset, the knob that sets how wide a tube is
     // (0 keeps the shipped value).

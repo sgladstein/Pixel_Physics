@@ -300,6 +300,19 @@ pub struct Params {
     /// at 0 the 22.5-degree mould missed the second patch on 3 of 6 seeds
     /// by routing round it, so a patch is bait, not just a place.
     pub spared_scent: f32,
+    /// **A wild second mould** (`Dish::rival`): how strongly its tube
+    /// repels this one, as a weight on its trail in this mould's sensors.
+    /// Two of the same species meeting fuse (Jones 2015); two strangers
+    /// keep apart, so each senses the other's trail as a wall it can
+    /// still be pushed through.
+    pub foe_repel: f32,
+    /// **Fighting at the seam** (`Dish::rival`): each step a walker beside
+    /// the other mould's walkers dies with chance `fight` x (their walkers
+    /// among its 8 neighbours / 8), halved if it stands on fed tube and
+    /// doubled on tube no food reaches. So a fed front holds and a starving
+    /// one is eaten into: feed the side that is fighting. No effect with
+    /// no rival.
+    pub fight: f32,
     /// **Water and sleep** (2026-11-10, owner's pick "water and sleep
     /// first"; the depth report's items 1 and 2,
     /// `Reports/mould-game-2026-11-08/depth-2026-11-09/complexity.md`).
@@ -388,6 +401,8 @@ impl Default for Params {
             settle_seconds: 0.0,
             spared: 0,
             spared_scent: 0.5,
+            foe_repel: 1.0,
+            fight: 0.02,
             wet: false,
             wet_base: 0.5,
             wet_relax: 0.0005,
@@ -462,6 +477,8 @@ pub const THRIFT_MIN_JOINED: u32 = 3;
 /// and waters on purpose lives 4:47-9:59 (median 8:18).
 pub const WATER_STOCK: u32 = 2;
 pub const WATER_REGROW_SECONDS: u32 = 40;
+/// Walkers in a mould's first blob.
+pub const INOCULUM: usize = 400;
 /// Radius of a keep-off patch (`Params::spared`).
 pub const SPARED_R: f32 = 8.0;
 /// Cells of tube width that make one cell of network length. Calibrated on
@@ -562,11 +579,26 @@ pub struct Pile {
     pub expires: u64,
     /// Walkers on it at the last census.
     pub eaters: u32,
+    /// The wild mould's walkers on it (`Dish::rival`), 0 with none. A pile
+    /// feeds at most `Params::table` walkers whoever they are, shared by
+    /// head count: crowding a pile is how one mould steals from the other.
+    pub foe_eaters: u32,
 }
 
 impl Pile {
     pub fn reached(&self) -> bool {
         self.eaters > 0
+    }
+
+    /// Food this pile gives its own eaters in a step: `table` walkers' worth
+    /// at most, shared with the wild mould's eaters by head count.
+    pub fn bite(&self, table: u32, eat: f32) -> f32 {
+        let all = self.eaters + self.foe_eaters;
+        if all == 0 {
+            return 0.0;
+        }
+        let share = all.min(table) as f32 * self.eaters as f32 / all as f32;
+        (share * eat).min(self.food)
     }
 }
 
@@ -690,6 +722,8 @@ pub struct Counts {
     pub burned: u64,
     pub snipped: u64,
     pub stormed: u64,
+    /// Walkers lost fighting the wild mould at the seam (`Params::fight`).
+    pub fought: u64,
     pub oats_placed: u32,
     pub snips_used: u32,
     pub salt_cells: u32,
@@ -837,6 +871,23 @@ pub struct Dish {
     /// place of the clock, the storm and the stars. `None` in a scored dish
     /// and the lesson.
     pub wander: Option<wander::Wander>,
+    /// **A wild second mould** on the same dish (2026-11-10, owner: "multiple
+    /// molds that can fight or steal resources from each other"). It is a
+    /// whole `Dish` of its own, run by exactly the same rules with nobody
+    /// steering, stepped in turn with this one (`Dish::step`). The two
+    /// share the food (what either eats is gone for both), the ground and
+    /// everything the player does to it (lamp, salt, snips, water); each
+    /// one's walkers block the other's cells, and each one's tube repels
+    /// the other (`Params::foe_repel`). Oats lure and feed both.
+    pub rival: Option<Box<Dish>>,
+    /// The rival's trail, as this mould's sensors read it: empty with no
+    /// rival.
+    foe_trail: Vec<f32>,
+    /// This dish is the wild one: no tools, no level, no clock of its own.
+    pub wild: bool,
+    /// The wild mould's walkers as this dish's own step sees them (the
+    /// rival is out of `rival` while this mould steps).
+    pub wild_left: usize,
     rng: Rng,
 }
 
@@ -929,6 +980,7 @@ impl Dish {
                 oats: false,
                 expires: u64::MAX,
                 eaters: 0,
+                foe_eaters: 0,
             })
             .collect::<Vec<_>>();
         // Late food: the farthest pile waits, and a sixth goes wherever is
@@ -1069,33 +1121,15 @@ impl Dish {
             card: None,
             join_now: None,
             wander: None,
+            rival: None,
+            foe_trail: Vec::new(),
+            wild: false,
+            wild_left: 0,
             rng,
         };
         // The inoculum: a blob on the home pile.
-        let (hx, hy) = (dish.piles[0].x, dish.piles[0].y);
-        let mut placed = 0;
-        let mut tries = 0;
-        while placed < 400 && tries < 20_000 {
-            tries += 1;
-            let a = dish.rng.f32() * TAU;
-            let d = dish.rng.f32().sqrt() * 12.0;
-            let (x, y) = (hx + a.cos() * d, hy + a.sin() * d);
-            if let Some(i) = cell(x, y) {
-                if dish.ground[i] == Ground::Agar && dish.occ[i] == 0 {
-                    dish.occ[i] = 1;
-                    let heading = dish.rng.f32() * TAU;
-                    dish.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x, y, heading, food: 0.0 });
-                    placed += 1;
-                }
-            }
-        }
-        if dish.params.pieces {
-            let share = START_STORE / dish.walkers.len().max(1) as f32;
-            for w in dish.walkers.iter_mut() {
-                w.food = share;
-            }
-        }
-        dish.census();
+        let home = (dish.piles[0].x, dish.piles[0].y);
+        dish.inoculate(home, &[], INOCULUM);
         dish
     }
 
@@ -1166,7 +1200,8 @@ impl Dish {
     /// The wet field's step (`Params::wet`): back toward `wet_base`, and
     /// dried by the lamp in proportion to its light.
     fn wet_tick(&mut self) {
-        if !self.params.wet {
+        // The wild mould's ground is the player's, copied each step.
+        if !self.params.wet || self.wild {
             return;
         }
         let (base, relax, dry) = (self.params.wet_base, self.params.wet_relax, self.params.dry_light);
@@ -1243,6 +1278,7 @@ impl Dish {
             oats: true,
             expires,
             eaters: 0,
+            foe_eaters: 0,
         });
         true
     }
@@ -1372,12 +1408,197 @@ impl Dish {
             Kill::Burned => self.counts.burned += 1,
             Kill::Snip => self.counts.snipped += 1,
             Kill::Storm => self.counts.stormed += 1,
+            Kill::Fight => self.counts.fought += 1,
         }
     }
 
     // ------------------------------------------------------------- the step
 
+    /// One step of the dish: this mould, then the wild one if there is one
+    /// (`Dish::rival`), each seeing the other as it stands.
     pub fn step(&mut self) {
+        let Some(mut r) = self.rival.take() else {
+            return self.step_own();
+        };
+        let before: Vec<(u64, f32)> = self.piles.iter().map(|p| (pile_key(p), p.food)).collect();
+        // What the player did this step reaches the wild mould too.
+        let t = self.t;
+        let snips: Vec<(f32, f32)> = self.snip_marks.iter().filter(|m| m.2 == t).map(|m| (m.0, m.1)).collect();
+        r.lamp = self.lamp;
+        r.ground.copy_from_slice(&self.ground);
+        if self.params.wet {
+            r.wet.copy_from_slice(&self.wet);
+        }
+        for (x, y) in snips {
+            for (ox, oy) in disc(2.5) {
+                if let Some(i) = cell(x + ox, y + oy) {
+                    r.trail[i] = 0.0;
+                }
+            }
+            r.kill_in(x, y, 2.5, Kill::Snip);
+        }
+        let mut k = 0;
+        while k < r.walkers.len() {
+            let w = r.walkers[k];
+            if cell(w.x, w.y).is_none_or(|i| r.ground[i] != Ground::Agar) {
+                r.remove_walker(k, Kill::Snip);
+            } else {
+                k += 1;
+            }
+        }
+        // This mould moves round the wild one where it stands, then the
+        // wild one round this one where it now stands: no cell is ever
+        // held by both.
+        self.foe_trail.resize(W * H, 0.0);
+        self.foe_trail.copy_from_slice(&r.trail);
+        self.hold_foe_cells(&r.walkers, true);
+        self.wild_left = r.walkers.len();
+        self.step_own();
+        self.hold_foe_cells(&r.walkers, false);
+        r.foe_trail.resize(W * H, 0.0);
+        r.foe_trail.copy_from_slice(&self.trail);
+        r.hold_foe_cells(&self.walkers, true);
+        r.step_own();
+        r.hold_foe_cells(&self.walkers, false);
+        // Shared food: what the wild mould ate this step comes off this
+        // dish's piles too, and its piles are this dish's again (the late
+        // food and the oats land here), keeping its own eaters.
+        for p in self.piles.iter_mut() {
+            let key = pile_key(p);
+            let was = before.iter().find(|b| b.0 == key).map(|b| b.1);
+            let theirs = r.piles.iter().find(|q| pile_key(q) == key).map(|q| q.food);
+            if let (Some(was), Some(theirs)) = (was, theirs) {
+                p.food = (p.food - (was - theirs).max(0.0)).max(0.0);
+            }
+        }
+        // Fighting where the two touch, both sides at once.
+        let mine = self.fight_losses(&r.occ);
+        let theirs = r.fight_losses(&self.occ);
+        for k in mine.into_iter().rev() {
+            self.remove_walker(k, Kill::Fight);
+        }
+        for k in theirs.into_iter().rev() {
+            r.remove_walker(k, Kill::Fight);
+        }
+        let eaters: Vec<(u64, u32)> = r.piles.iter().map(|q| (pile_key(q), q.eaters)).collect();
+        let theirs = |key: u64| eaters.iter().find(|e| e.0 == key).map_or(0, |e| e.1);
+        for p in self.piles.iter_mut() {
+            p.foe_eaters = theirs(pile_key(p));
+        }
+        r.piles.clone_from(&self.piles);
+        for q in r.piles.iter_mut() {
+            (q.eaters, q.foe_eaters) = (theirs(pile_key(q)), q.eaters);
+        }
+        self.rival = Some(r);
+    }
+
+    /// Which of this mould's walkers (indices, rising) die fighting the
+    /// other mould, whose walkers stand where `foe_occ` is 1
+    /// (`Params::fight`).
+    fn fight_losses(&mut self, foe_occ: &[u8]) -> Vec<usize> {
+        let fight = self.params.fight;
+        let mut out = Vec::new();
+        if fight <= 0.0 {
+            return out;
+        }
+        for k in 0..self.walkers.len() {
+            let w = self.walkers[k];
+            let Some(i) = cell(w.x, w.y) else { continue };
+            let (x, y) = (i % W, i / W);
+            if x == 0 || y == 0 || x + 1 >= W || y + 1 >= H {
+                continue;
+            }
+            let n = [i - W - 1, i - W, i - W + 1, i - 1, i + 1, i + W - 1, i + W, i + W + 1]
+                .iter()
+                .filter(|&&j| foe_occ[j] == 1)
+                .count();
+            if n == 0 {
+                continue;
+            }
+            let fed = if self.fed[i] != u16::MAX { 0.5 } else { 2.0 };
+            if self.rng.f32() < fight * n as f32 / 8.0 * fed {
+                out.push(k);
+            }
+        }
+        out
+    }
+
+    /// Mark (`on`) or clear the cells the other mould's walkers stand on,
+    /// as held (`occ` 2), so this mould's walkers step round them.
+    fn hold_foe_cells(&mut self, foe: &[Walker], on: bool) {
+        for w in foe {
+            if let Some(i) = cell(w.x, w.y) {
+                if on && self.occ[i] == 0 {
+                    self.occ[i] = 2;
+                } else if !on && self.occ[i] == 2 {
+                    self.occ[i] = 0;
+                }
+            }
+        }
+    }
+
+    /// Put a wild mould on the dish, its inoculum on (x, y): the same
+    /// level, seed and numbers as this one, nobody steering it.
+    pub fn add_rival(&mut self, at: (f32, f32)) {
+        self.add_rival_of(at, INOCULUM);
+    }
+
+    /// `add_rival` with `n` walkers in its inoculum.
+    pub fn add_rival_of(&mut self, at: (f32, f32), n: usize) {
+        let mut r = self.clone();
+        r.rival = None;
+        r.wild = true;
+        r.level = None;
+        r.wander = None;
+        r.storm_at = u64::MAX;
+        r.pending.clear();
+        r.oats_left = 0;
+        r.salt_left = 0;
+        r.snips_left = 0;
+        r.water_left = 0;
+        r.rng = Rng::new(self.seed ^ 0x0057_11D0_0000_0002);
+        for w in std::mem::take(&mut r.walkers) {
+            if let Some(i) = cell(w.x, w.y) {
+                r.occ[i] = 0;
+            }
+        }
+        r.trail.fill(0.0);
+        r.inoculate(at, &self.walkers, n);
+        self.rival = Some(Box::new(r));
+    }
+
+    /// The inoculum: `n` walkers in a blob on (x, y), on open agar and off
+    /// `others`' cells; radius 12 for the usual 400, wider for more.
+    fn inoculate(&mut self, (hx, hy): (f32, f32), others: &[Walker], n: usize) {
+        self.hold_foe_cells(others, true);
+        let r = 12.0 * (n as f32 / INOCULUM as f32).sqrt().max(1.0);
+        let mut placed = 0;
+        let mut tries = 0;
+        while placed < n && tries < 20_000 {
+            tries += 1;
+            let a = self.rng.f32() * TAU;
+            let d = self.rng.f32().sqrt() * r;
+            let (x, y) = (hx + a.cos() * d, hy + a.sin() * d);
+            if let Some(i) = cell(x, y) {
+                if self.ground[i] == Ground::Agar && self.occ[i] == 0 {
+                    self.occ[i] = 1;
+                    let heading = self.rng.f32() * TAU;
+                    self.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x, y, heading, food: 0.0 });
+                    placed += 1;
+                }
+            }
+        }
+        self.hold_foe_cells(others, false);
+        if self.params.pieces {
+            let share = START_STORE / self.walkers.len().max(1) as f32;
+            for w in self.walkers.iter_mut() {
+                w.food = share;
+            }
+        }
+        self.census();
+    }
+
+    fn step_own(&mut self) {
         self.update_light();
         self.wet_tick();
         self.sleep_tick();
@@ -1552,8 +1773,10 @@ impl Dish {
     fn sense(&self, x: f32, y: f32) -> f32 {
         match cell(x, y) {
             Some(i) if self.ground[i] == Ground::Agar => {
+                let foe = if self.foe_trail.is_empty() { 0.0 } else { self.params.foe_repel * self.foe_trail[i] };
                 self.trail[i] + self.scent[i] + self.params.wall_pull * self.wall[i]
                     - self.params.light_weight * self.light[i]
+                    - foe
             }
             _ => -1.0e6,
         }
@@ -1976,7 +2199,7 @@ impl Dish {
             if p.eaters > 0 && p.food > 0.0 {
                 let key = pile_key(p);
                 let Some(k) = self.census_keys.iter().position(|&c| c == key) else { continue };
-                let e = (p.eaters.min(table) as f32 * eat).min(p.food);
+                let e = p.bite(table, eat);
                 p.food -= e;
                 food[self.piece_of_src[k] as usize] += e;
             }
@@ -2267,7 +2490,7 @@ impl Dish {
         let n = self.walkers.len();
         let cap = self.params.carry_cap;
         let upkeep = self.params.upkeep;
-        let output = |p: &Pile| (p.eaters.min(self.params.table) as f32 * self.params.eat).min(p.food);
+        let output = |p: &Pile| p.bite(self.params.table, self.params.eat);
         if self.params.sap {
             // Level 2: piles pump into the tube at their edge, on the beat;
             // the tube spreads it; walkers draw from the cell they are on.
@@ -2466,7 +2689,7 @@ impl Dish {
         let eat = self.params.eat;
         for p in self.piles.iter_mut() {
             if p.eaters > 0 && p.food > 0.0 {
-                let e = (p.eaters.min(self.params.table) as f32 * eat).min(p.food);
+                let e = p.bite(self.params.table, eat);
                 p.food -= e;
                 self.store += e;
             }
@@ -2961,6 +3184,7 @@ enum Kill {
     Burned,
     Snip,
     Storm,
+    Fight,
 }
 
 /// One step of a field: a 3x3 mean over open dish (walls neither soak up nor

@@ -269,8 +269,46 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     } else {
         classic(d, view, scale, frame);
     }
+    if let Some(r) = &d.rival {
+        wild(r, scale, frame);
+    }
     if let Some(row) = view.tune {
         super::tune::draw(frame, frame_size(scale), &d.params, row);
+    }
+}
+
+/// The wild mould (`Dish::rival`), drawn over the dish: its tube on a fixed
+/// violet ramp by trail, a full replace, and each walker a pale point. A
+/// first cut, so the two moulds read apart; the looks pass can do it
+/// properly.
+fn wild(r: &Dish, scale: u32, frame: &mut [u8]) {
+    let (fw, _) = frame_size(scale);
+    let s = scale as usize;
+    let tube = r.params.tube;
+    let paint = |frame: &mut [u8], i: usize, c: [u8; 3], dot: bool| {
+        let (x, y) = (i % W, i / W);
+        for py in 0..s {
+            for px in 0..s {
+                if dot && !(px == s / 2 && py == s / 2) {
+                    continue;
+                }
+                let o = ((y * s + py) * fw as usize + x * s + px) * 4;
+                frame[o..o + 3].copy_from_slice(&c);
+            }
+        }
+    };
+    for i in 0..W * H {
+        if r.ground[i] != Ground::Agar || r.trail[i] <= tube {
+            continue;
+        }
+        let k = ((r.trail[i] - tube) / (tube * 8.0)).clamp(0.0, 1.0);
+        let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * k) as u8;
+        paint(frame, i, [lerp(70, 190), lerp(40, 130), lerp(110, 250)], false);
+    }
+    for w in &r.walkers {
+        if let Some(i) = super::cell(w.x, w.y) {
+            paint(frame, i, [235, 215, 255], true);
+        }
     }
 }
 
@@ -1042,6 +1080,11 @@ fn level_status(d: &Dish, joined: &super::Score) -> String {
             d.walkers.len(),
             d.peak_mould
         ),
+        Win::Rival { .. } => format!(
+            "TIME {left}  YOU {}  WILD {}",
+            d.walkers.len(),
+            d.rival.as_ref().map_or(0, |r| r.walkers.len())
+        ),
     }
 }
 
@@ -1127,6 +1170,11 @@ fn level_brief(l: &super::level::Level, frame: &mut [u8], (fw, fh): (u32, u32), 
             format!("*   ALIVE AT {}", clock(bars[0])),
             format!("**  AT {}", clock(bars[1])),
             format!("*** AT {}", clock(bars[2])),
+        ],
+        Win::Rival { bars } => [
+            format!("*   {}X AS MUCH MOULD AS THE WILD ONE AT {bell}", bars[0]),
+            format!("**  {}X AS MUCH", bars[1]),
+            "*** NONE OF IT LEFT".to_string(),
         ],
     };
     lines.extend(stars.into_iter().map(|s| (s, TEXT)));

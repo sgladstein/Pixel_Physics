@@ -69,6 +69,11 @@ pub struct Tools {
 /// How a level is won. Stars are tiers: 1, 2 or 3, each needing the last.
 #[derive(Clone, Copy, Debug)]
 pub enum Win {
+    /// A wild mould on the dish (`Level::rival`): at the bell, one star for
+    /// `bars[0]` times as much mould as it, two for `bars[1]` times, three
+    /// for none of it left (under `ENDLESS_MIN`), which also ends the dish
+    /// at once.
+    Rival { bars: [f32; 2] },
     /// Join every pile. One star for doing it at all, two by `by[0]`
     /// seconds, three by `by[1]`. The dish ends the moment it is done.
     JoinAll { by: [u32; 2] },
@@ -94,6 +99,17 @@ pub const GAP_MAX: f32 = 170.0;
 /// Keep It Alive ends when fewer than this many mould are left.
 pub const ENDLESS_MIN: usize = 20;
 
+/// The wild mould's first blob on The Wild One, against the player's
+/// `INOCULUM` (400): it starts bigger. Measured before fights, 400 or 600
+/// made no clear difference to who ended bigger (doing nothing won 3 of 8
+/// seeds at 400 and 9 of 16 at 600): the seed decides that, not the start.
+pub const WILD_START: usize = 600;
+/// The wild mould's `Params::foe_repel`: bolder than the player's (1.0),
+/// it keeps less clear of your tube. At 0.3 with no fights it took 90-99%
+/// of the dish whatever a hand did (8 seeds); at 0.6 with fights doing
+/// nothing keeps 39-58%.
+pub const WILD_REPEL: f32 = 0.6;
+
 /// One hand-made dish.
 #[derive(Debug)]
 pub struct Level {
@@ -115,6 +131,8 @@ pub struct Level {
     /// 45 on the three puzzles, which pass their bars there and fail them at
     /// 22.5; 22.5 on Keep It Alive, where the livelier mould is the point.
     pub sensor_deg: f32,
+    /// The pile a wild second mould starts on (`Dish::rival`), if any.
+    pub rival: Option<usize>,
     pub win: Win,
 }
 
@@ -145,7 +163,7 @@ pub const STRAY_REACH: f32 = 24.0;
 pub const DRY_FOOD: f32 = 5_000.0;
 
 /// The challenge dishes, in the order they unlock after the lesson.
-pub static DISHES: [Level; 4] = [
+pub static DISHES: [Level; 5] = [
     Level {
         key: "wall",
         name: "BEHIND THE WALL",
@@ -170,6 +188,7 @@ pub static DISHES: [Level; 4] = [
         },
         seconds: 90,
         sensor_deg: 45.0,
+        rival: None,
         win: Win::JoinAll { by: [60, 45] },
     },
     Level {
@@ -193,6 +212,7 @@ pub static DISHES: [Level; 4] = [
         },
         seconds: 100,
         sensor_deg: 45.0,
+        rival: None,
         // Set from the probe: the intended hand's meeting point reads
         // 0.87-0.92x (13 runs), networks built along the sides 0.99-1.03x, and
         // doing nothing, when strays could still claim the far foods, 0.99-
@@ -225,6 +245,7 @@ pub static DISHES: [Level; 4] = [
         },
         seconds: 120,
         sensor_deg: 45.0,
+        rival: None,
         // Set from the probe (5 seeds): the intended hand ends with 354-411
         // alive, the simple plan 0-261, random and doing nothing 0. The
         // brainstorm's 300/600/900 (three fed piles at the bell) is out of
@@ -256,6 +277,7 @@ pub static DISHES: [Level; 4] = [
         // it on 1 of 8 seeds.
         seconds: 900,
         sensor_deg: 22.5,
+        rival: None,
         // Stars from the probe (16 seeds, `mouldprobe level=4`, wet, ending
         // below `ENDLESS_MIN` mould, timed to the last moment `ENDLESS_MIN`
         // were awake), lived: doing nothing 1:08-3:48 (median 2:10);
@@ -272,6 +294,43 @@ pub static DISHES: [Level; 4] = [
             gap: [70.0, 6.0],
             bars: [255, 330, 400],
         },
+    },
+    Level {
+        key: "wild",
+        name: "THE WILD ONE",
+        goal: ["A WILD MOULD SHARES THIS DISH.", "END WITH MORE MOULD THAN IT."],
+        twist: "IT EATS THE SAME FOOD. NOBODY STEERS IT.",
+        // Mirror halves: home and two small piles each side, one big pile
+        // in the middle that both moulds can reach. Left alone, which one
+        // ends bigger is down to the seed.
+        piles: &[
+            pile(40.0, 80.0, 7.0, 50_000.0),
+            pile(80.0, 48.0, 6.0, 20_000.0),
+            pile(80.0, 112.0, 6.0, 20_000.0),
+            pile(128.0, 80.0, 8.0, 80_000.0),
+            pile(176.0, 48.0, 6.0, 20_000.0),
+            pile(176.0, 112.0, 6.0, 20_000.0),
+            pile(216.0, 80.0, 7.0, 50_000.0),
+        ],
+        salt: &[],
+        tools: Tools {
+            oats: 4,
+            oats_regrow: 15,
+            salt: 1,
+            snips: 3,
+            water: 0,
+            water_regrow: 0,
+        },
+        seconds: 150,
+        sensor_deg: 22.5,
+        rival: Some(6),
+        // Set from the probe (8 seeds, wild `foe_repel` 0.6, fights on):
+        // your share of the mould at the bell, doing nothing 0.39-0.58 and
+        // random 0.41-0.64, so "more than it" was a coin flip for both (3
+        // and 6 of 8). 1.5x is past doing nothing's best (1.38x); the
+        // scripted warden (lamp, oats, snips and salt) made 2.0-6x or
+        // cleared it.
+        win: Win::Rival { bars: [1.5, 3.0] },
     },
 ];
 
@@ -302,6 +361,7 @@ impl Level {
             Win::UnderRuler { bars } => format!("STARS: JOIN ALL 3. {:.2}X RULER. {:.2}X", bars[0], bars[1]),
             Win::AliveAtBell { bars } => format!("STARS: {}, {} AND {} MOULD AT THE BELL", bars[0], bars[1], bars[2]),
             Win::Endless { bars, .. } => format!("STARS: ALIVE AT {}, {} AND {}", clock(bars[0]), clock(bars[1]), clock(bars[2])),
+            Win::Rival { bars } => format!("STARS: {}X AS MUCH AS IT. {}X. NONE OF IT LEFT", bars[0], bars[1]),
         }
     }
 
@@ -464,6 +524,7 @@ impl Dish {
             oats: false,
             expires: u64::MAX,
             eaters: 0,
+            foe_eaters: 0,
         };
         let sps = STEPS_PER_SECOND as u64;
         let piles = level.piles.iter().filter(|s| s.arrives.is_none()).map(make).collect();
@@ -501,6 +562,13 @@ impl Dish {
             d.water_regrow = level.tools.water_regrow;
         }
         d.storm_at = level.seconds as u64 * sps;
+        if let Some(k) = level.rival {
+            let p = level.piles[k];
+            d.add_rival_of((p.x, p.y), WILD_START);
+            if let Some(r) = d.rival.as_mut() {
+                r.params.foe_repel = WILD_REPEL;
+            }
+        }
         d
     }
 
@@ -670,6 +738,11 @@ impl Dish {
             if let Win::Endless { bars, .. } = level.win {
                 return self.finish_endless(s, bars, false);
             }
+            if matches!(level.win, Win::Rival { .. }) {
+                let wild = self.wild_left;
+                let amount = format!("NONE OF YOURS LEFT AT {}; WILD {wild}", clock((self.t / sps) as u32));
+                return self.finish(s, 0, amount, "THE WILD ONE TOOK THE DISH".to_string());
+            }
             let why = match level.win {
                 Win::AliveAtBell { .. } => "THE FOOD RAN OUT; NOTHING HEADED FOR MORE",
                 _ => "NONE LEFT: KEEP SOME OF IT ON FOOD",
@@ -744,6 +817,33 @@ impl Dish {
                     let s = self.measure();
                     self.finish_endless(s, bars, true);
                 }
+            }
+            Win::Rival { bars } => {
+                let (mine, wild) = (self.walkers.len(), self.wild_left);
+                let gone = wild < ENDLESS_MIN;
+                if !bell && !gone {
+                    return;
+                }
+                let s = self.measure();
+                let stars = if gone {
+                    3
+                } else if mine as f32 >= bars[1] * wild as f32 {
+                    2
+                } else if mine as f32 >= bars[0] * wild as f32 {
+                    1
+                } else {
+                    0
+                };
+                let why = match stars {
+                    3 => "THE DISH IS YOURS".to_string(),
+                    2 => "NOW CLEAR IT OFF THE DISH".to_string(),
+                    1 => format!("{}X AS MUCH AS IT FOR 2 STARS", bars[1]),
+                    _ if mine > wild => format!("MORE THAN IT, BUT {}X FOR A STAR", bars[0]),
+                    _ => "IT TOOK MORE OF THE FOOD".to_string(),
+                };
+                let at = clock((self.t / sps) as u32);
+                let amount = if gone { format!("THE WILD ONE DIED AT {at}; YOU {mine}") } else { format!("YOU {mine}, WILD {wild}") };
+                self.finish(s, stars, amount, why);
             }
             Win::AliveAtBell { bars } => {
                 if !bell {
@@ -946,9 +1046,10 @@ impl Progress {
     /// always; a dish once the entry before it has a star (the lesson, once
     /// finished).
     pub fn unlocked(&self, e: usize) -> bool {
-        // Keep It Alive is open from the start: it is a mode, not the
-        // next puzzle, and the owner is to play it before any star bar.
-        let endless = e >= 1 && DISHES.get(e - 1).is_some_and(|l| matches!(l.win, Win::Endless { .. }));
+        // Keep It Alive and The Wild One are open from the start: modes,
+        // not the next puzzle, and the owner is to play them before any
+        // star bar.
+        let endless = e >= 1 && DISHES.get(e - 1).is_some_and(|l| matches!(l.win, Win::Endless { .. } | Win::Rival { .. }));
         e == 0 || endless || (FREE..ENTRIES).contains(&e) || self.best.get(e - 1).is_some_and(|&b| b >= 1)
     }
 
@@ -1029,6 +1130,30 @@ mod tests {
             }
         }
         d
+    }
+
+    /// The Wild One: two moulds on one dish never stand in the same cell,
+    /// both eat, and where they meet they fight (`Dish::rival`).
+    #[test]
+    fn the_wild_one_shares_the_food_but_never_a_cell() {
+        let sps = crate::mould::STEPS_PER_SECOND;
+        let l = DISHES.iter().find(|l| l.key == "wild").unwrap();
+        let mut d = Dish::from_level(l, 2);
+        assert_eq!(d.rival.as_ref().unwrap().walkers.len(), WILD_START);
+        let start: f32 = d.piles.iter().map(|p| p.food).sum();
+        for _ in 0..40 * sps {
+            d.step();
+        }
+        let r = d.rival.as_ref().unwrap();
+        let mine: std::collections::HashSet<usize> = d.walkers.iter().filter_map(|w| cell(w.x, w.y)).collect();
+        let both = r.walkers.iter().filter_map(|w| cell(w.x, w.y)).filter(|i| mine.contains(i)).count();
+        assert_eq!(both, 0, "cells held by both moulds");
+        assert!(d.walkers.len() > 200 && r.walkers.len() > 200, "both alive: {} and {}", d.walkers.len(), r.walkers.len());
+        assert!(d.counts.fought > 0 && r.counts.fought > 0, "fights: {} and {}", d.counts.fought, r.counts.fought);
+        // The wild mould's piles are the player's: the same food left.
+        let left = |d: &Dish| d.piles.iter().map(|p| p.food).collect::<Vec<_>>();
+        assert_eq!(left(&d), left(r));
+        assert!(left(&d).iter().sum::<f32>() < start);
     }
 
     /// The layout is the level's: the seed moves the mould, not the food.
@@ -1119,7 +1244,7 @@ mod tests {
     #[ignore = "two whole dishes, about 17 s in release: run with --ignored"]
     fn the_intended_hand_takes_three_stars_on_the_others() {
         // Keep It Alive is not on the three-star bar yet (2026-11-10).
-        for (k, l) in DISHES.iter().enumerate().skip(1).filter(|(_, l)| !matches!(l.win, Win::Endless { .. })) {
+        for (k, l) in DISHES.iter().enumerate().skip(1).filter(|(_, l)| !matches!(l.win, Win::Endless { .. } | Win::Rival { .. })) {
             let c = score(k, 1, &mut Route::for_level(k));
             assert_eq!(c.stars, 3, "{}: {} / {}", l.name, c.amount, c.why);
         }
@@ -1128,7 +1253,7 @@ mod tests {
     #[test]
     fn progress_survives_a_bad_file() {
         let p = Progress::parse("lesson 1\nwall three\nruler 9\n\x00garbage\ndry\nwall 2 extra\n");
-        assert_eq!(p.best, [1, 2, 3, 0, 0]);
+        assert_eq!(p.best, [1, 2, 3, 0, 0, 0]);
         assert!(p.unlocked(1) && p.unlocked(2) && p.unlocked(3) && p.unlocked(4));
         assert_eq!(Progress::parse(&p.text()), p);
         let fresh = Progress::parse("");
