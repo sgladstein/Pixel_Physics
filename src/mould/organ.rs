@@ -180,7 +180,7 @@ pub fn new_dish_with(seed: u64, params: Params) -> Dish {
             if d.ground[i] == Ground::Agar && d.occ[i] == 0 {
                 d.occ[i] = 1;
                 let heading = d.rng.f32() * TAU;
-                d.walkers.push(Walker { x, y, heading, food: 0.0 });
+                d.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x, y, heading, food: 0.0 });
                 placed += 1;
             }
         }
@@ -850,6 +850,7 @@ fn hud(o: &Organ, view: &super::render::View, scale: u32, frame: &mut [u8], (fw,
             Tool::Oats => Some(d.oats_left),
             Tool::Salt => Some(d.salt_left),
             Tool::Snip => Some(d.snips_left),
+            Tool::Water => Some(d.water_left),
         };
         let label = match n {
             Some(n) => format!("{} {} {}", k + 1, t.name(), n),
@@ -952,6 +953,7 @@ fn hud(o: &Organ, view: &super::render::View, scale: u32, frame: &mut [u8], (fw,
         Tool::Oats => "OATS: THE MOULD REACHES FOR THEM",
         Tool::Salt => "SALT: A WALL THE MOULD GROWS ROUND",
         Tool::Snip => "SNIP: CUT A TUBE",
+        Tool::Water => "WATER: WAKES SLEEPING MOULD",
     };
     text(frame, (fw, fh), 6, top + 62, hint, DIM);
     if o.target {

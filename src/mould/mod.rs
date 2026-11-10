@@ -300,6 +300,44 @@ pub struct Params {
     /// at 0 the 22.5-degree mould missed the second patch on 3 of 6 seeds
     /// by routing round it, so a patch is bait, not just a place.
     pub spared_scent: f32,
+    /// **Water and sleep** (2026-11-10, owner's pick "water and sleep
+    /// first"; the depth report's items 1 and 2,
+    /// `Reports/mould-game-2026-11-08/depth-2026-11-09/complexity.md`).
+    /// Off by default: with it off nothing here runs and no random draw
+    /// moves. On, the dish holds a `wet` field that rests at `wet_base`;
+    /// the lamp dries what it shines on, the Water tool soaks a disc, and
+    /// mould on ground drier than `crust_wet` goes to sleep: a sleeper does
+    /// not move, eat, pay upkeep or get pushed, keeps its tube, and dies
+    /// only slowly (`crust_life`). Ground wetter than `revive_wet` wakes
+    /// it, and for `wake_grace` seconds a woken walker may start food as if
+    /// fed (it is the old network waking, not a stray), which is the
+    /// point: let a branch sleep through a famine, then water it awake
+    /// beside the next food.
+    pub wet: bool,
+    /// Where the wet field rests, 0..1.
+    pub wet_base: f32,
+    /// Fraction of the way back to `wet_base` each step.
+    pub wet_relax: f32,
+    /// Wet lost per step under full lamp light, as a fraction of the wet.
+    pub dry_light: f32,
+    /// Below this wet, awake mould falls asleep (chance `crust_rate` a step).
+    pub crust_wet: f32,
+    pub crust_rate: f32,
+    /// Above this wet, sleeping mould wakes (chance `revive_rate` a step).
+    pub revive_wet: f32,
+    pub revive_rate: f32,
+    /// A sleeper's mean life, seconds: each step it dies with chance
+    /// `1 / (crust_life * steps per second)`, so a long drought still
+    /// kills, gradually. 20 s: at 40 sleepers outlasted a drought long
+    /// enough for random water to wake them (see `WATER_STOCK`).
+    pub crust_life: f32,
+    /// Trail a sleeper lays each step, as a fraction of `deposit`: enough
+    /// that its tube stays a tube.
+    pub crust_trail: f32,
+    /// Seconds a woken walker counts as fed for the stray rule.
+    pub wake_grace: f32,
+    /// Radius of one Water drop, cells.
+    pub water_r: f32,
 }
 
 impl Default for Params {
@@ -350,6 +388,18 @@ impl Default for Params {
             settle_seconds: 0.0,
             spared: 0,
             spared_scent: 0.5,
+            wet: false,
+            wet_base: 0.5,
+            wet_relax: 0.0005,
+            dry_light: 0.05,
+            crust_wet: 0.25,
+            crust_rate: 0.05,
+            revive_wet: 0.7,
+            revive_rate: 0.05,
+            crust_life: 20.0,
+            crust_trail: 0.6,
+            wake_grace: 5.0,
+            water_r: 12.0,
             explore_angle: 22.5f32.to_radians(),
         }
     }
@@ -403,6 +453,15 @@ pub const CUT_HALF: f32 = 20.0;
 /// where clean single tubes read 1.0-1.3x and branchy networks 1.6-1.9x.
 pub const THRIFT_BAR: f32 = 1.15;
 pub const THRIFT_MIN_JOINED: u32 = 3;
+/// Water drops in hand at the start (`Params::wet`), and seconds per drop
+/// coming back. Tuned on Keep It Alive (8 seeds, `mouldprobe level=4`):
+/// at 3 drops every 20 s random play reached the ten-minute cap on 4 of 16
+/// seeds (median 4:05, against 2:34 dry) because scattered water woke
+/// enough sleepers to coast; at 2 every 40 s, with `crust_life` 20 s,
+/// random lives 1:49-3:11, no better than dry, while a hand that bakes
+/// and waters on purpose lives 4:47-9:59 (median 8:18).
+pub const WATER_STOCK: u32 = 2;
+pub const WATER_REGROW_SECONDS: u32 = 40;
 /// Radius of a keep-off patch (`Params::spared`).
 pub const SPARED_R: f32 = 8.0;
 /// Cells of tube width that make one cell of network length. Calibrated on
@@ -519,6 +578,16 @@ pub struct Walker {
     /// This walker's share of its piece's food (`Params::pieces`). Unused
     /// with the shared store.
     pub food: f32,
+    /// Asleep since this step (`Params::wet`), or `u64::MAX` awake.
+    pub slept: u64,
+    /// Woke at this step, or `u64::MAX` never (`Params::wake_grace`).
+    pub woke: u64,
+}
+
+impl Walker {
+    pub fn asleep(&self) -> bool {
+        self.slept != u64::MAX
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -527,16 +596,23 @@ pub enum Tool {
     Oats,
     Salt,
     Snip,
+    /// Soak the ground: wakes sleeping mould (`Params::wet`). Not in
+    /// `ALL`, the four fixed slots of the bar; a dish with water lists it
+    /// in `Dish::bar_tools`.
+    Water,
 }
 
 impl Tool {
     pub const ALL: [Tool; 4] = [Tool::Lamp, Tool::Oats, Tool::Salt, Tool::Snip];
+    /// Every tool, the bar's order.
+    pub const EVERY: [Tool; 5] = [Tool::Lamp, Tool::Oats, Tool::Salt, Tool::Snip, Tool::Water];
     pub fn name(self) -> &'static str {
         match self {
             Tool::Lamp => "LAMP",
             Tool::Oats => "OATS",
             Tool::Salt => "SALT",
             Tool::Snip => "SNIP",
+            Tool::Water => "WATER",
         }
     }
     /// What pressing the mouse will do, in world words, for the hint line.
@@ -546,6 +622,7 @@ impl Tool {
             Tool::Oats => "CLICK: OATS. THE MOULD GROWS TOWARD THEM",
             Tool::Salt => "DRAG: A SALT WALL THE MOULD CAN'T CROSS",
             Tool::Snip => "DRAG ACROSS A TUBE TO CUT IT",
+            Tool::Water => "CLICK: WATER. WAKES SLEEPING MOULD",
         }
     }
 }
@@ -619,6 +696,12 @@ pub struct Counts {
     pub lamp_steps: u64,
     /// Joins flashed (`Dish::snaps`).
     pub snaps: u32,
+    /// Water and sleep (`Params::wet`): walkers that fell asleep, woke,
+    /// and died asleep; Water drops made.
+    pub slept: u64,
+    pub woke: u64,
+    pub died_asleep: u64,
+    pub water_drops: u32,
     /// Wound cells opened by snips.
     pub wound_cells: u32,
 }
@@ -660,6 +743,13 @@ pub struct Dish {
     pub sap: Vec<f32>,
     /// Tube wall laid down by food moving through (`Params::wall_grow`).
     pub wall: Vec<f32>,
+    /// How damp each cell is, 0..1 (`Params::wet`; all `wet_base` when off).
+    pub wet: Vec<f32>,
+    /// Water drops in hand, the most there can be, and seconds per drop
+    /// coming back (0 never).
+    pub water_left: u32,
+    pub water_stock: u32,
+    pub water_regrow: u32,
     /// Food moved through each cell by the last step's spreading.
     moved: Vec<f32>,
     sap_cond: Vec<f32>,
@@ -739,6 +829,10 @@ pub struct Dish {
     pub join_now: Option<f32>,
     /// Most mould alive at once on this dish (Keep It Alive's card).
     pub peak_mould: u32,
+    /// Keep It Alive: the last step at least `level::ENDLESS_MIN` walkers
+    /// were awake. The score is this, not the step the last sleeper died:
+    /// time asleep counts only once the mould wakes again.
+    pub awake_at: u64,
     /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
     /// place of the clock, the storm and the stars. `None` in a scored dish
     /// and the lesson.
@@ -909,6 +1003,7 @@ impl Dish {
         piles: Vec<Pile>,
         pending: Vec<(u64, Pile)>,
     ) -> Self {
+        let (wet0, water0) = (params.wet_base, if params.wet { WATER_STOCK } else { 0 });
         let mut dish = Dish {
             params,
             seed,
@@ -929,6 +1024,10 @@ impl Dish {
             walkers_seen: vec![0.0; W * H],
             sap: vec![0.0; W * H],
             wall: vec![0.0; W * H],
+            wet: vec![wet0; W * H],
+            water_left: water0,
+            water_stock: water0,
+            water_regrow: WATER_REGROW_SECONDS,
             moved: vec![0.0; W * H],
             sap_cond: Vec::new(),
             sap_tubes: Vec::new(),
@@ -964,6 +1063,7 @@ impl Dish {
             counts: Counts::default(),
             level: None,
             peak_mould: 0,
+            awake_at: 0,
             oats_stock: OATS_STOCK,
             oats_regrow: OATS_REGROW_SECONDS,
             card: None,
@@ -984,7 +1084,7 @@ impl Dish {
                 if dish.ground[i] == Ground::Agar && dish.occ[i] == 0 {
                     dish.occ[i] = 1;
                     let heading = dish.rng.f32() * TAU;
-                    dish.walkers.push(Walker { x, y, heading, food: 0.0 });
+                    dish.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x, y, heading, food: 0.0 });
                     placed += 1;
                 }
             }
@@ -1036,6 +1136,90 @@ impl Dish {
     pub fn oats_would_start(&self, x: f32, y: f32) -> bool {
         let none_fed = self.fed.iter().all(|&f| f == u16::MAX);
         self.t == 0 || self.strays_may_start(x, y, OATS_R, true, none_fed)
+    }
+
+    /// **Water**: soak a disc of `Params::water_r`, which wakes sleeping
+    /// mould on it (`Params::wet`). False if there is none left, the dish
+    /// has no water, or the spot is not open dish.
+    pub fn place_water(&mut self, x: f32, y: f32) -> bool {
+        if !self.params.wet || self.water_left == 0 || self.phase != Phase::Growing {
+            return false;
+        }
+        if !cell(x, y).is_some_and(|i| self.ground[i] == Ground::Agar) {
+            return false;
+        }
+        self.water_left -= 1;
+        self.counts.water_drops += 1;
+        let r = self.params.water_r;
+        for (ox, oy) in disc(r) {
+            if let Some(i) = cell(x + ox, y + oy) {
+                if self.ground[i] == Ground::Agar {
+                    // Full at the centre, a soft rim.
+                    let f = 1.0 - (ox.hypot(oy) / r).powi(4);
+                    self.wet[i] = self.wet[i].max(f.clamp(0.0, 1.0));
+                }
+            }
+        }
+        true
+    }
+
+    /// The wet field's step (`Params::wet`): back toward `wet_base`, and
+    /// dried by the lamp in proportion to its light.
+    fn wet_tick(&mut self) {
+        if !self.params.wet {
+            return;
+        }
+        let (base, relax, dry) = (self.params.wet_base, self.params.wet_relax, self.params.dry_light);
+        for w in self.wet.iter_mut() {
+            *w += (base - *w) * relax;
+        }
+        if let Some((x0, y0, x1, y1)) = self.light_box {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let i = idx(x, y);
+                    self.wet[i] -= self.wet[i] * dry * self.light[i];
+                }
+            }
+        }
+    }
+
+    /// Falling asleep and waking (`Params::wet`), once a step.
+    fn sleep_tick(&mut self) {
+        if !self.params.wet {
+            return;
+        }
+        let p = &self.params;
+        let (cw, cr, rw, rr) = (p.crust_wet, p.crust_rate, p.revive_wet, p.revive_rate);
+        let t = self.t;
+        for k in 0..self.walkers.len() {
+            let w = self.walkers[k];
+            let Some(i) = cell(w.x, w.y) else { continue };
+            let wet = self.wet[i];
+            if !w.asleep() && wet < cw && self.rng.f32() < cr {
+                self.walkers[k].slept = t;
+                self.counts.slept += 1;
+            } else if w.asleep() && wet > rw && self.rng.f32() < rr {
+                self.walkers[k].slept = u64::MAX;
+                self.walkers[k].woke = t;
+                self.counts.woke += 1;
+            }
+        }
+    }
+
+    /// Whether a walker woke recently enough to count as fed for the stray
+    /// rule (`Params::wake_grace`).
+    fn just_woke(&self, w: &Walker) -> bool {
+        w.woke != u64::MAX && self.t < w.woke + (self.params.wake_grace * STEPS_PER_SECOND as f32) as u64
+    }
+
+    /// The tools this dish puts on the bar, in the bar's order: every
+    /// tool it has, Water only where `Params::wet` is on. The bar draws
+    /// these in its slots and keys 1.. pick them by position.
+    pub fn bar_tools(&self) -> Vec<Tool> {
+        Tool::EVERY
+            .into_iter()
+            .filter(|&t| if t == Tool::Water { self.params.wet } else { self.has_tool(t) })
+            .collect()
     }
 
     /// Drop oats. False if there are none left or the spot is not open dish.
@@ -1195,6 +1379,8 @@ impl Dish {
 
     pub fn step(&mut self) {
         self.update_light();
+        self.wet_tick();
+        self.sleep_tick();
         self.push_light();
         self.deposit_food();
         self.move_walkers();
@@ -1310,7 +1496,9 @@ impl Dish {
             let w = self.walkers[k];
             let Some(i) = cell(w.x, w.y) else { continue };
             let l = self.light[i];
-            if l <= 0.0 || self.rng.f32() >= push * l {
+            // A sleeper is not pushed; testing first keeps the draws of a
+            // dish with water off exactly as they were.
+            if l <= 0.0 || w.asleep() || self.rng.f32() >= push * l {
                 continue;
             }
             let d = (w.x - lx).hypot(w.y - ly).max(0.01);
@@ -1396,9 +1584,17 @@ impl Dish {
             self.params.sensor_offset,
             self.params.deposit,
         );
+        let sleep_dep = dep * self.params.crust_trail;
         for k in 0..n {
             let wi = self.order[k] as usize;
             let mut w = self.walkers[wi];
+            if w.asleep() {
+                // Asleep: still, and keeping its tube (`Params::wet`).
+                if let Some(i) = cell(w.x, w.y) {
+                    self.trail[i] += sleep_dep;
+                }
+                continue;
+            }
             let h = w.heading;
             let f = self.sense(w.x + h.cos() * so, w.y + h.sin() * so);
             let fl = self.sense(w.x + (h - sa).cos() * so, w.y + (h - sa).sin() * so);
@@ -1469,8 +1665,14 @@ impl Dish {
         } else {
             vec![true; self.piles.len()]
         };
-        for w in &self.walkers {
-            let stray = cell(w.x, w.y).is_some_and(|i| self.fed[i] == u16::MAX);
+        let woke: Vec<bool> = self.walkers.iter().map(|w| self.just_woke(w)).collect();
+        for (w, &woke) in self.walkers.iter().zip(&woke) {
+            // A sleeper does not eat; a walker just woken is the old
+            // network, not a stray (`Params::wake_grace`).
+            if w.asleep() {
+                continue;
+            }
+            let stray = !woke && cell(w.x, w.y).is_some_and(|i| self.fed[i] == u16::MAX);
             for (p, &ok) in self.piles.iter_mut().zip(&strays_ok) {
                 if stray && !ok {
                     continue;
@@ -1784,6 +1986,11 @@ impl Dish {
         let mut size = vec![0u32; pieces];
         for k in 0..self.walkers.len() {
             let w = self.walkers[k];
+            if w.asleep() {
+                // Asleep: pays nothing, eats nothing (`Params::wet`).
+                piece_of.push(None);
+                continue;
+            }
             let i = cell(w.x, w.y).expect("walker inside the dish");
             let g = self.piece_of(i);
             match g {
@@ -1802,9 +2009,22 @@ impl Dish {
         // Deaths: the shared-store rules, with "the store is empty" read
         // per piece (or per walker, for an unfed one).
         let reach = self.params.feed_reach as f32;
+        let sleep_death = 1.0 / (self.params.crust_life.max(0.1) * STEPS_PER_SECOND as f32);
         let mut k = 0;
         while k < self.walkers.len() {
             let w = self.walkers[k];
+            if w.asleep() {
+                // A sleeper dies only slowly, whatever its piece's food:
+                // the drought that lasts kills it in the end.
+                if self.rng.f32() < sleep_death {
+                    self.counts.died_asleep += 1;
+                    self.remove_walker(k, Kill::Starved);
+                    piece_of.swap_remove(k);
+                } else {
+                    k += 1;
+                }
+                continue;
+            }
             let i = cell(w.x, w.y).expect("walker inside the dish");
             let d = self.fed[i];
             let g = piece_of[k];
@@ -1884,6 +2104,8 @@ impl Dish {
             self.occ[j] = 1;
             let heading = self.rng.f32() * TAU;
             self.walkers.push(Walker {
+                slept: u64::MAX,
+                woke: u64::MAX,
                 x: x as f32 + 0.5,
                 y: y as f32 + 0.5,
                 heading,
@@ -2209,6 +2431,8 @@ impl Dish {
             self.walkers[k].food = half;
             let heading = self.rng.f32() * TAU;
             self.walkers.push(Walker {
+                slept: u64::MAX,
+                woke: u64::MAX,
                 x: x as f32 + 0.5,
                 y: y as f32 + 0.5,
                 heading,
@@ -2330,6 +2554,8 @@ impl Dish {
             self.occ[j] = 1;
             let heading = self.rng.f32() * TAU;
             self.walkers.push(Walker {
+                slept: u64::MAX,
+                woke: u64::MAX,
                 x: x as f32 + 0.5,
                 y: y as f32 + 0.5,
                 heading,
@@ -2355,6 +2581,13 @@ impl Dish {
                 && self.oats_left < self.oats_stock
             {
                 self.oats_left += 1;
+            }
+            if self.t > 0
+                && self.water_regrow > 0
+                && self.t.is_multiple_of(self.water_regrow as u64 * sps)
+                && self.water_left < self.water_stock
+            {
+                self.water_left += 1;
             }
             let t = self.t;
             let mut k = 0;
@@ -3060,7 +3293,7 @@ mod tests {
             for (ox, oy) in disc(3.0) {
                 if let Some(i) = cell(c.0 + ox, c.1 + oy) {
                     d.occ[i] = 1;
-                    d.walkers.push(Walker { x: c.0 + ox, y: c.1 + oy, heading: 0.0, food: 1.0 });
+                    d.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x: c.0 + ox, y: c.1 + oy, heading: 0.0, food: 1.0 });
                 }
             }
         }

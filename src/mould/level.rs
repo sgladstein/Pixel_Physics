@@ -59,6 +59,11 @@ pub struct Tools {
     pub oats_regrow: u32,
     pub salt: u32,
     pub snips: u32,
+    /// Water drops (`Tool::Water`). Any at all turns the dish wet
+    /// (`Params::wet`: the lamp dries, dry mould sleeps, water wakes it).
+    pub water: u32,
+    /// Seconds per drop coming back, up to `water`; 0 never.
+    pub water_regrow: u32,
 }
 
 /// How a level is won. Stars are tiers: 1, 2 or 3, each needing the last.
@@ -85,6 +90,9 @@ pub enum Win {
 /// The furthest a Keep It Alive pile lands from the last one: the dish is
 /// 256 cells across, so past this a pile can no longer be placed.
 pub const GAP_MAX: f32 = 170.0;
+
+/// Keep It Alive ends when fewer than this many mould are left.
+pub const ENDLESS_MIN: usize = 20;
 
 /// One hand-made dish.
 #[derive(Debug)]
@@ -157,6 +165,8 @@ pub static DISHES: [Level; 4] = [
             oats_regrow: 15,
             salt: 0,
             snips: 0,
+            water: 0,
+            water_regrow: 0,
         },
         seconds: 90,
         sensor_deg: 45.0,
@@ -178,6 +188,8 @@ pub static DISHES: [Level; 4] = [
             oats_regrow: 15,
             salt: 0,
             snips: 0,
+            water: 0,
+            water_regrow: 0,
         },
         seconds: 100,
         sensor_deg: 45.0,
@@ -208,6 +220,8 @@ pub static DISHES: [Level; 4] = [
             oats_regrow: 10,
             salt: 0,
             snips: 0,
+            water: 0,
+            water_regrow: 0,
         },
         seconds: 120,
         sensor_deg: 45.0,
@@ -235,15 +249,24 @@ pub static DISHES: [Level; 4] = [
             oats_regrow: 0,
             salt: 0,
             snips: 0,
+            water: super::WATER_STOCK,
+            water_regrow: super::WATER_REGROW_SECONDS,
         },
-        seconds: 600,
+        // A safety cap, not a bell: 15 minutes. At 10 a watering hand reached
+        // it on 1 of 8 seeds.
+        seconds: 900,
         sensor_deg: 22.5,
-        // Stars from the probe (16 seeds, `mouldprobe level=4`), lived:
-        // doing nothing 1:21-4:08 (median 2:27), random 1:23-3:22 (2:34),
-        // the scripted oat-saver (`play::Route`, "alive") 3:18-5:40
-        // (3:49), longer than doing nothing on 14 of 16 (p 0.004). One star
-        // past doing nothing's longest; two and three are for a person to
-        // beat the script.
+        // Stars from the probe (16 seeds, `mouldprobe level=4`, wet, ending
+        // below `ENDLESS_MIN` mould, timed to the last moment `ENDLESS_MIN`
+        // were awake), lived: doing nothing 1:08-3:48 (median 2:10);
+        // random 1:04-3:29 (2:03; 1:07-3:08 dry, 7-9 wet vs dry, p 0.80);
+        // the oat-saver (`play::Route`, "alive", no water) 2:47-5:26
+        // (3:34); the waterer (probe hand `sleeper`: bakes mould to sleep
+        // with the lamp when its food runs out, waters it awake near the
+        // next pile) 2:51-10:42 (4:41), longer than the oat-saver and than
+        // random on 15 of 16 each (p 0.0005). One star past random's
+        // longest, which only the two scripted hands reach; two and three
+        // need water.
         win: Win::Endless {
             every: 20,
             gap: [70.0, 6.0],
@@ -267,6 +290,7 @@ impl Level {
     pub fn params_for(&self) -> super::Params {
         super::Params {
             sensor_angle: self.sensor_deg.to_radians(),
+            wet: self.tools.water > 0,
             ..Self::params()
         }
     }
@@ -287,6 +311,7 @@ impl Level {
             Tool::Oats => self.tools.oats > 0,
             Tool::Salt => self.tools.salt > 0,
             Tool::Snip => self.tools.snips > 0,
+            Tool::Water => self.tools.water > 0,
         }
     }
 
@@ -470,6 +495,11 @@ impl Dish {
         d.oats_regrow = level.tools.oats_regrow;
         d.salt_left = level.tools.salt;
         d.snips_left = level.tools.snips;
+        if d.params.wet {
+            d.water_stock = level.tools.water;
+            d.water_left = level.tools.water;
+            d.water_regrow = level.tools.water_regrow;
+        }
         d.storm_at = level.seconds as u64 * sps;
         d
     }
@@ -626,7 +656,16 @@ impl Dish {
         // No mould left: nothing can change before the bell, so say so now
         // (review 1, finding 7: a wiped-out dish ran to the bell, 88 s more
         // of nothing, and then read as a near miss).
-        if self.walkers.is_empty() {
+        // Keep It Alive with sleep (`Params::wet`): a remnant of sleepers
+        // is not a living mould. Without this a handful of sleepers, dying
+        // one by one at `crust_life`, ran the dish to its 10-minute cap
+        // with 2 walkers on 3 of 4 seeds (2026-11-10).
+        let endless = matches!(level.win, Win::Endless { .. });
+        if endless && self.walkers.iter().filter(|w| !w.asleep()).count() >= ENDLESS_MIN {
+            self.awake_at = self.t;
+        }
+        let remnant = endless && self.walkers.len() < ENDLESS_MIN;
+        if self.walkers.is_empty() || remnant {
             let s = self.measure();
             if let Win::Endless { bars, .. } = level.win {
                 return self.finish_endless(s, bars, false);
@@ -729,8 +768,13 @@ impl Dish {
     }
 
     /// Keep It Alive's end: by death, or at the cap (`made_it`).
+    /// The time is the last moment enough of it was awake (`awake_at`): a
+    /// crust left asleep with no water coming dies over a minute or more,
+    /// and on seed 2 the waterer's last 1:30 was 94 sleepers dwindling to
+    /// 20 beside seven full piles (2026-11-10). Baking it all at the end
+    /// would buy that minute for one press of the lamp.
     fn finish_endless(&mut self, s: Score, bars: [u32; 3], made_it: bool) {
-        let secs = (self.t / STEPS_PER_SECOND as u64) as u32;
+        let secs = (self.awake_at / STEPS_PER_SECOND as u64) as u32;
         let stars = bars.iter().filter(|&&b| secs >= b).count() as u32;
         let amount = format!("LIVED {}, AT MOST {} MOULD", clock(secs), self.peak_mould);
         let why = if made_it {
@@ -925,6 +969,56 @@ mod tests {
     use super::*;
     use crate::mould::play::{Player, Route};
     use crate::mould::{cell, H, W};
+
+    /// Keep It Alive is wet (it has water), and a wet dish nobody lights
+    /// is the dry dish step for step: the ground only dries under the
+    /// lamp, so a hand that never uses the lamp or water plays the same
+    /// game it did before water existed.
+    #[test]
+    fn a_wet_dish_left_alone_is_the_dry_dish() {
+        let k = DISHES.iter().position(|l| l.key == "alive").unwrap();
+        let l = &DISHES[k];
+        assert!(l.params_for().wet, "Keep It Alive should be wet");
+        let mut wet = Dish::from_level(l, 3);
+        let mut dry = Dish::from_level_with(l, 3, crate::mould::Params { wet: false, ..l.params_for() });
+        for _ in 0..40 * crate::mould::STEPS_PER_SECOND {
+            wet.step();
+            dry.step();
+        }
+        assert_eq!(wet.counts.slept, 0);
+        assert_eq!(wet.walkers.len(), dry.walkers.len());
+        assert!(wet.walkers.iter().zip(&dry.walkers).all(|(a, b)| a.x == b.x && a.y == b.y));
+    }
+
+    /// The lamp dries the ground and the mould under it falls asleep; a
+    /// drop of water there wakes it. Both counted, both from zero.
+    #[test]
+    fn the_lamp_puts_mould_to_sleep_and_water_wakes_it() {
+        let sps = crate::mould::STEPS_PER_SECOND;
+        let l = DISHES.iter().find(|l| l.key == "alive").unwrap();
+        let mut d = Dish::from_level(l, 3);
+        for _ in 0..20 * sps {
+            d.step();
+        }
+        let at = (d.piles[0].x, d.piles[0].y);
+        d.set_lamp(Some(at));
+        for _ in 0..4 * sps {
+            d.step();
+        }
+        d.set_lamp(None);
+        // Sleepers within the drop's reach (the lamp dries a wider patch).
+        let r = d.params.water_r * 0.8;
+        let asleep = |d: &Dish| d.walkers.iter().filter(|w| w.asleep() && (w.x - at.0).hypot(w.y - at.1) < r).count();
+        let before = asleep(&d);
+        assert!(before > 20, "the lamp should put mould to sleep: {before} asleep");
+        assert_eq!(d.counts.woke, 0);
+        assert!(d.place_water(at.0, at.1), "water should be in hand");
+        for _ in 0..2 * sps {
+            d.step();
+        }
+        assert!(d.counts.woke > 10, "water should wake it: {} woke", d.counts.woke);
+        assert!(asleep(&d) * 4 < before, "asleep {} under the drop after water, {before} before", asleep(&d));
+    }
 
     fn play(level: usize, seed: u64, hand: &mut dyn Player) -> Dish {
         let mut d = Dish::from_level(&DISHES[level], seed);

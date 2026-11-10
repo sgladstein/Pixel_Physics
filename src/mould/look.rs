@@ -794,6 +794,7 @@ fn tool_colour(th: &Theme, t: Tool) -> Rgb {
         (_, Tool::Oats) => th.oats,
         (_, Tool::Salt) => [236, 242, 250],
         (_, Tool::Snip) => th.bad,
+        (_, Tool::Water) => [120, 190, 255],
     }
 }
 
@@ -804,12 +805,15 @@ fn icon(cv: &mut Cv, th: &Theme, t: Tool, x: i32, y: i32, k: i32, faded: bool) {
         Tool::Oats => &ICON_OATS,
         Tool::Salt => &ICON_SALT,
         Tool::Snip => &ICON_SNIP,
+        // A stand-in until the looks pass draws a water icon.
+        Tool::Water => &ICON_SALT,
     };
     let (a, b, ink) = match t {
         Tool::Lamp => ([255, 210, 70], [255, 250, 210], th.ink.unwrap_or([120, 90, 30])),
         Tool::Oats => ([226, 196, 130], [252, 240, 200], th.ink.unwrap_or([120, 92, 50])),
         Tool::Salt => ([210, 222, 236], [255, 255, 255], th.ink.unwrap_or([90, 100, 116])),
         Tool::Snip => ([200, 210, 220], [240, 110, 90], th.ink.unwrap_or([70, 74, 82])),
+        Tool::Water => ([90, 160, 240], [200, 230, 255], th.ink.unwrap_or([40, 70, 120])),
     };
     for (r, row) in rows.iter().enumerate() {
         for (cidx, ch) in row.bytes().enumerate() {
@@ -1004,6 +1008,15 @@ fn stock(d: &Dish, t: Tool) -> Option<(u32, u32, f32)> {
         }
         Tool::Salt => Some((d.salt_left, d.level.map_or(SALT_STOCK, |l| l.tools.salt), 0.0)),
         Tool::Snip => Some((d.snips_left, d.level.map_or(SNIP_STOCK, |l| l.tools.snips), 0.0)),
+        Tool::Water => {
+            let every = d.water_regrow as u64 * sps;
+            let grown = if every > 0 && d.water_left < d.water_stock {
+                (d.t % every) as f32 / every as f32
+            } else {
+                0.0
+            };
+            Some((d.water_left, d.water_stock, grown))
+        }
     }
 }
 
@@ -1076,6 +1089,7 @@ fn hint(d: &Dish, view: &View, st: &Status) -> [String; 2] {
             Tool::Oats => two("Click: drop oats.", "The mould grows to them"),
             Tool::Salt => two("Drag: a salt wall", "the mould can't cross"),
             Tool::Snip => two("Drag across a tube", "to cut it"),
+            Tool::Water => two("Click: water.", "Wakes sleeping mould"),
         },
     }
 }
@@ -2919,6 +2933,10 @@ fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     }
     let stroke = d.stroke_state();
     match view.tool {
+        Tool::Water => {
+            let r = d.params.water_r * sf;
+            cv.ring(cx, cy, r, 2.0, [120, 190, 255], 0.7, None);
+        }
         Tool::Lamp => {
             let r = d.params.lamp_reach * sf;
             cv.ring(cx, cy, r, 3.0, line, 0.6, Some((16, 0.0)));
@@ -3204,7 +3222,13 @@ fn phase_words(d: &Dish, st: &Status) -> String {
         }
         Phase::Growing if st.lesson => "Lesson: no storm".into(),
         Phase::Growing if d.level.is_some_and(|l| matches!(l.win, super::level::Win::Endless { .. })) => {
-            format!("Alive {}", clock((d.t / sps) as u32))
+            // Asleep (`Params::wet`): the clock stops at the last moment
+            // enough was awake (`Dish::awake_at`), and counts on if it wakes.
+            if d.t > d.awake_at + sps {
+                format!("Asleep {}", clock((d.awake_at / sps) as u32))
+            } else {
+                format!("Alive {}", clock((d.t / sps) as u32))
+            }
         }
         Phase::Growing if d.level.is_some() => format!("Bell in {}", clock(st.left)),
         Phase::Growing => format!("Storm in {}", clock(st.left)),

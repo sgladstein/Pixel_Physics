@@ -211,7 +211,7 @@ impl Dish {
                     // Each arrival brings the share a fresh dish's
                     // inoculum starts with (`Params::pieces`).
                     let food = START_STORE / 400.0;
-                    self.walkers.push(Walker { x, y, heading, food });
+                    self.walkers.push(Walker { slept: u64::MAX, woke: u64::MAX, x, y, heading, food });
                     self.trail[i] += self.params.deposit * 2.0;
                     placed += 1;
                 }
@@ -518,6 +518,8 @@ mod tests {
                 if d.occ[i] == 0 {
                     d.occ[i] = 1;
                     d.walkers.push(Walker {
+                        slept: u64::MAX,
+                        woke: u64::MAX,
                         x: x as f32 + 0.5,
                         y: y as f32 + 0.5,
                         heading: 0.0,
