@@ -772,6 +772,20 @@ const ICON_SNIP: [&str; 12] = [
     "kb..k.k..bk.",
     ".kkk...kkk..",
 ];
+const ICON_WATER: [&str; 12] = [
+    ".....k......",
+    ".....k......",
+    "....kbk.....",
+    "....kbk.....",
+    "...kbaak....",
+    "...kbaak....",
+    "..kbaaaak...",
+    "..kbaaaak...",
+    "..kaaaaak...",
+    "...kaaak....",
+    "....kkk.....",
+    "............",
+];
 const STAR: [&str; 9] = [
     "....#....",
     "...###...",
@@ -805,8 +819,7 @@ fn icon(cv: &mut Cv, th: &Theme, t: Tool, x: i32, y: i32, k: i32, faded: bool) {
         Tool::Oats => &ICON_OATS,
         Tool::Salt => &ICON_SALT,
         Tool::Snip => &ICON_SNIP,
-        // A stand-in until the looks pass draws a water icon.
-        Tool::Water => &ICON_SALT,
+        Tool::Water => &ICON_WATER,
     };
     let (a, b, ink) = match t {
         Tool::Lamp => ([255, 210, 70], [255, 250, 210], th.ink.unwrap_or([120, 90, 30])),
@@ -1943,6 +1956,9 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     let mut inside_cells: Vec<usize> = Vec::new();
     // The stain (`STAIN`).
     let stain = stain_field(d);
+    // Damp and dried ground, and the mould asleep on it (`Params::wet`).
+    let wet = wet_field(d);
+    let sleep = sleep_field(d);
     // The rim layer is drawn with the calm agar; while the alarm flashes
     // only the rim itself changes, which the layer's flash copy carries.
     for y in 0..H {
@@ -1956,6 +1972,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let mut full = 0.0f32;
             let mut shade = 0.0;
             let mut beat = 0.0;
+            let mut asleep = 0.0f32;
             let ground = match d.ground[i] {
                 Ground::Rim => rim[i],
                 Ground::Salt => salt_colour(th, d, x, y),
@@ -1977,8 +1994,16 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                             c = lerp(c, STAIN_COLOUR, k * STAIN_STRENGTH);
                         }
                     }
+                    if let Some(wf) = &wet {
+                        c = wet_ground(c, wf[i]);
+                    }
                     if let Some(h) = &halo {
                         let (gf, gp, gd) = h.at(x, y);
+                        // A crusted branch is dry, not lit: no fed glow.
+                        let gf = match &sleep {
+                            Some(sl) => gf * (1.0 - half_at(sl, x, y)),
+                            None => gf,
+                        };
                         if gf + gp + gd > 0.004 {
                             for (k, ck) in c.iter_mut().enumerate() {
                                 let add = th.fed[2][k] as f32 * gf * th.glow * 0.55
@@ -2025,6 +2050,9 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         // Two cells either side, so the light reads the
                         // tube's shape rather than the trail's grain.
                         shade = ((tr(xi + 2, yi + 2) - tr(xi - 2, yi - 2)) / (t0 + 6.0)).clamp(-1.0, 1.0);
+                        if let Some(sl) = &sleep {
+                            asleep = half_at(sl, x, y);
+                        }
                     }
                     if is_tube && fed && super::render::DRAWN_PULSE {
                         beat = pulse(d, i);
@@ -2034,11 +2062,12 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         beat = 0.0;
                     }
                     if is_tube {
-                        tube = Some(if food_ramp {
+                        let c = if food_ramp {
                             ramp_tube(th, vof(t0), full, fed, flow, shade)
                         } else {
                             pulsed(starve_colour(th, flow_v(vof(t0), hun), fed, hun, shade, flow), beat)
-                        });
+                        };
+                        tube = Some(crusted(c, vof(t0), shade, asleep));
                     }
                     c
                 }
@@ -2192,7 +2221,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     let v = (tr(ix, iy) * (1.0 - ax) + tr(ix + 1, iy) * ax) * (1.0 - ay)
                         + (tr(ix, iy + 1) * (1.0 - ax) + tr(ix + 1, iy + 1) * ax) * ay;
                     let c = if v > thr {
-                        match th.ink {
+                        let c = match th.ink {
                             Some(ink) if v < thr * 1.9 => ink,
                             _ if food_ramp => {
                                 let f = match (&full_field, fine_tube) {
@@ -2202,7 +2231,8 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                                 ramp_tube(th, vof(v), f, fed, flow, shade)
                             }
                             _ => pulsed(starve_colour(th, flow_v(vof(v), hun), fed, hun, shade, flow), beat),
-                        }
+                        };
+                        crusted(c, vof(v), shade, asleep)
                     } else if let Some(o) = fine {
                         smooth.as_ref().unwrap().over(o + (py * s + px) as usize, inside)
                     } else {
@@ -2283,6 +2313,92 @@ fn tube_insides(cv: &mut Cv, s: i32, centre: &[Rgb], has: &[bool], cells: &[usiz
 const MARK_EDGE: f32 = 0.3;
 
 // -------------------------------------------------------------- the stain
+
+/// **Damp and dried ground** (`Params::wet`, the mould thread's water and
+/// sleep, 2026-11-10). Ground wetter than it rests (`wet_base`), where a
+/// drop of water landed, darkens and cools like wet agar; ground drier,
+/// where the lamp has dried it, goes pale and dusty. Both read the
+/// simulation's own `Dish::wet`, softened 3x3 so a drop's rim is not a
+/// staircase; `None` on a dish without water, which draws as before.
+fn wet_field(d: &Dish) -> Option<Vec<f32>> {
+    if !d.params.wet {
+        return None;
+    }
+    let base = d.params.wet_base;
+    let raw: Vec<f32> = d.wet.iter().map(|&w| w - base).collect();
+    if raw.iter().all(|&v| v.abs() < 0.02) {
+        return None;
+    }
+    let mut out = vec![0.0f32; W * H];
+    for y in 0..H {
+        for x in 0..W {
+            let (mut sum, mut n) = (0.0f32, 0.0f32);
+            for yy in y.saturating_sub(1)..(y + 2).min(H) {
+                for xx in x.saturating_sub(1)..(x + 2).min(W) {
+                    sum += raw[yy * W + xx];
+                    n += 1.0;
+                }
+            }
+            // Measured against the room each way: 1 is soaked, -1 bone dry.
+            let v = sum / n;
+            out[y * W + x] = if v > 0.0 { v / (1.0 - base).max(1e-3) } else { v / base.max(1e-3) };
+        }
+    }
+    Some(out)
+}
+
+/// Wet agar is darker and cooler with a little sheen; dry agar paler and
+/// dusty. `k` from `wet_field`, -1 to 1.
+const WET_COLOUR: Rgb = [28, 70, 104];
+const DRY_COLOUR: Rgb = [104, 88, 62];
+fn wet_ground(c: Rgb, k: f32) -> Rgb {
+    if k > 0.02 {
+        lerp(c, WET_COLOUR, 0.55 * k.min(1.0))
+    } else if k < -0.02 {
+        lerp(c, DRY_COLOUR, 0.4 * (-k).min(1.0))
+    } else {
+        c
+    }
+}
+
+/// **Sleeping mould** (`Walker::asleep`): the share of the walkers in each
+/// part of the dish that are asleep, on the glow's half-size grid, blurred
+/// once so a crusted branch shades into a waking one. `None` while nobody
+/// sleeps.
+fn sleep_field(d: &Dish) -> Option<Vec<f32>> {
+    if !d.params.wet || !d.walkers.iter().any(|w| w.asleep()) {
+        return None;
+    }
+    let mut num = vec![0.0f32; HW * HH];
+    let mut den = vec![0.0f32; HW * HH];
+    for w in &d.walkers {
+        let (x, y) = (w.x as usize, w.y as usize);
+        if x < W && y < H {
+            let k = (y / 2) * HW + x / 2;
+            den[k] += 1.0;
+            if w.asleep() {
+                num[k] += 1.0;
+            }
+        }
+    }
+    let mut tmp = vec![0.0f32; HW * HH];
+    for a in [&mut num, &mut den] {
+        blur(a, &mut tmp, HW, HH, 1);
+    }
+    Some(num.iter().zip(&den).map(|(&n, &m)| if m > 1e-4 { (n / m).clamp(0.0, 1.0) } else { 0.0 }).collect())
+}
+
+/// The crust a sleeping branch dries to: the real mould's sclerotium,
+/// hard and orange-brown, matte (no ramp brightening), its depth from
+/// thickness and the same light and shade as a live tube.
+const CRUST_RAMP: [Rgb; 3] = [[74, 46, 26], [134, 86, 44], [182, 128, 70]];
+fn crusted(c: Rgb, v: f32, shade: f32, asleep: f32) -> Rgb {
+    if asleep <= 0.02 {
+        return c;
+    }
+    let crust = mul(ramp(&CRUST_RAMP, v), 1.0 + 0.18 * shade);
+    lerp(c, crust, asleep.min(1.0))
+}
 
 /// **A stain where the mould has been** (independent review, 2026-11-10,
 /// its fourth look; owner "in addition to everything else"). The real
@@ -2934,8 +3050,49 @@ fn preview(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     let stroke = d.stroke_state();
     match view.tool {
         Tool::Water => {
-            let r = d.params.water_r * sf;
-            cv.ring(cx, cy, r, 2.0, [120, 190, 255], 0.7, None);
+            // **What a drop will do, before it lands** (the demo playtest's
+            // first fix everywhere: preview the action). The disc it soaks,
+            // and the sleepers it would wake: the ones it would leave wetter
+            // than `revive_wet`, by `Dish::place_water`'s own profile.
+            if d.water_left == 0 {
+                let every = d.water_regrow as u64 * STEPS_PER_SECOND as u64;
+                let sps = STEPS_PER_SECOND as u64;
+                let w = if every > 0 { (every - d.t % every).div_ceil(sps) } else { 0 };
+                refuse(cv, th, s, (cx, cy), &format!("No water: next in {w} s"));
+                return;
+            }
+            if !cell_at(x, y).is_some_and(|i| d.ground[i] == Ground::Agar) {
+                refuse(cv, th, s, (cx, cy), "Water can't go here");
+                return;
+            }
+            let r = d.params.water_r;
+            let rw = d.params.revive_wet;
+            // Only the drop's own doing: a sleeper already on ground wet
+            // enough wakes anyway, and counting those once named sleepers
+            // well outside the disc.
+            let wakes = |wx: f32, wy: f32| {
+                let dd = len2(wx - x, wy - y).sqrt();
+                dd < r && 1.0 - (dd / r).powi(4) > rw
+            };
+            let mut n = 0u32;
+            let water = [120, 190, 255];
+            for w in d.walkers.iter().filter(|w| w.asleep() && wakes(w.x, w.y)) {
+                n += 1;
+                cv.disc(w.x * sf, w.y * sf, 1.5 * sf / 4.0 + 0.5, [200, 235, 255], 0.8);
+            }
+            let rs = r * sf;
+            cv.around(cx, cy, rs, |cv, xx, yy, dd| {
+                let f = 1.0 - (dd / rs).powi(4);
+                cv.mix(xx, yy, WET_COLOUR, 0.25 * f);
+            });
+            cv.ring(cx, cy, rs, 2.0, water, 0.7, None);
+            let words = match n {
+                0 if d.walkers.iter().any(|w| w.asleep()) => "Nothing asleep here".to_string(),
+                0 => "Nothing is asleep".to_string(),
+                1 => "Wakes 1 sleeper".to_string(),
+                n => format!("Wakes {} sleepers", thousands(n)),
+            };
+            tip(cv, th, s, (cx, cy), rs, &words, water);
         }
         Tool::Lamp => {
             let r = d.params.lamp_reach * sf;
@@ -3105,11 +3262,11 @@ fn hud_strip(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32, st: &Status
 /// key. Pixel positions where something moves, so a bar that moved less than
 /// a pixel is the same bar.
 fn bench_key(d: &Dish, view: &View, th: &Theme, w: i32, st: &Status) -> String {
-    let stocks: Vec<_> = Tool::ALL
-        .iter()
-        .map(|t| (d.has_tool(*t), stock(d, *t).map(|(h, o, g)| (h, o, (10.0 * g) as i32))))
+    let stocks: Vec<_> = bar_slots(d)
+        .into_iter()
+        .map(|t| t.map(|t| (t, stock(d, t).map(|(h, o, g)| (h, o, (10.0 * g) as i32)))))
         .collect();
-    let bw = w - bar_right(w) - 10;
+    let bw = w - bar_right(d, w) - 10;
     let line = timeline(d).map(|(f, ticks)| {
         let px: Vec<i32> = ticks.iter().map(|t| (bw as f32 * t) as i32).collect();
         ((bw as f32 * f) as i32, px)
@@ -3314,12 +3471,33 @@ fn hud_back(cv: &mut Cv, th: &Theme, y0: i32) {
 
 /// A tool tile's rectangle (x, y, w, h) in frame pixels, the bar starting
 /// at `y0`: what `tiles` draws and the window's click reads.
-fn tile_rect(k: usize, y0: i32, fw: i32) -> (i32, i32, i32, i32) {
-    if narrow_bar(fw) {
+fn tile_rect(k: usize, n: usize, y0: i32, fw: i32) -> (i32, i32, i32, i32) {
+    if narrow_tiles(fw, n) {
         (8 + k as i32 * 98, y0 + 8, 92, 70)
     } else {
         (8 + k as i32 * 150, y0 + 8, 142, 70)
     }
+}
+
+/// **The bar's slots, in order**: what `tiles` draws and keys 1.. pick.
+/// A dish with water (`Params::wet`) lists its own tools by position
+/// (`Dish::bar_tools`: Keep It Alive is lamp, oats, water), so there is no
+/// empty slot to skip; every other dish keeps the fixed four, with an
+/// empty slot where a challenge has no such tool, so the keys keep their
+/// places from dish to dish.
+fn bar_slots(d: &Dish) -> Vec<Option<Tool>> {
+    if d.params.wet {
+        d.bar_tools().into_iter().map(Some).collect()
+    } else {
+        Tool::ALL.iter().map(|&t| d.has_tool(t).then_some(t)).collect()
+    }
+}
+
+/// Narrow tiles: on a narrow window, and for five tools at any width
+/// (five wide tiles are 758 pixels, leaving the status too little room in
+/// the 1,024-pixel window).
+fn narrow_tiles(fw: i32, n: usize) -> bool {
+    narrow_bar(fw) || n >= 5
 }
 
 /// **A narrow window gets narrow tiles** (independent review, 2026-11-10:
@@ -3334,12 +3512,14 @@ fn narrow_bar(fw: i32) -> bool {
     fw < NARROW_BAR
 }
 
-/// Where the status beside the tiles starts.
-fn bar_right(fw: i32) -> i32 {
-    if narrow_bar(fw) {
-        404
+/// Where the status beside the tiles starts: just past the last tile, so
+/// a three-tool bar gives the status the room a fourth tile took.
+fn bar_right(d: &Dish, fw: i32) -> i32 {
+    let n = bar_slots(d).len() as i32;
+    if narrow_tiles(fw, n as usize) {
+        12 + n * 98
     } else {
-        616
+        16 + n * 150
     }
 }
 
@@ -3354,8 +3534,12 @@ pub fn tile_at(d: &Dish, style: Style, scale: u32, px: i32, py: i32) -> Option<T
         return None;
     }
     let y0 = H as i32 * scale as i32;
-    Tool::ALL.iter().enumerate().find_map(|(k, &t)| {
-        let (x, y, w, h) = tile_rect(k, y0, W as i32 * scale as i32);
+    let slots = bar_slots(d);
+    slots.iter().enumerate().find_map(|(k, &t)| {
+        let (x, y, w, h) = tile_rect(k, slots.len(), y0, W as i32 * scale as i32);
+        // An empty slot's tile is not a button (a challenge without the
+        // tool): `has_tool` refuses it upstream as before.
+        let t = t.or(Tool::ALL.get(k).copied())?;
         (px >= x && px < x + w && py >= y && py < y + h).then_some(t)
     })
 }
@@ -3364,17 +3548,18 @@ pub fn tile_at(d: &Dish, style: Style, scale: u32, px: i32, py: i32) -> Option<T
 /// and what is left in words.
 fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
     let (sel_fill, badge_fill, _) = tones(th);
-    let narrow = narrow_bar(cv.w);
-    for (k, t) in Tool::ALL.iter().enumerate() {
-        let (x, y, tw, _) = tile_rect(k, y0, cv.w);
-        if !d.has_tool(*t) {
+    let slots = bar_slots(d);
+    let narrow = narrow_tiles(cv.w, slots.len());
+    for (k, slot) in slots.iter().enumerate() {
+        let (x, y, tw, _) = tile_rect(k, slots.len(), y0, cv.w);
+        let Some(t) = slot else {
             // A challenge dish without this tool: its slot stays, empty, so
             // the keys keep their places.
             cv.rbox(x, y, tw, 70, th.radius, None, Some((mul(th.panel_edge, 0.45), 1.0)));
             text(cv, th, x + 10, y + 8, &(k + 1).to_string(), mul(th.dim, 0.7));
             text(cv, th, x + 32, y + 8, if narrow { "None" } else { "Not here" }, mul(th.dim, 0.7));
             continue;
-        }
+        };
         let sel = *t == view.tool;
         let st_ = stock(d, *t);
         let spent = st_.is_some_and(|(h, _, _)| h == 0);
@@ -3442,7 +3627,7 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
 
 fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Status) {
     hud_back(cv, th, y0);
-    let right = bar_right(cv.w);
+    let right = bar_right(d, cv.w);
     if let Some(words) = score_words(d) {
         // "Not reached: only starving strays got there" is wider at three
         // times the dot than the room left of the stars: a size down.
@@ -3506,7 +3691,7 @@ fn hud_wander(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
     let Some(w) = &d.wander else { return };
     hud_back(cv, th, y0);
     tiles(cv, d, view, th, y0);
-    let right = bar_right(cv.w);
+    let right = bar_right(d, cv.w);
     let bw = cv.w - right - 10;
     text(cv, th, right, y0 + 10, &format!("Dish {}", w.stretch), th.text);
     let m = format!(
@@ -4007,7 +4192,8 @@ enum Row {
     Line(String, Rgb),
     Swatch(u8, &'static str),
     Star(&'static str),
-    Tool(Tool, String),
+    /// A tool, its key, and the words.
+    Tool(Tool, usize, String),
 }
 
 /// The briefing card: what the game is, in the order a new player needs it,
@@ -4021,10 +4207,10 @@ fn brief(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, s: i32) {
     };
     let tools = [
         Row::Head("Tools"),
-        Row::Tool(Tool::Lamp, "Lamp   hold: pushes the mould away".into()),
-        Row::Tool(Tool::Oats, "Oats   click: it grows toward them".into()),
-        Row::Tool(Tool::Salt, "Salt   drag: a wall it can't cross".into()),
-        Row::Tool(Tool::Snip, "Snip   drag: cut a tube".into()),
+        Row::Tool(Tool::Lamp, 1, "Lamp   hold: pushes the mould away".into()),
+        Row::Tool(Tool::Oats, 2, "Oats   click: it grows toward them".into()),
+        Row::Tool(Tool::Salt, 3, "Salt   drag: a wall it can't cross".into()),
+        Row::Tool(Tool::Snip, 4, "Snip   drag: cut a tube".into()),
     ];
     let name = title(wander::NAME);
     if let Some(l) = d.level {
@@ -4109,26 +4295,42 @@ fn level_rows(d: &Dish, l: &super::level::Level, th: &Theme) -> Vec<Row> {
         Row::Gap,
         Row::Head("Stars"),
     ];
+    if d.params.wet {
+        // After "Tan: food": what water and the lamp do to the ground.
+        let at = rows.len() - 2;
+        rows.insert(at, Row::Line("Brown crust: asleep on dry ground".into(), CRUST_RAMP[2]));
+        rows.insert(at + 1, Row::Line("Blue: wet ground, which wakes it".into(), [120, 180, 230]));
+    }
     for (k, line) in stars.into_iter().enumerate() {
         rows.push(Row::Stars(k as u32 + 1, line));
     }
     rows.push(Row::Gap);
     rows.push(Row::Head("Tools"));
     let t = l.tools;
-    rows.push(Row::Tool(Tool::Lamp, "Lamp   hold: pushes the mould away".into()));
+    // Each tool's key is its place on this dish's bar (`bar_slots`).
+    let slots = bar_slots(d);
+    let key = |tool: Tool| slots.iter().position(|&u| u == Some(tool)).map_or(0, |k| k + 1);
+    rows.push(Row::Tool(Tool::Lamp, key(Tool::Lamp), "Lamp   hold: pushes the mould away".into()));
     if d.has_tool(Tool::Oats) {
         let back = if t.oats_regrow > 0 {
             format!(", 1 back each {} s", t.oats_regrow)
         } else {
             String::new()
         };
-        rows.push(Row::Tool(Tool::Oats, format!("Oats {}{back}: it grows to them", t.oats)));
+        rows.push(Row::Tool(Tool::Oats, key(Tool::Oats), format!("Oats {}{back}: it grows to them", t.oats)));
     }
     if d.has_tool(Tool::Salt) {
-        rows.push(Row::Tool(Tool::Salt, format!("Salt {}   drag: a wall", t.salt)));
+        rows.push(Row::Tool(Tool::Salt, key(Tool::Salt), format!("Salt {}   drag: a wall", t.salt)));
     }
     if d.has_tool(Tool::Snip) {
-        rows.push(Row::Tool(Tool::Snip, format!("Snip {}   drag: cut a tube", t.snips)));
+        rows.push(Row::Tool(Tool::Snip, key(Tool::Snip), format!("Snip {}   drag: cut a tube", t.snips)));
+    }
+    if d.params.wet {
+        rows.push(Row::Tool(
+            Tool::Water,
+            key(Tool::Water),
+            format!("Water {}, 1 back each {} s: wakes it", d.water_stock, d.water_regrow),
+        ));
     }
     rows
 }
@@ -4165,7 +4367,7 @@ fn brief_card(cv: &mut Cv, th: &Theme, s: i32, heading: &str, rows: &[Row]) {
             Row::Line(l, _) => text_w(th, l),
             Row::Swatch(_, l) | Row::Star(l) | Row::Crack(l) => text_w(th, l) + indent,
             Row::Stars(_, l) => text_w(th, l) + stars_indent,
-            Row::Tool(_, l) => text_w(th, l) + tool_indent,
+            Row::Tool(_, _, l) => text_w(th, l) + tool_indent,
             _ => 0,
         })
         .max()
@@ -4231,8 +4433,7 @@ fn brief_card(cv: &mut Cv, th: &Theme, s: i32, heading: &str, rows: &[Row]) {
                 }
                 text(cv, th, x + stars_indent, y, l, th.text);
             }
-            Row::Tool(t, l) => {
-                let k = Tool::ALL.iter().position(|u| u == t).unwrap_or(0) + 1;
+            Row::Tool(t, k, l) => {
                 icon(cv, th, *t, x, y - 4, 2, false);
                 text(cv, th, x + 30, y, &k.to_string(), th.hot);
                 text(cv, th, x + tool_indent, y, l, th.text);
@@ -4253,7 +4454,7 @@ mod tests {
     #[test]
     fn every_look_string_has_its_glyphs() {
         let mut words: Vec<String> = Vec::new();
-        for t in Tool::ALL {
+        for t in Tool::EVERY {
             let v = View {
                 tool: t,
                 ..View::default()
@@ -4495,6 +4696,26 @@ mod tests {
     /// Review 2, finding M1: a click on a tool tile is a click on that
     /// tool, in the looks that draw tiles; nothing in the old look's bar;
     /// and only a press on the dish holds the button.
+    /// The water dish (Keep It Alive) draws its own tools on the bar, by
+    /// position, as the keys pick them: water on the third tile, not a
+    /// "Not here" slot where salt would be. Red before this: the bar drew
+    /// `Tool::ALL`, so water had no tile and a click there picked salt.
+    #[test]
+    fn the_water_dish_has_a_water_tile() {
+        use crate::mould::render::{press_at, Press};
+        let k = crate::mould::level::DISHES.iter().position(|l| l.tools.water > 0).expect("a dish with water");
+        let d = Dish::from_level(&crate::mould::level::DISHES[k], 1);
+        assert!(d.params.wet);
+        let slots = bar_slots(&d);
+        assert_eq!(slots, d.bar_tools().into_iter().map(Some).collect::<Vec<_>>());
+        let at = slots.iter().position(|&t| t == Some(Tool::Water)).expect("water on the bar");
+        let y = H as f32 * 4.0 + 8.0 + 35.0;
+        let x = 8.0 + at as f32 * 150.0 + 71.0;
+        assert_eq!(press_at(&d, &night(), 4, x, y), Press::Tile(Tool::Water));
+        // Five tools at the window's width take the narrow tiles.
+        assert!(narrow_tiles(W as i32 * 4, 5) && !narrow_tiles(W as i32 * 4, 4));
+    }
+
     #[test]
     fn a_press_on_a_tile_picks_its_tool_and_holds_nothing() {
         use crate::mould::render::{press_at, Press};

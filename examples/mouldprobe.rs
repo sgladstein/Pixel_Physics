@@ -471,6 +471,25 @@ fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
         style,
         // `PANEL=ROW`: the tuning panel open on that row, as T shows it.
         tune: std::env::var("PANEL").ok().and_then(|v| v.parse().ok()),
+        // `TOOL=water CURSOR=x,y`: that tool in hand with the cursor on the
+        // dish there, so a still shows the tool's preview and the bar's pick.
+        tool: match std::env::var("TOOL").as_deref() {
+            Ok("oats") => pixel_physics::mould::Tool::Oats,
+            Ok("salt") => pixel_physics::mould::Tool::Salt,
+            Ok("snip") => pixel_physics::mould::Tool::Snip,
+            Ok("water") => pixel_physics::mould::Tool::Water,
+            _ => pixel_physics::mould::Tool::Lamp,
+        },
+        // `CURSOR=sleepers`: on the middle of the mould asleep, if any.
+        cursor: std::env::var("CURSOR").ok().and_then(|v| {
+            if v == "sleepers" {
+                let s: Vec<_> = d.walkers.iter().filter(|w| w.asleep()).collect();
+                let n = s.len() as f32;
+                return (n > 0.0).then(|| (s.iter().map(|w| w.x).sum::<f32>() / n, s.iter().map(|w| w.y).sum::<f32>() / n));
+            }
+            let (x, y) = v.split_once(',')?;
+            Some((x.parse().ok()?, y.parse().ok()?))
+        }),
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
