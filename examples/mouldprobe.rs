@@ -58,6 +58,9 @@ struct Args {
     water: Option<u32>,
     /// `wet=`, if given; otherwise a level dish is wet when its level has water.
     wet: Option<bool>,
+    /// `rival=1`: a wild second mould (`Dish::rival`) on the starting pile
+    /// furthest from home.
+    rival: bool,
     water_regrow: Option<u32>,
     /// The Wanderer (`mould::wander`): journeys of `dishes` stretches.
     wander: bool,
@@ -103,6 +106,7 @@ fn parse() -> Args {
         oats_regrow: None,
         water: None,
         wet: None,
+        rival: false,
         water_regrow: None,
         wander: false,
         dishes: 3,
@@ -169,6 +173,7 @@ fn parse() -> Args {
             "oats" => a.oats = Some(v.parse().unwrap()),
             "oats_regrow" => a.oats_regrow = Some(v.parse().unwrap()),
             "water" => a.water = Some(v.parse().unwrap()),
+            "rival" => a.rival = v == "1",
             "water_regrow" => a.water_regrow = Some(v.parse().unwrap()),
             "wander" => a.wander = v == "1",
             "dishes" => a.dishes = v.parse().unwrap(),
@@ -257,8 +262,151 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "dump" => Box::new(Dump),
         "guard" => Box::new(Guard),
         "sleeper" => Box::new(Sleeper::new()),
+        "warden" => Box::new(Warden::new()),
         "prune" => Box::new(Pruner { seed: seed | 1, frame: 0, from: 15, every: 30, len: 26.0 }),
         _ => panic!("unknown player {name}"),
+    }
+}
+
+/// **The Wild One** (`Dish::rival`): a scripted hand that fights the wild
+/// mould with every tool. `WARDEN=` picks which (default all of
+/// `salt,oats,snip,lamp`), so each tool's share can be measured.
+/// - salt: at once, the one wall, upright between the middle pile and the
+///   wild mould's side, so its short way to the middle is shut;
+/// - oats: lead this mould to the middle pile first (one at a time, ahead
+///   of its fed tube), then keep an oat on it while the wild one is there;
+/// - snip: every 12 s, across the wild tube where it is thickest on this
+///   side of the middle and this mould's tube is thinnest, so the part cut
+///   off starves;
+/// - lamp: on wild mould sitting on this mould's piles, 2 s at a time.
+struct Warden {
+    salt: bool,
+    ring: bool,
+    oats: bool,
+    snip: bool,
+    lamp: bool,
+    next_oat: u64,
+    next_snip: u64,
+    lamp_until: u64,
+}
+
+impl Warden {
+    fn new() -> Self {
+        let w = std::env::var("WARDEN").unwrap_or_else(|_| "salt,oats,snip,lamp".into());
+        let has = |k: &str| w.split(',').any(|x| x == k);
+        Warden { salt: has("salt"), ring: has("ring"), oats: has("oats"), snip: has("snip"), lamp: has("lamp"), next_oat: 0, next_snip: 0, lamp_until: 0 }
+    }
+}
+
+impl Player for Warden {
+    fn name(&self) -> &'static str {
+        "warden"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        use pixel_physics::mould::{H, W};
+        if d.phase != Phase::Growing || d.rival.is_none() {
+            return;
+        }
+        let sps = STEPS_PER_SECOND as u64;
+        let mid = (128.0f32, 80.0f32);
+        if self.salt && d.salt_left > 0 && d.t >= sps / 2 && d.begin_stroke(Tool::Salt, 152.0, 50.0) {
+            d.drag_stroke(152.0, 110.0);
+            d.end_stroke();
+        }
+        // `ring`: once this mould is on the middle pile and the wild one is
+        // not, the one wall goes round it (radius 9.5: 60 cells).
+        if self.ring && d.salt_left > 0 {
+            let mine = d.walkers.iter().filter(|w| (w.x - mid.0).hypot(w.y - mid.1) < 9.0).count();
+            let r = d.rival.as_ref().unwrap();
+            let theirs = r.walkers.iter().filter(|w| (w.x - mid.0).hypot(w.y - mid.1) < 12.0).count();
+            if mine > 40 && theirs < 5 {
+                let rr = 9.5f32;
+                if d.begin_stroke(Tool::Salt, mid.0 + rr, mid.1) {
+                    for k in 1..=64 {
+                        let a = k as f32 / 64.0 * std::f32::consts::TAU;
+                        d.drag_stroke(mid.0 + rr * a.cos(), mid.1 + rr * a.sin());
+                    }
+                    d.end_stroke();
+                }
+            }
+        }
+        if d.t >= self.lamp_until && d.lamp.is_some() {
+            d.set_lamp(None);
+        }
+        let r = d.rival.as_ref().unwrap();
+        let tube = d.params.tube;
+        // The pile the wild one eats most from and this one least.
+        if self.lamp && d.lamp.is_none() {
+            let piles: Vec<(f32, f32, f32)> = d.piles.iter().filter(|p| !p.oats && p.food > 0.0).map(|p| (p.x, p.y, p.r)).collect();
+            let near = |ws: &[pixel_physics::mould::Walker], x: f32, y: f32, pr: f32| ws.iter().filter(|w| (w.x - x).hypot(w.y - y) < pr + 4.0).count() as i32;
+            let hit = piles
+                .iter()
+                .map(|&(x, y, pr)| (x, y, near(&r.walkers, x, y, pr) - 2 * near(&d.walkers, x, y, pr)))
+                .max_by_key(|h| h.2);
+            if let Some((x, y, n)) = hit {
+                if n >= 30 {
+                    d.set_lamp(Some((x, y)));
+                    self.lamp_until = d.t + 2 * sps;
+                }
+            }
+        }
+        let r = d.rival.as_ref().unwrap();
+        if self.snip && d.snips_left > 0 && d.t >= self.next_snip && d.t >= 10 * sps {
+            // The wild tube on this side of the middle, where it is thick
+            // and this mould's is not.
+            let mut best: Option<(usize, f32)> = None;
+            for y in 8..H - 8 {
+                for x in 60..124 {
+                    let i = y * W + x;
+                    let v = r.trail[i] - 2.0 * d.trail[i];
+                    if r.trail[i] > tube * 3.0 && best.is_none_or(|b| v > b.1) {
+                        best = Some((i, v));
+                    }
+                }
+            }
+            if let Some((i, _)) = best {
+                let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+                // Across the tube: along the trail's level line, found from its slope.
+                let gx = r.trail[i + 1] - r.trail[i - 1];
+                let gy = r.trail[i + W] - r.trail[i - W];
+                let g = gx.hypot(gy).max(1e-6);
+                let (ux, uy) = (gx / g, gy / g);
+                if d.begin_stroke(Tool::Snip, x - ux * 8.0, y - uy * 8.0) {
+                    d.drag_stroke(x + ux * 8.0, y + uy * 8.0);
+                    d.end_stroke();
+                }
+                self.next_snip = d.t + 12 * sps;
+            }
+        }
+        if self.oats && d.oats_left > 0 && d.t >= self.next_oat {
+            let reached = d.piles.iter().any(|p| !p.oats && (p.x - mid.0).hypot(p.y - mid.1) < 1.0 && p.reached());
+            let r = d.rival.as_ref().unwrap();
+            let wild_there = r.walkers.iter().filter(|w| (w.x - mid.0).hypot(w.y - mid.1) < 14.0).count();
+            if !reached {
+                // Ahead of this mould's fed tube nearest the middle.
+                let mut from: Option<((f32, f32), f32)> = None;
+                for (i, &f) in d.fed.iter().enumerate() {
+                    if f == u16::MAX || i % 3 != 0 {
+                        continue;
+                    }
+                    let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+                    let g = (x - mid.0).hypot(y - mid.1);
+                    if from.is_none_or(|b| g < b.1) {
+                        from = Some(((x, y), g));
+                    }
+                }
+                if let Some(((x, y), g)) = from {
+                    if g > 16.0 {
+                        let f = (20.0 / g).min(1.0);
+                        if d.place_oats(x + (mid.0 - x) * f, y + (mid.1 - y) * f) {
+                            self.next_oat = d.t + 4 * sps;
+                        }
+                    }
+                }
+            } else if wild_there > 20 && d.place_oats(mid.0 - 4.0, mid.1) {
+                self.next_oat = d.t + 15 * sps;
+            }
+        }
     }
 }
 
@@ -1869,6 +2017,20 @@ fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
     };
     let mut d = Dish::from_level_with(&DISHES[k], seed, params);
     give_oats(&mut d, a);
+    // `WILD_REPEL=`: the wild mould's `foe_repel`, if not the level's.
+    if let (Some(r), Ok(v)) = (d.rival.as_mut(), std::env::var("WILD_REPEL")) {
+        r.params.foe_repel = v.parse().expect("WILD_REPEL: a number");
+    }
+    if a.rival {
+        let home = (d.piles[0].x, d.piles[0].y);
+        let far = d
+            .piles
+            .iter()
+            .map(|p| (p.x, p.y))
+            .max_by(|a, b| (a.0 - home.0).hypot(a.1 - home.1).total_cmp(&(b.0 - home.0).hypot(b.1 - home.1)))
+            .unwrap();
+        d.add_rival(far);
+    }
     d
 }
 
@@ -1906,9 +2068,10 @@ fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dis
                 })
                 .collect();
             println!(
-                "    t={:>3}s mould {:>4} asleep {:>4} store {:>7.0} oats {} piles {}",
+                "    t={:>3}s mould {:>4} wild {:>4} asleep {:>4} store {:>7.0} oats {} piles {}",
                 d.t / STEPS_PER_SECOND as u64,
                 d.walkers.len(),
+                d.rival.as_ref().map_or(0, |r| r.walkers.len()),
                 d.walkers.iter().filter(|w| w.asleep()).count(),
                 d.store,
                 d.oats_left,
@@ -1984,7 +2147,7 @@ fn levels(a: &Args, which: &[usize]) {
                 let c = d.card.clone().unwrap_or_default();
                 let ratio = d.ruler_ratio().map(|r| format!(" ruler {r:.2}x")).unwrap_or_default();
                 println!(
-                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  water {} slept {} woke {} died asleep {}  ({:.1} s)",
+                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  water {} slept {} woke {} died asleep {}{}  ({:.1} s)",
                     c.stars,
                     c.amount,
                     c.why,
@@ -1997,6 +2160,7 @@ fn levels(a: &Args, which: &[usize]) {
                     d.counts.slept,
                     d.counts.woke,
                     d.counts.died_asleep,
+                    d.rival.as_ref().map(|r| format!("  wild {} fought {}/{}", r.walkers.len(), d.counts.fought, r.counts.fought)).unwrap_or_default(),
                     t0.elapsed().as_secs_f32()
                 );
                 // Every hand's end on the first seed, so a losing card
@@ -2066,6 +2230,47 @@ fn levels(a: &Args, which: &[usize]) {
     );
 }
 
+/// `RIVALCOST=1`: **what the wild mould costs a frame.** The free dish at
+/// the probe's parameters, with and without a wild mould on its far pile,
+/// same seed, frames alternated between the two (steps + draw at scale 4)
+/// so both arms see the same machine; 90 s each.
+fn rival_cost(a: &Args) {
+    let (w, h) = render::frame_size(4);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    let view = View { style: a.style, ..View::default() };
+    for &seed in &a.seeds {
+        let mut alone = Dish::with_params(seed, a.params.clone());
+        let mut two = Dish::with_params(seed, a.params.clone());
+        let far = two.piles.iter().map(|p| (p.x, p.y)).max_by(|p, q| p.0.total_cmp(&q.0)).unwrap();
+        two.add_rival(far);
+        let (mut sum, mut worst) = ([0.0f64; 2], [0.0f64; 2]);
+        let frames = 90 * STEPS_PER_SECOND / STEPS_PER_FRAME;
+        for _ in 0..frames {
+            for (k, d) in [&mut alone, &mut two].into_iter().enumerate() {
+                let t0 = Instant::now();
+                for _ in 0..STEPS_PER_FRAME {
+                    d.step();
+                }
+                render::draw(d, &view, 4, &mut buf);
+                let ms = t0.elapsed().as_secs_f64() * 1e3;
+                sum[k] += ms;
+                worst[k] = worst[k].max(ms);
+            }
+        }
+        let n = frames as f64;
+        println!(
+            "seed {seed}: {frames} frames  one mould mean {:.2} ms worst {:.2}  two moulds mean {:.2} ms worst {:.2}  (walkers {} vs {}+{})",
+            sum[0] / n,
+            worst[0],
+            sum[1] / n,
+            worst[1],
+            alone.walkers.len(),
+            two.walkers.len(),
+            two.rival.as_ref().map_or(0, |r| r.walkers.len())
+        );
+    }
+}
+
 /// The dish picker as the window draws it, for a picture: `menu=DIR`.
 fn menu(a: &Args, dir: &str) {
     use pixel_physics::mould::level::Progress;
@@ -2117,6 +2322,10 @@ fn main() {
         a.oats.is_none() || oats_read || !other_mode,
         "oats= is not read by this mode (menu, lean, bend, flicker, lesson, verbs, pull, looks): drop it"
     );
+    if std::env::var("RIVALCOST").is_ok() {
+        rival_cost(&a);
+        return;
+    }
     if let Some(which) = &a.level {
         levels(&a, which);
         return;

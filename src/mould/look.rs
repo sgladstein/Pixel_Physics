@@ -3365,6 +3365,7 @@ fn level_words(d: &Dish) -> Option<String> {
             let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
             Some(format!("Eating {fed} pile{}  most mould {}", if fed == 1 { "" } else { "s" }, d.peak_mould))
         }
+        Win::Rival { .. } => Some(format!("You {}  wild {}", d.walkers.len(), d.rival.as_ref().map_or(0, |r| r.walkers.len()))),
     }
 }
 
@@ -4281,6 +4282,11 @@ fn level_rows(d: &Dish, l: &super::level::Level, th: &Theme) -> Vec<Row> {
             format!("Alive at {}", clock(bars[0])),
             format!("At {}", clock(bars[1])),
             format!("At {}", clock(bars[2])),
+        ],
+        Win::Rival { bars } => [
+            format!("{}x as much mould as the wild one at {bell}", bars[0]),
+            format!("{}x as much", bars[1]),
+            "None of it left".to_string(),
         ],
     };
     let goal = sentence(&l.goal);

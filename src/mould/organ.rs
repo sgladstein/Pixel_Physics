@@ -156,6 +156,7 @@ pub fn new_dish_with(seed: u64, params: Params) -> Dish {
                 oats: false,
                 expires: u64::MAX,
                 eaters: 0,
+                foe_eaters: 0,
             }
         })
         .collect();
