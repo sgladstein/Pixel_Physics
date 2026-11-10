@@ -1439,8 +1439,11 @@ impl RimLayer {
 }
 
 /// The band of `ellipse` values the rim's colours change across, with a
-/// cell's margin: every look's lip lies between 1.0 and 1.095.
-const RIM_BAND: (f32, f32) = (0.93, 1.13);
+/// cell's margin: every look's lip lies between 1.0 and 1.095. Cells in
+/// it whose pixels would all come out alike are dropped again
+/// (`rim_layer`), so only the cells a colour boundary crosses are drawn
+/// pixel by pixel.
+const RIM_BAND: (f32, f32) = (0.95, 1.13);
 
 fn rim_layer(th: &Theme, flash: bool, s: i32) -> std::sync::Arc<RimLayer> {
     use std::sync::{Arc, Mutex};
@@ -1470,7 +1473,8 @@ fn rim_layer(th: &Theme, flash: bool, s: i32) -> std::sync::Arc<RimLayer> {
             if e < RIM_BAND.0 || e > RIM_BAND.1 {
                 continue;
             }
-            at[y * W + x] = px.len() as u32;
+            let start = px.len();
+            at[y * W + x] = start as u32;
             for py in 0..s {
                 for pxx in 0..s {
                     let mut sum = [0.0f32; 3];
@@ -1489,6 +1493,16 @@ fn rim_layer(th: &Theme, flash: bool, s: i32) -> std::sync::Arc<RimLayer> {
                     let c = if out > 0.0 { sum.map(|v| (v / out) as u8) } else { [0; 3] };
                     px.push((c, out / 4.0));
                 }
+            }
+            // All inside, or all one rim colour: a block draws it the same.
+            let cell = &px[start..];
+            let inside = cell.iter().all(|p| p.1 == 0.0);
+            let flat = cell.iter().all(|p| {
+                p.1 == 1.0 && p.0.iter().zip(&cell[0].0).all(|(a, b)| a.abs_diff(*b) <= 2)
+            });
+            if inside || flat {
+                px.truncate(start);
+                at[y * W + x] = u32::MAX;
             }
         }
     }
@@ -1647,7 +1661,7 @@ const FOOD_RAMP: [Rgb; 5] = [[58, 34, 18], [132, 66, 20], [222, 140, 28], [255, 
 /// 9 `SAP_FULL`s over tube cells (p10 to p99) and the walkers' average
 /// load 0.0 to 1.0, so the old `carried_look`, clamped at 1, was full on
 /// over half the tube: the "flat bright yellow" the review saw.
-const FOOD_TOP: f32 = 8.0;
+const FOOD_TOP: f32 = 6.0;
 /// A walker's load counts this many times its `CARRIED_FULL`s: with the
 /// sap off (flow level 1) the load is all there is, and it should still
 /// reach gold.
@@ -1655,7 +1669,7 @@ const LOAD_WEIGHT: f32 = 3.0;
 /// With flow off the census feeds a tube or does not; a just-fed tube
 /// sits here on the ramp (gold), not at white-gold, which is kept for food
 /// that is really piled up.
-const FED_NO_FLOW: f32 = 0.72;
+const FED_NO_FLOW: f32 = 0.85;
 
 /// **How much food a tube cell holds**, 0 none to 1 rich, read from the
 /// simulation (`Params::flow`): the average load of the walkers there and
@@ -1678,7 +1692,10 @@ fn fullness(d: &Dish, i: usize) -> f32 {
 /// set by the tube's thickness `v` (a thin feeler is dimmer than a trunk),
 /// and the look's light and shade.
 fn food_colour(th: &Theme, v: f32, full: f32, shade: f32) -> Rgb {
-    let base = mul(ramp(&FOOD_RAMP, full), 0.62 + 0.38 * v);
+    // Thickness moves the colour as well as the light: a trunk's core
+    // sits higher on the ramp than its thin edge, so a tube has depth
+    // (with the amount alone every tube was one flat tone).
+    let base = mul(ramp(&FOOD_RAMP, full * (0.6 + 0.4 * v)), 0.8 + 0.2 * v);
     match th.style {
         Style::Toy => {
             if shade > 0.4 {
@@ -1854,6 +1871,21 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     let rim = background(th, st.alarm && st.flash);
     let smooth = smooth_on().then(|| rim_layer(th, st.alarm && st.flash, s));
     let fine_tube = smooth_on();
+    // Smoothing a tube's inside: each tube cell's colour is worked out once
+    // at its centre, as before, and the inside cells are drawn afterwards
+    // by blending between centres pixel by pixel. Working each pixel out
+    // in full (the trail and the food read between centres, then the
+    // ramp) doubled the look's drawing, 4 to 9 ms at scale 4; a blend of
+    // four colours gives the same smooth tube.
+    let mut centre: Vec<Rgb> = Vec::new();
+    let mut has: Vec<bool> = Vec::new();
+    if fine_tube {
+        centre = vec![[0; 3]; W * H];
+        has = vec![false; W * H];
+    }
+    let mut inside_cells: Vec<usize> = Vec::new();
+    // The stain (`STAIN`).
+    let stain = stain_field(d);
     // The rim layer is drawn with the calm agar; while the alarm flashes
     // only the rim itself changes, which the layer's flash copy carries.
     for y in 0..H {
@@ -1881,6 +1913,12 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     }
                     if shadow_of_salt && x > 0 && y > 0 && d.ground[i - W - 1] == Ground::Salt {
                         c = mul(c, 0.68);
+                    }
+                    if let Some(sf) = &stain {
+                        let k = sf.1[i];
+                        if k > 0.01 {
+                            c = lerp(c, STAIN_COLOUR, k * STAIN_STRENGTH);
+                        }
                     }
                     if let Some(h) = &halo {
                         let (gf, gp, gd) = h.at(x, y);
@@ -1956,7 +1994,10 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let fine = (fine != u32::MAX && matches!(d.ground[i], Ground::Rim | Ground::Agar) && tube.is_none()).then_some(fine as usize);
             // What shows through inside the dish: the cell's own ground
             // on agar (glow and all), the bare agar under a rim cell.
-            let inside = if d.ground[i] == Ground::Agar { ground } else { agar_colour(th, x, y) };
+            let inside = match (fine, d.ground[i]) {
+                (None, _) | (_, Ground::Agar) => ground,
+                _ => agar_colour(th, x, y),
+            };
             if let (Some(o), false) = (fine, edge) {
                 for py in 0..s {
                     for px in 0..s {
@@ -1965,7 +2006,107 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                 }
                 continue;
             }
-            if !edge && !(fine_tube && tube.is_some()) {
+            // Salt, a storm's scar and an open snip, drawn smooth: near a
+            // mark's edge each pixel reads how much of the 3x3 cells round
+            // it are that mark (softened once, then read between cell
+            // centres) and is the mark above `MARK_EDGE`, so a wall laid
+            // on the diagonal is a straight band with round ends, not a
+            // staircase of 4-pixel steps (`SMOOTH`). The cells are what
+            // the dish holds; only where the edge is drawn moves, by less
+            // than a cell.
+            let mark = |g: Ground| matches!(g, Ground::Salt | Ground::Scar | Ground::Wound);
+            if fine_tube && (mark(d.ground[i]) || (d.ground[i] == Ground::Agar && tube.is_none() && !edge && fine.is_none())) {
+                let near = if mark(d.ground[i]) {
+                    Some((d.ground[i], i))
+                } else {
+                    let mut f = None;
+                    'n: for dy in -1..=1i32 {
+                        for dx in -1..=1i32 {
+                            let (nx, ny) = (xi + dx, yi + dy);
+                            if nx >= 0 && ny >= 0 && (nx as usize) < W && (ny as usize) < H {
+                                let k = ny as usize * W + nx as usize;
+                                if mark(d.ground[k]) {
+                                    f = Some((d.ground[k], k));
+                                    break 'n;
+                                }
+                            }
+                        }
+                    }
+                    f
+                };
+                if let Some((g, gi)) = near {
+                    let same = |cx: i32, cy: i32| -> f32 {
+                        if cx < 0 || cy < 0 || cx as usize >= W || cy as usize >= H {
+                            return 0.0;
+                        }
+                        (d.ground[cy as usize * W + cx as usize] == g) as u8 as f32
+                    };
+                    let soft = |cx: i32, cy: i32| -> f32 {
+                        let mut m = 0.0;
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                m += same(cx + dx, cy + dy);
+                            }
+                        }
+                        m / 9.0
+                    };
+                    // Salt is drawn this way all through, not only at its edge:
+                    // its grains are pixel-sized (two pixels), not a cell's.
+                    let border = g == Ground::Salt || (-1..=1).any(|dy| (-1..=1).any(|dx| same(xi + dx, yi + dy) == 0.0));
+                    if border {
+                        let (gx, gy) = (gi % W, gi / W);
+                        let ink = match g {
+                            Ground::Salt => salt_colour(th, d, x, y),
+                            Ground::Scar => scar_colour(th, x, y, d.t),
+                            _ => wound_colour(th, d, gi, bg[gy * W + gx]),
+                        };
+                        // The agar under the mark: this cell's own when it is
+                        // agar (glow and stain with it), else the bare dish.
+                        let under = if d.ground[i] == Ground::Agar { ground } else { bg[i] };
+                        let b = [
+                            [soft(xi - 1, yi - 1), soft(xi, yi - 1), soft(xi + 1, yi - 1)],
+                            [soft(xi - 1, yi), soft(xi, yi), soft(xi + 1, yi)],
+                            [soft(xi - 1, yi + 1), soft(xi, yi + 1), soft(xi + 1, yi + 1)],
+                        ];
+                        for py in 0..s {
+                            let fy = (py as f32 + 0.5) / sf - 0.5;
+                            let (r0, ay) = if fy < 0.0 { (0, fy + 1.0) } else { (1, fy) };
+                            for px in 0..s {
+                                let fx = (px as f32 + 0.5) / sf - 0.5;
+                                let (c0, ax) = if fx < 0.0 { (0, fx + 1.0) } else { (1, fx) };
+                                let v = (b[r0][c0] * (1.0 - ax) + b[r0][c0 + 1] * ax) * (1.0 - ay)
+                                    + (b[r0 + 1][c0] * (1.0 - ax) + b[r0 + 1][c0 + 1] * ax) * ay;
+                                // About a pixel of soft edge either side.
+                                let k = ((v - MARK_EDGE) * sf * 1.5 + 0.5).clamp(0.0, 1.0);
+                                if k <= 0.0 {
+                                    cv.put(px0 + px, py0 + py, under);
+                                    continue;
+                                }
+                                // (Toy's salt is inked by its cell's neighbours, so it
+                                // keeps its cell's colour.)
+                                let ink = if g == Ground::Salt && th.style != Style::Toy {
+                                    salt_colour(th, d, ((px0 + px) / 2) as usize, ((py0 + py) / 2) as usize)
+                                } else {
+                                    ink
+                                };
+                                cv.put(px0 + px, py0 + py, lerp(under, ink, k));
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+            if fine_tube {
+                if let Some(c) = tube {
+                    centre[i] = c;
+                    has[i] = true;
+                    if !edge {
+                        inside_cells.push(i);
+                        continue;
+                    }
+                }
+            }
+            if !edge {
                 let c = tube.unwrap_or(ground);
                 let px4 = [c[0], c[1], c[2], 255];
                 for py in 0..s {
@@ -2006,6 +2147,160 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             }
         }
     }
+    tube_insides(cv, s, &centre, &has, &inside_cells);
+}
+
+/// The insides of tubes under `SMOOTH`: each pixel blended between the
+/// colours at the four nearest cell centres (`dish`). A neighbour that is
+/// not tube lends the cell's own colour, so the blend never pulls agar
+/// into a tube.
+fn tube_insides(cv: &mut Cv, s: i32, centre: &[Rgb], has: &[bool], cells: &[usize]) {
+    // Each pixel's quadrant and its four weights (out of 256), the same
+    // for every cell at this scale: integer blends, worked out once.
+    let sf = s as f32;
+    let split = |p: i32| {
+        let f = (p as f32 + 0.5) / sf - 0.5;
+        if f < 0.0 {
+            (0usize, f + 1.0)
+        } else {
+            (1usize, f)
+        }
+    };
+    let table: Vec<(usize, usize, [u32; 4])> = (0..s * s)
+        .map(|k| {
+            let (r0, ay) = split(k / s);
+            let (c0, ax) = split(k % s);
+            let w = [(1.0 - ax) * (1.0 - ay), ax * (1.0 - ay), (1.0 - ax) * ay, ax * ay].map(|v| (v * 256.0).round() as u32);
+            (r0, c0, w)
+        })
+        .collect();
+    for &i in cells {
+        let (x, y) = ((i % W) as i32, (i / W) as i32);
+        let own = centre[i];
+        let at = |cx: i32, cy: i32| -> Rgb {
+            if cx >= 0 && cy >= 0 && (cx as usize) < W && (cy as usize) < H {
+                let k = cy as usize * W + cx as usize;
+                if has[k] {
+                    return centre[k];
+                }
+            }
+            own
+        };
+        let n = [
+            [at(x - 1, y - 1), at(x, y - 1), at(x + 1, y - 1)],
+            [at(x - 1, y), own, at(x + 1, y)],
+            [at(x - 1, y + 1), at(x, y + 1), at(x + 1, y + 1)],
+        ];
+        for py in 0..s {
+            let row = ((y * s + py) as usize * cv.w as usize + (x * s) as usize) * 4;
+            for px in 0..s {
+                let (r0, c0, w) = table[(py * s + px) as usize];
+                let (a, b, c, d) = (n[r0][c0], n[r0][c0 + 1], n[r0 + 1][c0], n[r0 + 1][c0 + 1]);
+                let o = row + px as usize * 4;
+                for k in 0..3 {
+                    let v = a[k] as u32 * w[0] + b[k] as u32 * w[1] + c[k] as u32 * w[2] + d[k] as u32 * w[3];
+                    cv.f[o + k] = (v >> 8).min(255) as u8;
+                }
+                cv.f[o + 3] = 255;
+            }
+        }
+    }
+}
+
+/// Where a smoothed mark's edge is drawn (`dish`): the softened share of
+/// mark round a pixel. Below a half, so a wall one cell wide (a third,
+/// at its centre) still shows; a straight edge moves out a fifth of a cell.
+const MARK_EDGE: f32 = 0.3;
+
+// -------------------------------------------------------------- the stain
+
+/// **A stain where the mould has been** (independent review, 2026-11-10,
+/// its fourth look; owner "in addition to everything else"). The real
+/// organism leaves a film of slime where it has crawled; here every cell
+/// that has been tube keeps a faint stain on the agar once the tube has
+/// gone, fading by half every `STAIN_HALF_LIFE` seconds of dish time, so
+/// the dish shows where the mould went and gave up. Drawn from the trail
+/// alone, as it was each frame the window drew; the simulation never
+/// reads it, and the walkers do not avoid it. Paused, it does not fade.
+/// F6 in the window turns it off; `mouldprobe stain=0`.
+pub static STAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+pub const STAIN_HALF_LIFE: f32 = 20.0;
+const STAIN_COLOUR: Rgb = [92, 70, 30];
+const STAIN_STRENGTH: f32 = 0.32;
+
+/// The stain by cell (0 to 1) for this dish, and the step it was brought
+/// up to. One dish's at a time, kept between frames: a different dish, or
+/// one gone back in time (a restart), starts clean.
+///
+/// What is returned is softened, a 3x3 mean, and drawn a cell at a time:
+/// blending stained cells pixel by pixel, as tube insides are, cost 2 ms a
+/// frame at 22.5 degrees, where the stain covers 40% of the dish by 60 s
+/// (15,875 cells); softened, a faint stain's cell steps are a few levels
+/// of brightness and do not read as blocks.
+fn stain_field(d: &Dish) -> Option<(u64, Vec<f32>)> {
+    let raw = stain_raw(d)?;
+    let mut out = vec![0.0f32; W * H];
+    let v = &raw.1;
+    for y in 1..H - 1 {
+        for x in 1..W - 1 {
+            let i = y * W + x;
+            if d.ground[i] != Ground::Agar {
+                continue;
+            }
+            let m = v[i - W - 1] + v[i - W] + v[i - W + 1] + v[i - 1] + v[i] + v[i + 1] + v[i + W - 1] + v[i + W] + v[i + W + 1];
+            out[i] = m / 9.0;
+        }
+    }
+    Some((raw.0, out))
+}
+
+fn stain_raw(d: &Dish) -> Option<std::sync::Arc<(u64, Vec<f32>)>> {
+    use std::sync::{Arc, Mutex};
+    if !STAIN.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    type Slot = Option<(usize, u64, Arc<(u64, Vec<f32>)>)>;
+    static CACHE: Mutex<Slot> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let addr = d as *const Dish as usize;
+    let id = dish_identity_stable(d);
+    let thr = d.params.tube * 0.5;
+    let fresh = match &*cache {
+        Some((a, i, f)) => *a != addr || *i != id || d.t < f.0,
+        None => true,
+    };
+    if fresh {
+        let v = (0..W * H).map(|i| if d.trail[i] > thr && d.ground[i] == Ground::Agar { 1.0 } else { 0.0 }).collect();
+        let f = Arc::new((d.t, v));
+        *cache = Some((addr, id, f.clone()));
+        return Some(f);
+    }
+    let (_, _, f) = cache.as_mut().unwrap();
+    if d.t == f.0 {
+        return Some(f.clone());
+    }
+    let dt = (d.t - f.0) as f32 / STEPS_PER_SECOND as f32;
+    let keep = 0.5f32.powf(dt / STAIN_HALF_LIFE);
+    let g = Arc::make_mut(f);
+    g.0 = d.t;
+    for i in 0..W * H {
+        let on = d.ground[i] == Ground::Agar && d.trail[i] > thr;
+        let v = g.1[i] * keep;
+        // Salt laid over a stain covers it.
+        g.1[i] = if on { 1.0 } else if d.ground[i] == Ground::Agar { v } else { 0.0 };
+    }
+    Some(f.clone())
+}
+
+/// What a dish keeps for its whole life: the seed and challenge dish, not
+/// its piles, which come and go (`dish_identity` hashes them, for the glow).
+fn dish_identity_stable(d: &Dish) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    d.seed.hash(&mut h);
+    d.level.map(|l| l.key).hash(&mut h);
+    d.wander.as_ref().map(|w| (w.stretch, w.came_in)).hash(&mut h);
+    h.finish()
 }
 
 // ------------------------------------------------------------ the walkers
@@ -2049,12 +2344,12 @@ fn specks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
         let (c, a) = if flow {
             let load = (w.food / want).clamp(0.0, 1.0);
             if look == 2 {
-                (lerp(dark, light, 0.35 + 0.65 * load), 0.35 + 0.35 * load)
+                (lerp(dark, light, 0.35 + 0.65 * load), 0.25 + 0.3 * load)
             } else {
                 (lerp(dark, light, load), 0.5)
             }
         } else if look == 2 {
-            (light, 0.45)
+            (light, 0.32)
         } else {
             (dark, 0.5)
         };
@@ -2448,13 +2743,28 @@ fn lamp(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
     let r = d.params.lamp_reach * sf;
     match th.style {
         Style::Glow => {
-            cv.around(cx, cy, r, |cv, x, y, dd| {
-                let f = 1.0 - dd / r;
-                cv.add(x, y, th.lamp, 0.10 + 0.32 * f * f);
+            // **A pool of light, not a lens** (independent review, 2026-11-10:
+            // "the lamp reads as a lens, not light"; owner "Looks too").
+            // The brightness is the light the simulation shines
+            // (`Dish::update_light`'s profile: a flat core to half the reach,
+            // then a slope to nothing, or `lamp_soft`'s slope all the way),
+            // read at every pixel, so the pool's edge is where walkers stop
+            // feeling it. A faint scatter past the reach and a thin ring
+            // for the reach itself, where the hard bright ring was.
+            let soft = d.params.lamp_soft;
+            let rb = r * 1.5;
+            cv.around(cx, cy, rb, |cv, x, y, dd| {
+                let l = if soft {
+                    ((r - dd) / r).clamp(0.0, 1.0).powi(2)
+                } else {
+                    ((r - dd) / (r * 0.5)).clamp(0.0, 1.0)
+                };
+                let l = l * l * (3.0 - 2.0 * l);
+                let scatter = ((rb - dd) / rb).clamp(0.0, 1.0).powi(3) * 0.10;
+                cv.add(x, y, th.lamp, 0.36 * l + scatter);
             });
-            cv.ring(cx, cy, r, 2.0, th.lamp, 0.9, None);
-            cv.ring(cx, cy, r + 4.0, 6.0, th.lamp, 0.12, None);
-            chevrons(cv, cx, cy, r, 8, th.lamp, 0.8, 2.0);
+            cv.ring(cx, cy, r, 1.0, th.lamp, 0.3, None);
+            chevrons(cv, cx, cy, r, 8, th.lamp, 0.45, 2.0);
         }
         Style::Toy => {
             cv.around(cx, cy, r, |cv, x, y, dd| {
@@ -2698,7 +3008,7 @@ fn bench_key(d: &Dish, view: &View, th: &Theme, w: i32, st: &Status) -> String {
         .iter()
         .map(|t| (d.has_tool(*t), stock(d, *t).map(|(h, o, g)| (h, o, (10.0 * g) as i32))))
         .collect();
-    let bw = w - 616 - 10;
+    let bw = w - bar_right(w) - 10;
     let line = timeline(d).map(|(f, ticks)| {
         let px: Vec<i32> = ticks.iter().map(|t| (bw as f32 * t) as i32).collect();
         ((bw as f32 * f) as i32, px)
@@ -2893,8 +3203,33 @@ fn hud_back(cv: &mut Cv, th: &Theme, y0: i32) {
 
 /// A tool tile's rectangle (x, y, w, h) in frame pixels, the bar starting
 /// at `y0`: what `tiles` draws and the window's click reads.
-fn tile_rect(k: usize, y0: i32) -> (i32, i32, i32, i32) {
-    (8 + k as i32 * 150, y0 + 8, 142, 70)
+fn tile_rect(k: usize, y0: i32, fw: i32) -> (i32, i32, i32, i32) {
+    if narrow_bar(fw) {
+        (8 + k as i32 * 98, y0 + 8, 92, 70)
+    } else {
+        (8 + k as i32 * 150, y0 + 8, 142, 70)
+    }
+}
+
+/// **A narrow window gets narrow tiles** (independent review, 2026-11-10:
+/// at scale 3 the bar's "Storm in" printed over the mould count; at scale
+/// 2 the count sat on the SALT tile). The four tiles take 608 pixels and
+/// the status beside them needs about 330, so below this width the tiles
+/// shrink to 92 pixels, drop the icon, and keep the key, the name, the
+/// pips and the words when they fit.
+const NARROW_BAR: i32 = 950;
+
+fn narrow_bar(fw: i32) -> bool {
+    fw < NARROW_BAR
+}
+
+/// Where the status beside the tiles starts.
+fn bar_right(fw: i32) -> i32 {
+    if narrow_bar(fw) {
+        404
+    } else {
+        616
+    }
 }
 
 /// The tool under a frame pixel, in the looks that draw tool tiles (the
@@ -2909,7 +3244,7 @@ pub fn tile_at(d: &Dish, style: Style, scale: u32, px: i32, py: i32) -> Option<T
     }
     let y0 = H as i32 * scale as i32;
     Tool::ALL.iter().enumerate().find_map(|(k, &t)| {
-        let (x, y, w, h) = tile_rect(k, y0);
+        let (x, y, w, h) = tile_rect(k, y0, W as i32 * scale as i32);
         (px >= x && px < x + w && py >= y && py < y + h).then_some(t)
     })
 }
@@ -2918,14 +3253,15 @@ pub fn tile_at(d: &Dish, style: Style, scale: u32, px: i32, py: i32) -> Option<T
 /// and what is left in words.
 fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
     let (sel_fill, badge_fill, _) = tones(th);
+    let narrow = narrow_bar(cv.w);
     for (k, t) in Tool::ALL.iter().enumerate() {
-        let (x, y, _, _) = tile_rect(k, y0);
+        let (x, y, tw, _) = tile_rect(k, y0, cv.w);
         if !d.has_tool(*t) {
             // A challenge dish without this tool: its slot stays, empty, so
             // the keys keep their places.
-            cv.rbox(x, y, 142, 70, th.radius, None, Some((mul(th.panel_edge, 0.45), 1.0)));
+            cv.rbox(x, y, tw, 70, th.radius, None, Some((mul(th.panel_edge, 0.45), 1.0)));
             text(cv, th, x + 10, y + 8, &(k + 1).to_string(), mul(th.dim, 0.7));
-            text(cv, th, x + 32, y + 8, "Not here", mul(th.dim, 0.7));
+            text(cv, th, x + 32, y + 8, if narrow { "None" } else { "Not here" }, mul(th.dim, 0.7));
             continue;
         }
         let sel = *t == view.tool;
@@ -2933,7 +3269,7 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
         let spent = st_.is_some_and(|(h, _, _)| h == 0);
         let fill = if sel { sel_fill } else { th.panel };
         let edge = if sel { (th.hot, 2.0) } else { (th.panel_edge, 1.0) };
-        cv.rbox(x, y, 142, 70, th.radius, Some((fill, 1.0)), Some(edge));
+        cv.rbox(x, y, tw, 70, th.radius, Some((fill, 1.0)), Some(edge));
         cv.rbox(x + 6, y + 6, 18, 18, 4.0, Some((if sel { th.hot } else { badge_fill }, 1.0)), None);
         text(cv, th, x + 10, y + 8, &(k + 1).to_string(), if sel { [20, 20, 20] } else { th.text });
         let nc = if sel {
@@ -2944,15 +3280,19 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
             th.text
         };
         text(cv, th, x + 32, y + 8, t.name(), nc);
-        icon(cv, th, *t, x + 8, y + 34, 2, spent);
+        // Narrow: no icon, and the pips and words start at the edge.
+        let ix = if narrow { x + 10 } else { x + 42 };
+        if !narrow {
+            icon(cv, th, *t, x + 8, y + 34, 2, spent);
+        }
         let tc = tool_colour(th, *t);
         match st_ {
             None => {
-                text(cv, th, x + 42, y + 36, "Hold", th.dim);
+                text(cv, th, ix, y + 36, "Hold", th.dim);
             }
             Some((have, of, grown)) => {
                 for p in 0..of {
-                    let px = x + 42 + p as i32 * 14;
+                    let px = ix + p as i32 * 14;
                     let py = y + 32;
                     if p < have {
                         cv.rbox(px, py, 10, 10, 2.0, Some((tc, 1.0)), None);
@@ -2973,8 +3313,16 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
                     _ => format!("{have} left"),
                 };
                 // "+1 in 13s" is wider than the tile at x + 42 in the mixed font.
-                let sx = if th.font == Font::Mixed { x + 34 } else { x + 42 };
-                text(cv, th, sx, y + 50, &sub, th.dim);
+                let sx = if narrow {
+                    x + 10
+                } else if th.font == Font::Mixed {
+                    x + 34
+                } else {
+                    x + 42
+                };
+                if sx + text_w(th, &sub) <= x + tw - 4 {
+                    text(cv, th, sx, y + 50, &sub, th.dim);
+                }
             }
         }
     }
@@ -2982,7 +3330,7 @@ fn tiles(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
 
 fn hud_bench(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32, st: &Status) {
     hud_back(cv, th, y0);
-    let right = 616;
+    let right = bar_right(cv.w);
     if let Some(words) = score_words(d) {
         // "Not reached: only starving strays got there" is wider at three
         // times the dot than the room left of the stars: a size down.
@@ -3046,7 +3394,7 @@ fn hud_wander(cv: &mut Cv, d: &Dish, view: &View, th: &Theme, y0: i32) {
     let Some(w) = &d.wander else { return };
     hud_back(cv, th, y0);
     tiles(cv, d, view, th, y0);
-    let right = 616;
+    let right = bar_right(cv.w);
     let bw = cv.w - right - 10;
     text(cv, th, right, y0 + 10, &format!("Dish {}", w.stretch), th.text);
     let m = format!(

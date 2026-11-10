@@ -14,7 +14,7 @@
 //! cargo run --release --example mouldprobe -- level=2 look=out/ gif=out/   # ...with its pictures
 //! cargo run --release --example mouldprobe -- menu=out/                # the dish picker, as drawn
 //! cargo run --release --example mouldprobe -- level=3 stills=out/ grey=1   # starving mould as 0 grey, 1 embers, 2 dried slime, 3 food ramp (look::STARVE_LOOK, default 3)
-//! cargo run --release --example mouldprobe -- look=out/ specks=0          # walkers as 0 off, 1 grains, 2 glints (look::WALKER_LOOK, default 1); smooth=0 the old blocky rim and tubes (look::SMOOTH)
+//! cargo run --release --example mouldprobe -- look=out/ specks=0          # walkers as 0 off, 1 grains, 2 glints (look::WALKER_LOOK, default 1); smooth=0 the old blocky rim and tubes (look::SMOOTH); stain=0 no stain where mould has been (look::STAIN)
 //! cargo run --release --example mouldprobe -- wander=1 seeds=1,2,3,4,5,6,7,8 gif=out/   # the Wanderer: arrived N of M per hand
 //! ```
 //!
@@ -154,6 +154,7 @@ fn parse() -> Args {
                 println!("walkers drawn as {}", pixel_physics::mould::look::WALKER_LOOKS[n as usize]);
             }
             "smooth" => pixel_physics::mould::look::SMOOTH.store(v == "1", std::sync::atomic::Ordering::Relaxed),
+            "stain" => pixel_physics::mould::look::STAIN.store(v == "1", std::sync::atomic::Ordering::Relaxed),
             "cut" => a.cut = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
