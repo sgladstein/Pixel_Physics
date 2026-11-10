@@ -28,7 +28,6 @@ pub mod heartwood;
 pub mod hud;
 pub mod kudzu;
 pub mod lab;
-pub mod mould;
 pub mod quench;
 pub mod render;
 pub mod sky;

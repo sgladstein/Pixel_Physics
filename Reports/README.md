@@ -6563,39 +6563,11 @@ Probes from the 2026-11-07 new-game brainstorm. Each one is a separate game on
 the engine (`src/bin/<name>.rs`), not a lab seat, and touches no shared engine
 file unless its report says so.
 
-- [mould-probe-2026-11-07.md](mould-probe-2026-11-07.md) — **probe built,
-  playtest fixes in (2026-11-08), waiting on the owner's play.** A Jones-model
-  slime mould herded with a lamp, oats, salt and snips (`--bin mould`). The
-  lamp now pushes a tube aside instead of erasing it (join lost while held on
-  it: 5 of 5 seeds before, 0 of 5 after); oats come back, food turns up at
-  0:30 and 0:55, and the storm is warned 5 s ahead and aimed at the worst
-  cut. Over the same seven scripted hands, doing nothing fell from 2 stars to
-  0 and a random hand from 6 to 3, while the plan rose 6 to 8 and a fresh
-  player's script 6 to 9. **Owner played it (2026-11-08): "the most promise
-  so far", but needs instruction and a challenge.** The game now opens on a
-  six-step lesson and a briefing card, labels the storm and its scar, and
-  no longer flashes grey (about 420 cells a second to 0). Also records why
-  the storm is one cut, not three. **Three challenge dishes and a dish
-  picker (2026-11-08):** Behind the Wall, Beat the Ruler, Running Dry, each
-  meeting its ship bar over 5 seeds (do nothing 0, random at most 1, the
-  scripted intended hand 3); strays limited on hand-made dishes, which
-  doing nothing had used to join all three in Beat the Ruler.
-- [mould-keep-alive-2026-11-10.md](mould-keep-alive-2026-11-10.md) — **built, waits on the owner's play: an endless
-  dish, and water and sleep so the tools work on each other.** Keep It Alive is Running Dry at 22.5 degrees with no bell;
-  piles land further each time and the score is how long it lived. The lamp dries the ground and dry mould sleeps through
-  a famine; a drop of water wakes it by the next pile. Over 16 seeds a hand using lamp, oats and water lives 2:51-10:42,
-  longer than an oat-only hand and random on 15 of 16 each; doing nothing and random get 0 stars on all 16.
-- [mould-wild-one-2026-11-10.md](mould-wild-one-2026-11-10.md) — **built, waits on the owner's play: a wild second
-  mould that steals food and fights at the seam.** A whole second dish under the same rules, nobody steering, in violet;
-  both moulds eat from one table per pile and kill each other where they touch. In THE WILD ONE, all four tools end
-  bigger than it on 16 of 16 seeds (mostly 2 stars) where doing nothing and random get 0 stars on 16 and 14; lamp and salt
-  each win alone, the snip does not. Costs about +1.4 ms a frame.
-- [mould-game-2026-11-08/](mould-game-2026-11-08/README.md) — **the thinking around the mould game, kept so it
-  is not lost (owner, 2026-11-09):** the five-agent brainstorm after his first play, the overnight build's briefs and
-  results (dishes, Wanderer, Organ, the Night look and its blind key), both adversarial reviews, the HTML of every
-  picture page shown to him with links to the pages, and the 2026-11-09 depth reports: Jenson, Cherouvim and Jones 2010
-  against our model, and how tools, events, ground and the mould's responses could interact for discovery. Proposals,
-  not built.
+- **The mould game's reports moved to its own repository** (2026-11-10): `mould-probe-2026-11-07.md`,
+  `mould-game-2026-11-08/`, `mould-real-world-2026-11-09.md`, `mould-review-2026-11-10.md`, `mould-looks-2026-11-10.md`,
+  `mould-keep-alive-2026-11-10.md` and `mould-wild-one-2026-11-10.md` now live in
+  [sgladstein/Slime-Mold](https://github.com/sgladstein/Slime-Mold) under `Reports/`, with their full history,
+  the game, its probes and every page and picture. This repo's history keeps them up to `ca6b08f6`.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
@@ -6634,25 +6606,6 @@ file unless its report says so.
   most 99% (3 stars on 11); planned beats random 9-2-1, p = 0.065, not significant: the box is too easy. Records the seven
   game-only engine switches (speed-up, climbing, soil-only anchoring, runners and roots, dieback guard) and what each fixed.
   Frame mean 1.3 ms, worst 21.6 ms at 2,880 vine cells. Verdict waits on the owner's playtest.
-- [mould-real-world-2026-11-09.md](mould-real-world-2026-11-09.md) — **design exploration, no build: what the mould game
-  looks like out of the dish.** The shipped mould dropped unchanged into a side-on slice of the lab box grows one runner
-  along the ground (4 of the 5 surface piles beyond home in 10 s, untouched), because the world's dead matter lies on the
-  surface; with five piles buried 12+ rows down it branches into roots (9 of 10), where the same ground without buried
-  food stays a runner. From above, a forest floor keeps the dish's network but is not the engine. Records an edge-of-window
-  trail bug the review caught (`Dish::spread` skips the border). Recommends a side-on "mould under the garden" probe in its
-  own binary, top-down as the fallback; waits on the owner.
-- [mould-review-2026-11-10.md](mould-review-2026-11-10.md) — **independent review, no build: how to make the mould game
-  fun and good-looking.** Played from written hands on the mould thread's unlanded branch. At 45 degrees the mould obeys
-  every oat and then freezes (far pile joined by 15 s with 3 oats; every move the same move); at 22.5 it joins all the food
-  untouched and the lamp's effect is lost in its own rewiring. Running Dry over 8 seeds: doing nothing loses at both
-  settings, a random hand lives on 1 of 8 at 45 and 6 of 8 at 22.5, the scripted plan 8 of 8 at both. Recommends, ranked
-  with pros and cons: a keep-it-alive dish that does not end, player marks that stay (lights set down, salt rubbed out),
-  drawing the real walkers and thinner tubes; plus design writing and a table of comparable games. Waits on the owner's pick.
-- [mould-looks-2026-11-10.md](mould-looks-2026-11-10.md) — **built, drawing only: the mould game's looks pass.** A speck
-  per real walker, one colour ramp for the food the tube holds (rescaled: the old reading was full on over half the tube),
-  smoothing of the rim, tube insides, salt walls and cuts, a fading stain where mould has been, the lamp drawn as the light
-  the simulation shines, and narrow tool tiles so the bar stops overlapping. All on by default, each behind a key (F3-F6).
-  Same dish drawn both ways on the page; costs about 1.5-2.5 ms of drawing a frame at scale 4.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

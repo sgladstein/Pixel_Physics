@@ -554,8 +554,8 @@ src/lab/       the evolution lab: a sealed box of soil under a grow light,
                scene.rs the bed, time.rs the speed dial, stats.rs the census
 src/bin/lab.rs the lab's window and input, the way main.rs is the sandbox's
 src/bin/arcade.rs one menu that opens each 2026-11-07 game prototype (storm,
-               mould, firedamp, seep, quench, fault, kudzu, heartwood) in its
-               own window; `cargo run --release --bin arcade`
+               firedamp, seep, quench, fault, kudzu, heartwood; mould moved to
+               sgladstein/Slime-Mold) in its own window; `--bin arcade`
 src/train/     the training rig: ant brains found by challenge and selection
                rather than written by hand -- arenas with scores, a GA,
                hold-outs and a senses-cut control. examples/train.rs runs it
