@@ -269,7 +269,9 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     } else {
         classic(d, view, scale, frame);
     }
-    if let Some(r) = &d.rival {
+    // The other looks draw the wild mould themselves (`look::wild`), under
+    // the piles and the HUD; the classic look keeps this first cut.
+    if let (Some(r), super::look::Style::Classic) = (&d.rival, view.style) {
         wild(r, scale, frame);
     }
     if let Some(row) = view.tune {
