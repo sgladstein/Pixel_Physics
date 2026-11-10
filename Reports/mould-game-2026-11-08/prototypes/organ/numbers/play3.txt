@@ -1,0 +1,60 @@
+organprobe: seeds=[1, 2, 4, 5, 6, 7, 8, 9] step0=false bend=false play=true settle=10s window=10s from=18 to=-8 hold=3s bell=3 core=0
+wrote 990 frames and /tmp/claude-0/-home-user-Pixel-Physics/fb694d0e-9c94-59b9-bea3-b6eeccf0da0f/scratchpad/frames1/organ-s1.wav (66.0 s, 130 notes)
+
+each cell: notes+echoes / beats, mean first-arrival time in ms after the heart's thump
+seed 1  (on the target beat 36, off 56)
+  alone                        | LOW  5+0/5   764ms | MID  5+0/5   904ms | HIGH 5+0/5  1434ms
+  lamp pushes high tube        | LOW  3+0/3   764ms | MID  3+0/3   904ms | HIGH 3+0/3  1499ms
+  let go                       | LOW  5+0/5   764ms | MID  5+0/5   912ms | HIGH 5+0/5  1505ms
+  oats between low and mid     | LOW  10+1/10   766ms | MID  10+4/10   926ms | HIGH 10+0/10  1468ms
+  salt wall across mid tube    | LOW  10+0/10   764ms | MID  3+0/10  1293ms | HIGH 10+0/10  1434ms
+seed 2  (on the target beat 35, off 56)
+  alone                        | LOW  5+0/5   700ms | MID  5+0/5  1067ms | HIGH 5+0/5  1344ms
+  lamp pushes high tube        | LOW  3+0/3   700ms | MID  3+0/3  1067ms | HIGH 3+0/3  1416ms
+  let go                       | LOW  5+0/5   700ms | MID  5+0/5  1134ms | HIGH 5+0/5  1487ms
+  oats between low and mid     | LOW  10+2/10   700ms | MID  10+4/10  1163ms | HIGH 10+0/10  1461ms
+  salt wall across mid tube    | LOW  10+0/10   700ms | MID  6+0/10  1329ms | HIGH 6+0/10  2741ms
+seed 4  (on the target beat 40, off 51)
+  alone                        | LOW  5+0/5   785ms | MID  5+0/5  1076ms | HIGH 5+0/5  1396ms
+  lamp pushes high tube        | LOW  3+0/3   785ms | MID  3+0/3  1076ms | HIGH 3+0/3  1453ms
+  let go                       | LOW  5+0/5   785ms | MID  5+0/5  1145ms | HIGH 5+0/5  1566ms
+  oats between low and mid     | LOW  10+1/10   786ms | MID  10+4/10  1184ms | HIGH 10+0/10  1544ms
+  salt wall across mid tube    | LOW  10+0/10   785ms | MID  6+0/10  1528ms | HIGH 6+0/10  1537ms
+seed 5  (on the target beat 33, off 61)
+  alone                        | LOW  5+0/5   740ms | MID  5+0/5  1039ms | HIGH 5+0/5  1361ms
+  lamp pushes high tube        | LOW  3+0/3   740ms | MID  3+0/3  1039ms | HIGH 3+0/3  1427ms
+  let go                       | LOW  5+0/5   740ms | MID  5+0/5  1074ms | HIGH 5+0/5  1476ms
+  oats between low and mid     | LOW  10+1/10   740ms | MID  10+4/10  1098ms | HIGH 10+0/10  1455ms
+  salt wall across mid tube    | LOW  10+0/10   740ms | MID  5+0/10  1406ms | HIGH 10+0/10  1455ms
+seed 6  (on the target beat 33, off 59)
+  alone                        | LOW  5+0/5   697ms | MID  5+0/5   897ms | HIGH 5+0/5  1381ms
+  lamp pushes high tube        | LOW  3+0/3   697ms | MID  3+0/3   897ms | HIGH 3+0/3  1437ms
+  let go                       | LOW  5+0/5   697ms | MID  5+0/5   904ms | HIGH 5+0/5  1435ms
+  oats between low and mid     | LOW  10+2/10   697ms | MID  10+0/10   974ms | HIGH 10+0/10  1381ms
+  salt wall across mid tube    | LOW  10+0/10   697ms | MID  3+0/10  1325ms | HIGH 10+0/10  1381ms
+seed 7  (on the target beat 0, off 94)
+  alone                        | LOW  5+0/5   876ms | MID  5+0/5   994ms | HIGH 5+0/5  1305ms
+  lamp pushes high tube        | LOW  3+0/3   876ms | MID  3+0/3   994ms | HIGH 3+0/3  1370ms
+  let go                       | LOW  5+0/5   876ms | MID  5+0/5  1030ms | HIGH 5+0/5  1426ms
+  oats between low and mid     | LOW  10+1/10   891ms | MID  10+3/10  1052ms | HIGH 10+0/10  1371ms
+  salt wall across mid tube    | LOW  10+0/10   876ms | MID  5+0/10  1394ms | HIGH 10+0/10  1305ms
+seed 8  (on the target beat 37, off 52)
+  alone                        | LOW  5+0/5   766ms | MID  5+0/5  1064ms | HIGH 5+0/5  1488ms
+  lamp pushes high tube        | LOW  3+0/3   766ms | MID  3+0/3  1064ms | HIGH 3+0/3  1626ms
+  let go                       | LOW  5+0/5   766ms | MID  5+0/5  1064ms | HIGH 5+0/5  1552ms
+  oats between low and mid     | LOW  10+1/10   766ms | MID  10+0/10  1129ms | HIGH 10+0/10  1488ms
+  salt wall across mid tube    | LOW  10+0/10   766ms | MID  0+0/10   NaNms | HIGH 10+0/10  1488ms
+seed 9  (on the target beat 33, off 56)
+  alone                        | LOW  5+0/5   792ms | MID  5+0/5   987ms | HIGH 5+0/5  1364ms
+  lamp pushes high tube        | LOW  3+0/3   792ms | MID  3+0/3   987ms | HIGH 3+0/3  1440ms
+  let go                       | LOW  5+0/5   792ms | MID  5+0/5   987ms | HIGH 5+0/5  1402ms
+  oats between low and mid     | LOW  10+3/10   792ms | MID  10+0/10   991ms | HIGH 10+0/10  1364ms
+  salt wall across mid tube    | LOW  10+0/10   792ms | MID  0+0/10   NaNms | HIGH 10+0/10  1364ms
+
+across 8 seeds: change in the bell's mean time against the same seed alone, ms (min / median / max), and notes per 10 s
+  lamp pushes high tube        | LOW    -0/  +0/  +0  5.0/10s echoes 0 | MID    -0/  +0/  +0  5.0/10s echoes 0 | HIGH  +56/ +65/+138  5.0/10s echoes 0
+  let go                       | LOW    +0/  +0/  +0  5.0/10s echoes 0 | MID    +0/ +35/ +69  5.0/10s echoes 0 | HIGH  +38/+114/+170  5.0/10s echoes 0
+  oats between low and mid     | LOW    -0/  +0/ +15  5.0/10s echoes 12 | MID    +4/ +65/+108  5.0/10s echoes 19 | HIGH   -0/ +66/+148  5.0/10s echoes 0
+  salt wall across mid tube    | LOW    -0/  +0/  +0  5.0/10s echoes 0 | MID  +262/+401/+452  1.8/10s echoes 0 | HIGH   -0/  +0/+1397  4.5/10s echoes 0
+frame cost (2 steps + draw at scale 4, the window's): mean 2.86 ms, p99 7.51 ms, worst 17.36 ms over 31680 frames
+  of which frames with a beat in them: mean 5.58 ms, worst 13.87 ms over 264 frames

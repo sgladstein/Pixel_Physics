@@ -458,6 +458,10 @@ pub struct Route {
     start: u64,
     /// A meeting point to keep fed once the route is done (Beat the Ruler).
     tend: Option<(f32, f32)>,
+    /// Chasing: lay oats only when the fed tube nearest the food is more
+    /// than this many cells from it (Keep It Alive, where oats do not
+    /// come back and the 22.5-degree mould reaches near food by itself).
+    min_gap: f32,
 }
 
 /// Seconds the hand waits for the tube to reach its last oat before it lays
@@ -475,6 +479,7 @@ impl Route {
             ahead: 22.0,
             start: 6,
             tend: None,
+            min_gap: 0.0,
         }
     }
 
@@ -502,6 +507,12 @@ impl Route {
                     ..Route::new(vec![vec![p(0), m], vec![m, p(1)], vec![m, p(2)]])
                 }
             }
+            "alive" => Route {
+                chase: true,
+                start: 0,
+                min_gap: 35.0,
+                ..Route::new(Vec::new())
+            },
             _ => Route {
                 chase: true,
                 start: 0,
@@ -643,8 +654,15 @@ impl Player for Route {
                         from = Some(((x, y), g));
                     }
                 }
-                if let Some((from, _)) = from {
-                    self.lead_along(d, &[from, target], None);
+                // Keep It Alive: only once the food being eaten is nearly
+                // gone, since the mould reaches near food by itself and
+                // the oats do not come back.
+                let left: f32 = d.dish_piles().filter(|p| p.reached()).map(|p| p.food / p.full).sum();
+                let urgent = self.min_gap <= 0.0 || left < 0.35;
+                if let Some((from, g)) = from {
+                    if urgent && g > self.min_gap {
+                        self.lead_along(d, &[from, target], None);
+                    }
                 }
             }
         } else {

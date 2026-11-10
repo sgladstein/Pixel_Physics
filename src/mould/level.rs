@@ -73,7 +73,18 @@ pub enum Win {
     UnderRuler { bars: [f32; 2] },
     /// Mould alive at the bell: one, two, three stars at these walkers.
     AliveAtBell { bars: [u32; 3] },
+    /// **Keep it alive, with no bell** (owner's pick from the 2026-11-10
+    /// review): the dish runs until the mould dies, or to `Level::seconds`
+    /// as a cap. A new small pile lands every `every` seconds, each
+    /// `gap[0] + gap[1] * k` cells from the one before (to `GAP_MAX`), so
+    /// the mould must keep moving house, further each time. Stars by how
+    /// long it lived: `bars` seconds.
+    Endless { every: u32, gap: [f32; 2], bars: [u32; 3] },
 }
+
+/// The furthest a Keep It Alive pile lands from the last one: the dish is
+/// 256 cells across, so past this a pile can no longer be placed.
+pub const GAP_MAX: f32 = 170.0;
 
 /// One hand-made dish.
 #[derive(Debug)]
@@ -92,6 +103,10 @@ pub struct Level {
     pub tools: Tools,
     /// Seconds to the bell.
     pub seconds: u32,
+    /// The walkers' sensor angle on this dish, degrees (`Params::sensor_angle`).
+    /// 45 on the three puzzles, which pass their bars there and fail them at
+    /// 22.5; 22.5 on Keep It Alive, where the livelier mould is the point.
+    pub sensor_deg: f32,
     pub win: Win,
 }
 
@@ -122,7 +137,7 @@ pub const STRAY_REACH: f32 = 24.0;
 pub const DRY_FOOD: f32 = 5_000.0;
 
 /// The challenge dishes, in the order they unlock after the lesson.
-pub static DISHES: [Level; 3] = [
+pub static DISHES: [Level; 4] = [
     Level {
         key: "wall",
         name: "BEHIND THE WALL",
@@ -144,6 +159,7 @@ pub static DISHES: [Level; 3] = [
             snips: 0,
         },
         seconds: 90,
+        sensor_deg: 45.0,
         win: Win::JoinAll { by: [60, 45] },
     },
     Level {
@@ -164,6 +180,7 @@ pub static DISHES: [Level; 3] = [
             snips: 0,
         },
         seconds: 100,
+        sensor_deg: 45.0,
         // Set from the probe: the intended hand's meeting point reads
         // 0.87-0.92x (13 runs), networks built along the sides 0.99-1.03x, and
         // doing nothing, when strays could still claim the far foods, 0.99-
@@ -193,11 +210,45 @@ pub static DISHES: [Level; 3] = [
             snips: 0,
         },
         seconds: 120,
+        sensor_deg: 45.0,
         // Set from the probe (5 seeds): the intended hand ends with 354-411
         // alive, the simple plan 0-261, random and doing nothing 0. The
         // brainstorm's 300/600/900 (three fed piles at the bell) is out of
         // reach: the bell always finds the mould between piles.
         win: Win::AliveAtBell { bars: [100, 200, 300] },
+    },
+    Level {
+        key: "alive",
+        name: "KEEP IT ALIVE",
+        goal: ["KEEP THE MOULD ALIVE AS LONG AS YOU CAN.", "THE FOOD RUNS OUT. MORE LANDS FURTHER ON."],
+        twist: "NO BELL. IT ENDS WHEN THE MOULD DIES.",
+        // Running Dry's start: home and two small piles beside it. The rest
+        // of the food is laid by `Dish::from_level_with` from the seed.
+        piles: &[
+            pile(32.0, 80.0, 7.0, DRY_FOOD),
+            pile(50.0, 54.0, 6.0, DRY_FOOD),
+            pile(50.0, 106.0, 6.0, DRY_FOOD),
+        ],
+        salt: &[],
+        tools: Tools {
+            oats: 6,
+            oats_regrow: 0,
+            salt: 0,
+            snips: 0,
+        },
+        seconds: 600,
+        sensor_deg: 22.5,
+        // Stars from the probe (16 seeds, `mouldprobe level=4`), lived:
+        // doing nothing 1:21-4:08 (median 2:27), random 1:23-3:22 (2:34),
+        // the scripted oat-saver (`play::Route`, "alive") 3:18-5:40
+        // (3:49), longer than doing nothing on 14 of 16 (p 0.004). One star
+        // past doing nothing's longest; two and three are for a person to
+        // beat the script.
+        win: Win::Endless {
+            every: 20,
+            gap: [70.0, 6.0],
+            bars: [255, 330, 400],
+        },
     },
 ];
 
@@ -212,12 +263,21 @@ impl Level {
         }
     }
 
+    /// `params` with this dish's sensor angle.
+    pub fn params_for(&self) -> super::Params {
+        super::Params {
+            sensor_angle: self.sensor_deg.to_radians(),
+            ..Self::params()
+        }
+    }
+
     /// The stars line for the HUD and the card: what each star needs.
     pub fn stars_line(&self) -> String {
         match self.win {
             Win::JoinAll { by } => format!("STARS: REACH IT. BY {}. BY {}", clock(by[0]), clock(by[1])),
             Win::UnderRuler { bars } => format!("STARS: JOIN ALL 3. {:.2}X RULER. {:.2}X", bars[0], bars[1]),
             Win::AliveAtBell { bars } => format!("STARS: {}, {} AND {} MOULD AT THE BELL", bars[0], bars[1], bars[2]),
+            Win::Endless { bars, .. } => format!("STARS: ALIVE AT {}, {} AND {}", clock(bars[0]), clock(bars[1]), clock(bars[2])),
         }
     }
 
@@ -357,7 +417,7 @@ impl Dish {
     /// A hand-made dish. `seed` drives only the mould's own randomness (the
     /// inoculum, the walkers' turns); the layout is the level's.
     pub fn from_level(level: &'static Level, seed: u64) -> Dish {
-        Self::from_level_with(level, seed, Level::params())
+        Self::from_level_with(level, seed, level.params_for())
     }
 
     /// `from_level` with the mould's numbers given, for the probe.
@@ -382,11 +442,27 @@ impl Dish {
         };
         let sps = STEPS_PER_SECOND as u64;
         let piles = level.piles.iter().filter(|s| s.arrives.is_none()).map(make).collect();
-        let pending = level
+        let mut pending: Vec<(u64, super::Pile)> = level
             .piles
             .iter()
             .filter_map(|s| s.arrives.map(|at| (at as u64 * sps, make(s))))
             .collect();
+        if let Win::Endless { every, gap, .. } = level.win {
+            let mut place = super::Rng::new(seed ^ 0x0A11_7E5F);
+            let spots = endless_food(&ground, level, every, gap, &mut place);
+            pending.extend(spots.into_iter().map(|(at, x, y)| {
+                (
+                    at as u64 * sps,
+                    make(&PileSpec {
+                        x,
+                        y,
+                        r: 6.0,
+                        food: DRY_FOOD,
+                        arrives: Some(at),
+                    }),
+                )
+            }));
+        }
         let mut d = Dish::assemble(seed, params, rng, ground, piles, pending);
         d.level = Some(level);
         d.oats_stock = level.tools.oats;
@@ -552,6 +628,9 @@ impl Dish {
         // of nothing, and then read as a near miss).
         if self.walkers.is_empty() {
             let s = self.measure();
+            if let Win::Endless { bars, .. } = level.win {
+                return self.finish_endless(s, bars, false);
+            }
             let why = match level.win {
                 Win::AliveAtBell { .. } => "THE FOOD RAN OUT; NOTHING HEADED FOR MORE",
                 _ => "NONE LEFT: KEEP SOME OF IT ON FOOD",
@@ -559,6 +638,7 @@ impl Dish {
             let amount = format!("THE MOULD DIED AT {}", clock((self.t / sps) as u32));
             return self.finish(s, 0, amount, why.to_string());
         }
+        self.peak_mould = self.peak_mould.max(self.walkers.len() as u32);
         if matches!(level.win, Win::UnderRuler { .. }) && self.t.is_multiple_of(sps / 2) {
             self.join_now = self.ruler_ratio();
         }
@@ -620,6 +700,12 @@ impl Dish {
                 };
                 self.finish(s, stars, amount, why)
             }
+            Win::Endless { bars, .. } => {
+                if bell {
+                    let s = self.measure();
+                    self.finish_endless(s, bars, true);
+                }
+            }
             Win::AliveAtBell { bars } => {
                 if !bell {
                     return;
@@ -640,6 +726,21 @@ impl Dish {
                 self.finish(s, stars, format!("{alive} MOULD ALIVE AT THE BELL"), why)
             }
         }
+    }
+
+    /// Keep It Alive's end: by death, or at the cap (`made_it`).
+    fn finish_endless(&mut self, s: Score, bars: [u32; 3], made_it: bool) {
+        let secs = (self.t / STEPS_PER_SECOND as u64) as u32;
+        let stars = bars.iter().filter(|&&b| secs >= b).count() as u32;
+        let amount = format!("LIVED {}, AT MOST {} MOULD", clock(secs), self.peak_mould);
+        let why = if made_it {
+            "IT OUTLIVED THE DISH".to_string()
+        } else if stars == 3 {
+            "A LONG LIFE: IT KEPT MOVING HOUSE".to_string()
+        } else {
+            format!("{} STAR{} AT {}: MOVE ON SOONER", stars + 1, if stars == 0 { "" } else { "S" }, clock(bars[stars as usize]))
+        };
+        self.finish(s, stars, amount, why);
     }
 
     fn finish(&mut self, s: Score, stars: u32, amount: String, why: String) {
@@ -683,6 +784,49 @@ impl Dish {
         let home = side(level.piles[0].x, level.piles[0].y);
         self.walkers.iter().any(|w| side(w.x, w.y) * home < 0.0)
     }
+}
+
+/// **Keep It Alive's food**: (arrives, x, y) for every pile to the cap.
+/// Each lands `gap[0] + gap[1] * k` cells from the last (home first), at
+/// most `GAP_MAX`, on agar with a 10-cell margin, off every earlier pile
+/// and 30 cells clear of the last three; where no such spot exists at that distance, a little
+/// nearer. From the seed, so a dish replays.
+fn endless_food(ground: &[super::Ground], level: &Level, every: u32, gap: [f32; 2], rng: &mut super::Rng) -> Vec<(u32, f32, f32)> {
+    let agar = |x: f32, y: f32| {
+        super::disc(10.0).all(|(ox, oy)| super::cell(x + ox, y + oy).is_some_and(|i| ground[i] == super::Ground::Agar))
+    };
+    let mut recent: Vec<(f32, f32)> = level.piles.iter().map(|p| (p.x, p.y)).collect();
+    let mut last = recent[0];
+    let mut out = Vec::new();
+    let mut k = 0;
+    let mut at = every;
+    while at < level.seconds {
+        let want = (gap[0] + gap[1] * k as f32).min(GAP_MAX);
+        let mut found = None;
+        let mut g = want;
+        while found.is_none() && g > 20.0 {
+            for _ in 0..48 {
+                let a = rng.f32() * std::f32::consts::TAU;
+                let (x, y) = (last.0 + a.cos() * g, last.1 + a.sin() * g);
+                // Off every earlier pile (eaten ones stay on the dish), and
+                // well clear of the last three.
+                let clear = recent.iter().all(|r| (r.0 - x).hypot(r.1 - y) >= 16.0)
+                    && recent.iter().rev().take(3).all(|r| (r.0 - x).hypot(r.1 - y) >= 30.0);
+                if clear && agar(x, y) {
+                    found = Some((x, y));
+                    break;
+                }
+            }
+            g -= 10.0;
+        }
+        let Some(p) = found else { break };
+        out.push((at, p.0, p.1));
+        recent.push(p);
+        last = p;
+        k += 1;
+        at += every;
+    }
+    out
 }
 
 /// A level's salt, laid straight onto the ground: three cells wide like a
@@ -758,7 +902,10 @@ impl Progress {
     /// always; a dish once the entry before it has a star (the lesson, once
     /// finished).
     pub fn unlocked(&self, e: usize) -> bool {
-        e == 0 || (FREE..ENTRIES).contains(&e) || self.best.get(e - 1).is_some_and(|&b| b >= 1)
+        // Keep It Alive is open from the start: it is a mode, not the
+        // next puzzle, and the owner is to play it before any star bar.
+        let endless = e >= 1 && DISHES.get(e - 1).is_some_and(|l| matches!(l.win, Win::Endless { .. }));
+        e == 0 || endless || (FREE..ENTRIES).contains(&e) || self.best.get(e - 1).is_some_and(|&b| b >= 1)
     }
 
     /// Record a result; true if it was a new best.
@@ -877,7 +1024,8 @@ mod tests {
     #[test]
     #[ignore = "two whole dishes, about 17 s in release: run with --ignored"]
     fn the_intended_hand_takes_three_stars_on_the_others() {
-        for (k, l) in DISHES.iter().enumerate().skip(1) {
+        // Keep It Alive is not on the three-star bar yet (2026-11-10).
+        for (k, l) in DISHES.iter().enumerate().skip(1).filter(|(_, l)| !matches!(l.win, Win::Endless { .. })) {
             let c = score(k, 1, &mut Route::for_level(k));
             assert_eq!(c.stars, 3, "{}: {} / {}", l.name, c.amount, c.why);
         }
@@ -886,7 +1034,7 @@ mod tests {
     #[test]
     fn progress_survives_a_bad_file() {
         let p = Progress::parse("lesson 1\nwall three\nruler 9\n\x00garbage\ndry\nwall 2 extra\n");
-        assert_eq!(p.best, [1, 2, 3, 0]);
+        assert_eq!(p.best, [1, 2, 3, 0, 0]);
         assert!(p.unlocked(1) && p.unlocked(2) && p.unlocked(3) && p.unlocked(4));
         assert_eq!(Progress::parse(&p.text()), p);
         let fresh = Progress::parse("");

@@ -13,6 +13,8 @@
 //! cargo run --release --example mouldprobe -- level=all                # the challenge dishes' ship bar
 //! cargo run --release --example mouldprobe -- level=2 look=out/ gif=out/   # ...with its pictures
 //! cargo run --release --example mouldprobe -- menu=out/                # the dish picker, as drawn
+//! cargo run --release --example mouldprobe -- level=3 stills=out/ grey=1   # starving mould as 0 grey, 1 embers, 2 dried slime, 3 food ramp (look::STARVE_LOOK, default 3)
+//! cargo run --release --example mouldprobe -- look=out/ specks=0          # walkers as 0 off, 1 grains, 2 glints (look::WALKER_LOOK, default 1); smooth=0 the old blocky rim and tubes (look::SMOOTH); stain=0 no stain where mould has been (look::STAIN)
 //! cargo run --release --example mouldprobe -- wander=1 seeds=1,2,3,4,5,6,7,8 gif=out/   # the Wanderer: arrived N of M per hand
 //! ```
 //!
@@ -51,6 +53,7 @@ struct Args {
     every: u32,
     /// Oats per dish, if not the game's own stock.
     oats: Option<u32>,
+    oats_regrow: Option<u32>,
     /// The Wanderer (`mould::wander`): journeys of `dishes` stretches.
     wander: bool,
     dishes: u32,
@@ -92,6 +95,7 @@ fn parse() -> Args {
         scale: 2,
         every: 15,
         oats: None,
+        oats_regrow: None,
         wander: false,
         dishes: 3,
         cap_min: 10,
@@ -137,15 +141,32 @@ fn parse() -> Args {
             "pull" => a.pull = v == "1",
             "looks" => a.looks = Some(v.into()),
             "style" => a.style = Style::parse(v).unwrap_or_else(|| panic!("style: unknown {v}")),
+            "grey" => {
+                let n: u8 = v.parse().unwrap();
+                assert!((n as usize) < pixel_physics::mould::look::STARVE_LOOKS.len(), "grey: 0 grey, 1 embers, 2 dried, 3 food ramp");
+                pixel_physics::mould::look::STARVE_LOOK.store(n, std::sync::atomic::Ordering::Relaxed);
+                println!("starving mould drawn as {}", pixel_physics::mould::look::STARVE_LOOKS[n as usize]);
+            }
+            "specks" => {
+                let n: u8 = v.parse().unwrap();
+                assert!((n as usize) < pixel_physics::mould::look::WALKER_LOOKS.len(), "specks: 0 off, 1 grains, 2 glints");
+                pixel_physics::mould::look::WALKER_LOOK.store(n, std::sync::atomic::Ordering::Relaxed);
+                println!("walkers drawn as {}", pixel_physics::mould::look::WALKER_LOOKS[n as usize]);
+            }
+            "smooth" => pixel_physics::mould::look::SMOOTH.store(v == "1", std::sync::atomic::Ordering::Relaxed),
+            "stain" => pixel_physics::mould::look::STAIN.store(v == "1", std::sync::atomic::Ordering::Relaxed),
             "cut" => a.cut = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
+            "oats_regrow" => a.oats_regrow = Some(v.parse().unwrap()),
             "wander" => a.wander = v == "1",
             "dishes" => a.dishes = v.parse().unwrap(),
             "cap" => a.cap_min = v.parse().unwrap(),
             "sensor_angle" => p.sensor_angle = f().to_radians(),
             "rotate_angle" => p.rotate_angle = f().to_radians(),
+            "settle_seconds" => p.settle_seconds = f(),
+            "explore_angle" => p.explore_angle = f().to_radians(),
             "sensor_offset" => p.sensor_offset = f(),
             "deposit" => p.deposit = f(),
             "keep" => p.keep = f(),
@@ -168,6 +189,27 @@ fn parse() -> Args {
             "lamp_soft" => p.lamp_soft = v == "1",
             "push" => p.push = f(),
             "pieces" => p.pieces = v == "1",
+            "flow" => p.flow = v == "1",
+            "spared" => p.spared = f() as u32,
+            "spared_scent" => p.spared_scent = f(),
+            "tune" => {
+                let text = std::fs::read_to_string(v).unwrap_or_else(|e| panic!("tune: {v}: {e}"));
+                let bad = pixel_physics::mould::tune::from_text(&text, p);
+                assert!(bad.is_empty(), "tune: {v}: not understood: {bad:?}");
+            }
+            "carry_cap" => p.carry_cap = f(),
+            "share" => p.share = f(),
+            "sap" => p.sap = v == "1",
+            "sap_speed" => p.sap_speed = v.parse().unwrap(),
+            "absorb" => p.absorb = f(),
+            "want" => p.want = f(),
+            "stream" => p.stream = f(),
+            "stream_bias" => p.stream_bias = f(),
+            "pulse_seconds" => p.pulse_seconds = f(),
+            "pulse_strength" => p.pulse_strength = f(),
+            "wall_grow" => p.wall_grow = f(),
+            "wall_half_life" => p.wall_half_life = f(),
+            "wall_pull" => p.wall_pull = f(),
             "wound" => p.wound = f(),
             "stray_reach" => {
                 p.stray_reach = f();
@@ -191,7 +233,107 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "shepherd" => Box::new(Shepherd),
         "lamponly" => Box::new(LampOnly::new()),
         "dump" => Box::new(Dump),
+        "guard" => Box::new(Guard),
+        "prune" => Box::new(Pruner { seed: seed | 1, frame: 0, from: 15, every: 30, len: 26.0 }),
         _ => panic!("unknown player {name}"),
+    }
+}
+
+/// Guards the keep-off patches (`Params::spared`): one salt ring round the
+/// first at once, and the lamp held over the second all game. The simplest
+/// hand that tries; a person should do better.
+struct Guard;
+
+impl Player for Guard {
+    fn name(&self) -> &'static str {
+        "guard"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing {
+            return;
+        }
+        let sps = STEPS_PER_SECOND as u64;
+        if let Some(&(x, y, r)) = d.spared.first() {
+            if d.t >= sps && d.salt_left > 0 {
+                let rr = r + 1.5;
+                if d.begin_stroke(Tool::Salt, x + rr, y) {
+                    for k in 1..=64 {
+                        let a = k as f32 / 64.0 * std::f32::consts::TAU;
+                        d.drag_stroke(x + rr * a.cos(), y + rr * a.sin());
+                    }
+                    d.end_stroke();
+                }
+            }
+        }
+        if let Some(&(x, y, _)) = d.spared.get(1) {
+            d.set_lamp(Some((x, y)));
+        }
+    }
+}
+
+/// **An oracle pruner, not a person**: with unlimited snips, every `every`
+/// frames from `from` seconds it tries short cuts across random tube cells
+/// (four directions each) on a copy of the dish, and makes the first one that
+/// leaves the joined food as joined as it was. It answers *can cutting alone
+/// make a 22.5-degree network lean*, before anyone designs a tool for it
+/// (2026-11-09). Only loops and dead spurs pass that test.
+struct Pruner {
+    seed: u64,
+    frame: u64,
+    from: u64,
+    every: u64,
+    len: f32,
+}
+
+impl Player for Pruner {
+    fn name(&self) -> &'static str {
+        "oracle pruner"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        self.frame += 1;
+        if d.phase != Phase::Growing
+            || d.t < self.from * STEPS_PER_SECOND as u64
+            || !self.frame.is_multiple_of(self.every)
+        {
+            return;
+        }
+        let w = pixel_physics::mould::W;
+        let tube = d.params.tube;
+        let cand: Vec<usize> = (0..d.trail.len())
+            .filter(|&i| {
+                let (x, y) = ((i % w) as f32, (i / w) as f32);
+                d.trail[i] > tube
+                    && d.ground[i] == Ground::Agar
+                    && d.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + 8.0)
+            })
+            .collect();
+        if cand.is_empty() {
+            return;
+        }
+        let base = d.measure().reach;
+        for _ in 0..16 {
+            self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let i = cand[(self.seed >> 33) as usize % cand.len()];
+            let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+            for k in 0..4 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let (dx, dy) = (a.cos() * self.len / 2.0, a.sin() * self.len / 2.0);
+                let mut c = d.clone();
+                c.snips_left = 1;
+                if !c.begin_stroke(Tool::Snip, x - dx, y - dy) {
+                    continue;
+                }
+                c.drag_stroke(x + dx, y + dy);
+                c.end_stroke();
+                if c.measure().reach >= base {
+                    d.snips_left = 1;
+                    d.begin_stroke(Tool::Snip, x - dx, y - dy);
+                    d.drag_stroke(x + dx, y + dy);
+                    d.end_stroke();
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -201,6 +343,8 @@ fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
     let view = View {
         keys: false,
         style,
+        // `PANEL=ROW`: the tuning panel open on that row, as T shows it.
+        tune: std::env::var("PANEL").ok().and_then(|v| v.parse().ok()),
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
@@ -239,6 +383,10 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
     let mut d = Dish::with_params(seed, a.params.clone());
     if let Some(n) = a.oats {
         d.oats_left = n;
+        d.oats_stock = d.oats_stock.max(n);
+    }
+    if let Some(n) = a.oats_regrow {
+        d.oats_regrow = n;
     }
     let mut p = player(who, seed);
     let mut shots = Vec::new();
@@ -253,7 +401,13 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
             d.step();
         }
         peak = peak.max(d.walkers.len());
-        if a.gif.is_some() && frame.is_multiple_of(a.every) {
+        // `GIF_SECONDS=A-B`: only that stretch of the run goes in the GIF.
+        let in_window = std::env::var("GIF_SECONDS").ok().and_then(|v| {
+            let (lo, hi) = v.split_once('-')?;
+            Some((lo.parse::<u64>().ok()?, hi.parse::<u64>().ok()?))
+        });
+        let secs_now = d.t / STEPS_PER_SECOND as u64;
+        if a.gif.is_some() && frame.is_multiple_of(a.every) && in_window.is_none_or(|(lo, hi)| secs_now >= lo && secs_now < hi) {
             shots.push(frame_of(&d, a.scale, a.style));
         }
         // Stills also just after each late pile turns up and during the
@@ -269,6 +423,32 @@ fn run(seed: u64, who: &str, a: &Args) -> Run {
         if d.t.is_multiple_of(10 * STEPS_PER_SECOND as u64) {
             let s = d.measure();
             trace.push(((d.t / STEPS_PER_SECOND as u64) as u32, d.walkers.len(), s.reach));
+            if std::env::var("FLOWSTATS").is_ok() {
+                // Carried food (`Params::flow`): walkers' loads and the drawn
+                // field over tube cells, as percentiles.
+                let pct = |mut v: Vec<f32>| -> String {
+                    v.sort_by(|a, b| a.total_cmp(b));
+                    let at = |q: f32| v.get(((v.len().max(1) - 1) as f32 * q) as usize).copied().unwrap_or(0.0);
+                    format!("p10 {:.3} p50 {:.3} p90 {:.3} max {:.3} zero {}", at(0.1), at(0.5), at(0.9), at(1.0), v.iter().filter(|&&x| x <= 0.0).count())
+                };
+                let loads: Vec<f32> = d.walkers.iter().map(|w| w.food).collect();
+                let field: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.carried[i]).collect();
+                let sap: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.sap[i]).collect();
+                let wall: Vec<f32> = (0..d.trail.len()).filter(|&i| d.trail[i] > d.params.tube).map(|i| d.wall[i]).collect();
+                let bands = [0u16, 20, 40, 70, 100, 150, u16::MAX];
+                let mut by = vec![(0.0f32, 0u32); bands.len() - 1];
+                for w in &d.walkers {
+                    let i = (w.y as usize) * 256 + w.x as usize;
+                    let dist = d.fed[i];
+                    if let Some(b) = bands.windows(2).position(|r| dist >= r[0] && dist < r[1]) {
+                        by[b].0 += w.food;
+                        by[b].1 += 1;
+                    }
+                }
+                let by: Vec<String> = by.iter().zip(bands.windows(2)).map(|((s, n), r)| format!("{}+:{:.2}/{}", r[0], if *n > 0 { s / *n as f32 } else { 0.0 }, n)).collect();
+                println!("    flow t={}s load by tube distance (band: mean load/walkers) {}", d.t / sps, by.join(" "));
+                println!("    flow t={}s walkers {} loads [{}] carried-on-tube [{}] sap [{}] wall [{}]", d.t / sps, d.walkers.len(), pct(loads), pct(field), pct(sap), pct(wall));
+            }
             if let Some(dir) = &a.look {
                 frame_of(&d, a.scale, a.style)
                     .save(format!(
@@ -1481,8 +1661,15 @@ fn give_oats(d: &mut Dish, a: &Args) {
 /// 1, P2: the stills and the frame cost were built at the defaults).
 fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
     use pixel_physics::mould::level::DISHES;
+    // The level's own sensor angle unless `sensor_angle=` moved it.
+    let angle = if a.params.sensor_angle == pixel_physics::mould::Params::default().sensor_angle {
+        DISHES[k].sensor_deg.to_radians()
+    } else {
+        a.params.sensor_angle
+    };
     let params = pixel_physics::mould::Params {
         stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
+        sensor_angle: angle,
         ..a.params.clone()
     };
     let mut d = Dish::from_level_with(&DISHES[k], seed, params);
@@ -1511,6 +1698,26 @@ fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dis
         }
         if d.phase == Phase::Over && over_at.is_none() {
             over_at = Some(d.t);
+        }
+        // `LEVELTRACE=1`: every 10 s, the mould, the food it is on, and how
+        // far its nearest walker is from each pile that still has food.
+        if std::env::var("LEVELTRACE").is_ok() && d.t.is_multiple_of(10 * STEPS_PER_SECOND as u64) && d.phase == Phase::Growing {
+            let piles: Vec<String> = d
+                .dish_piles()
+                .filter(|p| p.food > 0.0)
+                .map(|p| {
+                    let g = d.walkers.iter().map(|w| (w.x - p.x).hypot(w.y - p.y) - p.r).fold(f32::INFINITY, f32::min).max(0.0);
+                    format!("{}{:.0}%@{:.0}", if p.reached() { "*" } else { "" }, p.food / p.full * 100.0, g)
+                })
+                .collect();
+            println!(
+                "    t={:>3}s mould {:>4} store {:>7.0} oats {} piles {}",
+                d.t / STEPS_PER_SECOND as u64,
+                d.walkers.len(),
+                d.store,
+                d.oats_left,
+                piles.join(" ")
+            );
         }
         if gif.is_some() && frame.is_multiple_of(a.every) {
             shots.push(frame_of(&d, a.scale, a.style));
@@ -1760,13 +1967,15 @@ fn main() {
             let r = run(seed, who, &a);
             let s = &r.score;
             println!(
-                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
+                "seed {seed} {who:>7}: {} stars [{}{}{}]  joined {}/{} at {}  patches {:?}  after storm {}  length {:.0} vs shortest {:.0} ({:.2}x)  peak {}  births {} starved {} hungry {} burned {}  oats {} snips {} lamp {:.0}s joins {}",
                 s.star_count(),
                 s.stars[0] as u8,
                 s.stars[1] as u8,
                 s.stars[2] as u8,
                 s.reach,
                 s.piles,
+                s.joined_at.map_or("-".to_string(), |t| format!("{t}s")),
+                s.on_patch,
                 s.after,
                 s.length,
                 s.shortest,

@@ -6580,6 +6580,12 @@ file unless its report says so.
   meeting its ship bar over 5 seeds (do nothing 0, random at most 1, the
   scripted intended hand 3); strays limited on hand-made dishes, which
   doing nothing had used to join all three in Beat the Ruler.
+- [mould-game-2026-11-08/](mould-game-2026-11-08/README.md) — **the thinking around the mould game, kept so it
+  is not lost (owner, 2026-11-09):** the five-agent brainstorm after his first play, the overnight build's briefs and
+  results (dishes, Wanderer, Organ, the Night look and its blind key), both adversarial reviews, the HTML of every
+  picture page shown to him with links to the pages, and the 2026-11-09 depth reports: Jenson, Cherouvim and Jones 2010
+  against our model, and how tools, events, ground and the mould's responses could interact for discovery. Proposals,
+  not built.
 - [seep-probe-2026-11-07.md](seep-probe-2026-11-07.md) — **probe 4 of 6 (`--bin seep`): a mine leaking gas toward two
   lamps, and a slime-mould graph that eats it; is the mould used or decoration?** Doing nothing loses the upper lamp at
   26-27 s on 6 of 6 seeds; a scripted plan holds both lamps on 6 of 6, but so does the same plan with no mould at all, so
@@ -6632,6 +6638,11 @@ file unless its report says so.
   settings, a random hand lives on 1 of 8 at 45 and 6 of 8 at 22.5, the scripted plan 8 of 8 at both. Recommends, ranked
   with pros and cons: a keep-it-alive dish that does not end, player marks that stay (lights set down, salt rubbed out),
   drawing the real walkers and thinner tubes; plus design writing and a table of comparable games. Waits on the owner's pick.
+- [mould-looks-2026-11-10.md](mould-looks-2026-11-10.md) — **built, drawing only: the mould game's looks pass.** A speck
+  per real walker, one colour ramp for the food the tube holds (rescaled: the old reading was full on over half the tube),
+  smoothing of the rim, tube insides, salt walls and cuts, a fading stain where mould has been, the lamp drawn as the light
+  the simulation shines, and narrow tool tiles so the bar stops overlapping. All on by default, each behind a key (F3-F6).
+  Same dish drawn both ways on the page; costs about 1.5-2.5 ms of drawing a frame at scale 4.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

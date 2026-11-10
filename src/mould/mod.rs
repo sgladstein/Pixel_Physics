@@ -62,6 +62,7 @@ pub mod look;
 pub mod organ;
 pub mod play;
 pub mod render;
+pub mod tune;
 pub mod wander;
 
 use std::f32::consts::TAU;
@@ -206,6 +207,99 @@ pub struct Params {
     /// Under the oats only, not over the whole leash. See
     /// `Dish::strays_may_start` for what was tried first.
     pub oats_grace: f32,
+    /// **Food flows** (owner, 2026-11-09: food that stops at a tube
+    /// distance "clearly is just like a distance metric", and "everything
+    /// we're seeing should be based on real pixel simulations"). Off, food
+    /// reaches any tube within `feed_reach` cells of an eaten pile, at once,
+    /// and the drawing marks that reach. On, there is no reach: food is
+    /// carried. A walker on an eaten pile loads food (`Walker::food`, up to
+    /// `carry_cap`, the pile's output shared among those loading), carries
+    /// it as it streams along the tube, pays upkeep from it, and swaps
+    /// food with a walker beside it (`share`), so food moves along the
+    /// mould by the walkers' own motion -- thick tube, with more walkers
+    /// streaming both ways, carries more of it, and a thin or long reach
+    /// thins out to its tip. A walker with nothing carried starves at
+    /// `starve`; one with food to spare divides. What is drawn is the food
+    /// the walkers carry (`Dish::carried`), not a distance. Replaces the
+    /// shared store and `pieces` when on. The census still runs, for the
+    /// score, joins and the stray rule.
+    pub flow: bool,
+    /// Most food one walker carries (`flow`).
+    pub carry_cap: f32,
+    /// Fraction of the difference two neighbouring walkers even out per
+    /// step (`flow`).
+    pub share: f32,
+    /// **Food moves in the tube itself** (`flow` level 2): piles pump food
+    /// into the tube at their edge (`Dish::sap`) instead of handing it to
+    /// the walkers standing there, it spreads along tube cells only,
+    /// faster through thick tube (`sap_speed` passes a step), and walkers
+    /// draw their load from the tube cell they stand on. The real
+    /// organism's shuttle streaming spreads its contents this way: the
+    /// back-and-forth flow disperses what it carries along the tube much
+    /// faster than walking would. Off: walkers load on the pile (level 1).
+    pub sap: bool,
+    /// Spreading passes per step (`sap`): how fast food runs along tube.
+    pub sap_speed: u32,
+    /// Fraction of the tube food on its cell a walker draws per step
+    /// (`sap`).
+    pub absorb: f32,
+    /// **The stream** (`sap`): the tube's contents surge out from the food
+    /// and back, as the real organism's shuttle streaming does. Each step
+    /// the food in a tube cell moves this fraction of itself one cell along
+    /// the tube (scaled by the tube's thickness), outward from the food on
+    /// the out-stroke and back on the in-stroke; `stream_bias` is how much
+    /// more out than back on average. "Outward" is down the tube from the
+    /// food that feeds it (the census's tube distance, with no reach
+    /// limit): it sets which way the tube points, never how much arrives.
+    /// 0 is no stream: food only spreads (`sap_speed`).
+    pub stream: f32,
+    pub stream_bias: f32,
+    /// The load a walker tops itself up to from the tube (`sap`), and what
+    /// it must hold to divide.
+    pub want: f32,
+    /// **The pulse** (`flow` level 2): seconds per beat, and how strongly
+    /// the beat swings. Piles pump `1 + pulse_strength * sin` times their
+    /// mean output and the tube's spreading surges by the same factor, so
+    /// food leaves in waves -- what the real organism does every ~100 s,
+    /// sped up like everything else on the dish. 0 strength is steady flow.
+    pub pulse_seconds: f32,
+    pub pulse_strength: f32,
+    /// **Tubes that remember** (`flow` level 3): food moving through a
+    /// cell grows a lasting wall there (`Dish::wall`, `wall_grow` per unit
+    /// moved), the wall fades with a half-life of `wall_half_life`
+    /// seconds, and walkers sense `wall_pull` times the wall on top of the
+    /// trail, so a busy route fattens into a trunk the mould keeps
+    /// following and regrows along after a cut, and an idle one fades. The
+    /// wall also widens the drawn tube and lets food through faster. 0
+    /// `wall_grow` is off. Needs `sap`.
+    pub wall_grow: f32,
+    pub wall_half_life: f32,
+    pub wall_pull: f32,
+    /// **Explore, then settle** (owner, 2026-11-09, after the 22.5 vs 45
+    /// page). Seconds over which the sensor angle eases from
+    /// `explore_angle` to `sensor_angle`; 0 is off (the angle is
+    /// `sensor_angle` throughout). Jones 2010: 22.5 with a 45 turn "never
+    /// stabilizes completely" and keeps sprouting branches across gaps,
+    /// 45/45 pulls tight and holds still (pp.135-136); he suggests slowing
+    /// the model over time to mimic the plasmodium sticking to its ground
+    /// (p.141). Measured at 22.5 throughout, doing nothing joined every pile
+    /// on 4 of 4 seeds and earned stars, so the dish no longer needed the
+    /// player: easing back is what is meant to give the tools their job.
+    pub settle_seconds: f32,
+    /// The sensor angle a dish starts at when `settle_seconds` is on, radians.
+    pub explore_angle: f32,
+    /// **Patches the mould must keep off** (free dish only), 0 = none.
+    /// A prototype goal for the 22.5-degree mould, which joins all the food
+    /// and shrugs off the storm by itself (2026-11-09 census): the patches
+    /// sit halfway along the routes from the start pile to its two nearest
+    /// neighbours, so doing nothing grows over them and guarding one means
+    /// steering the mould round it. Read as tube cells on each patch at the
+    /// bell (`Score::on_patch`).
+    pub spared: u32,
+    /// How strongly a keep-off patch smells, as a fraction of a full pile:
+    /// at 0 the 22.5-degree mould missed the second patch on 3 of 6 seeds
+    /// by routing round it, so a patch is bait, not just a place.
+    pub spared_scent: f32,
 }
 
 impl Default for Params {
@@ -239,6 +333,24 @@ impl Default for Params {
             stray_reach: f32::INFINITY,
             stray_grace: 2.0,
             oats_grace: 8.0,
+            flow: false,
+            carry_cap: 3.0,
+            share: 0.5,
+            sap: true,
+            sap_speed: 2,
+            absorb: 0.03,
+            want: 1.0,
+            stream: 1.0,
+            stream_bias: 0.35,
+            pulse_seconds: 2.5,
+            pulse_strength: 0.8,
+            wall_grow: 1.0,
+            wall_half_life: 30.0,
+            wall_pull: 1.0,
+            settle_seconds: 0.0,
+            spared: 0,
+            spared_scent: 0.5,
+            explore_angle: 22.5f32.to_radians(),
         }
     }
 }
@@ -291,6 +403,8 @@ pub const CUT_HALF: f32 = 20.0;
 /// where clean single tubes read 1.0-1.3x and branchy networks 1.6-1.9x.
 pub const THRIFT_BAR: f32 = 1.15;
 pub const THRIFT_MIN_JOINED: u32 = 3;
+/// Radius of a keep-off patch (`Params::spared`).
+pub const SPARED_R: f32 = 8.0;
 /// Cells of tube width that make one cell of network length. Calibrated on
 /// the probe's straight home-to-pile tubes, which are about 12 cells wide at
 /// the `tube` threshold; at 4 a straight tube read as 3.8x its own length.
@@ -301,6 +415,21 @@ pub const FED_LOOK_REACH: usize = 1;
 pub const FED_LOOK_SECONDS: f32 = 0.5;
 /// How often (steps) the feeding search and pile census run.
 const FED_EVERY: u64 = 6;
+
+/// Fraction of the drawn carried food (`Dish::carried`) kept per step:
+/// faster than trail's own, so a branch whose walkers run dry is seen to
+/// dim within about a second.
+pub const CARRIED_KEEP: f32 = 0.85;
+/// A walker's average load (`Dish::carried` over `Dish::walkers_seen`)
+/// drawn as fully fed.
+pub const CARRIED_FULL: f32 = 1.0;
+/// Food in the tube (`Dish::sap`) that alone draws a cell fully fed, so a
+/// wave of it is seen even where the walkers are full.
+pub const SAP_FULL: f32 = 0.08;
+/// The thickest wall a tube grows (`Params::wall_grow`), in trail units:
+/// about a fat trunk's trail, so a wall guides walkers without drowning
+/// the trail they lay.
+pub const WALL_MAX: f32 = 30.0;
 /// A join between two piles flashes only if they were not joined within
 /// this long: a thin tube flickering across the tube threshold would
 /// otherwise snap every census.
@@ -452,6 +581,12 @@ pub struct Score {
     pub shortest: f32,
     /// Dish piles still joined after the storm.
     pub after: u32,
+    /// Second at which every pile (three or more, the late ones included)
+    /// was first joined in one piece, checked once a second; `None` if
+    /// that never happened before the storm.
+    pub joined_at: Option<u32>,
+    /// Tube cells on each keep-off patch at the bell (`Params::spared`).
+    pub on_patch: Vec<u32>,
     pub stars: [bool; 3],
 }
 
@@ -510,6 +645,26 @@ pub struct Dish {
     /// The step at which each cell was last on, or beside, fed tube
     /// (`u64::MAX`: never). Drawing only: see `Dish::looks_fed`.
     pub fed_at: Vec<u64>,
+    /// Food carried by the walkers, laid where they stand and spread and
+    /// faded like trail (`Params::flow`): what the drawing shows as fed.
+    /// All zero with flow off.
+    pub carried: Vec<f32>,
+    /// The walkers themselves, laid, spread and faded exactly as `carried`
+    /// is: `carried / walkers_seen` is the load a walker here carries on
+    /// average, so the drawing reads how well fed the mould is, not how
+    /// crowded (a total read bright round every pile, where walkers
+    /// queue, and dim along every tube: median tube cell 0.6 against 8 at
+    /// p90, while the median walker carried 1.2).
+    pub walkers_seen: Vec<f32>,
+    /// Food in the tube itself, between pile and walker (`Params::sap`).
+    pub sap: Vec<f32>,
+    /// Tube wall laid down by food moving through (`Params::wall_grow`).
+    pub wall: Vec<f32>,
+    /// Food moved through each cell by the last step's spreading.
+    moved: Vec<f32>,
+    sap_cond: Vec<f32>,
+    sap_tubes: Vec<usize>,
+    sap_delta: Vec<f32>,
     pub store: f32,
     pub lamp: Option<(f32, f32)>,
     pub oats_left: u32,
@@ -518,6 +673,10 @@ pub struct Dish {
     stroke: Option<Stroke>,
     pub phase: Phase,
     pub before: Option<Score>,
+    /// Step at which all the food was first joined (`Score::joined_at`).
+    pub all_joined_at: Option<u64>,
+    /// Keep-off patches, (x, y, r) (`Params::spared`).
+    pub spared: Vec<(f32, f32, f32)>,
     pub score: Option<Score>,
     /// Food joined just after the storm.
     after: Option<u32>,
@@ -578,6 +737,8 @@ pub struct Dish {
     /// Beat the Ruler's live number, refreshed twice a second: the
     /// shortest join through the tube over the ruler (`Dish::best_join`).
     pub join_now: Option<f32>,
+    /// Most mould alive at once on this dish (Keep It Alive's card).
+    pub peak_mould: u32,
     /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
     /// place of the clock, the storm and the stars. `None` in a scored dish
     /// and the lesson.
@@ -705,7 +866,36 @@ impl Dish {
             let (x, y) = spots[k];
             pending.push((LATE_FOOD_SECONDS[1] as u64 * s, Pile { x, y, ..far.clone() }));
         }
-        Self::assemble(seed, params, rng, ground, piles, pending)
+        let n = params.spared as usize;
+        let mut d = Self::assemble(seed, params, rng, ground, piles, pending);
+        if n > 0 {
+            let home = (d.piles[0].x, d.piles[0].y);
+            let mut by: Vec<(f32, f32, f32)> = d.piles[1..]
+                .iter()
+                .map(|p| ((p.x - home.0).hypot(p.y - home.1), p.x, p.y))
+                .collect();
+            by.sort_by(|a, b| a.0.total_cmp(&b.0));
+            d.spared = by
+                .iter()
+                .take(n)
+                .map(|&(_, x, y)| ((home.0 + x) / 2.0, (home.1 + y) / 2.0, SPARED_R))
+                .collect();
+        }
+        d
+    }
+
+    /// Tube cells on each keep-off patch now (`Params::spared`).
+    pub fn on_patch(&self) -> Vec<u32> {
+        let tube = self.params.tube;
+        self.spared
+            .iter()
+            .map(|&(x, y, r)| {
+                disc(r)
+                    .filter_map(|(ox, oy)| cell(x + ox, y + oy))
+                    .filter(|&i| self.ground[i] == Ground::Agar && self.trail[i] > tube)
+                    .count() as u32
+            })
+            .collect()
     }
 
     /// The dish around a ground and its food: the fields, the inoculum on
@@ -735,6 +925,14 @@ impl Dish {
             piles,
             fed: vec![u16::MAX; W * H],
             fed_at: vec![u64::MAX; W * H],
+            carried: vec![0.0; W * H],
+            walkers_seen: vec![0.0; W * H],
+            sap: vec![0.0; W * H],
+            wall: vec![0.0; W * H],
+            moved: vec![0.0; W * H],
+            sap_cond: Vec::new(),
+            sap_tubes: Vec::new(),
+            sap_delta: Vec::new(),
             store: START_STORE,
             lamp: None,
             oats_left: OATS_STOCK,
@@ -748,6 +946,8 @@ impl Dish {
             stroke: None,
             phase: Phase::Growing,
             before: None,
+            all_joined_at: None,
+            spared: Vec::new(),
             score: None,
             after: None,
             cuts: Vec::new(),
@@ -763,6 +963,7 @@ impl Dish {
             wound_until: vec![u64::MAX; W * H],
             counts: Counts::default(),
             level: None,
+            peak_mould: 0,
             oats_stock: OATS_STOCK,
             oats_regrow: OATS_REGROW_SECONDS,
             card: None,
@@ -1145,16 +1346,40 @@ impl Dish {
                 }
             }
         }
+        let bait = fd * self.params.spared_scent;
+        if bait > 0.0 {
+            for &(x, y, r) in &self.spared {
+                for (ox, oy) in disc(r) {
+                    if let Some(i) = cell(x + ox, y + oy) {
+                        if self.ground[i] == Ground::Agar {
+                            self.scent[i] += bait;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[inline]
     fn sense(&self, x: f32, y: f32) -> f32 {
         match cell(x, y) {
             Some(i) if self.ground[i] == Ground::Agar => {
-                self.trail[i] + self.scent[i] - self.params.light_weight * self.light[i]
+                self.trail[i] + self.scent[i] + self.params.wall_pull * self.wall[i]
+                    - self.params.light_weight * self.light[i]
             }
             _ => -1.0e6,
         }
+    }
+
+    /// The sensor angle this step: `sensor_angle`, or on its way there
+    /// from `explore_angle` while `settle_seconds` runs.
+    pub fn sensor_angle_now(&self) -> f32 {
+        let p = &self.params;
+        if p.settle_seconds <= 0.0 {
+            return p.sensor_angle;
+        }
+        let k = (self.t as f32 / STEPS_PER_SECOND as f32 / p.settle_seconds).min(1.0);
+        p.explore_angle + (p.sensor_angle - p.explore_angle) * k
     }
 
     fn move_walkers(&mut self) {
@@ -1166,7 +1391,7 @@ impl Dish {
             self.order.swap(k, j);
         }
         let (sa, ra, so, dep) = (
-            self.params.sensor_angle,
+            self.sensor_angle_now(),
             self.params.rotate_angle,
             self.params.sensor_offset,
             self.params.deposit,
@@ -1288,7 +1513,9 @@ impl Dish {
             }
         }
         let tube = self.params.tube;
-        let reach = self.params.feed_reach;
+        // With food flowing there is no reach: the search only says which
+        // tube is joined to eaten food, and which way along it is outward.
+        let reach = if self.params.flow { u16::MAX - 1 } else { self.params.feed_reach };
         while let Some(i) = queue.pop_front() {
             let d = self.fed[i];
             if d >= reach {
@@ -1515,6 +1742,15 @@ impl Dish {
     /// if it, or a cell within `FED_LOOK_REACH`, was fed in the last
     /// `FED_LOOK_SECONDS`, so a starving branch still goes grey, a fraction
     /// of a second later. The simulation still reads `fed` alone.
+    /// With `Params::flow`, how fed cell `i` looks: the average load of the
+    /// walkers around it, 0 (nothing carried, or no walkers) to 1
+    /// (`CARRIED_FULL` or more); `None` with flow off.
+    pub fn carried_look(&self, i: usize) -> Option<f32> {
+        self.params
+            .flow
+            .then(|| (self.carried[i] / (self.walkers_seen[i] + 0.05) / CARRIED_FULL + self.sap[i] / SAP_FULL).clamp(0.0, 1.0))
+    }
+
     pub fn looks_fed(&self, i: usize) -> bool {
         let at = self.fed_at[i];
         at != u64::MAX && self.t.saturating_sub(at) <= (FED_LOOK_SECONDS * STEPS_PER_SECOND as f32) as u64
@@ -1670,7 +1906,335 @@ impl Dish {
         self.store = total;
     }
 
+    /// The pulse's factor this step (`Params::pulse_seconds`,
+    /// `pulse_strength`): 1 on average, swinging by the strength.
+    pub fn beat(&self) -> f32 {
+        let secs = self.t as f32 / STEPS_PER_SECOND as f32;
+        let period = self.params.pulse_seconds.max(0.1);
+        1.0 + self.params.pulse_strength.clamp(0.0, 1.0) * (secs / period * TAU).sin()
+    }
+
+    /// Level 2 of `Params::flow`: food in the tube spreads to neighbouring
+    /// tube cells, `sap_speed` passes a step, each pass moving a share of
+    /// the difference set by how thick both cells' tube is (trail, plus
+    /// wall), times the beat. Food never leaves tube: where tube thins
+    /// away under it, it sits and spoils (5% a step). Food moved through a
+    /// cell is counted in `moved`, which grows its wall (level 3).
+    // Index loops over several parallel per-cell arrays at once.
+    #[allow(clippy::needless_range_loop)]
+    fn spread_sap(&mut self, beat: f32) {
+        let thr = self.params.tube * 0.5;
+        let full = self.params.tube * 8.0;
+        let mut cond = std::mem::take(&mut self.sap_cond);
+        let mut tubes = std::mem::take(&mut self.sap_tubes);
+        let mut delta = std::mem::take(&mut self.sap_delta);
+        cond.resize(W * H, 0.0);
+        delta.resize(W * H, 0.0);
+        cond.fill(0.0);
+        tubes.clear();
+        for i in 0..W * H {
+            if self.ground[i] != Ground::Agar {
+                self.sap[i] = 0.0;
+                continue;
+            }
+            let t = self.trail[i] + self.wall[i];
+            if t > thr {
+                cond[i] = (t / full).clamp(0.15, 1.0);
+                tubes.push(i);
+            } else if self.sap[i] > 0.0 {
+                self.sap[i] *= 0.95;
+            }
+        }
+        let walls = self.params.wall_grow > 0.0;
+        if walls {
+            self.moved.fill(0.0);
+        }
+        // At most 0.24 per pair at the top of the beat, so no cell can give
+        // away more than it holds in one pass (four neighbours).
+        let rate = 0.24 * beat / (1.0 + self.params.pulse_strength.clamp(0.0, 1.0));
+        // The stream: one advection pass, out or back along the tube.
+        let v = (self.params.stream * (self.params.stream_bias + (beat - 1.0))).clamp(-1.0, 1.0);
+        if v != 0.0 {
+            let back = v < 0.0;
+            let v = v.abs();
+            for &i in &tubes {
+                let have = self.sap[i];
+                let d = self.fed[i];
+                if have <= 0.0 || d == u16::MAX {
+                    continue;
+                }
+                let want_d = if back { d.wrapping_sub(1) } else { d + 1 };
+                if back && d == 0 {
+                    continue;
+                }
+                let (x, y) = (i % W, i / W);
+                let mut to = [0usize; 4];
+                let mut m = 0;
+                for (ok, j) in [(x > 0, i.wrapping_sub(1)), (x + 1 < W, i + 1), (y > 0, i.wrapping_sub(W)), (y + 1 < H, i + W)] {
+                    if ok && cond[j] > 0.0 && self.fed[j] == want_d {
+                        to[m] = j;
+                        m += 1;
+                    }
+                }
+                if m == 0 {
+                    continue;
+                }
+                let amount = have * v * cond[i];
+                delta[i] -= amount;
+                let each = amount / m as f32;
+                for &j in &to[..m] {
+                    delta[j] += each;
+                }
+                if walls {
+                    self.moved[i] += amount;
+                }
+            }
+            for &i in &tubes {
+                self.sap[i] = (self.sap[i] + delta[i]).max(0.0);
+                delta[i] = 0.0;
+            }
+        }
+        let passes = self.params.sap_speed;
+        for _ in 0..passes {
+            for &i in &tubes {
+                let (x, y) = (i % W, i / W);
+                // Right and down only: each pair once.
+                for (ok, j) in [(x + 1 < W, i + 1), (y + 1 < H, i + W)] {
+                    if !ok || cond[j] == 0.0 {
+                        continue;
+                    }
+                    let f = rate * cond[i].min(cond[j]) * (self.sap[j] - self.sap[i]);
+                    delta[i] += f;
+                    delta[j] -= f;
+                    if walls {
+                        let a = f.abs();
+                        self.moved[i] += a;
+                        self.moved[j] += a;
+                    }
+                }
+            }
+            for &i in &tubes {
+                self.sap[i] = (self.sap[i] + delta[i]).max(0.0);
+                delta[i] = 0.0;
+            }
+        }
+        self.sap_cond = cond;
+        self.sap_tubes = tubes;
+        self.sap_delta = delta;
+        // Level 3: the wall.
+        let grow = self.params.wall_grow;
+        if grow > 0.0 {
+            let keep = 0.5f32.powf(1.0 / (self.params.wall_half_life.max(0.1) * STEPS_PER_SECOND as f32));
+            for i in 0..W * H {
+                if self.ground[i] == Ground::Agar {
+                    // Scaled so `wall_grow` 1 builds a busy trunk's wall to
+                    // about a tube's own trail; capped at `WALL_MAX`.
+                    self.wall[i] = (self.wall[i] * keep + grow * 0.005 * self.moved[i]).min(WALL_MAX);
+                } else {
+                    self.wall[i] = 0.0;
+                }
+            }
+        }
+    }
+
+    /// The economy with `Params::flow`: food carried by the walkers. See
+    /// `Params::flow`.
+    // Index loops over several parallel per-cell arrays at once.
+    #[allow(clippy::needless_range_loop)]
+    fn economy_flow(&mut self) {
+        let n = self.walkers.len();
+        let cap = self.params.carry_cap;
+        let upkeep = self.params.upkeep;
+        let output = |p: &Pile| (p.eaters.min(self.params.table) as f32 * self.params.eat).min(p.food);
+        if self.params.sap {
+            // Level 2: piles pump into the tube at their edge, on the beat;
+            // the tube spreads it; walkers draw from the cell they are on.
+            let beat = self.beat();
+            for k in 0..self.piles.len() {
+                let p = self.piles[k].clone();
+                if p.eaters == 0 || p.food <= 0.0 {
+                    continue;
+                }
+                let out = output(&p) * beat;
+                let rim: Vec<usize> = disc(p.r + 1.5)
+                    .filter_map(|(ox, oy)| cell(p.x + ox, p.y + oy))
+                    .filter(|&i| self.ground[i] == Ground::Agar)
+                    .collect();
+                if rim.is_empty() {
+                    continue;
+                }
+                let each = out / rim.len() as f32;
+                for i in rim {
+                    self.sap[i] += each;
+                }
+                self.piles[k].food -= out;
+            }
+            self.spread_sap(beat);
+            let absorb = self.params.absorb;
+            let want = self.params.want;
+            for k in 0..n {
+                let w = self.walkers[k];
+                if let Some(i) = cell(w.x, w.y) {
+                    // A walker draws only what it is short of `want`: one
+                    // already fed lets the food pass on down the tube.
+                    let take = (self.sap[i] * absorb).min((want - w.food).max(0.0));
+                    self.sap[i] -= take;
+                    self.walkers[k].food += take;
+                }
+                let w = &mut self.walkers[k];
+                w.food = (w.food - upkeep).max(0.0);
+            }
+        } else {
+            // Level 1: each eaten pile's output shared among the walkers
+            // standing on it.
+            let mut on = vec![usize::MAX; n];
+            let mut loaders = vec![0u32; self.piles.len()];
+            for (k, w) in self.walkers.iter().enumerate() {
+                for (j, p) in self.piles.iter().enumerate() {
+                    if p.eaters > 0 && p.food > 0.0 && (p.x - w.x).powi(2) + (p.y - w.y).powi(2) <= (p.r + 1.0).powi(2) {
+                        on[k] = j;
+                        loaders[j] += 1;
+                        break;
+                    }
+                }
+            }
+            let each: Vec<f32> = self
+                .piles
+                .iter()
+                .zip(&loaders)
+                .map(|(p, &l)| if l == 0 { 0.0 } else { output(p) / l as f32 })
+                .collect();
+            for k in 0..n {
+                if let Some(&e) = each.get(on[k]) {
+                    let w = &mut self.walkers[k];
+                    let take = e.min((cap - w.food).max(0.0));
+                    w.food += take;
+                    self.piles[on[k]].food -= take;
+                }
+                let w = &mut self.walkers[k];
+                w.food = (w.food - upkeep).max(0.0);
+            }
+        }
+        // Sharing: each walker evens out with one walker near it, picked
+        // at random from the 5x5 round it, in a fresh order each step.
+        let mut who = vec![u32::MAX; W * H];
+        for (k, w) in self.walkers.iter().enumerate() {
+            if let Some(i) = cell(w.x, w.y) {
+                who[i] = k as u32;
+            }
+        }
+        let share = self.params.share * 0.5;
+        for k in 0..n {
+            let w = self.walkers[k];
+            let (dx, dy) = (self.rng.below(5) as i32 - 2, self.rng.below(5) as i32 - 2);
+            let (x, y) = (w.x as i32 + dx, w.y as i32 + dy);
+            if x < 0 || y < 0 || x as usize >= W || y as usize >= H {
+                continue;
+            }
+            let m = who[idx(x as usize, y as usize)];
+            if m == u32::MAX || m as usize == k {
+                continue;
+            }
+            let (a, b) = (w.food, self.walkers[m as usize].food);
+            let moved = (a - b) * share;
+            self.walkers[k].food = a - moved;
+            self.walkers[m as usize].food = b + moved;
+        }
+        // Deaths.
+        let mut k = 0;
+        while k < self.walkers.len() {
+            let w = self.walkers[k];
+            let i = cell(w.x, w.y).expect("walker inside the dish");
+            let roll = self.rng.f32();
+            let l = self.light[i];
+            let why = if l > 0.0 && roll < self.params.burn * l {
+                Some(Kill::Burned)
+            } else if w.food <= 0.0 && roll < self.params.starve {
+                Some(Kill::Starved)
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                self.remove_walker(k, why);
+            } else {
+                k += 1;
+            }
+        }
+        // Births, each paid for by its parent's load, which it then halves
+        // with the child.
+        let n = self.walkers.len();
+        let crowd = self.params.crowd;
+        for k in 0..n {
+            if self.rng.f32() >= self.params.divide {
+                continue;
+            }
+            let w = self.walkers[k];
+            let need = if self.params.sap { self.params.want * 0.9 } else { 1.5 };
+            if w.food < need {
+                continue;
+            }
+            let (wx, wy) = (w.x as i32, w.y as i32);
+            if self.light[idx(wx as usize, wy as usize)] > 0.0 {
+                continue;
+            }
+            let mut count = 0;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    let (x, y) = (wx + dx, wy + dy);
+                    if x >= 0
+                        && y >= 0
+                        && (x as usize) < W
+                        && (y as usize) < H
+                        && self.occ[idx(x as usize, y as usize)] != 0
+                    {
+                        count += 1;
+                    }
+                }
+            }
+            if count > crowd {
+                continue;
+            }
+            let dir = self.rng.below(8) as i32;
+            let (dx, dy) = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)][dir as usize];
+            let (x, y) = (wx + dx, wy + dy);
+            if x < 0 || y < 0 || x as usize >= W || y as usize >= H {
+                continue;
+            }
+            let j = idx(x as usize, y as usize);
+            if self.ground[j] != Ground::Agar || self.occ[j] != 0 {
+                continue;
+            }
+            self.occ[j] = 1;
+            let half = (w.food - 1.0).max(0.0) * 0.5;
+            self.walkers[k].food = half;
+            let heading = self.rng.f32() * TAU;
+            self.walkers.push(Walker {
+                x: x as f32 + 0.5,
+                y: y as f32 + 0.5,
+                heading,
+                food: half,
+            });
+            self.counts.births += 1;
+        }
+        self.store = self.walkers.iter().map(|w| w.food).sum();
+        // What is drawn: the carried food, laid where each walker stands,
+        // spread and faded like trail.
+        spread(&self.ground, &self.carried, &mut self.scratch, CARRIED_KEEP, None);
+        std::mem::swap(&mut self.carried, &mut self.scratch);
+        spread(&self.ground, &self.walkers_seen, &mut self.scratch, CARRIED_KEEP, None);
+        std::mem::swap(&mut self.walkers_seen, &mut self.scratch);
+        for w in &self.walkers {
+            if let Some(i) = cell(w.x, w.y) {
+                self.carried[i] += w.food;
+                self.walkers_seen[i] += 1.0;
+            }
+        }
+    }
+
     fn economy(&mut self) {
+        if self.params.flow {
+            return self.economy_flow();
+        }
         if self.params.pieces {
             return self.economy_by_piece();
         }
@@ -1810,13 +2374,27 @@ impl Dish {
             if self.storm_line.is_none() && self.t + 1 >= self.storm_at.saturating_sub(self.storm_warning) {
                 self.storm_line = self.aim_storm();
             }
+            // When was all the food first joined? Once a second, and only
+            // once every late pile has landed: a measure is a flood fill.
+            if self.all_joined_at.is_none()
+                && self.phase == Phase::Growing
+                && self.pending.is_empty()
+                && self.t.is_multiple_of(sps)
+            {
+                let m = self.measure();
+                if m.piles >= THRIFT_MIN_JOINED && m.reach == m.piles {
+                    self.all_joined_at = Some(self.t);
+                }
+            }
         }
         match self.phase {
             Phase::Growing if self.t + 1 >= self.storm_at => {
                 self.lamp = None;
                 self.stroke = None;
                 self.update_light();
-                let before = self.measure();
+                let mut before = self.measure();
+                before.joined_at = self.all_joined_at.map(|t| (t / STEPS_PER_SECOND as u64) as u32);
+                before.on_patch = self.on_patch();
                 self.strike();
                 self.before = Some(before);
                 self.phase = Phase::Storm(self.t);
@@ -2195,6 +2773,49 @@ pub fn disc(r: f32) -> impl Iterator<Item = (f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The mean load of walkers 30+ cells of tube from food after 40 s,
+    /// over seeds 1-2, with `p`.
+    fn far_load(p: &Params) -> f32 {
+        let (mut sum, mut n) = (0.0, 0);
+        for seed in 1..=2 {
+            let mut d = Dish::with_params(seed, p.clone());
+            while d.t < 40 * STEPS_PER_SECOND as u64 {
+                d.step();
+            }
+            for w in &d.walkers {
+                if cell(w.x, w.y).is_some_and(|i| d.fed[i] != u16::MAX && d.fed[i] >= 30) {
+                    sum += w.food;
+                    n += 1;
+                }
+            }
+        }
+        assert!(n > 0, "no walkers 30+ cells of tube from food");
+        sum / n as f32
+    }
+
+    /// Food flow's stream and spreading (`Params::stream`, `sap_speed`)
+    /// carry food down the tube: walkers far from food carry more with
+    /// them on than with both off (walkers then only carry what they took
+    /// at the rim themselves).
+    #[test]
+    fn flowing_food_reaches_down_the_tube() {
+        let on = far_load(&Params { flow: true, ..Params::default() });
+        let off = far_load(&Params { flow: true, stream: 0.0, sap_speed: 0, ..Params::default() });
+        assert!(on > off * 1.5, "stream on {on:.3} vs off {off:.3}");
+    }
+
+    #[test]
+    fn flow_is_deterministic() {
+        let run = || {
+            let mut d = Dish::with_params(3, Params { flow: true, ..Params::default() });
+            for _ in 0..1200 {
+                d.step();
+            }
+            (d.walkers.len(), d.store.to_bits(), d.sap.iter().sum::<f32>().to_bits())
+        };
+        assert_eq!(run(), run());
+    }
 
     #[test]
     fn same_seed_same_dish() {

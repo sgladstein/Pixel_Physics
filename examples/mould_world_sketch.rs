@@ -376,6 +376,8 @@ fn main() {
         tools: Tools { oats: 0, oats_regrow: 0, salt: 0, snips: 0 },
         seconds: 100_000,
         win: Win::AliveAtBell { bars: [1, 2, 3] },
+        // The shipped free dish's angle (`Params::default`).
+        sensor_deg: 45.0,
     }));
     // `so=`: Jones's sensor offset, the knob that sets how wide a tube is
     // (0 keeps the shipped value).

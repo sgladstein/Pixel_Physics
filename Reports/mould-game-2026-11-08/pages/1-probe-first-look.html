@@ -1,0 +1,147 @@
+<title>Mould Probe</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column like a lab notebook page; pictures full column width, counts in a mono strip under each. */
+:root {
+  --agar: #0f1817;      /* page: the dish's own dark agar */
+  --plate: #172422;     /* raised surfaces */
+  --rim: #2c3b38;       /* hairlines */
+  --ink: #e6e3d6;       /* body text */
+  --dim: #98a39d;       /* secondary text */
+  --mould: #f2c230;     /* the slime mould yellow: accent */
+  --pale: #b5b6ae;      /* unfed tube */
+  --cut: #ff5a40;       /* storm */
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Literata", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+body { background: var(--agar); color: var(--ink); font: 400 16px/1.6 var(--body); }
+main { max-width: 780px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.1; }
+h1 { font-weight: 800; font-size: clamp(32px, 7vw, 52px); letter-spacing: -0.01em; }
+h1 span { color: var(--mould); }
+h2 { font-weight: 600; font-size: 22px; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+section { display: grid; gap: 12px; }
+.ask { border: 1px solid var(--mould); border-radius: 6px; padding: 16px 18px; display: grid; gap: 10px; background: var(--plate); }
+.ask strong { color: var(--mould); font-family: var(--display); font-size: 20px; font-weight: 600; }
+code, .cmd { font-family: var(--mono); font-size: 14px; }
+.cmd { display: block; background: #08100f; border: 1px solid var(--rim); border-radius: 4px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; color: var(--mould); }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figure img { width: 100%; height: auto; display: block; border-radius: 4px; border: 1px solid var(--rim); image-rendering: pixelated; }
+figcaption { font-size: 15px; color: var(--dim); }
+.counts { font: 400 13px/1.5 var(--mono); color: var(--ink); background: var(--plate); border-radius: 4px; padding: 8px 10px; font-variant-numeric: tabular-nums; }
+.counts b { color: var(--mould); font-weight: 600; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .pair { grid-template-columns: 1fr; } }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font: 400 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; min-width: 460px; width: 100%; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rim); }
+th { color: var(--dim); font-weight: 600; }
+td.hi { color: var(--mould); }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 65ch; }
+.key { display: flex; flex-wrap: wrap; gap: 8px 18px; font: 400 13px/1.4 var(--mono); color: var(--dim); }
+.key i { font-style: normal; display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+</style>
+
+<main>
+  <header style="display:grid;gap:10px">
+    <div class="eyebrow">New-game probe 2 of 6 · 2026-11-07</div>
+    <h1>Mould: herd a slime mould <span>with a lamp</span></h1>
+    <p>A yellow slime mould spreads across a dish looking for food. You can't steer it directly. You hold a lamp it flees, drop oats it reaches for, draw one salt line it won't cross, and snip it. At 1:30 a storm strikes the thickest tube, and three stars score the network.</p>
+  </header>
+
+  <div class="ask">
+    <strong>Does herding it feel alive, or does it feel like watching?</strong>
+    <p>Play a dish or two and tell me in a line. The numbers below can show that the mould answers fast. They can't show whether that is fun.</p>
+    <code class="cmd">cargo run --release --bin mould</code>
+    <p style="font-size:14px;color:var(--dim)">Keys 1 to 4 pick Lamp, Oats, Salt and Snip. Hold the mouse for the lamp. Space runs it 4x faster, R restarts, N goes to the next dish. Add <code>-- 3</code> to start on dish 3.</p>
+  </div>
+
+  <section>
+    <div class="eyebrow">The verbs, in real time</div>
+    <h2>The lamp bends a tube, then oats pull out a new branch</h2>
+    <figure>
+      <img src="verbs.gif" alt="Real-time clip: a lamp sweeps across a yellow tube and the tube bends away from it; then oats dropped beyond the mould's edge pull out a new branch that reaches a food pile.">
+      <figcaption>Dish 1 at 25 s, at play speed. The lamp sweeps across the trunk for 2.5 s. Then oats drop 20 cells past the mould's front.</figcaption>
+      <div class="counts">mould within 6 cells of the swept tube: <b>11 → 0</b> mid-sweep · oats placed, first walker on them after <b>0.65 s</b></div>
+    </figure>
+    <div class="counts">Over 5 dishes, paired against the same dish without the tool:<br>
+      oats → visible lean: <b>0.45–0.85 s</b> (9 of 9; target 3 s) · lamp → mould under it halved: <b>0.03–0.08 s</b> (10 of 10)<br>
+      control, lamp switched off: never recoils in 10 s</div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Doing nothing against a simple plan · dish 2 · 6x speed</div>
+    <h2>Left alone it joins three piles. Led with oats it joins all five.</h2>
+    <div class="pair">
+      <figure>
+        <img src="s2-idle.gif" alt="Dish 2 with no player: the mould joins three food piles with a tree of tubes, and the storm splits it.">
+        <figcaption>Do nothing</figcaption>
+        <div class="counts"><b>1 star</b> (thrift)<br>food joined 3 of 5<br>after the storm: 2<br>network 1.04x shortest</div>
+      </figure>
+      <figure>
+        <img src="s2-plan.gif" alt="Dish 2 with the scripted plan: oats lead the mould pile to pile until all five are joined; the storm cuts one tube.">
+        <figcaption>Simple plan: oats as stepping stones, lamp on stray growth</figcaption>
+        <div class="counts"><b>2 stars</b> (reach, thrift)<br>food joined 5 of 5<br>after the storm: 4<br>network 1.09x shortest</div>
+      </figure>
+    </div>
+    <div class="key"><span><i style="background:var(--mould)"></i>fed tube</span><span><i style="background:var(--pale)"></i>unfed tube, starving</span><span><i style="background:#d6ac68"></i>food pile (ring = being eaten)</span><span><i style="background:var(--cut)"></i>storm strike</span></div>
+  </section>
+
+  <section>
+    <div class="eyebrow">All five dishes</div>
+    <h2>The plan beats doing nothing. A random hand ties it on stars.</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>dish</th><th>do nothing</th><th>random hand</th><th>simple plan</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>0★ · 2/5 → 1</td><td>0★ · 3/5 → 2</td><td>0★ · 3/5 → 2</td></tr>
+          <tr><td>2</td><td>1★ · 3/5 → 2</td><td>2★ · 4/5 → 4</td><td class="hi">2★ · 5/5 → 4</td></tr>
+          <tr><td>3</td><td>1★ · 3/5 → 2</td><td>0★ · 2/5 → 1</td><td class="hi">1★ · 4/5 → 2</td></tr>
+          <tr><td>4</td><td>0★ · 2/5 → 1</td><td>2★ · 3/5 → 3</td><td class="hi">1★ · 4/5 → 3</td></tr>
+          <tr><td>5</td><td>0★ · 2/5 → 1</td><td>2★ · 3/5 → 3</td><td class="hi">2★ · 5/5 → 4</td></tr>
+          <tr><th>total</th><th>2★</th><th>6★</th><th>6★</th></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:15px;color:var(--dim)">Each cell shows stars, food joined, and piles still joined after the storm. Plan against doing nothing: better on 3 dishes, worse on 0 (sign test p 0.25). Food joined is better on 5 of 5 (p 0.06). Five dishes are too few for anything to pass a correction, so read this as a direction. The random hand earns its stars on toughness: when it strikes a spur out to stray oats, the mould loses nothing. Next fix if this goes on: strike the tube whose loss costs the most food.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Frame cost</div>
+    <div class="counts">whole dish awake, ~1,500 walkers, window frame at 4x: mean <b>2.70 ms</b> (sim 1.37 + draw 1.34) · worst <b>8.84 ms</b> (the storm frame)<br>A dish never settles, so every frame is redrawn whole (1.34 ms). A dish is bounded, so this never grows with a bigger world.</div>
+  </section>
+
+  <section>
+    <div class="eyebrow">What I changed from the brief</div>
+    <ul>
+      <li><b>The storm strikes one tube, not three.</b> At three or two cuts, the toughness star was earned in 0 of 20 runs, even by a plan that spent spare oats on loops. At one cut it was earned 4 times in 20, never by doing nothing.</li>
+      <li><b>A cut is a line across the tube.</b> A round cut was simply flowed around, and every run got the star.</li>
+      <li><b>Its own trail field.</b> The probe touches no shared engine file, so it can't move the lab. The Seep probe can lift it whole.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="eyebrow">Left out for now · next if it's fun</div>
+    <ul>
+      <li>The pulse beat, so you could play on the rhythm.</li>
+      <li>Spores and fruiting: a starved branch fruits and its spores blow over the salt.</li>
+      <li>Dye riding the tubes, so you can see which tube is the trunk.</li>
+      <li>Lightning as the storm, a rival mould, more dishes, and perks between dishes.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="eyebrow">The window</div>
+    <figure>
+      <img src="window.png" alt="The game window early in dish 2: a yellow blob on its home pile sends out pale exploring fingers; four oat piles wait across the dish; the tool bar and storm timer sit underneath.">
+      <figcaption>The real window under a headless display, dish 2 at about 1 s. The pale fingers are exploring growth that isn't fed yet.</figcaption>
+    </figure>
+  </section>
+</main>

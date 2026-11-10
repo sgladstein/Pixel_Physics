@@ -20,6 +20,12 @@
 //! then the three candidates, named only by a letter in the bottom-right
 //! corner as they were judged. `-- 0 B` opens the lesson in look B.
 //!
+//! **The looks pass** (2026-11-10), every one on by default and each with a
+//! key to compare it against the drawing before, named in the title bar:
+//! F3 how food in the tube is drawn (the food ramp, then grey, embers,
+//! dried slime), F4 the walkers (grains, glints, off), F5 the smoothing of
+//! the rim, tubes, salt and cuts, F6 the stain where mould has been.
+//!
 //! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
 //! (or `-- wander 3` for dish seed 3), W from any dish, or THE WANDERER on
 //! the picker. No clock and no stars: lead her to the crack on the right and
@@ -35,10 +41,10 @@ use std::time::{Duration, Instant};
 
 use pixel_physics::mould::lesson::{Lesson, Step};
 use pixel_physics::mould::level::{Progress, DISHES, ENTRIES, FREE, WANDER};
-use pixel_physics::mould::look::Style;
+use pixel_physics::mould::look::{self, Style};
 use pixel_physics::mould::render::{self, Banner, Menu, QuitArm, View};
 use pixel_physics::mould::wander::{Outcome, FIRST_WALKERS};
-use pixel_physics::mould::{Dish, Phase, Tool, H, STEPS_PER_FRAME, W};
+use pixel_physics::mould::{tune, Dish, Params, Phase, Tool, H, STEPS_PER_FRAME, W};
 use pixels::{Pixels, ScalingMode, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -211,6 +217,10 @@ struct Handler {
     /// Escape was pressed once on a dish, at this time: a second within
     /// `QuitArm::WINDOW` quits.
     quit: QuitArm,
+    /// The tuning panel's values (T, `mould::tune`), applied to every dish
+    /// opened and saved to `tune::TUNE_FILE`.
+    tuned: Params,
+    shift: bool,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -220,7 +230,14 @@ impl Handler {
             .ok()
             .and_then(|s| s.parse().ok());
         let journey = matches!(entry, Entry::Wander(_)).then_some(Journey::FIRST);
-        let (dish, lesson) = new_dish(entry, journey);
+        let (mut dish, lesson) = new_dish(entry, journey);
+        let mut tuned = Params::default();
+        if let Ok(text) = std::fs::read_to_string(tune::TUNE_FILE) {
+            for bad in tune::from_text(&text, &mut tuned) {
+                eprintln!("{}: not understood: {bad}", tune::TUNE_FILE);
+            }
+        }
+        tune::apply(&tuned, &mut dish.params);
         Handler {
             window: None,
             pixels: None,
@@ -247,6 +264,8 @@ impl Handler {
             frames: 0,
             screenshot_after,
             quit: QuitArm::default(),
+            tuned,
+            shift: false,
             result: Ok(()),
         }
     }
@@ -272,6 +291,7 @@ impl Handler {
             _ => self.journey = None,
         }
         (self.dish, self.lesson) = new_dish(entry, self.journey);
+        tune::apply(&self.tuned, &mut self.dish.params);
         self.recorded = false;
         self.pressed = false;
         self.view.brief = true;
@@ -459,6 +479,51 @@ impl Handler {
         if let Some(w) = &self.window {
             w.set_title(&title(self.entry, self.journey));
         }
+        // The tuning panel (T): the arrows pick and change a row, Enter
+        // flips a switch, Backspace resets it; the dish keeps running.
+        if code == KeyCode::KeyT {
+            self.view.tune = match self.view.tune {
+                Some(_) => None,
+                None => Some(0),
+            };
+            return;
+        }
+        if let Some(row) = self.view.tune {
+            let n = tune::KNOBS.len();
+            let steps = if self.shift { 5 } else { 1 };
+            let changed = match code {
+                KeyCode::ArrowUp => {
+                    self.view.tune = Some((row + n - 1) % n);
+                    false
+                }
+                KeyCode::ArrowDown => {
+                    self.view.tune = Some((row + 1) % n);
+                    false
+                }
+                KeyCode::ArrowLeft => {
+                    tune::nudge(&mut self.tuned, row, -steps);
+                    true
+                }
+                KeyCode::ArrowRight | KeyCode::Enter => {
+                    tune::nudge(&mut self.tuned, row, steps);
+                    true
+                }
+                KeyCode::Backspace => {
+                    tune::reset(&mut self.tuned, row);
+                    true
+                }
+                _ => false,
+            };
+            if changed {
+                tune::apply(&self.tuned, &mut self.dish.params);
+                if let Err(e) = std::fs::write(tune::TUNE_FILE, tune::to_text(&self.tuned)) {
+                    eprintln!("could not save {}: {e}", tune::TUNE_FILE);
+                }
+            }
+            if matches!(code, KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Backspace) {
+                return;
+            }
+        }
         // The picker: 1-6 picks, the arrows and Enter choose, M or Escape
         // goes back to the dish.
         if let Some(m) = self.view.menu {
@@ -492,7 +557,7 @@ impl Handler {
             self.open_menu();
             return;
         }
-        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 {
+        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 && code != KeyCode::F4 && code != KeyCode::F5 && code != KeyCode::F6 {
             self.view.brief = false;
             self.let_go();
             return;
@@ -521,6 +586,45 @@ impl Handler {
             KeyCode::KeyN if self.journey.is_some() => self.next_stretch(),
             KeyCode::KeyN => self.next(),
             KeyCode::F2 => self.view.style = self.view.style.next(),
+            // How starving mould is drawn (`look::STARVE_LOOK`): grey,
+            // embers, dried slime, the food ramp (default). Render-only;
+            // named in the title.
+            KeyCode::F3 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let n = (look::STARVE_LOOK.load(Relaxed) + 1) % look::STARVE_LOOKS.len() as u8;
+                look::STARVE_LOOK.store(n, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: starving mould drawn as {} (F3)", look::STARVE_LOOKS[n as usize]));
+                }
+            }
+            // How the walkers are drawn (`look::WALKER_LOOK`): off, grains,
+            // glints. Render-only; named in the title.
+            KeyCode::F4 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let n = (look::WALKER_LOOK.load(Relaxed) + 1) % look::WALKER_LOOKS.len() as u8;
+                look::WALKER_LOOK.store(n, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: walkers drawn as {} (F4)", look::WALKER_LOOKS[n as usize]));
+                }
+            }
+            // The anti-pixel pass (`look::SMOOTH`), on or off. Render-only.
+            KeyCode::F5 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let on = !look::SMOOTH.load(Relaxed);
+                look::SMOOTH.store(on, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: smoothing {} (F5)", if on { "on" } else { "off" }));
+                }
+            }
+            // The stain where mould has been (`look::STAIN`), on or off.
+            KeyCode::F6 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let on = !look::STAIN.load(Relaxed);
+                look::STAIN.store(on, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: stain {} (F6)", if on { "on" } else { "off" }));
+                }
+            }
             // Go: only while fed mould is in the crack (the dish refuses
             // otherwise, and the hint line says why).
             KeyCode::KeyG => {
@@ -663,9 +767,13 @@ impl ApplicationHandler for Handler {
                     }
                 }
             }
+            WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if event.state == ElementState::Pressed && !event.repeat {
+                    // Held arrows repeat in the tuning panel only.
+                    let repeat_ok = self.view.tune.is_some()
+                        && matches!(code, KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::ArrowUp | KeyCode::ArrowDown);
+                    if event.state == ElementState::Pressed && (!event.repeat || repeat_ok) {
                         self.key(code, event_loop);
                     }
                 }

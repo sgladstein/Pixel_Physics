@@ -48,6 +48,8 @@ pub struct View {
     /// quits: the game's look (`look.rs`) says so on screen; this file
     /// leaves it to the window title.
     pub quit_armed: bool,
+    /// The tuning panel (T, `tune.rs`), open on this row.
+    pub tune: Option<usize>,
 }
 
 impl Default for View {
@@ -63,6 +65,7 @@ impl Default for View {
             style: super::look::Style::Classic,
             menu: None,
             quit_armed: false,
+            tune: None,
         }
     }
 }
@@ -108,6 +111,15 @@ const WOUND: [u8; 3] = [92, 18, 40];
 /// (cells a second), how far apart bands are (cells), and the fraction of
 /// that spacing its tail covers.
 const PULSE: [u8; 3] = [255, 252, 230];
+/// **The drawn pulse is off** (owner, 2026-11-09: "I also really don't
+/// like the fact that the pulse is just drawn on screen. Everything we're
+/// seeing should be based on real pixel simulations"). It was drawing
+/// only; nothing in the dish moved with it. The beat that is simulated is
+/// `Params::flow`'s sap (`pulse_seconds`, `pulse_strength`), which shows
+/// as food in the tube. Kept behind this switch, not deleted, so the two
+/// can be put side by side; the Organ's pulse (`organ.rs`) is its game's
+/// mechanic and is not this.
+pub const DRAWN_PULSE: bool = false;
 const PULSE_STRENGTH: f32 = 0.45;
 const PULSE_SPEED: f32 = 45.0;
 const PULSE_SPACING: f32 = 60.0;
@@ -141,9 +153,17 @@ pub fn cell_colour(d: &Dish, i: usize) -> [u8; 3] {
         // Stretch: the tube threshold is the bottom of the ramp.
         let lo = (1.0 + d.params.tube * 0.5).ln() / (1.0 + TRAIL_TOP).ln();
         let v = (v - lo) / (1.0 - lo);
+        if let Some(c) = d.carried_look(i) {
+            // Food flowing (`Params::flow`): the yellow is the food the
+            // walkers here carry, graded, with no drawn pulse.
+            let lit = ramp(&FED_RAMP, (0.55 * v + 0.45 * c).clamp(0.0, 1.0));
+            let pale = ramp(&PALE_RAMP, v);
+            let k = c * (2.0 - c);
+            return [0, 1, 2].map(|j| (pale[j] as f32 + (lit[j] as f32 - pale[j] as f32) * k) as u8);
+        }
         return if d.looks_fed(i) {
             let c = ramp(&FED_RAMP, v);
-            let b = pulse(d, i);
+            let b = if DRAWN_PULSE { pulse(d, i) } else { 0.0 };
             if b > 0.0 {
                 [0, 1, 2].map(|k| (c[k] as f32 + (PULSE[k] as f32 - c[k] as f32) * b * PULSE_STRENGTH) as u8)
             } else {
@@ -245,8 +265,16 @@ fn text_px(s: &str) -> i32 {
 
 pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     if view.style != super::look::Style::Classic {
-        return super::look::draw(d, view, scale, frame);
+        super::look::draw(d, view, scale, frame);
+    } else {
+        classic(d, view, scale, frame);
     }
+    if let Some(row) = view.tune {
+        super::tune::draw(frame, frame_size(scale), &d.params, row);
+    }
+}
+
+fn classic(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     let (fw, fh) = frame_size(scale);
     debug_assert_eq!(frame.len(), (fw * fh * 4) as usize);
     let s = scale as usize;
@@ -1006,6 +1034,12 @@ fn level_status(d: &Dish, joined: &super::Score) -> String {
             let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
             format!("TIME {left}  MOULD {}  EATING {fed} PILE{}", d.walkers.len(), if fed == 1 { "" } else { "S" })
         }
+        Win::Endless { .. } => format!(
+            "ALIVE {}  MOULD {}  MOST {}",
+            clock((d.t / super::STEPS_PER_SECOND as u64) as u32),
+            d.walkers.len(),
+            d.peak_mould
+        ),
     }
 }
 
@@ -1086,6 +1120,11 @@ fn level_brief(l: &super::level::Level, frame: &mut [u8], (fw, fh): (u32, u32), 
             format!("*   {} MOULD ALIVE AT {bell}", bars[0]),
             format!("**  {} ALIVE", bars[1]),
             format!("*** {} ALIVE", bars[2]),
+        ],
+        Win::Endless { bars, .. } => [
+            format!("*   ALIVE AT {}", clock(bars[0])),
+            format!("**  AT {}", clock(bars[1])),
+            format!("*** AT {}", clock(bars[2])),
         ],
     };
     lines.extend(stars.into_iter().map(|s| (s, TEXT)));

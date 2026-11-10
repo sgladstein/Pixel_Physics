@@ -1,0 +1,642 @@
+//! Review 2's scratch reproductions (never committed). Ports of review 1's
+//! proved reproductions, plus new ones against 754853039.
+use super::look::Style;
+use super::render::{self, Banner, Menu, View};
+use super::*;
+
+const SPS: u64 = STEPS_PER_SECOND as u64;
+
+fn wound_cells(d: &Dish) -> usize {
+    d.ground.iter().filter(|g| **g == Ground::Wound).count()
+}
+
+fn play_out(d: &mut Dish, hand: &mut dyn super::play::Player, cap: u64) {
+    while d.phase != Phase::Over && d.t < cap {
+        hand.act(d);
+        for _ in 0..STEPS_PER_FRAME {
+            d.step();
+        }
+    }
+}
+
+fn frame(d: &Dish, view: &View, scale: u32) -> Vec<u8> {
+    let (w, h) = render::frame_size(scale);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    render::draw(d, view, scale, &mut buf);
+    buf
+}
+
+fn view(style: Style) -> View {
+    View {
+        style,
+        ..View::default()
+    }
+}
+
+// ---------------------------------------------------------- review 1 ports
+
+#[test]
+fn r1_organ_snip_heals() {
+    let mut d = organ::new_dish(1);
+    for _ in 0..2 * SPS {
+        organ::step(&mut d);
+    }
+    d.snips_left = 3;
+    assert!(d.begin_stroke(Tool::Snip, 100.0, 120.0));
+    d.drag_stroke(130.0, 120.0);
+    d.end_stroke();
+    let w0 = wound_cells(&d);
+    for _ in 0..30 * SPS {
+        organ::step(&mut d);
+    }
+    let w1 = wound_cells(&d);
+    println!("R1 organ: wound cells {w0} -> {w1} after 30 s");
+    assert!(w0 > 0);
+    assert_eq!(w1, 0, "organ never heals");
+}
+
+#[test]
+fn r2_running_dry_dead_mould_takes_oats() {
+    let mut d = Dish::from_level(&level::DISHES[2], 1);
+    while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+        d.step();
+        assert!(d.phase != Phase::Over);
+    }
+    let n = d.walkers.len() as f32;
+    let (cx, cy) = (
+        d.walkers.iter().map(|w| w.x).sum::<f32>() / n,
+        d.walkers.iter().map(|w| w.y).sum::<f32>() / n,
+    );
+    let w = *d
+        .walkers
+        .iter()
+        .min_by(|a, b| (a.x - cx).hypot(a.y - cy).total_cmp(&(b.x - cx).hypot(b.y - cy)))
+        .unwrap();
+    for (arm, reach) in [("level (stray_reach 24)", level::STRAY_REACH), ("control (infinite)", f32::INFINITY)] {
+        let mut e = d.clone();
+        e.params.stray_reach = reach;
+        e.oats_left = e.oats_left.max(2);
+        assert!(e.place_oats(w.x, w.y));
+        assert!(e.place_oats(w.x + 3.0, w.y));
+        let mut eaten = false;
+        for _ in 0..8 * SPS {
+            e.step();
+            eaten |= e.piles.iter().any(|p| p.oats && p.reached());
+        }
+        let fed = e.fed.iter().filter(|&&f| f != u16::MAX).count();
+        println!(
+            "R2 at {} s, {} walkers: {arm}: oats eaten {eaten}; after 8 s walkers {} fed cells {fed}",
+            d.t / SPS,
+            d.walkers.len(),
+            e.walkers.len()
+        );
+    }
+}
+
+#[test]
+fn r3_oat_on_fed_tube_no_join() {
+    let mut base = Dish::new(1);
+    for _ in 0..25 * SPS {
+        base.step();
+    }
+    let mut spots = Vec::new();
+    for i in (0..W * H).step_by(7) {
+        let f = base.fed[i];
+        if f == u16::MAX || !(25..=50).contains(&f) {
+            continue;
+        }
+        let (x, y) = ((i % W) as f32 + 0.5, (i / W) as f32 + 0.5);
+        if base.piles.iter().all(|p| (p.x - x).hypot(p.y - y) > p.r + 15.0)
+            && spots.iter().all(|&(a, b): &(f32, f32)| (a - x).hypot(b - y) > 20.0)
+        {
+            spots.push((x, y));
+        }
+    }
+    let (mut flashed, mut ctrl) = (0, 0);
+    let tried = spots.len().min(8);
+    for &(x, y) in spots.iter().take(tried) {
+        let mut a = base.clone();
+        let mut b = base.clone();
+        let (sa, sb) = (a.counts.snaps, b.counts.snaps);
+        b.oats_left = 5;
+        assert!(b.place_oats(x, y));
+        for _ in 0..2 * SPS {
+            a.step();
+            b.step();
+        }
+        flashed += b.counts.snaps - sb;
+        ctrl += a.counts.snaps - sa;
+    }
+    println!("R3: {tried} oats on fed tube: {flashed} flashes; control {ctrl}");
+}
+
+#[test]
+fn r6_absent_tool() {
+    let mut d = Dish::from_level(&level::DISHES[0], 1);
+    for _ in 0..SPS {
+        d.step();
+    }
+    println!(
+        "R6: has salt {} snip {}; begin_stroke(Salt) {} (Snip) {}",
+        d.has_tool(Tool::Salt),
+        d.has_tool(Tool::Snip),
+        d.begin_stroke(Tool::Salt, 60.0, 100.0),
+        d.begin_stroke(Tool::Snip, 60.0, 100.0)
+    );
+}
+
+#[test]
+fn r7_dead_level_ends() {
+    let mut d = Dish::from_level(&level::DISHES[0], 1);
+    for _ in 0..2 * SPS {
+        d.step();
+    }
+    while !d.walkers.is_empty() {
+        d.remove_walker(0, Kill::Snip);
+    }
+    let t0 = d.t;
+    while d.phase != Phase::Over {
+        d.step();
+    }
+    println!("R7: none left at {} s; ended at {} s {:?}", t0 / SPS, d.t / SPS, d.card.as_ref().map(|c| (&c.amount, &c.why)));
+    assert!(d.t - t0 < SPS);
+}
+
+#[test]
+fn r8_ruler_gap() {
+    let mut d = Dish::from_level(&level::DISHES[1], 1);
+    d.walkers.clear();
+    d.trail.fill(0.0);
+    let piles: Vec<(f32, f32)> = d.dish_piles().map(|p| (p.x, p.y)).collect();
+    let m = level::DISHES[1].meeting_point().0;
+    let lay = |d: &mut Dish, a: (f32, f32), b: (f32, f32)| {
+        let n = (b.0 - a.0).hypot(b.1 - a.1).ceil() as usize * 2;
+        for k in 0..=n {
+            let f = k as f32 / n as f32;
+            let (x, y) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            for (ox, oy) in disc(1.5) {
+                if let Some(i) = cell(x + ox, y + oy) {
+                    if d.ground[i] == Ground::Agar {
+                        d.trail[i] = 10.0;
+                    }
+                }
+            }
+        }
+    };
+    for &p in &piles {
+        lay(&mut d, m, p);
+    }
+    let whole = (d.best_join(), d.measure().reach);
+    let (a, b) = (m, piles[1]);
+    let mid = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let l = dx.hypot(dy);
+    let (nx, ny) = (-dy / l, dx / l);
+    let mut cut = 0;
+    for k in -8..=8 {
+        let (x, y) = (mid.0 + nx * k as f32 * 0.5, mid.1 + ny * k as f32 * 0.5);
+        if let Some(i) = cell(x, y) {
+            if d.trail[i] > 0.0 {
+                d.trail[i] = 0.0;
+                cut += 1;
+            }
+        }
+    }
+    println!(
+        "R8: whole best_join {:?} reach {}; after {cut}-cell break best_join {:?} reach {}",
+        whole.0,
+        whole.1,
+        d.best_join(),
+        d.measure().reach
+    );
+}
+
+#[test]
+fn r11_free_dish_bar() {
+    use super::play::{Idle, Random};
+    for seed in 1..=8u64 {
+        let mut a = Dish::new(seed);
+        play_out(&mut a, &mut Idle, u64::MAX);
+        let mut b = Dish::new(seed);
+        play_out(&mut b, &mut Random::new(seed), u64::MAX);
+        let (sa, sb) = (a.score.clone().unwrap(), b.score.clone().unwrap());
+        println!(
+            "R11 seed {seed}: idle {} {:?} reach {}/{} | random {} {:?} reach {}/{}",
+            sa.star_count(),
+            sa.stars,
+            sa.reach,
+            sa.piles,
+            sb.star_count(),
+            sb.stars,
+            sb.reach,
+            sb.piles
+        );
+    }
+}
+
+// ------------------------------------------------------------- new: look
+
+/// N1: food still pending when a dish leaves Growing is drawn with
+/// `(at - d.t)`, which underflows once the clock passes it.
+#[test]
+fn n1_pending_after_dish_over_running_dry() {
+    let mut d = Dish::from_level(&level::DISHES[2], 1);
+    for _ in 0..2 * SPS {
+        d.step();
+    }
+    while !d.walkers.is_empty() {
+        d.remove_walker(0, Kill::Snip);
+    }
+    while d.phase != Phase::Over {
+        d.step();
+    }
+    let over_at = d.t;
+    // The window keeps stepping a finished dish while its card is read.
+    while d.t < 25 * SPS {
+        d.step();
+    }
+    let stale: Vec<u64> = d.pending.iter().map(|(at, _)| *at).filter(|&at| at < d.t).collect();
+    println!(
+        "N1 Running Dry: over at {} s, now {} s, pending {:?}, already past: {:?}",
+        over_at / SPS,
+        d.t / SPS,
+        d.pending.iter().map(|(at, _)| at / SPS).collect::<Vec<_>>(),
+        stale.iter().map(|a| a / SPS).collect::<Vec<_>>()
+    );
+    for (at, _) in &d.pending {
+        if *at <= d.t + 5 * SPS {
+            println!("N1 the look computes ({at} - {}).div_ceil(120) = {:?}", d.t, at.checked_sub(d.t));
+        }
+    }
+    // Draws; panics in a debug build (overflow-checks), wraps in release.
+    let _ = frame(&d, &view(Style::Night), 4);
+}
+
+/// N1b: the Wanderer: Go before the 55 s late pile, and it stays pending.
+#[test]
+fn n1b_pending_after_go_wanderer() {
+    use super::play::Leader;
+    for seed in 1..=6u64 {
+        let mut d = Dish::wanderer(seed, 1, wander::FIRST_WALKERS);
+        let mut hand = Leader::new(true);
+        play_out(&mut d, &mut hand, 6 * 60 * SPS);
+        let go = d.wander_state().and_then(|w| w.go_at);
+        // The arrival card is up; keep the clock running as the window does.
+        let end = d.t + 30 * SPS;
+        while d.t < end {
+            d.step();
+        }
+        let past: Vec<u64> = d.pending.iter().map(|(at, _)| *at).filter(|&at| at < d.t).collect();
+        println!(
+            "N1b wander seed {seed}: go at {:?} s, over, now {} s, pending past due {:?}",
+            go.map(|g| g / SPS),
+            d.t / SPS,
+            past.iter().map(|a| a / SPS).collect::<Vec<_>>()
+        );
+        let _ = frame(&d, &view(Style::Night), 4);
+    }
+}
+
+/// N2: the half-size glow is cached by the dish's address and its step: a
+/// new dish in the same place (the window's one `Handler::dish`) at the same
+/// step reuses the previous dish's glow.
+#[test]
+fn n2_glow_cache_survives_a_dish_swap() {
+    // The window's case: lesson behind its card (t = 0), M, pick another
+    // dish; it opens at t = 0 behind its own card, in the same field.
+    let v = View {
+        brief: true,
+        ..view(Style::Night)
+    };
+    for (name, mut make) in [
+        ("lesson -> free dish 1", Box::new(|| Dish::new(1)) as Box<dyn FnMut() -> Dish>),
+        ("free dish 1 at 30 s -> Running Dry at 30 s", Box::new(|| Dish::from_level(&level::DISHES[2], 1))),
+    ] {
+        let mut slot = if name.starts_with("lesson") { lesson::Lesson::dish().0 } else { Dish::new(1) };
+        let warm = !name.starts_with("lesson");
+        if warm {
+            for _ in 0..30 * SPS {
+                slot.step();
+            }
+        }
+        let before = frame(&slot, &v, 4);
+        let mut fresh = make();
+        if warm {
+            for _ in 0..30 * SPS {
+                fresh.step();
+            }
+        }
+        slot = fresh.clone();
+        let reused = frame(&slot, &v, 4);
+        // The same dish drawn from another address: a fresh glow.
+        let other = Box::new(fresh);
+        let clean = frame(&other, &v, 4);
+        let diff = reused.chunks(4).zip(clean.chunks(4)).filter(|(a, b)| a != b).count();
+        let vs_old = reused.chunks(4).zip(before.chunks(4)).filter(|(a, b)| a != b).count();
+        println!("N2 {name}: pixels that differ from a clean draw {diff}; from the old dish {vs_old}");
+    }
+}
+
+/// N3: drawing never feeds the simulation: the same seed and hand give the
+/// same census whatever look draws every frame.
+#[test]
+fn n3_census_same_in_every_style() {
+    use super::play::{Player, Random};
+    let mut sums = Vec::new();
+    for style in [None, Some(Style::Classic), Some(Style::Night), Some(Style::Bench), Some(Style::Glow), Some(Style::Toy)] {
+        let mut d = Dish::new(3);
+        let mut hand = Random::new(3);
+        while d.t < 40 * SPS {
+            hand.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+            if let Some(s) = style {
+                let v = View {
+                    cursor: Some((100.0, 80.0)),
+                    ..view(s)
+                };
+                let _ = frame(&d, &v, 4);
+            }
+        }
+        let h = d.trail.iter().fold(0u64, |h, t| h.wrapping_mul(31).wrapping_add(t.to_bits() as u64));
+        sums.push((style.map(|s| s.name()), d.walkers.len(), d.counts.births, d.counts.snaps, h));
+    }
+    println!("N3 {sums:?}");
+    assert!(sums.windows(2).all(|w| (w[0].1, w[0].2, w[0].3, w[0].4) == (w[1].1, w[1].2, w[1].3, w[1].4)));
+}
+
+/// N4: every dish kind, phase and overlay, every style, at several scales:
+/// does any draw panic?
+#[test]
+fn n4_draw_everything_everywhere() {
+    use super::play::{Leader, Player, Random};
+    let mut dishes: Vec<(String, Dish)> = Vec::new();
+    let (l, _) = lesson::Lesson::dish();
+    dishes.push(("lesson".into(), l));
+    for k in 0..level::DISHES.len() {
+        let mut d = Dish::from_level(&level::DISHES[k], 1);
+        dishes.push((format!("level{k} t0"), d.clone()));
+        for _ in 0..20 * SPS {
+            d.step();
+        }
+        dishes.push((format!("level{k} 20s"), d.clone()));
+        play_out(&mut d, &mut Random::new(1), u64::MAX);
+        dishes.push((format!("level{k} over"), d));
+    }
+    let mut f = Dish::new(2);
+    dishes.push(("free t0".into(), f.clone()));
+    while f.t < 85 * SPS {
+        f.step();
+    }
+    dishes.push(("free alarm".into(), f.clone()));
+    while !matches!(f.phase, Phase::Storm(_)) {
+        f.step();
+    }
+    dishes.push(("free storm".into(), f.clone()));
+    play_out(&mut f, &mut Random::new(2), u64::MAX);
+    dishes.push(("free over".into(), f));
+    let mut w = Dish::wanderer(1, 1, wander::FIRST_WALKERS);
+    let mut hand = Leader::new(true);
+    while w.phase == Phase::Growing && w.t < 4 * 60 * SPS {
+        hand.act(&mut w);
+        w.step();
+    }
+    dishes.push(("wander crossing".into(), w.clone()));
+    play_out(&mut w, &mut hand, 6 * 60 * SPS);
+    dishes.push(("wander over".into(), w));
+    let w2 = Dish::wanderer(2, 3, 900);
+    dishes.push(("wander stretch 3".into(), w2));
+    let banner = Banner {
+        number: 3,
+        of: 6,
+        lines: ["DROP OATS AHEAD OF THE MOULD AND WATCH IT GROW TO THEM", "THEN DO IT AGAIN"],
+        fresh: true,
+    };
+    let mut n = 0;
+    for scale in [1u32, 2, 3, 4, 6] {
+        for style in Style::ALL {
+            for (name, d) in &dishes {
+                for (vk, v) in [
+                    ("plain", view(style)),
+                    ("brief", View { brief: true, ..view(style) }),
+                    ("menu", View { menu: Some(Menu { progress: Default::default(), cursor: 5 }), ..view(style) }),
+                    ("quit", View { quit_armed: true, ..view(style) }),
+                    ("banner", View { banner: Some(banner), ..view(style) }),
+                    ("cursor-oats", View { cursor: Some((255.9, 159.9)), tool: Tool::Oats, ..view(style) }),
+                    ("cursor-snip", View { cursor: Some((0.0, 0.0)), tool: Tool::Snip, ..view(style) }),
+                    ("cursor-salt", View { cursor: Some((128.0, 80.0)), tool: Tool::Salt, ..view(style) }),
+                    ("cursor-lamp", View { cursor: Some((250.0, 2.0)), tool: Tool::Lamp, ..view(style) }),
+                ] {
+                    let r = std::panic::catch_unwind(|| frame(d, &v, scale));
+                    if r.is_err() {
+                        println!("N4 PANIC: scale {scale} style {} dish {name} view {vk}", style.name());
+                        n += 1;
+                    }
+                }
+            }
+        }
+    }
+    println!("N4: {n} panicking draws");
+}
+
+/// N5: on Running Dry, the stray grace applies only while nothing on the
+/// dish is fed. A piece that has just starved, far from a piece still
+/// eating, cannot take oats laid right on it.
+#[test]
+fn n5_partial_lock_while_another_piece_feeds() {
+    use super::play::{Player, Random};
+    let mut found = 0;
+    for seed in 1..=6u64 {
+        let mut d = Dish::from_level(&level::DISHES[2], seed);
+        let mut hand = Random::new(seed);
+        let mut tries = 0;
+        while d.phase == Phase::Growing && tries < 3 {
+            hand.act(&mut d);
+            for _ in 0..STEPS_PER_FRAME {
+                d.step();
+            }
+            if !d.t.is_multiple_of(SPS) {
+                continue;
+            }
+            let fed: Vec<usize> = (0..W * H).filter(|&i| d.fed[i] != u16::MAX).collect();
+            if fed.is_empty() {
+                continue;
+            }
+            // A walker on just-starved ground (fed in the last 2 s), with
+            // no fed cell within 40.
+            let grace = 2 * SPS;
+            let cand = d.walkers.iter().copied().find(|w| {
+                let Some(i) = cell(w.x, w.y) else { return false };
+                d.fed[i] == u16::MAX
+                    && d.fed_at[i] != u64::MAX
+                    && d.t.saturating_sub(d.fed_at[i]) <= grace
+                    && fed.iter().all(|&j| {
+                        let (x, y) = ((j % W) as f32 + 0.5, (j / W) as f32 + 0.5);
+                        (x - w.x).hypot(y - w.y) > 40.0
+                    })
+            });
+            let Some(w) = cand else { continue };
+            tries += 1;
+            let near = d.walkers.iter().filter(|o| (o.x - w.x).hypot(o.y - w.y) < 12.0).count();
+            let mut out = Vec::new();
+            for (arm, reach) in [("level", level::STRAY_REACH), ("no leash", f32::INFINITY)] {
+                let mut e = d.clone();
+                e.params.stray_reach = reach;
+                e.oats_left = e.oats_left.max(1);
+                if !e.place_oats(w.x, w.y) {
+                    continue;
+                }
+                let mut eaten = false;
+                for _ in 0..6 * SPS {
+                    e.step();
+                    eaten |= e.piles.iter().any(|p| p.oats && p.reached());
+                }
+                out.push(format!("{arm}: eaten {eaten}"));
+            }
+            found += 1;
+            println!(
+                "N5 seed {seed} at {} s: {} fed cells elsewhere; oats on a walker {near} mould around it, fed {:.1} s ago: {}",
+                d.t / SPS,
+                fed.len(),
+                d.t.saturating_sub(d.fed_at[cell(w.x, w.y).unwrap()]) as f32 / SPS as f32,
+                out.join("; ")
+            );
+        }
+    }
+    println!("N5: {found} cases");
+}
+
+const OUT: &str = "/tmp/claude-0/-home-user-Pixel-Physics/fb694d0e-9c94-59b9-bea3-b6eeccf0da0f/scratchpad/rv2out";
+
+fn save(name: &str, buf: Vec<u8>, scale: u32) {
+    let (w, h) = render::frame_size(scale);
+    image::RgbaImage::from_raw(w, h, buf).unwrap().save(format!("{OUT}/{name}.png")).unwrap();
+}
+
+/// N6: what the player sees: Running Dry left alone, the card up, 30 s
+/// on; and the Wanderer after an early Go.
+#[test]
+fn n6_pending_pictures() {
+    use super::play::{Idle, Leader};
+    let mut d = Dish::from_level(&level::DISHES[2], 1);
+    play_out(&mut d, &mut Idle, u64::MAX);
+    let over = d.t;
+    let snap = |d: &Dish, tag: &str| {
+        let past = d.pending.iter().filter(|(at, _)| *at < d.t).count();
+        let soon = d.pending.iter().filter(|(at, _)| *at <= d.t + 5 * SPS).count();
+        println!("N6 {tag}: t {} s, pending {} (past due {past}, drawn {soon})", d.t / SPS, d.pending.len());
+        save(tag, frame(d, &view(Style::Night), 4), 4);
+    };
+    while d.t < over + 12 * SPS {
+        d.step();
+    }
+    snap(&d, "n6-dry-idle-over+12s");
+    while d.t < over + 40 * SPS {
+        d.step();
+    }
+    snap(&d, "n6-dry-idle-over+40s");
+    let mut w = Dish::wanderer(6, 1, wander::FIRST_WALKERS);
+    play_out(&mut w, &mut Leader::new(true), 6 * 60 * SPS);
+    let t = w.t;
+    while w.t < t + 20 * SPS {
+        w.step();
+    }
+    snap(&w, "n6-wander6-over+20s");
+}
+
+/// N7: review 1's rescue, but laid late: 2, 3 and 5 s after the last fed
+/// cell went (the grace is 2 s).
+#[test]
+fn n7_rescue_when_a_little_late() {
+    for seed in 1..=3u64 {
+        let mut d = Dish::from_level(&level::DISHES[2], seed);
+        while d.t < 20 * SPS || d.fed.iter().any(|&f| f != u16::MAX) {
+            d.step();
+            if d.phase == Phase::Over {
+                break;
+            }
+        }
+        let dry_at = d.t;
+        let mut row = Vec::new();
+        for late in [0u64, 1, 2, 3, 5] {
+            let mut e = d.clone();
+            while e.t < dry_at + late * SPS {
+                e.step();
+            }
+            let n = e.walkers.len() as f32;
+            if n == 0.0 {
+                row.push(format!("+{late}s: none left"));
+                continue;
+            }
+            let (cx, cy) = (e.walkers.iter().map(|w| w.x).sum::<f32>() / n, e.walkers.iter().map(|w| w.y).sum::<f32>() / n);
+            let w = *e
+                .walkers
+                .iter()
+                .min_by(|a, b| (a.x - cx).hypot(a.y - cy).total_cmp(&(b.x - cx).hypot(b.y - cy)))
+                .unwrap();
+            let alive = e.walkers.len();
+            e.oats_left = e.oats_left.max(2);
+            let ok = e.place_oats(w.x, w.y) && e.place_oats(w.x + 3.0, w.y);
+            let mut eaten = false;
+            for _ in 0..8 * SPS {
+                e.step();
+                eaten |= e.piles.iter().any(|p| p.oats && p.reached());
+            }
+            row.push(format!("+{late}s ({alive} alive, placed {ok}): eaten {eaten}, {} left 8 s on", e.walkers.len()));
+        }
+        println!("N7 seed {seed}, nothing fed from {} s: {}", dry_at / SPS, row.join(" | "));
+    }
+}
+
+/// N8: the glow cache across the window's t = 0 swap (lesson under its
+/// card, M, pick a challenge dish): which pixels show the old dish's glow.
+#[test]
+fn n8_glow_cache_t0_swap() {
+    let v = View {
+        brief: true,
+        ..view(Style::Night)
+    };
+    for k in 0..level::DISHES.len() {
+        let mut slot = lesson::Lesson::dish().0;
+        let _ = frame(&slot, &v, 4);
+        slot = Dish::from_level(&level::DISHES[k], 1);
+        let reused = frame(&slot, &v, 4);
+        let other = Box::new(slot.clone());
+        let clean = frame(&other, &v, 4);
+        let diff = reused.chunks(4).zip(clean.chunks(4)).filter(|(a, b)| a != b).count();
+        // One step on, as after the card is put away (2 steps a tick).
+        slot.step();
+        slot.step();
+        let next = frame(&slot, &View { brief: false, ..v }, 4);
+        let other2 = Box::new(slot.clone());
+        let clean2 = frame(&other2, &View { brief: false, ..v }, 4);
+        let diff2 = next.chunks(4).zip(clean2.chunks(4)).filter(|(a, b)| a != b).count();
+        if k == 0 {
+            save("n8-reused", reused, 4);
+            save("n8-clean", clean, 4);
+        }
+        println!("N8 lesson -> dish {}: behind the card {diff} px differ from a clean draw; first frame after the card {diff2}", k + 1);
+    }
+}
+
+/// N9: after a challenge dish ends, the oats preview says "the storm".
+#[test]
+fn n9_not_now_the_storm_on_a_bell_dish() {
+    let mut d = Dish::from_level(&level::DISHES[0], 1);
+    for _ in 0..2 * SPS {
+        d.step();
+    }
+    while !d.walkers.is_empty() {
+        d.remove_walker(0, Kill::Snip);
+    }
+    d.step();
+    assert_eq!(d.phase, Phase::Over);
+    let v = View {
+        cursor: Some((100.0, 60.0)),
+        tool: Tool::Oats,
+        ..view(Style::Night)
+    };
+    save("n9-wall-over-oats-cursor", frame(&d, &v, 4), 4);
+    println!("N9 saved; storm_at {} storm_line {:?}", d.storm_at, d.storm_line);
+}

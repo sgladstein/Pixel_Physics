@@ -1,0 +1,163 @@
+<title>Where Mould Goes Next</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column on pale agar; each brainstormer is a petri-dish "plate" with its pick on top */
+:root{
+  --agar:#f3f0e2; --plate:#fbfaf3; --ink:#24261c; --muted:#666957; --rule:#d9d6c2;
+  --mould:#b88a00; --mould-soft:#f2dd8a; --storm:#6c4bb4; --scar:#b53a2c; --grey:#8a8c80;
+  --display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --agar:#17180f; --plate:#202217; --ink:#ecebdc; --muted:#a6a892; --rule:#3a3c2c;
+  --mould:#f0c53a; --mould-soft:#4a3e10; --storm:#a98cf0; --scar:#ef7a69; --grey:#9a9c8f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --agar:#17180f; --plate:#202217; --ink:#ecebdc; --muted:#a6a892; --rule:#3a3c2c;
+  --mould:#f0c53a; --mould-soft:#4a3e10; --storm:#a98cf0; --scar:#ef7a69; --grey:#9a9c8f; color-scheme:dark}
+body{background:var(--agar);color:var(--ink);font:16px/1.6 var(--body)}
+.wrap{max-width:46rem;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:2rem 4rem;display:flex;flex-direction:column;gap:2.25rem}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2rem,6vw,2.8rem);font-weight:700}
+h2{font-size:1.45rem;font-weight:700}
+h3{font-size:1.1rem;font-weight:600}
+p{margin:0}
+.kicker{font:500 .78rem/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.08rem;color:var(--ink)}
+section{display:flex;flex-direction:column;gap:.9rem}
+.ask{background:var(--mould-soft);border-radius:14px;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:.5rem}
+.ask strong{font-family:var(--display);font-size:1.1rem}
+ul,ol{margin:0;padding-left:1.25rem;display:flex;flex-direction:column;gap:.45rem}
+.plates{display:grid;gap:1rem}
+.plate{background:var(--plate);border:1px solid var(--rule);border-radius:16px;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:.6rem;min-width:0}
+.plate .pick{font-family:var(--display);font-size:1.2rem;font-weight:700;color:var(--mould)}
+.why{color:var(--muted);font-size:.95rem}
+.agree{display:grid;gap:.75rem}
+.agree div{border-left:3px solid var(--mould);padding:.1rem 0 .1rem .9rem;min-width:0}
+.agree b{display:block}
+.who{font:400 .8rem/1.4 var(--mono);color:var(--muted)}
+figure{margin:0;display:flex;flex-direction:column;gap:.4rem}
+figure img{border-radius:10px;border:1px solid var(--rule);width:100%;height:auto}
+figcaption{font-size:.9rem;color:var(--muted)}
+.count{font:500 .9rem/1.4 var(--mono);color:var(--ink);background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:.35rem .6rem;align-self:flex-start;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.93rem}
+th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font:500 .75rem/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rec{color:var(--mould);font-weight:600}
+.files{font:400 .85rem/1.5 var(--mono);color:var(--muted);word-break:break-all}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:.7rem">
+    <p class="kicker">Mould demo · brainstorm round 1 · 8 Nov 2026</p>
+    <h1>Where Mould goes next</h1>
+    <p class="lede">You asked what would make the slime mould demo a real game: who you are, what you're trying to do, what's out there, and what challenges could go in soon. Five brainstormers came back (theme, out-there, near-term challenges, toy feel, and real-world research). This page is what they agree on, each one's best pick, and the one choice I need from you.</p>
+  </header>
+
+  <div class="ask">
+    <strong>Your call: which theme should the game-design brainstormer build on?</strong>
+    <p>I recommend <b>The Wanderer</b>: you keep one named mould alive and lead it across a run of dishes, from a kitchen table to a forest floor. The food under it runs out, so it has to move on. The score is how much of it arrived. The other options are below. I'll put the choice on a card in the thread.</p>
+  </div>
+
+  <section>
+    <h2>Where all five agreed, without being told to</h2>
+    <div class="agree">
+      <div><b>Food should be seen moving.</b> A pulse that rides out along the tubes from each food pile. It makes the mould look alive when still, shows which branch is starving (its beat stops), and is the real organism's own heartbeat (cytoplasm streaming back and forth).<p class="who">toy feel #1 · research #2 · out-there (Mould Organ) · theme</p></div>
+      <div><b>Your favourite moment should be the goal.</b> The little bridge across empty space, where there was no food, appears as a goal in three of the five: feed a sprout that can't move, beat a "ruler" line by meeting in the middle, light a dark node.<p class="who">theme (Lifeline) · challenges (Beat the Ruler, Feed the Sprout) · out-there (Constellations)</p></div>
+      <div><b>Cutting off part of the mould does almost nothing today.</b> This one is a surprise. A snip heals in about half a second, and because all the food goes into one shared store, a piece cut away still gets fed. The slow grey death the game was built around almost never shows.<p class="who">toy feel (measured) · theme · research (crust you can rescue)</p></div>
+      <div><b>Score an amount, not stars.</b> "1,140 of 1,500 arrived" or "three sprouts flowered, one in leaf" is a spread. Three stars are three yes/no answers.<p class="who">theme · challenges (ship bar per dish) · research</p></div>
+      <div><b>Don't slow the mould down.</b> The lamp answers in 0.05 s and oats in about 0.5 s, which feels like touch. The best moments are over in a quarter second, so make them <i>linger in the drawing and the sound</i>, not in the sim.<p class="who">toy feel · out-there</p></div>
+    </div>
+
+    <figure>
+      <img src="snip-sheet.png" alt="Contact sheet of a snip across a tube at 25.0 seconds; by 26.0 seconds the gap has closed and no tube has gone grey.">
+      <figcaption>A snip at 25.0 s (seed 1). The gap is gone by 26.0 s and nothing beyond it greys.</figcaption>
+      <p class="count">grey starving tube pixels in a full game at 30 / 60 / 82 s: 0 / 0 / 0 · yellow: 16,000–23,000</p>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Each brainstormer's best pick</h2>
+    <div class="plates">
+      <article class="plate">
+        <p class="kicker">Theme: who are you, and why care?</p>
+        <p class="pick">The Wanderer</p>
+        <p>You keep a pet slime mould (a real hobby: people keep <i>Physarum</i> on agar and feed it oats). Each dish, the pile it sits on drains in about two minutes and its scent fades, so the mould gets restless. You lead it to an exit with the lamp and oats. Tubes left behind go grey and die back, so the cost of moving is graded: a thin trailing line, or half its body. Its size and shape carry over to the next dish.</p>
+        <p class="why">Runners-up: <b>Lifeline</b> (sprouts that can't eat on their own; your mould is their supply line, best folded into some Wanderer dishes) and <b>Little Railways</b> (villages light up when joined; clearest goals, but better as a puzzle pack). Ruled out: <b>spread and conquer</b>, because each pile feeds only about 300 walkers, so a mould that covers the map starves. A <b>pet with hunger meters</b> hides the best feedback the game has, which is the colour of the mould itself.</p>
+        <p class="why">Cheapest test: swap the 90 s clock for an exit on the right edge, a Go key, and "Mabel arrived with N of M".</p>
+      </article>
+
+      <article class="plate">
+        <p class="kicker">Near-term challenges for the demo</p>
+        <p class="pick">Eight hand-made dishes after the lesson</p>
+        <p>Build these three first:</p>
+        <ul>
+          <li><b>Behind the Wall.</b> Food behind a salt wall. Oats aimed straight at it drag the mould into the wall, so you have to lead it round.</li>
+          <li><b>Beat the Ruler.</b> Three foods in a big triangle and a dotted line showing the shortest food-to-food tubes. Win by using less tube, which you can only do with a meeting point in empty space.</li>
+          <li><b>Running Dry.</b> Every pile runs out in about 35 s and new food turns up elsewhere. The mould has to keep moving house. This fills the empty middle minute.</li>
+        </ul>
+        <p class="why">Also: Three Oats, Overgrown (trim with snips), Storm Season (three storms), Feed the Sprout, The Rival. Shared work is a level file, a "why it failed" line, and a dish select screen, about 3 days. Bar for each dish: doing nothing earns 0 stars, random play at most 1, the intended play 3. Running Dry is the Wanderer in miniature.</p>
+      </article>
+
+      <article class="plate">
+        <p class="kicker">Toy feel: make touching it better</p>
+        <p class="pick">Pulse, snap, and a wound that stays open</p>
+        <ol>
+          <li><b>A pulse along the tubes</b>, drawn from the feeding search the game already does. About 30 lines, well under 0.1 ms a frame.</li>
+          <li><b>A "snap"</b> when a bridge or loop closes: a flash at the exact cell where it joined, and a chime. Your favourite moment becomes an event the game can see and count.</li>
+          <li><b>A snip that stays open about 4 s</b>, drawn as a real slash with recoil and a tearing sound, so cutting delivers something.</li>
+        </ol>
+        <p class="why">Also found: every tube looks the same width, a trunk feeding three piles and a spur to one oat. The storm's cut ends recoil like a snapped rubber band, which is a lovely moment nobody advertises.</p>
+      </article>
+
+      <article class="plate">
+        <p class="kicker">Really out there</p>
+        <p class="pick">Mould Organ</p>
+        <p>A pulse runs from the mould's heart along every tube, and each food node rings a note when it arrives. Tube length is timing, so bending a tube with the lamp bends the rhythm, and a loop makes an echo. It's a toy before it's a game, which is how you already play this.</p>
+        <p class="why">Step 0 before any sound: measure how many cells the heart-to-node distance wobbles over 10 s. Under about 5, the rhythm reads; over about 15, drop it. Also ranked: <b>Dry Rot</b> (a fungus inside a timber tower in the full world; you choose where it breaks and falls; big payoff, costly build), <b>Tug</b> (two moulds, versus or co-op), Desire Lines, Constellations, Root Bridge, Grow a Brain.</p>
+      </article>
+
+      <article class="plate">
+        <p class="kicker">Research: real slime mould, other sims, other games</p>
+        <p class="pick">Tubes that remember</p>
+        <p>In our sim a tube is just trail, forgotten in about a second. A real tube has walls that thicken over minutes when food flows through them and last for hours. Adding a slow "wall" layer would make trunks fatten over a dish, leave a ghost the mould regrows along after a storm, and make "I built that bridge and it's still there" true.</p>
+        <p class="why">Next borrows: the heartbeat pulse; the mould <b>learning the storm's rhythm</b> and flinching before it comes (Saigusa 2008); <b>light as a cost</b> rather than a push (it takes a longer path to avoid sun); <b>two foods to balance</b>; a starved patch drying to a crust you can rescue; fusion with a rival; fruiting toward your lamp at the end. No goal-driven game uses a real slime mould sim yet. Sources were search summaries, since full papers were blocked here.</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>The theme choice</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Option</th><th>What you are</th><th>What it costs</th></tr></thead>
+        <tbody>
+          <tr><td class="rec">The Wanderer (recommended)</td><td>Keeper of one named mould, leading it dish to dish. Score is how much arrived.</td><td>Smallest test is an exit edge and a Go key on today's dish. Running Dry and Lifeline sprouts slot in as dishes.</td></tr>
+          <tr><td>Lifeline on its own</td><td>Supply line for sprouts that can't move. Bridges are the point.</td><td>Needs a sink (food going out, not in), which the challenges brainstormer already sketched as Feed the Sprout.</td></tr>
+          <tr><td>Little Railways</td><td>Engineer joining villages.</td><td>Clearest goals, but the mould becomes a tool. Best as a puzzle pack.</td></tr>
+          <tr><td>Mould Organ</td><td>A musician playing a living instrument.</td><td>A different game: a toy, not a journey. A few days, and the step 0 check could kill it cheaply.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Whatever you pick, I'd build the toy-feel trio next (pulse, snap, wound that stays open). All five brainstormers point at them, none depends on the theme, and they fix two things you hit in your play: not knowing what snip did, and not seeing what food was doing.</p>
+  </section>
+
+  <section>
+    <h2>What's already done since your play</h2>
+    <ul>
+      <li>The grey flashing is gone. Tube edges were flicking between fed and unfed every few frames, about 420 switches per run; now 0.</li>
+      <li>A briefing card opens each dish: the goal, what the colours mean, and the tools. H shows it again.</li>
+      <li>A teaching first dish walks through lamp, oats, joining all the food, snip, salt, and then the storm, one step at a time with a banner.</li>
+      <li>The storm's purple line is labelled "STORM WILL CUT HERE", and the red rectangle is labelled "STORM SCAR".</li>
+    </ul>
+    <p class="why">These are being bug-checked now and go to the merge desk next. A page with pictures of the lesson follows.</p>
+  </section>
+
+  <footer style="display:flex;flex-direction:column;gap:.4rem">
+    <p class="kicker">Full write-ups</p>
+    <p class="files">/mnt/project-files/game-design/mould-game-brainstorm-2026-11-08/ theme.md · near-term-challenges.md · toy-feel.md · out-there.md · research.md</p>
+  </footer>
+</div>
