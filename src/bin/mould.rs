@@ -24,7 +24,8 @@
 //! key to compare it against the drawing before, named in the title bar:
 //! F3 how food in the tube is drawn (the food ramp, then grey, embers,
 //! dried slime), F4 the walkers (grains, glints, off), F5 the smoothing of
-//! the rim, tubes, salt and cuts, F6 the stain where mould has been.
+//! the rim, tubes, salt and cuts, F6 the stain where mould has been, F7
+//! the mould drawn straight from the simulation or as tubes.
 //!
 //! **The Wanderer** (`mould::wander`, prototype 2026-11-08): `-- wander`
 //! (or `-- wander 3` for dish seed 3), W from any dish, or THE WANDERER on
@@ -560,7 +561,7 @@ impl Handler {
             self.open_menu();
             return;
         }
-        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 && code != KeyCode::F4 && code != KeyCode::F5 && code != KeyCode::F6 {
+        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 && code != KeyCode::F4 && code != KeyCode::F5 && code != KeyCode::F6 && code != KeyCode::F7 {
             self.view.brief = false;
             self.let_go();
             return;
@@ -635,6 +636,14 @@ impl Handler {
                 look::STAIN.store(on, Relaxed);
                 if let Some(w) = &self.window {
                     w.set_title(&format!("Mould: stain {} (F6)", if on { "on" } else { "off" }));
+                }
+            }
+            KeyCode::F7 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let on = !look::FIELD.load(Relaxed);
+                look::FIELD.store(on, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: {} (F7)", if on { "drawn from the simulation" } else { "tube look" }));
                 }
             }
             // Go: only while fed mould is in the crack (the dish refuses

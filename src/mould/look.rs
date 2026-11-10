@@ -1131,7 +1131,17 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     let s = scale as i32;
     let st = status(d);
     dish(&mut cv, d, &th, s, &st);
-    specks(&mut cv, d, &th, s);
+    if field_on(&th) {
+        field_mould(&mut cv, d, &th, s, st.alarm && st.flash);
+    } else {
+        if let Some(r) = &d.rival {
+            wild(&mut cv, r, &th, s, st.alarm && st.flash);
+        }
+        specks(&mut cv, d, &th, s);
+        if let Some(r) = &d.rival {
+            wild_specks(&mut cv, r, &th, s);
+        }
+    }
     piles(&mut cv, d, &th, s, &st);
     marks(&mut cv, d, &th, s);
     storm(&mut cv, d, &th, s, &st);
@@ -1841,7 +1851,10 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         })
         .collect();
     let vof = |t: f32| lut[((t * 16.0) as usize).min(1023)];
-    let halo = (th.glow > 0.0).then(|| Halo::cached(d, th, thr));
+    // Drawn from the fields, the mould is its own light (`field_mould`):
+    // here only the dish under it.
+    let field = field_on(th);
+    let halo = (th.glow > 0.0 && !field).then(|| Halo::cached(d, th, thr));
     // Hunger by cell, softened over a few cells of tube: by time alone,
     // tube still fed met tube starved since the pile ran dry along a hard
     // line, which is the grey's own defect in another colour. Averaged over
@@ -1877,7 +1890,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     // once, so the amount reads as a gradient along the tube rather than
     // the sap's cell-by-cell grain (and a per-cell read at full size cost
     // what the hunger field did).
-    let full_field = (food_ramp && flow).then(|| {
+    let full_field = (food_ramp && flow && !field_on(th)).then(|| {
         let mut num = vec![0.0f32; HW * HH];
         let mut den = vec![0.0f32; HW * HH];
         for y in 0..H {
@@ -2072,6 +2085,10 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     c
                 }
             };
+            if field {
+                tube = None;
+                edge = false;
+            }
             let (px0, py0) = (xi * s, yi * s);
             // A cell the rim passes through, drawn pixel by pixel
             // (`rim_layer`), where nothing of the mould covers it. Salt,
@@ -2558,6 +2575,399 @@ fn specks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
         } else {
             (dark, 0.5)
         };
+        for py in y0..y0 + k {
+            for px in x0..x0 + k {
+                cv.mix(px, py, c, a);
+            }
+        }
+    }
+}
+
+// ------------------------------------------------- drawn from the fields
+
+/// **The mould drawn straight from the simulation** (owner, 2026-11-10,
+/// on the review's card: "Build the from-the-simulation look"; his words
+/// before it: "I don't like the sharp edge between the orange and black
+/// background. That also doesn't look real simulation", "And the sharp
+/// edge between the orange and gray slime", "I want all the visuals to
+/// look like they're coming from a real simulation and not just graphics
+/// animations"). The tube look picks one trail height, fills everything
+/// above it flat and leaves everything below black, and turns fed into a
+/// yes/no: both edges are the drawing's, not the dish's. Here brightness
+/// is the trail itself through one fixed curve, `1 - exp(-FIELD_GAIN *
+/// trail)`, so a strand fades out as its numbers do (and reads thinner:
+/// the fat tube was mostly its faint skirt painted at full strength); its
+/// colour slides gold to grey by how long since food reached it, spread
+/// along the trail, or with flow on by the food it holds; each walker adds
+/// a speck of light. Screen-blended over the dish, so light adds and never
+/// clips to a flat fill. Glow and Night only (the toy's pale agar has no
+/// dark to light up). F7 in the window flips back to the tube look.
+pub static FIELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn field_on(th: &Theme) -> bool {
+    th.style == Style::Glow && FIELD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The tone curve's gain: brightness `1 - exp(-FIELD_GAIN * trail)`. At
+/// 0.3 a strand's middle (trail about 4.7 on seed 1 at 60 s, the 90th
+/// percentile) is three quarters bright and the median trail cell (0.64)
+/// a sixth.
+const FIELD_GAIN: f32 = 0.3;
+const FIELD_FED: [Rgb; 5] = [[0, 0, 0], [84, 40, 4], [190, 112, 12], [244, 180, 52], [255, 226, 150]];
+const FIELD_PALE: [Rgb; 5] = [[0, 0, 0], [40, 44, 52], [96, 102, 112], [150, 156, 166], [196, 200, 208]];
+/// Darker and redder than the fed ramp at every brightness: sleeping
+/// mould is a dry crust, not light (a paler first ramp read as cream once
+/// the sleepers' own specks were added over it).
+const FIELD_CRUST: [Rgb; 5] = [[0, 0, 0], [50, 22, 6], [104, 50, 14], [146, 80, 26], [170, 104, 42]];
+const FIELD_WILD: [Rgb; 5] = [[0, 0, 0], [52, 24, 92], [112, 60, 186], [170, 118, 240], [222, 196, 255]];
+const FIELD_WILD_PALE: [Rgb; 5] = [[0, 0, 0], [36, 32, 48], [80, 74, 100], [128, 122, 150], [172, 166, 196]];
+/// A walker's speck of light: the centre pixel, and its four neighbours
+/// at 60%.
+const FIELD_SPECK: Rgb = [96, 84, 58];
+const FIELD_SPECK_ASLEEP: Rgb = [34, 18, 4];
+const FIELD_SPECK_WILD: Rgb = [70, 52, 104];
+
+#[inline]
+fn screen(a: Rgb, b: Rgb) -> Rgb {
+    [0, 1, 2].map(|k| {
+        let (x, y) = (a[k] as u32, b[k] as u32);
+        (x + y - x * y / 255) as u8
+    })
+}
+
+/// One mould's tint on the half grid: 0 grey (long unfed, or no food in
+/// the tube with flow on) to 1 gold, trail-weighted so it spreads along
+/// the strand the way food would, not across the agar.
+fn field_tint(d: &Dish) -> Vec<f32> {
+    let mut num = vec![0.0f32; HW * HH];
+    let mut den = vec![0.0f32; HW * HH];
+    for y in 0..H {
+        for x in 0..W {
+            let i = y * W + x;
+            let t = d.trail[i];
+            if t <= 0.02 || d.ground[i] != Ground::Agar {
+                continue;
+            }
+            // With flow on, the food the tube holds: gold from 40% of the
+            // ramp's top up, so a tube half full reads fed and only one
+            // carrying little goes grey (at the level itself, the median
+            // tube on seed 1 drew cream).
+            let fed = match food_level(d, i) {
+                Some(f) => (f / 0.4).min(1.0),
+                None => 1.0 - hunger(d, i),
+            };
+            let k = (y / 2) * HW + x / 2;
+            num[k] += fed * t;
+            den[k] += t;
+        }
+    }
+    let mut tmp = vec![0.0f32; HW * HH];
+    for a in [&mut num, &mut den] {
+        blur(a, &mut tmp, HW, HH, 1);
+    }
+    num.iter().zip(&den).map(|(&n, &m)| if m > 1e-4 { (n / m).clamp(0.0, 1.0) } else { 0.0 }).collect()
+}
+
+/// **The mould layer**: per cell, the light the mould gives there (yours,
+/// asleep or awake, and the wild one's), then blended between cell
+/// centres pixel by pixel and screened over the dish. Only cells with
+/// light near them are touched, so the dark dish costs nothing.
+fn field_mould(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, flash: bool) {
+    let mut layer: Vec<Rgb> = vec![[0; 3]; W * H];
+    let mut lit = vec![false; W * H];
+    let mut paint = |m: &Dish, fed: &[Rgb; 5], pale: &[Rgb; 5], crust: bool| {
+        let tint = field_tint(m);
+        let sleep = if crust { sleep_field(m) } else { None };
+        for y in 0..H {
+            for x in 0..W {
+                let i = y * W + x;
+                let t = m.trail[i];
+                if t <= 0.02 || m.ground[i] != Ground::Agar {
+                    continue;
+                }
+                let b = 1.0 - (-FIELD_GAIN * t).exp();
+                if b < 0.004 {
+                    continue;
+                }
+                let g = half_at(&tint, x, y);
+                let mut c = lerp(ramp(pale, b), ramp(fed, b), g);
+                if let Some(sl) = &sleep {
+                    let k = half_at(sl, x, y);
+                    if k > 0.02 {
+                        c = lerp(c, ramp(&FIELD_CRUST, b), k);
+                    }
+                }
+                layer[i] = screen(layer[i], c);
+                lit[i] = true;
+            }
+        }
+    };
+    paint(d, &FIELD_FED, &FIELD_PALE, true);
+    if let Some(r) = &d.rival {
+        paint(r, &FIELD_WILD, &FIELD_WILD_PALE, false);
+    }
+    // Rim cells hold no trail, so the light fell to nothing across them
+    // in cell-sized steps. They take their brightest open neighbour's,
+    // and the smooth rim (below) cuts it along the dish's own curve.
+    for y in 1..H - 1 {
+        for x in 1..W - 1 {
+            let i = y * W + x;
+            if d.ground[i] != Ground::Rim {
+                continue;
+            }
+            let mut c: Rgb = [0; 3];
+            for j in [i - W - 1, i - W, i - W + 1, i - 1, i + 1, i + W - 1, i + W, i + W + 1] {
+                if lit[j] && d.ground[j] == Ground::Agar {
+                    c = [0, 1, 2].map(|k| c[k].max(layer[j][k]));
+                }
+            }
+            if c != [0; 3] {
+                layer[i] = c;
+                lit[i] = true;
+            }
+        }
+    }
+    // Each pixel's quadrant and its four weights (out of 256), as
+    // `tube_insides` works them.
+    let sf = s as f32;
+    let split = |p: i32| {
+        let f = (p as f32 + 0.5) / sf - 0.5;
+        if f < 0.0 {
+            (0usize, f + 1.0)
+        } else {
+            (1usize, f)
+        }
+    };
+    let table: Vec<(usize, usize, [u32; 4])> = (0..s * s)
+        .map(|k| {
+            let (r0, ay) = split(k / s);
+            let (c0, ax) = split(k % s);
+            let w = [(1.0 - ax) * (1.0 - ay), ax * (1.0 - ay), (1.0 - ax) * ay, ax * ay].map(|v| (v * 256.0).round() as u32);
+            (r0, c0, w)
+        })
+        .collect();
+    let rim = smooth_on().then(|| rim_layer(th, flash, s));
+    let at = |x: i32, y: i32| -> Rgb {
+        if x >= 0 && y >= 0 && (x as usize) < W && (y as usize) < H {
+            layer[y as usize * W + x as usize]
+        } else {
+            [0; 3]
+        }
+    };
+    for y in 0..H as i32 {
+        for x in 0..W as i32 {
+            let i = y as usize * W + x as usize;
+            if d.ground[i] != Ground::Agar && d.ground[i] != Ground::Rim {
+                continue;
+            }
+            // Light reaches a cell from its own centre and its neighbours'.
+            let near = (-1..=1).any(|dy| (-1..=1).any(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                nx >= 0 && ny >= 0 && (nx as usize) < W && (ny as usize) < H && lit[ny as usize * W + nx as usize]
+            }));
+            if !near {
+                continue;
+            }
+            let n = [
+                [at(x - 1, y - 1), at(x, y - 1), at(x + 1, y - 1)],
+                [at(x - 1, y), at(x, y), at(x + 1, y)],
+                [at(x - 1, y + 1), at(x, y + 1), at(x + 1, y + 1)],
+            ];
+            let band = rim.as_ref().map_or(u32::MAX, |l| l.at[i]);
+            if d.ground[i] == Ground::Rim && band == u32::MAX {
+                continue;
+            }
+            for py in 0..s {
+                let row = ((y * s + py) as usize * cv.w as usize + (x * s) as usize) * 4;
+                for px in 0..s {
+                    let (r0, c0, w) = table[(py * s + px) as usize];
+                    let (a, b, c, e) = (n[r0][c0], n[r0][c0 + 1], n[r0 + 1][c0], n[r0 + 1][c0 + 1]);
+                    let mut l: Rgb = [0, 1, 2].map(|k| {
+                        ((a[k] as u32 * w[0] + b[k] as u32 * w[1] + c[k] as u32 * w[2] + e[k] as u32 * w[3]) >> 8).min(255) as u8
+                    });
+                    if band != u32::MAX {
+                        // Only the part of the pixel inside the dish.
+                        let out = rim.as_ref().unwrap().px[band as usize + (py * s + px) as usize].1;
+                        l = mul(l, 1.0 - out);
+                    }
+                    let o = row + px as usize * 4;
+                    let p = [cv.f[o], cv.f[o + 1], cv.f[o + 2]];
+                    let q = screen(p, l);
+                    cv.f[o..o + 3].copy_from_slice(&q);
+                }
+            }
+        }
+    }
+    // A speck of light per walker, added: busy places are brighter
+    // because more walkers are there.
+    let look = WALKER_LOOK.load(std::sync::atomic::Ordering::Relaxed);
+    if look == 0 {
+        return;
+    }
+    let mut specks = |m: &Dish, awake: Rgb, asleep: Rgb| {
+        for w in &m.walkers {
+            let (cx, cy) = ((w.x * sf) as i32, (w.y * sf) as i32);
+            let c = if w.asleep() { asleep } else { awake };
+            for (ox, oy, k) in [(0, 0, 1.0f32), (1, 0, 0.6), (0, 1, 0.6), (-1, 0, 0.6), (0, -1, 0.6)] {
+                cv.add(cx + ox, cy + oy, c, k);
+            }
+        }
+    };
+    specks(d, FIELD_SPECK, FIELD_SPECK_ASLEEP);
+    if let Some(r) = &d.rival {
+        specks(r, FIELD_SPECK_WILD, FIELD_SPECK_WILD);
+    }
+}
+
+// ---------------------------------------------------------- the wild mould
+
+/// The wild mould's ramp, thin and dim to thick and bright: violet, so it
+/// reads apart from yours at a glance (gold) and from starving tube (grey).
+const WILD_RAMP: [Rgb; 4] = [[66, 34, 104], [120, 66, 182], [176, 120, 240], [226, 198, 255]];
+/// Wild tube its own census no longer feeds: a dull grey-violet.
+const WILD_HUNGRY: Rgb = [92, 82, 112];
+
+/// **The wild mould** (`Dish::rival`, THE WILD ONE), drawn the way yours
+/// is rather than as a block replace: its trail softened once (1-2-1) and
+/// read between cell centres at every pixel, so its tubes are smooth;
+/// the edge anti-aliased; its own thickness, light and shade on the violet
+/// ramp; dulled to grey-violet where its own census (`looks_fed`) says it
+/// is starving; a faint violet bloom just outside the tube; and the dish's
+/// smooth rim kept over it. Drawn after your mould and under the piles,
+/// so food it sits on still shows. Every pixel is the rival's own trail
+/// and fed state; nothing here is read back.
+fn wild(cv: &mut Cv, r: &Dish, th: &Theme, s: i32, flash: bool) {
+    let thr = r.params.tube * 0.5;
+    const PAD: usize = 2;
+    let pw = W + 2 * PAD;
+    let ph = H + 2 * PAD;
+    let mut raw = vec![0.0f32; pw * ph];
+    for y in 0..H {
+        for x in 0..W {
+            let i = y * W + x;
+            if r.ground[i] == Ground::Agar {
+                raw[(y + PAD) * pw + x + PAD] = r.trail[i];
+            }
+        }
+    }
+    let mut across = vec![0.0f32; pw * ph];
+    for y in 0..ph {
+        for x in 1..pw - 1 {
+            let k = y * pw + x;
+            across[k] = (raw[k - 1] + 2.0 * raw[k] + raw[k + 1]) * 0.25;
+        }
+    }
+    let mut soft = vec![0.0f32; pw * ph];
+    for y in 1..ph - 1 {
+        for x in 0..pw {
+            let k = y * pw + x;
+            soft[k] = (across[k - pw] + 2.0 * across[k] + across[k + pw]) * 0.25;
+        }
+    }
+    // Every read below is within two cells of a dish cell, inside the
+    // padding: no clamp.
+    let tr = |x: i32, y: i32| -> f32 { soft[(y + PAD as i32) as usize * pw + (x + PAD as i32) as usize] };
+    let top = (1.0 + TRAIL_TOP).ln();
+    let lo = (1.0 + thr).ln() / top;
+    let vof = |t: f32| (((1.0 + t).ln() / top - lo) / (1.0 - lo)).clamp(0.0, 1.0);
+    // The bloom starts this far below the tube's edge.
+    let bloom = thr * 0.45;
+    let rim = smooth_on().then(|| rim_layer(th, flash, s));
+    let sf = s as f32;
+    // Each cell's colour once, at its centre, as your mould's tube is
+    // drawn (`dish`): working the ramp out at every pixel cost 7 ms a
+    // frame at scale 4 on this dish, and blending inside cells with float
+    // lerps and a clamped read per pixel still 3.6 ms.
+    let mut centre: Vec<Rgb> = vec![[0; 3]; W * H];
+    let mut kind = vec![0u8; W * H]; // 0 nothing, 1 edge or bloom, 2 inside
+    for y in 0..H {
+        for x in 0..W {
+            let i = y * W + x;
+            if r.ground[i] != Ground::Agar {
+                continue;
+            }
+            let (xi, yi) = (x as i32, y as i32);
+            let t0 = tr(xi, yi);
+            let mut lo_n = t0;
+            let mut hi_n = t0;
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)] {
+                let t = tr(xi + dx, yi + dy);
+                lo_n = lo_n.min(t);
+                hi_n = hi_n.max(t);
+            }
+            if hi_n <= bloom {
+                continue;
+            }
+            kind[i] = if lo_n > thr * 1.1 && rim.as_ref().is_none_or(|l| l.at[i] == u32::MAX) { 2 } else { 1 };
+            let k = vof(t0.max(thr));
+            let shade = ((tr(xi + 2, yi + 2) - tr(xi - 2, yi - 2)) / (t0.max(thr) + 6.0)).clamp(-1.0, 1.0);
+            let mut c = mul(ramp(&WILD_RAMP, 0.15 + 0.85 * k), 0.85 + 0.15 * k);
+            if !r.looks_fed(i) {
+                c = lerp(c, WILD_HUNGRY, 0.7);
+            }
+            centre[i] = if shade > 0.0 { lerp(c, [255, 255, 255], 0.18 * shade) } else { mul(c, 1.0 + 0.25 * shade) };
+        }
+    }
+    // Inside cells: a blend between cell centres, pixel by pixel, as your
+    // mould's tube insides are drawn (`tube_insides`).
+    let mut inside: Vec<usize> = Vec::new();
+    for y in 0..H {
+        for x in 0..W {
+            let i = y * W + x;
+            match kind[i] {
+                0 => {}
+                2 => inside.push(i),
+                _ => {
+                    let band = rim.as_ref().map_or(u32::MAX, |l| l.at[i]);
+                    for py in 0..s {
+                        for px in 0..s {
+                            let fx = x as f32 + (px as f32 + 0.5) / sf - 0.5;
+                            let fy = y as f32 + (py as f32 + 0.5) / sf - 0.5;
+                            let (ix, iy) = (fx.floor() as i32, fy.floor() as i32);
+                            let (ax, ay) = (fx - ix as f32, fy - iy as f32);
+                            let v = (tr(ix, iy) * (1.0 - ax) + tr(ix + 1, iy) * ax) * (1.0 - ay)
+                                + (tr(ix, iy + 1) * (1.0 - ax) + tr(ix + 1, iy + 1) * ax) * ay;
+                            if v <= bloom {
+                                continue;
+                            }
+                            let (c, mut a) = if v < thr * 0.9 {
+                                // The bloom: a faint violet haze just outside.
+                                (WILD_RAMP[1], 0.22 * ((v - bloom) / (thr * 0.9 - bloom)).clamp(0.0, 1.0))
+                            } else {
+                                // Anti-aliased edge over the last tenth.
+                                (centre[i], ((v - thr * 0.9) / (thr * 0.2)).clamp(0.0, 1.0).max(0.22))
+                            };
+                            if band != u32::MAX {
+                                let o = band as usize + (py * s + px) as usize;
+                                a *= 1.0 - rim.as_ref().unwrap().px[o].1;
+                            }
+                            cv.mix(x as i32 * s + px, y as i32 * s + py, c, a);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let has: Vec<bool> = kind.iter().map(|&k| k > 0).collect();
+    tube_insides(cv, s, &centre, &has, &inside);
+}
+
+/// The wild mould's walkers, as yours are drawn (`WALKER_LOOK`): one fleck
+/// each where it is, dark grains or pale glints, in violet.
+fn wild_specks(cv: &mut Cv, r: &Dish, th: &Theme, s: i32) {
+    let look = WALKER_LOOK.load(std::sync::atomic::Ordering::Relaxed);
+    if look == 0 {
+        return;
+    }
+    let k = (s / 2).max(1);
+    let sf = s as f32;
+    let (c, a): (Rgb, f32) = match (look, th.style) {
+        (2, _) => ([244, 232, 255], 0.32),
+        _ => ([30, 10, 50], 0.5),
+    };
+    for w in &r.walkers {
+        let x0 = (w.x * sf) as i32 - k / 2;
+        let y0 = (w.y * sf) as i32 - k / 2;
         for py in y0..y0 + k {
             for px in x0..x0 + k {
                 cv.mix(px, py, c, a);

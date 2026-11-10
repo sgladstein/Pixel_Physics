@@ -11,14 +11,22 @@
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Instant;
 
-use pixel_physics::mould::look::{Style, SMOOTH, STAIN, STARVE_LOOK, WALKER_LOOK};
+use pixel_physics::mould::look::{Style, FIELD, SMOOTH, STAIN, STARVE_LOOK, WALKER_LOOK};
 use pixel_physics::mould::play::{Plan, Player};
 use pixel_physics::mould::render::{self, View};
 use pixel_physics::mould::{Dish, Ground, Params, Tool, STEPS_PER_FRAME, STEPS_PER_SECOND};
 
-/// (tag, starving look, walker look, smoothing)
-const LOOKS: [(&str, u8, u8, bool); 5] =
-    [("before", 0, 0, false), ("rough", 3, 1, false), ("ramp", 3, 0, true), ("grains", 3, 1, true), ("glints", 3, 2, true)];
+/// (tag, starving look, walker look, smoothing). Every look but `field`
+/// is the tube look (`FIELD` off); `field` is the mould drawn straight
+/// from the simulation (`look::FIELD`, the default since 2026-11-10).
+const LOOKS: [(&str, u8, u8, bool); 6] = [
+    ("before", 0, 0, false),
+    ("rough", 3, 1, false),
+    ("ramp", 3, 0, true),
+    ("grains", 3, 1, true),
+    ("glints", 3, 2, true),
+    ("field", 3, 1, true),
+];
 
 fn pct(mut v: Vec<f32>, ps: &[f32]) -> String {
     if v.is_empty() {
@@ -28,7 +36,8 @@ fn pct(mut v: Vec<f32>, ps: &[f32]) -> String {
     ps.iter().map(|p| format!("p{:.0} {:.2}", p * 100.0, v[((v.len() - 1) as f32 * p) as usize])).collect::<Vec<_>>().join("  ")
 }
 
-fn frame(d: &Dish, scale: u32, look: (u8, u8, bool)) -> (image::RgbaImage, f64) {
+fn frame(d: &Dish, scale: u32, look: (u8, u8, bool), field: bool) -> (image::RgbaImage, f64) {
+    FIELD.store(field, Relaxed);
     STARVE_LOOK.store(look.0, Relaxed);
     WALKER_LOOK.store(look.1, Relaxed);
     SMOOTH.store(look.2, Relaxed);
@@ -53,6 +62,9 @@ fn main() {
     // `hand=idle`: nobody plays, so the mould eats its piles and starves:
     // the case that shows hungry tube going cold.
     let mut idle = false;
+    // `level=K`: challenge dish K (1-based, `level::DISHES`) at its own
+    // settings instead of the free dish; `flow=` and `angle=` are ignored.
+    let mut level: Option<usize> = None;
     let (mut salted, mut snipped) = (false, false);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or_else(|| panic!("{a}: want key=value"));
@@ -66,16 +78,23 @@ fn main() {
             "gif" => gif = Some(v.parse().unwrap()),
             "tools" => tools = v == "1",
             "hand" => idle = v == "idle",
+            "level" => level = Some(v.parse().unwrap()),
             _ => panic!("unknown {k}"),
         }
     }
-    println!("flow={flow} angle={angle} seed={seed} scale={scale} at={at:?} gif={gif:?} tools={tools} idle={idle} out={out}");
+    println!("flow={flow} angle={angle} seed={seed} scale={scale} at={at:?} gif={gif:?} tools={tools} idle={idle} level={level:?} out={out}");
     std::fs::create_dir_all(&out).unwrap();
     let p = Params { flow, sensor_angle: angle.to_radians(), ..Params::default() };
-    let mut d = Dish::with_params(seed, p);
+    let mut d = match level {
+        Some(k) => Dish::from_level(&pixel_physics::mould::level::DISHES[k - 1], seed),
+        None => Dish::with_params(seed, p),
+    };
     let mut pl = Plan::new();
     let sps = STEPS_PER_SECOND as u64;
-    let tag = format!("f{}-a{}-s{seed}", flow as u8, angle);
+    let tag = match level {
+        Some(k) => format!("L{k}-s{seed}"),
+        None => format!("f{}-a{}-s{seed}", flow as u8, angle),
+    };
     let end = at.iter().copied().chain(gif.map(|g| g + 3)).max().unwrap();
     let mut gifs: Vec<Vec<image::RgbaImage>> = vec![Vec::new(); LOOKS.len()];
     let mut cost = vec![(0.0f64, 0u32); LOOKS.len()];
@@ -116,7 +135,7 @@ fn main() {
         // draws: keep it current between the pictures.
         if frame_no.is_multiple_of(6) {
             // At the pictures' scale: the rim layer is kept per scale.
-            frame(&d, scale, (3, 1, true));
+            frame(&d, scale, (3, 1, true), false);
         }
         let sec = d.t / sps;
         let on_second = d.t.is_multiple_of(sps);
@@ -134,7 +153,7 @@ fn main() {
                 pct(lvl, &[0.1, 0.25, 0.5, 0.75, 0.9])
             );
             for (k, (name, a, b, c)) in LOOKS.iter().enumerate() {
-                let (img, ms) = frame(&d, scale, (*a, *b, *c));
+                let (img, ms) = frame(&d, scale, (*a, *b, *c), *name == "field");
                 cost[k].0 += ms;
                 cost[k].1 += 1;
                 img.save(format!("{out}/{tag}-t{sec:03}-{name}.png")).unwrap();
@@ -143,8 +162,8 @@ fn main() {
         // A GIF of 3 s from `gif`, every second frame (30 fps).
         if let Some(g) = gif {
             if d.t >= g * sps && d.t < (g + 3) * sps && frame_no.is_multiple_of(2) {
-                for (k, (_, a, b, c)) in LOOKS.iter().enumerate() {
-                    let (img, ms) = frame(&d, scale, (*a, *b, *c));
+                for (k, (name, a, b, c)) in LOOKS.iter().enumerate() {
+                    let (img, ms) = frame(&d, scale, (*a, *b, *c), *name == "field");
                     cost[k].0 += ms;
                     cost[k].1 += 1;
                     gifs[k].push(img);

@@ -128,6 +128,36 @@ it counts the drop's doing only. `mouldprobe` stills take `TOOL=water` and
 `CURSOR=x,y` or `CURSOR=sleepers`. Guard: `the_water_dish_has_a_water_tile`
 (red with `bar_slots` ignoring water).
 
+## The mould drawn straight from the simulation (2026-11-10, evening)
+
+Owner, 2026-11-10 13:51-13:54Z: "I don't like the sharp edge between the
+orange and black background. That also doesn't look real simulation"; "And
+the sharp edge between the orange and gray slime"; "I want all the visuals
+to look like they're coming from a real simulation and not just graphics
+animations." He then picked "Build the from-the-simulation look" on the
+review thread's card (13:58Z), from the review's mock
+(https://claude.ai/artifact/Gk8QELawvDLuYMgjBrC1GM). Default on; F7 flips
+back to the tube look (`look::FIELD`, Glow and Night only).
+
+Both edges were the drawing's: the tube look fills everything above trail
+`tube * 0.5` flat and leaves the rest black, and colours by `looks_fed`
+yes or no. `field_mould` instead:
+
+| What | Drawn from |
+|---|---|
+| Brightness | `1 - exp(-0.3 * trail)` per cell, blended between cell centres at every pixel, screened over the dish (light adds, never clips to a fill) |
+| Gold to grey | Hunger (seconds since `fed_at`, as the tube look's graded hunger) trail-weighted on the half grid and blurred once, so it spreads along a strand; with flow on, `food_level / 0.4` (at the level itself the median tube drew cream) |
+| Walkers | One speck of light each (a 5-pixel plus), sleepers dark amber |
+| Sleeping mould | The crust ramp, by the share asleep (a paler first ramp read cream once the sleepers' specks were added) |
+| The wild mould | Its own trail and hunger on a violet ramp, screened with yours; the tube look keeps `wild`, a smoothed violet tube (its first cut cost 7 ms a frame drawn per pixel, 3.6 ms with float blends; integer centre blends now) |
+| The rim | Rim cells take their brightest open neighbour's light and the smooth rim layer cuts it, so the light is not stepped at the dish edge |
+| Piles, lamp, water, wet ground | Drawn as before, the piles over the light so food stays readable; "joined" still reads from the pile ring and the bar's food count |
+
+Draw time, scale 4, same states, tube look then this: 45 degrees 40-43 s
+6.72 to 7.36 ms; 22.5 degrees 60-63 s 6.91 to 7.72 ms; The Wild One 57-60
+s 7.91 to 7.70 ms (91 frames each). `mouldlooks` has a `field` arm and
+takes `level=K`.
+
 ## What this does not show
 
 - One seed. The looks are judged by eye on the page; no count can say whether
