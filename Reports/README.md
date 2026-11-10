@@ -6624,6 +6624,20 @@ file unless its report says so.
   most 99% (3 stars on 11); planned beats random 9-2-1, p = 0.065, not significant: the box is too easy. Records the seven
   game-only engine switches (speed-up, climbing, soil-only anchoring, runners and roots, dieback guard) and what each fixed.
   Frame mean 1.3 ms, worst 21.6 ms at 2,880 vine cells. Verdict waits on the owner's playtest.
+- [mould-real-world-2026-11-09.md](mould-real-world-2026-11-09.md) — **design exploration, no build: what the mould game
+  looks like out of the dish.** The shipped mould dropped unchanged into a side-on slice of the lab box grows one runner
+  along the ground (4 of the 5 surface piles beyond home in 10 s, untouched), because the world's dead matter lies on the
+  surface; with five piles buried 12+ rows down it branches into roots (9 of 10), where the same ground without buried
+  food stays a runner. From above, a forest floor keeps the dish's network but is not the engine. Records an edge-of-window
+  trail bug the review caught (`Dish::spread` skips the border). Recommends a side-on "mould under the garden" probe in its
+  own binary, top-down as the fallback; waits on the owner.
+- [mould-review-2026-11-10.md](mould-review-2026-11-10.md) — **independent review, no build: how to make the mould game
+  fun and good-looking.** Played from written hands on the mould thread's unlanded branch. At 45 degrees the mould obeys
+  every oat and then freezes (far pile joined by 15 s with 3 oats; every move the same move); at 22.5 it joins all the food
+  untouched and the lamp's effect is lost in its own rewiring. Running Dry over 8 seeds: doing nothing loses at both
+  settings, a random hand lives on 1 of 8 at 45 and 6 of 8 at 22.5, the scripted plan 8 of 8 at both. Recommends, ranked
+  with pros and cons: a keep-it-alive dish that does not end, player marks that stay (lights set down, salt rubbed out),
+  drawing the real walkers and thinner tubes; plus design writing and a table of comparable games. Waits on the owner's pick.
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
