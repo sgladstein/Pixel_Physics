@@ -2473,7 +2473,11 @@ fn level_words(d: &Dish) -> Option<String> {
             let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
             Some(format!("Eating {fed} pile{}", if fed == 1 { "" } else { "s" }))
         }
-        Win::Endless { .. } => Some(format!("Alive {}  mould {}", clock((d.t / STEPS_PER_SECOND as u64) as u32), d.walkers.len())),
+        // The bar already reads the time alive and the mould now.
+        Win::Endless { .. } => {
+            let fed = d.dish_piles().filter(|p| p.reached() && p.food > 0.0).count();
+            Some(format!("Eating {fed} pile{}  most mould {}", if fed == 1 { "" } else { "s" }, d.peak_mould))
+        }
     }
 }
 
