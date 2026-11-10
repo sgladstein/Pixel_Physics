@@ -1,4 +1,0 @@
-# 22.5 free dish seed 1: lamp only. Push the top tube down toward the middle, then hold inside a loop, then sweep along a tube
-22 sweep 135 25 135 75 6
-40 lamp 120 85 6
-62 sweep 60 110 110 128 6

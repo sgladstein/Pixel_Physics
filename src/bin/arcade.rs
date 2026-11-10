@@ -1,9 +1,10 @@
 //! **Arcade: every prototype from one menu.** `cargo run --release --bin arcade`
 //!
-//! A small window listing the eight game prototypes of the 2026-11-07
-//! new-game brainstorm. Pick one and it opens in its own window; close it
-//! and the list is still here. Picking another while one is open closes the
-//! open one first, so the list works as a switcher.
+//! A small window listing the game prototypes of the 2026-11-07 new-game
+//! brainstorm: seven of the eight, since Mould moved to its own repository,
+//! `sgladstein/Slime-Mold`, on 2026-11-10. Pick one and it opens in its own
+//! window; close it and the list is still here. Picking another while one is
+//! open closes the open one first, so the list works as a switcher.
 //!
 //! This is option A of the two Scott was offered on 2026-11-08 ("a launcher
 //! that opens each game", rather than one binary hosting every game in one
@@ -21,7 +22,7 @@
 //! makes every switch instant. Only if cargo cannot be started does it fall
 //! back to the game's executable next to this one, which may be stale.
 //!
-//! Keys (also on screen): **1-8** or **click** opens a game, **Up/Down** and
+//! Keys (also on screen): **1-7** or **click** opens a game, **Up/Down** and
 //! **Enter** do the same from the keyboard, **K** closes the open game,
 //! **Esc** quits the menu (an open game stays open).
 //!
@@ -55,7 +56,6 @@ struct Game {
 
 const GAMES: &[Game] = &[
     Game { bin: "storm", name: "Storm Glass", line: "call lightning, it leaves glass" },
-    Game { bin: "mould", name: "Mould", line: "herd a slime mould with a lamp" },
     Game { bin: "firedamp", name: "Firedamp", line: "herd mine gas, then burn it" },
     Game { bin: "seep", name: "Seep", line: "leaking gas, a mould that eats it" },
     Game { bin: "quench", name: "Quench", line: "aim the roof, not the water" },
@@ -274,7 +274,7 @@ fn draw(buf: &mut [u8], hover: Option<usize>, open: Option<usize>, status: &str)
     };
     text(buf, 12, foot, a, NOTE);
     text(buf, 12, foot + GLYPH_HEIGHT + 3, b, NOTE);
-    text(buf, 12, FH as i32 - 12, "1-8 OR CLICK: OPEN   K: CLOSE IT   ESC: QUIT MENU", DIM);
+    text(buf, 12, FH as i32 - 12, "1-7 OR CLICK: OPEN   K: CLOSE IT   ESC: QUIT MENU", DIM);
 }
 
 impl ApplicationHandler for Handler {
