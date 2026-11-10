@@ -93,7 +93,28 @@ on in this dish.
 - Wild start 400 against 600 made no clear difference to who ended bigger
   before fights; 600 shipped so it starts as the bigger mould.
 
+## Finer tubes: tried, kept at reach 9
+
+The review suggested finer tubes by shortening each walker's sensor reach
+(`Params::sensor_offset`, 9). Measured on all five dishes, 8 seeds, with
+`mouldprobe level=all sensor_offset=N` and the best hands on dishes 4 and 5;
+page https://claude.ai/artifact/5JT3D1sv7CwSRmYfkR6VTW.
+
+| Planned hand, stars per seed | reach 9 | 8 | 7 | 6 |
+|---|---|---|---|---|
+| Behind the Wall | 33333333 | 33333333 | 13333323 | 20031231 |
+| Beat the Ruler | 33333333 | 30330300 | 00000000 | 00000000 |
+| Running Dry | 33333333 | 33333333 | 33333333 | 33333033 |
+
+At reach 6, Keep It Alive's lamp+oats+water hand lived 3:04-12:02 (median
+3:41) against 4:11-10:42 (median 6:21), shorter on 6 of 8 seeds; The Wild
+One's all-tools share fell from 0.67-1.00 to 0.49-0.63. Doing nothing stayed
+at 0 stars everywhere. The tubes are only a little thinner (they branch
+more), and the mould senses food and oats from less far, so oat trails
+that solve each dish stop reaching. Kept at 9; the thin look belongs in the
+drawing. Entry in `Reports/dead-ends.md`.
+
 ## Next
 
-Finer tubes (sensor reach about 6) and a re-measure, then the independent
-review of the endless dish, water and sleep, and the wild one.
+The independent review of the endless dish, water and sleep, and the wild
+one.
