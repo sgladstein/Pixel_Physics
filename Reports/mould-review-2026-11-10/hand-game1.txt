@@ -1,0 +1,13 @@
+# play 1, free dish seed 1, defaults. Lead the mould east with oats.
+6 oats 111 45
+8 oats 133 51
+10 oats 156 57
+# far pile lands at 30 s at 212,116: lead down from 182,64
+31 oats 192 82
+32 oats 202 99
+# close a loop along the south: 117,130 -> 212,116
+33 oats 140 127
+46 oats 163 123
+61 oats 187 120
+# lamp play: push the top tube for 4 s to see it bend
+20 sweep 135 30 135 48 4

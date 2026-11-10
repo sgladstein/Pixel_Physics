@@ -1,0 +1,375 @@
+<title>Mould Game Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column, like a lab notebook page; pictures sit in a two-up grid with their counts printed under them as instrument readouts. */
+:root {
+  --bg: #eef2f0;
+  --panel: #ffffff;
+  --ink: #17222a;
+  --dim: #55646c;
+  --line: #cdd7d6;
+  --amber: #a86a00;
+  --amber-soft: #f6e7c4;
+  --rim: #2b6f86;
+  --good: #2f6b3c;
+  --bad: #a3402d;
+  --display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a1015; --panel: #111a21; --ink: #e6ecea; --dim: #96a5aa; --line: #24323b;
+    --amber: #f0a92b; --amber-soft: #2c2412; --rim: #5fa9c2; --good: #7fc48d; --bad: #ee8a73;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a1015; --panel: #111a21; --ink: #e6ecea; --dim: #96a5aa; --line: #24323b;
+  --amber: #f0a92b; --amber-soft: #2c2412; --rim: #5fa9c2; --good: #7fc48d; --bad: #ee8a73;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 64px;
+}
+main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2rem; font-weight: 600; }
+h2 { font-size: 1.4rem; font-weight: 600; margin-top: 28px; padding-top: 20px; border-top: 2px solid var(--rim); }
+h3 { font-size: 1.08rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--rim); }
+.kicker { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.lede { font-size: 1.1rem; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.answer { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.answer ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.figs.one { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 620px) { .figs { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+figure img { width: 100%; height: auto; display: block; border: 1px solid var(--line); background: #06090c; }
+figcaption { font-size: 0.9rem; color: var(--dim); }
+.count { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); background: var(--amber-soft); padding: 3px 7px; display: inline-block; font-variant-numeric: tabular-nums; }
+.tag { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--line); color: var(--dim); padding: 1px 6px; white-space: nowrap; }
+.quad { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; background: var(--line); border: 1px solid var(--line); }
+.quad div { background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.quad .want { background: var(--amber-soft); }
+.quad b { font-family: var(--display); }
+.axis { font-family: var(--mono); font-size: 0.75rem; color: var(--dim); display: flex; justify-content: space-between; gap: 12px; }
+.rank { background: var(--panel); border: 1px solid var(--line); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.rank .head { display: flex; gap: 12px; align-items: baseline; }
+.rank .n { font-family: var(--display); font-size: 1.5rem; font-weight: 600; color: var(--amber); min-width: 1.2em; }
+.pc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 620px) { .pc { grid-template-columns: minmax(0, 1fr); } }
+.pc > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pc .lab { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.pc .pro .lab { color: var(--good); }
+.pc .con .lab { color: var(--bad); }
+.test { font-size: 0.93rem; color: var(--dim); border-top: 1px dashed var(--line); padding-top: 8px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); font-weight: 500; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.small { font-size: 0.9rem; color: var(--dim); }
+</style>
+
+<main>
+  <header class="stack">
+    <div class="kicker">Independent review · 10 Nov 2026 · cargo run --release --bin mould</div>
+    <h1>Mould Game Review</h1>
+    <p class="lede">The mould is a lovely toy and a thin game. Its two settings each hold half of what you want. At 45° it does what you tell it and then stops moving. At 22.5° it never stops moving and does not need you.</p>
+  </header>
+
+  <section class="answer">
+    <h3>What I would do, in order</h3>
+    <ol>
+      <li><b>Make the game "keep it alive".</b> One dish that does not end, where food runs out and turns up elsewhere. The score is how big the mould got and how long it lived. It is the one goal that still needs the player when the mould is lively.</li>
+      <li><b>Give the player marks that stay on the dish.</b> Lights you set down and pick up, and salt you can draw and rub out. The mould stays lively and your choices stay visible.</li>
+      <li><b>Show the real walkers and make the mould finer.</b> The living part of the simulation is hidden under a smooth orange gel. Draw the walkers that are already there and thin the tubes.</li>
+    </ol>
+    <p class="small">The rest of the page is the evidence, the full ranked lists with pros and cons, and what other games and design writing say about a game like this.</p>
+  </section>
+
+  <section class="stack">
+    <h2>How I reviewed it</h2>
+    <p>I read the code and the earlier reports. Then I played by writing down each move (time, tool, place), running the real game on it, and looking at the game's own frames every five seconds before choosing the next move. So I can judge decisions, pacing and looks. I cannot judge how the mouse feels or anything about sound.</p>
+    <p>I reviewed the mould thread's branch at commit 69df5a1, which has the real food flow and the tuning panel. I did not replay the Wanderer or the Organ.</p>
+    <p class="small">Each claim below carries a tag: <span class="tag">played</span> I did it once, on one dish. <span class="tag">measured</span> I ran it over 8 seeds. <span class="tag">earlier</span> a number from the mould thread's own tests. <span class="tag">memory</span> something I know about another game and did not look up today.</p>
+  </section>
+
+  <section class="stack">
+    <h2>What happened when I played</h2>
+
+    <h3>At today's default (45°), oats are a dotted line and the mould traces it</h3>
+    <div class="figs">
+      <figure><img src="img/p45-oats-10.jpg" alt="Free dish 1 at 10 seconds: two oats laid toward the far pile, the mould already on them"><figcaption><span class="count">0:10 · 3 of 4 food joined · 2 oats down</span><br>I laid oats in a row toward the far pile.</figcaption></figure>
+      <figure><img src="img/p45-joined-15.jpg" alt="Free dish 1 at 15 seconds: a straight tube now joins the far pile"><figcaption><span class="count">0:15 · 4 of 4 joined · 3 oats used</span><br>Five seconds later it was joined. I had nothing to decide until new food landed at 0:30.</figcaption></figure>
+    </div>
+    <p>Every move I made in two full games was the same move: put the next oat 20 cells further along the line. The scripted answer to Behind the Wall is the same move, done in 11 seconds. <span class="tag">played</span></p>
+
+    <div class="figs">
+      <figure><img src="img/p45-after-100.jpg" alt="First game after the storm: the storm scar cuts the trunk and three piles are lost"><figcaption><span class="count">Game 1 · 8 oats · 2 stars · storm cut off 3 of 6</span><br>My loop never closed. Oats go off after 35 s and come back one per 15 s, so my first stepping stones were gone before the last arrived.</figcaption></figure>
+      <figure><img src="img/p45-loop2-100.jpg" alt="Second game after the storm: a ring network, all six piles still joined"><figcaption><span class="count">Game 2 · 9 oats · 2 stars · 6 of 6 kept · 1.28× shortest</span><br>Second try, better timing: a ring that shrugged the storm off. That felt good. It cost the "short" star.</figcaption></figure>
+    </div>
+    <p>So there is a small skill to learn, and a real trade between a short network and a tough one. But in both games I used oats 17 times, the lamp for 4 seconds as a test, and salt and snip never. Doing nothing scored 0 stars on the same dish. <span class="tag">played</span></p>
+
+    <div class="figs">
+      <figure><img src="img/lamp45-push.jpg" alt="The lamp pressed onto a tube at 45 degrees makes a small dent"><figcaption><span class="count">Lamp held on a tube · 4 s</span><br>The lamp dents the tube.</figcaption></figure>
+      <figure><img src="img/lamp45-back.jpg" alt="Two seconds after the lamp is lifted the tube is straight again"><figcaption><span class="count">About 1 s after letting go</span><br>It springs back straight. Nothing I did with the lamp lasted. <span class="tag">played</span></figcaption></figure>
+    </div>
+
+    <h3>At 22.5° it is alive, and it plays itself</h3>
+    <div class="figs">
+      <figure><img src="img/alive225.gif" alt="Clip: the mould at 22.5 degrees, untouched, branching, looping and rewiring for 40 seconds"><figcaption><span class="count">Nobody playing · first 40 s at 4× speed</span><br>Branches, loops, feelers that die back. Much better to watch.</figcaption></figure>
+      <figure><img src="img/a225-80.jpg" alt="The untouched 22.5 degree dish at 80 seconds with all six piles joined in a web"><figcaption><span class="count">Nobody playing · 1:20 · 6 of 6 joined · 1 star</span><br>It joined all the food by itself. The mould thread measured the same on every seed and every hand. <span class="tag">earlier</span></figcaption></figure>
+    </div>
+    <div class="figs">
+      <figure><img src="img/lamp225.gif" alt="Clip: the lamp pushed through a tube at 22.5 degrees bends it into a V, then the network rewires"><figcaption><span class="count">Lamp swept through a tube · 6 s</span><br>The lamp makes a clear V in the tube. That part is good.</figcaption></figure>
+      <figure><img src="img/lamp225-34.jpg" alt="Six seconds after the lamp sweep the network has a different shape that the sweep did not choose"><figcaption><span class="count">6 s later</span><br>The network has rewired again, as it would have anyway. I could not tell what I had caused.</figcaption></figure>
+    </div>
+
+    <h3>The problem in one picture</h3>
+    <div class="stack">
+      <div class="quad">
+        <div><b>22.5° today</b><span>Alive. Your hand gets lost in its own changes, and it wins without you.</span></div>
+        <div class="want"><b>Where it should be</b><span>Alive, and what you did is still visible a minute later.</span></div>
+        <div><b>Neither</b><span>A screensaver you cannot touch.</span></div>
+        <div><b>45° today</b><span>Obeys every oat, then freezes. A drawing tool with a countdown.</span></div>
+      </div>
+      <div class="axis"><span>↑ alive on its own</span><span>answers your hand →</span></div>
+    </div>
+    <p>The mould thread has been trying to fix this by changing the goals: quick, lean, weathered, then keep-off patches. I think the fix is on the other axis. Keep the lively mould, and change what the player's tools leave behind.</p>
+
+    <h3>One goal held up at both settings: staying alive</h3>
+    <p>Running Dry is the dish where every pile runs out and new food turns up elsewhere. I ran it at both settings. <span class="tag">measured</span></p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Running Dry, 8 seeds</th><th>45°</th><th>22.5°</th></tr></thead>
+        <tbody>
+          <tr><td>Doing nothing: mould alive at the bell</td><td class="num">0 of 8</td><td class="num">2 of 8 (1 and 2 walkers)</td></tr>
+          <tr><td>Doing nothing: when it died</td><td class="num">1:02 to 1:24</td><td class="num">1:44 to 1:50; two reached the 2:00 bell with 1 and 2 walkers</td></tr>
+          <tr><td>Random hand: alive at the bell</td><td class="num">1 of 8</td><td class="num">6 of 8</td></tr>
+          <tr><td>The scripted plan: alive at the bell</td><td class="num">8 of 8</td><td class="num">8 of 8</td></tr>
+          <tr><td>The scripted plan: mould alive</td><td class="num">354 to 411</td><td class="num">389 to 435</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small">Paired by seed. The untouched mould lasted longer at 22.5° on 8 of 8 seeds (sign test p = 0.008). The random hand lived at 22.5° and died at 45° on 5 seeds, the reverse on 0, level on 3 (p = 0.06). With two comparisons, only the first survives a correction.</p>
+    <p>Doing nothing loses at both settings, and the lively mould dies slower and more gracefully. The weak spot is the random hand: with up to 16 oats to scatter it lives on 6 of 8 seeds at 22.5°, so today aim does not matter enough.</p>
+    <div class="figs one">
+      <figure><img src="img/dry-end.jpg" alt="Running Dry at the bell: a small living tree of mould on the last pile, grey dead tube trailing behind it, five piles eaten"><figcaption><span class="count">Running Dry · scripted plan · 400 alive at the bell · 5 piles eaten</span><br>The picture tells its own story: where it has been (grey), what it ate (crossed out), and what is left of it.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2>Making it fun, ranked</h2>
+
+    <div class="rank">
+      <div class="head"><span class="n">1</span><h3>Make "keep it alive" the game, on a dish that does not end</h3></div>
+      <p>Food runs out and turns up somewhere new, a little further each time. Dry spells and storms come as weather, not as a final exam. The score is a number: how long it lived and how big it got, shown beside your best.</p>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul>
+          <li>Doing nothing lost at both settings in my test. The other goals fall to the lively mould in the mould thread's tests.</li>
+          <li>Almost all of it is built: piles that run out, each piece eating its own food, starving that is slow and visible.</li>
+          <li>A creature that can die gives you a reason to care, which is what you said you connect to.</li>
+          <li>There is always a next thing to decide, so the dead middle minute goes away.</li>
+          <li>The outcome is an amount, not three yes-or-no stars.</li>
+        </ul></div>
+        <div class="con"><span class="lab">Against</span><ul>
+          <li>Nobody has shown it stays fun past two minutes.</li>
+          <li>A random hand already survives 6 of 8 at 22.5°, so oats have to get scarcer or food harder to reach before skill shows.</li>
+          <li>It needs a difficulty ramp, which is tuning work with many seeds.</li>
+        </ul></div>
+      </div>
+      <p class="test"><b>Cheapest test:</b> Running Dry at 22.5° with no bell, about 6 oats, and each new pile further away. Pass if doing nothing dies, a random hand dies on most seeds, and a better plan lives longer.</p>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">2</span><h3>Give the player marks that stay</h3></div>
+      <p>Today the lamp only works while held and oats vanish after 35 seconds. Only the single salt line stays. Let the player set down a few lights and leave them, draw more salt, and rub either out. You shape the dish and the mould keeps living in it. Scientists did this for real: when they grew a slime mould into a map of Tokyo's railways, they used patches of light as the mountains and sea.</p>
+      <div class="figs">
+        <figure><img src="img/fixed-60.jpg" alt="A light held in one place for a minute at 22.5 degrees; the network has grown round it"><figcaption><span class="count">One light held for 60 s · 6 of 6 joined</span><br>The network has built itself round the light.</figcaption></figure>
+        <figure><img src="img/nofixed-60.jpg" alt="The same dish and moment with no light"><figcaption><span class="count">Same dish, no light · 6 of 6 joined</span><br>Without it. One dish only, and the difference is modest. <span class="tag">played</span></figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul>
+          <li>You keep the lively 22.5° mould and still see what you did.</li>
+          <li>It gives the lamp and salt a job. I won two stars twice without either.</li>
+          <li>Walling a moving thing into a shape is a pleasure many games rely on.</li>
+        </ul></div>
+        <div class="con"><span class="lab">Against</span><ul>
+          <li>My one picture shows a bend, not a transformation. A single small light is weak.</li>
+          <li>Too many marks and it becomes a wall-drawing game with the mould as filler.</li>
+          <li>It needs limits (a few lights, a salt budget) and those need tuning.</li>
+        </ul></div>
+      </div>
+      <p class="test"><b>Cheapest test:</b> three lights to place and lift, three salt lines, click to rub out. Put the same dish in front of you twice, with and without.</p>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">3</span><h3>Make oats a nudge, not a ruler</h3></div>
+      <p>Oats are so strong and exact that they make every other tool optional. Three ways to soften them: give fewer; make them earned (finish a pile, get an oat); or make them smell weaker so the mould leans toward them instead of running straight there.</p>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul>
+          <li>The mould gets to surprise you again, which is where "little bridges where there wasn't food" came from.</li>
+          <li>Earned oats tie the tool to how well the mould is doing.</li>
+        </ul></div>
+        <div class="con"><span class="lab">Against</span><ul>
+          <li>You enjoyed pulling it with oats. Weaken them too far and the mould seems to ignore you, which is the main complaint against Mushroom 11, the nearest game to this one. <span class="tag">earlier</span></li>
+          <li>Only worth doing together with 2, or the player has less to do.</li>
+        </ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">4</span><h3>Score an amount, and remember it</h3></div>
+      <p>The first brainstorm said this and the game still ends on three stars. "Lived 4:10, peak 1,800, your best 5:02" tells you how you did and invites another go. Stars tell you which boxes you missed.</p>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Small to build. Fits your rule that an outcome is a spread.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>Numbers need a yardstick. Show the do-nothing result beside yours so the number means something.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">5</span><h3>Keep the puzzle dishes as a small side pack, at 45°</h3></div>
+      <p>The three challenge dishes work at 45° and break at 22.5°. That is fine if they are a separate thing. Beat the Ruler is the best of them because its answer is your favourite moment, a join in empty space. Each is a one-idea puzzle, so they are a good way to teach tricks and a poor main game.</p>
+      <div class="figs one">
+        <figure><img src="img/ruler-end.jpg" alt="Beat the Ruler solved: three piles joined through a meeting point in the middle, shorter than the dotted ruler lines"><figcaption><span class="count">Beat the Ruler · 0.88× the ruler · 3 stars · 7 oats</span><br>The mould meets in the middle and beats the straight lines.</figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Already built and passing their bar. Ends the argument about which setting is "the" setting: each mode gets the one that suits it.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>Two settings means two sets of numbers to keep balanced.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">6</span><h3>Three things I would stop</h3></div>
+      <ul>
+        <li><b>Keep-off patches.</b> There is no reason in the dish for the mould to stay off a circle, and the bait smell turns each patch into a trap that stops it feeding. <span class="tag">earlier</span> It makes a test pass without giving the player a reason.</li>
+        <li><b>The storm as a final exam.</b> One cut at the bell means you learn the result when you can no longer act. In an endless dish the same storm is weather you recover from.</li>
+        <li><b>The "short network" star at 22.5°.</b> The mould thread's cheating pruner could not reach it with 150 free cuts. <span class="tag">earlier</span></li>
+      </ul>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">7</span><h3>Out of the dish: wait</h3></div>
+      <p>The side-on world page found the mould becomes a single runner along the ground unless food is buried. The networks are the fun. I would get the dish game working first and take what works outside later.</p>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2>Making it look good, ranked</h2>
+    <p>All of these draw things the simulation already holds, so they keep your rule that nothing on screen is drawn-only.</p>
+
+    <div class="rank">
+      <div class="head"><span class="n">1</span><h3>Show the walkers</h3></div>
+      <p>The mould is up to about 1,800 moving specks. The game hides them under a blurred, thresholded gel, so a still tube looks like a strip of caramel. Drawing the specks themselves gives the tubes a living grain, shows crowding at food, and does honestly what the removed fake pulse tried to do.</p>
+      <div class="figs">
+        <figure><img src="img/specks-closeup.png" alt="Close-up, left as drawn today, right with each walker drawn as a bright speck"><figcaption><span class="count">Left: today · Right: mock with walkers drawn</span><br>My mock paints one bright dot per real walker over the game's frame.</figcaption></figure>
+        <figure><img src="img/specks.gif" alt="Clip of the mock in motion: specks stream along the tubes and swarm on the food"><figcaption><span class="count">Mock in motion · 8 s of play · about 1,000 walkers</span><br>The streaming is the real movement of the simulation.</figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Cheap: a few thousand dots a frame. Real. Makes a waiting dish worth watching.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>Can look noisy. Needs a pass on dot size and brightness, and a check on a phone-sized window.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">2</span><h3>Make the mould finer</h3></div>
+      <p>Tubes are about 12 cells wide on a dish 256 cells across, so a whole game fits five or six fat lines. Shortening the sensor reach from 9 to 6 on the tuning panel gives thinner tubes, more branches and more room to make shapes.</p>
+      <div class="figs">
+        <figure><img src="img/a225-80.jpg" alt="22.5 degree dish with the shipped tube width"><figcaption><span class="count">Sensor reach 9 (shipped) · 1:20 · 6 of 6</span></figcaption></figure>
+        <figure><img src="img/thin-85.jpg" alt="The same dish with sensor reach 6: thinner tubes and a denser web"><figcaption><span class="count">Sensor reach 6 · 1:25 · 6 of 6</span><br>Same dish, same seed.</figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Costs no frame time. Closer to the real thing's lace. More places for a bridge.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>There is a floor: at reach 4 the mould joined only 1 of 6 piles. Every number tuned to 12-cell tubes (the length score, the lamp size) needs redoing. <span class="tag">played</span></li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">3</span><h3>Give flowing food one colour ramp</h3></div>
+      <p>With real food flow switched on, the game looks worse than with it off. Fed tube goes a flat bright yellow and hungry stretches show as grey smears that look like a drawing fault. Use one ramp from white-gold at the food, through amber, down to a dull brown, and let hunger thin and dim the tube instead of turning it grey.</p>
+      <div class="figs one">
+        <figure><img src="img/flow-closeup.png" alt="Close-up, left with flow off: amber tubes with a soft glow. Right with flow on: flat yellow tubes with grey streaks"><figcaption><span class="count">Left: flow off · Right: flow on</span><br>The right side holds more truth and reads worse.</figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Lets you turn flow on by default without losing the look. A graded colour for a graded quantity.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>Overlaps the grey / embers / dried-slime pick you still owe the mould thread. Settle them together.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">4</span><h3>Let the dish remember where the mould has been</h3></div>
+      <p>A real slime mould leaves a film of slime behind and tends not to go back over it. <span class="tag">memory</span> A faint stain where tube used to be would turn every dish into a drawing of its own history, and in a keep-it-alive game it would become a rule too: ground already used is poorer ground.</p>
+      <div class="figs one">
+        <figure><img src="img/ghost-45.jpg" alt="Mock at 45 seconds: thin tubes with walkers drawn, and a faint olive stain on the agar wherever tube has been"><figcaption><span class="count">Mock · 0:45 · 1,557 walkers · 5 of 6 joined · stain = cells that have ever held tube</span><br>Suggestions 1, 2 and 4 together. The stain is from real history; the colours are my guess.</figcaption></figure>
+      </div>
+      <div class="pc">
+        <div class="pro"><span class="lab">For</span><ul><li>Looks good, is real, and opens a new rule later.</li></ul></div>
+        <div class="con"><span class="lab">Against</span><ul><li>At 22.5° the mould visits most of the dish by 1:25, so the stain must fade or it becomes wallpaper.</li></ul></div>
+      </div>
+    </div>
+
+    <div class="rank">
+      <div class="head"><span class="n">5</span><h3>Smaller things</h3></div>
+      <ul>
+        <li><b>The lamp should look like light.</b> It is drawn as a blue-grey disc that reads as a lens or a bubble. A warm pool that brightens the agar would say what it is.</li>
+        <li><b>The bar overlaps below full size.</b> At three-quarters size "Storm in" prints over the mould count. The mould thread has seen this too.</li>
+        <li><b>Sound.</b> I could not judge it.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2>What design writing says about a game like this</h2>
+    <ul>
+      <li><b>Is it fun to play with, before it is fun to play?</b> Jesse Schell calls this the lens of the toy. Your first play answered yes. Protect that, and keep goals light enough that they do not sit on top of it. <span class="tag">memory</span></li>
+      <li><b>You must be able to see what you caused.</b> Doug Church's two tools for judging a design are intention (can I make a plan?) and perceivable consequence (can I see what my action did?). The 45° mould has both and no life. The 22.5° mould has life and loses the second. That is the square diagram above. <span class="tag">memory</span></li>
+      <li><b>A game is a run of interesting decisions</b> (Sid Meier). I made nine moves in a 98-second dish, all of one kind. <span class="tag">played</span></li>
+      <li><b>Not all fun is challenge.</b> The usual list has eight kinds, among them sensation, discovery, expression and challenge. The mould is strong at the first three. Most of the work since your first play has added the fourth: stars, bars, storms, patches. A survival goal leans on looking after something, and on discovery, which suits it better. <span class="tag">memory</span></li>
+      <li><b>Steering something that has its own mind works when the creature is able and readable.</b> A written <a href="https://math.vu.nl/~eliens/media/pattern-indirectcontrol.html">pattern for indirect control</a> warns that unpredictable randomness weakens it. That is the case for marks that stay: the creature can be lively if the player's side of the board holds still.</li>
+      <li><b>Your own two laws.</b> An outcome should be a spread: three stars are not, mould alive is. Every system needs a verb that delivers: the lamp at 45° delivers a dent that is gone in two seconds.</li>
+    </ul>
+  </section>
+
+  <section class="stack">
+    <h2>Games worth learning from</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Game</th><th>What it shares with Mould</th><th>What to take</th></tr></thead>
+        <tbody>
+          <tr><td><b>Mini Metro</b></td><td>You tend a network that is never finished. No levels, one map that keeps asking for more. <span class="tag">memory</span></td><td>The shape of suggestion 1. Its makers wanted the state of the network readable at a glance, with no menus. Our mould's colour already does that job. <a href="https://en.wikipedia.org/wiki/Mini_Metro_(video_game)">read more</a></td></tr>
+          <tr><td><b>From Dust</b></td><td>You never command the villagers. You move sand, water and lava and they find their way.</td><td>The shape of suggestion 2: shape the ground, not the creature. Its designer called it a sandcastle game. Reviewers marked it down for imprecise control, so the marks must land where you put them. <a href="https://en.wikipedia.org/wiki/From_Dust">read more</a></td></tr>
+          <tr><td><b>Prune</b></td><td>One verb, cutting, steers a growing tree toward the light.</td><td>A cut there sends the growth somewhere else, so cutting is steering. <span class="tag">memory</span> Our snip only removes. Its motto was "Cultivate what matters. Cut away the rest." <a href="https://en.wikipedia.org/wiki/Prune_(video_game)">read more</a></td></tr>
+          <tr><td><b>Mushroom 11</b></td><td>The nearest relative: you move a fungus by erasing part of it and it regrows elsewhere.</td><td>Praised for the idea, criticised when the organism's randomness fought the hand. A warning against weak oats with nothing else to hold on to. <span class="tag">earlier</span></td></tr>
+          <tr><td><b>Lemmings, Pikmin</b></td><td>Creatures that act on their own while you set up the world round them.</td><td>The creatures are simple and predictable, and the player's tools are exact and lasting (a blocker stays a blocker). <span class="tag">memory</span></td></tr>
+          <tr><td><b>World of Goo</b></td><td>You build with a living, wobbling material.</td><td>The score is how many goo balls you had left over, an amount, and the material's wobble is the charm. It also began as a week-long toy. <span class="tag">memory</span></td></tr>
+          <tr><td><b>Creeper World</b></td><td>A spreading fluid, and supply packets you watch travel along your network.</td><td>Players enjoy watching supply flow. An argument for showing the walkers and the food. <span class="tag">earlier</span></td></tr>
+          <tr><td><b>Townscaper</b></td><td>Sold as "more of a toy than a game. No goal."</td><td>A pure toy can ship and be loved, but some reviewers found it thin. If Mould stays a toy, it needs a lot of beauty; a light survival goal is the safer middle. <a href="https://www.bloomberg.com/news/articles/2020-07-24/the-video-game-where-you-build-an-empty-town">read more</a></td></tr>
+          <tr><td><b>Opus Magnum</b></td><td>Open-ended puzzles with no single right answer.</td><td>It scores you on a chart of everyone's results, not on stars. A way to grade the puzzle dishes. <span class="tag">memory</span></td></tr>
+          <tr><td><b>PHYSARUM, Wetware</b></td><td>A slime mould simulator with no goal, and a network game where you draw the network by hand.</td><td>The gap the first research found still stands after today's search: no game I can find puts a goal on a real, self-growing slime mould. <a href="https://store.steampowered.com/app/1667120/PHYSARUM_Slime_Mold_Simulator/">read more</a> · <a href="https://demmy.itch.io/wetware">read more</a></td></tr>
+          <tr><td><b>The Tokyo railway experiment</b></td><td>Not a game. A real mould, oat flakes for cities, and light for mountains and sea.</td><td>Light as terrain is how the scientists themselves steered it. <a href="https://www.nationalgeographic.com/science/article/slime-mould-attacks-simulates-tokyo-rail-network">read more</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2>What this review does not show</h2>
+    <ul>
+      <li>I did not hold the mouse. Whether the lamp feels good in the hand is your call, and you already said it does.</li>
+      <li>Most play findings are from one dish, played twice. The Running Dry table is 8 seeds.</li>
+      <li>Nothing here was built. The three mock pictures are dots and a stain painted over real frames from real simulation data, to show a look, not a finished drawing.</li>
+      <li>I did not judge the Wanderer, the Organ, or sound.</li>
+    </ul>
+  </section>
+</main>
