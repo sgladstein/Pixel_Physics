@@ -54,6 +54,11 @@ struct Args {
     /// Oats per dish, if not the game's own stock.
     oats: Option<u32>,
     oats_regrow: Option<u32>,
+    /// Water drops in stock and seconds per regrow, if not the game's own.
+    water: Option<u32>,
+    /// `wet=`, if given; otherwise a level dish is wet when its level has water.
+    wet: Option<bool>,
+    water_regrow: Option<u32>,
     /// The Wanderer (`mould::wander`): journeys of `dishes` stretches.
     wander: bool,
     dishes: u32,
@@ -96,6 +101,9 @@ fn parse() -> Args {
         every: 15,
         oats: None,
         oats_regrow: None,
+        water: None,
+        wet: None,
+        water_regrow: None,
         wander: false,
         dishes: 3,
         cap_min: 10,
@@ -160,6 +168,8 @@ fn parse() -> Args {
             "every" => a.every = v.parse().unwrap(),
             "oats" => a.oats = Some(v.parse().unwrap()),
             "oats_regrow" => a.oats_regrow = Some(v.parse().unwrap()),
+            "water" => a.water = Some(v.parse().unwrap()),
+            "water_regrow" => a.water_regrow = Some(v.parse().unwrap()),
             "wander" => a.wander = v == "1",
             "dishes" => a.dishes = v.parse().unwrap(),
             "cap" => a.cap_min = v.parse().unwrap(),
@@ -192,6 +202,18 @@ fn parse() -> Args {
             "flow" => p.flow = v == "1",
             "spared" => p.spared = f() as u32,
             "spared_scent" => p.spared_scent = f(),
+            "wet" => {
+                p.wet = v == "1";
+                a.wet = Some(p.wet);
+            }
+            "wet_relax" => p.wet_relax = f(),
+            "dry_light" => p.dry_light = f(),
+            "crust_wet" => p.crust_wet = f(),
+            "crust_rate" => p.crust_rate = f(),
+            "revive_wet" => p.revive_wet = f(),
+            "crust_life" => p.crust_life = f(),
+            "wake_grace" => p.wake_grace = f(),
+            "water_r" => p.water_r = f(),
             "tune" => {
                 let text = std::fs::read_to_string(v).unwrap_or_else(|e| panic!("tune: {v}: {e}"));
                 let bad = pixel_physics::mould::tune::from_text(&text, p);
@@ -234,8 +256,112 @@ fn player(name: &str, seed: u64) -> Box<dyn Player> {
         "lamponly" => Box::new(LampOnly::new()),
         "dump" => Box::new(Dump),
         "guard" => Box::new(Guard),
+        "sleeper" => Box::new(Sleeper::new()),
         "prune" => Box::new(Pruner { seed: seed | 1, frame: 0, from: 15, every: 30, len: 26.0 }),
         _ => panic!("unknown player {name}"),
+    }
+}
+
+/// **Keep It Alive with water and sleep** (`Params::wet`): the oat-saver
+/// (`play::Route` for "alive"), plus the lamp and water. When the food being
+/// eaten is nearly gone, it holds the lamp on the mould for `bake` seconds
+/// and lets go, so the ground there is dry when the mould flows back and it
+/// falls asleep; when a pile lands, it waters the sleepers nearest it.
+struct Sleeper {
+    route: pixel_physics::mould::play::Route,
+    bake_until: u64,
+    baked_at: Option<u64>,
+    bake: f32,
+}
+
+impl Sleeper {
+    fn new() -> Self {
+        let k = pixel_physics::mould::level::DISHES.iter().position(|l| l.key == "alive").unwrap();
+        Sleeper {
+            route: pixel_physics::mould::play::Route::for_level(k),
+            bake_until: 0,
+            baked_at: None,
+            bake: std::env::var("BAKE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.5),
+        }
+    }
+}
+
+impl Player for Sleeper {
+    fn name(&self) -> &'static str {
+        "sleeper"
+    }
+    fn act(&mut self, d: &mut Dish) {
+        if d.phase != Phase::Growing {
+            return;
+        }
+        let sps = STEPS_PER_SECOND as u64;
+        if d.t < self.bake_until {
+            return;
+        }
+        if d.lamp.is_some() {
+            d.set_lamp(None);
+        }
+        self.route.act(d);
+        if !d.t.is_multiple_of(sps / 2) {
+            return;
+        }
+        let awake: Vec<(f32, f32)> = d.walkers.iter().filter(|w| !w.asleep()).map(|w| (w.x, w.y)).collect();
+        let asleep: Vec<(f32, f32)> = d.walkers.iter().filter(|w| w.asleep()).map(|w| (w.x, w.y)).collect();
+        // Water: a pile with food the mould is not on, and sleepers within
+        // 45 cells of it: soak the sleeper nearest it, a little toward it.
+        if d.water_left > 0 && !asleep.is_empty() {
+            let target = d
+                .dish_piles()
+                .filter(|p| !p.reached() && p.food > 0.0)
+                .map(|p| (p.x, p.y))
+                .min_by(|a, b| {
+                    let g = |q: &(f32, f32)| asleep.iter().map(|s| (s.0 - q.0).hypot(s.1 - q.1)).fold(f32::INFINITY, f32::min);
+                    g(a).total_cmp(&g(b))
+                });
+            if let Some(t) = target {
+                let s = asleep
+                    .iter()
+                    .copied()
+                    .min_by(|a, b| (a.0 - t.0).hypot(a.1 - t.1).total_cmp(&(b.0 - t.0).hypot(b.1 - t.1)))
+                    .unwrap();
+                let g = (s.0 - t.0).hypot(s.1 - t.1);
+                if g < 45.0 {
+                    let f = (8.0 / g.max(1.0)).min(1.0);
+                    d.place_water(s.0 + (t.0 - s.0) * f, s.1 + (t.1 - s.1) * f);
+                    return;
+                }
+            }
+        }
+        // Bake: food nearly gone, the next food not yet reachable, and
+        // nobody asleep yet.
+        let left: f32 = d.dish_piles().filter(|p| p.reached()).map(|p| p.food / p.full).sum();
+        // Food within 35 cells of fed mould will be reached without help.
+        let w_ = pixel_physics::mould::W;
+        let fed: Vec<(f32, f32)> = d
+            .walkers
+            .iter()
+            .filter(|w| !w.asleep() && d.fed[w.y as usize * w_ + w.x as usize] != u16::MAX)
+            .map(|w| (w.x, w.y))
+            .collect();
+        let near_food = d
+            .dish_piles()
+            .chain(d.pending.iter().filter(|(at, _)| *at <= d.t + 5 * sps).map(|(_, p)| p))
+            .any(|p| !p.reached() && p.food > 0.0 && fed.iter().any(|w| (w.0 - p.x).hypot(w.1 - p.y) < p.r + 35.0));
+        if std::env::var("SLEEPTRACE").is_ok() && left < 0.2 {
+            println!("    t={} left {left:.2} near_food {near_food} awake {} asleep {} fed {}", d.t / sps, awake.len(), asleep.len(), fed.len());
+        }
+        if self.baked_at.is_none_or(|t| d.t > t + 2 * sps) && left < 0.15 && !near_food && asleep.len() < awake.len() && awake.len() > 20 {
+            // On the thickest awake mould (most awake walkers within 8).
+            let at = awake
+                .iter()
+                .step_by(4)
+                .copied()
+                .max_by_key(|a| awake.iter().filter(|b| (a.0 - b.0).hypot(a.1 - b.1) < 8.0).count())
+                .unwrap();
+            d.set_lamp(Some(at));
+            self.bake_until = d.t + (self.bake * sps as f32) as u64;
+            self.baked_at = Some(d.t);
+        }
     }
 }
 
@@ -1653,6 +1779,15 @@ fn give_oats(d: &mut Dish, a: &Args) {
     if let Some(n) = a.oats {
         d.oats_left = n;
     }
+    if d.params.wet {
+        if let Some(n) = a.water {
+            d.water_left = n;
+            d.water_stock = n;
+        }
+        if let Some(n) = a.water_regrow {
+            d.water_regrow = n;
+        }
+    }
 }
 
 /// A hand-made dish with the probe's parameters: the level's stray limit
@@ -1670,6 +1805,7 @@ fn level_dish(k: usize, seed: u64, a: &Args) -> Dish {
     let params = pixel_physics::mould::Params {
         stray_reach: a.strays.unwrap_or(pixel_physics::mould::level::STRAY_REACH),
         sensor_angle: angle,
+        wet: a.wet.unwrap_or(DISHES[k].tools.water > 0),
         ..a.params.clone()
     };
     let mut d = Dish::from_level_with(&DISHES[k], seed, params);
@@ -1711,9 +1847,10 @@ fn level_run(k: usize, seed: u64, who: &str, a: &Args, gif: Option<&str>) -> Dis
                 })
                 .collect();
             println!(
-                "    t={:>3}s mould {:>4} store {:>7.0} oats {} piles {}",
+                "    t={:>3}s mould {:>4} asleep {:>4} store {:>7.0} oats {} piles {}",
                 d.t / STEPS_PER_SECOND as u64,
                 d.walkers.len(),
+                d.walkers.iter().filter(|w| w.asleep()).count(),
                 d.store,
                 d.oats_left,
                 piles.join(" ")
@@ -1788,7 +1925,7 @@ fn levels(a: &Args, which: &[usize]) {
                 let c = d.card.clone().unwrap_or_default();
                 let ratio = d.ruler_ratio().map(|r| format!(" ruler {r:.2}x")).unwrap_or_default();
                 println!(
-                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  ({:.1} s)",
+                    "seed {seed} {who:>9}: {} stars  {} | {}  mould {}{ratio}  oats {} snips {} lamp {:.0}s joins {}  water {} slept {} woke {} died asleep {}  ({:.1} s)",
                     c.stars,
                     c.amount,
                     c.why,
@@ -1797,6 +1934,10 @@ fn levels(a: &Args, which: &[usize]) {
                     d.counts.snips_used,
                     d.counts.lamp_steps as f32 / STEPS_PER_SECOND as f32,
                     d.counts.snaps,
+                    d.counts.water_drops,
+                    d.counts.slept,
+                    d.counts.woke,
+                    d.counts.died_asleep,
                     t0.elapsed().as_secs_f32()
                 );
                 // Every hand's end on the first seed, so a losing card

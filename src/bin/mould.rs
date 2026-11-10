@@ -451,7 +451,7 @@ impl Handler {
         let (x, y) = match render::press_at(&self.dish, &self.view, SCALE, px, py) {
             render::Press::Dish(x, y) => (x, y),
             render::Press::Tile(t) => {
-                if self.dish.has_tool(t) {
+                if self.dish.bar_tools().contains(&t) {
                     self.view.tool = t;
                 }
                 return self.let_go();
@@ -465,6 +465,9 @@ impl Handler {
             }
             t @ (Tool::Salt | Tool::Snip) => {
                 self.dish.begin_stroke(t, x, y);
+            }
+            Tool::Water => {
+                self.dish.place_water(x, y);
             }
             Tool::Lamp => {}
         }
@@ -569,14 +572,23 @@ impl Handler {
                 self.let_go();
             }
             // Only the tools on this dish's bar.
-            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 => {
-                let t = match code {
-                    KeyCode::Digit1 => Tool::Lamp,
-                    KeyCode::Digit2 => Tool::Oats,
-                    KeyCode::Digit3 => Tool::Salt,
-                    _ => Tool::Snip,
+            // A dish with water (`Params::wet`) keys its bar by position
+            // (`Dish::bar_tools`: Keep It Alive is 1 lamp, 2 oats, 3
+            // water); every other dish keeps the fixed four.
+            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 | KeyCode::Digit5 => {
+                let k = match code {
+                    KeyCode::Digit1 => 0,
+                    KeyCode::Digit2 => 1,
+                    KeyCode::Digit3 => 2,
+                    KeyCode::Digit4 => 3,
+                    _ => 4,
                 };
-                if self.dish.has_tool(t) {
+                let t = if self.dish.params.wet {
+                    self.dish.bar_tools().get(k).copied()
+                } else {
+                    Tool::ALL.get(k).copied()
+                };
+                if let Some(t) = t.filter(|t| self.dish.bar_tools().contains(t)) {
                     self.view.tool = t;
                 }
             }

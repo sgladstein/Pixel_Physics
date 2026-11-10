@@ -373,7 +373,7 @@ fn main() {
         twist: "",
         piles: Box::leak(specs.into_boxed_slice()),
         salt: &[],
-        tools: Tools { oats: 0, oats_regrow: 0, salt: 0, snips: 0 },
+        tools: Tools { oats: 0, oats_regrow: 0, salt: 0, snips: 0, water: 0, water_regrow: 0 },
         seconds: 100_000,
         win: Win::AliveAtBell { bars: [1, 2, 3] },
         // The shipped free dish's angle (`Params::default`).

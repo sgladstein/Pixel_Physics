@@ -67,6 +67,10 @@ impl Player for Random {
             let p = self.spot(d);
             d.set_lamp(Some(p));
             self.lamp_until = d.t + 2 * super::STEPS_PER_SECOND as u64;
+        } else if r < 0.55 && d.water_left > 0 {
+            // Water, on a dish that has it (`Params::wet`): somewhere random.
+            let (x, y) = self.spot(d);
+            d.place_water(x, y);
         } else if r < 0.6 && d.snips_left > 0 {
             let (x, y) = self.spot(d);
             let a = self.rng.f32() * std::f32::consts::TAU;

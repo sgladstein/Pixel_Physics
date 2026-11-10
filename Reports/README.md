@@ -6580,6 +6580,11 @@ file unless its report says so.
   meeting its ship bar over 5 seeds (do nothing 0, random at most 1, the
   scripted intended hand 3); strays limited on hand-made dishes, which
   doing nothing had used to join all three in Beat the Ruler.
+- [mould-keep-alive-2026-11-10.md](mould-keep-alive-2026-11-10.md) — **built, waits on the owner's play: an endless
+  dish, and water and sleep so the tools work on each other.** Keep It Alive is Running Dry at 22.5 degrees with no bell;
+  piles land further each time and the score is how long it lived. The lamp dries the ground and dry mould sleeps through
+  a famine; a drop of water wakes it by the next pile. Over 16 seeds a hand using lamp, oats and water lives 3:20-11:18,
+  longer than an oat-only hand on 16 of 16 and random on 15 of 16; doing nothing and random get 0 stars on all 16.
 - [mould-game-2026-11-08/](mould-game-2026-11-08/README.md) — **the thinking around the mould game, kept so it
   is not lost (owner, 2026-11-09):** the five-agent brainstorm after his first play, the overnight build's briefs and
   results (dishes, Wanderer, Organ, the Night look and its blind key), both adversarial reviews, the HTML of every
