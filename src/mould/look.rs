@@ -3379,7 +3379,13 @@ fn phase_words(d: &Dish, st: &Status) -> String {
         }
         Phase::Growing if st.lesson => "Lesson: no storm".into(),
         Phase::Growing if d.level.is_some_and(|l| matches!(l.win, super::level::Win::Endless { .. })) => {
-            format!("Alive {}", clock((d.t / sps) as u32))
+            // Asleep (`Params::wet`): the clock stops at the last moment
+            // enough was awake (`Dish::awake_at`), and counts on if it wakes.
+            if d.t > d.awake_at + sps {
+                format!("Asleep {}", clock((d.awake_at / sps) as u32))
+            } else {
+                format!("Alive {}", clock((d.t / sps) as u32))
+            }
         }
         Phase::Growing if d.level.is_some() => format!("Bell in {}", clock(st.left)),
         Phase::Growing => format!("Storm in {}", clock(st.left)),

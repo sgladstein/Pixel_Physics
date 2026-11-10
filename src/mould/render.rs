@@ -1038,7 +1038,7 @@ fn level_status(d: &Dish, joined: &super::Score) -> String {
         }
         Win::Endless { .. } => format!(
             "ALIVE {}  MOULD {}  MOST {}",
-            clock((d.t / super::STEPS_PER_SECOND as u64) as u32),
+            clock((d.awake_at / super::STEPS_PER_SECOND as u64) as u32),
             d.walkers.len(),
             d.peak_mould
         ),
