@@ -829,6 +829,10 @@ pub struct Dish {
     pub join_now: Option<f32>,
     /// Most mould alive at once on this dish (Keep It Alive's card).
     pub peak_mould: u32,
+    /// Keep It Alive: the last step at least `level::ENDLESS_MIN` walkers
+    /// were awake. The score is this, not the step the last sleeper died:
+    /// time asleep counts only once the mould wakes again.
+    pub awake_at: u64,
     /// The Wanderer mode (`wander.rs`): an exit on the right and a Go key in
     /// place of the clock, the storm and the stars. `None` in a scored dish
     /// and the lesson.
@@ -1059,6 +1063,7 @@ impl Dish {
             counts: Counts::default(),
             level: None,
             peak_mould: 0,
+            awake_at: 0,
             oats_stock: OATS_STOCK,
             oats_regrow: OATS_REGROW_SECONDS,
             card: None,

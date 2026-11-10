@@ -257,15 +257,16 @@ pub static DISHES: [Level; 4] = [
         seconds: 900,
         sensor_deg: 22.5,
         // Stars from the probe (16 seeds, `mouldprobe level=4`, wet, ending
-        // below `ENDLESS_MIN` mould), lived: doing nothing 1:08-3:48
-        // (median 2:10); random 1:38-4:04 (2:40; 1:07-3:08 dry, and water
-        // helps it on 11 of 16, p 0.21); the oat-saver (`play::Route`,
-        // "alive", no water) 2:47-5:26 (3:34); the waterer (probe hand
-        // `sleeper`: bakes mould to sleep with the lamp when its food runs
-        // out, waters it awake near the next pile) 3:20-11:18 (5:05),
-        // longer than the oat-saver on 16 of 16 and random on 15 of 16.
-        // One star past random's longest, which only the two scripted hands
-        // reach; two and three need water.
+        // below `ENDLESS_MIN` mould, timed to the last moment `ENDLESS_MIN`
+        // were awake), lived: doing nothing 1:08-3:48 (median 2:10);
+        // random 1:04-3:29 (2:03; 1:07-3:08 dry, 7-9 wet vs dry, p 0.80);
+        // the oat-saver (`play::Route`, "alive", no water) 2:47-5:26
+        // (3:34); the waterer (probe hand `sleeper`: bakes mould to sleep
+        // with the lamp when its food runs out, waters it awake near the
+        // next pile) 2:51-10:42 (4:41), longer than the oat-saver and than
+        // random on 15 of 16 each (p 0.0005). One star past random's
+        // longest, which only the two scripted hands reach; two and three
+        // need water.
         win: Win::Endless {
             every: 20,
             gap: [70.0, 6.0],
@@ -659,7 +660,11 @@ impl Dish {
         // is not a living mould. Without this a handful of sleepers, dying
         // one by one at `crust_life`, ran the dish to its 10-minute cap
         // with 2 walkers on 3 of 4 seeds (2026-11-10).
-        let remnant = matches!(level.win, Win::Endless { .. }) && self.walkers.len() < ENDLESS_MIN;
+        let endless = matches!(level.win, Win::Endless { .. });
+        if endless && self.walkers.iter().filter(|w| !w.asleep()).count() >= ENDLESS_MIN {
+            self.awake_at = self.t;
+        }
+        let remnant = endless && self.walkers.len() < ENDLESS_MIN;
         if self.walkers.is_empty() || remnant {
             let s = self.measure();
             if let Win::Endless { bars, .. } = level.win {
@@ -763,8 +768,13 @@ impl Dish {
     }
 
     /// Keep It Alive's end: by death, or at the cap (`made_it`).
+    /// The time is the last moment enough of it was awake (`awake_at`): a
+    /// crust left asleep with no water coming dies over a minute or more,
+    /// and on seed 2 the waterer's last 1:30 was 94 sleepers dwindling to
+    /// 20 beside seven full piles (2026-11-10). Baking it all at the end
+    /// would buy that minute for one press of the lamp.
     fn finish_endless(&mut self, s: Score, bars: [u32; 3], made_it: bool) {
-        let secs = (self.t / STEPS_PER_SECOND as u64) as u32;
+        let secs = (self.awake_at / STEPS_PER_SECOND as u64) as u32;
         let stars = bars.iter().filter(|&&b| secs >= b).count() as u32;
         let amount = format!("LIVED {}, AT MOST {} MOULD", clock(secs), self.peak_mould);
         let why = if made_it {

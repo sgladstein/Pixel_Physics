@@ -14,8 +14,10 @@ Keep It Alive is Running Dry at 22.5 degrees with no bell. The mould starts on
 three small piles. A new pile lands every 20 s, each further from the last
 (`Win::Endless`: gap 70 + 6 per pile, at most `GAP_MAX` 170 cells). You get 6
 oats that never come back. The dish ends when fewer than `ENDLESS_MIN` (20)
-walkers are left, and the score is how long it lived and the most mould at
-once. A 15-minute safety cap exists; it is not a bell.
+walkers are left. The score is how long it lived and the most mould at once.
+How long it lived means up to the last moment at least 20 walkers were awake
+(`Dish::awake_at`), so time spent asleep counts only if the mould wakes again
+afterwards. A 15-minute safety cap exists; it is not a bell.
 
 Why the mould dies: the stray rule (`Params::stray_reach` 24 on hand-made
 dishes) means unfed walkers can't start on food far from fed tube. Once the
@@ -53,25 +55,29 @@ How long it lived, min-max (median):
 | Hand | Lived | Stars (4:15 / 5:30 / 6:40) |
 |---|---|---|
 | Doing nothing | 1:08-3:48 (2:10) | 0 on 16 |
-| Random | 1:38-4:04 (2:40) | 0 on 16 |
+| Random | 1:04-3:29 (2:03) | 0 on 16 |
 | Random, dry | 1:07-3:08 (2:13) | 0 on 16 |
 | Oat-saver (`play::Route` "alive", no water) | 2:47-5:26 (3:34) | 1 on 3 |
-| Waterer (probe `sleeper`) | 3:20-11:18 (5:05) | 0 on 4, 1 on 5, 2 on 1, 3 on 6 |
+| Waterer (probe `sleeper`) | 2:51-10:42 (4:41) | 0 on 5, 1 on 5, 3 on 6 |
 
-Paired, sign test: the waterer beats the oat-saver on 16 of 16 (p 0.00003),
-random on 15 of 16 (p 0.0005), doing nothing on 16 of 16. The oat-saver beats
-doing nothing 14-1 (p 0.001). Water doesn't help random significantly (11 of
-16, p 0.21). So the bars the owner agreed hold: a good game uses three tools
+Paired, sign test: the waterer beats the oat-saver, random and doing nothing
+on 15 of 16 each (p 0.0005). The oat-saver beats doing nothing 14-1 (p 0.001)
+and random 15-1. Water doesn't help random (wet longer on 7 of 16, p 0.80):
+its lamp puts mould to sleep and nothing wakes it. So the bars the owner agreed hold: a good game uses three tools
 (lamp, oats, water), and random still loses to a plan.
 
 The waterer is a script, not a person. When the food under the mould is
 nearly gone and no fed mould is within 35 cells of the next pile, it holds
 the lamp for 1.5 s on the thickest awake mould. It waters the sleeper nearest
-an unreached pile within 45 cells. It still gets no star on 4 seeds, where the
+an unreached pile within 45 cells. It still gets no star on 5 seeds, where the
 next pile lands too far for any sleeper to be near it.
 
-Without `ENDLESS_MIN`, all of these lived longer, because a handful of
-sleepers coasted for minutes. The dry numbers that the first cut's commit
+Two rules stop a sleeping remnant from scoring. Without `ENDLESS_MIN`, two
+sleepers ran a dish to the cap. Without `awake_at`, the clock ran while a crust
+died off: on seed 2 the waterer's last 1:30 was 94 sleepers dwindling to 20
+beside seven full piles, and baking everything at the end would have bought
+that minute for one press of the lamp. With it, the waterer's median fell
+from 5:05 to 4:41 and random's from 2:40 to 2:03; the others didn't change. The dry numbers that the first cut's commit
 quotes (doing nothing 1:21-4:08, oat-saver 3:18-5:40) were measured before
 that rule.
 
@@ -85,6 +91,8 @@ At 8 seeds each:
 | 2 | 40 s | 40 s | 2:48-5:30 | median 9:59 (cap) |
 | 3 | 20 s | 20 s | 1:53-5:15 | median 6:14 |
 | **2** | **40 s** | **20 s** | **1:49-3:11** | **median 8:18** |
+
+(These ran before `awake_at`, so they count the sleeping tail.)
 
 At the first setting, scattered water woke enough sleepers that random play
 coasted to the ten-minute cap. Both levers were needed.

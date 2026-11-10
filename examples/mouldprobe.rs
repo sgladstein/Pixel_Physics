@@ -474,7 +474,47 @@ fn frame_of(d: &Dish, scale: u32, style: Style) -> image::RgbaImage {
         ..View::default()
     };
     render::draw(d, &view, scale, &mut buf);
-    image::RgbaImage::from_raw(w, h, buf).expect("frame size")
+    let mut img = image::RgbaImage::from_raw(w, h, buf).expect("frame size");
+    if std::env::var("SLEEPMARK").is_ok() && d.params.wet {
+        sleep_mark(d, scale, &mut img);
+    }
+    img
+}
+
+/// `SLEEPMARK=1`: a probe-only overlay until the window draws water and
+/// sleep. Fixed colours, full replace, never a blend into the dish: ground
+/// drier than `crust_wet` is a dotted orange, ground wetter than
+/// `revive_wet` a dotted blue, and every sleeping walker a solid cyan cell.
+fn sleep_mark(d: &Dish, scale: u32, img: &mut image::RgbaImage) {
+    use pixel_physics::mould::{H, W};
+    let (dry, wet) = (d.params.crust_wet, d.params.revive_wet);
+    for y in 0..H {
+        for x in 0..W {
+            let v = d.wet[y * W + x];
+            let c = if v < dry {
+                image::Rgba([230, 120, 40, 255])
+            } else if v > wet {
+                image::Rgba([70, 140, 255, 255])
+            } else {
+                continue;
+            };
+            for py in 0..scale {
+                for px in 0..scale {
+                    if (px + py) % 2 == 0 {
+                        img.put_pixel(x as u32 * scale + px, y as u32 * scale + py, c);
+                    }
+                }
+            }
+        }
+    }
+    for w in d.walkers.iter().filter(|w| w.asleep()) {
+        let (x, y) = (w.x as u32, w.y as u32);
+        for py in 0..scale {
+            for px in 0..scale {
+                img.put_pixel(x * scale + px, y * scale + py, image::Rgba([120, 240, 255, 255]));
+            }
+        }
+    }
 }
 
 fn write_gif(path: &str, shots: Vec<image::RgbaImage>, every_frames: u32) {
