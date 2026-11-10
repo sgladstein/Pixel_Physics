@@ -6,7 +6,7 @@
 //! was scaled from.
 //!
 //! ```text
-//! cargo run --release --example mouldlooks -- out=DIR flow=1 angle=22.5 seed=1 at=20,40,60 gif=40 scale=4
+//! cargo run --release --example mouldlooks -- out=DIR flow=1 angle=22.5 seed=1 at=20,40,60 gif=40 scale=4 [tools=1] [hand=idle]
 //! ```
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Instant;
@@ -50,6 +50,9 @@ fn main() {
     // `tools=1`: a salt wall at 25 s, a snip at 35 s and the lamp held
     // from 44 s, so the pictures have each mark in them.
     let mut tools = false;
+    // `hand=idle`: nobody plays, so the mould eats its piles and starves:
+    // the case that shows hungry tube going cold.
+    let mut idle = false;
     let (mut salted, mut snipped) = (false, false);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or_else(|| panic!("{a}: want key=value"));
@@ -62,10 +65,11 @@ fn main() {
             "at" => at = v.split(',').map(|s| s.parse().unwrap()).collect(),
             "gif" => gif = Some(v.parse().unwrap()),
             "tools" => tools = v == "1",
+            "hand" => idle = v == "idle",
             _ => panic!("unknown {k}"),
         }
     }
-    println!("flow={flow} angle={angle} seed={seed} scale={scale} at={at:?} gif={gif:?} tools={tools} out={out}");
+    println!("flow={flow} angle={angle} seed={seed} scale={scale} at={at:?} gif={gif:?} tools={tools} idle={idle} out={out}");
     std::fs::create_dir_all(&out).unwrap();
     let p = Params { flow, sensor_angle: angle.to_radians(), ..Params::default() };
     let mut d = Dish::with_params(seed, p);
@@ -77,7 +81,9 @@ fn main() {
     let mut cost = vec![(0.0f64, 0u32); LOOKS.len()];
     let mut frame_no = 0u64;
     while d.t < end * sps {
-        pl.act(&mut d);
+        if !idle {
+            pl.act(&mut d);
+        }
         if tools {
             let t = d.t;
             if t >= 25 * sps && !salted {
