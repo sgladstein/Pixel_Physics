@@ -13,7 +13,8 @@
 //! cargo run --release --example mouldprobe -- level=all                # the challenge dishes' ship bar
 //! cargo run --release --example mouldprobe -- level=2 look=out/ gif=out/   # ...with its pictures
 //! cargo run --release --example mouldprobe -- menu=out/                # the dish picker, as drawn
-//! cargo run --release --example mouldprobe -- level=3 stills=out/ grey=1   # starving mould as 0 grey, 1 embers, 2 dried slime (look::STARVE_LOOK)
+//! cargo run --release --example mouldprobe -- level=3 stills=out/ grey=1   # starving mould as 0 grey, 1 embers, 2 dried slime, 3 food ramp (look::STARVE_LOOK, default 3)
+//! cargo run --release --example mouldprobe -- look=out/ specks=0          # walkers as 0 off, 1 grains, 2 glints (look::WALKER_LOOK, default 1); smooth=0 the old blocky rim and tubes (look::SMOOTH)
 //! cargo run --release --example mouldprobe -- wander=1 seeds=1,2,3,4,5,6,7,8 gif=out/   # the Wanderer: arrived N of M per hand
 //! ```
 //!
@@ -140,10 +141,17 @@ fn parse() -> Args {
             "style" => a.style = Style::parse(v).unwrap_or_else(|| panic!("style: unknown {v}")),
             "grey" => {
                 let n: u8 = v.parse().unwrap();
-                assert!((n as usize) < pixel_physics::mould::look::STARVE_LOOKS.len(), "grey: 0, 1 or 2");
+                assert!((n as usize) < pixel_physics::mould::look::STARVE_LOOKS.len(), "grey: 0 grey, 1 embers, 2 dried, 3 food ramp");
                 pixel_physics::mould::look::STARVE_LOOK.store(n, std::sync::atomic::Ordering::Relaxed);
                 println!("starving mould drawn as {}", pixel_physics::mould::look::STARVE_LOOKS[n as usize]);
             }
+            "specks" => {
+                let n: u8 = v.parse().unwrap();
+                assert!((n as usize) < pixel_physics::mould::look::WALKER_LOOKS.len(), "specks: 0 off, 1 grains, 2 glints");
+                pixel_physics::mould::look::WALKER_LOOK.store(n, std::sync::atomic::Ordering::Relaxed);
+                println!("walkers drawn as {}", pixel_physics::mould::look::WALKER_LOOKS[n as usize]);
+            }
+            "smooth" => pixel_physics::mould::look::SMOOTH.store(v == "1", std::sync::atomic::Ordering::Relaxed),
             "cut" => a.cut = Some(v.into()),
             "scale" => a.scale = v.parse().unwrap(),
             "every" => a.every = v.parse().unwrap(),

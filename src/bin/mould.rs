@@ -551,7 +551,7 @@ impl Handler {
             self.open_menu();
             return;
         }
-        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 {
+        if self.view.brief && code != KeyCode::Escape && code != KeyCode::F2 && code != KeyCode::F3 && code != KeyCode::F4 && code != KeyCode::F5 {
             self.view.brief = false;
             self.let_go();
             return;
@@ -581,13 +581,33 @@ impl Handler {
             KeyCode::KeyN => self.next(),
             KeyCode::F2 => self.view.style = self.view.style.next(),
             // How starving mould is drawn (`look::STARVE_LOOK`): grey,
-            // embers, dried slime. Render-only; named in the title.
+            // embers, dried slime, the food ramp (default). Render-only;
+            // named in the title.
             KeyCode::F3 => {
                 use std::sync::atomic::Ordering::Relaxed;
                 let n = (look::STARVE_LOOK.load(Relaxed) + 1) % look::STARVE_LOOKS.len() as u8;
                 look::STARVE_LOOK.store(n, Relaxed);
                 if let Some(w) = &self.window {
                     w.set_title(&format!("Mould: starving mould drawn as {} (F3)", look::STARVE_LOOKS[n as usize]));
+                }
+            }
+            // How the walkers are drawn (`look::WALKER_LOOK`): off, grains,
+            // glints. Render-only; named in the title.
+            KeyCode::F4 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let n = (look::WALKER_LOOK.load(Relaxed) + 1) % look::WALKER_LOOKS.len() as u8;
+                look::WALKER_LOOK.store(n, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: walkers drawn as {} (F4)", look::WALKER_LOOKS[n as usize]));
+                }
+            }
+            // The anti-pixel pass (`look::SMOOTH`), on or off. Render-only.
+            KeyCode::F5 => {
+                use std::sync::atomic::Ordering::Relaxed;
+                let on = !look::SMOOTH.load(Relaxed);
+                look::SMOOTH.store(on, Relaxed);
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("Mould: smoothing {} (F5)", if on { "on" } else { "off" }));
                 }
             }
             // Go: only while fed mould is in the crack (the dish refuses

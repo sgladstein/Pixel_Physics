@@ -43,7 +43,7 @@ use super::level::{Win, FREE};
 use super::render::{entry_lines, frame_size, menu_cards, thousands, Menu, View};
 use super::wander::{self, Outcome, Wander};
 use super::{
-    FED_LOOK_SECONDS,
+    FED_LOOK_SECONDS, CARRIED_FULL, SAP_FULL,
     disc, Dish, Ground, Phase, Tool, H, OATS_R, OATS_SECONDS, SALT_LEN, SALT_STOCK,
     SNIP_LEN, SNIP_STOCK, STEPS_PER_SECOND, STORM_WARNING_SECONDS, THRIFT_BAR, THRIFT_MIN_JOINED, W,
 };
@@ -1087,6 +1087,7 @@ pub fn draw(d: &Dish, view: &View, scale: u32, frame: &mut [u8]) {
     let s = scale as i32;
     let st = status(d);
     dish(&mut cv, d, &th, s, &st);
+    specks(&mut cv, d, &th, s);
     piles(&mut cv, d, &th, s, &st);
     marks(&mut cv, d, &th, s);
     storm(&mut cv, d, &th, s, &st);
@@ -1168,12 +1169,21 @@ impl Halo {
             for x in 0..W {
                 let i = y * W + x;
                 if d.ground[i] == Ground::Agar && d.trail[i] > thr {
+                    let k = (y / 2) * HW + x / 2;
+                    if starve_look() == 3 {
+                        // The food ramp's glow is graded as its colour
+                        // is: rich tube glows, empty tube barely does.
+                        let f = fullness(d, i);
+                        h.fed[k] += 0.25 * f;
+                        h.pale[k] += 0.25 * (1.0 - f) * 0.4;
+                        continue;
+                    }
                     let lit = match d.carried_look(i) {
                         Some(c) => c > 0.3,
                         None => d.looks_fed(i),
                     };
                     let m = if lit { &mut h.fed } else { &mut h.pale };
-                    m[(y / 2) * HW + x / 2] += 0.25;
+                    m[k] += 0.25;
                 }
             }
         }
@@ -1244,8 +1254,13 @@ impl Halo {
 /// A half-size grid (`HW` x `HH`) read back bilinearly at cell `x, y`,
 /// as `Halo::at` reads the glow: nearest-cell reads showed 2x2 steps.
 fn half_at(a: &[f32], x: usize, y: usize) -> f32 {
-    let fx = (x as f32 + 0.5) * 0.5 - 0.5;
-    let fy = (y as f32 + 0.5) * 0.5 - 0.5;
+    half_at_f(a, x as f32 + 0.5, y as f32 + 0.5)
+}
+
+/// `half_at` at any point of the dish, in cells.
+fn half_at_f(a: &[f32], x: f32, y: f32) -> f32 {
+    let fx = x * 0.5 - 0.5;
+    let fy = y * 0.5 - 0.5;
     let (x0, y0) = (fx.max(0.0) as usize, fy.max(0.0) as usize);
     let (x1, y1) = ((x0 + 1).min(HW - 1), (y0 + 1).min(HH - 1));
     let (ax, ay) = ((fx - x0 as f32).clamp(0.0, 1.0), (fy - y0 as f32).clamp(0.0, 1.0));
@@ -1286,13 +1301,24 @@ fn blur(a: &mut [f32], tmp: &mut [f32], w: usize, h: usize, r: usize) {
 }
 
 fn ellipse(x: usize, y: usize) -> (f32, f32, f32) {
-    let dx = (x as f32 + 0.5 - CX) / RX;
-    let dy = (y as f32 + 0.5 - CY) / RY;
+    ellipse_at(x as f32 + 0.5, y as f32 + 0.5)
+}
+
+/// `ellipse` at any point of the dish, in cells, not only a cell's centre.
+fn ellipse_at(fx: f32, fy: f32) -> (f32, f32, f32) {
+    let dx = (fx - CX) / RX;
+    let dy = (fy - CY) / RY;
     (dx * dx + dy * dy, dx / RX, dy / RY)
 }
 
 fn rim_colour(th: &Theme, x: usize, y: usize, st: &Status) -> Rgb {
-    let (e, nx, ny) = ellipse(x, y);
+    rim_colour_at(th, x as f32 + 0.5, y as f32 + 0.5, x, y, st)
+}
+
+/// The rim at a point `fx, fy` in cells; `x, y` is the cell it lies in,
+/// for the cell's own texture (the speckle, the bench's grid).
+fn rim_colour_at(th: &Theme, fx: f32, fy: f32, x: usize, y: usize, st: &Status) -> Rgb {
+    let (e, nx, ny) = ellipse_at(fx, fy);
     let n = nx.hypot(ny).max(1e-6);
     // Light from the top left: the lip facing it is bright.
     let lit = -(nx + ny) / n * std::f32::consts::FRAC_1_SQRT_2;
@@ -1368,6 +1394,107 @@ fn background(th: &Theme, flash: bool) -> &'static [Rgb] {
         }
         v
     })
+}
+
+/// **The rim drawn smooth** (owner, 2026-11-10: "improve where the
+/// graphics look pixelated... we can still make things look better on top
+/// of that"). The dish's rim was drawn a cell at a time, so at scale 4 its
+/// ellipse was a staircase of 4-pixel steps -- the most visibly blocky
+/// thing in the frame. Cells the rim's bands pass through are now drawn
+/// pixel by pixel from the same ellipse, each pixel the mean of four
+/// samples, so the lip is a smooth, anti-aliased curve. Only the drawing:
+/// which cells are dish and which are rim (`Ground::Rim`) is unchanged.
+/// Worked out once per look, alarm flash and scale, as `background` is.
+pub static SMOOTH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// **`SMOOTH`, on by default: the anti-pixel pass** (owner, 2026-11-10).
+/// What it smooths, each drawn from what the dish already holds: the rim
+/// (`RimLayer`); the inside of every tube, which was flat 4x4 blocks of
+/// the trail's cell-by-cell grain and is now read between cell centres as
+/// the tube's edge already was; and the food ramp's amount, read the same
+/// way. Off is the drawing as it was, for a side-by-side (F5 in the
+/// window, `mouldprobe smooth=0`).
+fn smooth_on() -> bool {
+    SMOOTH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+struct RimLayer {
+    s: i32,
+    /// Per cell, where its `s * s` pixels start in `px`, or `u32::MAX` for
+    /// a cell drawn as one block.
+    at: Vec<u32>,
+    /// Per pixel, the rim's colour there and how much of the pixel is
+    /// outside the dish (0 to 1). The inside is the cell's own ground,
+    /// drawn as it is every frame (the glow reaches it), so the layer
+    /// holds only the rim.
+    px: Vec<(Rgb, f32)>,
+}
+
+impl RimLayer {
+    #[inline]
+    fn over(&self, o: usize, inside: Rgb) -> Rgb {
+        let (c, a) = self.px[o];
+        lerp(inside, c, a)
+    }
+}
+
+/// The band of `ellipse` values the rim's colours change across, with a
+/// cell's margin: every look's lip lies between 1.0 and 1.095.
+const RIM_BAND: (f32, f32) = (0.93, 1.13);
+
+fn rim_layer(th: &Theme, flash: bool, s: i32) -> std::sync::Arc<RimLayer> {
+    use std::sync::{Arc, Mutex};
+    static CACHE: Mutex<[Option<Arc<RimLayer>>; 10]> = Mutex::new([const { None }; 10]);
+    let k = Style::ALL.iter().position(|st| *st == th.style).unwrap_or(0) * 2 + flash as usize;
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(l) = &cache[k] {
+        if l.s == s {
+            return l.clone();
+        }
+    }
+    let st = Status {
+        joined: Vec::new(),
+        reach: 0,
+        coming: 0,
+        lesson: false,
+        left: 0,
+        alarm: flash,
+        flash,
+    };
+    let mut at = vec![u32::MAX; W * H];
+    let mut px = Vec::new();
+    let sf = s as f32;
+    for y in 0..H {
+        for x in 0..W {
+            let (e, _, _) = ellipse(x, y);
+            if e < RIM_BAND.0 || e > RIM_BAND.1 {
+                continue;
+            }
+            at[y * W + x] = px.len() as u32;
+            for py in 0..s {
+                for pxx in 0..s {
+                    let mut sum = [0.0f32; 3];
+                    let mut out = 0.0f32;
+                    for (ox, oy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                        let fx = x as f32 + (pxx as f32 + ox) / sf;
+                        let fy = y as f32 + (py as f32 + oy) / sf;
+                        if ellipse_at(fx, fy).0 > 1.0 {
+                            let c = rim_colour_at(th, fx, fy, x, y, &st);
+                            for k in 0..3 {
+                                sum[k] += c[k] as f32;
+                            }
+                            out += 1.0;
+                        }
+                    }
+                    let c = if out > 0.0 { sum.map(|v| (v / out) as u8) } else { [0; 3] };
+                    px.push((c, out / 4.0));
+                }
+            }
+        }
+    }
+    let l = Arc::new(RimLayer { s, at, px });
+    cache[k] = Some(l.clone());
+    l
 }
 
 fn agar_colour(th: &Theme, x: usize, y: usize) -> Rgb {
@@ -1496,11 +1623,82 @@ fn tube_colour(th: &Theme, v: f32, fed: bool, shade: f32) -> Rgb {
 /// khaki, the trail real slime mould leaves behind). Tube never fed at all
 /// is drawn fully starved. F3 in the window cycles them; `mouldprobe
 /// grey=N` draws one.
-pub static STARVE_LOOK: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-pub const STARVE_LOOKS: [&str; 3] = ["grey", "embers", "dried"];
+///
+/// **`3`, the food ramp, is the default** (looks pass, 2026-11-10; the
+/// independent review's third look, owner "Looks too" 02:58Z). One ramp
+/// for all tube, fed or not: white-gold where food is rich, through gold
+/// and amber, to a dull brown where there is none, so food is read as an
+/// amount rather than as two materials. With `Params::flow` the amount is
+/// what the simulation holds in the tube (`food_level`: the walkers' loads
+/// and the sap); with flow off it is how long ago the census last fed the
+/// cell, as embers reads it. Thickness still sets brightness.
+pub static STARVE_LOOK: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(3);
+pub const STARVE_LOOKS: [&str; 4] = ["grey", "embers", "dried", "food ramp"];
 pub const STARVE_FADE_SECONDS: f32 = 6.0;
 const EMBERS: [Rgb; 3] = [[34, 12, 6], [104, 40, 14], [164, 78, 30]];
 const DRIED: [Rgb; 3] = [[40, 42, 36], [104, 100, 78], [170, 162, 128]];
+/// The food ramp (`STARVE_LOOK` 3), none to rich. A fixed ramp, never the
+/// frame's own range (`CLAUDE.md`, *A debug readout must not be a function
+/// of the thing it debugs*).
+const FOOD_RAMP: [Rgb; 5] = [[58, 34, 18], [132, 66, 20], [222, 140, 28], [255, 208, 80], [255, 248, 214]];
+/// Food in a tube cell, in `CARRIED_FULL`s of walker load plus `SAP_FULL`s
+/// of sap, at which the ramp tops out; read on a log scale. Measured on
+/// seed 1 with flow on (plan hand, 10-60 s): the sap alone spans 0.4 to
+/// 9 `SAP_FULL`s over tube cells (p10 to p99) and the walkers' average
+/// load 0.0 to 1.0, so the old `carried_look`, clamped at 1, was full on
+/// over half the tube: the "flat bright yellow" the review saw.
+const FOOD_TOP: f32 = 8.0;
+/// A walker's load counts this many times its `CARRIED_FULL`s: with the
+/// sap off (flow level 1) the load is all there is, and it should still
+/// reach gold.
+const LOAD_WEIGHT: f32 = 3.0;
+/// With flow off the census feeds a tube or does not; a just-fed tube
+/// sits here on the ramp (gold), not at white-gold, which is kept for food
+/// that is really piled up.
+const FED_NO_FLOW: f32 = 0.72;
+
+/// **How much food a tube cell holds**, 0 none to 1 rich, read from the
+/// simulation (`Params::flow`): the average load of the walkers there and
+/// the sap in the tube. Drawing only. `None` with flow off.
+pub fn food_level(d: &Dish, i: usize) -> Option<f32> {
+    d.params.flow.then(|| {
+        let load = d.carried[i] / (d.walkers_seen[i] + 0.05) / CARRIED_FULL;
+        let food = LOAD_WEIGHT * load + d.sap[i] / SAP_FULL;
+        ((1.0 + food).ln() / (1.0 + FOOD_TOP).ln()).clamp(0.0, 1.0)
+    })
+}
+
+/// How full a tube cell looks under the food ramp: `food_level` with flow
+/// on, and with it off the census's graded hunger, scaled to `FED_NO_FLOW`.
+fn fullness(d: &Dish, i: usize) -> f32 {
+    food_level(d, i).unwrap_or_else(|| FED_NO_FLOW * (1.0 - hunger(d, i)))
+}
+
+/// A tube cell under the food ramp: the ramp at `full`, its brightness
+/// set by the tube's thickness `v` (a thin feeler is dimmer than a trunk),
+/// and the look's light and shade.
+fn food_colour(th: &Theme, v: f32, full: f32, shade: f32) -> Rgb {
+    let base = mul(ramp(&FOOD_RAMP, full), 0.62 + 0.38 * v);
+    match th.style {
+        Style::Toy => {
+            if shade > 0.4 {
+                lerp(base, [255, 255, 245], 0.4)
+            } else if shade < -0.4 {
+                mul(base, 0.8)
+            } else {
+                base
+            }
+        }
+        _ if th.emboss > 0.0 => {
+            if shade > 0.0 {
+                lerp(base, [255, 255, 236], shade * th.emboss * 0.55)
+            } else {
+                mul(base, 1.0 + shade * th.emboss * 0.4)
+            }
+        }
+        _ => base,
+    }
+}
 
 fn starve_look() -> u8 {
     STARVE_LOOK.load(std::sync::atomic::Ordering::Relaxed)
@@ -1565,7 +1763,8 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     // With food flowing, a tube's yellow follows the food in it, so a wave
     // of food is seen as a brighter band.
     let flow_v = |v: f32, hun: f32| if flow { (0.55 * v + 0.45 * (1.0 - hun)).clamp(0.0, 1.0) } else { v };
-    let hunger_field = (starve_look() != 0 && !flow).then(|| {
+    let food_ramp = starve_look() == 3;
+    let hunger_field = (starve_look() != 0 && !flow && !food_ramp).then(|| {
         // On the glow's half-size grid: hunger is soft by construction,
         // and at full size the field cost ~1 ms a frame.
         let mut num = vec![0.0f32; HW * HH];
@@ -1586,11 +1785,36 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
         }
         num.iter().zip(&den).map(|(&n, &m)| if m > 1e-4 { (n / m).clamp(0.0, 1.0) } else { 1.0 }).collect::<Vec<f32>>()
     });
+    // The food ramp's field: how full each cell looks (`fullness`),
+    // averaged over tube cells on the glow's half-size grid and blurred
+    // once, so the amount reads as a gradient along the tube rather than
+    // the sap's cell-by-cell grain (and a per-cell read at full size cost
+    // what the hunger field did).
+    let full_field = food_ramp.then(|| {
+        let mut num = vec![0.0f32; HW * HH];
+        let mut den = vec![0.0f32; HW * HH];
+        for y in 0..H {
+            for x in 0..W {
+                let i = y * W + x;
+                if d.ground[i] == Ground::Agar && d.trail[i] > thr {
+                    let k = (y / 2) * HW + x / 2;
+                    num[k] += fullness(d, i);
+                    den[k] += 1.0;
+                }
+            }
+        }
+        let mut tmp = vec![0.0f32; HW * HH];
+        for a in [&mut num, &mut den] {
+            blur(a, &mut tmp, HW, HH, 1);
+        }
+        num.iter().zip(&den).map(|(&n, &m)| if m > 1e-4 { (n / m).clamp(0.0, 1.0) } else { 0.0 }).collect::<Vec<f32>>()
+    });
     // The starving glow: grey's own, an ember's faint red, or none for
-    // dried slime, which is not lit.
+    // dried slime, which is not lit; the food ramp's is its bottom stop.
     let pale_glow: Rgb = match starve_look() {
         1 => [70, 22, 6],
         2 => [0, 0, 0],
+        3 => FOOD_RAMP[1],
         _ => th.pale[1],
     };
     // Trail on open dish only, padded by two cells of nothing all round.
@@ -1628,6 +1852,10 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
     let sf = s as f32;
     let bg = background(th, false);
     let rim = background(th, st.alarm && st.flash);
+    let smooth = smooth_on().then(|| rim_layer(th, st.alarm && st.flash, s));
+    let fine_tube = smooth_on();
+    // The rim layer is drawn with the calm agar; while the alarm flashes
+    // only the rim itself changes, which the layer's flash copy carries.
     for y in 0..H {
         for x in 0..W {
             let i = y * W + x;
@@ -1636,6 +1864,7 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
             let mut edge = false;
             let mut fed = false;
             let mut hun = 1.0f32;
+            let mut full = 0.0f32;
             let mut shade = 0.0;
             let mut beat = 0.0;
             let ground = match d.ground[i] {
@@ -1687,6 +1916,9 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     edge = (is_tube && !all) || (!is_tube && any);
                     if is_tube || any {
                         fed = if is_tube { d.looks_fed(i) } else { nfed };
+                        if let Some(f) = &full_field {
+                            full = half_at(f, x, y);
+                        }
                         if let Some(c) = d.carried_look(i) {
                             // Food flowing (`Params::flow`): what is drawn
                             // is what the walkers here carry.
@@ -1707,13 +1939,33 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                         beat = 0.0;
                     }
                     if is_tube {
-                        tube = Some(pulsed(starve_colour(th, flow_v(vof(t0), hun), fed, hun, shade, flow), beat));
+                        tube = Some(if food_ramp {
+                            food_colour(th, vof(t0), full, shade)
+                        } else {
+                            pulsed(starve_colour(th, flow_v(vof(t0), hun), fed, hun, shade, flow), beat)
+                        });
                     }
                     c
                 }
             };
             let (px0, py0) = (xi * s, yi * s);
-            if !edge {
+            // A cell the rim passes through, drawn pixel by pixel
+            // (`rim_layer`), where nothing of the mould covers it. Salt,
+            // scar and wound keep their own colours.
+            let fine = smooth.as_ref().map_or(u32::MAX, |l| l.at[i]);
+            let fine = (fine != u32::MAX && matches!(d.ground[i], Ground::Rim | Ground::Agar) && tube.is_none()).then_some(fine as usize);
+            // What shows through inside the dish: the cell's own ground
+            // on agar (glow and all), the bare agar under a rim cell.
+            let inside = if d.ground[i] == Ground::Agar { ground } else { agar_colour(th, x, y) };
+            if let (Some(o), false) = (fine, edge) {
+                for py in 0..s {
+                    for px in 0..s {
+                        cv.put(px0 + px, py0 + py, smooth.as_ref().unwrap().over(o + (py * s + px) as usize, inside));
+                    }
+                }
+                continue;
+            }
+            if !edge && !(fine_tube && tube.is_some()) {
                 let c = tube.unwrap_or(ground);
                 let px4 = [c[0], c[1], c[2], 255];
                 for py in 0..s {
@@ -1735,13 +1987,80 @@ fn dish(cv: &mut Cv, d: &Dish, th: &Theme, s: i32, st: &Status) {
                     let c = if v > thr {
                         match th.ink {
                             Some(ink) if v < thr * 1.9 => ink,
+                            _ if food_ramp => {
+                                let f = match (&full_field, fine_tube) {
+                                    (Some(ff), true) => half_at_f(ff, fx + 0.5, fy + 0.5),
+                                    _ => full,
+                                };
+                                food_colour(th, vof(v), f, shade)
+                            }
                             _ => pulsed(starve_colour(th, flow_v(vof(v), hun), fed, hun, shade, flow), beat),
                         }
+                    } else if let Some(o) = fine {
+                        smooth.as_ref().unwrap().over(o + (py * s + px) as usize, inside)
                     } else {
                         ground
                     };
                     cv.put(px0 + px, py0 + py, c);
                 }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------ the walkers
+
+/// **A speck for every walker** (looks pass, 2026-11-10; the independent
+/// review's first look). The mould *is* its walkers -- the tube is only
+/// the trail they lay -- and until now not one of them was drawn, so a
+/// tube read as poured gel. Each walker is drawn where it really is, to
+/// the pixel, every frame: tubes get a living grain that streams the way
+/// the walkers do, a crowd shows at the food, and the feelers at the
+/// front are seen to be a few walkers out on their own. Drawing only;
+/// every speck is a walker in `Dish::walkers`.
+///
+/// `0` off, `1` grains (a darker fleck of the tube under it), `2` glints
+/// (a brighter one). With `Params::flow` each speck also says what that
+/// walker carries (`Walker::food`): a laden walker is lighter than an
+/// empty one, so food is seen riding along the tube on the walkers that
+/// carry it. F4 in the window cycles them; `mouldprobe specks=N`.
+pub static WALKER_LOOK: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+pub const WALKER_LOOKS: [&str; 3] = ["off", "grains", "glints"];
+
+fn specks(cv: &mut Cv, d: &Dish, th: &Theme, s: i32) {
+    let look = WALKER_LOOK.load(std::sync::atomic::Ordering::Relaxed);
+    if look == 0 {
+        return;
+    }
+    // Half a cell across, at least a pixel: at scale 4 a 2x2 fleck, so a
+    // tube about 12 cells wide with ~0.3 walkers a cell reads as grain,
+    // not as a second texture laid over it.
+    let k = (s / 2).max(1);
+    let sf = s as f32;
+    let flow = d.params.flow;
+    let want = d.params.want.max(1e-3);
+    let light: Rgb = if th.style == Style::Toy { [255, 252, 236] } else { [255, 250, 226] };
+    let dark: Rgb = if th.style == Style::Toy { [92, 52, 18] } else { [40, 20, 6] };
+    for w in &d.walkers {
+        let x0 = (w.x * sf) as i32 - k / 2;
+        let y0 = (w.y * sf) as i32 - k / 2;
+        // How far toward the speck's colour: grains darken, glints
+        // lighten; with food flowing the walker's own load decides.
+        let (c, a) = if flow {
+            let load = (w.food / want).clamp(0.0, 1.0);
+            if look == 2 {
+                (lerp(dark, light, 0.35 + 0.65 * load), 0.35 + 0.35 * load)
+            } else {
+                (lerp(dark, light, load), 0.5)
+            }
+        } else if look == 2 {
+            (light, 0.45)
+        } else {
+            (dark, 0.5)
+        };
+        for py in y0..y0 + k {
+            for px in x0..x0 + k {
+                cv.mix(px, py, c, a);
             }
         }
     }
