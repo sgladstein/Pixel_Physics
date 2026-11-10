@@ -101,6 +101,33 @@ Minor: the narrow bar never triggers in the window (scale 4 is 1,024 px
 wide); the overlap was in scale-3 and scale-2 renders. Kept, since it costs
 nothing and smaller windows do happen.
 
+## Water and sleeping mould drawn (2026-11-10, later)
+
+The mould thread's water and sleep (`Params::wet`, Keep It Alive only;
+`Reports/mould-keep-alive-2026-11-10.md`) shipped with stand-ins: sleeping
+mould drew as grey starving tube, wet and dry ground drew as plain agar, and
+the bar still drew the fixed four tools, so water had no tile (slot 3 said
+"Not here", and a click there picked salt). Drawing only; all of it reads
+the simulation.
+
+| What | Drawn from |
+|---|---|
+| **Crust** | Share of walkers asleep (`Walker::asleep`) on the half grid, blurred once; a tube cell is pulled that far to a matte orange-brown ramp (`CRUST_RAMP`), and the fed glow over it is dimmed by the same share |
+| **Wet and dry ground** | `Dish::wet` against `wet_base`, softened 3x3: wetter darkens to blue (`WET_COLOUR`), drier pales to dust (`DRY_COLOUR`) |
+| **Water tile and icon** | `Dish::bar_tools()` by position on a wet dish (`bar_slots`; dry dishes keep the fixed four and their empty slots); five tools take the narrow tiles; the status starts just past the last tile |
+| **Water preview** | The disc `Dish::place_water` soaks, and each sleeper the drop leaves above `revive_wet` by its own profile, lit, with the count ("Wakes 3 sleepers"); refused with the wait when none is left |
+| **Brief** | A water row, the keys by bar position, and two legend lines (crust, wet ground) |
+
+Seed 2, the probe's sleeper hand (`mouldprobe level=4 players=sleeper`):
+at 4:20, 348 walkers, 115 asleep; over the game 10 drops, 1,328 slept, 368
+woke, 945 died asleep. Frame cost over the whole game (15,999 frames, scale
+4, alternating, two each): before 6.13 / 6.29 ms, after 6.57 / 6.56 ms,
+about +0.35 ms. The first preview counted sleepers already on wet ground
+anywhere in the dish (they wake anyway), naming sleepers outside the disc;
+it counts the drop's doing only. `mouldprobe` stills take `TOOL=water` and
+`CURSOR=x,y` or `CURSOR=sleepers`. Guard: `the_water_dish_has_a_water_tile`
+(red with `bar_slots` ignoring water).
+
 ## What this does not show
 
 - One seed. The looks are judged by eye on the page; no count can say whether
