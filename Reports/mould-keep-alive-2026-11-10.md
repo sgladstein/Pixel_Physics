@@ -2,6 +2,9 @@
 
 **Status: built, on by default in Keep It Alive; waits on the owner's play.**
 Game: the mould probe (`cargo run --release --bin mould`), its fourth dish.
+Water and sleep pictures: https://claude.ai/artifact/5KN1DQDHhqV6faXFwx737Y
+(seed 2, oats only against all three tools, with the probe's `SLEEPMARK=1`
+overlay).
 
 The owner picked an endless dish after the independent review
 ([mould-review-2026-11-10.md](mould-review-2026-11-10.md)), then agreed an
